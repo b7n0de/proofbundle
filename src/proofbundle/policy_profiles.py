@@ -181,6 +181,7 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
             via the final load_policy re-validation.
     """
     from .policy import PolicyError, _validate_pinned_ed25519_pubkey, load_policy  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
 
     canonical = canonical_profile_name(template)
     if canonical is None:
@@ -203,10 +204,14 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
 
     entries: list = []
     for key in issuer_keys:
-        if not (isinstance(key, str) and key):
+        # THE KEY TEXT IS READ ONCE, and that plain `str` is judged and pinned (lens run 7 at 75c3aa48,
+        # F2): a `str` subclass whose `encode` answered for a real key was judged as that key through
+        # the decoder, while its own text, the base64 of the identity point, was what the policy pinned.
+        text = plain_text(key)
+        if not text:
             raise PolicyError("each issuer key must be a non-empty base64 string")
-        _validate_pinned_ed25519_pubkey(key, "instantiate issuer key")   # fail-closed on low-order/malformed
-        entries.append({"public_key_b64": key})
+        _validate_pinned_ed25519_pubkey(text, "instantiate issuer key")   # fail-closed on low-order/malformed
+        entries.append({"public_key_b64": text})
     if is_decision:
         dr = dict(_as_dict(inst.get("decision_receipt")))
         dr["trusted_decision_makers"] = entries

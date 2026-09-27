@@ -226,12 +226,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `RecursionError`, and that moves with the interpreter (measured at a shallow caller: 3.10 and 3.11
   write 990 levels and not 1500, 3.12 and 3.13 write 5000 and not 20000, 3.14 writes 20000 and not
   200000). The depth is the module's own rule now. A payload whose canonical form nests arrays and
-  objects more than 64 deep, the house ceiling `budget.json_depth`, is `readable` False, exit 2, with
-  one message on every interpreter; the plain containers are measured before anything is written,
-  without recursion, without running a method of the caller's and once per container and level (60
-  lists each held twice by the next, 2**60 paths, cost one visit per list), and what the serialiser
-  reads through a caller's own methods (the `items()` of a `dict` subclass, the `__iter__` of a
-  `list` subclass, each still read once) is measured in the form it wrote. `canonical_payload`,
+  objects more than 64 deep, the house ceiling `budget.json_depth`, is `readable` False, exit 2, on
+  every interpreter; the plain containers are measured before anything is written, without
+  recursion, without running a method of the caller's and once per container and level (60 lists
+  each held twice by the next, 2**60 paths, cost one visit per list), and what the serialiser reads
+  through a caller's own methods (the `items()` of a `dict` subclass, the `__iter__` of a `list`
+  subclass, each still read once) is measured in the form it wrote. The message is the same on every
+  interpreter except in one case, which the first wording of this entry ("with one message on every
+  interpreter") left out and lens run 7 at 75c3aa48 measured (F4): where a caller's own `items()` or
+  `__iter__` hands the serialiser a form so deep that `json.dumps` raises `RecursionError` before it
+  has written it, 3.10 and 3.11 name that exception ("encoding it raised RecursionError") while 3.12
+  to 3.14 write the form and give the depth message; measured at 990, 1500 and 4998 levels, and at
+  70 and 600 levels all five give the depth message. The verdict and the exit code are the same on
+  all five in every case, and the behaviour is unchanged. `canonical_payload`,
   `payload_hash` and `canonical_authorization_payload` raise `AGTReceiptError` for such a payload the
   same way. This changes the verdict for a value nested past 64 levels that the interpreter could
   still write, from exit 1 to exit 2, and a signature over such a form is no longer checked; an AGT
@@ -294,6 +301,62 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   producer cases). The trust-anchor file has 53 cases and 159 subtests, green on all five; its
   turned case fails outright against the source of a4e2fa5c.
 
+  A lens run at 75c3aa48 measured that those refusals judged one reading of the caller's key and
+  wrote another. The rule reads `len(key)` and `bytes(key)`, the caller's `__len__` and `__bytes__`;
+  the writers read the key's own buffer (base64) or ran its `__radd__` (a concatenation); and a key
+  given as base64 text reached the rule through `_wire_b64`, which called the caller's `encode`,
+  while the producer wrote the text itself. A `bytes` subclass whose `__bytes__` returns a real key
+  while its own bytes are the identity point was bound by `issue_sd_jwt` and written by
+  `checkpoint.vkey` and `checkpoint.cosign_vkey`, and a `bytearray` subclass the same way by
+  `issue_sd_jwt`, 13 of 13 weak encodings each on all five interpreters; under v6.0.0 and v6.1.0
+  the SD-JWT so issued, with a Key Binding JWT signed by nobody, verifies as "key binding valid". A
+  `str` subclass whose `encode` returns the base64 of a real key while its text is the base64 of
+  the identity point was pinned by `policy_profiles.instantiate_template`, signed into a pack by
+  `trust_pack.sign_trust_pack` and written by `trust_pack.build_trust_pack_statement` and the three
+  `assemble` steps under `scripts/`, so "refused already" above holds for a plain `str` only; no
+  command line reaches it, since arguments are plain `str`. From Python 3.12 on a class can define
+  `__buffer__` (PEP 688), and a `bytes` subclass that stores a real key and whose `__buffer__` names
+  the identity point passed the rule, which reads the storage through the inherited
+  `bytes.__bytes__`, and had the identity point written, measured on 3.12.14, 3.13.15 and 3.14.7.
+  Now each such producer reads the key once, from the value's own storage, into an exact `bytes` or
+  `str` (`signature.plain_bytes` and `signature.plain_text`, next to the rule, and
+  `_wire_b64.wire_value` for a field that may be either), and the rule, the key ID and the written
+  output use that one value. The read is `bytes.__getitem__` or `bytearray.__getitem__` with a full
+  slice, and `str.__str__`: on all five interpreters none of them ran a method the caller's class
+  defined, while `bytes(x)`, `x[:]`, `b"" + x`, `x.encode()`, `str(x)`, `f"{x}"` and `"" + x` did,
+  and from 3.12 on `memoryview(x)`, base64 and `hashlib` too. The decoders of `_wire_b64` read their
+  input the same way. `sign_trust_pack` and `build_trust_pack_statement` read the whole predicate
+  once: its RFC 8785 bytes are parsed back, and the validator, the subject digest and the signature
+  use that parse, so a `dict` subclass whose `get` answers for a real key while it stores the
+  identity point is refused too, and a predicate that cannot be written as RFC 8785 JSON raises
+  `TrustPackError`. The issuer parser of `--expect-issuer` and of the exports that refuse to vouch
+  (`evalclaim._issuer_key_weakness`) reads the issuer once, so a `str` subclass whose `startswith`
+  and `__getitem__` answer for a real key no longer lets `export_eval_result_dsse` or
+  `export_intoto_dsse` sign over a claim that holds the identity point. `checkpoint.key_id`,
+  `cosign_key_id`, `cosign_key_id_mldsa` and `cosign_vkey_mldsa` read the key once as well, so a key
+  ID is the ID of the key written (no rule applies to an ML-DSA key). Which types are read: a raw
+  key is `bytes` or `bytearray`, the two types the rule judges. `issue_sd_jwt` wrote a real key
+  given as a `memoryview`, an `array('B')`, a ctypes byte array or a numpy uint8 array at a4e2fa5c
+  and refused it at 75c3aa48 with the reason "a trusted Ed25519 key is exactly 32 bytes", which is
+  wrong for 32 bytes. Decided: it stays refused, because such a value has no storage apart from its
+  buffer, which a subclass can steer from 3.12 on, and the refusal now says the key must be `bytes`
+  or `bytearray` and to pass `bytes(...)` of it. `vkey`, `cosign_vkey`, `key_id` and `cosign_key_id`
+  refused a `bytearray` until now and accept it, as `issue_sd_jwt` did. One effect on the verifier
+  side, through the shared decoder, measured on 3.10: `policy.load_policy` accepted a pin given as a
+  `str` subclass whose `encode` answers for a real key while its text is the identity point, and
+  now refuses it. Contract `tests/test_a_producer_reads_a_callers_key_once.py`, 14 cases and 998
+  subtests, green on 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7; every producer of its sweep list
+  gets each hostile form in both directions (the weak key stored and a real key answered, and the
+  reverse), and a scan names every call of the rule's helpers under `src/` and `scripts/`. Against
+  the source of 75c3aa48 it fails 709 times on 3.10 and 3.11 and 801 times on 3.12 to 3.14 (1
+  outright, the readers that do not exist there; the 92 more are the `__buffer__` form), with every
+  producer of the list among them; of those, the `bytearray` cases of the vkeys and key IDs fail
+  because a `bytearray` was refused there, not because it was read twice. Planted in a throwaway
+  copy, each of six second readings turns it red: `issue_sd_jwt` writing `bytes(key)`, `vkey`
+  concatenating the caller's key, `sign_trust_pack` validating and signing the caller's predicate,
+  the issuer parser slicing the caller's `str`, `sign_readiness_artifact` writing `str(key)`, and the
+  decoder calling the caller's `encode` (26, 13, 13, 52, 13 and 1 failures).
+
   Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
   `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
   fresh signer key, and the five vectors carry `did:key:z6MkZ179Demo`, which decodes to 8 bytes and
@@ -314,7 +377,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `__class__` property through the serialiser's `default()`); with one serialisation per receipt,
   none of them makes a verifier raise. Four NULL `c_void_p` passed as the whole list are 32 zero
   bytes, a point of small order, and are refused (exit 2) where c8c61651 walked them (exit 0 or 3);
-  one, two, three, five or eight are walked as before.
+  one, two, three, five or eight are walked as before. A verify function that reads a caller's key
+  object twice is not changed here: `verify_ed25519_pinned` reads `bytes(key)` for the rule and again
+  for the signature check, and a key object whose `__bytes__` answers a real key first and the
+  identity point after verified a signature made by nobody, directly and through
+  `dsse.verify_envelope`, measured on 3.10 and 3.13. Still read through the caller's own methods, and
+  not measured: the name a vkey is written under, the `signers` map of `sign_trust_pack` (checked
+  against the pack's keys, then signed with), and the body an `assemble` step checks the signature
+  over and then copies.
 
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,

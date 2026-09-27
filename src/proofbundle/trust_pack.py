@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any, TypeGuard
@@ -316,8 +317,38 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _read_once(predicate: Any) -> Any:
+    """The caller's predicate read ONCE: its RFC 8785 bytes, parsed back into plain JSON values.
+
+    WHAT IS VALIDATED IS WHAT IS SIGNED (lens run 7 at 75c3aa48, F2). The validator read each key
+    through the decoder, which called the caller's own `encode`, and through the caller's containers
+    (`get`, `__getitem__`), while the canonicaliser wrote what the containers' `items()` yield and the
+    text each `str` holds. A `str` subclass whose `encode` answers for a real key and whose text is
+    the base64 of the identity point passed the validator and was signed into the pack by
+    `sign_trust_pack` and written by `build_trust_pack_statement`; a `dict` subclass whose `get` and
+    `__getitem__` answer for a real key while its stored item is the weak one did the same. Now the
+    predicate is written once, and the validator, the subject digest and the signature all read the
+    parse of those bytes, in which every value is a plain `dict`, `list`, `str`, `int`, `float`,
+    `bool` or None, so no method of the caller's runs after that one write. A predicate that cannot
+    be written as RFC 8785 JSON is invalid and raises `TrustPackError`, never another exception.
+
+    `json.loads`, not the Statement oracle: the bytes are this function's own RFC 8785 output of a
+    predicate, not a received Statement, so they hold no duplicate key and no `_type` to judge, and
+    the canonicaliser has already held the value to the structure budget. The received side keeps
+    `load_statement_strict` (tests/test_a_statement_says_it_is_an_in_toto_statement.py)."""
+    try:
+        return json.loads(_rfc8785_bytes(predicate))
+    except TrustPackError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — whatever cannot be written is no valid predicate
+        # The cause is chained, not formatted: its name and text may be the caller's own code.
+        raise TrustPackError("invalid trust-pack predicate: it cannot be written as RFC 8785 JSON "
+                             "within the structure budget") from exc
+
+
 def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
+    predicate = _read_once(predicate)
     errs = validate_trust_pack_predicate(predicate, strict=False)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
@@ -336,8 +367,10 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
     Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
-    an unknown identity)."""
+    an unknown identity). The predicate is read once (`_read_once`): what is validated is what is
+    signed."""
     from . import dsse  # noqa: PLC0415
+    predicate = _read_once(predicate)
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))

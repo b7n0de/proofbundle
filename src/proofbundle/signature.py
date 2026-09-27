@@ -13,6 +13,8 @@ before calling into the library, never re-implementing ECDSA itself).
 
 from __future__ import annotations
 
+from typing import Any
+
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -20,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
-           "verify_ecdsa_p256", "canonical_es256_signature"]
+           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
 
 
 _ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19
@@ -57,6 +59,63 @@ TRUST_ANCHOR_REFUSAL = {
                       "also spell points of small order"),
     "malformed": "a trusted Ed25519 key is exactly 32 bytes",
 }
+
+
+def plain_bytes(value: Any) -> "bytes | None":
+    """The bytes a ``bytes`` or ``bytearray`` value holds, as an exact ``bytes``, read ONCE from the
+    value's own storage, or None for a value of any other type.
+
+    THE ONE READ OF A CALLER'S KEY BY A PRODUCER (lens run 7 at 75c3aa48, F1). A producer that writes
+    a caller's Ed25519 key for someone to trust judged it with :func:`ed25519_trust_anchor_weakness`,
+    which reads ``len(key)`` and ``bytes(key)``, and then wrote it through base64 or a concatenation,
+    which read the key's buffer. A ``bytes`` subclass whose ``__bytes__`` returns a real key while its
+    own bytes are the identity point passed the rule and was written, by ``sdjwt_issue.issue_sd_jwt``,
+    ``checkpoint.vkey`` and ``checkpoint.cosign_vkey``. Each such producer reads the key here, once,
+    and the rule, the key ID and the written output all use the value this returns.
+
+    NO METHOD OF THE CALLER'S RUNS, on any interpreter. ``bytes.__getitem__`` and
+    ``bytearray.__getitem__`` with a full slice copy the stored bytes into a new object of the exact
+    type. Measured on 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7 with subclasses that override
+    ``__bytes__``, ``__getitem__``, ``__len__``, ``__iter__``, ``__add__``, ``__radd__``, ``__eq__``
+    and ``__buffer__``: this read returned the stored bytes on all five. The other reads do not hold.
+    ``bytes(x)`` runs ``__bytes__``, ``x[:]`` runs ``__getitem__`` and ``b"" + x`` runs ``__radd__``
+    on all five. From 3.12 on a Python class can define ``__buffer__`` (PEP 688), and a ``bytes``
+    subclass that defines only that steers ``memoryview(x)``, ``b"" + x``, base64 and ``hashlib``
+    there, while ``bytes(x)`` of it still reads the storage through the inherited ``bytes.__bytes__``;
+    on 3.10 and 3.11 a ``__buffer__`` of a Python class is never called.
+
+    ONLY ``bytes`` AND ``bytearray``, the two types the rule judges. A ``memoryview``, an ``array``, a
+    ctypes array or a numpy array has no storage apart from its buffer, and from 3.12 on a subclass of
+    ``array``, of a ctypes array or of a numpy array can define ``__buffer__``, so no read of it is safe
+    from the caller's code; such a value is None here and the producer refuses it by its type.
+    """
+    typ = type(value)
+    if typ is bytes:
+        return value
+    if issubclass(typ, bytes):
+        return bytes.__getitem__(value, slice(None))
+    if issubclass(typ, bytearray):
+        return bytes(bytearray.__getitem__(value, slice(None)))
+    return None
+
+
+def plain_text(value: Any) -> "str | None":
+    """The text a ``str`` value holds, as an exact ``str``, read ONCE from the value's own storage, or
+    None for a value of any other type.
+
+    THE ONE READ OF A CALLER'S KEY TEXT (lens run 7 at 75c3aa48, F2). ``_wire_b64`` decoded a key given
+    as base64 text through ``s.encode("ascii")``, the caller's own ``encode``, while the producer wrote
+    the text itself: a ``str`` subclass whose ``encode`` returns the base64 of a real key and whose
+    text is the base64 of the identity point passed the rule and was written by
+    ``policy_profiles.instantiate_template``, ``trust_pack.sign_trust_pack``,
+    ``trust_pack.build_trust_pack_statement`` and the three ``assemble`` steps under ``scripts/``.
+    ``str.__str__`` copies the stored text of a subclass into an exact ``str`` and runs no method of the
+    caller's: measured on the same five interpreters with a subclass that overrides ``encode``,
+    ``__str__``, ``__getitem__``, ``__iter__``, ``__len__``, ``__format__``, ``__add__`` and
+    ``__radd__``, it returned the stored text, as ``json.dumps`` writes it, while ``x.encode()``,
+    ``str(x)``, ``f"{x}"`` and ``"" + x`` ran the caller's methods on all five.
+    """
+    return str.__str__(value) if issubclass(type(value), str) else None
 
 
 def ed25519_trust_anchor_weakness(public_key) -> "str | None":

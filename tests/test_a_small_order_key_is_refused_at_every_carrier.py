@@ -2028,6 +2028,10 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
 # `export_eval_result_dsse`, `export_intoto_dsse`) write no key and refuse to vouch for an issuer
 # key the rule refuses: section 5. Under scripts/, the three `assemble` steps that write a key
 # handed in with its signature are section 4; this round did not sweep scripts/ again.
+# All of this holds for a plain value. Given as a subclass whose own methods answer for another key,
+# each producer above judged one reading and wrote another at 75c3aa48 (lens run 7, F1 and F2), the
+# two "refused" controls included; tests/test_a_producer_reads_a_callers_key_once.py holds every
+# producer of this list, and the ones under scripts/, to one reading of the key.
 
 _SRC = REPO / "src" / "proofbundle"
 

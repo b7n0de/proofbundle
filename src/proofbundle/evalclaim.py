@@ -91,16 +91,22 @@ def _issuer_key_weakness(issuer) -> Optional[str]:
     The ONE reading of the issuer format for everything that judges it: `show-eval --expect-issuer`
     and the exporters in `intoto` that sign a statement over a claim. The rule itself is the shared
     `signature.ed25519_trust_anchor_weakness`. A value that is not `ed25519:` plus the canonical base64
-    of exactly 32 bytes names no key and is None: it can match nothing and vouches for nothing."""
-    if not isinstance(issuer, str) or not issuer.startswith("ed25519:"):
+    of exactly 32 bytes names no key and is None: it can match nothing and vouches for nothing.
+
+    The issuer is read once, as the plain text it holds (`signature.plain_text`, lens run 7 at
+    75c3aa48, the sweep of F2): the prefix test, the slice and the decoder ran the `startswith`,
+    `__getitem__` and `encode` of a `str` subclass, which could answer for a real key while the claim
+    holds the identity point."""
+    from .signature import ed25519_trust_anchor_weakness, plain_text  # noqa: PLC0415
+    text = plain_text(issuer)
+    if text is None or not text.startswith("ed25519:"):
         return None
     try:
-        raw = decode_b64(issuer[len("ed25519:"):])
+        raw = decode_b64(text[len("ed25519:"):])
     except (ValueError, TypeError):
         return None
     if len(raw) != 32:
         return None
-    from .signature import ed25519_trust_anchor_weakness  # noqa: PLC0415
     return ed25519_trust_anchor_weakness(raw)
 
 

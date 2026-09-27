@@ -28,7 +28,8 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, UnsupportedError
-from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
+from .signature import (TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes,
+                        verify_ed25519_pinned)
 # NUR der C2SP-Decoder: jedes base64-Feld dieses Moduls ist ein C2SP-Note-Feld (Wurzel,
 # Signaturzeile, vkey-Schluesselmaterial), und fuer die gilt die dokumentierte Ausnahme zur
 # Ein-Drahtform-Regel. Der strikte `decode_b64` wird hier bewusst NICHT importiert, damit ein
@@ -171,9 +172,24 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
 
 
+def _key_bytes(pubkey, refusal: str) -> bytes:
+    """A caller's public key as exact bytes, read ONCE from its own storage (`signature.plain_bytes`),
+    or `BundleFormatError(refusal)`. Every producer of this module that checks a key and then hashes
+    or writes it reads the key here first and uses only what this returns (lens run 7 at 75c3aa48,
+    F1): the length came from the caller's `__len__`, the rule from its `__bytes__`, and the key ID
+    and the vkey from its buffer or its `__radd__`, so a `bytes` subclass whose `__bytes__` names a
+    real key while its own bytes are the identity point got a vkey for the identity point. `bytes`
+    and `bytearray` are read; a value of any other type is refused."""
+    roh = plain_bytes(pubkey)
+    if roh is None:
+        raise BundleFormatError(refusal)
+    return roh
+
+
 def key_id(keyname: str, pubkey: bytes) -> bytes:
     """C2SP note key ID = first 4 bytes of SHA-256(keyname ‖ 0x0A ‖ 0x01 ‖ 32-byte-Ed25519-pubkey)."""
-    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
+    roh = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    if len(roh) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the log key name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -181,7 +197,7 @@ def key_id(keyname: str, pubkey: bytes) -> bytes:
     # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
     if not _witness_name_wellformed(keyname):
         raise BundleFormatError("key name must be a printable-ASCII identity without spaces or invisible characters")
-    h = hashlib.sha256(keyname.encode("utf-8") + b"\n" + bytes([_ED25519_SIG_TYPE]) + pubkey).digest()
+    h = hashlib.sha256(keyname.encode("utf-8") + b"\n" + bytes([_ED25519_SIG_TYPE]) + roh).digest()
     return h[:4]
 
 
@@ -193,11 +209,13 @@ def vkey(keyname: str, pubkey: bytes) -> str:
     parser refused a low-order or non-canonical key since deep gate Z195, while this producer checked
     only the length and wrote such a key into a vkey: an anchor the tool issued and its own verifier
     refuses. Measured at a4e2fa5c and at the tags v6.0.0 and v6.1.0 for all 13 weak encodings of the
-    contract; at the two tags the parser did not refuse them either."""
-    kid = key_id(keyname, pubkey)
-    _refuse_weak_ed25519_vkey(pubkey, "vkey")
+    contract; at the two tags the parser did not refuse them either. The key is read once
+    (`_key_bytes`), and the key ID, the rule and the key material all use that one value."""
+    schluessel = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    kid = key_id(keyname, schluessel)
+    _refuse_weak_ed25519_vkey(schluessel, "vkey")
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
-    keymat = base64.b64encode(bytes([_ED25519_SIG_TYPE]) + pubkey).decode("ascii")
+    keymat = base64.b64encode(bytes([_ED25519_SIG_TYPE]) + schluessel).decode("ascii")
     return f"{keyname}+{kid_hex}+{keymat}"
 
 
@@ -573,7 +591,8 @@ def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
 
 def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     """Cosignature/v1 key ID = SHA-256(name ‖ 0x0A ‖ 0x04 ‖ 32-byte-Ed25519-pubkey)[:4]."""
-    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
+    roh = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    if len(roh) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -582,17 +601,19 @@ def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     if not _witness_name_wellformed(witness_name):
         raise BundleFormatError("witness name must be a printable-ASCII identity without spaces or invisible characters")
     h = hashlib.sha256(witness_name.encode("utf-8") + b"\n"
-                       + bytes([_COSIG_V1_SIG_TYPE]) + pubkey).digest()
+                       + bytes([_COSIG_V1_SIG_TYPE]) + roh).digest()
     return h[:4]
 
 
 def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
     """Witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x04 ‖ pubkey). Written only for a
-    key the trust-anchor rule accepts, with the refusal the witness-vkey parser gives (see `vkey`)."""
-    kid = cosign_key_id(witness_name, pubkey)
-    _refuse_weak_ed25519_vkey(pubkey, "witness vkey")
+    key the trust-anchor rule accepts, with the refusal the witness-vkey parser gives (see `vkey`),
+    and the key is read once (`_key_bytes`)."""
+    schluessel = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    kid = cosign_key_id(witness_name, schluessel)
+    _refuse_weak_ed25519_vkey(schluessel, "witness vkey")
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
-    keymat = base64.b64encode(bytes([_COSIG_V1_SIG_TYPE]) + pubkey).decode("ascii")
+    keymat = base64.b64encode(bytes([_COSIG_V1_SIG_TYPE]) + schluessel).decode("ascii")
     return f"{witness_name}+{kid_hex}+{keymat}"
 
 
@@ -684,7 +705,8 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
 
 def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     """ML-DSA-44 cosignature key ID = SHA-256(name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]."""
-    if not isinstance(pubkey, bytes) or len(pubkey) != _MLDSA44_PUB_LEN:
+    roh = _key_bytes(pubkey, "ML-DSA-44 public key must be 1312 raw bytes")
+    if len(roh) != _MLDSA44_PUB_LEN:
         raise BundleFormatError("ML-DSA-44 public key must be 1312 raw bytes")
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
@@ -693,15 +715,18 @@ def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     if not _witness_name_wellformed(witness_name):
         raise BundleFormatError("witness name must be a printable-ASCII identity without spaces or invisible characters")
     h = hashlib.sha256(witness_name.encode("utf-8") + b"\n"
-                       + bytes([_COSIG_MLDSA_SIG_TYPE]) + pubkey).digest()
+                       + bytes([_COSIG_MLDSA_SIG_TYPE]) + roh).digest()
     return h[:4]
 
 
 def cosign_vkey_mldsa(witness_name: str, pubkey: bytes) -> str:
-    """ML-DSA-44 witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x06 ‖ pubkey)."""
-    kid = cosign_key_id_mldsa(witness_name, pubkey)
+    """ML-DSA-44 witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x06 ‖ pubkey). The
+    key is read once (`_key_bytes`); the Ed25519 rule does not apply to an ML-DSA key, but the key ID
+    and the key material are computed from the same value, as for the two Ed25519 vkeys."""
+    schluessel = _key_bytes(pubkey, "ML-DSA-44 public key must be 1312 raw bytes")
+    kid = cosign_key_id_mldsa(witness_name, schluessel)
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
-    keymat = base64.b64encode(bytes([_COSIG_MLDSA_SIG_TYPE]) + pubkey).decode("ascii")
+    keymat = base64.b64encode(bytes([_COSIG_MLDSA_SIG_TYPE]) + schluessel).decode("ascii")
     return f"{witness_name}+{kid_hex}+{keymat}"
 
 

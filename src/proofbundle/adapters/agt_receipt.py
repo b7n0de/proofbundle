@@ -247,8 +247,14 @@ def _kanonisch(daten: Dict[str, Any], was: str) -> bytes:
     before anything is written, and what the serialiser reads through a caller's own methods (the
     `items()` of a `dict` subclass, the `__iter__` of a `list` subclass, each read once, by the
     serialiser only) is measured in the form it wrote. Either way a form deeper than the ceiling is
-    refused with the one message below, and a payload within it is written at every caller depth the
-    verifiers leave room for.
+    refused, `readable` False and exit 2 on every interpreter, and a payload within it is written at
+    every caller depth the verifiers leave room for. The message is the one below, with one exception
+    that changes neither the verdict nor the exit code (lens run 7 at 75c3aa48, F4): where a caller's
+    own `items()` or `__iter__` hands the serialiser a form so deep that `json.dumps` raises
+    `RecursionError` before it has written it, the message names that exception instead. Measured
+    with a `list` subclass and a `dict` subclass holding a list nested 990, 1500 and 4998 deep: 3.10
+    and 3.11 give "encoding it raised RecursionError", 3.12 to 3.14 write the form and give the depth
+    message; at 70 and 600 levels all five give the depth message.
     """
     try:
         if not _tiefer_als_erlaubt(daten):
