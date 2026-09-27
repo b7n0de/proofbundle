@@ -41,7 +41,7 @@ internal gate (see `REPRODUCTION_RUNBOOK.md`) is a precondition for this review,
 
 - Full TEE-attestation path, whole-program verification, distributed OSS-Fuzz on Google infra
   (ClusterFuzzLite local is sufficient for audit-candidate, SOTA §7).
-- The Rust second verifier covers a deliberate slice; the 36 PENDING surfaces are honestly declared,
+- The Rust second verifier covers a deliberate slice; the 61 PENDING surfaces are honestly declared (measured 2026-09-20 over the 68 entries of `scripts/rust_parity_registry.json`: 61 PENDING, 5 COVERED, 2 PARTIAL; the sentence said 36 and nothing re-derived it),
   not fake-100% (see `rust_parity_scope.md`). Whether that slice is the right one is a review question.
 
 ## F. The one remaining gate to stable

@@ -18,6 +18,78 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._membership import is_member   # an unhashable status is not bound, and does not raise
+
+#: The largest serialized OTS proof this package deserializes, in bytes (deep gate Z195, finding
+#: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). Why a second bound: the package's structural
+#: budget (`budget.VerificationBudget`, a separate check) bounds the base64 STRING of a proof
+#: (string_len), not the work the OpenTimestamps deserializer does on it: every fork creates a
+#: Timestamp holding its own copy of the message, so one append op of about 4 KB followed by forks of
+#: about 26 bytes each multiplied the proof. Measured by the gate: a 732 KB proof inside every budget
+#: peaked at about 137 MiB in `verify_evidence_pack` and at about 300 MB RSS in `anchor verify-pack`.
+#: Sized from the proofs this repository carries, measured 2026-09-26: the largest is 1510 bytes (a
+#: confirmed anchor in the conformance corpus), the upgraded `hello-world` example is 688. The cap
+#: leaves more than forty times that, and bounds the fork count, and with it the copies, by the proof
+#: length. Checked before any deserialization, in the one helper every reader here uses.
+_MAX_OTS_PROOF_BYTES = 65_536
+
+
+class OtsProofTooLarge(ValueError):
+    """A proof over `_MAX_OTS_PROOF_BYTES`: refused before the deserializer does any work."""
+
+
+#: The statuses `verify_opentimestamps` returns only after it READ the proof and found that it commits
+#: exactly the canonical root. A caller asking "is this proof bound?" reads membership in this set, never
+#: the absence of a refusal: when the cap added `over_budget`, the three callers that listed the refusals
+#: instead ("unbound", "malformed", "no_lib") read a proof nobody had read as bound — a rootcommit anchor
+#: whose proof commits a different digest came out binding=True, reject=False once it was padded past the
+#: cap (gate on the cap, lens B, 229B-01 and its neighbours). A status added later is unbound until it is
+#: listed here. `malformed` stays out although two of its returns come after the binding check: the same
+#: word also means "the proof did not deserialize", and a word with two meanings is read as the worse one.
+_BINDING_HELD = frozenset({"pending", "empty", "needs_rp_trust", "confirmed", "null_op",
+                           "block_mismatch", "bad_header", "upgraded_unverified"})
+#: Every other status `verify_opentimestamps` returns. Written out as a set of its own so a test can
+#: hold the partition: each status the function can return is in exactly one of the two sets.
+_BINDING_NOT_HELD = frozenset({"no_lib", "over_budget", "malformed", "unbound"})
+
+
+def ots_binding_held(result) -> bool:
+    """True iff `result`, a verdict of `verify_opentimestamps`, says the proof was read and commits the
+    canonical root. Deny by default: an unknown status, a missing one, or a non-dict is not bound.
+
+    The binding only, never a confirmation (`null_op` and `block_mismatch` are bound and not confirmed),
+    and only for a verdict of `verify_opentimestamps` itself. A verifier that forwards these statuses
+    verbatim, as `anchors_markovian` does behind its own envelope checks, is not read through this.
+
+    The status is read with `dict.get`, not with the object's own `get`: a dict subclass that overrides
+    `get` can neither raise out of here nor name a status its contents do not hold (gate run 3, 229-3-02).
+    STATED LIMIT, the line `_membership.is_member` draws: a key or a status whose own `__eq__` or
+    `__hash__` raises anything but TypeError still raises here. Only a caller can build such an object;
+    parsed JSON cannot, and `verify_opentimestamps` returns literal dicts with string keys."""
+    return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)
+
+
+def _deserialize_detached(proof):
+    """The one way this package deserializes a detached OTS proof: the length cap first, then the
+    library. Raises `OtsProofTooLarge` over the cap, `ImportError` without the `[anchors]` extra, and
+    whatever the library raises for a malformed proof; each caller maps these to its own verdict.
+
+    EVERY BYTES-LIKE PROOF IS MEASURED IN BYTES, and anything else is refused before the library reads
+    it (`TypeError`, which every caller maps to its malformed verdict). The first version measured only
+    `bytes` and `bytearray` and had no else branch, so a `memoryview` of any length went to the library
+    uncapped: measured with 70 MB on 83dca0f5, found by a lens of another model family."""
+    from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
+    from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+    try:
+        laenge = memoryview(proof).nbytes
+    except TypeError:
+        raise TypeError(f"an OTS proof is a bytes-like object, not {type(proof).__name__} "
+                        "(refused before the library reads it)") from None
+    if laenge > _MAX_OTS_PROOF_BYTES:
+        raise OtsProofTooLarge(f"OTS proof is {laenge} bytes, over the {_MAX_OTS_PROOF_BYTES}-byte "
+                               "cap (checked before deserializing, fail-closed)")
+    return DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+
 
 def _classify(timestamp):
     """Return (has_bitcoin, bitcoin_heights, has_pending) over all attestations in the proof."""
@@ -75,13 +147,12 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     reported as EVIDENCE (``frozenEvidence``) but is never trusted. Without RP trust material an upgraded
     proof is honestly ``needs_rp_trust`` (ok=False), so ``--require-anchor`` is unmet → exit 3."""
     try:
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
+        dtf = _deserialize_detached(proof)
     except ImportError:
         return {"ok": False, "warn": False, "status": "no_lib",
                 "detail": "opentimestamps anchor needs proofbundle[anchors] (opentimestamps)"}
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
+    except OtsProofTooLarge as exc:
+        return {"ok": False, "warn": False, "status": "over_budget", "detail": str(exc)}
     except Exception as exc:   # any malformed proof → FAIL (fail-closed)
         return {"ok": False, "warn": False, "status": "malformed",
                 "detail": f"OTS proof did not deserialize: {exc}"}
@@ -275,17 +346,23 @@ def calendar_uris(proof: bytes) -> list[str]:
     An UPGRADED proof that no longer retains pending attestations honestly returns ``[]`` — its calendar
     dependency is already discharged, which is precisely the calendar-independence being surfaced."""
     try:
+        dtf = _deserialize_detached(proof)
+    except Exception:   # no [anchors] extra (ImportError), malformed, or over the cap → no calendars,
+        return []       # never raise (fail-closed transparency)
+    return _calendar_uris_of(dtf.timestamp)
+
+
+def _calendar_uris_of(timestamp) -> list[str]:
+    """``calendar_uris`` on an already deserialized timestamp, so a reader that needs the calendars AND
+    something else deserializes the proof once (gate on the cap, lens A, 229A-01: `describe_proof`
+    deserialized the same proof twice, both copies alive at once, and a proof just under the cap peaked at
+    36.5 MiB where one deserialization peaks at 18.2 MiB). Never raises."""
+    try:
         from opentimestamps.core.notary import PendingAttestation  # noqa: PLC0415
-        from opentimestamps.core.serialize import BytesDeserializationContext  # noqa: PLC0415
-        from opentimestamps.core.timestamp import DetachedTimestampFile  # noqa: PLC0415
     except ImportError:
         return []
-    try:
-        dtf = DetachedTimestampFile.deserialize(BytesDeserializationContext(proof))
-    except Exception:   # malformed → no calendars, never raise (fail-closed transparency)
-        return []
     uris: set[str] = set()
-    for _msg, att in dtf.timestamp.all_attestations():
+    for _msg, att in timestamp.all_attestations():
         if isinstance(att, PendingAttestation):
             uri = getattr(att, "uri", None)
             if isinstance(uri, bytes):

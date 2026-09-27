@@ -82,8 +82,8 @@ class TestExternalTokenFieldDefaults(unittest.TestCase):
         r = verify_sequence(seq, DATA, require_external_token=True)
         ck = _check(r, "renewal:external_token")
         self.assertIsNotNone(ck, "require_external_token=True must surface a check even when absent")
-        self.assertFalse(ck.ok)
-        self.assertFalse(r.ok)
+        self.assertIs(ck.ok, False)
+        self.assertIs(r.ok, False)
 
 
 class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
@@ -93,7 +93,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         from proofbundle.renewal import _verify_ats_external_token
         ats = _initial()[0][0]
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "absent")
 
     def test_unknown_type_reports_absent_not_crash(self):
@@ -101,7 +101,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         ats = dataclasses.replace(_initial()[0][0], external_token_type="carrier-pigeon",
                                   external_token=b"x")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "absent")
 
     def test_malformed_covered_digest_fails_closed_not_raise(self):
@@ -109,7 +109,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         ats = ArchiveTimeStamp("sha256", "not-hex!!", 1000, external_token_type="rfc3161-tsa",
                                external_token=b"x")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "malformed")
 
     def test_rfc3161_missing_extra_fails_closed_not_raise(self):
@@ -119,14 +119,14 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
         ats = dataclasses.replace(_initial()[0][0], external_token_type="rfc3161-tsa",
                                   external_token=b"not-a-real-der-token")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_opentimestamps_malformed_proof_fails_closed_not_raise(self):
         from proofbundle.renewal import _verify_ats_external_token
         ats = dataclasses.replace(_initial()[0][0], external_token_type="opentimestamps",
                                   external_token=b"not-a-real-ots-proof")
         res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_verifier_exception_is_caught_fail_closed(self):
         from proofbundle.renewal import _verify_ats_external_token
@@ -136,7 +136,7 @@ class TestVerifyAtsExternalTokenGlue(unittest.TestCase):
                                   external_token=b"x")
         with mock.patch.object(anchors_rfc3161, "verify_rfc3161", side_effect=RuntimeError("boom")):
             res = _verify_ats_external_token(ats)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "verifier_error")
 
 
@@ -194,8 +194,8 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         proof = self._pending_proof(newest.covered_digest)
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA, require_external_token=True)
-        self.assertFalse(_check(r, "renewal:external_token").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:external_token").ok, False)
+        self.assertIs(r.ok, False)
 
     def test_confirmed_ots_token_verifies_with_rp_trust(self):
         seq = _initial()
@@ -215,8 +215,8 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         proof = self._upgraded_proof(newest.covered_digest, height=800000)
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA)
-        self.assertFalse(_check(r, "renewal:external_token").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:external_token").ok, False)
+        self.assertIs(r.ok, False)
 
     def test_wrong_root_ots_token_fails_closed(self):
         # the OTS proof commits to a DIFFERENT message than this ATS's covered_digest -> unbound -> FAIL.
@@ -225,8 +225,8 @@ class TestExternalTokenOtsThroughVerifySequence(unittest.TestCase):
         proof = self._pending_proof(("f" * 64))   # unrelated covered_digest
         with_token = dataclasses.replace(newest, external_token_type="opentimestamps", external_token=proof)
         r = verify_sequence([[with_token]], DATA)
-        self.assertFalse(_check(r, "renewal:external_token").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:external_token").ok, False)
+        self.assertIs(r.ok, False)
 
 
 class TestNoRollbackDetection(unittest.TestCase):
@@ -263,14 +263,14 @@ class TestNoRollbackDetection(unittest.TestCase):
         known = anchor_proof_digest(grown[0][1])          # the RP last saw the RENEWED newest ATS
         truncated = [[grown[0][0]]]                        # attacker replays only the original prefix
         r = verify_sequence(truncated, DATA, known_newest_token_digest=known)
-        self.assertFalse(_check(r, "renewal:no_rollback").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:no_rollback").ok, False)
+        self.assertIs(r.ok, False)
 
     def test_unrelated_digest_not_found_fails_closed(self):
         seq = _initial()
         r = verify_sequence(seq, DATA, known_newest_token_digest="00" * 32)
-        self.assertFalse(_check(r, "renewal:no_rollback").ok)
-        self.assertFalse(r.ok)
+        self.assertIs(_check(r, "renewal:no_rollback").ok, False)
+        self.assertIs(r.ok, False)
 
 
 if __name__ == "__main__":

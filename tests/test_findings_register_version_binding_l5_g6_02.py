@@ -101,7 +101,7 @@ class RegisterVersionBinding(unittest.TestCase):
         if self.real.get("version") == acm.VERSION_UNDER_TEST:
             self.assertTrue(r["ok"], r["reason"])            # a 6.0.0 register exists: bound and equal
         else:
-            self.assertFalse(r["ok"],
+            self.assertIs(r["ok"], False,
                              "a register scoped to another release still decides this one")
             self.assertIn(self.fr.CODE_REGISTER_VERSION_MISMATCH, r["reason"])
             self.assertEqual(r["register_version"], self.real.get("version"))
@@ -121,7 +121,7 @@ class RegisterVersionBinding(unittest.TestCase):
         for label, reg in shapes.items():
             with self.subTest(shape=label):
                 r = self.fr.verify_and_count(self._repo_with(reg), expected_version="6.0.0")
-                self.assertFalse(r["ok"], f"{label}: accepted for a release it is not about")
+                self.assertIs(r["ok"], False, f"{label}: accepted for a release it is not about")
                 self.assertIn(self.fr.CODE_REGISTER_VERSION_MISMATCH, r["reason"])
                 self.assertTrue(r["version_bound"])
 
@@ -180,7 +180,7 @@ class RegisterVersionBinding(unittest.TestCase):
         # ausdruecklich konstruiert.
         fremd = dict({k: v for k, v in self.real.items() if k != "signature"}, version="3.6.1")
         r2 = self.fr.verify_and_count(self._repo_with(fremd), expected_version="6.0.0")
-        self.assertFalse(r2["ok"], "with the binding in place a foreign register must be refused")
+        self.assertIs(r2["ok"], False, "with the binding in place a foreign register must be refused")
         self.assertIn(self.fr.CODE_REGISTER_VERSION_MISMATCH, r2["reason"])
 
 

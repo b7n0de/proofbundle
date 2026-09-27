@@ -216,7 +216,7 @@ class TestEvalClaim(unittest.TestCase):
         claim, _ = _claim(signer)
         bundle = emit_eval_receipt(claim, signer)
         bundle["payload_b64"] = base64.b64encode(b'{"tampered":true}').decode("ascii")
-        self.assertFalse(verify_bundle(bundle).ok)
+        self.assertIs(verify_bundle(bundle).ok, False)
         self.assertIsNone(decode_eval_claim(bundle))
 
 

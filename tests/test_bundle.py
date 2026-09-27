@@ -55,18 +55,18 @@ class TestBundle(unittest.TestCase):
     def test_tampered_payload_fails(self):
         bundle = build_bundle()
         bundle["payload_b64"] = _flip_last_byte_b64(bundle["payload_b64"])
-        self.assertFalse(verify_bundle(bundle).ok)
+        self.assertIs(verify_bundle(bundle).ok, False)
 
     def test_tampered_signature_fails(self):
         bundle = build_bundle()
         bundle["signature"]["sig_b64"] = _flip_last_byte_b64(bundle["signature"]["sig_b64"])
         result = verify_bundle(bundle)
-        self.assertFalse(result.ok)
+        self.assertIs(result.ok, False)
 
     def test_tampered_merkle_root_fails(self):
         bundle = build_bundle()
         bundle["merkle"]["root_b64"] = _flip_last_byte_b64(bundle["merkle"]["root_b64"])
-        self.assertFalse(verify_bundle(bundle).ok)
+        self.assertIs(verify_bundle(bundle).ok, False)
 
     def test_unknown_schema_raises(self):
         bundle = build_bundle()
@@ -125,7 +125,7 @@ class TestBundle(unittest.TestCase):
         result = verify_bundle(bundle)
         by_name = {c.name: c.ok for c in result.checks}
         self.assertTrue(by_name.get("sd-jwt-issuer-signature"))
-        self.assertFalse(by_name["sd-jwt-issuer-identity"])
+        self.assertIs(by_name["sd-jwt-issuer-identity"], False)
 
 
 if __name__ == "__main__":

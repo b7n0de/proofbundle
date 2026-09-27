@@ -59,7 +59,7 @@ class TestEvalCard(unittest.TestCase):
         try:
             claim = {"evaluation_card_sha256": hashlib.sha256(b"a DIFFERENT card").hexdigest()}
             res = verify_evaluation_card(path, claim)
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
             self.assertIn("does NOT match", res["detail"])
         finally:
             os.unlink(path)
@@ -68,7 +68,7 @@ class TestEvalCard(unittest.TestCase):
         path = self._file(b"x")
         try:
             res = verify_evaluation_card(path, {})           # no evaluation_card_sha256
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
             self.assertFalse(res["present"])
         finally:
             os.unlink(path)
@@ -78,7 +78,7 @@ class TestEvalCard(unittest.TestCase):
         path = self._file(b"card\n")
         try:
             claim = {"evaluation_card_sha256": hashlib.sha256(b"card").hexdigest()}   # committed without \n
-            self.assertFalse(verify_evaluation_card(path, claim)["ok"])
+            self.assertIs(verify_evaluation_card(path, claim)["ok"], False)
         finally:
             os.unlink(path)
 

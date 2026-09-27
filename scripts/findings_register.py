@@ -111,11 +111,22 @@ def _signature_ok(register: dict, authorised_pubkeys: set[str] | None) -> tuple[
         return False, f"signature fields are not valid base64: {exc}"
     body = {k: register[k] for k in register if k != "signature"}
     try:
-        from proofbundle.signature import verify_ed25519  # noqa: PLC0415
+        from proofbundle.signature import (  # noqa: PLC0415
+            TRUST_ANCHOR_REFUSAL,
+            ed25519_trust_anchor_weakness,
+            verify_ed25519_pinned,
+        )
         msg = _canonical_bytes(body)
     except Exception as exc:  # noqa: BLE001 - canonicalizer absence is a fail-closed verdict, never a crash
         return False, f"cannot canonicalize register for verification (fail-closed): {exc}"
-    return (True, "signature valid") if verify_ed25519(pub, raw_sig, msg) \
+    # THE AUTHORISED KEY GETS THE TRUST-ANCHOR RULE (SPEC 4b; gate iteration 3 on the rule, lens A,
+    # A3-03, measured): with the bare profile a register nobody signed verified under a low-order key
+    # standing in the anchor. Named before any signature arithmetic.
+    weakness = ed25519_trust_anchor_weakness(pub)
+    if weakness is not None:
+        return False, (f"{CODE_REGISTER_UNAUTHORISED_KEY}: the register's key is a {weakness} Ed25519 "
+                       f"key, refused as a trusted key: {TRUST_ANCHOR_REFUSAL[weakness]}")
+    return (True, "signature valid") if verify_ed25519_pinned(pub, raw_sig, msg) \
         else (False, "signature does not verify under the pinned key")
 
 

@@ -23,6 +23,7 @@ signing is REJECTED -- the exact integration the harness's fixed-constant unit t
 exercised.
 """
 import base64
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -84,23 +85,10 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
     (repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
         base64.b64encode(priv.public_key().public_bytes_raw()).decode() + "\n")
     (repo / "_privkey.b64").write_text(base64.b64encode(priv.private_bytes_raw()).decode())
-    (repo / "_audit.txt").write_text("audit ran\n")
 
     _git(["init", "-q"], repo)
     _git(["add", "-A"], repo)
     _git(["commit", "-q", "-m", "candidate"], repo)
-
-    # THE AUDIT OUTPUT COMES INTO BEING AFTER THE TREE, and this fixture wrote both in one
-    # breath. Linux hands out file timestamps in coarse ticks, so `_privkey.b64` and
-    # `audit_artifacts/pre_tag_trusted_pubkeys.txt` carried the SAME stamp as `_audit.txt` —
-    # which went unnoticed until 2026-09-23, because the order check compared strictly `>` and
-    # read equality as "not after". That is the Codex P1 finding of that day: under `>=`
-    # equality is no longer an order, and the fixture has to model the sequence a real run has —
-    # first the tree, then the audit. Two seconds are enough for that and shorter than any real
-    # audit run.
-    import os as _os  # noqa: PLC0415
-    _later = _os.stat(repo / "_audit.txt").st_mtime + 2
-    _os.utime(repo / "_audit.txt", (_later, _later))
 
     # PB_INLINE_SIGNING: dieser Test prueft den INLINE-Signierweg — den Weg, den der Owner an seiner
     # eigenen Maschine geht. Seit dem Owner-Entscheid 2026-09-06 (Karte OA-8b1a31cc4f) verlangt der
@@ -112,8 +100,12 @@ def test_committed_receipt_verifies_and_src_change_is_rejected(tmp_path):
     env = {"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin",
            "PB_INLINE_SIGNING": "1"}
 
+    # THE AUDIT RUNS INSIDE THE TOOL (2026-09-21): the command is started by the receipt script
+    # between two measurements of the tree, and the record is written by the script, outside the
+    # tree. A typed exit code and a supplied record are no longer accepted.
     r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
-              "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",
+              "--audit-command", shlex.join([sys.executable, "-c", "print('audit ran')"]),
+              "--audit-output-file", str(tmp_path / "_audit_record.txt"),
               "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
               "--privkey-file", "_privkey.b64"], repo, env)
     assert r.returncode == 0, f"receipt production failed: {r.stderr}"

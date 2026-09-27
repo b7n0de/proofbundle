@@ -832,7 +832,11 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
     try:
         from proofbundle import canonical                # noqa: PLC0415
         from proofbundle.canonical import CanonicalizerUnavailable as _KanonisiererFehlt  # noqa: PLC0415
-        from proofbundle.signature import verify_ed25519  # noqa: PLC0415
+        from proofbundle.signature import (  # noqa: PLC0415
+            TRUST_ANCHOR_REFUSAL,
+            ed25519_trust_anchor_weakness,
+            verify_ed25519_pinned,
+        )
         _kanonisierer = canonical.canonicalize_statement
     except Exception as exc:                             # noqa: BLE001 — HIER ist es wirklich die Umgebung
         return ART_UNMEASURABLE_HERE, (f"the canonicalizer/verifier is not available in this "
@@ -868,8 +872,19 @@ def _artifact_signature_ok(artifact: dict, trusted: dict, anchor_state: str, *,
         return ART_UNTRUSTED, (f"the artifact cannot be canonicalized ({type(exc).__name__}: {exc}) "
                                "— this is a property of the document, not of this environment, so it "
                                "is not verified rather than not measurable")
+    # THE KEY GETS THE TRUST-ANCHOR RULE (SPEC 4b; deep gate iteration 3 on the rule, lens A, A3-02,
+    # executed): with the bare profile, an artifact signed by nobody verified under a key of small
+    # order that stood in the anchor. The question needs no anchor, so it comes BEFORE the signature
+    # arithmetic, with its own reason; otherwise the reason would read "signature does not verify",
+    # which is not the reason. It comes AFTER the canonicalization, so that a missing canonicalizer
+    # stays an ENVIRONMENT state (LAUF11-L5 pins that with an all-zero key, which is itself of small
+    # order). The anchor-order paragraph of this docstring predates the rule and does not list it.
+    schwaeche = ed25519_trust_anchor_weakness(pub)
+    if schwaeche is not None:
+        return ART_UNTRUSTED, (f"the signing key is a {schwaeche} Ed25519 key, refused as a trusted "
+                               f"key: {TRUST_ANCHOR_REFUSAL[schwaeche]}")
     try:
-        gueltig = verify_ed25519(pub, raw_sig, msg)
+        gueltig = verify_ed25519_pinned(pub, raw_sig, msg)
     except Exception as exc:                             # noqa: BLE001
         return ART_UNTRUSTED, f"signature check errored (fail-closed): {type(exc).__name__}: {exc}"
     if not gueltig:

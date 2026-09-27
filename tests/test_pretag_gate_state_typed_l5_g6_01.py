@@ -126,7 +126,7 @@ class TheGateReportsATypedState(unittest.TestCase):
         d = _tree()
         r = self.pta.evaluate(d, "6.0.0")
         self.assertEqual(r["state"], "absent", r)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_every_rejected_shape_reports_rejected(self):
         """The four shapes the gate measured as NOT_APPLICABLE. Each must now be `rejected` — UND JEDE
@@ -178,7 +178,7 @@ class TheGateReportsATypedState(unittest.TestCase):
                 r = self.pta.evaluate(d, "6.0.0")
                 self.assertEqual(r["state"], "rejected",
                                  f"{label}: state={r['state']!r} — a known-bad artefact reads as absence")
-                self.assertFalse(r["ok"])
+                self.assertIs(r["ok"], False)
                 self.assertTrue(r["rejected_receipts"],
                                 f"{label}: the candidate was skipped instead of rejected")
                 gruende = " | ".join(x.get("reason", "") for x in r["rejected_receipts"])
@@ -210,7 +210,7 @@ class TheGateReportsATypedState(unittest.TestCase):
                                                          gate_source_digest="b" * 64))
         r = self.pta.evaluate(d, "6.0.0")
         self.assertEqual(r["state"], "other_tree", r)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertEqual(len(r["other_tree_receipts"]), 1)
         self.assertEqual(r["rejected_receipts"], [])
         self.assertIn("ANOTHER tree", r["reason"])
@@ -292,17 +292,75 @@ class TheGateReportsATypedState(unittest.TestCase):
     def test_this_repositorys_own_register_is_foreign_on_this_tree(self):
         """The instance, against the real file: the register that lives next to the receipt in
         audit_artifacts/600 of THIS repository is listed as foreign, never as a rejection. A
-        fixture with a made-up register cannot say that; only the real file can."""
+        fixture with a made-up register cannot say that; only the real file can.
+
+        THE VERSION IS NAMED HERE, and it was not before. The call read the version off the tree,
+        so the assertion silently depended on which release the tree happened to claim: the gate
+        looks in `audit_artifacts/<cut>`, and the moment the tree moved to 6.1.0 it looked in
+        `610`, found nothing, answered `absent` with an empty `foreign_files`, and this test went
+        red — measured 2026-09-19 on the 6.1.0 version cut. The sentence it makes is about the
+        register in `600`, so it says `600`, exactly like its fixture sibling above. That is the
+        contract getting SHARPER: before, it was about whatever directory the tree pointed at.
+        """
         repo = pathlib.Path(__file__).resolve().parents[1]
         register = repo / "audit_artifacts" / "600" / "findings_register_v2.json"
         if not register.is_file():
             self.skipTest("this tree carries no audit_artifacts/600/findings_register_v2.json")
-        r = self.pta.evaluate(repo)
+        r = self.pta.evaluate(repo, "6.0.0")
         if r["state"] == "not_determinable":
             self.skipTest(f"not measurable here: {r.get('reason')}")
         self.assertIn("audit_artifacts/600/findings_register_v2.json",
                       [f["path"] for f in r["foreign_files"]], r)
         for eintrag in r.get("rejected_receipts", []) or []:
+            self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
+
+    def test_this_repositorys_own_register_never_grants_the_gate_whatever_the_tree_claims(self):
+        """The CLASS above the instance, and the reason the version above could be named safely.
+
+        Pinning the case to 6.0.0 would narrow what is measured if nothing else watched the
+        tree's own version. This does: for the version the tree actually claims, the register of
+        this house is never what grants the gate.
+
+        THE BLANKET FORM WAS WRONG, and this case's own ceremony proved it (2026-09-21, owner
+        decision OA-fa327c91f0, option A). The line used to read `assertIs(r["ok"], False)`, that is:
+        nothing ever grants the gate here. That held only while this tree carried no signed
+        pre-tag receipt of its own. The moment the release ceremony put one in, `ok` became true,
+        the state became `verified`, and the case went red against a tree that behaved exactly as
+        intended. A case that cannot survive the correct outcome is measuring the wrong thing.
+
+        What has to hold is narrower, and it is the sentence this case is named for: a grant
+        rests on a real receipt, never on the findings register. Where the gate does not grant,
+        the answer is one of the fail-closed states and there is no third answer. Where it does
+        grant, at least one receipt was verified, and the loop below keeps the register out of
+        that set whichever way the answer went.
+        """
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        r = self.pta.evaluate(repo)
+        if r["state"] == "not_determinable":
+            self.skipTest(f"not measurable here: {r.get('reason')}")
+        if r["ok"]:
+            # A grant has to rest on something that was actually verified. An `ok` carrying an
+            # empty set of verified receipts would mean the gate was opened by something this
+            # case cannot see, and that is the hole the blanket form used to cover by accident.
+            #
+            # HONEST ABOUT WHAT THIS CAN CATCH: today the gate computes `ok = bool(verified)`,
+            # so the state this line rejects is unreachable by construction, and the line is
+            # inert against the gate as it stands. It is a guard on that one identity, not on
+            # a state the gate can currently produce. It fires the day `ok` stops meaning
+            # "something verified", which is the day the word would quietly change meaning
+            # everywhere else that reads it.
+            self.assertTrue(r.get("verified_receipts"), r)
+        else:
+            # The fail-closed states, taken from what the gate actually returns:
+            # `verified` / `rejected` / `other_tree` / `absent`, plus `not_determinable`,
+            # which is skipped above. This tuple used to read `foreign`, a word the gate
+            # stopped using when the states were typed, and it left out `other_tree`, which
+            # the gate does return. A dead string in an allow-list narrows it silently: the
+            # next version cut, where the only receipt on file belongs to the previous
+            # candidate, answers `other_tree` and would have gone red on a tree that was
+            # fail-closed exactly as designed. Same class as the line above, one cycle later.
+            self.assertIn(r["state"], ("absent", "other_tree", "rejected"), r)
+        for eintrag in r.get("verified_receipts", []) or []:
             self.assertNotIn("findings_register", eintrag.get("path", ""), eintrag)
 
     def test_the_receipt_library_comes_from_the_gate_not_from_the_judged_tree(self):
@@ -320,9 +378,58 @@ class TheGateReportsATypedState(unittest.TestCase):
             encoding="utf-8")
         _plant(d, "600", "receipt.json", json.dumps({"garbage": True}))
         r = self.pta.evaluate(d, "6.0.0")
-        self.assertFalse(r["ok"], r)
+        self.assertIs(r["ok"], False, r)
         self.assertNotEqual(r["state"], "verified", r)
         self.assertNotIn("FORGED", json.dumps(r))
+
+    def test_the_gate_leaves_the_import_state_as_it_found_it(self):
+        """A gate judges a tree; it does not install it (2026-09-25, measured on main).
+
+        `evaluate` put the judged tree's `src/` in front of `sys.path` and set the bytecode switches,
+        and never undid either. The case above plants a forged `src/pre_tag_receipt_lib.py`; in the
+        same process a later plain `from pre_tag_receipt_lib import ...` then found the forgery, and
+        eight cases of this file failed with `cannot import name 'canonical_bytes'` under
+        PYTHONHASHSEED 5 and 7, the order in which they happened to run. The gate itself was safe
+        (it loads the library by path); everyone who ran after it was not."""
+        import importlib
+        d = _tree()
+        (d / "src").mkdir()
+        (d / "src" / "pre_tag_receipt_lib.py").write_text("RECEIPT_SCHEMA = 'forged'\n",
+                                                          encoding="utf-8")
+        vorher = (list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode)
+        self.pta.evaluate(d, "6.0.0")
+        self.assertEqual((list(sys.path), sys.pycache_prefix, sys.dont_write_bytecode), vorher,
+                         "evaluate changed the process-wide import state and left it changed")
+        alt = sys.modules.pop("pre_tag_receipt_lib", None)
+        try:
+            lib = importlib.import_module("pre_tag_receipt_lib")
+            self.assertTrue(hasattr(lib, "canonical_bytes"), lib.__file__)
+            self.assertNotIn(str(d), str(lib.__file__))
+        finally:
+            sys.modules.pop("pre_tag_receipt_lib", None)
+            if alt is not None:
+                sys.modules["pre_tag_receipt_lib"] = alt
+
+    def test_every_call_runs_with_the_bytecode_protection(self):
+        """The counter-direction of the restore: the protection that sends bytecode away from the
+        judged tree used to be set once per process. Restored after each call, a second call would run
+        without it. Measured inside the call, for two calls in a row."""
+        gesehen = []
+        echt = self.pta._gate_tree_digest     # runs inside the evaluation, after its setup
+
+        def spion(repo):
+            gesehen.append((sys.pycache_prefix, sys.dont_write_bytecode))
+            return echt(repo)
+
+        self.pta._gate_tree_digest = spion
+        d = _tree()
+        self.pta.evaluate(d, "6.0.0")
+        self.pta.evaluate(d, "6.0.0")
+        self.assertEqual(len(gesehen), 2)
+        for praefix, kein_schreiben in gesehen:
+            self.assertEqual(praefix, self.pta._CACHE_DIR)
+            self.assertIsNotNone(praefix)
+            self.assertTrue(kein_schreiben)
 
     def test_a_rejected_candidate_outranks_other_tree(self):
         """One known-bad artefact in the folder is a finding, whatever lies beside it."""
@@ -340,7 +447,7 @@ class TheGateReportsATypedState(unittest.TestCase):
         d = pathlib.Path(tempfile.mkdtemp(prefix="l5g601_nov_"))
         r = self.pta.evaluate(d)
         self.assertEqual(r["state"], "not_determinable", r)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 class C121NarrowsOnlyOnAbsence(unittest.TestCase):

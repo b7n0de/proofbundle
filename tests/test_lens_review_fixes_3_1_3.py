@@ -245,7 +245,7 @@ class TestPolicyPurposeNull(unittest.TestCase):
         self.assertTrue(res["policy_ok"])
         self.assertFalse(any(c["name"] == "policy:purpose" for c in res["checks"]))
         # strict lint still requires a real purpose (null == missing)
-        self.assertFalse(lint_policy(pol, strict=True)["ok"])
+        self.assertIs(lint_policy(pol, strict=True)["ok"], False)
 
 
 if __name__ == "__main__":

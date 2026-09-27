@@ -3,7 +3,7 @@
     "system": "Linux",
     "machine": "x86_64",
     "python": "3.11.15",
-    "cryptography": "46.0.5",
+    "cryptography": "50.0.1",
     "cbor_leser": "eigener, definite+indefinite (cbor_min.py)"
   },
   "faelle": [
@@ -18,8 +18,18 @@
       "cbor_tag": 18,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "signatur_laenge": 64,
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed",
+      "signature_verifies_with_public_key": true,
       "signatur_aus_seed_reproduziert": true,
-      "signatur_laenge": 64
+      "signature_ok": true
     },
     {
       "name": "V1 / B  carrying receipt",
@@ -32,8 +42,18 @@
       "cbor_tag": 18,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "signatur_laenge": 64,
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed",
+      "signature_verifies_with_public_key": true,
       "signatur_aus_seed_reproduziert": true,
-      "signatur_laenge": 64
+      "signature_ok": true
     },
     {
       "name": "V2 / A  tagged (aus V1/A)",
@@ -46,8 +66,18 @@
       "cbor_tag": 18,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "signatur_laenge": 64,
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed",
+      "signature_verifies_with_public_key": true,
       "signatur_aus_seed_reproduziert": true,
-      "signatur_laenge": 64
+      "signature_ok": true
     },
     {
       "name": "V2 / C  untagged (A ohne 0xd2)",
@@ -60,8 +90,42 @@
       "cbor_tag": null,
       "aeusseres_array_indefinit": false,
       "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "signatur_laenge": 64,
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed",
+      "signature_verifies_with_public_key": true,
       "signatur_aus_seed_reproduziert": true,
-      "signatur_laenge": 64
+      "signature_ok": true
+    },
+    {
+      "name": "D  indefinite array (vektor_d.json)",
+      "size_gemessen": 166,
+      "size_erwartet": 166,
+      "size_trifft": true,
+      "sha256_gemessen": "79c6215d691cd72ce47feb4e5b26eb047e1880a64c7ef6fbd51f6a0cba092a11",
+      "sha256_erwartet": "79c6215d691cd72ce47feb4e5b26eb047e1880a64c7ef6fbd51f6a0cba092a11",
+      "sha256_trifft": true,
+      "cbor_tag": 18,
+      "aeusseres_array_indefinit": true,
+      "sig_structure_laenge": 109,
+      "sig_structure_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "signatur_laenge": 64,
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "taken over from A when D was minted here, verified with the published public key",
+      "signature_verifies_with_public_key": true,
+      "signatur_aus_seed_reproduziert": null,
+      "signature_ok": true
     },
     {
       "name": "delta A gegen C",
@@ -72,5 +136,84 @@
       "sha256_trifft": true,
       "signatur_aus_seed_reproduziert": true
     }
-  ]
+  ],
+  "sig_structure_comparison": {
+    "cases": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "sha256_per_case": {
+      "A": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "B": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "C": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+      "D": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f"
+    },
+    "distinct_sha256": [
+      "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f"
+    ],
+    "all_identical": true
+  },
+  "falling_probe": {
+    "flipped": "B: byte 36 (last byte of the protected header), xor 0x01",
+    "all_identical_before_flip": true,
+    "all_identical_after_flip": false,
+    "distinct_sha256_after_flip": 2,
+    "caught": true
+  },
+  "tobesigned_inputs": {
+    "A": {
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed"
+    },
+    "B": {
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed"
+    },
+    "C": {
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "reproduced byte for byte from the published seed"
+    },
+    "D": {
+      "payload_embedded": true,
+      "payload_type": "bstr",
+      "payload_length": 59,
+      "payload_sha256": "e2769722a4882da3c4513fde12e9aa020fac5450c26938795abe7e696b10df64",
+      "external_aad_length": 0,
+      "external_aad_source": "not carried by the COSE_Sign1, recomputed here as the empty byte string",
+      "signature_evidence": "taken over from A when D was minted here, verified with the published public key"
+    }
+  },
+  "external_aad_probe_on_A": {
+    "external_aad_hex": "00",
+    "verifies_with_empty_external_aad": true,
+    "verifies_with_this_external_aad": false,
+    "caught": true
+  },
+  "A_detached": {
+    "size_bytes": 105,
+    "sha256": "388100857dbd87dabdcf65bccc9ab4bd142aa8fbd0d63935a5f767a4b13a7982",
+    "payload_in_envelope": "nil",
+    "sig_structure_from_envelope_alone": "not formable: the payload element is nil",
+    "sig_structure_with_supplied_payload_sha256": "60b4c76b84c456ed0604305075f51f6d050476177ef17be70a13a7b9abfb370f",
+    "equals_sig_structure_of_the_embedded_envelope": true,
+    "verifies_with_supplied_payload": true,
+    "caught": true
+  }
 }

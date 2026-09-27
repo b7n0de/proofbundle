@@ -40,7 +40,8 @@ include docs/adr/renewal_policy.example.json
 # blanket graft would also ship documents whose internal links point at pruned repo files, which
 # breaks test_docs_truth from the sdist.
 include docs/RECEIPT_ENVELOPE_PROFILE.md
-# Same reason, measured 01.09.2026: 14 conformance cases under conformance/agent_review/
+# Same reason, re-derived by tests/test_shipped_comment_numbers.py: 35 conformance cases under
+# conformance/agent_review/ (first written as 14 on 01.09.2026, already wrong then)
 # cite this file NORMATIVELY (`specRef`), and it was not shipped — the corpus referred to a
 # document the installed package did not contain. It carries no local links, so it cannot
 # break test_docs_truth the way a `graft docs` would.
@@ -99,6 +100,45 @@ include Makefile
 # DRAUSSEN und ausdruecklich entschieden: scripts/install_git_hooks.sh — seine Verbraucher sind der
 # git-Hook des Checkouts und der CI-Kanal, beides gibt es im sdist nicht.
 #
+# OUT, and deliberately decided (2026-09-24): scripts/render_release.py. It renders the release body
+# from `release_notes/release-source.json`, which no line of this list ships, and it measures the head
+# of a git tree to refuse a source that describes a different one. An installed package has neither
+# the source nor a tree, so the script would only fail to find its input — the same reason
+# `b7_release_scope_title_gate.py` and its two siblings stand outside. Its contract
+# `tests/test_render_release.py` therefore loads it through `spec_from_file_location`, so a run from
+# the unpacked sdist reports an honest skip instead of aborting collection.
+#
+# OUT, and deliberately decided (2026-09-24): scripts/render_pr_body.py. It renders a pull request
+# body or a house issue from a data source under `pr_bodies/`, which no line of this list ships, and
+# the surfaces it writes for exist only in this project's own GitHub repository. An installed package
+# has neither the source nor a use for the output, so the script would only fail to find its input —
+# the same reason `render_release.py` stands outside, three paragraphs up. Its contract
+# `tests/test_render_pr_body.py` therefore loads it through `spec_from_file_location` on module level,
+# so a run from the unpacked sdist reports an honest skip instead of aborting collection, and its two
+# fixtures under `tests/fixtures/pr_bodies/` stay outside for the same reason: the cases that read them
+# never run where the script is absent.
+#
+# OUT, and deliberately decided (2026-09-25): scripts/render_site_data.py. It measures this
+# repository to render `docs/site/site-data.json`: the version from pyproject, the release date and
+# commit from a git tag, the check count from a real verify run over a conformance bundle, the test
+# count from `tests/*.py`, and the release receipts under `audit_artifacts/`. An installed package has
+# no git tree, no conformance corpus and no audit artefacts, so every field would come back
+# not_measurable and the run would write a file that says nothing — the same reason `render_release.py`
+# and `render_pr_body.py` stand outside, above. Its contract
+# `tests/test_site_data_every_value_with_its_source.py` loads it through `spec_from_file_location`, and
+# because that module names `scripts/render_site_data.py` — a path this list does not ship — the
+# derived skip set in `tests/conftest.py::modul_ist_repo_kontext` marks it repo-context outside a
+# checkout and skips it honestly, while inside a checkout the path exists and every case runs.
+#
+# OUT, and deliberately decided (2026-09-26): scripts/codex_threads_check.py. It asks the GitHub API
+# for the Codex review threads, the issue comments and the head of one pull request of this
+# repository, and `.github/workflows/codex-threads.yml` runs it on every pull request. An installed
+# package has no pull request and no repository to ask, so the script could only fail to reach its
+# input, the same reason `required_context_presence_gate.py` stands outside. Its contract
+# `tests/test_codex_threads_check.py` loads it through `spec_from_file_location` on module level;
+# outside a checkout the file is absent and not in SOURCES.txt, so `tests/conftest.py` reports the
+# module as a skip that names the file instead of aborting collection.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der
@@ -115,8 +155,16 @@ include Makefile
 # in den sdist. Dass er dabei seine eigenen Muster mitliefert, ist bedacht: der Riegel nimmt genau
 # eine Datei aus, sich selbst (EIGENER_PFAD), und zwar praefix-tolerant, weil im sdist jeder Pfad
 # unter proofbundle-<version>/ liegt.
+#
+# IN, decided the way its reader is (2026-09-26): scripts/mutation_baseline_allowlist.json. The
+# shipped scripts/mutation_check.py reads it for every baseline (`lade_erlaubnisliste`), and the
+# shipped contract tests/test_mutation_selection.py reads it as well. Left undecided, it turned
+# `test_jede_datei_unter_scripts_ist_in_manifest_entschieden` red, a test that stands in every
+# selection of the gate, so the first baseline of every shard stopped; and the contract failed from
+# the sdist with FileNotFoundError. It is data of a shipped script, like the shard weights below.
 include scripts/demo.sh
 include scripts/demo_tamper.sh
+include scripts/mutation_baseline_allowlist.json
 include scripts/mutation_shard_weights.json
 include scripts/rust_parity_registry.json
 include scripts/_build_anchor_fixture.py

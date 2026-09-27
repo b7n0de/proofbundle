@@ -346,6 +346,19 @@ AUSGESCHLOSSEN = {
     # have to form a verdict from its absence. Its subject is moreover the BRANCH of a pull
     # request, which does not exist in an installed package at all.
     "b7_release_scope_title_gate.py": "liest docs/release_scope/, das die sdist nicht ausliefert; Gegenstand ist ein PR-Zweig",
+    # 2026-09-24: renders a pull request body or a house issue from a data source under `pr_bodies/`,
+    # which MANIFEST.in ships no line of, and the surfaces it writes for exist only in this project's
+    # own GitHub repository. An installed package has neither the source nor a use for the output, so
+    # the script could only fail to find its input. Same reasoning as `render_release.py`, which is
+    # already outside for the same shape; the two are siblings and this entry is short because of it.
+    "render_pr_body.py": "rendert PR- und Issue-Rumpfe aus pr_bodies/, das die sdist nicht ausliefert",
+    # 2026-09-25: measures THIS repository to render docs/site/site-data.json — the version from
+    # pyproject, the release date and commit from a git tag, the check count from a real verify run
+    # over a conformance bundle, the test count from tests/*.py, and the release receipts under
+    # audit_artifacts/. An installed package has no git tree, no conformance corpus and no audit
+    # artefacts, so every field would come back not_measurable and the run would write a file that
+    # says nothing. Same reasoning as its two siblings above.
+    "render_site_data.py": "measures a git tree, a conformance bundle and audit_artifacts/ — none of them exist in the package",
     # Same class as the title gate, measured 2026-09-17 on pull request 215: both were undecided
     # and the contract above went red on every required context. The landing card reads
     # docs/release_scope/ and the pull-request titles on main through gh; the language guard
@@ -374,6 +387,22 @@ AUSGESCHLOSSEN = {
     # kein Test laedt es, kein Workflow ruft es, die drei Fundstellen sind Doku-Verweise, die das
     # ERGEBNIS der Messung vom 05.09. belegen — und Herkunft darf auf einen Repo-Pfad zeigen.
     "interop/cedulon_leaked_refusal_adapter.py": "Einmal-Messwerkzeug; seine Fixture liegt in einem fremden Repo",
+    # 2026-09-24: renders the release body from `release_notes/release-source.json`, and the sdist
+    # ships neither that directory nor `graft docs`. Its subject is the act of publishing a release
+    # OF THIS REPOSITORY — it reads the source, measures the head of a git tree and refuses when the
+    # two disagree. An installed package has no release to publish and no tree to measure, so the
+    # script could only fail to find its input, which is the failure mode it is built against. Same
+    # reasoning as `b7_release_scope_title_gate.py` four entries up.
+    #
+    # THE DECISION HAD TO BE MADE HERE FIRST, and I made it the other way around: the contract
+    # `tests/test_render_release.py` imported the script at module level before this entry existed,
+    # so `hermetic-cleanroom` went red on a collection error. The undecided file was the cause; the
+    # broken collection was only where it became visible.
+    "render_release.py": "renders a release note of this repository from release_notes/, which the sdist does not ship; no input inside a package",
+    # 2026-09-26: asks the GitHub API for the Codex threads, the issue comments and the head of one
+    # pull request, and a workflow runs it on every pull request. An installed package has no pull
+    # request and no repository to ask. Same reasoning as `required_context_presence_gate.py`.
+    "codex_threads_check.py": "asks the GitHub API for the Codex threads of one pull request; no pull request inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
@@ -508,20 +537,39 @@ def _geschwisterdateien_die_ein_skript_zusammensetzt(quelle: str, namen: set[str
 
     Erkannt wird deshalb nur ein ``/``-Ausdruck (``ast.BinOp`` mit ``ast.Div``), in dessen Aesten
     eine Zeichenkette steht, die eine wirklich existierende Datei unter ``scripts/`` benennt.
+
+    A NAME BOUND TO SUCH A STRING AT MODULE LEVEL COUNTS AS THE STRING (Z230 round 2, 2026-09-26).
+    ``scripts/mutation_check.py`` reads its allowlist as ``work / ERLAUBNIS_DATEI`` with
+    ``ERLAUBNIS_DATEI = "scripts/mutation_baseline_allowlist.json"``; the detector saw only literals
+    and missed it, and the file went undecided in MANIFEST.in while a shipped script read it.
     """
     treffer: set[str] = set()
     try:
         baum = ast.parse(quelle)
     except SyntaxError:
         return treffer
+    konstanten: dict[str, str] = {}
+    for k in getattr(baum, "body", []):
+        wert = getattr(k, "value", None)
+        if not (isinstance(k, (ast.Assign, ast.AnnAssign)) and isinstance(wert, ast.Constant)
+                and isinstance(wert.value, str)):
+            continue
+        for z in (k.targets if isinstance(k, ast.Assign) else [k.target]):
+            if isinstance(z, ast.Name):
+                konstanten[z.id] = wert.value
     for k in ast.walk(baum):
         if not isinstance(k, ast.BinOp) or not isinstance(k.op, ast.Div):
             continue
         for teil in ast.walk(k):
             if isinstance(teil, ast.Constant) and isinstance(teil.value, str):
-                name = teil.value.rsplit("/", 1)[-1]
-                if name in namen:
-                    treffer.add(name)
+                wert = teil.value
+            elif isinstance(teil, ast.Name) and teil.id in konstanten:
+                wert = konstanten[teil.id]
+            else:
+                continue
+            name = wert.rsplit("/", 1)[-1]
+            if name in namen:
+                treffer.add(name)
     return treffer
 
 
@@ -582,6 +630,20 @@ def test_meta_der_detektor_unterscheidet_zusammensetzung_von_erwaehnung():
         "eine echte Pfad-Zusammensetzung wird nicht gesehen — der Riegel ist blind"
     assert _geschwisterdateien_die_ein_skript_zusammensetzt(erwaehnt, namen) == set(), \
         "eine blosse Erwaehnung gilt als Zugriff — der Riegel meldet Bedarf, wo keiner ist"
+
+
+def test_meta_a_path_through_a_module_constant_is_seen():
+    """The form `scripts/mutation_check.py` reads its allowlist with (Z230 round 2): the file name
+    stands in a module-level constant, and the `/` expression names the constant. Both directions:
+    the composition is seen, a constant that only appears in a message is not."""
+    namen = {"registry.json"}
+    zusammengesetzt = ('from pathlib import Path\nDATEI = "scripts/registry.json"\n'
+                       'def lies(wurzel):\n    return (wurzel / DATEI).read_text()\n')
+    erwaehnt = 'DATEI = "scripts/registry.json"\nMSG = f"see {DATEI} for the reason"\n'
+    assert _geschwisterdateien_die_ein_skript_zusammensetzt(zusammengesetzt, namen) == {"registry.json"}, \
+        "a path composed from a module constant is not seen — the detector is blind to it"
+    assert _geschwisterdateien_die_ein_skript_zusammensetzt(erwaehnt, namen) == set(), \
+        "a constant named only in a message counts as an access"
 
 
 def test_meta_eine_entfernte_datendatei_wird_wirklich_gefunden():

@@ -1,18 +1,40 @@
-"""The pre-tag receipt binds the committed head, so it may not be produced from a dirty tree.
+"""The pre-tag receipt binds the committed head, so it may not be produced from a dirty tree, and
+the audit whose output it records runs between two measurements of that tree.
 
 `subject_tree_digest()` digests `git ls-tree -r HEAD`. The audit whose output the receipt carries
 runs over the WORKING TREE. Those are the same bytes only while nothing is uncommitted, and until
 this gate existed nothing checked: a measurement on the operating tree found two modified paths
 while a receipt was produced, so the receipt attested a tree that had not been the one examined.
 
-The cases below run the real script through `--emit-payload`, not the helper alone, because the
+TWO MORE CLASSES, measured 2026-09-21 by a counter-reading from another model family and swept
+for their siblings. First, the check ran AFTER the audit: the tool received the audit's output as
+a file and could not say what the tree looked like while that output was produced (modify, run,
+restore, emit went through). Now the tool starts the audit itself, measures before and after, and
+records what it captured. Second, the check took `git status`'s word, and that word depends on
+configuration outside the tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
+`.git/info/exclude`, an untracked `.gitignore` covering itself, `GIT_DIR` in the environment.
+Each of them hid a path from the first version; each has a case below. The second counter-reading,
+the same day, named the index flags `assume-unchanged` and `skip-worktree`, which hide a modified
+tracked file from `git status` altogether; the comparison now runs through a fresh index read from
+HEAD, and those two have their cases as well. The third round, own sweep plus a second
+counter-reading the same day, measured that git still answered through its configuration on that
+fresh index: a clean filter defined in the configuration, `core.worktree` and `core.fileMode`. The
+comparison is now computed from the bytes on disk against `git ls-tree -r HEAD`, and those three
+have their cases below, each red against `97af10d`. The fourth round (Codex) measured
+`core.ignoreCase=true` hiding an untracked file from `git ls-files --others`; the untracked paths
+now come from the filesystem, and that case is red against `f4203e5`.
+
+The cases run the real script through `--emit-payload`, not the helper alone, because the
 question is whether the REFUSAL IS ON THE PATH the release chain takes. A gate that exists and is
 never called is the defect it was written against.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -29,9 +51,18 @@ SKRIPT = REPO / "scripts" / "pre_tag_receipt.py"
 #: are the same class rather than the same symptom: they redirect `git status --porcelain` away
 #: from `--repo`, so the cleanliness gate would be answered about a tree nobody chose. A case must
 #: measure the code, so the child starts without them.
+#: MEASURED 2026-09-21 by the crypto-floor job, which runs `unittest discover` and therefore the
+#: cases of this file in alphabetical order: the second-caller case below imports the tool into
+#: THIS process, and that import sets `GIT_NO_REPLACE_OBJECTS=1` process-wide, so every later
+#: fixture git call and every child inherited it. The replacement case then read the raw base where
+#: its precondition expected the replaced checkout, and a tool WITHOUT the replacement fix would
+#: have passed that case, because the environment supplied the switch. The fixture git runs on
+#: this list as well (see `_git`), so the state a case builds does not depend on which case ran
+#: before it.
 _UMGEBUNG_DARF_DAS_NICHT_BEANTWORTEN = (
     "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX",
     "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE",
 )
 
 
@@ -45,10 +76,23 @@ def _kindumgebung(**zusatz) -> dict:
 
 
 def _git(cwd, *args) -> str:
-    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    """Fixture git, in an environment this file controls: a sibling case that imports the tool
+    flips `GIT_NO_REPLACE_OBJECTS` for the whole process, and a fixture that inherited it would
+    build a different state depending on which case ran before it."""
+    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True,
+                       env=_kindumgebung())
     if r.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed in {cwd}: {r.stderr}")
     return r.stdout.strip()
+
+
+def _python(code: str) -> str:
+    """An audit command that runs `code` in this interpreter, as one shell-quoted line."""
+    return shlex.join([sys.executable, "-c", code])
+
+
+#: What the default audit of these cases says, and what its record must therefore contain.
+_AUDIT_SAGT = b"audit ran\n"
 
 
 class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
@@ -59,7 +103,8 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
                           "artefact prunes scripts/, and a tool that is not here cannot be judged")
         d = tempfile.mkdtemp(prefix="pre-tag-dirty-")
         self.addCleanup(__import__("shutil").rmtree, d, ignore_errors=True)
-        self.baum = pathlib.Path(d) / "repo"
+        self.aussen = pathlib.Path(d)
+        self.baum = self.aussen / "repo"
         self.baum.mkdir()
         _git(self.baum, "init", "-q")
         _git(self.baum, "config", "user.email", "t@example.invalid")
@@ -73,45 +118,394 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
             "# stub: only its bytes are hashed by _gate_source_digest\n", encoding="utf-8")
         _git(self.baum, "add", "a.txt", "scripts/pre_tag_audit_gate.py")
         _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
-        self.ausgabe = pathlib.Path(d) / "audit.txt"
-        self.ausgabe.write_text("audit output\n", encoding="utf-8")
+        self._laufende_nummer = 0
 
-    def _emit(self) -> subprocess.CompletedProcess:
-        ziel = self.baum.parent / "payload.bin"
-        kontext = self.baum.parent / "context.json"
+    def _aufzeichnung(self) -> pathlib.Path:
+        """A fresh record path OUTSIDE the tree for each emit; the tool refuses an existing one."""
+        self._laufende_nummer += 1
+        return self.aussen / f"audit_{self._laufende_nummer}.txt"
+
+    def _emit(self, befehl: str | None = None, aufzeichnung: pathlib.Path | None = None,
+              skript: pathlib.Path | None = None, cwd: pathlib.Path | None = None,
+              umgebung: dict | None = None, extra: list[str] | None = None):
+        ziel = self.aussen / "payload.bin"
+        kontext = self.aussen / "context.json"
+        for alt in (ziel, kontext):
+            alt.unlink(missing_ok=True)
+        self.payload, self.kontext = ziel, kontext
         return subprocess.run(
-            [sys.executable, str(SKRIPT), "--repo", str(self.baum),
+            [sys.executable, str(skript or SKRIPT), "--repo", str(self.baum),
              "--emit-payload", str(ziel), "--context-out", str(kontext),
-             "--version", "6.1.0", "--audit-command", "true", "--audit-exit", "0",
-             "--audit-output-file", str(self.ausgabe),
-             "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
-            capture_output=True, text=True, cwd=str(REPO),
-            env=_kindumgebung(PYTHONPATH=str(REPO / "scripts")))
+             "--version", "6.1.0",
+             "--audit-command", befehl if befehl is not None else _python("print('audit ran')"),
+             "--audit-output-file", str(aufzeichnung or self._aufzeichnung()),
+             "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z",
+             *(extra or [])],
+            capture_output=True, text=True, cwd=str(cwd or REPO),
+            env=umgebung or _kindumgebung(PYTHONPATH=str(REPO / "scripts")))
+
+    def _abgewiesen(self, r, *erwartet: str):
+        meldung = r.stdout + r.stderr
+        self.assertNotEqual(r.returncode, 0, f"a payload was produced:\n{meldung[-800:]}")
+        self.assertFalse(self.payload.exists(), "a payload was written despite the refusal")
+        for e in erwartet:
+            self.assertIn(e, meldung, f"the refusal does not say {e!r}: {meldung[-800:]}")
+        self.assertNotIn("Traceback", meldung, f"a refusal is a decision, not a crash: {meldung[-800:]}")
+        return meldung
+
+    # ── the tree must be clean, and the tool must be the one who says so ─────────────────────────
 
     def test_ein_schmutziger_baum_wird_abgewiesen(self):
         """The case this file exists for: one uncommitted path and the emit refuses by name."""
         (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
         self.assertNotEqual(_git(self.baum, "status", "--porcelain"), "",
                             "the fixture is not dirty, so this case is not testing what it says")
-        r = self._emit()
-        self.assertNotEqual(r.returncode, 0, f"a dirty tree produced a payload:\n{r.stdout}")
-        meldung = r.stdout + r.stderr
-        self.assertIn("uncommitted path", meldung, meldung[-800:])
-        self.assertIn("a.txt", meldung, "the refusal does not name what is uncommitted")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt", "before the audit")
 
     def test_KONTROLLE_ein_sauberer_baum_kommt_durch(self):
-        """Without this the first case would also pass for a gate that refuses ALWAYS."""
+        """Without this the refusals would also hold for a gate that refuses ALWAYS. And the
+        control says what the payload binds: the digest of the record this run wrote, and the
+        exit code the audit returned."""
         self.assertEqual(_git(self.baum, "status", "--porcelain"), "")
-        r = self._emit()
+        aufzeichnung = self._aufzeichnung()
+        r = self._emit(aufzeichnung=aufzeichnung)
         self.assertEqual(r.returncode, 0, f"a clean tree was refused:\n{r.stdout}\n{r.stderr}")
         self.assertIn("emitted payload", r.stdout, r.stdout)
+        self.assertEqual(aufzeichnung.read_bytes(), _AUDIT_SAGT, "the record is not what the audit said")
+        kontext = json.loads(self.kontext.read_text(encoding="utf-8"))
+        self.assertEqual(kontext["audit_exit_code"], 0)
+        self.assertEqual(kontext["audit_output_digest"], hashlib.sha256(_AUDIT_SAGT).hexdigest(),
+                         "audit_output_digest is not the sha256 of the record's bytes")
+        self.assertEqual(kontext["subject_tree_digest"],
+                         self._tree_digest(), "the payload does not bind the head that was measured")
+
+    def _tree_digest(self) -> str:
+        sys.path.insert(0, str(REPO / "scripts"))
+        try:
+            from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
+        finally:
+            sys.path.pop(0)
+        return subject_tree_digest(self.baum)
 
     def test_auch_eine_unverfolgte_datei_zaehlt(self):
-        """`--porcelain` reports untracked files too, and they change what the audit read."""
+        """An untracked file changes what the audit read, so it counts as dirt."""
         (self.baum / "neu.txt").write_text("hinzu\n", encoding="utf-8")
+        self._abgewiesen(self._emit(), "uncommitted path", "neu.txt")
+
+    # ── the answer must not depend on configuration outside the tree ─────────────────────────────
+
+    def test_status_showUntrackedFiles_no_verbirgt_keinen_pfad(self):
+        """[ZAEHLT] P1 of the counter-reading, 2026-09-21: `git status --porcelain` honours
+        `status.showUntrackedFiles`, so a checkout configured with `no` hid an untracked path from
+        the gate and the emit went through. Red against the version that asked `git status`."""
+        (self.baum / "neu.txt").write_text("hinzu\n", encoding="utf-8")
+        _git(self.baum, "config", "status.showUntrackedFiles", "no")
+        # anti-vacuity: the configuration really hides the file from a plain status
+        self.assertEqual(_git(self.baum, "status", "--porcelain"), "",
+                         "the configuration did not hide the path, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "neu.txt")
+
+    def test_ein_globaler_ausschluss_verbirgt_keinen_pfad(self):
+        """[ZAEHLT] Sibling of the same class: `core.excludesFile` is read by `git status` from
+        any configuration level, and a pattern there hid the untracked path. Measured 2026-09-21."""
+        (self.baum / "neu.txt").write_text("hinzu\n", encoding="utf-8")
+        ausschluss = self.aussen / "excludes"
+        ausschluss.write_text("neu.txt\n", encoding="utf-8")
+        _git(self.baum, "config", "core.excludesFile", str(ausschluss))
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the excludes file did not hide the path, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "neu.txt")
+
+    def test_info_exclude_verbirgt_keinen_pfad(self):
+        """[ZAEHLT] Sibling: `.git/info/exclude` lives outside the committed tree and hid the path
+        from `git status --untracked-files=all` as well. Measured 2026-09-21."""
+        (self.baum / "neu.txt").write_text("hinzu\n", encoding="utf-8")
+        with (self.baum / ".git" / "info" / "exclude").open("a", encoding="utf-8") as fh:
+            fh.write("neu.txt\n")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "")
+        self._abgewiesen(self._emit(), "uncommitted path", "neu.txt")
+
+    def test_eine_unverfolgte_ignore_datei_versteckt_sich_nicht_selbst(self):
+        """[ZAEHLT] Sibling: an untracked `sub/.gitignore` containing `*` hides itself and
+        everything beside it from `git status` and from `ls-files --others --exclude-per-directory`.
+        Measured 2026-09-21: nothing listed, `sub/evil.py` invisible. The refusal names the ignore
+        file and the source that hid it."""
+        (self.baum / "sub").mkdir()
+        (self.baum / "sub" / ".gitignore").write_text("*\n", encoding="utf-8")
+        (self.baum / "sub" / "evil.py").write_text("x = 1\n", encoding="utf-8")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the ignore file did not hide the directory, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "sub/.gitignore", "not a tracked rule")
+
+    def test_assume_unchanged_verbirgt_keine_aenderung(self):
+        """[ZAEHLT] P1 of the second counter-reading, 2026-09-21: `git update-index
+        --assume-unchanged` tells git not to look at a tracked file, so `git status` and `git diff`
+        report nothing for it while its bytes differ from HEAD. The first version asked `git status`
+        and emitted. Red against the version that asked `git status`."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "update-index", "--assume-unchanged", "a.txt")
+        # anti-vacuity: the flag really hides the modification from a plain status
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the flag did not hide the modification, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    def test_skip_worktree_verbirgt_keine_aenderung(self):
+        """[ZAEHLT] The sibling flag of the same round: `skip-worktree` is index metadata as well,
+        and it hides a modified tracked file from every listing that goes through that index."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "update-index", "--skip-worktree", "a.txt")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the flag did not hide the modification, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    def test_eine_gestagte_aenderung_zaehlt(self):
+        """[GETRENNT] A change that sits in the index but not in HEAD is dirt too: the receipt
+        binds HEAD, and the audit would read bytes HEAD does not carry. The version that asked
+        `git status` refused this as well, so the case could not be red against it; it pins that
+        the fresh-index comparison still sees the index."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "add", "a.txt")
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    def test_eine_geloeschte_verfolgte_datei_zaehlt(self):
+        """[GETRENNT] A tracked file missing from the checkout is a tree that differs from HEAD.
+        Refused by the previous version too, so not red against it; it pins that `git read-tree`
+        into a fresh index reports the absence as `D` rather than as nothing."""
+        (self.baum / "a.txt").unlink()
+        self._abgewiesen(self._emit(), "uncommitted path", "a.txt")
+
+    # ── the third round: git answered through its configuration even on a fresh index ──────────
+
+    def test_ein_clean_filter_aus_der_konfiguration_verbirgt_keine_aenderung(self):
+        """[ZAEHLT] Own sweep plus a second counter-reading, 2026-09-21: `git diff-index` converts
+        the working file through the clean filter before comparing, and the filter command comes
+        from the configuration. `git show HEAD:%f` as the filter makes every modified file look
+        like its committed self. Red against `97af10d`, the version that asked `diff-index`."""
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        (self.baum / ".git" / "info" / "attributes").write_text("a.txt filter=hide\n", encoding="utf-8")
+        _git(self.baum, "config", "filter.hide.clean", "git show HEAD:%f")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the filter did not hide the modification, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
+
+    def test_core_worktree_zeigt_git_auf_einen_anderen_baum(self):
+        """[ZAEHLT] `core.worktree` in the checkout's config makes every git listing answer about
+        another directory, while the audit runs in this one. Red against `97af10d`."""
+        import shutil  # noqa: PLC0415
+        sauber = self.aussen / "sauber"
+        shutil.copytree(self.baum, sauber, symlinks=True)
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "config", "core.worktree", str(sauber))
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "git still looked at this directory, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
+
+    def test_core_fileMode_false_verbirgt_keine_modusaenderung(self):
+        """[ZAEHLT] The tree digest covers modes (`ls-tree` prints them), so a mode change is a
+        tree the head does not name; `core.fileMode=false` told git not to look. Red against
+        `97af10d`."""
+        os.chmod(self.baum / "a.txt", 0o700)
+        _git(self.baum, "config", "core.fileMode", "false")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "git still reported the mode change, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "mode a.txt")
+
+    def test_KONTROLLE_der_filter_allein_stoert_einen_sauberen_baum_nicht(self):
+        """A configured filter over an unchanged file must not refuse: the comparison is over the
+        bytes on disk, and those equal the blob."""
+        (self.baum / ".git" / "info" / "attributes").write_text("a.txt filter=hide\n", encoding="utf-8")
+        _git(self.baum, "config", "filter.hide.clean", "git show HEAD:%f")
         r = self._emit()
-        self.assertNotEqual(r.returncode, 0, "an untracked file did not stop the emit")
-        self.assertIn("neu.txt", r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 0, (r.stdout + r.stderr)[-800:])
+        self.assertTrue(self.payload.exists())
+
+    def test_KONTROLLE_eine_ausfuehrbare_datei_und_ein_symlink_gleich_dem_head_stoeren_nicht(self):
+        """The mode comparison accepts 100755 where 100755 was committed, and a symbolic link whose
+        target equals the committed one; a changed link target refuses by name."""
+        lauf = self.baum / "run.sh"
+        lauf.write_text("#!/bin/sh\n", encoding="utf-8")
+        os.chmod(lauf, 0o700)
+        os.symlink("a.txt", self.baum / "link")
+        _git(self.baum, "add", "run.sh", "link")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "exec and link")
+        r = self._emit()
+        self.assertEqual(r.returncode, 0, (r.stdout + r.stderr)[-800:])
+        os.unlink(self.baum / "link")
+        os.symlink("scripts", self.baum / "link")
+        # `_git` strips the output, so the porcelain state column loses its leading blank.
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"),
+                         "M link", "precondition: git itself reports the retargeted link")
+        self._abgewiesen(self._emit(), "uncommitted path", "M link")
+
+    # ── the fourth round: git's configured path equality hid an untracked file ────────────────
+
+    def test_core_ignoreCase_verbirgt_keine_unverfolgte_datei(self):
+        """[ZAEHLT] Codex, round four, 2026-09-21: with `core.ignoreCase=true` an untracked `A.TXT`
+        beside the tracked `a.txt` is invisible to `git ls-files --others` on a case-sensitive
+        filesystem, while the audit can read it. Red against `f4203e5`, which still asked git for
+        the untracked paths; the paths now come from the filesystem."""
+        (self.baum / "A.TXT").write_text("planted\n", encoding="utf-8")
+        _git(self.baum, "config", "core.ignoreCase", "true")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "git still listed the file, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "?? A.TXT")
+
+    def test_ein_fremdes_repository_im_baum_wird_benannt(self):
+        """[GETRENNT] A nested repository is something the head does not carry; the walk names its
+        `.git` rather than descending into it. `f4203e5` refused this too (git lists the
+        directory), so the case pins the walk, not the round."""
+        _git(self.baum, "init", "-q", "fremd")
+        (self.baum / "fremd" / "x.txt").write_text("x\n", encoding="utf-8")
+        self._abgewiesen(self._emit(), "uncommitted path", "fremd/.git")
+
+    # ── the fifth round: a negated rule is not a hiding rule, and a replaced object is not HEAD ──
+
+    def test_eine_negierte_regel_versteckt_nichts(self):
+        """[ZAEHLT] Codex, round five, 2026-09-21: `check-ignore -v` also reports the last NEGATED
+        pattern that matched, and the reader of the previous head took every rule from a tracked
+        `.gitignore` for a hiding rule. `keep.log`, un-ignored by `!keep.log`, is untracked, and
+        `git status` says so; the tool of `9f9188d` emitted. Red against `9f9188d`."""
+        (self.baum / ".gitignore").write_text("*.log\n!keep.log\n", encoding="utf-8")
+        _git(self.baum, "add", ".gitignore")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "ignore logs, keep one")
+        (self.baum / "keep.log").write_text("planted\n", encoding="utf-8")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"),
+                         "?? keep.log", "precondition: git itself lists the un-ignored file")
+        self._abgewiesen(self._emit(), "uncommitted path", "?? keep.log")
+
+    def test_ein_ersatzobjekt_taeuscht_den_kopf_nicht(self):
+        """[ZAEHLT] Codex, round five, 2026-09-21: `refs/replace` makes every git read return a
+        substituted object. A base revision with `a.txt=eins`, a second with `a.txt=zwei`,
+        `git replace <base> <second>`, `git reset --hard <base>`: the checkout carries `zwei`, git
+        reports a clean tree, and `ls-tree HEAD` listed the second tree, so the tool of `9f9188d`
+        emitted while the raw head still said `eins`. Red against `9f9188d`.
+
+        ORDER-INDEPENDENT since 2026-09-21: under `unittest discover` the in-process import of the
+        second-caller case runs first and sets `GIT_NO_REPLACE_OBJECTS=1` for this process; the
+        fixture git of this case and the child under test now run without it, so the precondition
+        holds in either order, and a tool that relied on the inherited variable is refused."""
+        basis = _git(self.baum, "rev-parse", "HEAD")
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        _git(self.baum, "add", "a.txt")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "second")
+        zweite = _git(self.baum, "rev-parse", "HEAD")
+        _git(self.baum, "reset", "-q", "--hard", basis)
+        _git(self.baum, "replace", basis, zweite)
+        _git(self.baum, "reset", "-q", "--hard", basis)      # read through the replacement
+        self.assertEqual((self.baum / "a.txt").read_text(encoding="utf-8"), "zwei\n",
+                         "precondition: the checkout was read through the replacement")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "precondition: git itself calls this tree clean")
+        roh = subprocess.run(["git", "-C", str(self.baum), "show", "HEAD:a.txt"], capture_output=True,
+                             text=True, env=dict(os.environ, GIT_NO_REPLACE_OBJECTS="1"))
+        self.assertEqual(roh.stdout, "eins\n", "precondition: the raw head still carries eins")
+        self._abgewiesen(self._emit(), "uncommitted path", "M a.txt")
+
+    def test_KONTROLLE_ein_werkzeugcache_hinter_einer_verfolgten_regel_stoert_nicht(self):
+        """Without this the case above would also pass for a gate that refuses every untracked
+        ignore file — and pytest, ruff, mypy and hypothesis all write one (`*`) into their cache
+        directory. A cache whose directory a TRACKED rule ignores is the tree's own word."""
+        (self.baum / ".gitignore").write_text("cache/\n", encoding="utf-8")
+        _git(self.baum, "add", ".gitignore")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "ignore the cache")
+        (self.baum / "cache").mkdir()
+        (self.baum / "cache" / ".gitignore").write_text("*\n", encoding="utf-8")
+        (self.baum / "cache" / "x").write_text("cached\n", encoding="utf-8")
+        r = self._emit()
+        self.assertEqual(r.returncode, 0, f"a tool cache behind a tracked rule was refused:\n{r.stdout}\n{r.stderr}")
+
+    def test_GIT_DIR_in_der_umgebung_lenkt_die_messung_nicht_um(self):
+        """[ZAEHLT] Sibling in the environment: with `GIT_DIR`/`GIT_WORK_TREE` pointing at another,
+        clean repository, `git -C <repo> status` answered about THAT repository. Measured
+        2026-09-21. The dirty --repo tree must still refuse."""
+        anderer = self.aussen / "anderer"
+        anderer.mkdir()
+        _git(anderer, "init", "-q")
+        _git(anderer, "config", "user.email", "t@example.invalid")
+        _git(anderer, "config", "user.name", "t")
+        (anderer / "b.txt").write_text("b\n", encoding="utf-8")
+        _git(anderer, "add", "b.txt")
+        _git(anderer, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "other")
+        (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
+        umleitung = {"GIT_DIR": str(anderer / ".git"), "GIT_WORK_TREE": str(anderer)}
+        # anti-vacuity: under the redirection a plain status from inside the dirty tree is clean
+        r0 = subprocess.run(["git", "-C", str(self.baum), "status", "--porcelain"],
+                            capture_output=True, text=True, env=_kindumgebung(**umleitung))
+        self.assertEqual(r0.stdout.strip(), "", "the redirection did not take, so this case measures nothing")
+        umgebung = _kindumgebung(PYTHONPATH=str(REPO / "scripts"), **umleitung)
+        self._abgewiesen(self._emit(umgebung=umgebung), "uncommitted path", "a.txt")
+
+    # ── the audit runs between the two measurements ──────────────────────────────────────────────
+
+    def test_eine_aenderung_waehrend_des_audits_wird_abgewiesen(self):
+        """[ZAEHLT] P1 of the counter-reading, 2026-09-21: the check ran after an audit that had run
+        elsewhere. Now the audit runs here; an audit that leaves the tree changed is refused by the
+        measurement after it, and no payload binds the head to output from another tree."""
+        befehl = _python("open('a.txt', 'w').write('zwei\\n'); print('audit over modified bytes')")
+        self._abgewiesen(self._emit(befehl), "after the audit ran", "uncommitted path", "a.txt")
+
+    def test_ein_audit_das_den_kopf_bewegt_wird_abgewiesen(self):
+        """[ZAEHLT] The head is compared, not only the dirt: an empty commit during the run leaves
+        the tree clean and the tree digest unchanged, and moves HEAD. That is a different head from
+        the one measured, and the receipt would name the wrong one."""
+        befehl = _python("import subprocess; subprocess.run(['git', '-c', 'commit.gpgsign=false', "
+                         "'commit', '-q', '--allow-empty', '-m', 'moved'], check=True); print('moved')")
+        kopf_vorher = _git(self.baum, "rev-parse", "HEAD")
+        self._abgewiesen(self._emit(befehl), "changed while the audit ran")
+        self.assertNotEqual(_git(self.baum, "rev-parse", "HEAD"), kopf_vorher,
+                            "the audit did not move the head, so this case measures nothing")
+
+    def test_die_aufzeichnung_ist_was_der_lauf_gesagt_hat(self):
+        """stdout and stderr of the audit, in order, are the record; the digest is over those bytes;
+        the exit code is the program's, not a typed number."""
+        befehl = _python("import sys; print('hello'); print('warn', file=sys.stderr); raise SystemExit(3)")
+        aufzeichnung = self._aufzeichnung()
+        r = self._emit(befehl, aufzeichnung=aufzeichnung)
+        self.assertEqual(r.returncode, 0, f"an audit that exited 3 was not recorded:\n{r.stdout}\n{r.stderr}")
+        aufgezeichnet = aufzeichnung.read_bytes()
+        self.assertIn(b"hello\n", aufgezeichnet)
+        self.assertIn(b"warn\n", aufgezeichnet)
+        kontext = json.loads(self.kontext.read_text(encoding="utf-8"))
+        self.assertEqual(kontext["audit_exit_code"], 3)
+        self.assertEqual(kontext["audit_output_digest"], hashlib.sha256(aufgezeichnet).hexdigest())
+        self.assertIn("exit 3", r.stdout)
+
+    def test_der_lauf_sieht_keinen_bytecode_im_baum(self):
+        """The audit program inherits the bytecode settings of this tool: it neither writes
+        `__pycache__` into the tree nor reads one that lies there."""
+        befehl = _python("import sys; print(sys.pycache_prefix is not None, sys.dont_write_bytecode)")
+        aufzeichnung = self._aufzeichnung()
+        r = self._emit(befehl, aufzeichnung=aufzeichnung)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(aufzeichnung.read_bytes(), b"True True\n")
+
+    def test_die_aufzeichnung_liegt_ausserhalb_des_baums(self):
+        """A record inside the tree would dirty it while the audit runs; refused BEFORE the run,
+        and the marker proves the audit never started."""
+        marke = self.aussen / "marke"
+        befehl = _python(f"open({str(marke)!r}, 'w').write('ran')")
+        self._abgewiesen(self._emit(befehl, aufzeichnung=self.baum / "audit.txt"),
+                         "inside the tree", "before the run")
+        self.assertFalse(marke.exists(), "the audit ran although the record path was refused")
+
+    def test_eine_vorhandene_aufzeichnung_wird_nicht_gebunden(self):
+        """A record that was already there is a record this run did not produce — the old input
+        contract, and the hole the counter-reading measured. Refused, and the file is untouched."""
+        alt = self._aufzeichnung()
+        alt.write_bytes(b"output produced from a dirty tree, restored afterwards\n")
+        marke = self.aussen / "marke2"
+        befehl = _python(f"open({str(marke)!r}, 'w').write('ran')")
+        self._abgewiesen(self._emit(befehl, aufzeichnung=alt), "already exists")
+        self.assertEqual(alt.read_bytes(), b"output produced from a dirty tree, restored afterwards\n")
+        self.assertFalse(marke.exists())
+
+    def test_ein_getippter_exit_code_wird_nicht_angenommen(self):
+        """The exit code is measured; the flag that let a caller type one is gone."""
+        r = self._emit(extra=["--audit-exit", "0"])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("unrecognized arguments: --audit-exit", r.stderr)
+
+    # ── carried from the first version of this file ──────────────────────────────────────────────
 
     def test_der_lauf_legt_keinen_bytecode_neben_die_quellen(self):
         """[ZAEHLT] The run must not create the very debris the gate would refuse.
@@ -150,17 +544,9 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
             shutil.rmtree(rest, ignore_errors=True)
         for rest in (eigen / "src").rglob("__pycache__"):
             shutil.rmtree(rest, ignore_errors=True)
-
-        ziel = self.baum.parent / "p3.bin"
-        kontext = self.baum.parent / "c3.json"
-        r = subprocess.run(
-            [sys.executable, str(eigen / "scripts" / "pre_tag_receipt.py"), "--repo", str(self.baum),
-             "--emit-payload", str(ziel), "--context-out", str(kontext),
-             "--version", "6.1.0", "--audit-command", "true", "--audit-exit", "0",
-             "--audit-output-file", str(self.ausgabe),
-             "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
-            capture_output=True, text=True, cwd=str(eigen),
-            env=_kindumgebung(PYTHONPATH=os.pathsep.join([str(eigen / "src"), str(eigen / "scripts")])))
+        r = self._emit(skript=eigen / "scripts" / "pre_tag_receipt.py", cwd=eigen,
+                       umgebung=_kindumgebung(PYTHONPATH=os.pathsep.join(
+                           [str(eigen / "src"), str(eigen / "scripts")])))
         self.assertEqual(r.returncode, 0, f"the control emit failed: {r.stdout + r.stderr}")
         gefunden = sorted(str(q.relative_to(eigen)) for q in eigen.rglob("__pycache__"))
         self.assertEqual(gefunden, [],
@@ -182,12 +568,7 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         # assertion went red, and the gate had refused correctly all along.
         (self.baum / "scripts" / "__pycache__").mkdir(exist_ok=True)
         (self.baum / "scripts" / "__pycache__" / "x.cpython-310.pyc").write_bytes(b"\x00\x01")
-        r = self._emit()
-        self.assertNotEqual(r.returncode, 0,
-                            "a planted bytecode cache went through — the gate has an exemption it "
-                            "must not have")
-        self.assertIn("__pycache__", r.stdout + r.stderr,
-                      f"the refusal did not name the offending path: {r.stdout + r.stderr}")
+        self._abgewiesen(self._emit(), "uncommitted path", "__pycache__")
 
     def test_der_zweite_aufrufer_ist_ebenso_gebunden(self):
         """The gate sits in build_context, so `build_and_sign` cannot reach the digest around it.
@@ -215,21 +596,21 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
         (self.baum / "a.txt").write_text("zwei\n", encoding="utf-8")
         self.assertNotEqual(_git(self.baum, "status", "--porcelain"), "", "fixture is not dirty")
         with self.assertRaises(SystemExit) as gefangen:
-            mod.build_context(self.baum, "6.1.0", "true", 0, "audit", "test",
-                              "2026-09-20T00:00:00Z")
+            mod.build_context(self.baum, "6.1.0", _python("print('audit')"), "test",
+                              "2026-09-20T00:00:00Z", self._aufzeichnung())
         self.assertIn("uncommitted path", str(gefangen.exception), str(gefangen.exception))
 
     def test_nicht_bestimmbar_ist_keine_freigabe(self):
         """A directory that is no repository at all must refuse, not fall through to a digest."""
-        kein_repo = self.baum.parent / "kein_repo"
+        kein_repo = self.aussen / "kein_repo"
         kein_repo.mkdir()
-        ziel = self.baum.parent / "p2.bin"
-        kontext = self.baum.parent / "c2.json"
+        ziel = self.aussen / "p2.bin"
+        kontext = self.aussen / "c2.json"
         r = subprocess.run(
             [sys.executable, str(SKRIPT), "--repo", str(kein_repo),
              "--emit-payload", str(ziel), "--context-out", str(kontext),
-             "--version", "6.1.0", "--audit-command", "true", "--audit-exit", "0",
-             "--audit-output-file", str(self.ausgabe),
+             "--version", "6.1.0", "--audit-command", _python("print('audit')"),
+             "--audit-output-file", str(self._aufzeichnung()),
              "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
             capture_output=True, text=True, cwd=str(REPO),
             env=_kindumgebung(PYTHONPATH=str(REPO / "scripts")))
@@ -249,131 +630,3 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class DerAuditLiefAufDiesemBaum(unittest.TestCase):
-    """The cleanliness check runs at RECEIPT time; the audit ran before it.
-
-    Codex 4057990627 (P1) on pull request 239, reproduced before this class was written: modify a
-    tracked file, let the audit read those modified bytes into a file OUTSIDE the repository,
-    restore the file with `git checkout --`, then emit. The tree is clean, HEAD never moved, and
-    the emitted context binds `subject_tree_digest` of the CLEAN head to an `audit_output_digest`
-    computed from bytes that head never carried — measured subject e71e8911…, audit 740c408a….
-    """
-
-    def setUp(self):
-        if not SKRIPT.is_file():
-            self.skipTest("scripts/pre_tag_receipt.py is not in this tree")
-        d = tempfile.mkdtemp(prefix="pre-tag-order-")
-        self.addCleanup(__import__("shutil").rmtree, d, ignore_errors=True)
-        self.baum = pathlib.Path(d) / "repo"
-        self.baum.mkdir()
-        # The audit output lives OUTSIDE the repository. Inside, it would be an untracked path and
-        # the tree would be dirty, so the refusal would come from the OTHER guard and this case
-        # would prove nothing. The first attempt at this reproduction made exactly that mistake.
-        self.ausserhalb = pathlib.Path(d) / "aussen"
-        self.ausserhalb.mkdir()
-        self.ausgabe = self.ausserhalb / "audit.txt"
-        _git(self.baum, "init", "-q")
-        _git(self.baum, "config", "user.email", "t@example.invalid")
-        _git(self.baum, "config", "user.name", "t")
-        (self.baum / "datei.txt").write_text("eins\n", encoding="utf-8")
-        (self.baum / "scripts").mkdir()
-        (self.baum / "scripts" / "pre_tag_audit_gate.py").write_text(
-            "# stub: only its bytes are hashed by _gate_source_digest\n", encoding="utf-8")
-        _git(self.baum, "add", "-A")
-        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base")
-
-    def _emit(self) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [sys.executable, str(SKRIPT), "--repo", str(self.baum),
-             "--emit-payload", str(self.ausserhalb / "payload.bin"),
-             "--context-out", str(self.ausserhalb / "context.json"),
-             "--version", "6.1.0", "--audit-command", "cat datei.txt", "--audit-exit", "0",
-             "--audit-output-file", str(self.ausgabe),
-             "--runner-identity", "test", "--produced-at", "2026-09-20T00:00:00Z"],
-            capture_output=True, text=True, cwd=str(REPO),
-            env=_kindumgebung(PYTHONPATH=str(REPO / "scripts")))
-
-    def test_eine_ausgabe_aus_einem_SPAETER_wiederhergestellten_baum_wird_ABGELEHNT(self):
-        """[ZAEHLT] The reported sequence, end to end through the real script."""
-        (self.baum / "datei.txt").write_text("zwei-schmutzig\n", encoding="utf-8")
-        self.ausgabe.write_text((self.baum / "datei.txt").read_text(encoding="utf-8"),
-                                encoding="utf-8")
-        _git(self.baum, "checkout", "--", "datei.txt")
-        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
-                         "the fixture is not clean, so the refusal could come from the other guard "
-                         "and this case would prove nothing")
-        r = self._emit()
-        self.assertNotEqual(r.returncode, 0,
-                            f"a restored tree produced a payload:\n{r.stdout}\n{r.stderr}")
-        meldung = r.stdout + r.stderr
-        # TO THE SUBSTANCE, NOT TO THE WORDING. Until 2026-09-23 this line demanded the literal
-        # string "AFTER the audit output". The Codex P1 finding of the same day required EQUALITY
-        # to be refused too, which made the old phrasing wrong: the message now says "NOT OLDER".
-        # The case went red although its behaviour stayed correct — the behavioural assertion one
-        # line above passed throughout. What is bound here is therefore WHAT the message is about
-        # (the audit output and the order), not how it is phrased.
-        self.assertIn("audit output", meldung, meldung[-800:])
-        self.assertTrue(any(w in meldung for w in ("AFTER", "NOT OLDER")),
-                        f"die Meldung nennt keine Reihenfolge: {meldung[-800:]}")
-        self.assertIn("datei.txt", meldung, "the refusal does not name the path that moved")
-
-    def test_KONTROLLE_die_ehrliche_reihenfolge_geht_weiter_durch(self):
-        """[GETRENNT] A guard that refuses ALWAYS would pass the case above too.
-
-        Green before this change as well, because there was no order check then — it is a control,
-        not a catch proof, and it is labelled as one.
-        """
-        self.ausgabe.write_text("audit output\n", encoding="utf-8")
-        r = self._emit()
-        self.assertEqual(r.returncode, 0, f"the honest sequence was refused:\n{r.stdout}\n{r.stderr}")
-        self.assertIn("emitted payload", r.stdout, r.stdout)
-
-    def test_die_konfiguration_versteckt_eine_unverfolgte_datei_NICHT_mehr(self):
-        """[ZAEHLT] Codex 4057990630 (P1): `git status --porcelain` honours its configuration.
-
-        Measured in a throwaway repository before the change: with `status.showUntrackedFiles=no`
-        the command reports NOTHING for an untracked file and reports it again under
-        `--untracked-files=all`. A release checkout carrying that setting would therefore have been
-        blind to exactly the set this guard's own boundary calls dirty.
-        """
-        self.ausgabe.write_text("audit output\n", encoding="utf-8")
-        _git(self.baum, "config", "status.showUntrackedFiles", "no")
-        (self.baum / "ungetrackt.txt").write_text("neu\n", encoding="utf-8")
-        self.assertEqual(_git(self.baum, "status", "--porcelain"), "",
-                         "the fixture does not reproduce the configuration, so this case would "
-                         "pass for the wrong reason")
-        r = self._emit()
-        self.assertNotEqual(r.returncode, 0,
-                            f"an untracked file hidden by configuration produced a payload:\n{r.stdout}")
-        self.assertIn("ungetrackt.txt", r.stdout + r.stderr,
-                      "the refusal does not name the path the configuration hid")
-
-    def test_ein_indexbit_versteckt_den_unterschied_NICHT_mehr(self):
-        """[ZAEHLT] `git status` can be told to stop looking, so the content is compared instead.
-
-        Found by a cross-reading and verified before it was believed. With
-        `git update-index --assume-unchanged` set and the file rewritten, MEASURED in a throwaway
-        repository: `git status --porcelain --untracked-files=all` prints NOTHING and
-        `git diff --quiet HEAD` reports no change either, because that bit lives in the index and
-        both consult it. The emit then produced a payload over a tree whose content differed from
-        the head it was about to bind.
-
-        The case asserts the blindness FIRST. Without that assertion it would pass on any tree that
-        happens to be clean, which is the shape of a case that cannot fall for the reason it names.
-        """
-        self.ausgabe.write_text("audit output\n", encoding="utf-8")
-        _git(self.baum, "update-index", "--assume-unchanged", "datei.txt")
-        (self.baum / "datei.txt").write_text("GEAENDERT-UND-VERSTECKT\n", encoding="utf-8")
-        # The order guard must not be what stops this, or the case would measure the wrong thing.
-        os.utime(self.baum / "datei.txt", (0, 0))
-        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
-                         "the index bit does not hide the change here, so this case would pass "
-                         "for the wrong reason")
-        r = self._emit()
-        self.assertNotEqual(r.returncode, 0,
-                            f"a hidden content change produced a payload:\n{r.stdout}")
-        meldung = r.stdout + r.stderr
-        self.assertIn("do not match the head", meldung, meldung[-800:])
-        self.assertIn("datei.txt", meldung, "the refusal does not name the hidden path")

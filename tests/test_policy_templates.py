@@ -114,14 +114,14 @@ class TestPolicyTemplatesAP2(unittest.TestCase):
         missing = instantiate_template("strict-eval-authenticated-root-template-v1", issuer_keys=[self.pub],
                                        policy_id="org/ar-v1")
         self.assertIs(missing["deploymentReady"], False)
-        self.assertFalse(lint_policy(missing, strict=True)["ok"])
+        self.assertIs(lint_policy(missing, strict=True)["ok"], False)
 
     def test_expired_instantiated_profile_fails(self):
         past = instantiate_template("strict-eval-template-v1", issuer_keys=[self.pub],
                                     policy_id="org/exp-v1", valid_until="2020-01-01T00:00:00Z")
         self.assertTrue(policy_expired(past))
         res = lint_policy(past)                      # expiry fails lint in BOTH modes
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(any("expired" in e for e in res["errors"]))
         future = instantiate_template("strict-eval-template-v1", issuer_keys=[self.pub],
                                       policy_id="org/fut-v1", valid_until="2099-01-01T00:00:00Z")
@@ -154,7 +154,7 @@ class TestPolicyTemplatesAP2(unittest.TestCase):
             with self.subTest(template=name):
                 raw = load_policy(profile_path(name))
                 res = lint_policy(raw, strict=True)
-                self.assertFalse(res["ok"], f"{name} must fail lint --strict as a raw template")
+                self.assertIs(res["ok"], False, f"{name} must fail lint --strict as a raw template")
                 self.assertTrue(any("deploymentReady:false" in e for e in res["errors"]))
         # non-strict lint of the same raw template is OK (rawness is a --strict concern)
         self.assertTrue(lint_policy(load_policy(profile_path("strict-eval-template-v1")))["ok"])
@@ -167,7 +167,7 @@ class TestPolicyTemplatesAP2(unittest.TestCase):
         self.assertEqual(inst["allowed_issuers"], [])
         self.assertIs(inst["deploymentReady"], False,
                       "an overlay that wipes the pinned identity must not stay deploymentReady:true")
-        self.assertFalse(lint_policy(inst, strict=True)["ok"])
+        self.assertIs(lint_policy(inst, strict=True)["ok"], False)
 
     def test_instantiate_rejects_a_non_template_profile(self):
         # research-preview-v1 is not a template — there is nothing to instantiate (clear error, no crash)

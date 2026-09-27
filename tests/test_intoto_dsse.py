@@ -52,17 +52,17 @@ class TestDSSE(unittest.TestCase):
         st = json.loads(base64.b64decode(bad["payload"]))
         st["predicate"]["result"] = "FAILED"
         bad["payload"] = base64.b64encode(json.dumps(st, sort_keys=True, separators=(",", ":")).encode()).decode()
-        self.assertFalse(intoto.verify_intoto_dsse(bad, _raw_pub(signer))["ok"])
+        self.assertIs(intoto.verify_intoto_dsse(bad, _raw_pub(signer))["ok"], False)
 
     def test_payload_type_pinned(self):
         signer = generate_signer()
         env = intoto.export_intoto_dsse(_claim(), signer)
         env["payloadType"] = "application/vnd.in-toto+json"      # wrong type → PAE differs → reject
-        self.assertFalse(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"])
+        self.assertIs(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"], False)
 
     def test_wrong_key_rejected(self):
         env = intoto.export_intoto_dsse(_claim(), generate_signer())
-        self.assertFalse(intoto.verify_intoto_dsse(env, _raw_pub(generate_signer()))["ok"])
+        self.assertIs(intoto.verify_intoto_dsse(env, _raw_pub(generate_signer()))["ok"], False)
 
     def test_urlsafe_base64_accepted(self):
         # DSSE envelope spec (verified 2026-09-05): "Either standard or URL-safe encoding is allowed" —
@@ -84,7 +84,7 @@ class TestDSSE(unittest.TestCase):
         env = intoto.export_intoto_dsse(_claim(), signer)
         body = base64.b64decode(env["payload"])
         env["payload"] = base64.urlsafe_b64encode(body).decode().rstrip("=")   # url-safe, NO padding
-        self.assertFalse(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"])
+        self.assertIs(intoto.verify_intoto_dsse(env, _raw_pub(signer))["ok"], False)
 
     def test_non_json_payload_is_format_error_not_crash(self):
         # RE-GATE never-raise: a non-JSON payload is a fail-closed VERDICT (ok=False), never a raw crash and

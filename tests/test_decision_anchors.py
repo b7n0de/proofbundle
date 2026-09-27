@@ -66,7 +66,7 @@ class TestDecisionAnchorRpTrust(unittest.TestCase):
     def test_statement_anchor_needs_rp_trust_without_it(self):
         r = verify_decision_receipt(self.env, self.pub, anchors=[self._anchor()])
         self.assertFalse(r["anchors_ok"])        # no rp_trust → needs_rp_trust → fail-closed
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_statement_anchor_confirms_with_rp_trust(self):
         r = verify_decision_receipt(self.env, self.pub, anchors=[self._anchor()],

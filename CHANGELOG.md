@@ -8,14 +8,589 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-Work on `main` after the `v6.0.0` tag, not yet delivered in a release. The version is deliberately
-not bumped: nothing here changes the published package, and a bump without a release would claim a
-delivery that did not happen.
+### Fixed
 
-This section also exists because `scripts/check_version_and_changelog.py` asked for it by name.
-Four non-trivial commits had landed with no changelog trace and the guard called that undelivered
-work. It was right, and the CI-cut entry below is the trace it was missing, written after the fact
-rather than before, which is itself the finding.
+- **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
+  rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
+  `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,
+  `anchors_rootcommit.eip191_recover_address`, `anchors_rootcommit.eip191_signature_identity`). ECDSA is
+  malleable: from a valid ES256 signature (r, s) anyone can write (r, n − s) without the key, and
+  both verify. Measured on main 126ed1dc: `verify_ecdsa_p256`, `verify_sd_jwt` and `verify_bundle`
+  accepted both; the `pb1.` tokens of a bundle and of its twin were two different tokens that both
+  verified, and nothing gave them one identity; `receipt_canonical_root` gave two roots, so a
+  `receipt` anchor over one spelling failed `--require-anchor` for the other; and the Key Binding
+  JWT's `sd_hash` check refused the twin of a genuine presentation, so with a KB-JWT attached
+  `verify_bundle` accepted one spelling and refused the other. For secp256k1,
+  `eip191_recover_address` recovered the same wallet from the vendored `v2sig-01-valid` signature
+  and from its twin (r, n − s, recovery id flipped), so one signature made two rootcommit anchor
+  lines that both verified.
+
+  The owner decided on 2026-09-26, in two steps; the second refines the first. (1) Verification
+  keeps accepting both spellings of an ES256 signature: RFC 7518 §3.4 does not require the low
+  half, OpenSSL signs with either half (987 of 2000 signatures in one measurement with
+  `cryptography` 49.0.0) and accepts both, and three of the five IETF SD-JWT VC examples vendored in
+  `tests/fixtures/sdjwtvc` carry a high s (the fourth and the fifth in the issuer signature, the
+  second in its Key Binding JWT); all five and their twins stay green. (2) Every identity, receipt
+  root, dedup, replay or log key is computed over the canonical form, in which every ES256 signature
+  of the compact, the issuer JWT's and a Key Binding JWT's, has s ≤ n/2; so twins have one identity.
+  (3) The bytes of a foreign issuer are never rewritten: not in a bundle from `emit_bundle` or
+  `emit_eval_receipt`, not inside a `pb1.` token, not in the bundle `verify_receipt_token` returns,
+  not in a presentation from `present_with_key_binding`, with or without a KB-JWT. (4) A low s is
+  required only of signatures proofbundle makes itself. It makes no ES256 signature today; its own
+  signatures on these paths are Ed25519, which has one spelling by the S bound, and a test keeps an
+  inventory of the ECDSA code in the package so a new signing path is noticed. proofbundle also
+  signs with ML-DSA (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal layer);
+  whether an ML-DSA signature has a second spelling was not measured in this change.
+
+  Why (3), for an external reviewer: a Key Binding JWT's `sd_hash` covers the issuer JWT exactly as
+  presented (RFC 9901 §4.3). A first version of this change on the same branch (f536af50) wrote the
+  low s into everything proofbundle emitted. Measured there with an independent RFC 9901 check: a
+  genuine presentation, whose holder had hashed the high-s issuer JWT it received, failed on the
+  compact from `emit_bundle`, on the one inside the `pb1.` token and on the one `verify_receipt_token`
+  returned. proofbundle's own verifier still accepted it, because it compares both spellings; a
+  verifier that hashes the bytes it gets did not.
+
+  The cost, stated so nobody has to find it: a receipt and its twin are two `pb1.` token strings with
+  one identity. `hf_evals.receipt_token_identity(token)` (new) is that identity: the receipt root of
+  the bundle the token carries, i.e. `receipt_canonical_root` without `anchors`, the value a
+  `receipt` anchor stamps. It is the key to deduplicate, replay-check or log tokens by; the token
+  string never was one, since another zlib level or other JSON whitespace also verifies.
+  `receipt_canonical_root` folds both ES256 slots, so one receipt has one root, and
+  `docs/ANCHORS.md` now gives the steps. The KB-JWT's `sd_hash` is accepted over either spelling of
+  the issuer signature, so the verdict does not depend on which one a relay passed on; the two differ
+  in that segment only. A `pb1.` token with a high s is accepted and returned as it came.
+
+  eip191 now refuses, before any recovery, a signature whose s lies above n/2, as OpenZeppelin's
+  `ECDSA.recover` does (EIP-2); libsecp256k1, which Ethereum wallets sign with, emits the low s
+  only, and all five vendored v2-sig vectors carry a low s, so no genuine signature is refused. It
+  also refuses s = 0 and r outside (0, n), which no ECDSA signature has (SEC 1) and for which
+  `ecrecover` gives the zero address. Measured on f536af50: s = 0 recovered an address for every v,
+  and r = n + k recovered one for 21 of the 40 values k < 40. A signature that is not bytes, or a
+  message that is not a str, now gives None instead of a raw TypeError or AttributeError, and so
+  does a message with no UTF-8 form (a lone surrogate), which raised UnicodeEncodeError on 126ed1dc,
+  on f536af50 and on accd932c (lens run 2).
+
+  The same class in a second form, decided by the owner on 2026-09-26 as addendum 11 (the reference
+  to `ECDSA.recover` above holds for the high s only): `v` is accepted as 27/28 or as the raw
+  recovery id 0/1, which some signers emit, hardware wallets among them, and every other value is
+  refused, EIP-155 values from 35 included, because personal_sign has no chain id. That accepted set
+  is unchanged; measured over all 256 values of `v` on 126ed1dc and on f536af50, it was
+  {0, 1, 27, 28} there too. So one signature has two texts: measured on f536af50, the vendored
+  `v2sig-01-valid` checkpoint with v = 27 and the same checkpoint with v = 0 both verified with
+  sig_ok True and reject False. The checkpoint bytes are never rewritten. Two texts, one identity:
+  `anchors_rootcommit.eip191_signature_identity` (new) gives r ‖ s ‖ v with v written as 27 or 28,
+  the form every identity, dedup, replay or log key over such a signature is computed over, and
+  None for any signature eip191 refuses, a high s included. No code in the package forms such a key
+  today: `verify_rootcommit_v2sig` returns no signature bytes, and nothing else in `src` calls the
+  module.
+
+  One consequence is stated here rather than left to be found: a `receipt` anchor stamped by an
+  earlier version over a bundle with a high s in either ES256 slot of its `sd_jwt_vc` no longer
+  matches its root. None of the 618 JSON files tracked in this repository (616 of them parse)
+  carries an ES256 `sd_jwt_vc`. SPEC §6 and §7i state the rules. Before the change, the places where
+  signature bytes enter an identity were mapped for ES256, secp256k1, Ed25519 and ML-DSA; the
+  Ed25519 row has no such twin, because the S bound and the strict base64 decoders leave one
+  spelling, and the ML-DSA row is the one named above as not measured. The receipt-root steps in
+  `docs/ANCHORS.md` state the exact domain the code folds: strict unpadded base64url, a header
+  read by the strict JSON reader (a duplicate key refused), `alg` ES256, a 64-byte signature with
+  n/2 < S < n. An earlier text of this change folded any header that decodes to ES256, wider than
+  the code, and a padded or duplicate-key header then got one root by the text and two in code
+  (lens run 2 at accd932c); both forms fail verification. The text also names what the reader
+  accepts beyond RFC 8259, because the fold follows it there: `NaN`, a UTF-8 byte order mark, and
+  UTF-16 or UTF-32 text. A header in such a form verifies, and a third party that read the text as
+  RFC 8259 got two roots where the code gives one (lens run 3 at 15d0b643; the anchor then fails
+  closed). The text states how the reader's limits apply to the fold: depth counts a value one level
+  below its container, the digit limit is the interpreter's setting, and the input and string limits
+  never bind there because the receipt's budget refuses a longer compact first (lens run 4 at
+  dce5f9ef; each fails closed). Whether verification should accept these forms at all is a question for every verify
+  path, not for this change. Contract `tests/test_es256_signature_has_one_identity.py` with cases in
+  `tests/test_signature.py`, `tests/test_sdjwtvc_external_vectors.py` and
+  `tests/test_anchors_rootcommit.py`: 38 cases, measured with each tree's own src and docs.
+  Against f536af50, the first version of this change, 21 are red; the 17 green there are cases
+  carried over from it and guards. Against 126ed1dc, 24 are red; the 14 green there are guards and
+  the rules 126ed1dc already kept (it never rewrote a foreign issuer's bytes, and it accepted the
+  same four values of v). Against accd932c, the second version, 2 are red: the lone surrogate, and
+  the case that checks the text of `docs/ANCHORS.md`. Each case says which in its docstring.
+
+- **The mutation gate judges each mutant by the test files that reach it, and only a test that
+  passed in the baseline and fails again when it runs by itself kills**
+  (`scripts/mutation_check.py`). Run 36253567619, a manual dispatch of CI on the branch of pull request 279 at 57184964 (not
+  main), measured a baseline of 1226 to 1661 s over
+  the whole suite (seven of ten shards stopped at the 1800 s limit before it ended) and 1174 to 1610
+  s per mutant under a job limit of 60 minutes; the three shards that got a baseline judged one
+  mutant each before they were cancelled (relation cycle detection, the case-insensitive origin
+  comparison and the ML-DSA domain separation label, all three KILLED), and no other operator was
+  judged.
+
+  A mutant now runs the test files that reach the mutated file, directly or through other files,
+  together with every file that can reach any module and the gate's own controls. The graph holds
+  every Python file of the tree as git lists it and every script that is not Python (a shebang,
+  `.sh`, a Makefile); the first version covered four directories, and a hop through `conformance/`
+  or `examples/` broke the chain: with "strict-json: duplicate-key reject disabled" applied,
+  `tests/test_cap1_conformance_runner.py` fails, and it was not in the selection of
+  `_strict_json.py`. A file reaches what it imports, a module or file that one of its strings names
+  (a bare file name that several files carry names all of them), `__main__` of what runs with `-m`
+  or `runpy.run_module` wherever the literal stands, the imports of Python code held in a string
+  (after `-c`, or any string with an import statement), and a script that it names. A file that is
+  not Python (MANIFEST.in) is reached through every file that names it and every file that reaches
+  one of those, and a `conftest.py` reaches every test file below it. A name in a library module
+  names only the library, since nothing under `src/` puts a directory on `sys.path`. Imports under
+  `TYPE_CHECKING` do not count, and a package's lazy attribute table is read at the importer. Over
+  the 33 mutated files a selection holds 106 to 374 of the 376 test files, median 205 (the first
+  version: 106 to 374, median 190); MANIFEST.in and ten modules select every test file but the two
+  per-mutant exclusions, because `tests/conftest.py` names `__init__.py` in a formatted path and a
+  bare file name now names every file that carries it (without that one name they would hold 124 to
+  323).
+
+  Its baseline runs over the same files. A mutant is killed only by a test that passed in that
+  baseline and is red under the mutant: a test that was red, skipped, xfailed or xpassed there, or
+  did not run there, never kills (a test skipped in the baseline that ran and failed under a mutant
+  read as a kill in the first version). A killer then runs again by itself, once more under the
+  mutant and once on the restored tree, and counts only when it is red and then green; one that
+  flips is named unstable in the verdict line and does not count (a timing test green in a baseline
+  and red under a mutant only because of machine load read as a kill). Measured in the gate's own
+  setup on two real operators with one killer each (the strict-json duplicate-key reject and the
+  ML-DSA domain label): confirming took 1.6 s per killed mutant; it grows with the killers and the
+  time to collect their files, not with the selection. Before, `red > baseline` counted failures
+  plus errors, and a baseline-red test that also failed its teardown under the mutant raised the
+  count by one, so the mutant read as killed although no test found it. Every suite run pins
+  `PYTHONHASHSEED=0`, so test ids are the same in baseline and mutant runs. The cases are pinned in
+  `tests/test_mutation_selection.py`, red against the first version.
+
+  A test that is red in a baseline must stand in `scripts/mutation_baseline_allowlist.json` with the
+  class it failed with, or the baseline stops; a timing test red under load stops it as well
+  (measured once locally: the selection baseline of `tlogproof.py` had one such test red while the
+  whole-suite baseline had none), which costs a shard and never a verdict. The class comes from the
+  message of pytest's JUnit record first (`ExcType: text`, or `assert ...`) and from the last
+  exception line of the traceback only when the message names none: a RuntimeError whose message
+  carried an `assert` line read as AssertionError and matched an entry written for another failure.
+  MANIFEST.in ships the list next to `scripts/mutation_check.py`, which reads it. Left undecided, it
+  turned `test_jede_datei_unter_scripts_ist_in_manifest_entschieden` red, a test that stands in
+  every selection, so the first baseline of every shard stopped, and the list's contract failed from
+  the sdist; the sdist test's detector now also sees a path composed from a module constant, the
+  form that read the list, and the pinned count of shipped scripts moves from 36 to 37, remeasured
+  against a real sdist of the tree (37 files under `scripts/`, the same 37 as the declaration). In
+  the gate's own setup a baseline over the sdist test no longer stops (21 passed, 0 red). The work
+  tree is a shared clone of the repository with the tracked files copied over it, so tests that ask
+  git about the tree run there as they do in a checkout, and the mutation job checks out the full
+  history, as `test` does. The file an operator mutates is restored from its bytes and checked byte
+  by byte, where a last full run compared a red count (a file with CRLF line ends came back with
+  LF). The candidate matrix test `test_c12_1_nicht_anwendbar_vor_dem_tag` joins
+  `test_audit_candidate_360` as a per-mutant exclusion: it runs the whole matrix in a subprocess
+  twelve times, 766 of the 1534 s the baseline took in the gate's setup, and says nothing about one
+  mutated line.
+
+  The selection saves less time than hoped in this repository: the heaviest test files import nearly
+  every module. For the first version's selections, local per-file durations scaled by the measured
+  CI/local ratio of the whole suite gave about 2000 to 2200 s per selection in CI and 4.8 h for the
+  longest of 28 shards; with this version's selections the same estimate gives 4.9 h for the longest
+  of 28 and 3.7 h for the longest of 36, which keeps about two hours below the step limit. The limit
+  of one suite run rises from 1800 to 3600 s, the CI job runs 36 shards instead of 10 under GitHub's
+  six-hour job limit, and the mutation step's limit is 15 minutes below the job's, so the steps
+  after it still run: a shard cut at the limit records how many verdicts it wrote (`judged=`), and
+  the summary job still fails it. These numbers are provisional and are set again from the first
+  measured CI run. The tests of the summary job read the shard count from the workflow, and a test
+  holds the matrix, the `--shard i/K` argument and the summary's `K=` to one number.
+
+- **An OTS proof is capped before it is deserialized, on every reader** (`anchors_ots`,
+  `evidence_pack`, `anchors_rootcommit`, `anchor upgrade`). The structural budget bounds the base64
+  string of a proof, not what the OpenTimestamps deserializer builds from it: every fork creates a
+  timestamp holding its own copy of the message. Measured by the deep gate against main 5b53ab3e
+  (finding L2-Z195-OTS-WORK-AMPLIFICATION-01,
+  confirmed 3 of 3) and again for this change, tracemalloc around the call alone, each figure three
+  times in a fresh process: a 732 067-byte proof inside every budget peaked at 134.4 MiB in
+  `verify_evidence_pack`. All five places that deserialize a proof now go through one helper that
+  refuses a proof over 65 536 bytes first; the same proof is refused as `over_budget` at 3.3 MiB,
+  before any deserialization. The length is taken of every bytes-like object in bytes, and anything
+  that is not bytes-like is refused before the library reads it (a `memoryview` of any length went
+  to the library uncapped in an earlier form of this change). The largest proof this repository carries has 1510 bytes. A proof just
+  under the cap, built to amplify as much as the format allows (empty calendar URIs, two-byte fork
+  labels), peaks at 18.2 MiB in one deserialization. `describe_proof` deserialized every proof twice
+  with both copies alive, on main as well, and peaked at 36.5 MiB on that proof; it now deserializes
+  once, as every reader does (18.2 MiB). `describe_proof` gains the state `over_budget`. Adding that
+  status showed that three callers decided "bound" by the absence of the refusals they had listed;
+  they now read membership in the statuses that say the binding held (`anchors_ots.ots_binding_held`,
+  deny by default). So `anchor upgrade` refuses an over-cap proof with exit 2 and names the cap,
+  instead of reporting it as not upgraded yet and advising `ots upgrade`, and a rootcommit anchor whose
+  proof is over the cap is not bound.
+
+- **A path the sdist promised and does not carry fails the shipped suite instead of skipping it**
+  (`tests/conftest.py`). From an extracted sdist, a test module that names an absent root-relative
+  path was skipped as repo-context without asking whether the distribution was supposed to carry the
+  path. Measured by the deep gate against main 5b53ab3e (finding L6-Z195-01, confirmed 3 of 3) with
+  one appended line, `exclude examples/trust_policy_strict.json`, while `graft examples` still stood:
+  `tests/test_trust_policy.py` went from 47 passed to 47 skipped and the shipped suite stayed rc 0. A
+  path that a positive line of MANIFEST.in promises, that setuptools adds by itself (the template,
+  `pyproject.toml`, the README, the license files), or that setuptools' build_py ships from the
+  package configuration in `pyproject.toml` (the modules of every package its discovery finds, the
+  declared package data), now makes the module run and fail when it is absent; a negative line does
+  not withdraw the promise, because that is exactly the accident being caught. The template is read as
+  setuptools reads it, including continuation lines, inline comments, `\#`, and the difference between
+  the glob behind `include` and the pattern behind `global-include`; vectors from a real `build_sdist`
+  with setuptools 69.5.1 are the oracle (`tests/fixtures/manifest_semantics/`, 15 cases, three of them
+  varying the package discovery; a directory without `__init__.py` is a package only where that
+  discovery allows namespace packages, and a candidate for it holds the reader to setuptools in both
+  cases). Measured end to end from sdists built at 66809c50, before build_py was
+  read: the planted exclude gave 2 failed, 45 passed, rc 1, and an unplanted sdist ran as before.
+
+- **A signed statement says it is an in-toto Statement v1, and every verifier that reports
+  `structure_ok` reads it** (`_statement_payload.load_statement_strict`). Decision, outcome and
+  relation-statement verify reported `structure_ok=true`, and `decision verify --strict` under a
+  signer-pinning policy `safeForAutomation=true`, for a signed statement whose `_type` was absent,
+  JSON null or `Statement/v0.1`; measured on main 10f3466b (deep gate finding L3-Z195-01). Each of
+  these verifiers wrote `_type` when it emitted and none read it back. The one Statement oracle
+  now refuses any `_type` other than exactly `https://in-toto.io/Statement/v1`, and decision,
+  outcome, verification-summary, run-ledger and trust-pack verify parse through it, as
+  relation-statement verify and the `--with-related` resolver already did. The Rust verifier
+  refuses the same bytes on `verify-relation`, `verify-relation-statement` and for attached
+  targets, with the same exit class and lineage, and on `verify-trust-pack-threshold`, which met
+  its threshold with exit 0 for a pack whose `_type` was null, absent or `Statement/v0.1` while
+  Python refused it (measured on both verifiers). That subcommand also built its signature check
+  under whatever `payloadType` the envelope named, so a pack signed under another type met its
+  threshold where Python refuses a payloadType confusion; it now pins the in-toto type and reads the
+  envelope in Python's order (payload, input size, signature list and cap, type, Statement), and a
+  wrong `_type` or payloadType string is written as Python's `repr()` writes it. A sweep fails when a module that reports
+  `structure_ok` for an in-toto Statement parses without the oracle, and a second one when a Rust
+  function parses a DSSE payload without asking it before the predicate is read. `intoto --verify` and
+  `svr --verify` are unchanged: what their `ok` covers is listed in their contract, and `_type`
+  is not on that list.
+
+- **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
+  `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
+  with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust
+  reader read the unknown mode as no rule and verified with exit 0 and no reason. It checked the
+  policy's hull and read the section it evaluates without judging it. It now judges that section the
+  way `policy.load_policy` does, with Python's wording and exit 2: relation names, `relation_signer`
+  mode and keys (including the trust-anchor key rule), the two booleans and
+  `require_relation_target`. It checks the hull of every section first, in Python's order, and
+  writes key names and values as Python prints them, so the reason is the same character for
+  character: over a generated corpus of 337 policies, 321 are refused by both with the same words.
+  The values of sections outside `relations` are still not read by Rust while Python refuses a bad
+  one; the parity registry names that gap and a test measures it.
+
+- **A zlib field is one complete stream and nothing after it, and a receipt token is capped before it
+  is decoded** (`hf_evals.verify_receipt_token`, `statuslist.verify_status_snapshot`, new
+  `_inflate.inflate_whole_stream`). Measured by the deep gate against main 5b53ab3e (finding
+  L2-Z195-TOKEN-TRAILING-DATA-01, confirmed 2 of 3): a genuine `pb1.` token with bytes appended after
+  the end of its zlib stream verified ok=True, from the library and from `hf-token --verify`; with
+  12 MiB appended the library still said ok=True while the CLI refused the same token on its input
+  budget. The token body was also base64-decoded in full before any size check (64 MiB of `A` took
+  0.97 s to refuse on main 1f7a62d2, measured again for this change; now about 25 microseconds), where
+  kbjwt, sdjwt and statuslist refuse an oversized segment first. Both zlib
+  fields now require the stream to end and nothing to follow it, and the token body is refused over
+  `input_bytes` before decoding. The status list's `lst` had the same shape. A token still has no
+  single wire form: another zlib level or other JSON whitespace verifies as before.
+
+- **A key a verifier relies on is never a low-order or non-canonical Ed25519 key, on any surface**
+  (SPEC §4b, `signature.ed25519_trust_anchor_weakness`, `signature.verify_ed25519_pinned`). The core
+  verifier keeps the SPEC §4a profile, under which a signature made with no private key verifies under a
+  low-order key: the fixed signature R = identity, S = 0 for every message under the identity point, and
+  for about one message in the key's order under the other points of small order. A non-canonical
+  spelling (y >= p) is refused because a trusted key has exactly one encoding; of the nineteen, only
+  y = p and y = p + 1 also spell points of small order, and every refusal message now says which
+  reason applies. The trust policy refused such keys; nothing else did. Measured by
+  the deep gate against main 5b53ab3e (findings L1-Z195-01 to 03): two witness vkeys carrying the
+  identity point, once with the x-sign bit set, met a 2-of-2 witness quorum on a checkpoint neither
+  witness saw; `decision verify --pub <identity>` printed `CRYPTO: OK` and exited 0 for a receipt nobody
+  signed; a trust pack met its root threshold and a rotation vouch with the same forgery. The rule now
+  runs at the C2SP log and witness vkey parsers, `dsse.verify_envelope` (every DSSE verify path), the
+  status-list issuer key, the hybrid's classical leg, the renewal time-authority key, the KB-JWT holder
+  key, the SD-JWT issuer key, trust-pack keys and caller-supplied previous root keys, the RATS Verifier
+  key, and the AGT adapter's authorizer key, which now goes through the house primitive and whose
+  "distinct from the signer" check compares key bytes instead of hex spellings. The independent Rust
+  verifier applies the same rule on its DSSE, attached-target, SD-JWT and trust-pack paths, and like the
+  Python validator it refuses a trust pack with a weak key in any role, not only in the root role. The
+  bundle's own key keeps the §4a profile. A sweep test fails when a new Ed25519 verification bypasses
+  the rule in any spelling it models: a call, an import alias, a `getattr` string or the `cryptography`
+  key class; a second sweep does the same for every place the Rust verifier builds a key. Distinct keys
+  are still not distinct parties: one secret can sign under the mixed-order variants of its key, which
+  SPEC §4b now says, and a test keeps a 2-of-2 witness quorum met by two points of one secret.
+  The release tooling under `scripts/` is covered by the entry below.
+
+- **The release tooling refuses a weak key it pins, like the package does** (SPEC §4b). The pre-tag
+  receipt (`pre_tag_receipt_lib.verify_receipt`, which the release workflow and the reader's
+  `verify_pre_tag_receipt.py` run), the readiness artefacts of the audit matrix
+  (`audit_candidate_matrix._artifact_signature_ok`), the findings register
+  (`findings_register._signature_ok`) and the status page's receipt check
+  (`render_site_data._check_receipt`) checked their signatures under a pinned key with the §4a profile.
+  Measured on each: with the identity point in the trust anchor, a record nobody signed was admitted
+  (`ok=True`, `verified`, `signature valid`, `passed`). Each now refuses such a key before any signature
+  arithmetic and names the reason from `signature.TRUST_ANCHOR_REFUSAL`. The keys pinned today pass the
+  rule, so this closes a path, not a live attack. The package's sweep now also walks `scripts/` and
+  `tools/`. It models the spellings of `cryptography` only, so every library those files import is
+  classified in a closed table, and an import of a signature library the sweep does not model counts
+  as a use; pycose is one. The six places there that check a key arriving with the thing it signs
+  (producer self-checks that take the key with the signature or read it from the record itself, and
+  the recomputation and reading of a third party's published test vector under its printed test key,
+  once through pycose) are named with their reason.
+
+- **A pre-tag verifier judges a tree, it does not install it into the process that asked**
+  (`scripts/pre_tag_audit_gate.py`, `scripts/verify_pre_tag_receipt.py`). Both put the judged tree's
+  `src/` in front of `sys.path` and set `sys.pycache_prefix` and `sys.dont_write_bytecode`, and neither
+  undid it, so a later plain `import pre_tag_receipt_lib` in the same process resolved to whatever the
+  judged tree carried under that name. Measured on main 166aec47: eight cases of
+  `tests/test_pretag_gate_state_typed_l5_g6_01.py` failed with `cannot import name 'canonical_bytes'`
+  under PYTHONHASHSEED 5 and 7, and in 1 of 8 unseeded runs. Each verifier now restores the three
+  settings when it returns and sets the bytecode protection on every call, and it removes the
+  modules it loaded for the first time from a path it put on `sys.path` (Codex on PR 274: after the
+  path was restored, `proofbundle` and `proofbundle._wire_b64` from the judged checkout stayed in
+  `sys.modules`). The producer
+  `scripts/pre_tag_receipt.py` keeps its process-wide switches on purpose, so that the audit program
+  it starts inherits them.
+
+- **An empty container is malformed in both implementations, and every malformed exit names its
+  reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
+  and an empty `payloadType` as "must be a non-empty list/string"; the Rust verifier ran an empty
+  signature list through its loop to "not verified". Measured on 2026-09-25 at four surfaces: the
+  generic DSSE verify answered `FAIL`/exit 1 where Python refuses the envelope, the trust-pack
+  threshold reached the statement and reported on it, and an attached relation target with an empty
+  list was carried on as attached-but-unverified, the same exit class as Python with a different
+  reason. The empty list and the empty `payloadType` are now errors in Python's wording, the trust
+  pack judges the list before the statement as Python does, and a structural error of an attached
+  target ends the resolution with "cannot read --with-related", as in Python. A present signature
+  that does not verify is unchanged. The three remaining bare `MALFORMED` exits (`verify-bundle`
+  twice, `verify-trust-pack-threshold` once) print their reason. `crosscheck.py` holds the empty list
+  on three surfaces with the reason, not only the exit; the old behaviour turns all three red.
+  The per-target key is not the envelope (Codex on PR 272): key material that decodes but is no
+  Ed25519 key leaves the target attached-but-unverified, as Python's `verify_ed25519` answers False,
+  and only a `--related-pub` that is not base64 is refused, as "cannot decode --related-pub". The
+  checks before the key run in Python's order, the payload first.
+
+- **The parity registry states what the verifier does when no policy is named** (release scope line
+  R1, `scripts/rust_parity_registry.json`). The registry ships in the sdist and is what a second
+  implementation reads. Its v0.2 entry said the verifier "deliberately does not decide that for it
+  (policy_decision stays None)", which reads as a neutral outcome. Measured on 2026-09-25 against
+  `verify_agent_review_v02`: without a named policy the result carries `policy_decision: null`, the
+  advisory code `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false with that code as
+  its blocker; with the named default policy the same receipt is `accept` and released for
+  automation. The entry now says so. A new contract measures the no-policy state and requires every
+  registry note that speaks of `policy_decision` to name each blocker the verifier reports and the
+  false automation verdict; the old wording fails it. `docs/AGENT_REVIEW_PREDICATE.md` already
+  described the state correctly and is unchanged.
+
+- **A declared error marker is checked against both implementations** (release scope line S32,
+  `tools/pb_verify_rs`). A relation vector's `errorContains` read as a statement about the case,
+  and it was held against the Python output only: the Rust verifier printed `{"lineage": ...}` and
+  no reason, and the differential compared exit class and lineage. Measured on 2026-09-25: 21
+  relation vectors declare a marker, the Python output carried 21, the Rust output 0. So Rust could
+  reach the same verdict for a different reason and nothing would notice.
+
+  The Rust relation subcommands now print `reasons` beside `lineage`, in Python's wording and with
+  Python's stable codes: the reason of each failing edge, the structural errors, the successor
+  warning and the policy violation codes, which were computed and deliberately not printed. The
+  paths that returned exit 2 through a bare `Err(_)` now name what failed. The loader keeps the
+  target subject's state (present, absent, ambiguous, malformed) as Python does, so a failing
+  subject pin names its own code instead of one shared mismatch. `crosscheck.py` requires the
+  marker in both outputs: 21 of 21. Verdicts are unchanged, and the common vocabulary still reads
+  `lineage` only.
+
+- **A foreign identifier on the bundle itself is a refusal, not `invalid`** (release scope line
+  Z.278, `src/proofbundle/evalclaim.py`). `classify_eval_claim` answered `invalid` for a bundle whose
+  top-level `schema` names another format: `verify_bundle` raised the typed `UnsupportedError`, and
+  the broad `except` above it folded that refusal into the invalid outcome. Measured 2026-09-05 in
+  issue 147 with an `inspect-receipts` 0.3 receipt. The envelope identifier is now read first, after
+  the verifier's resource limits, which a document given as a dict now meets as one given by path; a
+  present, non-empty identifier that is not `proofbundle/v0.1` returns `refused_unknown_schema`.
+  An absent identifier, and a present value that cannot be one (empty, a number, a list, null),
+  declare no other format and stay `invalid`; so does an unknown `signature.alg` or
+  `merkle.hash_alg` under our own identifier, which `verify_bundle` reports with the same exception
+  type. `decode_eval_claim` is unchanged.
+
+  Five vectors under `conformance/envelope_profile/`, fifteen there and 135 in the corpus. Seven
+  planted defects, all caught by the corpus; three escaped at first and each added a vector. The Rust
+  differential was re-measured over the new corpus: 61 of 135 reproduced, 74 named by kind.
+
+- **A verdict field must hold a verdict: five public exporters stopped coercing `passed`** (R-B4,
+  `src/proofbundle/intoto.py`, `src/proofbundle/_membership.py`). `bool("false")` is `True`, and
+  `"false"` is a non-empty string, so it also survived the presence check that made a required field
+  look validated. Called directly, `to_test_result_statement` reported `result: "PASSED"`,
+  `to_eval_result_predicate` emitted `passed: true`, `svr_properties` set
+  `PROOFBUNDLE_THRESHOLD_MET`, and `to_intoto_statement` passed the string through unexamined. All
+  five now go through one predicate (`_membership.is_bool`, a `TypeGuard`) via
+  `intoto._require_bool_verdict`, which refuses rather than coercing and names the field and the type
+  it received. The verify boundary already typed the field (A-15, 2026-09-19) and is why no signed SVR
+  and no CLI path was exposed; it calls the same predicate now instead of its own inline check, so one
+  invariant has one home rather than two.
+
+  What this restores is monotonicity, in the sense the in-toto attestation spec gives the word: a
+  value that merely looks like a non-pass must never produce a more permissive outcome than the
+  non-pass itself. `'False'`, `'FALSE'`, `'0'`, `'no'`, `1`, `[1]` and `{'a': 1}` behaved like
+  `'false'`; `1` is the one a type check written against `int` would have let through, because `bool`
+  subclasses `int`.
+
+  Contracts `tests/test_das_verdikt_muss_ein_bool_sein.py` and
+  `tests/test_verdikt_truthiness_scanner.py`. Catch proof measured against the parent commit without
+  the fix: 73 subtest failures and 3 test failures. Three cases carry `_REGRESSIONSWACHE` in their
+  names because they were already green there — a case that cannot fall is not evidence, and saying so
+  in the name keeps a reader from counting it.
+
+  **A sixth site, and it is the one that signs** (`src/proofbundle/sdjwt_issue.py`). `issue_sd_jwt`
+  copied `passed` into the always-open claims of an SD-JWT and signed them three lines later, and
+  `check_binds_bundle` then accepted that receipt as bound, because it compares the field to the bundle
+  payload for equality and both sides carried the same string. Measured at tag `v6.1.0` (`dcac5aee`) and
+  again at this branch's head before the guard. The four `intoto` sites build a statement a caller may
+  sign; this one produces a signed artefact whose `passed` is not a verdict, and no downstream reader can
+  repair that. It refuses now, through the same `is_bool` predicate and the same `BundleFormatError`.
+
+  Five of the six sites were in one file. Sweeping that file is not sweeping the class, and the scanner
+  did not close the gap because it modelled the class as coercion: this site coerces nothing, it hands an
+  unexamined value to somebody else's truthiness test. The scanner now also finds the **pass-through**
+  shape — a read of the field that leaves the function, as a dict value, a sequence element, a call
+  argument or a return — and resolves one level of aliasing, which closed a second, previously unstated
+  hole (`v = claim["passed"]` followed by `if v:` was measured as no finding). Its catch proof is the
+  real site restored to its `v6.1.0` form, not a planted one. The one site the wider rule newly reports,
+  `cli._cmd_show_eval`, is in the documented baseline with the measurement for why it may stand: the
+  claim comes from `decode_eval_claim`, and the use is a printed line.
+
+  `policy.py:269` has carried `_require_bool` with this exact reasoning in its docstring since before
+  any of this. The knowledge existed in the package at one surface and never travelled to the others,
+  which is the more useful lesson than the count.
+
+  **This corrects a sentence in the 6.1.0 release note, and the correction is the point of saying so
+  here.** That note reads "Malformed claim values are refused. A string such as passed: \"false\" is no
+  longer treated as a true verdict by the affected exporters", citing #231. #231 typed the verify
+  boundary; it changed no file in `intoto.py` and none in `sdjwt_issue.py`. Measured at tag `v6.1.0`
+  (`dcac5aee`) by calling the surfaces directly: `to_test_result_statement` returned `PASSED`,
+  `to_eval_result_predicate` emitted `passed: true`, `svr_properties` set `PROOFBUNDLE_THRESHOLD_MET`,
+  `to_intoto_statement` passed the string through, and `issue_sd_jwt` signed it. The CHANGELOG entry for
+  that release is narrower and holds — it says three exporters "are covered by it", meaning by the
+  boundary, which is true for every path that decodes first. The release note compressed that into a
+  statement about the exporters themselves and dropped the condition, and the exporters are public API,
+  so a caller who never decodes is exactly the caller it misleads. 6.1.0's own text is left as it was
+  published rather than rewritten: the sentence became true with this change, and a release note that
+  silently starts describing a later fix is a worse record than one carrying a correction.
+- **A bare install degrades to clean skips, and the gate that claims it now runs it**
+  (`tests/test_action_input_injection.py`, `.github/workflows/published-artifact-gate.yml`). One
+  unguarded `import yaml` aborted the whole pytest run on an install without extras, so 19 of some
+  four thousand tests were collected and the rest never ran. Five sibling modules guard the same
+  dependency correctly. The import now goes through `pytest.importorskip`.
+- The workflow step whose comment claimed this property installed the `[test]` extra and only then
+  ran pytest, so the bare case was never exercised there. It now collects on the `[eval]` state
+  BEFORE the `[test]` install. A gate whose promise is broader than what it executes reports green
+  about a case it did not attempt.
+
+Contract `tests/test_bare_install_degrades_to_clean_skips.py` checks the property over every test
+module and reads the optional set from the `test` extra in `pyproject.toml` rather than from a list
+typed here, because a typed list is a second statement about what is optional and two statements
+drift. Catch proof on a bare venv: with the guard rc 0 and 4948 tests collected, without it rc 2 and
+collection interrupted.
+- **R1 counts distinct units rather than list entries** (`src/proofbundle/cap1.py`). A coverage list
+  naming the same unit twice read as two covered units, so a report could claim a count it had not
+  earned. The verdict now names the duplicates, because a number that silently absorbs a duplicate
+  is a number nobody can check.
+- **R8 validates every element, not only the container** (`src/proofbundle/cap1.py`). The guard
+  accepted any list, including one holding `{}` or `None`. The failure now names the offending
+  element instead of the field.
+- **The CAP-1 early return no longer silences the legacy alias check**
+  (`src/proofbundle/agent_review.py`). `_widerspruch_in_altfeldern` ran on the v0.1 path only, so a
+  document taking the CAP-1 branch could report `complete` while its own legacy fields said `0 of
+  100` with a gap. The check runs on both branches, and `_is_zahl` returns `TypeGuard[int]` so the
+  narrowing holds at the call site.
+
+Contract `tests/test_codex_funde_248_20260923.py`, with a catch proof measured on the branch:
+reverting `cap1.py` to its `main` state turns 7 cases red, reverting `agent_review.py` turns 3 red,
+and both fixes present leave 268 passing with 14 subtests.
+
+- **An absent `contentRootAlg` and a present but unusable one are no longer the same thing**
+  (`src/proofbundle/intoto.py`). The guard read `isinstance(alg, str) and alg`, so a PRESENT value
+  that was not a non-empty string fell into the absence branch and resolved to the LEGACY algorithm
+  with `ok=true`. Measured before the fix, all six reported values resolved to legacy: `""`, `0`,
+  `True`, `[]`, `{}` and `null`. An unknown STRING id already failed closed one line later, and that
+  is what made the hole hard to see, because the obvious case behaved and only the type-confused one
+  did not.
+
+  Absent still means the key is not there, which is how released 2.0.0 receipts keep verifying.
+  Present and unusable resolves to a sentinel matching neither registered id, so the serializer
+  refuses it as it refuses any unknown algorithm, and the verdict names what was found.
+
+  THE HONEST BOUNDARY: `contentRootAlg` sits INSIDE the signed payload, so this is not a signature
+  bypass. The damage is that the verdict describes signed content wrongly, that a receipt the
+  contract says to reject is accepted, and that a stricter foreign verifier rules differently on
+  identical bytes.
+
+Contract `tests/test_s26_absent_is_not_present_but_unusable.py` binds the equivalence
+`(field ABSENT) == (resolved algorithm == LEGACY)` in both directions, with two counter-directions
+so a rule refusing everything could not pass as correct. Catch proof: restoring the old guard turns
+the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
+before and after.
+
+### Added
+
+- **Offline verification of Agent Governance Toolkit (AGT) governance receipts**
+  (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT
+  installed and without network access: Ed25519 over the canonical payload, the optional
+  external-authorizer signature, the `parent_receipt_hash` chain link, and the house exit-code
+  contract (0 verified, 1 crypto or structural failure, 2 malformed input, 3 relying-party
+  requirement unmet). No AGT code is copied; the wire format was read from the published tree at
+  commit `a917ad4ac04aff11a5e9e21f6a26b91642b750cd` and re-derived. AGT is MIT, Copyright (c)
+  Microsoft Corporation.
+
+  **A measured divergence is pinned by this work and belongs in the record.** AGT documents its
+  canonicalization as "RFC 8785 JCS canonical JSON" and implements
+  `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. The two disagree on
+  `timestamp`, which every receipt carries as a float. Measured on a receipt produced by AGT's own
+  signer, timestamp `1758600000.0`: the sort_keys form renders `1758600000.0`, RFC 8785 renders
+  `1758600000`, the receipt's own `payload_hash` matches the former, and the Ed25519 signature is
+  valid against the former and REJECTED against the latter. A verifier built from the documentation
+  therefore rejects valid receipts. This adapter verifies against the form AGT actually signs and
+  names that form in the verdict, rather than trying both and reporting whichever matched, which
+  would turn "the receipt is valid" into "one of two readings is valid" with no way to tell which.
+
+  Two further readings are kept apart rather than bridged. The proposal document says the decision
+  vocabulary is `permit`/`deny`; the implementation says `allow`/`deny`, and a `permit` receipt is
+  refused with the reason named. An external authorization is accepted only against a relying
+  party's own trusted-key list and only when that key differs from the receipt signer; with no list
+  supplied the check is recorded as NOT evaluated, which is not a pass.
+
+Conformance: `tests/test_agt_receipt_verifier.py`, 18 cases over five receipts produced by AGT's
+own signer (allow, deny, externally authorized, tampered after signing, wrong key), plus
+counter-directions so a verifier that accepts nothing could not pass. Catch proof: five mutations
+of the adapter (signature check always true, missing trust list read as acceptance, authorizer
+allowed to equal signer, `permit` accepted, empty chain read as clean) each turn the suite red.
+
+- **The release body is rendered from a versioned content source and is the text that gets
+  published** (`scripts/render_release.py`, `release_notes/release-source.json`,
+  `.github/release.yml`). The grouping of a release comes from a reviewed file, not from the
+  conventional-commit prefix of a pull request title. Measured over all 48 entries of 6.1.0: five
+  prefixes span more than one group and `fix` alone spans three, so the prefix separates none of
+  them. Every entry keeps its editorial short form AND its original title, author and URL, because
+  a short form that replaces its original leaves a reader nothing to check it against.
+
+  **The gap this closes was named in the workflow's own comment.** The hygiene step generated the
+  notes ahead of time and checked them, while the draft step let GitHub build them a second time:
+  over an identical range that is the same text, but byte identity is not guaranteed. The
+  step now renders into `/tmp/release_notes.md`, checks that file, records its sha256, and the
+  draft receives it via `body_path` with `generate_release_notes: false`. One text, checked and
+  published.
+
+  The renderer refuses to run unless the source declares the version asked for. It is deliberately
+  not a general generator: a 6.1.0 source carries an audit status measured on the 6.1.0 tree, and
+  rendering it under a later tag would publish a claim about a tree nobody examined.
+
+  `.github/release.yml` orders GitHub's own generated notes as a fallback for hand-made releases.
+  Its `release:*` labels are proposed, not claimed to exist; the catch-all group is a finding that
+  a label is missing, not a home for unclassified entries; and bot or CI pull requests are NOT
+  excluded, because in this project a dependency bump can carry a verification property.
+
+Contract `tests/test_render_release.py`, 13 cases. The strongest one renders the real 6.1.0 source
+and compares it BYTE FOR BYTE against the independently written, owner-reviewed body in
+`release_notes/RELEASE_NOTES_v6.1.0.md`: a renderer measured only against fixtures it also shaped
+proves self-consistency and nothing more. Counter-directions included so that neither a renderer
+refusing everything nor a check reporting findings for everything could pass.
+
+## [6.1.0] - 2026-09-19
+
+The work on `main` after the `v6.0.0` tag, cut into a release. Owner word, order
+`QITEM-PROOFBUNDLE-610-SCHNITT-LANDEN-KETTE-01`, option A: 6.1.0 is what has been on `main` since
+`v6.0.0`, plus the two P1 findings of the 2026-09-19 audit, R7 and the cheap documentation
+findings. The other 54 lines of the 2026-09-12 scope move to 6.2.0 unchanged, and
+`docs/release_scope/6.2.0.md` carries them word for word.
+
+This section was `## [Unreleased]` until the cut, and it said the version was deliberately not
+bumped because "a bump without a release would claim a delivery that did not happen". That
+sentence was true while it stood and would have become false the moment the number moved, so it is
+replaced rather than left standing. What is open and why is in `RESTRISIKO_610.md`, which lands
+before the closing round, not after it.
 
 ### Added
 
@@ -95,6 +670,49 @@ rather than before, which is itself the finding.
 
 ### Fixed
 
+- **A-15 / A-55 / A-60 — a loader annotated `-> dict` returned whatever it decoded.** The verify
+  boundary now types what it reads instead of trusting the annotation, and three exporters that
+  coerced the verdict field with `bool()` are covered by it: a claim carrying `passed` as the
+  STRING `"false"` verified as passed. Catch-proofs measure at the export sites, one case each,
+  red before the fix and green after, rather than only at the boundary that fixes them.
+- **A-16 — the boundary refuses a malformed claim instead of deciding on it.** SemVer: this can
+  turn a verdict that was `ok` into a refusal for input that was never valid. That is a behaviour
+  change for callers who were relying on the silent acceptance, and it is deliberate — a verifier
+  that decides on bytes it could not parse is not stricter, it is wrong. No ADDITIVE version bump
+  can carry it, so it rides the MINOR that this release already is.
+- **A-39 — CAP-1 coverage divided by a denominator that could be zero.** The null case now has its
+  own answer instead of an exception or a silent ratio, and the scope line for CAP-1 in
+  `docs/release_scope/6.1.0.md` names this finding, because 6.0.0 deferred CAP-1 to 6.1.0 and main
+  carries it.
+- **R7 — three numbers in shipped comments that no longer matched the tree.** They are now derived
+  by running the cases rather than by counting lines, and the run refuses to report a ratio when it
+  did not finish: killed and survived are not an exhaustive pair, and a partial run reports neither.
+- **A-70 — the pre-tag receipt could be produced from a tree that was not the one measured.**
+  `scripts/pre_tag_receipt.py` refuses a working tree that differs from the committed head, and
+  since 2026-09-21 it runs the audit itself between two measurements of that tree: a supplied
+  record and a typed exit code are no longer accepted, because a counter-reading bound output
+  produced from a modified tree to the clean head by restoring the file before the emit. The
+  cleanliness measurement no longer asks `git status`, whose answer depends on state outside the
+  committed tree: `status.showUntrackedFiles=no`, a global `core.excludesFile`,
+  `.git/info/exclude`, an untracked ignore file covering itself and `GIT_DIR` in the environment
+  each hid a path from the first version; a second counter-reading showed the index bits
+  `assume-unchanged` and `skip-worktree` hiding a modified tracked file from the version that
+  followed; and the own sweep plus a third counter-reading showed a clean filter defined in the
+  configuration, `core.worktree` and `core.fileMode=false` still deciding what `git diff-index`
+  reported on a fresh index, a fourth counter-reading showed `core.ignoreCase=true` hiding
+  an untracked file from `ls-files --others`, and a fifth showed a negated rule in a tracked
+  `.gitignore` taken for a hiding rule and `refs/replace` substituting the head's objects. The
+  tree is now compared by COMPUTING the property: the bytes on disk against `git ls-tree -r HEAD`
+  (`hash-object --no-filters` per entry, modes from the file, symbolic-link targets hashed) and
+  the paths on disk against the same listing, with only a non-negated tracked `.gitignore` rule
+  allowed to hide one, and every git call of the process reading the raw objects
+  (`GIT_NO_REPLACE_OBJECTS=1`); each of the thirteen has a case that was red against the version
+  it was measured on. A checkout whose files differ
+  from their blobs by design (`core.autocrlf=true`, no executable bit) refuses, and the docstring
+  says so.
+  `.hypothesis/` is named in `.gitignore`, because hypothesis ignored its cache only through a file
+  it wrote itself, which is exactly the shape the gate refuses. Named limit: a change made and
+  undone during the run lies between the two measurements.
 - Evidence digests: a record named a `path` and a `sha256` that described different objects, the
   digest of the excerpt versus the bytes of the file. Measured across all 145 records, 0 matched the
   file. The checker also never opened the file it named, so a deleted or altered piece of evidence
@@ -106,6 +724,17 @@ rather than before, which is itself the finding.
 - `scripts/required_check_reachability_gate.py --verify-live-pr` (#219) judges the LIVE pull request: it evaluates each gating condition against the run's own event and reports per required context whether it arrives, will not arrive, or is not measurable; the advisory job runs it after the offline gate. Measured 2026-09-17 on pull request 218: the offline gate was green while four required contexts could never arrive.
 - ci.yml (#220): the full five-version test matrix runs for every pull request from this repository; the `landung` label stays the gate only for fork pull requests (owner directive 2026-09-17, velocity). The reachability declaration re-binds its accepted contexts to the new condition.
 - `scripts/audit_candidate_matrix.py` reports three outcomes per cell (PASS, FAIL, NOT_MEASURED with a reason) and exits non-zero only for a release-deciding FAIL, for `NOTHING_MEASURED` or for an unbound version pin; on a pull request candidate-bound release evidence that is not bound to that head is NOT_MEASURED instead of FAIL. New cell C6.4 runs a short fuzz-soak live on the head; the 24h soak moved to `.github/workflows/soak-nightly.yml`. `scripts/pre_tag_audit_gate.py` distinguishes a genuine receipt of another tree (`other_tree`) and a foreign artefact in the receipt folder (`foreign_files`) from a rejected receipt. (Owner order 2026-09-17; measured on pull request 218: the advisory job was red on every pull request with DATA_BLOCKED 0 and FAIL 4.)
+- The findings register is scoped to 6.1.0 (`VERSION` and `FINDINGS` in
+  `scripts/gen_findings_register.py`): the 21 findings carried from the 6.0.0 register, with `N16`
+  closed for this tree and named as still open in the published Action tag, plus the five class
+  entries the risk sheets promise as `Register entry`, each with a severity the producer assigned
+  from the sheet's stated reach and a note that says so — 26 entries, 14 closed, 12 open, 0 open
+  P0/P1. `tests/test_register_610_carries_what_the_sheets_promise.py` binds producer and sheets in
+  both directions and the producer's version to `pyproject.toml`; the numbers guard now reads the
+  document of the register's own version. The line-610 carrier and `audit_artifacts/610/README.md`
+  follow the producer. The signed v1 register is assembled from the owner's signature over the
+  emitted payload; until it lands, `tests/test_register_gegen_erzeuger.py` reports the gap, which
+  is what it is for.
 
 - Identifiers transcribed, internal codename and account names.
 - The twelve evidence files are excerpts and are not rewritten; the earlier rewrite was reverted.

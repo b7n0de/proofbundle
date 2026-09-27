@@ -62,6 +62,15 @@ _MODULES = [
     # ein Urteil bekommen; die strikte Schicht bleibt `evidence_digest`, die Grenze benennt jetzt
     # `evidence.malformed` und faellt fail-closed auf `attestation_failure`.
     "experimental.attested_inference",
+    # 2026-09-23: the offline profile for the governance receipts of a FOREIGN producer. The
+    # population guard reported `verify_agt_receipt` and `verify_agt_receipt_chain` as sitting
+    # outside the property, and it was right. Measuring them by hand turned up a SECOND thing the
+    # guard does not report: `cedar_decision in _ENTSCHEIDUNGEN` hashed an attacker-controlled value
+    # into a frozenset, so a raw TypeError was reachable at a surface that never raises. That site
+    # now runs through `_membership.is_member`. The surface belongs in the population because with a
+    # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
+    # arrive there.
+    "adapters.agt_receipt",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -73,6 +82,19 @@ _NAME_PATTERN = re.compile(
     # gelieferten Wert, dessen Name in keine Praefix-Familie faellt. Es MUSS urteilen statt zu
     # crashen — der Riegel unten hat es beim ersten Lauf gemeldet, das ist die Entscheidung.
     r"|expected_origin_wellformed"
+    # 2026-09-26, deep gate Z195: `ed25519_trust_anchor_weakness` is the same kind of predicate over a
+    # caller-supplied key (any type) and must name a reason ("malformed") instead of crashing. In the
+    # denominator; `verify_ed25519_pinned` already falls in through its prefix.
+    r"|ed25519_trust_anchor_weakness"
+    # 2026-09-26, finding D1: `canonical_es256_signature` and `canonical_sd_jwt_compact` take a
+    # signature or a presented compact from outside (a bundle, a token) and form the one spelling an
+    # identity is built over. Neither is a verdict, but both read untrusted input, so they must hand
+    # back a value for every input rather than crash; both return a non-str or non-bytes input as it came.
+    # `receipt_token_identity` (same finding, second owner decision) reads a pb1 token from outside and
+    # computes its identity; like `verify_receipt_token` it raises BundleFormatError on a malformed one.
+    # `eip191_signature_identity` (same finding, addendum 11) reads the signature bytes of a foreign
+    # checkpoint and returns None for every one it does not accept.
+    r"|canonical_es256_signature|canonical_sd_jwt_compact|receipt_token_identity|eip191_signature_identity"
     # 2026-09-05, CAP-1 Teil B: `is_conformant` ist ein Praedikat ueber ein vom Aufrufer geliefertes
     # Dokument (untrusted) und muss urteilen statt zu crashen — in den Nenner, wie das Vorbild eine
     # Zeile darueber. `check_cap1_document`/`load_cap1_document` fallen ueber ihre Praefixe hinein.
@@ -317,6 +339,16 @@ _OUT_OF_SCOPE = frozenset({
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
     # Schluessel, unter dem ein Umschlag gerade verifiziert wurde; es wirft nie (eigene Tests).
     "pack_key_binds_signer",
+    # 2026-09-26, the OTS cap: `ots_binding_held` is a judgement of the same family. It reads a verdict
+    # dict that `verify_opentimestamps` itself produced and answers one question about it (did the
+    # binding hold); it consumes no foreign bytes. On anything parsed JSON can be it does not raise:
+    # a non-dict, a missing status and an unhashable one are all "not bound" (`_membership.is_member`),
+    # and a dict subclass with its own `get` is read through `dict.get`. It does raise on a key or a
+    # status whose own `__eq__` or `__hash__` raises, the line is_member draws; the first version of
+    # this comment said it never raises, and gate run 3 (229-3-02) measured that as wider than the
+    # code. The OTS cap's own test pins both sides. Listed here, not in the name pattern, for the
+    # reason `binding_present` gives above.
+    "ots_binding_held",
     "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
     "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",
@@ -329,6 +361,21 @@ _OUT_OF_SCOPE = frozenset({
     "status_claim",  "successor_warning",  "svr_properties",  "tlog_proof_for_bundle",
     "to_eval_result_predicate",  "to_eval_result_statement",  "to_eval_results_entry",
     "to_intoto_statement",  "to_test_result_statement",  "vkey",  "witness_quorum",
+    # 2026-09-23, `proofbundle.adapters.agt_receipt`. Four functions, three different reasons, and
+    # measured beforehand that no other module exports any of these names publicly: this set compares
+    # BARE names, so an entry here would quietly exempt a same-named surface elsewhere.
+    #   `canonical_payload` and `canonical_authorization_payload` are the STRICT layer. They take a
+    #       foreign receipt and raise `AGTReceiptError` on a shape they cannot honestly canonicalise,
+    #       because a payload derived from a half-read receipt would be a byte string that looks like
+    #       a fact. `verify_agt_receipt` calls them and catches exactly that exception into the named
+    #       `readable` check, so the public surface stays never-raise without the building blocks
+    #       going quiet.
+    #   `payload_hash` takes the same receipt and hands it to `canonical_payload`, so it carries that
+    #       same boundary and none of its own.
+    #   `exit_code` takes OUR own `VerificationResult`, nothing foreign, and maps it onto the house
+    #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
+    #       unmet).
+    "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
 })
 
 

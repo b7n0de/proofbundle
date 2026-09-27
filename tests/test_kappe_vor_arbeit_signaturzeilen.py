@@ -78,21 +78,23 @@ class _Fixture:
 
 class _Zaehler:
     """Zählt die Ed25519-Verifikationen im Modul checkpoint."""
+    # Since the trust-anchor rule (SPEC 4b), checkpoint calls `verify_ed25519_pinned`, not the bare
+    # primitive; the counter wraps the name the module really calls.
 
     def __init__(self):
         self.n = 0
 
     def __enter__(self):
-        self._orig = checkpoint.verify_ed25519
+        self._orig = checkpoint.verify_ed25519_pinned
 
         def zaehl(*a, **k):
             self.n += 1
             return self._orig(*a, **k)
-        checkpoint.verify_ed25519 = zaehl
+        checkpoint.verify_ed25519_pinned = zaehl
         return self
 
     def __exit__(self, *_):
-        checkpoint.verify_ed25519 = self._orig
+        checkpoint.verify_ed25519_pinned = self._orig
 
 
 class DieKappeGreiftVorDerErstenVerifikation(unittest.TestCase):

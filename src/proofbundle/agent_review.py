@@ -49,7 +49,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._membership import is_member
 from .errors import ProofBundleError
@@ -758,6 +758,50 @@ def _cap1_abdeckung(cov: dict) -> list:
     return errs
 
 
+def _widerspruch_in_altfeldern(cov: dict) -> list[str]:
+    """Legacy counters and gaps that refute the status stated beside them.
+
+    ONE PLACE, TWO CALLERS. These three checks also live in the v0.1 branch below, where they are
+    part of a larger demand ("COMPLETE needs a stated expectation"). Here only the refutation half
+    is wanted, because with strata present nothing demands the old fields at all. Writing them a
+    second time would be two statements about one property, and those drift; the v0.1 branch calls
+    this function for exactly the same three, and keeps its own demands beside it.
+    """
+    errs: list[str] = []
+    if cov.get("status") != "COMPLETE":
+        return errs
+    obs, exp = cov.get("observedRuns"), cov.get("expectedRuns")
+    if _is_zahl(obs) and _is_zahl(exp) and obs < exp:
+        errs.append(_shape_err(
+            "COMPLETE_UNDER_EXPECTATION",
+            f"status COMPLETE but observedRuns {obs} < expectedRuns {exp} — the counters beside the "
+            f"status refute it"))
+    if _is_zahl(exp) and exp == 0:
+        errs.append(_shape_err(
+            "COMPLETE_OVER_NOTHING",
+            "status COMPLETE with expectedRuns 0 — 'complete' over an empty expectation says "
+            "nothing; use UNKNOWN or NONE instead"))
+    if cov.get("knownGaps"):
+        errs.append(_shape_err(
+            "COMPLETE_WITH_GAPS",
+            "status COMPLETE cannot list knownGaps — a named gap is the counter-example to the "
+            "word beside it"))
+    return errs
+
+
+def _is_zahl(x: object) -> TypeGuard[int]:
+    """A genuine integer. `bool` is an int subclass in Python and is not a run count.
+
+    `TypeGuard[int]` AND NOT `bool`, and the sibling module already carries the reason: with a
+    plain `bool` return the checker does not see that `_is_zahl(obs)` has narrowed a value read
+    from parsed JSON, and `mypy src` reports `Unsupported left operand type for < ("None")` at the
+    comparison below. Measured here on the first run of this fix. A `# type: ignore` would silence
+    exactly one place and let the next one go red again; the guarantee belongs in the return type,
+    where it narrows through every call site including the ones that do not exist yet.
+    """
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
 def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str]:
     errs: list[str] = []
     if not isinstance(cov, dict):
@@ -796,24 +840,36 @@ def _validate_coverage(cov: Any, *, zusatz: frozenset = frozenset()) -> list[str
     # und jede Meldung aus _cap1_abdeckung TRAEGT einen. Der Ratsche einen Eintrag hinzuzufuegen,
     # nur um eine Form zu decken, die sie nicht meint, waere die falsche Richtung.
     if _COVERAGE_FIELDS_V02 <= zusatz and any(k in cov for k in _COVERAGE_FIELDS_V02):
-        return errs + _cap1_abdeckung(cov)
+        # AN ALIAS THAT IS READ MUST NOT CONTRADICT ITSELF. Codex (P1, review of 2026-09-23 on
+        # a8b93ca), reproduced before the fix: a valid CAP block together with `status: COMPLETE`,
+        # `observedRuns: 0`, `expectedRuns: 100` and a filled `knownGaps` produced NO error at all,
+        # while the SAME legacy fields without the CAP block produced two. The early return handed
+        # the whole section to CAP-1 and took the old fields out of every check on the way.
+        #
+        # WHAT STAYS AS IT WAS, because it is the design and not the defect: with strata present,
+        # nothing DEMANDS `observedRuns`, `expectedRuns`, `sources`, `window`, `collectionMethod`
+        # or a `knownGaps` for PARTIAL. The bookkeeping carries that more precisely, and the
+        # paragraph above says so.
+        #
+        # WHAT IS ADDED is narrower: fields that ARE present must not refute the status stated
+        # beside them. The compatibility promise is that these aliases "keep their meaning", and a
+        # meaning that no longer holds anyone to anything is not kept, it is dropped. Silence here
+        # let a signed, self-contradicting coverage block change the policy verdict.
+        return errs + _widerspruch_in_altfeldern(cov) + _cap1_abdeckung(cov)
     # COMPLETE is a strong word. It needs a stated expectation that the observation actually met —
     # otherwise 'complete' means 'I saw everything I happened to see' (F07).
     if cov.get("status") == "COMPLETE":
         obs, exp = cov.get("observedRuns"), cov.get("expectedRuns")
-        if not (isinstance(obs, int) and isinstance(exp, int)):
+        if not (_is_zahl(obs) and _is_zahl(exp)):
             errs.append("status COMPLETE requires integer observedRuns and expectedRuns — without a "
                         "stated expectation, 'complete' is unfalsifiable")
-        elif obs < exp:
-            errs.append(f"status COMPLETE but observedRuns {obs} < expectedRuns {exp}")
-        # COMPLETE UEBER NULL LAEUFEN (P0.4.2). 0 von 0 erfuellt `obs >= exp` und war damit
-        # gueltig — "vollstaendig" ueber eine leere Menge. Formal wahr, als Aussage wertlos, und
-        # als Anzeige irrefuehrend: ein Leser sieht COMPLETE und schliesst auf gepruefte Laeufe.
-        if isinstance(exp, int) and not isinstance(exp, bool) and exp == 0:
-            errs.append("status COMPLETE with expectedRuns 0 — 'complete' over an empty expectation "
-                        "says nothing; use UNKNOWN or NONE instead")
-        if cov.get("knownGaps"):
-            errs.append("status COMPLETE cannot list knownGaps")
+        # THE THREE REFUTATIONS COME FROM THE SHARED PLACE. They used to stand here as well, and
+        # since 2026-09-23 the CAP-1 branch needs exactly them without the demands around them.
+        # Two copies of one property drift; the demand that the fields BE there stays here, where
+        # it belongs to v0.1 alone. (COMPLETE over an empty expectation, P0.4.2: 0 of 0 satisfies
+        # `obs >= exp` and was valid — formally true, worthless as a statement, and misleading as a
+        # display.)
+        errs += _widerspruch_in_altfeldern(cov)
         # COMPLETE MUSS SAGEN, WORUEBER (P0.4.3). Ohne Quellen, Fenster und Methode ist
         # "vollstaendig" gegen nichts pruefbar — dieselbe Klasse wie die fehlende Erwartung.
         fehlend = [f for f in ("sources", "window", "collectionMethod") if not cov.get(f)]

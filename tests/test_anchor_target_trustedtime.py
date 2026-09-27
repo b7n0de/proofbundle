@@ -102,7 +102,7 @@ class TestTrustedTime(unittest.TestCase):
         stripped = dict(anchor)
         stripped["frozen"] = {}   # no block header supplied → not confirmed → no trustedTime
         res = verify_anchors([stripped], target_roots=roots)["results"][0]
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertNotIn("trustedTime", res)
 
 
@@ -134,7 +134,7 @@ class TestA7Regressions(unittest.TestCase):
         anchor, roots = _confirmed_anchor()
         bad = dict(anchor, anchoredAt=12345)
         res = verify_anchors([bad], target_roots=roots)["results"][0]
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("anchoredAt", res["detail"])
 
     def test_bundle_with_statement_target_is_malformed_exit_two(self):

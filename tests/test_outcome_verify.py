@@ -127,7 +127,7 @@ class TestOutcomeVerify(unittest.TestCase):
         statement = build_outcome_statement(_pred(outcomeId="TAMPERED"))
         forged = _repayload(env, statement)
         r = verify_outcome_receipt(forged, pub)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["crypto_ok"])
         self.assertTrue(r["errors"])
 
@@ -136,7 +136,7 @@ class TestOutcomeVerify(unittest.TestCase):
         _, other_pub = _keys()
         env = emit_outcome_receipt(_pred(), s)
         r = verify_outcome_receipt(env, other_pub)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["crypto_ok"])
 
     def test_predicate_type_confusion_fails(self):
@@ -146,7 +146,7 @@ class TestOutcomeVerify(unittest.TestCase):
         env = dsse.sign_envelope(_rfc8785_bytes(stmt), s, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r = verify_outcome_receipt(env, pub)
         self.assertFalse(r["predicate_type_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_decision_ref_wird_EXAKT_verglichen(self):
         """Ein Beinahe-Treffer darf nicht als dieselbe Entscheidung gelten.
@@ -169,7 +169,7 @@ class TestOutcomeVerify(unittest.TestCase):
         env = emit_outcome_receipt(_pred(), s)
         r = verify_outcome_receipt(env, pub, expected_decision_ref=_OTHER_ROOT)
         self.assertFalse(r["decision_bound"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_replay_outcome_against_other_decision_fails(self):
         # An outcome bound to decision A, replayed where decision B is expected → decision_bound False.
@@ -177,7 +177,7 @@ class TestOutcomeVerify(unittest.TestCase):
         env = emit_outcome_receipt(_pred(decisionRef={"sha256": _DEC_ROOT}), s)
         r = verify_outcome_receipt(env, pub, expected_decision_ref=_OTHER_ROOT)
         self.assertFalse(r["decision_bound"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("replay" in e.lower() for e in r["errors"]), r["errors"])
 
     def test_wrong_executor_role_separation_fails(self):
@@ -186,7 +186,7 @@ class TestOutcomeVerify(unittest.TestCase):
         env = emit_outcome_receipt(_pred(executor={"id": "decider:policy-gate"}), s)
         r = verify_outcome_receipt(env, pub, decision_maker_id="decider:policy-gate")
         self.assertFalse(r["role_separation_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_executor_differs_role_separation_ok(self):
         s, pub = _keys()
@@ -216,12 +216,12 @@ class TestOutcomeVerify(unittest.TestCase):
         # wrong audience → fail-closed
         r2 = verify_outcome_receipt(env, pub, expected_audience="other.rp")
         self.assertFalse(r2["audience_ok"])
-        self.assertFalse(r2["ok"])
+        self.assertIs(r2["ok"], False)
         # requested audience but receipt has none → fail-closed (not silent None-pass)
         env_no = emit_outcome_receipt(_pred(), s)
         r3 = verify_outcome_receipt(env_no, pub, expected_audience="rp.example")
         self.assertFalse(r3["audience_ok"])
-        self.assertFalse(r3["ok"])
+        self.assertIs(r3["ok"], False)
 
     def test_nonce_mismatch_is_fail_closed(self):
         # replay protection (the untested sibling of the audience-mismatch case): a receipt bound to nonce
@@ -231,11 +231,11 @@ class TestOutcomeVerify(unittest.TestCase):
         env = emit_outcome_receipt(_pred(validity={"audience": ["rp.example"], "nonce": "n-1"}), s)
         r = verify_outcome_receipt(env, pub, expected_nonce="n-2")
         self.assertFalse(r["nonce_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         env_no = emit_outcome_receipt(_pred(), s)
         r2 = verify_outcome_receipt(env_no, pub, expected_nonce="n-1")
         self.assertFalse(r2["nonce_ok"])
-        self.assertFalse(r2["ok"])
+        self.assertIs(r2["ok"], False)
 
 
 class TestOutcomeSubjectBinding(unittest.TestCase):
@@ -268,7 +268,7 @@ class TestOutcomeSubjectBinding(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT,
                                    require_derived_subject=True)
         self.assertFalse(r["subject_derived_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_require_derived_subject_green(self):
         s, pub = _keys()
@@ -290,7 +290,7 @@ class TestOutcomeSubjectBinding(unittest.TestCase):
             r = verify_outcome_receipt(env, pub, strict=True, expected_decision_ref=_DEC_ROOT,
                                        require_derived_subject=True)
         self.assertFalse(r["subject_derived_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 class TestOutcomeExecutorRoleTrust(unittest.TestCase):
@@ -336,7 +336,7 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
         env = emit_outcome_receipt(_pred(), s)
         r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack(member_key_id="someone-else"))
         self.assertFalse(r["executor_role_trusted"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("outcomeExecutors" in e for e in r["errors"]), r["errors"])
 
     def test_revoked_member_fails_closed(self):
@@ -345,7 +345,7 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
         r = verify_outcome_receipt(
             env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec", revoked=["kid-exec"], executor_pub=pub))
         self.assertFalse(r["executor_role_trusted"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_missing_role_fails_closed(self):
         s, pub = _keys()
@@ -354,14 +354,14 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
         del pack["roles"]["outcomeExecutors"]
         r = verify_outcome_receipt(env, pub, trust_pack=pack)
         self.assertFalse(r["executor_role_trusted"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_executor_without_keyid_fails_closed(self):
         s, pub = _keys()
         env = emit_outcome_receipt(_pred(executor={"id": "executor:runner-7"}), s)   # no keyId
         r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack())
         self.assertFalse(r["executor_role_trusted"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_malformed_trust_pack_never_crashes(self):
         s, pub = _keys()

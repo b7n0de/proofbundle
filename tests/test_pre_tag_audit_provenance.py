@@ -109,7 +109,7 @@ class ProsaEntscheidetNicht(unittest.TestCase):
                 # Der Satz steht im CHANGELOG **und** im Beleg — beide Wege muessen scheitern.
                 r = g.evaluate(_baum(self.tmp, record_text=f"# audit\n\n{satz}\n", changelog_text=satz),
                                VERSION)
-                self.assertFalse(r["ok"], f"{satz!r} hat einen PASS erteilt")
+                self.assertIs(r["ok"], False, f"{satz!r} hat einen PASS erteilt")
 
     def test_die_korpusgroesse_ist_nicht_stillschweigend_geschrumpft(self):
         """Der Fund verlangt >= 30 Formulierungen. Ein Korpus, der schrumpft, misst weniger und sagt nichts."""
@@ -121,14 +121,14 @@ class ProsaEntscheidetNicht(unittest.TestCase):
             with self.subTest(satz=satz[:48]):
                 r = g.evaluate(_baum(self.tmp, record_text=f"# notes\n\n{satz}\n", changelog_text=satz),
                                VERSION)
-                self.assertFalse(r["ok"], f"{satz!r} hat einen PASS erteilt")
+                self.assertIs(r["ok"], False, f"{satz!r} hat einen PASS erteilt")
 
     # ── Der Provenienz-Arm ──────────────────────────────────────────────────────────────────
     def test_ohne_beleg_kein_pass_egal_was_das_changelog_sagt(self):
         """Selbst ein CHANGELOG, das die Attestierung woertlich fuehrt, erteilt nichts."""
         r = g.evaluate(_baum(self.tmp, record_text=None,
                              changelog_text=f"six-lens adversarial audit run.\n{ATTEST}"), VERSION)
-        self.assertFalse(r["ok"], "das CHANGELOG hat einen PASS erteilt — es ist praesentational")
+        self.assertIs(r["ok"], False, "das CHANGELOG hat einen PASS erteilt — es ist praesentational")
         self.assertTrue(r["changelog_is_presentational"])
 
     def test_ein_beleg_fuer_eine_ANDERE_version_attestiert_diese_nicht(self):
@@ -137,14 +137,14 @@ class ProsaEntscheidetNicht(unittest.TestCase):
         r = g.evaluate(_baum(self.tmp,
                              record_text="# audit\n\npre-tag-adversarial-audit: RUN | version=1.2.3\n",
                              changelog_text="six-lens adversarial audit run."), VERSION)
-        self.assertFalse(r["ok"], "ein Beleg fuer 1.2.3 hat 9.9.9 attestiert")
+        self.assertIs(r["ok"], False, "ein Beleg fuer 1.2.3 hat 9.9.9 attestiert")
 
     def test_ein_markertragender_beleg_erteilt_keinen_pass(self):
         """makellose-500 F6: ein markertragender Prosa-Beleg (.md) ist kein signierter Receipt und
         erteilt nichts. Fail-closed ohne stummes Grün."""
         r = g.evaluate(_baum(self.tmp, record_text="# audit\n\nsix-lens adversarial audit run.\n",
                              changelog_text="nothing here"), VERSION)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     # ── Gegenrichtung: der Riegel darf nicht ALLES ablehnen ─────────────────────────────────
     def test_F6_eine_prosa_attestierungszeile_erteilt_keinen_pass_mehr(self):
@@ -154,7 +154,7 @@ class ProsaEntscheidetNicht(unittest.TestCase):
         # gueltiger Receipt verifiziert) steht in tests/test_pre_tag_receipt_gate.py.
         r = g.evaluate(_baum(self.tmp, record_text=f"# audit\n\n{ATTEST}\n",
                              changelog_text="nothing about audits here at all"), VERSION)
-        self.assertFalse(r["ok"], "eine Prosa-Zeile hat weiterhin einen PASS erteilt (F6 nicht geschlossen)")
+        self.assertIs(r["ok"], False, "eine Prosa-Zeile hat weiterhin einen PASS erteilt (F6 nicht geschlossen)")
 
     def test_gegenrichtung_das_echte_repo_besteht_weiterhin(self):
         """makellose-500 F6: ohne signierten Receipt fuer einen Tree ist fail-closed der KORREKTE
@@ -167,7 +167,7 @@ class ProsaEntscheidetNicht(unittest.TestCase):
         import tempfile  # noqa: PLC0415
         with tempfile.TemporaryDirectory() as td:
             r = g.evaluate(pathlib.Path(td), version="5.0.0")
-        self.assertFalse(r["ok"], "ein beleg-freier Baum hat ohne signierten Receipt einen PASS erteilt")
+        self.assertIs(r["ok"], False, "ein beleg-freier Baum hat ohne signierten Receipt einen PASS erteilt")
         # STRUKTURELLE Invariante statt Keyword (Gegenlesung un, Fund B): fail-closed WEIL 0 Belege
         # verifiziert wurden, nicht aus einem anderen Grund, dessen reason zufaellig "receipt" enthaelt.
         self.assertEqual(r.get("verified_receipts") or [], [], r)

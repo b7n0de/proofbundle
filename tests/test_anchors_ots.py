@@ -103,7 +103,7 @@ class TestMultiBranchAttestationScan(unittest.TestCase):
         proof = _multi_bitcoin_proof()
         rp = {"bitcoin_block_headers": {"111": "00" * 32, "222": "11" * 32}}   # both present-and-wrong
         res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "block_mismatch")
         self.assertEqual(res["mismatchHeights"], [111, 222])   # per-branch tamper diagnostic retained
 
@@ -121,7 +121,7 @@ class TestMultiBranchAttestationScan(unittest.TestCase):
         proof = _multi_bitcoin_proof()
         rp = {"bitcoin_block_headers": {"222": "not-hex"}}        # only covered height has bad hex
         res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "bad_header")
         self.assertEqual(res["badHeaderHeights"], [222])
 
@@ -131,7 +131,7 @@ class TestOpenTimestampsVerifier(unittest.TestCase):
     def test_pending_is_warn_never_pass(self):
         from proofbundle.anchors_ots import verify_opentimestamps
         res = verify_opentimestamps(_pending_proof(), _ROOT, frozen={})
-        self.assertFalse(res["ok"])       # a pending proof is NOT a verified anchor
+        self.assertIs(res["ok"], False)       # a pending proof is NOT a verified anchor
         self.assertTrue(res["warn"])      # but it is a WARN, not a hard fail
         self.assertEqual(res["status"], "pending")
 
@@ -141,7 +141,7 @@ class TestOpenTimestampsVerifier(unittest.TestCase):
         from proofbundle.anchors_ots import verify_opentimestamps
         frozen = {"bitcoinBlockHeaderMerkleRootsByHeight": {"800000": _ROOT.hex()}}
         res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
         self.assertEqual(res["status"], "needs_rp_trust")
         self.assertTrue(res["needs_rp_trust"])
@@ -160,14 +160,14 @@ class TestOpenTimestampsVerifier(unittest.TestCase):
         self.assertTrue(confirmed["rp_trusted"])
         # frozen-only (no rp_trust) with the SAME value must NOT confirm — the whole point of A-1
         frozen_only = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen=frozen)
-        self.assertFalse(frozen_only["ok"])
+        self.assertIs(frozen_only["ok"], False)
         self.assertEqual(frozen_only["status"], "needs_rp_trust")
 
     def test_block_mismatch_when_relying_party_root_is_wrong(self):   # WP-A1 re-pin
         from proofbundle.anchors_ots import verify_opentimestamps
         rp = {"bitcoin_block_headers": {"800000": ("00" * 32)}}
         res = verify_opentimestamps(_upgraded_proof(height=800000), _ROOT, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "block_mismatch")   # present-and-wrong (RP material supplied)
 
     def test_pending_and_upgraded_are_distinguished(self):
@@ -181,13 +181,13 @@ class TestOpenTimestampsVerifier(unittest.TestCase):
         from proofbundle.anchors_ots import verify_opentimestamps
         # a proof over a DIFFERENT message must not verify against our root
         res = verify_opentimestamps(_pending_proof(msg=hashlib.sha256(b"other").digest()), _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertEqual(res["status"], "unbound")
 
     def test_malformed_proof_fails_closed(self):
         from proofbundle.anchors_ots import verify_opentimestamps
         res = verify_opentimestamps(b"not an ots proof", _ROOT, frozen={})
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["warn"])
 
 
@@ -238,7 +238,7 @@ class TestNullOpAndChainConfusionHardening(unittest.TestCase):
         # canonical_root == file_digest == the attested value == the RP header: the fabricator controls all.
         rp = {"bitcoin_block_headers": {"800000": _ROOT.hex()}}
         res = verify_opentimestamps(self._null_op_proof(), _ROOT, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"])                        # the zero-effort fabrication is refused
+        self.assertIs(res["ok"], False)                        # the zero-effort fabrication is refused
         self.assertEqual(res["status"], "null_op")
         self.assertEqual(res["nullOpHeights"], [800000])
 
@@ -267,7 +267,7 @@ class TestNullOpAndChainConfusionHardening(unittest.TestCase):
         proof = _serialize(DetachedTimestampFile(OpSHA256(), ts))
         rp = {"bitcoin_block_headers": {"800000": _multi_btc_root(1).hex()}}  # == sha256(_ROOT ‖ b"\x02")
         res = verify_opentimestamps(proof, _ROOT, frozen={}, rp_trust=rp)
-        self.assertFalse(res["ok"], res)                   # a Litecoin branch is not a Bitcoin anchor
+        self.assertIs(res["ok"], False, res)                   # a Litecoin branch is not a Bitcoin anchor
         self.assertNotEqual(res["status"], "confirmed")
 
 

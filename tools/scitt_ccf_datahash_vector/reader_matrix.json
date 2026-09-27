@@ -1,0 +1,187 @@
+{
+  "schema": "b7n0de.scitt_ccf_reader_matrix/0.1",
+  "platform": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.11.15"
+  },
+  "versions": {
+    "cbor2": "5.9.0",
+    "pycose": "1.1.0",
+    "cryptography": "50.0.1"
+  },
+  "accepted_means": "the call returned without raising; signature verification is its own field",
+  "controls": {
+    "cbor2_reads_its_own_output": true,
+    "pycose_reads_and_verifies_its_own_message": true,
+    "pycose_own_message_size": 81
+  },
+  "cases": {
+    "A": {
+      "size": 165,
+      "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+      "cbor2": {
+        "accepted": true,
+        "top_level": "CBORTag",
+        "tag": 18,
+        "reencode_default": {
+          "size": 165,
+          "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+          "equals_input": true,
+          "equals_A": true
+        },
+        "reencode_canonical": {
+          "size": 165,
+          "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+          "equals_input": true,
+          "equals_A": true
+        }
+      },
+      "pycose": {
+        "CoseMessage.decode": {
+          "accepted": true,
+          "type": "Sign1Message",
+          "verify_signature": true,
+          "reencode": {
+            "size": 165,
+            "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+            "equals_input": true,
+            "equals_A": true
+          }
+        },
+        "Sign1Message.decode": {
+          "accepted": true,
+          "type": "Sign1Message",
+          "verify_signature": true,
+          "reencode": {
+            "size": 165,
+            "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+            "equals_input": true,
+            "equals_A": true
+          }
+        }
+      }
+    },
+    "B": {
+      "size": 203,
+      "sha256": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+      "cbor2": {
+        "accepted": true,
+        "top_level": "CBORTag",
+        "tag": 18,
+        "reencode_default": {
+          "size": 203,
+          "sha256": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+          "equals_input": true,
+          "equals_A": false
+        },
+        "reencode_canonical": {
+          "size": 203,
+          "sha256": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+          "equals_input": true,
+          "equals_A": false
+        }
+      },
+      "pycose": {
+        "CoseMessage.decode": {
+          "accepted": true,
+          "type": "Sign1Message",
+          "verify_signature": true,
+          "reencode": {
+            "size": 203,
+            "sha256": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+            "equals_input": true,
+            "equals_A": false
+          }
+        },
+        "Sign1Message.decode": {
+          "accepted": true,
+          "type": "Sign1Message",
+          "verify_signature": true,
+          "reencode": {
+            "size": 203,
+            "sha256": "063f8eb07510e6116ee5fc4308c63c8db6fb8fa33a2367ab79675b0fe3e89b3c",
+            "equals_input": true,
+            "equals_A": false
+          }
+        }
+      }
+    },
+    "C": {
+      "size": 164,
+      "sha256": "fead5e6058d01360024bcd0d539138d26053c3d7c48475dbccb32b6139e53a00",
+      "cbor2": {
+        "accepted": true,
+        "top_level": "list",
+        "tag": null,
+        "reencode_default": {
+          "size": 164,
+          "sha256": "fead5e6058d01360024bcd0d539138d26053c3d7c48475dbccb32b6139e53a00",
+          "equals_input": true,
+          "equals_A": false
+        },
+        "reencode_canonical": {
+          "size": 164,
+          "sha256": "fead5e6058d01360024bcd0d539138d26053c3d7c48475dbccb32b6139e53a00",
+          "equals_input": true,
+          "equals_A": false
+        }
+      },
+      "pycose": {
+        "CoseMessage.decode": {
+          "accepted": false,
+          "error": "AttributeError: Message was not tagged."
+        },
+        "Sign1Message.decode": {
+          "accepted": false,
+          "error": "AttributeError: Message was not tagged."
+        }
+      }
+    },
+    "D": {
+      "size": 166,
+      "sha256": "79c6215d691cd72ce47feb4e5b26eb047e1880a64c7ef6fbd51f6a0cba092a11",
+      "cbor2": {
+        "accepted": true,
+        "top_level": "CBORTag",
+        "tag": 18,
+        "reencode_default": {
+          "size": 165,
+          "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+          "equals_input": false,
+          "equals_A": true
+        },
+        "reencode_canonical": {
+          "size": 165,
+          "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+          "equals_input": false,
+          "equals_A": true
+        }
+      },
+      "pycose": {
+        "CoseMessage.decode": {
+          "accepted": true,
+          "type": "Sign1Message",
+          "verify_signature": true,
+          "reencode": {
+            "size": 165,
+            "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+            "equals_input": false,
+            "equals_A": true
+          }
+        },
+        "Sign1Message.decode": {
+          "accepted": true,
+          "type": "Sign1Message",
+          "verify_signature": true,
+          "reencode": {
+            "size": 165,
+            "sha256": "8595e4a4c8b93e7b1b7b798dc302a2b7d2890021f7eff372d79b32f78867e4ac",
+            "equals_input": false,
+            "equals_A": true
+          }
+        }
+      }
+    }
+  }
+}

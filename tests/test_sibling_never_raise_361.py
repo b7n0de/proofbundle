@@ -50,19 +50,19 @@ class SiblingBudgetNeverRaise(unittest.TestCase):
             for payload in (_WIDE, _OVERSIZED):
                 r = verify(_signed(s, payload), pub)   # must NOT raise
                 self.assertIsInstance(r, dict)
-                self.assertIsNot(r["ok"], True)
+                self.assertIs(r["ok"], False)
                 self.assertIs(r["structure_ok"], False)
 
     def test_trust_pack_never_raises_on_budget_or_bad_signatures(self):
         s, _ = _keys()
         for payload in (_WIDE, _OVERSIZED):
             r = verify_trust_pack(_signed(s, payload))
-            self.assertIsNot(r["ok"], True)
+            self.assertIs(r["ok"], False)
         # oversized signatures array (> 512 cap)
         env = _signed(s, json.dumps({"x": 1}).encode("utf-8"))
         env_big = dict(env)
         env_big["signatures"] = [{"sig": "AA=="} for _ in range(600)]
-        self.assertIsNot(verify_trust_pack(env_big)["ok"], True)
+        self.assertIs(verify_trust_pack(env_big)["ok"], False)
         # non-list signatures — a fail-closed verdict, not a raw BundleFormatError
         for bogus in (True, 5, {"a": 1}, "x"):
             env_b = dict(env)
@@ -189,9 +189,9 @@ class SdJwtFamilyBudgetNeverRaise(unittest.TestCase):
         for tok in (wide, over):
             self.assertIs(verify_status_snapshot(tok, expected_uri="x", index=0, issuer_pubkey=pub)["ok"], False)
             self.assertIsNot(verify_sd_jwt(tok)["sig_ok"], True)   # verify_sd_jwt reports sig_ok/structure_ok
-        self.assertIsNot(verify_key_binding(wide + "~" + wide)["ok"], True)
-        self.assertIsNot(verify_sdjwt_vc(wide, {"vctAllowlist": ["x"], "requireKeyBinding": False},
-                                         issuer_pubkey=b"\x00" * 32)["ok"], True)
+        self.assertIs(verify_key_binding(wide + "~" + wide)["ok"], False)
+        self.assertIs(verify_sdjwt_vc(wide, {"vctAllowlist": ["x"], "requireKeyBinding": False},
+                                         issuer_pubkey=b"\x00" * 32)["ok"], False)
         # persample.verify_sample_opening's BudgetExceeded fix (same except-ProofBundleError change) is
         # covered by the adversarial deep-gate reproducer (its opening/root_b64 shape validation runs before the
         # disclosure parse, so a self-contained budget-only probe here is brittle).
@@ -411,7 +411,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for bad in ("/no/such/file", "/tmp", None, "/no\x00nul"):
             r = verify_prereg(bad, claim)
             self.assertIsInstance(r, dict)
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
         self.assertFalse(verify_prereg("/no/such", {})["present"])  # no prereg ref -> present=False, no read
 
     def test_evaluate_renewal_policy_type_confused_sequence_is_verdict(self):
@@ -425,7 +425,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for bad in ("notlist", [123], [["x"]], [[1]], [[{}]], []):
             r = evaluate_renewal_policy(bad, policy=pol, now=0)
             self.assertIsInstance(r, VerificationResult)
-            self.assertFalse(r.ok)
+            self.assertIs(r.ok, False)
 
     def test_verify_evaluation_card_bad_path_is_verdict(self):
         # 6-lens gate L1-01: verify_evaluation_card read the card file unguarded, so a missing / directory /
@@ -437,7 +437,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for bad in ("/no/such/file", "/tmp", None, "/no\x00nul", "/no\ud800sur"):
             r = verify_evaluation_card(bad, claim)
             self.assertIsInstance(r, dict)
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
         # unchanged: a claim with no card reference returns present=False before any read
         self.assertFalse(verify_evaluation_card("/no/such", {})["present"])
         _ = base64  # keep import symmetry with the sibling tests
@@ -452,7 +452,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for disc in ("café☕", "emoji🎯"):
             r = verify_sample_opening({"index": 0, "disclosure": disc, "proof_b64": []}, root, 1)
             self.assertIsInstance(r, dict)
-            self.assertFalse(r["ok"])
+            self.assertIs(r["ok"], False)
         # Seit d94ef34 (Lauf 13, Gegenlesung Stelle 6) ist ein einsames Surrogat fehlgeformte STRUKTUR und
         # faellt am strikten Parser mit der typisierten BundleFormatError — diese Funktion wirft bei
         # fehlgeformter Struktur laut eigener Konvention, ein Verdikt gibt es nur fuer wohlgeformte
@@ -469,7 +469,7 @@ class CallerPathTypedErrors(unittest.TestCase):
         for bad in ("str", 123, None, [1], {"a": 1}):
             r = verify_dual_hash(bad, {"sha256": "abc"})
             self.assertIsInstance(r, VerificationResult)
-            self.assertFalse(r.ok)
+            self.assertIs(r.ok, False)
 
     def test_verify_bundle_nul_or_surrogate_path_is_typed(self):
         # 6-lens gate L3-01: a str bundle is a PATH; an embedded-NUL ('embedded null byte' -> ValueError) or
@@ -509,7 +509,7 @@ class CallerPathTypedErrors(unittest.TestCase):
                 self.fail(f"expected_tree_size case {label} leaked a raw {type(exc).__name__}: {exc}")
             checks = {c.name: c.ok for c in res.checks}
             self.assertIn("tree-size", checks)
-            self.assertFalse(checks["tree-size"], f"case {label} must record a tree-size FAIL, not pass")
+            self.assertIs(checks["tree-size"], False, f"case {label} must record a tree-size FAIL, not pass")
         # a genuine matching int still passes — the safe-render guard is not over-broad.
         self.assertTrue({c.name: c.ok for c in verify_bundle(bundle, expected_tree_size=1).checks}["tree-size"])
 
@@ -526,7 +526,7 @@ class RelationCanonicalityFailClosed(unittest.TestCase):
         try:
             for strict in (False, True):
                 r = verify_relation_statement(env, pub, strict=strict)
-                self.assertIsNot(r["ok"], True)
+                self.assertIs(r["ok"], False)
                 self.assertIs(r["structure_ok"], False)
         finally:
             rsm._rfc8785_available = orig

@@ -1,0 +1,50 @@
+name: codex-threads
+
+# Advisory merge check for the Codex review loop. On every pull request it measures three numbers
+# at the origin, through the GitHub API, and writes them into the job summary: the Codex review
+# rounds the owner's account requested, the Codex threads without an answer, and the answered
+# threads whose answer names no commit on the head. Green only when the last two are zero.
+# See scripts/codex_threads_check.py for what counts as a Codex thread, an answer and its commit.
+#
+# ADVISORY. Adding this check to the protect-main ruleset is a separate owner act. Until then it
+# reports and blocks nothing.
+#
+# An answer posted after the last push is seen by the next run; `workflow_dispatch` on the pull
+# request's branch starts one by hand.
+#
+# Actions are pinned to full commit SHAs, matching the other workflows.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "pull request number"
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  codex-threads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Measure the Codex threads of this pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: >-
+          python3 scripts/codex_threads_check.py --repo "$REPOSITORY" --pr "$PR_NUMBER"
+          --owner "$REPOSITORY_OWNER" --summary "$GITHUB_STEP_SUMMARY"

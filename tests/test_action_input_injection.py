@@ -18,7 +18,17 @@ import subprocess
 import unittest
 from pathlib import Path
 
-import yaml
+import pytest
+
+# N18, measured 2026-09-23: this was a bare `import yaml`, and it is the ONE module of the six with
+# an optional dependency that did not guard it. `pip install <sdist>` without the `[test]` extra
+# followed by `pytest` therefore exited 2 with a collection error after 19 collected tests, instead
+# of degrading to a clean module-level skip as `pyproject.toml` promises for that install. One
+# unguarded line turned a skip into an interrupted run for the whole suite.
+#
+# The guard is the house pattern, taken from the five modules that already had it (for instance
+# `test_der_ci_schnitt_haelt.py:20`), rather than a second idea for the same thing.
+yaml = pytest.importorskip("yaml")
 
 REPO = Path(__file__).resolve().parents[1]
 

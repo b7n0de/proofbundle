@@ -92,7 +92,7 @@ class NeverRaiseAllSurfaces(unittest.TestCase):
                                  payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r = verify_decision_receipt(env, signer.public_key().public_bytes_raw())
         self.assertIs(r["structure_ok"], False)
-        self.assertIsNot(r["ok"], True)
+        self.assertIs(r["ok"], False)
 
     def test_bundle_load_deep_is_clean_malformed(self):
         # load_bundle reads a FILE and routes through loads_strict -> deep nesting is a clean
@@ -127,7 +127,7 @@ class BudgetNeverRaise(unittest.TestCase):
         for fn in (vd, vo):
             r = fn(env, pub)   # must NOT raise BudgetExceeded
             self.assertIs(r["structure_ok"], False)
-            self.assertIsNot(r["ok"], True)
+            self.assertIs(r["ok"], False)
 
     def test_oversized_payload_over_byte_budget_returns_verdict(self):
         import json as _json
@@ -135,7 +135,7 @@ class BudgetNeverRaise(unittest.TestCase):
         env, pub = self._signed(_json.dumps([0] * 3000000).encode("utf-8"))  # ~12MB, over the 8MiB byte cap
         r = vd(env, pub)   # dsse.verify_envelope budget-checks BEFORE parse -> must be caught, not raised
         self.assertIs(r["structure_ok"], False)
-        self.assertIsNot(r["ok"], True)
+        self.assertIs(r["ok"], False)
 
 
 class ApiCliErrorClassParity(unittest.TestCase):

@@ -80,7 +80,7 @@ def test_keine_fassung_haelt_eine_unpruefbare_deklaration_fuer_geprueft(name, dv
         assert r.get("assurance_ok") is not True, (
             f"{fassung} / {name}: assurance_ok={r.get('assurance_ok')!r} — eine nicht auswertbare "
             f"Deklaration gilt als geprueft")
-        assert r.get("ok") is not True, f"{fassung} / {name}: ok={r.get('ok')!r}"
+        assert r.get("ok") is False, f"{fassung} / {name}: ok={r.get('ok')!r}"
 
 
 @pytest.mark.parametrize("name,dv", sorted(UNPRUEFBAR.items()))

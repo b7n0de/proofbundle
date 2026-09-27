@@ -19,7 +19,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -33,6 +33,8 @@ SRC = REPO / "src"
 VERIFIER = "verify_pre_tag_receipt.py"
 _SCRIPTS_NEEDED = ("pre_tag_receipt.py", "pre_tag_audit_gate.py", "pre_tag_receipt_lib.py",
                    "sign_readiness_artifact.py", VERIFIER)
+#: The audit the producer runs in these fixtures: a program that prints one line and exits 0.
+_AUDIT = shlex.join([sys.executable, "-c", "print('audit ran')"])
 
 
 def _run(cmd, cwd, env=None):
@@ -72,7 +74,6 @@ def welt(tmp_path):
     (repo / "src" / "proofbundle" / "__init__.py").write_text("__version__ = '5.0.0'\n")
     (repo / "pyproject.toml").write_text('[project]\nname = "proofbundle"\nversion = "5.0.0"\n')
     (repo / "CHANGELOG.md").write_text("## [5.0.0] - 2026-08-25\naudit passed\n")
-    (repo / "_audit.txt").write_text("audit ran\n")
     priv = Ed25519PrivateKey.generate()
     (repo / "audit_artifacts" / "pre_tag_trusted_pubkeys.txt").write_text(
         base64.b64encode(priv.public_key().public_bytes_raw()).decode() + "\n")
@@ -88,24 +89,10 @@ def welt(tmp_path):
     kandidat = _head(repo)
     env = {"PYTHONPATH": f"{repo}/src:{repo}/scripts", "PATH": "/usr/bin:/bin",
            "PB_INLINE_SIGNING": "1"}
-    # THE AUDIT OUTPUT IS TOUCHED LAST, immediately before the run that consumes it.
-    #
-    # It used to be written near the top of this fixture, before `.gitignore` and before the
-    # commit. Since 2026-09-20 the receipt tool refuses when a tracked path is NEWER than the audit
-    # output, because an audit cannot have read bytes that did not exist yet — and `.gitignore` was
-    # exactly that. The failure was not stable: two files written in the same instant can compare
-    # either way depending on timestamp resolution, so the error moved between cases from run to
-    # run. Writing it here makes the fixture describe the ceremony it is standing in for, and it
-    # fixes the ORDER for every case in this file rather than for the one that happened to fail.
-    #
-    # ITS TIME IS TOUCHED, NOT ITS CONTENT, and the first attempt got that wrong: moving the write
-    # down here took the file out of `git add -A` above, so it became UNTRACKED and every case in
-    # the file errored with `?? _audit.txt`. The original position was deliberate — this file is
-    # TRACKED. `os.utime` leaves the bytes alone, so the tree stays clean, and only the ordering
-    # the receipt tool reads is corrected.
-    os.utime(repo / "_audit.txt", None)
+    # THE AUDIT RUNS INSIDE THE TOOL (2026-09-21): started by the receipt script between two
+    # measurements of the tree; the record is written by the script, outside the tree.
     r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
-              "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",
+              "--audit-command", _AUDIT, "--audit-output-file", str(tmp_path / "_audit_record.txt"),
               "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
               "--privkey-file", "_privkey.b64"], repo, env)
     assert r.returncode == 0, f"receipt production failed: {r.stderr}"
@@ -230,16 +217,10 @@ class TestContract1_NoValidReceiptFails:
         assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
         assert "no receipt" in res["reason"] and "foreign" in res["reason"] and not res["rejected"]
         assert res["foreign_files"] == ["audit_artifacts/500/findings_register_v2.json"]
-        # THE AUDIT RUNS ON THE TREE AS IT NOW STANDS, and this line is the second half of the
-        # ORDER rule the docstring above states. The fixture writes `_audit.txt` once, before this
-        # case commits the register; since 2026-09-20 the receipt tool also refuses when a tracked
-        # path was written AFTER the audit output, because an audit cannot have read bytes that did
-        # not exist yet. Re-running the audit here is what the ceremony does anyway — the case
-        # measured the verifier, and it had been relying on an ordering the tool no longer allows.
-        (repo / "_audit.txt").write_text("audit ran\n")
         # BESIDE a receipt produced over this tree it neither verifies nor poisons.
         r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
-                  "--audit-command", "c", "--audit-exit", "0", "--audit-output-file", "_audit.txt",
+                  "--audit-command", _AUDIT,
+                  "--audit-output-file", str(repo.parent / "_audit_record_beside_register.txt"),
                   "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
                   "--privkey-file", "_privkey.b64"], repo, env)
         assert r.returncode == 0, r.stderr

@@ -1,0 +1,13 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "6.1.0",
+  "subject_tree_digest": "77fa4787ca1cf3db4be8efe35cd526bcb3343baef700a2dd26f8cfc6084c59be",
+  "gate_source_digest": "c6317a549bc11f32992e8c64bc791ca1e646bc5c905e720d78a876e3414eb5f9",
+  "audit_command": "/home/konrad/proofbundle/.venv/bin/python -m pytest -q -p no:cacheprovider",
+  "audit_exit_code": 0,
+  "audit_output_digest": "6a79f2ea0aa8532765bafa45876df357a267d488fe0d9e4d5e1a4bcaa0b72603",
+  "runner_identity": "b7n0de-release-runner (farmer; claude-code, Konto un_deltaXX, Fable 5.1)",
+  "produced_at": "2026-09-21T19:33:43Z",
+  "signature": "1fU/U+ugGa4azb/bU7WFE+VuVs6MaxUXEz3FQYsAKRd4yD4jJMgqQIJCCMYhuawBbtXgVkIPtcJMXh7CYjMlAA==",
+  "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
+}

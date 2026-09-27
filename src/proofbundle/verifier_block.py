@@ -46,6 +46,8 @@ validator; ``docs/VERIFIER_BLOCK.md`` explains it.
 """
 from __future__ import annotations
 
+from collections import Counter
+
 import hashlib
 import json
 import re
@@ -239,7 +241,10 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
     if len(set(cases)) != len(cases):
         # A CASE LISTED TWICE IS NOT TWO CASES (lens C, P2): `cases` would count the listing, not
         # the corpus, and the runner would execute the same directory twice under one id.
-        doppelt = sorted({c for c in cases if cases.count(c) > 1})
+        # ONE PASS. Same class as the cap1 duplicate scan that Codex measured at 10.49 s
+        # over 30,000 entries: `.count()` inside a comprehension over the same list is
+        # quadratic. A manifest is caller-sized, so the cost is caller-chosen.
+        doppelt = sorted(c for c, n in Counter(cases).items() if n > 1)
         raise VerifierBlockError(f"conformance manifest lists a case more than once: {doppelt}")
     # ... AND NEITHER IS A CASE LISTED UNDER TWO SPELLINGS (Codex round one on PR 224, P2,
     # measured with `['a', './a']`: accepted, hashed twice, `cases: 2`). Uniqueness is a property
@@ -540,7 +545,8 @@ def validate_test_result_statement(statement: Any) -> list[str]:
                         f"which derive {abgeleitet!r} ({len(failed)} failed, {len(warned)} warned, "
                         f"{len(passed)} passed)")
         alle = passed + warned + failed
-        doppelt = sorted({x for x in alle if alle.count(x) > 1})
+        # ONE PASS, same class as above.
+        doppelt = sorted(x for x, n in Counter(alle).items() if n > 1)
         if doppelt:
             errs.append(f"a case is listed under more than one outcome: {doppelt}")
     return errs

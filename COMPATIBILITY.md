@@ -40,6 +40,8 @@ stricter check and a break look identical.
 
 **5.0.0, worked example.** Both MAJOR triggers of 5.0.0 (recorded in [`docs/release_scope/5.0.0.md`](docs/release_scope/5.0.0.md)) are the two rules above made concrete: an input class that used to exit **2** (malformed/usage) now exits **1** (a crypto failure / verdict) — the meaning of an exit code changed, and exit codes are surface 2; and the Inspect lifecycle hook and the pytest plugin now **require** `PROOFBUNDLE_THRESHOLD` instead of silently defaulting it to `0` — an optional obligation made required. Neither flips a verdict: nothing that verified before stops, nothing that failed starts. Migration is one line: `export PROOFBUNDLE_THRESHOLD=0`.
 
+**`automation_summary`, a worked example of the stricter-check line.** `automation_summary` has been public since 5.0.0; from 5.1.0 it adds `RECEIPT_NOT_OK` to its `blockers` when the receipt is not `ok`, so a summary can no longer be more lenient than the verdict it summarises. The change can only ever be stricter: it can stop an automated action that was previously allowed, never allow one that was previously stopped. Three consumer shapes are affected in the same case, and the affected one is the one that looks safest. MEASURED: a result with `ok` false but valid crypto and structure and no policy or reference checks returned an EMPTY `blockers` list before and returns `['RECEIPT_NOT_OK']` now, so automation that asks whether the list is empty changes from allow to block. Automation that matches the list exactly sees a new member, and `safeForAutomation` turns from true to false for that same result. A tolerance check is NOT affected in that case and is named here because the first wording said `every`: a consumer asking whether `len(blockers)` stays under a threshold above one sees 0 become 1 and does not flip. That is the change doing its work rather than a side effect. A receipt that is not `ok` was never safe to automate on, and the summary said otherwise. It is written here rather than only in a release note because this is where a reader looks for what a version step may do to a returned shape.
+
 ## What each version step allows
 
 | Step | Allowed |
@@ -80,7 +82,7 @@ cannot tell from it what arrives instead. `legacy_v01=True` names the thing it s
 at once is an error rather than a silent precedence — two versions cannot both be the answer, and a
 quiet winner would swallow one of the two intents without the caller ever learning.
 
-**Coverage aliases (from the release that carries CAP-1 coverage).** In `agent-review/v0.2` the
+**Coverage aliases (6.1.0, the release that carries CAP-1 coverage).** In `agent-review/v0.2` the
 fields `observedRuns`, `expectedRuns`, `knownGaps` and `collectionMethod` under `coverage` are
 aliases for the accounting that `strata`, `integrity` and `absenceAssertions` carry in the language
 of `draft-hillier-coverage-attestation-00`. They stay readable, keep their meaning, and a predicate
@@ -102,6 +104,9 @@ Currently labelled EXPERIMENTAL (see CHANGELOG and README for the authoritative 
 release):
 
 - **`relation/v0.1`** — the relation/lineage surface
+- **`agent-review/v0.3`** — v0.2 plus the optional verifier block, new in 6.1.0. It is listed
+  here because a reader looking for what may still move should find it in the same place as
+  its predecessor, not only in the CHANGELOG entry that introduces it.
 - **`agent-review/v0.2`** — the current agent-review predicate (see the table above; README says
   the same). What the 6.0.0 deprecation above protects is the EMITTER ARGUMENT `v02=` on a shipped
   function, not the predicate's status: the argument keeps working until a later MAJOR, the

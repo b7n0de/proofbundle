@@ -31,9 +31,10 @@ from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
+from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
 
-__all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
+__all__ = ["TOKEN_PREFIX", "receipt_token", "receipt_token_identity", "verify_receipt_token",
            "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
 
 TOKEN_PREFIX = "pb1."
@@ -52,24 +53,83 @@ def _b64url_decode(s: str) -> bytes:
 def receipt_token(bundle: dict) -> str:
     """Pack a receipt bundle into a compact, self-contained token: ``pb1.`` +
     base64url(zlib(canonical bundle JSON)). The token IS the receipt — verifying it is verifying
-    the bundle, offline, no lookup."""
+    the bundle, offline, no lookup.
+
+    The bundle goes in as it is. An ``sd_jwt_vc`` compact belongs to a foreign issuer and is never
+    rewritten, an ES256 signature with a high s included: a Key Binding JWT's ``sd_hash`` covers
+    the issuer JWT exactly as presented (RFC 9901 §4.3). Measured on f536af50, which packed the
+    low-s spelling: the ``sd_hash`` no longer matched the compact inside the token.
+
+    THE IDENTITY OF A TOKEN is not the token string: another zlib level, other JSON whitespace or the
+    other spelling of an ES256 signature, ``(r, s)`` or ``(r, n - s)``, give a different string for
+    the same receipt, and each one verifies. So a receipt and its twin give two token strings. Their
+    identity is one: :func:`receipt_token_identity`, the key to deduplicate or replay-check tokens
+    by (finding D1, owner decision 2026-09-26)."""
     if not isinstance(bundle, dict) or "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
     canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
 
 
+def receipt_token_identity(token: str) -> bytes:
+    """The identity of a ``pb1.`` token: the receipt root of the bundle it carries, i.e.
+    :func:`proofbundle.anchors.receipt_canonical_root` over that bundle without its ``anchors``, the
+    same 32 bytes a ``receipt`` anchor on it stamps as ``canonicalRoot`` (SPEC §7i). Every ES256
+    signature in ``sd_jwt_vc.compact`` enters it in its low-s spelling, so a receipt and its
+    ``(r, n - s)`` twin have one identity while their token strings differ; JSON whitespace, key
+    order and the zlib level do not enter it either. ``anchors`` are detached evidence about the
+    receipt, so two tokens that carry one receipt with different anchors have one identity.
+
+    This is the key to deduplicate, replay-check or log tokens by. It says nothing about validity:
+    it is computed without verifying, and :func:`verify_receipt_token` gives the verdict. A
+    malformed token raises BundleFormatError, as in :func:`verify_receipt_token`."""
+    from .anchors import receipt_canonical_root  # noqa: PLC0415 - local import, as elsewhere in this module
+    bundle = _unpack_receipt_token(token)
+    return receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
+
+
 def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]]:
     """Unpack and verify a ``pb1.`` receipt token. Returns (VerificationResult, bundle_dict).
-    Malformed tokens raise BundleFormatError — never a crash, never a silent pass."""
+    Malformed tokens raise BundleFormatError — never a crash, never a silent pass.
+
+    The returned bundle is the one the token carries, byte for byte in every field: a foreign
+    issuer's ES256 signature keeps the spelling the token held (finding D1). Two tokens of one
+    receipt can therefore return two bundles that differ in that signature only; compare them by
+    :func:`receipt_token_identity`."""
+    bundle = _unpack_receipt_token(token)
+    # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
+    # token never escapes as a different exception type (release-review fix).
+    try:
+        return verify_bundle(bundle), bundle
+    except ProofBundleError as exc:
+        # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
+        # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
+        # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization in `_unpack_receipt_token`
+        # already does this for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign type either.
+        raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
+
+
+def _unpack_receipt_token(token) -> dict:
+    """The bundle dict a ``pb1.`` token carries, as it carries it. Every malformed token raises
+    BundleFormatError. Shared by :func:`verify_receipt_token` and :func:`receipt_token_identity` so
+    the two never read a token differently."""
     if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX):
         raise BundleFormatError(f"not a proofbundle receipt token (expected {TOKEN_PREFIX!r} prefix)")
+    # Deep gate Z195, L2-Z195-TOKEN-TRAILING-DATA-01: the body was base64-decoded in full before any
+    # size check (64 MiB of 'A' took 0.97 s to refuse on main 1f7a62d2), where kbjwt, sdjwt and
+    # statuslist refuse a segment over input_bytes BEFORE decoding it. Same guard, same place, and
+    # before the slice below, which would itself copy the whole body.
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import, as in the sibling modules
+    if len(token) - len(TOKEN_PREFIX) > DEFAULT_BUDGET.input_bytes:
+        raise BundleFormatError("receipt token exceeds the input_bytes budget (pre-decode DoS guard)")
+    body = token[len(TOKEN_PREFIX):]
     try:
-        decomp = zlib.decompressobj()
-        raw = decomp.decompress(_b64url_decode(token[len(TOKEN_PREFIX):]), _MAX_TOKEN_BYTES)
-        if decomp.unconsumed_tail:
-            raise BundleFormatError("receipt token exceeds the decompression cap")
+        # ONE complete zlib stream and nothing after it: the same finding measured a genuine token with
+        # bytes appended after the end of its stream verifying ok=True (see `_inflate`).
+        raw = inflate_whole_stream(_b64url_decode(body), _MAX_TOKEN_BYTES)
         bundle = loads_strict(raw)   # WP-C1: duplicate keys rejected fail-closed
+    except InflateCapExceeded as exc:
+        raise BundleFormatError("receipt token exceeds the decompression cap") from exc
     except BundleFormatError:
         raise
     except ProofBundleError as exc:
@@ -78,19 +138,10 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         # never a raw BudgetExceeded leak (this function's contract is "malformed tokens raise BundleFormatError").
         raise BundleFormatError("receipt token exceeds the verification budget") from exc
     except (ValueError, TypeError, zlib.error) as exc:
-        raise BundleFormatError("receipt token is not valid base64url(zlib(JSON))") from exc
+        raise BundleFormatError(f"receipt token is not valid base64url(zlib(JSON)): {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("receipt token does not contain a bundle object")
-    # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
-    # token never escapes as a different exception type (release-review fix).
-    try:
-        return verify_bundle(bundle), bundle
-    except ProofBundleError as exc:
-        # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
-        # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
-        # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization above already does this
-        # for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign exception type either.
-        raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
+    return bundle
 
 
 def verify_eval_results_entry(entry: dict) -> dict:

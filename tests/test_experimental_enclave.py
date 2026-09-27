@@ -93,7 +93,7 @@ class TestAdversarial(unittest.TestCase):
         bundle, binding, verifier, eat = _setup()
         res = verify_enclave_attestation(eat, verifier_pubkey=_raw(generate_signer()),
                                          expected_binding=binding)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("signature", res["detail"])
 
     def test_red_binding_mismatch_other_receipt(self):
@@ -102,7 +102,7 @@ class TestAdversarial(unittest.TestCase):
         other = emit_bundle(b'{"forged": true}', generate_signer())
         res = verify_enclave_attestation(eat, verifier_pubkey=_raw(verifier),
                                          expected_binding=enclave_binding_for(other))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("does not bind", res["detail"])
 
     def test_red_wrong_typ(self):
@@ -114,7 +114,7 @@ class TestAdversarial(unittest.TestCase):
         sig2 = _b64url(verifier.sign(f"{h2}.{p}".encode("ascii")))
         res = verify_enclave_attestation(f"{h2}.{p}.{sig2}", verifier_pubkey=_raw(verifier),
                                          expected_binding=binding)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn(EAT_TYP, res["detail"])
 
     def test_red_alg_none(self):
@@ -123,14 +123,14 @@ class TestAdversarial(unittest.TestCase):
         h2 = _b64url(json.dumps({"alg": "none", "typ": EAT_TYP}).encode())
         res = verify_enclave_attestation(f"{h2}.{p}.{s}", verifier_pubkey=_raw(verifier),
                                          expected_binding=binding)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_profile_mismatch(self):
         bundle, binding, verifier, eat = _setup()
         res = verify_enclave_attestation(eat, verifier_pubkey=_raw(verifier),
                                          expected_binding=binding,
                                          expected_profile="https://evil.example/profile")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("profile", res["detail"])
 
     def test_profile_wird_EXAKT_verglichen(self):
@@ -161,12 +161,12 @@ class TestAdversarial(unittest.TestCase):
         p2 = _b64url(json.dumps(claims).encode())
         res = verify_enclave_attestation(f"{h}.{p2}.{s}", verifier_pubkey=_raw(verifier),
                                          expected_binding=binding)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_garbage(self):
         for bad in ("", "not.a.jws", "a.b", "x.y.z"):
             res = verify_enclave_attestation(bad, verifier_pubkey=b"\x00" * 32, expected_binding="x")
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
 
     def test_red_string_exp_rejected(self):
         bundle, binding, verifier, eat = _setup()
@@ -177,7 +177,7 @@ class TestAdversarial(unittest.TestCase):
         sig = _b64url(v.sign(f"{h}.{p}".encode("ascii")))
         res = verify_enclave_attestation(f"{h}.{p}.{sig}", verifier_pubkey=_raw(v),
                                          expected_binding=binding, now=1)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("exp", res["detail"])
 
 

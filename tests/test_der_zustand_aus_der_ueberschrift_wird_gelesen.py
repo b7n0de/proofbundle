@@ -77,12 +77,54 @@ def test_die_ueberschrift_zaehlt_erst_NACH_der_tabelle():
     assert r["value"] == "closed" and "state column" in r["source"], r
 
 
-def test_ohne_beide_bleibt_es_NICHT_MESSBAR_und_nennt_alle_DREI_wege():
-    """[ZAEHLT] Der Grund muss sagen, wo ueberall nachgesehen wurde."""
+#: Which sources `_status` asks, PER FIND FORM. The table is read only from a table row and the
+#: section heading only from a prose promise, so a reason that names them everywhere names a step
+#: that never ran.
+_GEFRAGT = {
+    None: ["the producer list", "a heading that names its state after a dash"],
+    "ueberschrift": ["the producer list", "a heading that names its state after a dash"],
+    "tabelle_spalte1": ["the producer list", "a table with a state column",
+                        "a heading that names its state after a dash"],
+    "prosa_zusage": ["the producer list", "a heading that names its state after a dash",
+                     "a section heading in the house form `## Open`"],
+}
+
+
+def test_ohne_beide_bleibt_es_NICHT_MESSBAR_und_nennt_GENAU_die_gefragten_wege():
+    """[ZAEHLT] The reason names exactly the sources that were asked — for the form that asked.
+
+    THE FIRST VERSION OF THIS CASE PINNED THE DEFECT. It demanded all three ways in every reason,
+    and the producer duly listed all three regardless of find form. Measured on line 600: 120 of
+    145 records carry the heading form, where no table is ever consulted, so the sentence reported
+    an unperformed step as performed in 120 places at once. That is the class this whole file is
+    written against, one level up — a reader who checks where the tool looked was told something
+    that was not true.
+
+    Asserted against the STRUCTURED field `sources_asked` rather than against the prose, and the
+    prose is then held against that field. A contract that reads a sentence measures its wording.
+    """
     g = _gen()
-    r = g._status("GIBTESNICHT")
-    assert r["state"] == "NOT MEASURED"
-    assert "heading" in r["reason"] and "table" in r["reason"] and "producer list" in r["reason"], r
+    for fundart, erwartet in _GEFRAGT.items():
+        r = g._status("GIBTESNICHT", fundart=fundart)
+        assert r["state"] == "NOT MEASURED", (fundart, r)
+        assert r["sources_asked"] == erwartet, (fundart, r.get("sources_asked"))
+        for quelle in erwartet:
+            assert quelle in r["reason"], (fundart, quelle, r["reason"])
+
+
+def test_ANTI_der_grund_nennt_KEINEN_weg_der_nicht_gefragt_wurde():
+    """[ZAEHLT] The direction that matters, and the one the old case could not see.
+
+    A reason may be short; it may not be wrong. For the heading form the table is never opened, so
+    naming it would be the defect — and for anything but a prose promise the same holds for the
+    section heading.
+    """
+    g = _gen()
+    r = g._status("GIBTESNICHT", fundart="ueberschrift")
+    assert "a table with a state column" not in r["reason"], r
+    assert "## Open" not in r["reason"], r
+    t = g._status("GIBTESNICHT", fundart="tabelle_spalte1")
+    assert "## Open" not in t["reason"], t
 
 
 def test_S5_steht_im_traeger_offen_und_in_der_ansicht():

@@ -19,7 +19,100 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
-__all__ = ["verify_ed25519", "verify_ecdsa_p256"]
+__all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
+           "verify_ecdsa_p256", "canonical_es256_signature"]
+
+
+_ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19
+_ED25519_SIGN_MASK = 1 << 255         # bit 255 is the x sign, not part of y
+_ED25519_Y_MASK = _ED25519_SIGN_MASK - 1
+
+
+def _low_order_ed25519_y() -> frozenset:
+    """The y-coordinates of the Ed25519 8-torsion subgroup (identity y=1, order-2 y=p-1, order-4 y=0,
+    and the two order-8 y-values). Checking the y-VALUE (sign-independent) rejects a low-order key under
+    ANY encoding — both sign variants — where a hand-kept byte-string blocklist misses the sign/field
+    variants (6-lens fix-review re-break found 3 missing). Computed from the known order-8 encodings."""
+    ys = {0, 1, _ED25519_P - 1}
+    for h in ("26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+              "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a"):
+        ys.add(int.from_bytes(bytes.fromhex(h), "little") & _ED25519_Y_MASK)
+    return frozenset(ys)
+
+
+_LOW_ORDER_ED25519_Y = _low_order_ed25519_y()
+
+
+#: Why each answer of :func:`ed25519_trust_anchor_weakness` refuses a key, in one place, so that every
+#: refusal says what was measured and nothing more (gate run 2, iteration 2, R2I2A-01). The earlier
+#: messages gave the forgery as the reason for every refused key. Measured over the nineteen
+#: non-canonical spellings y = p .. p + 18: only y = p and y = p + 1 admit a signature made with no
+#: private key (they spell the points of order 4 and 1), ten spell points of large order and seven
+#: are no point at all (2 + 10 + 7 = 19; gate run 2, iteration 3, R2I3A-01: an earlier sentence said
+#: twelve, the count of all points among them). So the non-canonical reason is the encoding, and the
+#: forgery is named only where it holds. ``pb_verify_rs`` carries the same texts (``grund_der_schwaeche``).
+TRUST_ANCHOR_REFUSAL = {
+    "low-order": "a signature made with no private key verifies under a point of small order",
+    "non-canonical": ("a trusted key has exactly one encoding (y < p), and y = p and y = p + 1 "
+                      "also spell points of small order"),
+    "malformed": "a trusted Ed25519 key is exactly 32 bytes",
+}
+
+
+def ed25519_trust_anchor_weakness(public_key) -> "str | None":
+    """Why ``public_key`` cannot stand as a TRUSTED Ed25519 identity, or None when it can.
+
+    :func:`verify_ed25519` keeps the SPEC §4a profile, which accepts small-order components and one of
+    the non-canonical key encodings. That profile is right for checking a signature and wrong for a key
+    a caller trusts: under a low-order key a signature made with no private key verifies. Under the
+    identity point the fixed signature (R = identity, S = 0) verifies for EVERY message; under the other
+    points of small order it verifies for about one message in the key's order, and a forger who varies
+    the message or R finds one after a few tries. Nobody holds a private key for such a key. The rule was first written for the trust policy
+    (``policy._validate_pinned_ed25519_pubkey``) and stayed there while every other place that takes a
+    trusted key went without it (deep gate Z195, findings L1-Z195-01..03). It lives here now so that
+    each of those places asks the same question in the same words.
+
+    Returns ``"malformed"`` (not 32 bytes), ``"non-canonical"`` (y >= p) or ``"low-order"`` (y of the
+    8-torsion subgroup, either sign), else None. The forgery above is the reason for ``"low-order"``;
+    a non-canonical spelling is refused for its encoding, and only two of the nineteen (y = p and
+    y = p + 1) also spell points of small order (``TRUST_ANCHOR_REFUSAL``).
+
+    WHAT THE CHECK BUYS BEYOND THE FORGERY. With y < p and the torsion y-values excluded, a key has
+    exactly one encoding: the only points whose x-sign bit can be set without meaning anything are
+    those with x = 0, and both of them (y = 1 and y = p - 1) are in the low-order set. So two different
+    byte strings that pass here are two different points, and a quorum or threshold that counts
+    distinct key BYTES counts distinct points.
+
+    WHAT IT DOES NOT CHECK, on purpose. A mixed-order key (a prime-order point plus a torsion
+    component) is not refused. Signing under it still needs the discrete log of the prime-order part,
+    so it gives no forgery without a secret. Its owner can sign under all eight variants A + T of one
+    key A (T of the 8-torsion subgroup, A itself included) by grinding each signature's nonce until
+    [k]T is the identity. Each try succeeds with probability 1/ord(T), so the number of tries is
+    geometric: on average ord(T) (2, 4 or 8), with no upper bound, since a signature under an order-8
+    variant still needs more than n tries with probability (7/8)**n. The test on the k parity pins that
+    mechanism for order 2. A 2-of-2 witness quorum met by two points of ONE secret is kept as a test
+    (``DistinctPointsAreNotDistinctParties``). That is one party holding several keys, which any party
+    can do by generating a second key; no signature reveals it, so a count of distinct keys is never a
+    count of distinct parties."""
+    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+        return "malformed"
+    y = int.from_bytes(bytes(public_key), "little") & _ED25519_Y_MASK   # strip the x sign bit
+    if y >= _ED25519_P:
+        return "non-canonical"
+    if y in _LOW_ORDER_ED25519_Y:
+        return "low-order"
+    return None
+
+
+def verify_ed25519_pinned(public_key: bytes, signature: bytes, message: bytes) -> bool:
+    """:func:`verify_ed25519` for a key the CALLER trusts: False when the key is malformed, non-canonical
+    or low-order (:func:`ed25519_trust_anchor_weakness`), before any signature arithmetic. Same
+    never-raise contract. Every verify path whose key is a trust anchor supplied from outside the
+    signed object goes through here; the in-band key of a bundle, whose trust comes from a policy pin,
+    keeps the plain SPEC §4a check."""
+    if ed25519_trust_anchor_weakness(public_key) is not None:
+        return False
+    return verify_ed25519(public_key, signature, message)
 
 
 def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
@@ -62,6 +155,9 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
     curve (raises ``ValueError``, caught below) — a malformed/forged public key never silently
     verifies. Any malformed input returns False rather than raising, matching
     :func:`verify_ed25519`'s contract so callers get a boolean per check regardless of alg.
+
+    Both spellings of a signature verify, ``(r, s)`` and ``(r, n - s)``; see
+    :func:`canonical_es256_signature` for why that stays so and what an identity is formed over.
     """
     if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
             or not isinstance(message, (bytes, bytearray))):
@@ -79,3 +175,51 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
+
+
+#: The order n of the P-256 group (FIPS 186-5, SEC 2 secp256r1). The r and s of an ES256 signature
+#: are integers modulo n.
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+_P256_HALF_N = _P256_N // 2
+
+
+def _es256_other_spelling(signature: bytes) -> "bytes | None":
+    """The second valid spelling ``R || (n - S)`` of a 64-byte ES256 signature, or None when ``S`` is
+    not in ``(0, n)``: such a signature never verifies, so it has no second spelling."""
+    s = int.from_bytes(signature[32:], "big")
+    if not 0 < s < _P256_N:
+        return None
+    return signature[:32] + (_P256_N - s).to_bytes(32, "big")
+
+
+def canonical_es256_signature(signature):
+    """The one spelling of an ES256 signature that an identity is formed over: ``R || min(S, n - S)``.
+
+    ECDSA verification computes a point from ``s`` and compares only its x-coordinate; ``n - s`` gives
+    the negated point, which has the same x-coordinate. So whoever sees a valid ``(r, s)`` can write
+    ``(r, n - s)`` without the key, and :func:`verify_ecdsa_p256` accepts it as well. It keeps accepting
+    both, by the owner's decision on finding D1 (2026-09-26): RFC 7518 §3.4 does not require the low
+    half, OpenSSL (which ``cryptography`` wraps) signs with either half and accepts both, and three of
+    the five IETF SD-JWT VC examples vendored in ``tests/fixtures/sdjwtvc`` carry a high ``s`` (the
+    fourth and the fifth in the issuer signature, the second in its Key Binding JWT).
+    What must not follow from it is a second identity. Every identity, receipt root, dedup, replay or
+    log key that proofbundle computes from bytes carrying an ES256 signature is computed over this
+    function's output, the spelling with ``s <= n / 2``, so ``(r, s)`` and ``(r, n - s)`` have one
+    identity. The bytes themselves are never rewritten: a signature made by someone else is passed
+    on and returned as it came, because another signature can cover it (a Key Binding JWT's
+    ``sd_hash`` covers the issuer JWT). Only a signature proofbundle makes itself carries the low
+    ``s``; today proofbundle makes no ES256 signature. Its own signatures on these paths are
+    Ed25519; it also signs with ML-DSA elsewhere (``pqsig.sign_mldsa``), and whether an ML-DSA
+    signature has a second spelling was not measured.
+
+    Anything that is not a 64-byte ``R || S`` with ``0 < S < n`` is returned unchanged: no such value
+    verifies, so it has no second spelling to fold. Never raises.
+    """
+    if not isinstance(signature, (bytes, bytearray)) or len(signature) != 64:
+        return signature
+    sig = bytes(signature)
+    if int.from_bytes(sig[32:], "big") > _P256_HALF_N:
+        other = _es256_other_spelling(sig)
+        if other is not None:
+            return other
+    return sig

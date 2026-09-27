@@ -1,7 +1,7 @@
 {
   "schema": "proofbundle.findings_register.v1",
-  "version": "6.0.0",
-  "generated_at": "2026-09-13T11:42:15Z",
+  "version": "6.1.0",
+  "generated_at": "2026-09-21T08:51:45Z",
   "findings": [
     {
       "id": "N1",
@@ -96,8 +96,8 @@
     {
       "id": "N16",
       "severity": "P2",
-      "status": "open",
-      "note": "deep gate run 5, L6-02: action/action.yml:35-36 interpolates ${{ inputs.version }} and ${{ inputs.extras }} directly into a run: shell body, while lines 43-44 route inputs.command through env: and say why. A class fix applied to one of three inputs of one file and never swept to its siblings. NOT introduced by this release: the file is byte-identical to the one at the public v1.0.0 tag (sha256 91cfcdc4…, a single commit ever touched it, that tag is an ancestor of this candidate). Measured reach: INTEGRATIONS.md points at action@v1.0.0, that tag is FIXED, and no moving major ref v1 exists — so a fix on main does NOT reach the documented users; a new action ref is outward-facing and needs its own owner GO. Owner decision OA-b4489d0204: first item after the tag, not pulled forward, because action/action.yml lies inside the frozen tree"
+      "status": "closed",
+      "note": "deep gate run 5, L6-02: action/action.yml interpolated ${{ inputs.version }} and ${{ inputs.extras }} directly into a run: shell body while inputs.command travelled through env:, a class fix applied to one of three inputs of one file. FIXED IN THIS TREE: since 1fa05c2 (2026-09-20) all three inputs travel through env: with a whole-value shape check, and tests/test_action_input_injection.py holds the rule with a planted injection that has to be caught. WHAT SHIPS TODAY IS OLDER: the published Action tag v6.0.0 still splices both inputs into the script text, so anyone pinning b7n0de/proofbundle@v6.0.0 runs the unfixed form until a new Action tag exists, which is an outward act behind the 6.1.0 tag with its own go-ahead. Closed as a defect of this tree; RESTRISIKO_610.md names the published-tag state under 'N16 is fixed on main and open in the published Action tag'"
     },
     {
       "id": "N17",
@@ -128,11 +128,41 @@
       "severity": "P3",
       "status": "open",
       "note": "the release-deciding check C12.2 flips PASS to FAIL on 2027-09-07 BY DESIGN, and this line exists so that a gate which turns red on a calendar date is written down BEFORE it does, not explained afterwards. The closing-round fix makes an expired anchor key authorise nothing NOW, and the sole key carries not_after=2027-09-06; an empty authorised set is FAIL, not DATA_BLOCKED (only an unreadable anchor is the latter). From that day the audit matrix goes red until the key is rotated. Intended behaviour of a validity window, not a defect of the candidate. Closing action: rotate the key before 2027-09-06, or accept the red"
+    },
+    {
+      "id": "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01",
+      "severity": "P2",
+      "status": "open",
+      "note": "promised in RESTRISIKO_610.md, section 'Open — the two commitment patterns at the verify boundary': schemas/eval_claim_v0_1.schema.json documents ^sha256:[0-9a-f]{64}$ for model_id_commit and dataset_id_commit, and decode_eval_claim does not enforce it, so a signed claim carrying an arbitrary string in either field decodes. Not fixed in 6.1.0 for a measured reason: the three-line check turns five cases of tests/test_cli_eval.py red because they sign placeholder commitments such as sha256:x (5 of 5 green without the two patterns, 4 red with them), and rewriting house tests so a new check passes is its own change. Carried as BEKANNTE_LUECKEN in tests/test_eval_claim_domains_are_enforced.py, which fails in both directions. Severity P2 assigned by the producer from the sheet's stated reach — a malformed commitment weakens what a claim binds, it does not flip a verdict — not measured by a tool. Target 6.2.0"
+    },
+    {
+      "id": "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01",
+      "severity": "P2",
+      "status": "open",
+      "note": "promised in RESTRISIKO_610.md, section 'Open — two findings this cut made and deliberately did not close': _signatur_lage in scripts/gen_findings_register.py delegates verification to cryptography, and the project's Ed25519 profile accepts small-order components, so 32 zero bytes as a public key and 64 as a signature verify over roughly one body in four (measured 2026-09-20; the point has order four, 1P, 2P and 3P measured not to be the identity). The carrier goes through no signing path and states signature.state UNSIGNED, so a forged carrier does not pass the release path; what reaches further is that _signaturzeile and pruefe_v2 share that one exit, so the generated views would show a carrier with a zero key to a reviewer as signed. Refusing small-order keys at this block is a code change with its own catch proof and is not in this cut. Severity P2 assigned by the producer from the sheet's stated reach — the audit trail a reviewer reads, not the release path — not measured by a tool. Target 6.2.0"
+    },
+    {
+      "id": "SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01",
+      "severity": "P3",
+      "status": "open",
+      "note": "promised in RESTRISIKO_610.md, same section as the previous entry: pyproject.toml states that eight mypy versions and six ruff versions exit 0 over this tree, and tests/test_shipped_comment_numbers.py binds the number of FILES each claim ranges over without re-running the tools, because that means eight interpreter-bound toolchains and minutes per run. Bound is the size of the set, unbound is the verdict over it, and the case's docstring states the split rather than blurring it. Severity P3 assigned by the producer from the sheet's stated reach — a shipped comment could overstate a tool verdict, no verifier path depends on it — not measured by a tool. Target 6.2.0"
+    },
+    {
+      "id": "DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01",
+      "severity": "P2",
+      "status": "open",
+      "note": "promised in RESTRISIKO_610.md, section 'Open — three public exporters coerce the verdict field, and A-15 fixes the boundary, not them': A-15 typed passed, n and metric at decode_eval_claim, and src/proofbundle/intoto.py holds three paths a library caller reaches without that boundary: to_test_result_statement (intoto.py:246 and :251), to_eval_result_predicate (intoto.py:424) and svr_properties (intoto.py:551) coerce claim['passed'] with bool() or truthiness, so a correctly signed claim whose passed field is the string 'false' returns 'PASSED', passed: true and the threshold-met property when those functions are called directly; measured 2026-09-19 at 99d89a8 by an adversarial lens and reproduced by an executable case. Only the first of the three was documented before the sheet. Every path the shipped CLI takes decodes at the boundary first (cli.py:1685, intoto.py:584, hf_evals and policy.evaluate_policy), so the exposure is the direct library caller of a published package, stated as real. Severity P2 assigned by the producer from the sheet's stated reach — no path of the shipped CLI, the direct library caller — consistent with the owner's cut decision of 2026-09-20 that 6.1.0 ships with it open; not measured by a tool. Target 6.2.0, as a class fix at the public exporters rather than three guards"
+    },
+    {
+      "id": "ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01",
+      "severity": "P3",
+      "status": "open",
+      "note": "promised in RESTRISIKO_600.md, paragraph 'A number in this section that a later commit makes stale' of the receipt-binding section: a head written into prose is stale the moment the commit carrying it exists, so the sheet states such figures as a measurement with date and object rather than as a claim about the current head. The class recurs: audit_artifacts/600/README.md caught itself twice (49 against 53 scanned docs, 20 against 21 register entries), and tests/test_die_zahlen_neben_dem_register_werden_nachgerechnet.py now recomputes the register figures beside the register instead of trusting them. Open, because a guard exists for two numbers and the class lives in every number written into prose. Severity P3 assigned by the producer from the sheet's stated reach — a stale number misleads a reader, it decides nothing — not measured by a tool. Its state is 'open' by the producer's reading of the paragraph, which names no state of its own"
     }
   ],
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "R84oUA9ejlyWBzJJIR490SuC8Muwj8LviPyumt9GOvDypI8udayN8YZiM0IqLB7IjzYgCw5INAYeSjIFLpufAw=="
+    "sig_b64": "EEadX9Zi07sfdef0uyXl3yoGgBGwqtNxd4FEfL01h/EWC9G0eFIt44YeL9wawm1IcIPVk5iK25gmgYmlHXCkAA=="
   }
 }

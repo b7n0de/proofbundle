@@ -46,21 +46,25 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 MINDESTENS_MODULE = 200
 
 
-def _verteilungsliste() -> set[str] | None:
-    """Die Dateiliste der Verteilung, aus dem Artefakt selbst — oder None.
+def _verteilungsliste() -> tuple[set[str] | None, str]:
+    """The file list of the distribution, from the artefact itself, or (None, reason).
 
     Gefragt wird `SOURCES.txt`, nicht `MANIFEST.in`: die eine ist das ERGEBNIS der Rechnung von
     setuptools, die andere eine DEKLARATION, und beide sind in diesem Baum nachweislich schon
     auseinandergelaufen (Restrisiko S27). Dieselbe Quelle benutzt `conftest`.
+
+    AND THE SAME SELECTOR, not only the same source. This function used to take the first
+    non-empty SOURCES.txt in alphabetical order, like the three other readers of this class. The
+    choice is now made once, in `tests/conftest.py::_quellenliste_waehlen`, by project name rather
+    than by order, and this file loads it by path so it cannot drift from the copy conftest uses.
     """
-    for liste in sorted(REPO.glob("*/*.egg-info/SOURCES.txt")) + sorted(REPO.glob("*.egg-info/SOURCES.txt")):
-        try:
-            eintraege = {z.strip() for z in liste.read_text(encoding="utf-8").splitlines() if z.strip()}
-        except OSError:
-            continue
-        if eintraege:
-            return eintraege
-    return None
+    import importlib.util  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location("_cf_quellenliste", REPO / "tests" / "conftest.py")
+    cf = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = cf
+    spec.loader.exec_module(cf)
+    return cf._verteilungsliste(REPO)
 
 
 def _pfadeintraege(baum: ast.Module, wurzel: pathlib.Path) -> set[str]:
@@ -139,10 +143,11 @@ def befunde(wurzel: pathlib.Path, gelistet: set[str]) -> tuple[list[tuple[str, s
 
 def test_kein_ausgeliefertes_testmodul_bricht_das_sammeln_im_paket_ab():
     """[ZAEHLT] Der Fall, der `hermetic-cleanroom` an PR 198 auf `exit code 2` brachte."""
-    gelistet = _verteilungsliste()
+    gelistet, grund = _verteilungsliste()
     if gelistet is None:
-        pytest.skip("NICHT MESSBAR: keine SOURCES.txt im Baum. Einmal `python -m build --sdist` "
-                    "erzeugt sie. Das ist keine Freigabe, sondern eine fehlende Grundlage.")
+        pytest.skip("NICHT MESSBAR: keine SOURCES.txt im Baum, die dieser Verteilung gehoert. "
+                    "Einmal `python -m build --sdist` erzeugt sie. Das ist keine Freigabe, sondern "
+                    "eine fehlende Grundlage. Reason: " + grund)
     treffer, gelesen = befunde(REPO, gelistet)
     assert gelesen >= MINDESTENS_MODULE, (
         f"die Messflaeche ist zu klein: {gelesen} Testmodule gelesen, erwartet mindestens "

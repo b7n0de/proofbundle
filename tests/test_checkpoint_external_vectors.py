@@ -116,7 +116,7 @@ class TestGoSumdbCheckpointKat(unittest.TestCase):
         tampered_root_b64 = base64.b64encode(bytes(32)).decode("ascii")
         self.assertNotEqual(lines[2], tampered_root_b64)
         lines[2] = tampered_root_b64
-        self.assertFalse(cp.verify_checkpoint("\n".join(lines), vk)["ok"])
+        self.assertIs(cp.verify_checkpoint("\n".join(lines), vk)["ok"], False)
 
     def test_foreign_key_rejected(self) -> None:
         # a real, unrelated Ed25519 checkpoint key (proofbundle's own key generator) must not
@@ -124,7 +124,7 @@ class TestGoSumdbCheckpointKat(unittest.TestCase):
         from proofbundle.emit import _raw_pub, generate_signer
         note = _sumdb_note()
         foreign_vkey = cp.vkey("sum.golang.org", _raw_pub(generate_signer()))
-        self.assertFalse(cp.verify_checkpoint(note, foreign_vkey)["ok"])
+        self.assertIs(cp.verify_checkpoint(note, foreign_vkey)["ok"], False)
 
 
 class TestRekorV2CheckpointKat(unittest.TestCase):
@@ -148,15 +148,15 @@ class TestRekorV2CheckpointKat(unittest.TestCase):
         note = _rekor_note()
         lines = note.split("\n")
         lines[1] = str(int(lines[1]) + 1)
-        self.assertFalse(cp.verify_checkpoint("\n".join(lines), vk)["ok"])
+        self.assertIs(cp.verify_checkpoint("\n".join(lines), vk)["ok"], False)
 
     def test_sumdb_key_does_not_verify_rekor_checkpoint(self) -> None:
         # cross-log negative: a real, valid vkey for a DIFFERENT log/keyname must not verify.
-        self.assertFalse(cp.verify_checkpoint(_rekor_note(), _sumdb_vkey())["ok"])
+        self.assertIs(cp.verify_checkpoint(_rekor_note(), _sumdb_vkey())["ok"], False)
 
     def test_rekor_key_does_not_verify_sumdb_note(self) -> None:
         vk, _ = _rekor_vkey()
-        self.assertFalse(cp.verify_checkpoint(_sumdb_note(), vk)["ok"])
+        self.assertIs(cp.verify_checkpoint(_sumdb_note(), vk)["ok"], False)
 
 
 if __name__ == "__main__":

@@ -148,7 +148,7 @@ class EveryVerifyPathFailsClosed(unittest.TestCase):
                                             require_derived_subject=True)
                 self.assertEqual(r["subject_binding"]["mode"], "AMBIGUOUS", r["subject_binding"])
                 self.assertFalse(r["subject_derived_ok"])
-                self.assertFalse(r["ok"])
+                self.assertIs(r["ok"], False)
 
     def test_outcome_verify_fails_closed_and_blocks_automation(self):
         """The finding's own measurement: safeForAutomation was TRUE on a multi-subject outcome."""
@@ -168,7 +168,7 @@ class EveryVerifyPathFailsClosed(unittest.TestCase):
                                               require_derived_subject=True)
                 self.assertEqual(r["subject_binding"]["mode"], "AMBIGUOUS")
                 self.assertFalse(r["subject_derived_ok"])
-                self.assertFalse(r["ok"])
+                self.assertIs(r["ok"], False)
 
     def test_the_cli_exits_2_and_agrees_with_the_resolver(self):
         """BOTH SIDES OF THE SEAM, on the same bytes: the statement under verification and the same

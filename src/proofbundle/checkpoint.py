@@ -28,7 +28,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, UnsupportedError
-from .signature import verify_ed25519
+from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 # NUR der C2SP-Decoder: jedes base64-Feld dieses Moduls ist ein C2SP-Note-Feld (Wurzel,
 # Signaturzeile, vkey-Schluesselmaterial), und fuer die gilt die dokumentierte Ausnahme zur
 # Ein-Drahtform-Regel. Der strikte `decode_b64` wird hier bewusst NICHT importiert, damit ein
@@ -209,6 +209,25 @@ def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: s
     return note + "\n" + sig_line
 
 
+def _refuse_weak_ed25519_vkey(pubkey: bytes, what: str) -> None:
+    """A vkey is a key the caller TRUSTS, so it gets the trust-anchor rule, not only the verify profile.
+
+    Deep gate Z195, L1-Z195-02 (P2, 3 of 3 jurors): two witness vkeys carrying the identity point, once
+    canonical and once with the x-sign bit set, parsed, each verified the fixed cosignature (R =
+    identity, S = 0) over a checkpoint neither witness saw, and as two different byte strings they
+    counted as two witnesses: ``verify_witnessed_checkpoint(threshold=2)`` returned ok=True with no
+    witness secret at all. The rule that refuses such keys stood only in the policy loader. Refusing
+    them HERE, in the one parser each vkey passes, does two things at once: no low-order key reaches
+    a signature check, and the quorum's count by key bytes becomes a count by curve point, because a
+    key that passes has exactly one encoding (see ``ed25519_trust_anchor_weakness``). Raises the same
+    typed error as every other malformed vkey."""
+    weakness = ed25519_trust_anchor_weakness(pubkey)
+    if weakness is not None:
+        raise BundleFormatError(
+            f"{what} key material is a {weakness} Ed25519 key, refused as a trusted key: "
+            f"{TRUST_ANCHOR_REFUSAL[weakness]}")
+
+
 def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, bytes, bytes]:
     # RE-GATE never-raise consistency: a non-str vkey (None/int/list from a caller/config) is a typed
     # BundleFormatError, never a raw AttributeError from `.split` — this parse helper raises BundleFormatError
@@ -234,6 +253,7 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
         raise BundleFormatError(
             f"vkey key material must be 0x{sig_type:02x} followed by a 32-byte Ed25519 key")
     pubkey = keymat[1:]
+    _refuse_weak_ed25519_vkey(pubkey, "vkey")
     try:
         kid = bytes.fromhex(kid_hex)
     except ValueError as exc:
@@ -509,7 +529,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
         if kid != kid_v or kid != kid_expected:   # keyID must match both the vkey and the recomputed id
             continue
         signer_present = True                     # diese Note traegt eine Zeile FUER diesen Schluessel
-        if verify_ed25519(pubkey, sig, note_bytes):
+        if verify_ed25519_pinned(pubkey, sig, note_bytes):
             ok = True
             break
     return {"ok": ok, "origin": origin, "tree_size": int(size_s), "root": root,
@@ -772,6 +792,7 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
     # dieselbe Luecke. Im selben Durchgang gefixt statt beim naechsten Mal wiedergefunden — die
     # Neuberechnung haengt hier am Algorithmus, deshalb je Zweig die passende Funktion.
     if len(keymat) == 33 and keymat[0] == _COSIG_V1_SIG_TYPE:
+        _refuse_weak_ed25519_vkey(keymat[1:], "witness vkey")
         if kid != cosign_key_id(name, keymat[1:]):
             raise BundleFormatError(
                 "witness vkey is self-inconsistent: its declared keyID does not match the ID "
@@ -845,7 +866,7 @@ def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
         if timestamp > _MAX_COSIG_TIMESTAMP:
             continue
         if sig_type == _COSIG_V1_SIG_TYPE:
-            sig_ok = verify_ed25519(pubkey, sig, _cosigned_message(note_text, timestamp))
+            sig_ok = verify_ed25519_pinned(pubkey, sig, _cosigned_message(note_text, timestamp))
         else:
             try:
                 # build the signed message INSIDE the guard (release-review fix #6): attacker-controlled

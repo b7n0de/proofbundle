@@ -6,7 +6,7 @@ methods in use, why, and the honest state of each (SOTA references at the end).
 ## Layers
 
 1. **Fixed unit + negative vectors.** Every crypto-critical verify path has malformed / tamper / wrong-key
-   / boundary vectors that must fail closed. This is the bulk of the suite (the full suite currently counts 2041 tests).
+   / boundary vectors that must fail closed. This is the bulk of the suite. The suite collected **4975 cases** on 2026-09-20 (`PYTHONPATH=src python -m pytest tests/ --collect-only -q | tail -1`). That figure said 2041 until a neighbour sweep measured it, and it had been wrong by a factor of two for long enough that nobody noticed — a count moves with every added test, and this one is carried with its command and its date rather than bound by a gate, because a gate on a number that changes daily is one people learn to re-run. Re-derive it; do not quote it.
 2. **Differential / interop.** A second, independent implementation verifies the same artifact
    (BBS cross-impl, the SD-JWT reference fixture, the O8 Rust verifier reproducing the conformance
    corpus). Catches spec-divergence a single implementation cannot see.

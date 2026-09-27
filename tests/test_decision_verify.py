@@ -72,7 +72,7 @@ class TestDecisionVerify(unittest.TestCase):
                                     expected_audience=p["validity"]["audience"][0],
                                     expected_nonce=p["validity"]["nonce"])
         self.assertFalse(r["crypto_ok"])
-        self.assertFalse(r["ok"])                       # aggregate verdict is false
+        self.assertIs(r["ok"], False)                       # aggregate verdict is false
         self.assertIsNone(r["audience_ok"])             # not computed over unauthenticated bytes
         self.assertIsNone(r["nonce_ok"])
         self.assertIsNone(r["evidence_bound"])
@@ -224,7 +224,7 @@ class TestDecisionSubjectBinding(unittest.TestCase):
         env = emit_decision_receipt(p, s, subject_sha256="d" * 64)
         r = verify_decision_receipt(env, pub, strict=True, require_derived_subject=True)
         self.assertFalse(r["subject_derived_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("require_derived_subject" in e for e in r["errors"]), r["errors"])
 
     def test_require_derived_subject_green_on_derived(self):
@@ -245,7 +245,7 @@ class TestDecisionSubjectBinding(unittest.TestCase):
         with mock.patch.object(subject_binding, "classify_subject", side_effect=RuntimeError("boom")):
             r = verify_decision_receipt(env, pub, strict=True, require_derived_subject=True)
         self.assertFalse(r["subject_derived_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 if __name__ == "__main__":

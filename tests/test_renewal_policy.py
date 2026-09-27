@@ -43,14 +43,14 @@ def test_overdue_renewal_warns_per_policy() -> None:
 def test_overdue_renewal_fails_per_policy() -> None:
     policy = RenewalPolicy(max_ats_age=1000, strictness="fail")
     res = evaluate_renewal_policy(_seq(time=1000), policy=policy, now=5000)
-    assert not res.ok  # FAIL strictness → hard fail
+    assert res.ok is False  # FAIL strictness → hard fail
 
 
 def test_deprecated_alg_is_overdue_regardless_of_age() -> None:
     # a fresh ATS on a policy-deprecated hash is still overdue (the hash, not the clock, is the trigger)
     policy = RenewalPolicy(deprecated_algs=frozenset({"sha256"}), strictness="fail")
     res = evaluate_renewal_policy(_seq(time=1000), policy=policy, now=1001)  # age 1
-    assert not res.ok
+    assert res.ok is False
 
 
 def test_watch_only_last_ats_in_policy() -> None:

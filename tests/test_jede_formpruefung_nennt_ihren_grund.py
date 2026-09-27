@@ -645,7 +645,10 @@ def test_der_code_traegt_keinen_array_index():
 GRUNDLINIE_CODELOS = {
     "_pruefe_sichtbaren_block": 2,
     "_validate_assured": 7,
-    "_validate_coverage": 12,
+    # 2026-09-23, PR 248: down from 12 to 10. The CAP-1 early return did not call the contradiction
+    # check, so two spots there carried no code; both carry one now. The ratchet asks for the
+    # baseline to follow, so the number cannot cover two NEW code-less spots next time.
+    "_validate_coverage": 10,
     "_validate_declaration": 10,
     "_validate_finding": 9,
     "_validate_limitation_codes": 4,

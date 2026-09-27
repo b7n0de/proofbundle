@@ -75,18 +75,18 @@ class TestCosignAdversarial(unittest.TestCase):
         ts = int.from_bytes(payload[4:12], "big") + 1
         tampered_payload = payload[:4] + ts.to_bytes(8, "big") + payload[12:]
         lines[-1] = f"{cp.EM_DASH} {wname} " + base64.b64encode(tampered_payload).decode()
-        self.assertFalse(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"], False)
 
     def test_red_note_body_tamper(self):
         note, _, [(_, _, wvkey)] = _witnessed(1)
         tampered = note.replace("\n7\n", "\n8\n")
-        self.assertFalse(cp.verify_cosignature(tampered, wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature(tampered, wvkey)["ok"], False)
 
     def test_red_wrong_witness_key(self):
         note, _, _ = _witnessed(1)
         other = generate_signer()
         other_vkey = cp.cosign_vkey("witness0.example.com/w", _raw_pub(other))
-        self.assertFalse(cp.verify_cosignature(note, other_vkey)["ok"])
+        self.assertIs(cp.verify_cosignature(note, other_vkey)["ok"], False)
 
     def test_red_log_vkey_is_not_a_witness_vkey(self):
         # Type confusion: a 0x01 log vkey must be rejected by the cosignature verifier.
@@ -100,14 +100,14 @@ class TestCosignAdversarial(unittest.TestCase):
         stranger_vkey = cp.cosign_vkey("stranger.example.com/w", _raw_pub(stranger))
         res = cp.verify_witnessed_checkpoint(note, log_vkey, [witnesses[0][2], stranger_vkey],
                                              threshold=2)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(res["log_ok"])
         self.assertFalse(res["witnesses_ok"])
 
     def test_red_same_witness_not_double_counted(self):
         note, log_vkey, [(_, _, wvkey)] = _witnessed(1)
         res = cp.verify_witnessed_checkpoint(note, log_vkey, [wvkey, wvkey], threshold=2)
-        self.assertFalse(res["ok"], "one witness listed twice must not satisfy threshold=2")
+        self.assertIs(res["ok"], False, "one witness listed twice must not satisfy threshold=2")
 
     def test_red_one_key_under_two_names_not_a_quorum(self):
         # HIGH (release review): quorum counts DISTINCT KEY MATERIAL, not names — one physical key registered
@@ -122,7 +122,7 @@ class TestCosignAdversarial(unittest.TestCase):
                  cp.cosign_vkey("witnessB.example.com/w", _raw_pub(sole))]
         res = cp.verify_witnessed_checkpoint(note, log_vkey, vkeys, threshold=2)
         self.assertFalse(res["witnesses_ok"], "one key under two names must not satisfy threshold=2")
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_log_signature_still_required(self):
         # Witnesses do not REPLACE the log signature: quorum met + wrong log key → fail.
@@ -130,7 +130,7 @@ class TestCosignAdversarial(unittest.TestCase):
         wrong_log = generate_signer()
         wrong_log_vkey = cp.vkey(ORIGIN, _raw_pub(wrong_log))
         res = cp.verify_witnessed_checkpoint(note, wrong_log_vkey, [wvkey], threshold=1)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["log_ok"])
         self.assertTrue(res["witnesses_ok"])
 
@@ -141,7 +141,7 @@ class TestCosignAdversarial(unittest.TestCase):
         lines = note.rstrip("\n").split("\n")
         payload = base64.b64decode(lines[-1].split(" ")[2]) + b"\x00"
         lines[-1] = f"{cp.EM_DASH} {wname} " + base64.b64encode(payload).decode()
-        self.assertFalse(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"])
+        self.assertIs(cp.verify_cosignature("\n".join(lines) + "\n", wvkey)["ok"], False)
 
     def test_fremde_origin_unter_vertrautem_schluessel_wird_nur_mit_bindung_gefangen(self):
         """Der Schluessel bindet die ORIGIN-ZEILE NICHT — gemessen, nicht angenommen.
@@ -173,7 +173,7 @@ class TestCosignAdversarial(unittest.TestCase):
         self.assertTrue(mit["signer_present"],
                         "der vertraute Schluessel hat diese Note sehr wohl signiert; nur der Baum "
                         "ist ein anderer — wer das zusammenwirft, sucht den Fehler am falschen Ort")
-        self.assertFalse(mit["ok"])
+        self.assertIs(mit["ok"], False)
         # Die Zeugen sind davon unberuehrt: der Fehlschlag ist dem LOG zuzurechnen, nicht ihnen.
         self.assertTrue(mit["witnesses_ok"])
         self.assertEqual(mit["origin"], "evil.example/other-tree")

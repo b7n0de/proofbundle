@@ -48,9 +48,23 @@ def _gen():
     return m
 
 
+def _deklarierte() -> set:
+    """The identifiers the object-class sheet declares.
+
+    `schneide_beleg` needs them, because the question whether a heading opens ANOTHER record has
+    no correct answer without the declared set. This is an INPUT VALUE and not a rule of the
+    producer: this test stays an independent oracle.
+    """
+    import json  # noqa: PLC0415
+    d = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
+    if not d.is_file():
+        pytest.skip(f"NICHT MESSBAR: {d} fehlt")
+    return {e["kennung"] for e in json.loads(d.read_text(encoding="utf-8"))["eintraege"]}
+
+
 def _erste_zeile(text: str, kennung: str) -> str:
     g = _gen()
-    t = g.schneide_beleg(text, kennung)
+    t = g.schneide_beleg(text, kennung, _deklarierte() | {kennung})
     assert t is not None, f"{kennung}: keine Fundstelle"
     roh = QUELLE.read_bytes()
     return roh[t[0]:t[1]].decode("utf-8", errors="replace").splitlines()[0]
@@ -102,8 +116,9 @@ def test_kein_beleg_ueberlappt_einen_anderen():
     text = QUELLE.read_text(encoding="utf-8")
     ok = json.loads(ok_datei.read_text(encoding="utf-8"))
     spannen = []
+    bekannte = {e["kennung"] for e in ok["eintraege"]}
     for e in ok["eintraege"]:
-        t = g.schneide_beleg(text, e["kennung"])
+        t = g.schneide_beleg(text, e["kennung"], bekannte)
         if t:
             spannen.append((t[0], t[1], e["kennung"]))
     spannen.sort()

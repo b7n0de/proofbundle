@@ -204,7 +204,7 @@ class TestSummaryTreeContext(unittest.TestCase):
     def test_failed_tree_context_reports_fail(self):
         bundle, relabel, root = _two_leaf_bundle()
         r = verify_bundle(relabel, expected_root_b64=_b64(root), expected_tree_size=2)
-        self.assertFalse(r.ok)   # tree-size check fails
+        self.assertIs(r.ok, False)   # tree-size check fails
         s = root_authenticity_summary(r, tree_context_authenticated=False)
         self.assertEqual(s["treeContextAuthenticity"], "FAIL")
         self.assertFalse(s["safeForAutomation"])

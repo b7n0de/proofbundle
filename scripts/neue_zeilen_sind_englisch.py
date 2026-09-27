@@ -307,19 +307,27 @@ def _md_prosazeilen(datei: str) -> set[int] | None:
     return aus
 
 
-def _ist_prosa(datei: str, nr: int, text: str) -> bool:
+def _ist_prosa(datei: str, nr: int, text: str, cache: dict | None = None) -> bool:
     """Comment, or inside a string literal. The answer comes from the FILE, not from the hunk.
 
     A diff hunk does not say whether its line sits inside a docstring, and guessing from the
     fragment would call a string literal a comment. The file at HEAD does say.
     """
     if datei.endswith(".md"):
-        zeilen = _md_prosazeilen(datei)
+        zeilen = _gelesen(_md_prosazeilen, datei, cache)
         return bool(zeilen and nr in zeilen)
     if _KOMMENTAR.search(text):
         return True
-    zeilen = _prosazeilen(datei)
+    zeilen = _gelesen(_prosazeilen, datei, cache)
     return bool(zeilen and nr in zeilen)
+
+
+def _gelesen(fn, datei: str, cache: dict | None):
+    if cache is None:
+        return fn(datei)
+    if (fn, datei) not in cache:
+        cache[(fn, datei)] = fn(datei)
+    return cache[(fn, datei)]
 
 
 def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
@@ -336,9 +344,10 @@ def pruefe(basis: str, arbeitsbaum: bool = False) -> dict:
                 "gemessener_baum": str(REPO), "baum_herkunft": REPO_HERKUNFT,
                 "wortlisten_baum": str(WERKZEUG_WURZEL), "rc": 2}
     befunde = []
+    gelesen: dict = {}
     for datei, zeilen in sorted(je_datei.items()):
         for nr, text in zeilen:
-            if not _ist_prosa(datei, nr, text):
+            if not _ist_prosa(datei, nr, text, gelesen):
                 continue
             w = DP.treffer(text)
             if len(w) >= SCHWELLE:

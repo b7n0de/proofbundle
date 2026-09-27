@@ -1392,7 +1392,7 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
     evidence pack. A still-PENDING proof is refused (exit 3, never a fake pass): upgrading it (embedding
     the Bitcoin block-header path) needs the OpenTimestamps client + a Bitcoin confirmation, which is
     time-gated and outside this tool. Structural binding is fail-closed here (exit 2 on unbound)."""
-    from .anchors_ots import verify_opentimestamps  # noqa: PLC0415
+    from .anchors_ots import ots_binding_held, verify_opentimestamps  # noqa: PLC0415
     from .evidence_pack import (  # noqa: PLC0415
         build_evidence_pack, describe_proof, ots_upgraded_proof_is_self_contained,
     )
@@ -1402,9 +1402,11 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         canonical_root = _resolve_canonical_root(args)
         # fail-closed structural binding: the proof MUST commit to exactly this root (a mismatch is a
         # malformed request, not a lifecycle state). needs_rp_trust/pending here are fine — they mean
-        # bound-but-not-yet-confirmed; only unbound/malformed are hard binding errors.
+        # bound-but-not-yet-confirmed. Everything else is a hard binding error, read by membership: the
+        # list of refusals this line carried did not know `over_budget`, so an over-cap proof fell through
+        # to the pending branch and was told to run `ots upgrade`, which can never help (229B-01).
         binding = verify_opentimestamps(proof, canonical_root, frozen={})
-        if binding["status"] in ("unbound", "malformed", "no_lib"):
+        if not ots_binding_held(binding):
             # RT-06 sweep follow-up (2026-09-05): this ERROR line was MISSED by the first pass, which
             # matched the literal `{exc}` instead of enumerating every stderr writer — the same
             # symptom-vs-class mistake the class is about. `binding['detail']` is built by
@@ -3099,7 +3101,8 @@ def build_parser() -> argparse.ArgumentParser:
         "upgrade",
         help="bundle an UPGRADED OpenTimestamps proof into a self-contained evidence pack "
              "(calendar-independent verification). A still-PENDING proof is refused (exit 3)",
-        description=("Exit codes: 0 self-contained pack written · 2 malformed input / unbound proof · "
+        description=("Exit codes: 0 self-contained pack written · 2 malformed input / unbound proof / "
+                     "proof over the size cap · "
                      "3 proof not upgraded yet (PENDING — upgrading embeds the Bitcoin block-header "
                      "path and needs the OpenTimestamps client after a Bitcoin confirmation, which is "
                      "time-gated; run `ots upgrade` first). The pack verifies OFFLINE against a "

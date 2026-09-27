@@ -46,3 +46,19 @@ python scripts/readiness_pack_gate.py --json
 The gate fails if a referenced evidence file is missing, if a required navigation doc is absent, or
 if a release slot's status is neither `filled` nor `reserved` — so this pack cannot silently drift
 ahead of what exists.
+
+## The self-receipt in this pack is advisory, and its key is thrown away
+
+`proofbundle/readiness_pack.bundle.json` and `readiness_pack.pub.b64` are a self-receipt over the
+manifest bytes. They prove that the pack verifies offline with the shipped verifier. They prove
+nothing about WHO produced it: the signing key is generated fresh on every regeneration and
+discarded, so the public key in this directory is a different one after each run and binds to no
+identity.
+
+That has always been how the generator works and it says so in its own docstring. It did not say
+so anywhere a reader of the pack would open, which was measured on 2026-09-20 by a counter-reading
+that went looking for it. A property nobody can find in the artefact is not a disclosed property,
+so it is written here.
+
+A receipt that named a stable key would be a different and stronger claim, and this pack does not
+make it.

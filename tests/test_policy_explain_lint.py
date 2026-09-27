@@ -47,7 +47,7 @@ def _signer_policy(signer) -> dict:
 class TestLint(unittest.TestCase):
     def test_empty_policy_is_a_lint_failure(self):
         res = lint_policy(load_policy(MINIMAL))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(any("vacuous" in e for e in res["errors"]))
         self.assertEqual(res["pins"], [])
 
@@ -59,7 +59,7 @@ class TestLint(unittest.TestCase):
         finally:
             os.unlink(p1), os.unlink(p2)
         self.assertEqual(rc1, 1)
-        self.assertFalse(json.loads(out1)["ok"])
+        self.assertIs(json.loads(out1)["ok"], False)
         self.assertEqual(rc2, 0)
         self.assertTrue(json.loads(out2)["ok"])
 
@@ -68,7 +68,7 @@ class TestLint(unittest.TestCase):
         self.assertTrue(lint_policy(pol)["ok"])                 # normal: warning only
         self.assertTrue(lint_policy(pol)["warnings"])
         strict = lint_policy(pol, strict=True)
-        self.assertFalse(strict["ok"])                          # strict: failure
+        self.assertIs(strict["ok"], False)                          # strict: failure
         self.assertTrue(any("nobody" in e for e in strict["errors"]))
 
     def test_malformed_policy_exits_two(self):
@@ -90,7 +90,7 @@ class TestLint(unittest.TestCase):
         finally:
             os.unlink(path)
         self.assertEqual(rc, 2)
-        self.assertFalse(json.loads(out)["ok"])
+        self.assertIs(json.loads(out)["ok"], False)
         self.assertIn("error", json.loads(out))
         self.assertEqual(rc2, 2)
         self.assertIn("error", json.loads(out2))
@@ -140,7 +140,7 @@ class TestLint(unittest.TestCase):
         # (evaluate fail-closes every verify to exit 3) — that is a lint ERROR, not a valid pin.
         pol = load_policy({**MINIMAL, "signature": {"require_expected_signer": True}})
         res = lint_policy(pol)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(any("unsatisfiable" in e for e in res["errors"]))
 
 

@@ -169,10 +169,13 @@ def _receipt(priv, pub, **over):
     return r
 
 
+def _vr(receipt, trusted):
+    return verify_receipt(receipt, trusted_pubkeys=trusted, expected_version=_VER,
+                          subject_tree_digest=_TREE, gate_source_digest=_GATE)
+
+
 def _v(receipt, trusted):
-    ok, _ = verify_receipt(receipt, trusted_pubkeys=trusted, expected_version=_VER,
-                           subject_tree_digest=_TREE, gate_source_digest=_GATE)
-    return ok
+    return _vr(receipt, trusted)[0]
 
 
 def cc08_bare_or_copied_attestation_line():
@@ -188,8 +191,14 @@ def cc09_wrong_subject_digest():
 
 
 def cc10_unsigned_or_untrusted_receipt():
+    # The verdict alone does not bind this check: with no key pinned, the next check (signer not in the
+    # empty set) refuses the same receipt, so stripping `if not trusted_pubkeys:` left this class green
+    # (measured 2026-09-26). The reason binds it; without the check it would name the signer, not the
+    # missing anchor.
     priv, pub = _kp()
-    return not _v(_receipt(priv, pub), []), "no trusted key pinned -> fail-closed (unbound substitute check)"
+    ok, grund = _vr(_receipt(priv, pub), [])
+    detected = not ok and grund.startswith("no trusted signing key pinned")
+    return detected, f"no trusted key pinned -> fail-closed, and the reason says so ({grund[:48]!r})"
 
 
 # ---- audit_candidate_matrix counter-examples --------------------------------------------------------
@@ -738,7 +747,8 @@ def cc32_pretag_check_coverage():
     # round 12 (fix-the-class, un gegenlesung REJECT): EVERY release-deciding verify_receipt check must reject a
     # receipt valid EXCEPT that one thing -- the four binding fields (schema/version/gate_source/audit_exit) AND
     # the signer-trust (#8) and signature-verify (#10) checks (the named P3-2, now harness-bound). subject_tree=cc09,
-    # no-trusted-key=cc10; #9 isinstance(sig,str) is inert -- subsumed by #10 fail-closed b64decode except (a785573f).
+    # no-trusted-key=cc10. #9 isinstance(sig,str) was named inert, subsumed by the fail-closed except around
+    # the b64 decode (a785573f); it is bound by its reason since 2026-09-26, see the end of this function.
     priv, pub = _kp()
     priv2, pub2 = _kp()  # an untrusted signer carrying its OWN valid self-signature
     tampered = _receipt(priv, pub)
@@ -769,8 +779,46 @@ def cc32_pretag_check_coverage():
         if ok_e:
             accepted.append(f"placeholder_{feld}")
 
-    return (not accepted), ("all valid-except-one release-deciding receipts rejected"
-                            if not accepted else "WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
+    # 2026-09-26 (the release tooling refuses a weak key it pins; gate iteration 3 on the trust-anchor
+    # rule, lens A, A3-01): a TRUSTED key the rule refuses. With the identity point standing in the anchor,
+    # R = identity and S = 0 verifies for every message, so this receipt was signed by nobody. Valid in
+    # every other field, it must still be rejected, and the pin in
+    # tests/test_gate_qualification_harness.py counts this as the thirteenth rejection path.
+    #
+    # THE VERDICT DOES NOT BIND THIS CHECK, THE REASON DOES (gate run 1 on this fix, lens B, 231-1B-01,
+    # measured in a fresh interpreter with no bytecode). `verify_ed25519_pinned` asks the same question
+    # before any signature arithmetic, so with `if weakness is not None:` stripped the receipt is still
+    # refused, as "ed25519 signature does not verify". That points the reader at the signature when the
+    # fault is the key in the trust file. With both layers stripped the receipt is accepted (measured), so
+    # the case reaches the refusal; which layer refused it only the reason tells.
+    misnamed = []
+    ident = base64.b64encode(b"\x01" + b"\x00" * 31).decode()
+    schwach = _receipt(priv, pub)
+    schwach["signer_pubkey"] = ident
+    schwach["signature"] = base64.b64encode(b"\x01" + b"\x00" * 63).decode()
+    ok_w, grund_w = _vr(schwach, [ident])
+    if ok_w:
+        accepted.append("weak_trusted_key")
+    elif "is a low-order Ed25519 key" not in grund_w:
+        misnamed.append("weak_trusted_key")
+
+    # The same holds for `if not isinstance(sig, str):`. Stripped, the except around the decode refuses a
+    # receipt with no signature as "signature check errored", so the reason is what binds it.
+    ohne_sig = _receipt(priv, pub)
+    del ohne_sig["signature"]
+    ok_s, grund_s = _vr(ohne_sig, [pub])
+    if ok_s:
+        accepted.append("no_signature")
+    elif grund_s != "receipt carries no signature":
+        misnamed.append("no_signature")
+
+    fehler = []
+    if accepted:
+        fehler.append("WRONGLY ACCEPTED (unbound check): " + ", ".join(accepted))
+    if misnamed:
+        fehler.append("REFUSED UNDER ANOTHER CHECK'S REASON (its own check is gone): " + ", ".join(misnamed))
+    return (not fehler), ("all valid-except-one release-deciding receipts rejected"
+                          if not fehler else "; ".join(fehler))
 
 
 CLASSES = [

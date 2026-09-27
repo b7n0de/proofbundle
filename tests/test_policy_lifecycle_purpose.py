@@ -296,7 +296,7 @@ class TestPolicyPurpose(unittest.TestCase):
         pol = load_policy(_base_policy(allowed_issuers=[
             {"public_key_b64": _pub_b64(generate_signer())}]))
         res = lint_policy(pol, strict=True)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertTrue(any("policyPurpose" in e for e in res["errors"]))
         # and WITH a purpose the same policy passes strict lint
         pol2 = load_policy(_base_policy(policyPurpose="eval", allowed_issuers=[
@@ -408,12 +408,12 @@ class TestDecisionAudNonceRegression(unittest.TestCase):
     def test_required_audience_without_validity_fails(self):
         res = verify_decision_receipt(self._env(), self.pub, expected_audience="rp.example")
         self.assertIs(res["audience_ok"], False)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_required_nonce_without_validity_fails(self):
         res = verify_decision_receipt(self._env(), self.pub, expected_nonce="n-1")
         self.assertIs(res["nonce_ok"], False)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_audience_mismatch_fails(self):
         res = verify_decision_receipt(self._env({"audience": ["other.example"], "nonce": "n-1"}),

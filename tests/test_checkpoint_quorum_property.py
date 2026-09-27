@@ -58,7 +58,7 @@ if given is not None:
                                                  threshold=min(threshold, n_names))
             # distinct key material = 1, so any threshold >= 2 is unmet
             self.assertFalse(res["witnesses_ok"])
-            self.assertFalse(res["ok"])
+            self.assertIs(res["ok"], False)
 
         @settings(max_examples=50, deadline=None)
         @given(st.integers(min_value=1, max_value=4), st.integers(min_value=0, max_value=2))

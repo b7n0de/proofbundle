@@ -1,0 +1,409 @@
+{
+  "schema": "b7n0de.release_source.v1",
+  "warum_diese_datei": "Die Gruppierung eines Release kommt aus einer VERSIONIERTEN Inhaltsquelle, nicht aus dem Titelpraefix eines Pull Requests. Owner-Wort 23.09.2026: 'Titelpraefixe wie feat, docs und fix sind allein keine zuverlaessige Auskunft darueber, ob ein Eintrag den Verifier, die CI oder einen internen Pruefprozess betrifft.' Der Originaltitel, der Autor und die URL stehen je Eintrag DANEBEN, damit die Herkunft der PR-Menge nachvollziehbar bleibt und die redaktionelle Kurzfassung nicht das Einzige ist, was ueberlebt.",
+  "version": "6.1.0",
+  "vorheriger_tag": "v6.0.0",
+  "tag": "v6.1.0",
+  "release_commit": "dcac5aeec92e850443cf34d9c07ab5cd277fabe1",
+  "readme_commit": "3be557575793c3ab402c866b4a3c7fcee04d2fd0",
+  "kopfsatz": "Verifier build identity, CAP-1 coverage rules and stricter claim validation. **Beta. Closing audit not run.**",
+  "was_sich_aenderte": [
+    {
+      "bereich": "Verifier identity",
+      "aenderung": "agent-review/v0.3 can include a build digest, vector set digest and test result reference. The block is self-declared and does not change the verification verdict.",
+      "beleg": "[#224](https://github.com/b7n0de/proofbundle/pull/224) · [Detail](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/VERIFIER_BLOCK.md)"
+    },
+    {
+      "bereich": "Coverage checks",
+      "aenderung": "CAP-1 rules and 15 conformance vectors are included. Partial or skipped conformance runs are distinguished from fully passed runs.",
+      "beleg": "[#209](https://github.com/b7n0de/proofbundle/pull/209) · [#214](https://github.com/b7n0de/proofbundle/pull/214) · [Detail](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)"
+    },
+    {
+      "bereich": "Claim validation",
+      "aenderung": "Malformed claim values are refused. A string such as passed: \"false\" is no longer treated as a true verdict by the affected exporters.",
+      "beleg": "[#231](https://github.com/b7n0de/proofbundle/pull/231) · [Detail](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)"
+    }
+  ],
+  "vor_dem_upgrade": [
+    {
+      "titel": "Receipt versions.",
+      "text": "The default emitted format is unchanged from 6.0.0. Use a compatible reader for agent-review/v0.3. A 6.0.0 reader refuses a v0.2 receipt carrying the new verifier field. [Details](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)."
+    },
+    {
+      "titel": "Stricter input handling.",
+      "text": "Previously accepted malformed claims can now be refused. Check callers that relied on implicit type coercion. [Details](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)."
+    },
+    {
+      "titel": "Separate Action release.",
+      "text": "The Action input fix is in this source tree. That does not update the documented action@v1.0.0 tag. Its version and extras inputs retain the documented restriction on untrusted values. [Details](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/release_scope/6.1.0.md)."
+    }
+  ],
+  "auditstatus": "The closing adversarial round was not run because the required model family floor was not met. C6.2, C6.3 and C8.2 remain red. The full 24 hour soak was not included at tag time. The v2 findings register is unsigned. A separate signed pre-tag receipt does not sign that register.\n\n[Audit record](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md#the-pre-tag-receipt-and-the-closing-round-of-610) · [Residual risks](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [README status](https://github.com/b7n0de/proofbundle/blob/3be557575793c3ab402c866b4a3c7fcee04d2fd0/README.md#current-release)\n\nThe published package and a passed closing audit are separate facts.",
+  "gruppen": [
+    {
+      "name": "Verifier and receipt formats",
+      "eintraege": [
+        {
+          "nr": 224,
+          "kurz": "Add optional verifier build identity in agent-review/v0.3",
+          "originaltitel": "[6.1.0 P19] feat(receipt): the verifier block, carried by agent-review/v0.3",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/224"
+        },
+        {
+          "nr": 209,
+          "kurz": "Add CAP-1 coverage rules and conformance vectors",
+          "originaltitel": "Coverage in the language of CAP-1, an independent implementation targeting 6.1.0",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/209"
+        },
+        {
+          "nr": 231,
+          "kurz": "Validate decoded claim types at the verification boundary",
+          "originaltitel": "fix(verify): a loader annotated -> dict returns a dict, and the boundary types what it decodes",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/231"
+        }
+      ]
+    },
+    {
+      "name": "Build, CI and test infrastructure",
+      "eintraege": [
+        {
+          "nr": 200,
+          "kurz": "Reject package builds that would include key material",
+          "originaltitel": "feat(guard): the package build fails closed when key material would ship in the sdist or wheel",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/200"
+        },
+        {
+          "nr": 235,
+          "kurz": "Fix shell interpolation of Action inputs in this source tree",
+          "originaltitel": "[6.1.0 N16] fix(action): two inputs were spliced into a shell body one line above their own fix",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/235"
+        },
+        {
+          "nr": 202,
+          "kurz": "Revise CI queue handling at four points",
+          "originaltitel": "ci: cut the queue at four points, measured cause not guessed",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/202"
+        },
+        {
+          "nr": 203,
+          "kurz": "Correct CI change records and time budget figures",
+          "originaltitel": "fix(ci): the cut landed without a changelog trace, and two of its own numbers were wrong",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/203"
+        },
+        {
+          "nr": 204,
+          "kurz": "Handle queue entries that produce no required check",
+          "originaltitel": "ci: a queue entry runs no job at all, so no required check ever reports",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/204"
+        },
+        {
+          "nr": 205,
+          "kurz": "Run the complete set of budget assertions",
+          "originaltitel": "fix(budget): an axis verdict that ran one of its six assertions",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/205"
+        },
+        {
+          "nr": 206,
+          "kurz": "Refresh the conformance ratchet baseline",
+          "originaltitel": "fix(conformance): the spec ratchet baseline went stale and blocks every landing",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/206"
+        },
+        {
+          "nr": 208,
+          "kurz": "Bind the baseline case count to tests",
+          "originaltitel": "fix(baseline): a case count that no test reads, and had drifted from 14 to 17",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/208"
+        },
+        {
+          "nr": 210,
+          "kurz": "Test the ADR 0008 rule as a property",
+          "originaltitel": "Pin ADR 0008's no-prose decision as a property, not as four examples",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/210"
+        },
+        {
+          "nr": 211,
+          "kurz": "Fix pinned Rust formatting and clippy checks",
+          "originaltitel": "Make rust-parity green again: pinned-toolchain formatting, plus the clippy error it was hiding",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/211"
+        },
+        {
+          "nr": 213,
+          "kurz": "Name required checks that no workflow can produce",
+          "originaltitel": "Name the required checks no workflow can produce, instead of leaving them absent",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/213"
+        },
+        {
+          "nr": 214,
+          "kurz": "Distinguish skipped checks from executed checks",
+          "originaltitel": "A skipped check is never a passed one: declare the executed scope",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/214"
+        },
+        {
+          "nr": 215,
+          "kurz": "Bind marked PR titles to a release scope entry",
+          "originaltitel": "Bind a pull request title to exactly one line of the release scope",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/215"
+        },
+        {
+          "nr": 219,
+          "kurz": "Evaluate check reachability on the live pull request",
+          "originaltitel": "fix(ci): the reachability guard judges the live pull request, not only the structure",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/219"
+        },
+        {
+          "nr": 220,
+          "kurz": "Run the full test matrix on repository pull requests",
+          "originaltitel": "ci: the full test matrix runs for every pull request from this repository",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/220"
+        },
+        {
+          "nr": 222,
+          "kurz": "Add a required check collector that always reports",
+          "originaltitel": "ci: one required context that always reports, and the two shapes in which it would not",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/222"
+        },
+        {
+          "nr": 225,
+          "kurz": "Declare both required collector contexts",
+          "originaltitel": "ci: the declaration names the two required contexts of the collector",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/225"
+        },
+        {
+          "nr": 230,
+          "kurz": "Check whether required contexts exist on the current head",
+          "originaltitel": "feat(ci): a gate that asks whether a required context exists on this head, not whether one could",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/230"
+        },
+        {
+          "nr": 234,
+          "kurz": "Run the English text gate against the requested tree",
+          "originaltitel": "fix(gate): the English gate judged the tree it lives in, not the tree it was called in",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/234"
+        }
+      ]
+    },
+    {
+      "name": "Audit and evidence",
+      "eintraege": [
+        {
+          "nr": 198,
+          "kurz": "Add findings register object classes and evidence binding tests",
+          "originaltitel": "feat(register): object classes for the findings register, with tests that bind the evidence",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/198"
+        },
+        {
+          "nr": 218,
+          "kurz": "Document register extraction rules for Migration 1A",
+          "originaltitel": "docs(audit): register head for Migration 1A, the extraction rule in its own words",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/218"
+        },
+        {
+          "nr": 221,
+          "kurz": "Report PASS, FAIL and NOT_MEASURED separately",
+          "originaltitel": "audit-matrix: three outcomes per cell, red only for a FAIL, the small soak measured live",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/221"
+        },
+        {
+          "nr": 228,
+          "kurz": "Assign identifiers to three residual risk entries",
+          "originaltitel": "fix(scope): three RESTRISIKO rows get their own identifiers, and a line can no longer leave the count in silence",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/228"
+        },
+        {
+          "nr": 232,
+          "kurz": "Derive three published figures from the tree",
+          "originaltitel": "[6.1.0 R7] fix(comments): three shipped numbers are derived from the tree, not remembered",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/232"
+        },
+        {
+          "nr": 237,
+          "kurz": "Record the agent review receipt for PR 236",
+          "originaltitel": "chore(receipts): the agent review receipt for the reply on pull request 236",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/237"
+        },
+        {
+          "nr": 238,
+          "kurz": "Add a carrier for a promised register entry",
+          "originaltitel": "fix(register): a promised register entry now has a carrier",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/238"
+        },
+        {
+          "nr": 239,
+          "kurz": "Run the pre-tag audit between two clean tree measurements",
+          "originaltitel": "fix(pre-tag): the tool runs the audit between two measurements of a clean tree",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/239"
+        },
+        {
+          "nr": 240,
+          "kurz": "Record seven signed review reply receipts",
+          "originaltitel": "chore(receipts): seven signed receipts for the replies on #239 and on this pull request",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/240"
+        },
+        {
+          "nr": 241,
+          "kurz": "Document readiness and the closing audit that was not run",
+          "originaltitel": "docs(readiness): fill the 6.1.0 slot and record the closing round that does not run",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/241"
+        },
+        {
+          "nr": 243,
+          "kurz": "Make the register test assert its specific claim",
+          "originaltitel": "fix(tests): the register case asserts its own sentence instead of the blanket one",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/243"
+        },
+        {
+          "nr": 244,
+          "kurz": "Record owner-signed pre-tag receipt and readiness evidence",
+          "originaltitel": "chore(610): land the owner-signed pre-tag receipt and readiness evidence",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/244"
+        }
+      ]
+    },
+    {
+      "name": "Documentation and interoperability",
+      "eintraege": [
+        {
+          "nr": 188,
+          "kurz": "Remeasure five Cedulon mapping cells",
+          "originaltitel": "docs(mapping4): Revision 3, five cells re-measured against draft-dogru-cedulon-decision-profile-02",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/188"
+        },
+        {
+          "nr": 189,
+          "kurz": "Document the Cedulon refusal fixture and its implications",
+          "originaltitel": "docs(interop): the frozen Cedulon leaked-refusal fixture through our own verifier, and the 6.1.0 proposal it argues for",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/189"
+        },
+        {
+          "nr": 197,
+          "kurz": "Document the release scope and research programme",
+          "originaltitel": "docs: release scope for 6.1.0 and the research program",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/197"
+        },
+        {
+          "nr": 201,
+          "kurz": "Consolidate the contributor identity mapping",
+          "originaltitel": "chore(identity): map by address to one identity, no real name in the file",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/201"
+        },
+        {
+          "nr": 207,
+          "kurz": "Update the SCITT mapping to architecture draft 05",
+          "originaltitel": "docs(mapping): bring the SCITT mapping forward to draft -05, and correct one of our own claims",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/207"
+        },
+        {
+          "nr": 212,
+          "kurz": "Correct four CPB draft claims against their evidence",
+          "originaltitel": "Correct four claims about the CPB draft that do not survive re-measurement, and pin what they rest on",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/212"
+        },
+        {
+          "nr": 226,
+          "kurz": "Record two Merkle roots from two document interpretations",
+          "originaltitel": "measurement: two readings of the same document give two Merkle roots",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/226"
+        },
+        {
+          "nr": 227,
+          "kurz": "Update the research coverage record after CAP-1 landed",
+          "originaltitel": "docs(research): re-measure the C6 coverage line now that cap1 has landed",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/227"
+        },
+        {
+          "nr": 229,
+          "kurz": "Document the shipped Merkle interpretation with vectors",
+          "originaltitel": "docs(merkle): pin which of the two readings this implementation ships, with a vector for each",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/229"
+        },
+        {
+          "nr": 233,
+          "kurz": "Limit 6.1.0 to the cut and defer the remaining scope to 6.2.0",
+          "originaltitel": "docs(scope): 6.1.0 is cut to what is on main, and the rest moves to 6.2.0 unchanged",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/233"
+        },
+        {
+          "nr": 236,
+          "kurz": "Remove duplicated and outdated README release notes",
+          "originaltitel": "docs(readme): two release notes duplicated the changelog, and one of them was two releases old",
+          "autor": "b7n0de",
+          "url": "https://github.com/b7n0de/proofbundle/pull/236"
+        }
+      ]
+    },
+    {
+      "name": "Dependencies",
+      "eintraege": [
+        {
+          "nr": 195,
+          "kurz": "Update the supported inspect-ai requirement",
+          "originaltitel": "deps: update inspect-ai requirement from <=0.3.261,>=0.3.112 to >=0.3.112,<=0.3.263",
+          "autor": "app/dependabot",
+          "url": "https://github.com/b7n0de/proofbundle/pull/195"
+        },
+        {
+          "nr": 196,
+          "kurz": "Update two GitHub Actions dependencies",
+          "originaltitel": "ci: bump the actions group with 2 updates",
+          "autor": "app/dependabot",
+          "url": "https://github.com/b7n0de/proofbundle/pull/196"
+        },
+        {
+          "nr": 217,
+          "kurz": "Update three GitHub Actions dependencies",
+          "originaltitel": "ci: bump the actions group across 1 directory with 3 updates",
+          "autor": "app/dependabot",
+          "url": "https://github.com/b7n0de/proofbundle/pull/217"
+        }
+      ]
+    }
+  ],
+  "danke": [
+    "b7n0de",
+    "dependabot"
+  ]
+}

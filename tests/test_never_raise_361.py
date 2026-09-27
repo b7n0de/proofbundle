@@ -44,7 +44,7 @@ class NeverRaise(unittest.TestCase):
             r = verify_decision_receipt(env, self.pub)  # must not raise
             self.assertIs(r["crypto_ok"], True, name)   # signature valid over the malformed bytes
             self.assertIs(r["structure_ok"], False, name)
-            self.assertIsNot(r["ok"], True, name)
+            self.assertIs(r["ok"], False, name)
             self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True, name)
             self.assertTrue(r["errors"], name)          # the reason is always recorded
 
@@ -53,7 +53,7 @@ class NeverRaise(unittest.TestCase):
             env = self._sign(body)
             r = verify_outcome_receipt(env, self.pub)   # must not raise
             self.assertIs(r["structure_ok"], False, name)
-            self.assertIsNot(r["ok"], True, name)
+            self.assertIs(r["ok"], False, name)
             self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True, name)
 
     def test_verify_or_raise_is_explicit_decision(self):

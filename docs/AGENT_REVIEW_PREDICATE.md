@@ -52,6 +52,71 @@ The statement's subject digest is taken over the **subjectContext alone**. A rec
 another pull request therefore carries the old context and fails the binding check, while remaining
 cryptographically sound — which is precisely the failure this binding exists to expose.
 
+### `reviewedDiffDigest`, and why it needed writing down
+
+**The derivation belongs in this document, because a digest nobody can recompute is a number that
+looks like a fact.** The field is sha256 over the bytes of
+
+```
+git diff <baseSha>..<headSha>
+```
+
+in the repository the receipt names, with default options and no colour. Both shas are in the same
+`subjectContext`, so a reader holding the repository can reproduce the value without asking anyone
+what was meant.
+
+**CORRECTED 2026-09-25: default options are not one derivation.** Measured on pull request 264, the
+same command gives `a5e83b33…` in a large clone, where git abbreviates blob ids on the index lines to
+eight characters, `d8c6daf0…` with `core.abbrev=7` as in a fresh clone, and a third value with
+`diff.noprefix=true`. A reader in another clone or with other settings could not reproduce the value.
+
+A first correction the same day pinned a list of options on the patch output. A review then named
+further settings the list had missed, diff ordering and blank-line formatting among them, and a list
+of rendering options does not close. The receipts this repository issues from 2026-09-25 on
+therefore take the digest over the raw record instead of the rendered patch:
+
+```
+git --no-replace-objects diff-tree -r -z --no-renames --no-abbrev -O/dev/null <baseSha> <headSha>
+```
+
+One NUL-separated record per changed path, with both modes, both full blob ids, the status and the
+path. It carries no rendering, so no setting changes it: measured on pull request 264, the value is
+the same under fourteen settings, including the abbreviation length, `diff.noprefix`,
+`diff.orderFile`, `diff.suppressBlankEmpty`, `diff.relative` and a global attributes file. The blob
+ids bind the content of every changed file exactly, which the patch text did only through its
+rendering. Each receipt states the command in its own known gaps.
+
+**`--no-replace-objects` was missing from the first version of this command**, the same day. Settings
+change how git renders an object; a replacement ref (`git replace`) changes which object git reads
+for a given id, and it is local to a clone. Measured in a scratch repository: the command without the
+switch gave `c137e097…` for two commits, then `a68fe623…` for the same two ids after one of them was
+replaced, and `c137e097…` again with the switch (and with `GIT_NO_REPLACE_OBJECTS=1`). So without it,
+a digest could be taken over objects no other reader has while the receipt names the original ids.
+In this repository no replacement refs exist, so no digest issued with the earlier command changes
+value; the receipts that state the command were reissued so that the command they state is this one.
+
+**THE HONEST PART, measured 2026-09-23.** The receipts issued before that date carry the field, and
+their derivation is recorded nowhere — not here, not in the emitter, not beside the published
+evidence. Three obvious candidates were measured against one of them, the receipt for pull request
+241, and none reproduced its value:
+
+| candidate | reproduces `3615bbbc…` |
+|---|---|
+| `git diff <base>..<head>` (two dots) | no, `32bdb8d8…` |
+| `git diff <base>...<head>` (three dots, merge base) | no, `32bdb8d8…` |
+| the API's own `.diff` rendering | no, `d1c0d967…` |
+| the API's own `.patch` rendering | no, `4410a943…` |
+
+So those earlier values are not checkable by a reader, and this document does not pretend otherwise.
+Rather than copy a number whose meaning is unknown, the receipts issued from 2026-09-23 on state the
+derivation above in their own `limitations` list, where a reader meets it, and this section is the
+place it is defined once.
+
+**What the field does NOT bind.** It is a digest over a diff, not over a tree. Two different trees
+with the same diff against their own bases produce the same value, and a diff that git renders
+differently under another version or configuration produces a different one for the same trees. The
+tree itself is bound by `headSha` and `baseSha`, which is where that question belongs.
+
 ### `bodyCoreDigest` and the self-reference problem
 
 The visible disclosure block contains the receipt digest, and the body containing that block is

@@ -16,6 +16,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from ._verdict import require_bool_verdict
 from ._strict_json import loads_strict
 from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
 from .errors import BundleFormatError, ProofBundleError
@@ -90,13 +91,14 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     (e.g. {"name": "inspect_ai", "version": "0.3.217"}) is optional. The subject digest is the model
     commitment under a custom key (never `sha256`).
     """
+    verdikt = require_bool_verdict(claim, wo="to_intoto_statement")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
         "suite": claim["suite"],
         "claims": [{
             "metric": claim["metric"], "comparator": claim["comparator"],
-            "threshold": claim["threshold"], "passed": claim["passed"],
+            "threshold": claim["threshold"], "passed": verdikt,
         }],
         "datasetCommit": claim.get("dataset_id_commit"),
         "subject_digest_note": _SUBJECT_DIGEST_NOTE,
@@ -126,15 +128,42 @@ def _canonical_body(statement: dict) -> bytes:
     return json.dumps(statement, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+#: What a PRESENT but unusable `contentRootAlg` resolves to. It is deliberately not a registered id,
+#: so `_serialize_statement` refuses it the same way it refuses any unknown one, and it names what was
+#: found so the verdict says more than "unknown".
+_PRESENT_BUT_UNUSABLE = "invalid-contentRootAlg"
+
+
 def _declared_content_root_alg(statement: Any) -> str:
     """The content-root algorithm a Statement DECLARES via its top-level `contentRootAlg`. ABSENT ⇒ legacy
     (`legacy-sortkeys-json-v0`) — this is how released 2.0.0 receipts, which carry no field, keep verifying.
-    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg)."""
-    if isinstance(statement, dict):
-        alg = statement.get("contentRootAlg")
-        if isinstance(alg, str) and alg:
-            return alg
-    return LEGACY_CONTENT_ROOT_ALG
+    Absence is NEVER silently treated as jcs (ADR 0002 §Migration 2, mirroring merkle.hash_alg).
+
+    ABSENT AND PRESENT-BUT-UNUSABLE ARE NOT THE SAME THING, and until 2026-09-23 they were. S26, deep
+    gate run 5, finding `L1-600-CRA-01`: the guard below was `isinstance(alg, str) and alg`, so a
+    PRESENT value that is not a non-empty string fell through to the absence branch and resolved to
+    LEGACY with `ok=true`. Measured before the fix, all six of `""`, `0`, `True`, `[]`, `{}` and
+    `null` resolved to legacy, while an unknown STRING id correctly failed closed one line later in
+    `_serialize_statement`. A document that declares something unusable was read as a document that
+    declares nothing.
+
+    THE HONEST BOUNDARY, because it belongs in the finding and not only in the fix: `contentRootAlg`
+    sits INSIDE the signed payload, so this is not a signature bypass. The damage is that the verdict
+    describes signed content wrongly, that a receipt which the contract says to reject is accepted,
+    and that a stricter foreign verifier rules differently on identical bytes.
+
+    THE CLASS: `(field ABSENT) == (resolved algorithm == LEGACY)` must hold strictly. Every algorithm
+    or selector field read from parsed content has this shape, in both languages, which is why the
+    guard here distinguishes the two states instead of widening the accepted type.
+    """
+    if not isinstance(statement, dict):
+        return LEGACY_CONTENT_ROOT_ALG
+    if "contentRootAlg" not in statement:
+        return LEGACY_CONTENT_ROOT_ALG          # genuinely absent — the 2.0.0 receipts
+    alg = statement["contentRootAlg"]
+    if isinstance(alg, str) and alg:
+        return alg                               # present and shaped like an id; registration is checked later
+    return _PRESENT_BUT_UNUSABLE                 # present and unusable — fail-closed, never legacy
 
 
 def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
@@ -168,7 +197,7 @@ def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
         f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
 
 
-def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
+def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[str], str]:
     """Verify the transmitted payload IS canonical for its OWN declared content-root algorithm. Fail-closed.
 
     Returns ``(ok, alg, detail)``. The verifier reads the DECLARED `contentRootAlg` (absent ⇒ legacy) and
@@ -180,8 +209,25 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, str, str]:
     needs the `[eval]` extra; without it this is fail-closed (never a silent pass over possibly non-canonical
     bytes). Legacy verification is stdlib-only, so released 2.0.0 receipts verify on a base install."""
     alg = _declared_content_root_alg(statement)
+    # THE SENTINEL DRIVES THE DECISION, IT DOES NOT GET REPORTED AS SIGNED CONTENT. Codex, review of
+    # 2026-09-23 on PR 254: for canonical bytes of `{"contentRootAlg":null}` the verdict correctly
+    # said ok=False, and then named `content_root_alg="invalid-contentRootAlg"` and "unknown
+    # contentRootAlg 'invalid-contentRootAlg'" — a string that appears NOWHERE in the signed
+    # payload, and the same for every unusable type. The shared builder below feeds all three
+    # verify_*_dsse surfaces, so one place fixed it for all three.
+    #
+    # The signature boundary and the fail-closed verdict were never in question; what was wrong is
+    # that the verdict claimed the document declared something it did not. `gemeldet` is therefore
+    # None (nothing usable was declared) and the detail names the type actually found.
+    unbrauchbar = alg is _PRESENT_BUT_UNUSABLE or alg == _PRESENT_BUT_UNUSABLE
+    gemeldet: Optional[str] = None if unbrauchbar else alg
+    if unbrauchbar:
+        roh = statement.get("contentRootAlg") if isinstance(statement, dict) else None
+        return False, gemeldet, (
+            f"contentRootAlg is present but unusable (found {type(roh).__name__} {roh!r}); a "
+            "declaration that names no algorithm is refused rather than read as absent")
     if not isinstance(statement, dict):
-        return False, alg, "payload is not a JSON in-toto Statement object"
+        return False, gemeldet, "payload is not a JSON in-toto Statement object"
     try:
         expected = _serialize_statement(statement, alg)
     except CanonicalizerUnavailable:
@@ -214,6 +260,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
     """
+    verdikt = require_bool_verdict(claim, wo="to_test_result_statement")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
@@ -222,7 +269,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
             "metric": claim["metric"],
             "comparator": claim["comparator"],
             "threshold": claim["threshold"],
-            "passed": claim["passed"],
+            "passed": verdikt,
             "evaluatedAt": claim["timestamp"],
             "note": ("digest is a SALTED COMMITMENT to the model id, not an artifact content hash; "
                      "proofbundle attests authenticity+integrity of the claimed result, not the correctness "
@@ -243,12 +290,15 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
             "digest": {DATASET_COMMIT_DIGEST_KEY: _commit_hex(dataset_commit)},
         })
     predicate: dict[str, Any] = {
-        "result": _RESULT_ENUM[bool(claim["passed"])],
+        # `_RESULT_ENUM[verdikt]` and not `[bool(...)]`: the enum is keyed by True/False, so an indexing
+        # KeyError would be the honest failure for anything else — but the refusal above says WHICH field
+        # and WHICH type, which a KeyError never could.
+        "result": _RESULT_ENUM[verdikt],
         "configuration": configuration,
     }
     suite = claim.get("suite")
     if suite:
-        key = "passedTests" if claim["passed"] else "failedTests"
+        key = "passedTests" if verdikt else "failedTests"
         predicate[key] = [str(suite)]
     if url:
         predicate["url"] = url
@@ -368,13 +418,22 @@ def _forbid_plaintext_in_export(claim: dict) -> None:
             "commitment-only and must never carry a model/dataset name or a salt")
 
 
-def _require_export_fields(claim: dict) -> None:
-    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3)."""
+def _require_export_fields(claim: dict) -> bool:
+    """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3).
+
+    RETURNS THE VALIDATED VERDICT, and that return type is the fix for a review finding rather than a
+    convenience. See the comment at the emit site: a caller that re-reads the field instead of using
+    this value can be handed a different value than the one that was checked.
+    """
     if not isinstance(claim, dict):
         raise BundleFormatError("eval-result export needs a claim object")
     missing = [k for k in _EXPORT_REQUIRED if claim.get(k) in (None, "")]
     if missing:
         raise BundleFormatError(f"refusing to export: claim is missing required field(s) {missing}")
+    # PRESENCE IS NOT TYPE, and `passed` is in _EXPORT_REQUIRED, which is exactly why this was missed:
+    # the field was required and therefore looked checked. `"false"` is a non-empty string, so it passes
+    # the loop above; R-B4. The type check belongs here rather than at each caller of this function.
+    return require_bool_verdict(claim, wo="refusing to export")
 
 
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
@@ -413,7 +472,7 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
     commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
     fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
-    _require_export_fields(claim)
+    verdikt = _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
@@ -421,7 +480,17 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
         "suite": {"name": claim["suite"], "version": claim.get("suite_version")},
         "claims": [{
             "metric": claim["metric"], "comparator": claim["comparator"],
-            "threshold": claim["threshold"], "passed": bool(claim["passed"]),
+            # THE VALIDATED VALUE, NOT A SECOND READ -- and this comment replaces one that argued
+            # for the wrong thing. It said: `claim["passed"]` raw rather than `bool(...)`, because
+            # `_require_export_fields` above already refuses anything that is not a boolean. That
+            # argument was about COERCION and passed over the ACCESSOR: what was validated is
+            # `claim.get("passed")`, what was emitted is `claim["passed"]`. For a dict whose `get`
+            # and `__getitem__` disagree those are two values. Measured 2026-09-24 with a dict
+            # subclass whose `get("passed")` returns True while the stored item is `"false"`: the
+            # validation passed, the predicate carried the string, and the DSSE path signed it.
+            # THE CLASS: a check through one accessor and a use through another. The guard is not a
+            # third accessor but PASSING THE VALIDATED VALUE ON.
+            "threshold": claim["threshold"], "passed": verdikt,
         }],
         "sampleSize": claim["n"],
         "commitments": {
@@ -542,13 +611,18 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     caller MUST have run a real offline anchor verification before passing the flag, or the signed SVR
     asserts a property it did not verify. A present prereg hash or an `anchors[]` block alone is NOT a
     verified binding."""
+    # THE MOST LOAD-BEARING OF THE SIX SITES, because what it decides gets SIGNED. Measured 2026-09-24:
+    # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
+    # empty property list. This function is public, so the check belongs here and not only at
+    # `export_svr_dsse`, whose `decode_eval_claim` now refuses a non-boolean one layer earlier. R-B4.
+    verdikt = require_bool_verdict(claim, wo="svr_properties")
     checks = {c.name: c.ok for c in result.checks}
     props = []
     if checks.get("ed25519-signature"):
         props.append("PROOFBUNDLE_SIGNATURE_VALID")
     if checks.get("merkle-inclusion"):
         props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
-    if claim.get("passed"):
+    if verdikt:
         props.append("PROOFBUNDLE_THRESHOLD_MET")
     if claim.get("samples"):
         props.append("PROOFBUNDLE_SAMPLE_ROOT_VALID")

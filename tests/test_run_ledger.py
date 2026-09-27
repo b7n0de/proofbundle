@@ -129,14 +129,14 @@ class TestRunLedgerVerify(unittest.TestCase):
         env = emit_run_ledger(_pred(), s)
         forged = _repayload(env, build_run_ledger_statement(_pred(studyId="X")))
         r = verify_run_ledger(forged, pub)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["crypto_ok"])
 
     def test_wrong_key_fails(self):
         s, _ = _keys()
         _, other = _keys()
         env = emit_run_ledger(_pred(), s)
-        self.assertFalse(verify_run_ledger(env, other)["ok"])
+        self.assertIs(verify_run_ledger(env, other)["ok"], False)
 
     def test_predicate_type_confusion_fails(self):
         s, pub = _keys()
@@ -145,7 +145,7 @@ class TestRunLedgerVerify(unittest.TestCase):
         env = dsse.sign_envelope(_rfc8785_bytes(stmt), s, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r = verify_run_ledger(env, pub)
         self.assertFalse(r["predicate_type_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
 
 if __name__ == "__main__":

@@ -143,7 +143,7 @@ class TestVerifyProofExpectedOrigin(unittest.TestCase):
         rc, out = _run("--expected-origin", _WRONG_ORIGIN)
         self.assertEqual(rc, 1)
         res = json.loads(out)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertFalse(res["log_ok"])
         # the crypto is untouched: inclusion still holds and the reported origin is the real one
         self.assertTrue(res["inclusion_ok"])

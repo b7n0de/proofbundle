@@ -198,7 +198,7 @@ class TestAllReceiptTypesEmitAutomation(unittest.TestCase):
                "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
                "signatures": [{"keyid": "k", "sig": base64.b64encode(sk.sign(msg)).decode("ascii")}]}
         r = verify_trust_pack(env)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self._assert_automation_shape(r)
         self.assertFalse(r["automation"]["safeForAutomation"])
 

@@ -1,0 +1,41 @@
+# Label-based grouping for GitHub's OWN generated notes.
+#
+# WHAT THIS FILE IS AND IS NOT. This is `.github/release.yml`, not
+# `.github/workflows/release.yml`. It only orders the raw list GitHub builds when someone presses
+# "Generate release notes" in the web UI. It produces no summary, no compatibility notes and no
+# collapsible sections — the rendered body from `scripts/render_release.py` does that, and the
+# workflow hands THAT file to the release action. This config is the fallback for the case where a
+# note is made by hand instead.
+#
+# THE LABELS ARE PROPOSED, NOT MEASURED. None of the `release:*` labels below is claimed to exist
+# in the repository today. Before this file decides anything, the labels have to be reconciled with
+# the ones already in use and assigned to future pull requests deliberately.
+#
+# THE CATCH-ALL IS A FINDING, NOT A HOME. An entry that lands in "Other changes" is one nobody
+# classified. It must not quietly survive editorial finalisation; it is the signal that a label is
+# missing, which is why it is last and named plainly.
+#
+# NO BLANKET EXCLUSIONS. Bot pull requests and CI changes are NOT filtered out. In this project a
+# dependency bump or a CI change can carry a verification property, and a release note that hides
+# them describes a smaller release than the one that shipped.
+changelog:
+  categories:
+    - title: Verifier and receipt formats
+      labels:
+        - "release:verifier"
+    - title: Build, CI and test infrastructure
+      labels:
+        - "release:build"
+    - title: Audit and evidence
+      labels:
+        - "release:audit"
+    - title: Documentation and interoperability
+      labels:
+        - "release:docs"
+    - title: Dependencies
+      labels:
+        - "release:deps"
+        - "dependencies"
+    - title: Other changes
+      labels:
+        - "*"

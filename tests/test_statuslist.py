@@ -73,13 +73,13 @@ class TestStatusList(unittest.TestCase):
         stranger = generate_signer()
         res = verify_status_snapshot(self.token, expected_uri=URI, index=0,
                                      issuer_pubkey=_raw(stranger))
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("signature", res["detail"])
 
     def test_red_uri_mismatch(self):
         res = verify_status_snapshot(self.token, expected_uri="https://other.example/list",
                                      index=0, issuer_pubkey=self.pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("sub", res["detail"])
 
     def test_red_wrong_typ(self):
@@ -93,13 +93,13 @@ class TestStatusList(unittest.TestCase):
             self.signer.sign(f"{h2}.{p}".encode("ascii"))).rstrip(b"=").decode()
         res = verify_status_snapshot(f"{h2}.{p}.{sig2}", expected_uri=URI, index=0,
                                      issuer_pubkey=self.pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("typ", res["detail"])
 
     def test_red_index_out_of_range(self):
         res = verify_status_snapshot(self.token, expected_uri=URI, index=999,
                                      issuer_pubkey=self.pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def _reheadered(self, **header_over):
         # rebuild the token with a mutated header, RE-SIGNED so the (valid) signature cannot be the reason
@@ -120,14 +120,14 @@ class TestStatusList(unittest.TestCase):
         for bad_alg in ("none", "HS256", "ES256"):
             res = verify_status_snapshot(self._reheadered(alg=bad_alg), expected_uri=URI, index=0,
                                          issuer_pubkey=self.pub)
-            self.assertFalse(res["ok"], bad_alg)
+            self.assertIs(res["ok"], False, bad_alg)
             self.assertIsNone(res.get("status"), bad_alg)
 
     def test_red_wrong_length_issuer_key_never_crashes(self):
         # a 31-byte issuer key makes verify_ed25519 raise ValueError internally — must be a clean fail, not
         # an uncaught crash (the 'never crashes' contract).
         res = verify_status_snapshot(self.token, expected_uri=URI, index=0, issuer_pubkey=b"\x00" * 31)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_decompression_bomb_rejected(self):
         # CWE-409: a validly-SIGNED token whose status_list.lst decompresses beyond the cap must be rejected
@@ -144,7 +144,7 @@ class TestStatusList(unittest.TestCase):
         p2 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
         sig2 = base64.urlsafe_b64encode(self.signer.sign(f"{h}.{p2}".encode("ascii"))).rstrip(b"=").decode()
         res = verify_status_snapshot(f"{h}.{p2}.{sig2}", expected_uri=URI, index=0, issuer_pubkey=self.pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("maximum decompressed size", res["detail"])
 
     def test_red_status_flip_needs_resign(self):
@@ -162,7 +162,7 @@ class TestStatusList(unittest.TestCase):
         p2 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
         res = verify_status_snapshot(f"{h}.{p2}.{s}", expected_uri=URI, index=0,
                                      issuer_pubkey=self.pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
 
     def test_red_issue_guards(self):
         with self.assertRaises(BundleFormatError):
@@ -235,7 +235,7 @@ class TestFreshnessAndStrictTypes(unittest.TestCase):
         p = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
         sig = base64.urlsafe_b64encode(self.signer.sign(f"{h}.{p}".encode("ascii"))).rstrip(b"=").decode()
         res = verify_status_snapshot(f"{h}.{p}.{sig}", expected_uri=URI, index=0, issuer_pubkey=self.pub)
-        self.assertFalse(res["ok"])
+        self.assertIs(res["ok"], False)
         self.assertIn("exp", res["detail"])
 
 

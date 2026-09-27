@@ -85,7 +85,7 @@ zurueck = bytes([0xD2]) + C.kopf_bytes(4, 4) + b"".join(el(x) for x in elemente)
 bericht = {
     "schema": "b7n0de.scitt_ccf_array_framing_vector/0.1",
     "not_a_transparency_service": "b7n0de operates no Transparency Service and issues no Receipts.",
-    "not_independently_derived": ("Bytes, seed and signature are Nicholas Ashley's published "
+    "not_independently_derived": ("Bytes, seed and signature are Nicholas Templeman's published "
                                   "artifact. Nothing here is a new key or a new statement."),
     "not_a_claim_about_libraries_in_the_wild": ("Measured only for the encoders named below, at "
                                                 "the versions named below."),

@@ -119,7 +119,7 @@ class TestSummaryVerify(unittest.TestCase):
         env = emit_verification_summary(_pred(), s)
         forged = _repayload(env, build_summary_statement(_pred(summaryId="X")))
         r = verify_verification_summary(forged, pub)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["crypto_ok"])
 
     def test_wrong_key_fails(self):
@@ -127,7 +127,7 @@ class TestSummaryVerify(unittest.TestCase):
         _, other = _keys()
         env = emit_verification_summary(_pred(), s)
         r = verify_verification_summary(env, other)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_predicate_type_confusion_fails(self):
         s, pub = _keys()
@@ -136,7 +136,7 @@ class TestSummaryVerify(unittest.TestCase):
         env = dsse.sign_envelope(_rfc8785_bytes(stmt), s, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r = verify_verification_summary(env, pub)
         self.assertFalse(r["predicate_type_ok"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
 
     def test_verified_without_receiptref_is_inconsistent(self):
         # honesty check (levels_consistent): a level marked VERIFIED WITHOUT a receiptRef passes structural
@@ -149,7 +149,7 @@ class TestSummaryVerify(unittest.TestCase):
         env = emit_verification_summary(p, s)                 # emits fine
         r = verify_verification_summary(env, pub, strict=True)
         self.assertFalse(r["levels_consistent"])
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertTrue(any("VERIFIED" in e and "receiptRef" in e for e in r["errors"]), r["errors"])
 
     def test_not_evaluated_without_receiptref_stays_consistent(self):

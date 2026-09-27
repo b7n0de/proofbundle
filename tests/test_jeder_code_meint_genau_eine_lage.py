@@ -198,7 +198,20 @@ NUR_ALS_BAUSTEIN = {"SECTION_NOT_OBJECT",
                     # block; `_mit_abschnitt(code_teil="PRODUCER_VERIFIER")` qualifies it to
                     # PRODUCER_VERIFIER_BLOCK_INVALID, unqualified it never appears. Triggered in
                     # tests/test_verifier_block.py (25 single defects of the block, one code).
-                    "BLOCK_INVALID"}
+                    "BLOCK_INVALID",
+                    # Codex finding on PR 248 (2026-09-23): issued in `_widerspruch_in_altfeldern`,
+                    # which `_validate_coverage` calls on BOTH paths, the CAP-1 branch with its
+                    # early return and the v0.1 branch. `_mit_abschnitt` qualifies them to
+                    # COVERAGE_COMPLETE_*; unqualified they never appear, which is the same
+                    # situation as the CAP1_* codes above. Triggered per code in
+                    # tests/test_codex_funde_248_20260923.py.
+                    #
+                    # THIS ENTRY CAUGHT A STUTTER, and that belongs here: the first version wrote
+                    # the literals as "COVERAGE_COMPLETE_...". Since `_mit_abschnitt` sets the
+                    # prefix itself, they came out as COVERAGE_COVERAGE_COMPLETE_... Measured, not
+                    # assumed, and no test other than this table would have looked. The house
+                    # convention is the UNPREFIXED literal, as with CAP1_*.
+                    "COMPLETE_UNDER_EXPECTATION", "COMPLETE_OVER_NOTHING", "COMPLETE_WITH_GAPS"}
 
 #: Codes des Moduls, die diese Tafel (noch) nicht fuehrt — mit Grund. Waechst die Menge, faellt
 #: `test_jeder_code_des_moduls_steht_in_der_tafel`: ein neuer Code ohne Eintrag ist genau der Fall,

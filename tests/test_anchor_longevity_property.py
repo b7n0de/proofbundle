@@ -78,7 +78,7 @@ if given is not None:
             if data == other:
                 return
             digests = compute_dual_hash(data, algs)
-            self.assertFalse(verify_dual_hash(other, digests).ok)
+            self.assertIs(verify_dual_hash(other, digests).ok, False)
 
         @settings(max_examples=200, deadline=None)
         @given(st.text(alphabet=_HEX, min_size=1, max_size=12))
@@ -130,7 +130,7 @@ if given is not None:
                 seq = renew_hashtree(seq, data, new_hash_alg="sha512", time=t)
             tampered = list(data)
             tampered[0] = "f" * 64 if tampered[0] != "f" * 64 else "e" * 64
-            self.assertFalse(verify_sequence(seq, tampered).ok)
+            self.assertIs(verify_sequence(seq, tampered).ok, False)
 
     @unittest.skipUnless(_HAS_MLDSA, "signed migration needs cryptography with FIPS 204 (ML-DSA)")
     class TestSignedMigrationProperties(unittest.TestCase):

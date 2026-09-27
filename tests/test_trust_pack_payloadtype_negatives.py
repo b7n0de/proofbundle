@@ -59,7 +59,7 @@ class TestTrustPackPayloadTypeNegatives(unittest.TestCase):
         env2 = dict(env)
         env2["payloadType"] = "application/vnd.attacker+json"
         r = verify_trust_pack(env2)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["predicate_type_ok"])
         self.assertTrue(any("payloadType" in e for e in r["errors"]))
 
@@ -72,7 +72,7 @@ class TestTrustPackPayloadTypeNegatives(unittest.TestCase):
                 r = verify_trust_pack(env2)
             except ProofBundleError:
                 continue  # a typed rejection is also acceptable defended behaviour
-            self.assertFalse(r["ok"], f"payloadType={bad!r} must not be accepted")
+            self.assertIs(r["ok"], False, f"payloadType={bad!r} must not be accepted")
 
     def test_wrong_predicate_type_is_rejected(self):
         # A validly-SIGNED in-toto statement of a DIFFERENT predicateType presented to the trust-pack
@@ -86,7 +86,7 @@ class TestTrustPackPayloadTypeNegatives(unittest.TestCase):
         }).encode()
         env = dsse.sign_envelope(body, r1, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid="r1")
         r = verify_trust_pack(env)
-        self.assertFalse(r["ok"])
+        self.assertIs(r["ok"], False)
         self.assertFalse(r["predicate_type_ok"])
         self.assertNotEqual(TRUST_PACK_PREDICATE_TYPE,
                             "https://proofbundle.dev/decision-receipt/v0.1")
