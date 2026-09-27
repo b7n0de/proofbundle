@@ -367,6 +367,11 @@ _OUT_OF_SCOPE = frozenset({
     #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
     #       unmet).
     "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
+    # 2026-09-27, Z239 F3, `proofbundle.dsse.openssh_sha256_keyid`: a producer's helper. It takes the
+    #       signer's OWN public key, inside `sign_envelope`, and names it by the keyid foreign tools look
+    #       up. It refuses a key that is not 32 bytes with a ValueError instead of writing a keyid for
+    #       a key that is none. No verifier calls it: the keyid is unsigned and no verdict reads it.
+    "openssh_sha256_keyid",
 })
 
 
