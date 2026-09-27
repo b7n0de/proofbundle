@@ -582,6 +582,69 @@ def load_trusted_pubkeys(_repo, **_kwargs):
     return ["forged"]
 '''
 
+#: Appended after `_FORGED_LIBRARY_TAIL` by the case that measures the ORDER of the checker's steps:
+#: a library that acts when it is loaded. It writes the genuine bytes of one loose object back into
+#: the store, so that a check which runs after the library was loaded finds nothing to refuse.
+_RESTORING_TAIL = '''
+
+import base64 as _b64, os as _os, stat as _stat
+_os.chmod({path!r}, _stat.S_IRUSR | _stat.S_IWUSR)
+with open({path!r}, "wb") as _f:
+    _f.write(_b64.b64decode({data!r}))
+'''
+
+#: Runs in a child: loads the tree's own library and producer by path and asks one question while a
+#: writer rewrites one tree object of the store for exactly the duration of each `ls-tree` call the
+#: named module makes through its funnel, and puts the genuine object back after it. The chain reads
+#: the objects it checks with `cat-file --batch`; a listing that reads them again is a second read,
+#: and this is the writer between the two. Prints the clean answer, the answer under the writer, and
+#: for each listing the writer served whether it named the other blob.
+_BETWEEN_READS_DRIVER = r'''
+import importlib.util, json, pathlib, stat, sys, zlib
+scripts, repo, question = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+oid, raw, other = sys.argv[4], bytes.fromhex(sys.argv[5]), sys.argv[6]
+def load(name, rel):
+    spec = importlib.util.spec_from_file_location(name, scripts / rel)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+lib = load("_between_lib", "pre_tag_receipt_lib.py")
+producer = load("_between_producer", "pre_tag_receipt.py")
+path = repo / ".git" / "objects" / oid[:2] / oid[2:]
+genuine = path.read_bytes()
+forged = zlib.compress(b"tree " + str(len(raw)).encode() + b"\0" + raw)
+served = []
+def between(original):
+    def run(where, *args, **kwargs):
+        if not args or args[0] != "ls-tree":
+            return original(where, *args, **kwargs)
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        path.write_bytes(forged)
+        try:
+            answer = original(where, *args, **kwargs)
+        finally:
+            path.write_bytes(genuine)
+        served.append(other.encode() in answer.stdout)
+        return answer
+    return run
+def safe(f):
+    try:
+        return ["answer", f()]
+    except SystemExit as e:
+        return ["refused", str(e)]
+    except Exception as e:
+        return ["refused", f"{type(e).__name__}: {e}"]
+if question == "digest":
+    clean = safe(lambda: lib.subject_tree_digest(repo))
+    lib.git_run = between(lib.git_run)
+    got = safe(lambda: lib.subject_tree_digest(repo))
+else:
+    clean = None
+    producer.git_run = between(producer.git_run)
+    got = safe(lambda: producer._baumzustand_oder_stop(repo, "measured"))
+print(json.dumps({"clean": clean, "got": got, "served": served}))
+'''
+
 
 class EachObjectReadIsTheObjectItsIdNames(_Base):
     """An object id names one content, and git hands out whatever lies under it without hashing it.
@@ -599,6 +662,10 @@ class EachObjectReadIsTheObjectItsIdNames(_Base):
     both. So the [RED] cases failed at `995cabddb3850562d442e82b28af5560273dfdea` as follows:
       with git 2.34.1 and 2.55.0   a rewritten tree (gate), the producer's gate source, the checker's
                                    cleanliness check, and the generator (four trees, the gate blob);
+                                   and three cases that each catch a planted half fix no other case
+                                   caught: a writer between the check and a second read (the
+                                   producer's comparison, the digest's listing), and a library that
+                                   acts when it is loaded (the checker's order);
       with git 2.55.0 only         the finding itself (a loose object), the same substitution
                                    through a pack whose index names another id and through an
                                    alternate object directory, and the checker's gate source,
@@ -608,12 +675,13 @@ class EachObjectReadIsTheObjectItsIdNames(_Base):
     check to the library's.
     """
 
-    TRUSTED_SEED, OTHER_SEED = b"\x21" * 32, b"\x42" * 32
-
     def _keys(self):
+        """(the key the committed anchor names, another key), both made fresh. No case depends on
+        the bytes of a key, and a shipped test file loads no fixed private key
+        (`tests/test_sdist_ohne_signierwerkzeug.py` counts `from_private_bytes` with an argument that
+        is not written out as a literal)."""
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        return (Ed25519PrivateKey.from_private_bytes(self.TRUSTED_SEED),
-                Ed25519PrivateKey.from_private_bytes(self.OTHER_SEED))
+        return Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
 
     def _committed_candidate(self, name: str, anchor_key, *, checker: bool = False) -> pathlib.Path:
         g = self._candidate(name)
@@ -790,6 +858,36 @@ class EachObjectReadIsTheObjectItsIdNames(_Base):
         self.assertIn("is not the object its id names", message)
         self.assertNotIn("Traceback", message, message[-800:])
 
+    def _between(self, repo: pathlib.Path, question: str, tree: str, raw: bytes, other: str) -> dict:
+        """`_BETWEEN_READS_DRIVER` on `repo`: the tree object `tree` reads as `raw` while the named
+        module lists a tree through its funnel, and as itself at every other moment."""
+        r = subprocess.run([sys.executable, "-B", "-c", _BETWEEN_READS_DRIVER, str(SCRIPTS), str(repo),
+                            question, tree, raw.hex(), other],
+                           capture_output=True, text=True, timeout=300,
+                           env=_child_env(GIT_CONFIG_SYSTEM=os.devnull))
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        return json.loads(r.stdout.strip().splitlines()[-1])
+
+    def test_RED_the_producer_compares_the_checkout_with_the_tree_it_checked(self):
+        """The producer compares the bytes on disk with the head's entries. Those entries must be the
+        ones read from checked objects, not a listing git prints afterwards: with the tree `src`
+        rewritten for exactly the duration of a listing, to name the modified `src/x.py` that lies
+        on disk, a comparison against that listing found the checkout clean, and the digest at the
+        end (taken from the genuine store again) bound the head. At `995cabdd` the producer took its
+        entries from `ls-tree -r -z HEAD` and answered for this checkout; a planted copy of this
+        head that takes them from that listing again answered as well. Here the comparison is with
+        the checked tree, and the modified file refuses by name."""
+        repo = self._repo("between_producer", {"a.txt": "a\n", "src/x.py": "X = 1\n",
+                                               "scripts/pre_tag_audit_gate.py": "# gate\n"})
+        (repo / "src" / "x.py").write_text("X = 2\n", encoding="utf-8")
+        other = _git_bytes(repo, "hash-object", "-w", "--stdin", stdin=b"X = 2\n").decode().strip()
+        src = _git(repo, "rev-parse", "HEAD:src")
+        self.assertTrue(_loose(self._objects(repo), src).is_file(), "precondition: a loose tree")
+        got = self._between(repo, "producer", src, _tree_with(repo, src, b"x.py", other), other)
+        self.assertEqual(got["got"][0], "refused",
+                         f"the checkout was compared with a listing read after the check: {got}")
+        self.assertIn("M src/x.py", got["got"][1])
+
     # ── the third-party checker ──────────────────────────────────────────────────────────────
 
     def _checker_commit(self, anchor_key, receipt_key, *, gate: str | None = None,
@@ -888,6 +986,52 @@ class EachObjectReadIsTheObjectItsIdNames(_Base):
                                     "scripts", "src"), b"",
                          "precondition: a plain git status sees no modification under scripts/")
         self._assert_checker_refuses(g, c, "a library hidden by a rewritten tree judged the commit")
+
+    def test_RED_the_checker_checks_the_trees_before_it_loads_the_library(self):
+        """The case above with a library that ACTS WHEN IT IS LOADED: it writes the genuine tree
+        `scripts` back into the store. The checker has to check the commit's trees before it loads
+        anything from the checkout; a check that runs after the load finds a genuine store and lets
+        the planted library judge. At `995cabdd` there was no check (`VERIFIED`, exit 0); a planted
+        copy of this head with the check moved behind the cleanliness check and the load said
+        `VERIFIED` as well, while the case above stayed green against it."""
+        trusted, other = self._keys()
+        g, c, _ = self._checker_commit(trusted, other)
+        self.assertNotEqual(self._verify(g, c)[1]["verdict"], "VERIFIED", "precondition")
+        scripts_tree = _git(g, "rev-parse", f"{c}:scripts")
+        loose = _loose(self._objects(g), scripts_tree)
+        self.assertTrue(loose.is_file(), "precondition: a loose tree")
+        lib = g / "scripts" / "pre_tag_receipt_lib.py"
+        lib.write_text(lib.read_text(encoding="utf-8") + _FORGED_LIBRARY_TAIL + _RESTORING_TAIL.format(
+            path=str(loose), data=base64.b64encode(loose.read_bytes()).decode()), encoding="utf-8")
+        new = _git_bytes(g, "hash-object", "-w", "scripts/pre_tag_receipt_lib.py").decode().strip()
+        _write_loose(self._objects(g), scripts_tree, "tree",
+                     _tree_with(g, scripts_tree, b"pre_tag_receipt_lib.py", new))
+        _git_still(g, "add", "scripts/pre_tag_receipt_lib.py")
+        self.assertEqual(_git_bytes(g, "status", "--porcelain", "--untracked-files=all", "--",
+                                    "scripts", "src"), b"",
+                         "precondition: a plain git status sees no modification under scripts/")
+        self._assert_checker_refuses(g, c, "a library that restores the store when it is loaded "
+                                           "judged the commit")
+
+    # ── a second read after the check ────────────────────────────────────────────────────────
+
+    def test_RED_the_digest_is_not_taken_over_a_listing_read_after_the_check(self):
+        """The tree digest is taken over the text of `ls-tree`, which reads the commit and its trees
+        a second time after `git_tree` checked them. With the tree `src` rewritten for exactly the
+        duration of that listing, to name another blob, the digest must still be the clean one or
+        refuse. At `995cabdd` it was the digest of the rewritten listing; a planted copy of this head
+        without the comparison of the listing with the checked tree gave the same wrong digest,
+        while every other case stayed green against it."""
+        repo = self._repo("between_digest", {"a.txt": "a\n", "src/x.py": "X = 1\n", KEYS: "KEY\n"})
+        other = _git_bytes(repo, "hash-object", "-w", "--stdin", stdin=b"X = 2\n").decode().strip()
+        src = _git(repo, "rev-parse", "HEAD:src")
+        self.assertTrue(_loose(self._objects(repo), src).is_file(), "precondition: a loose tree")
+        got = self._between(repo, "digest", src, _tree_with(repo, src, b"x.py", other), other)
+        self.assertEqual(got["clean"][0], "answer", got)
+        self.assertEqual(got["served"], [True],
+                         f"precondition: the listing after the check named the other blob: {got}")
+        self.assertTrue(got["got"][0] == "refused" or got["got"] == got["clean"],
+                        f"the digest was taken over a listing that is not the checked tree: {got}")
 
     # ── the class, generated ─────────────────────────────────────────────────────────────────
 

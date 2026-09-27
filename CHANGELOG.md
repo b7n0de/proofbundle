@@ -491,8 +491,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
   Contract: `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`
   (`EachObjectReadIsTheObjectItsIdNames`: the finding, a pack, alternates, a rewritten tree, the
-  producer's and the verifier's reads, a generator that rewrites every object of a head in turn, and
-  a contract that holds the verifier's copy of the check to the library's).
+  producer's and the verifier's reads, a generator that rewrites every object of a head in turn, a
+  contract that holds the verifier's copy of the check to the library's, and three cases for the
+  order of the reads: a writer that rewrites a tree for exactly the duration of a second listing
+  must not decide the producer's comparison or the digest, and the verifier checks the commit's
+  trees before it loads a library that could act when it is loaded).
 
 - **An empty container is malformed in both implementations, and every malformed exit names its
   reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
