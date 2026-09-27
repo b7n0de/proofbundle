@@ -1,6 +1,6 @@
 """The Rust dependency audit fails on every advisory or warning that audit.toml does not list.
 
-Lens finding F1 on PR 296 (foxtrot, measured with cargo-audit 0.22.2): `cargo audit --deny warnings`
+Lens finding F1 on PR 296 (measured with cargo-audit 0.22.2): `cargo audit --deny warnings`
 refuses unmaintained, unsound and yanked, and exits 0 on an informational "notice" advisory
 (personnummer 0.1.0, RUSTSEC-2020-0166); `--deny notice` and `--deny all` are refused by the tool. The
 rule of the step is "never exit 0 on a lock file that carries a RustSec advisory or warning it does not
