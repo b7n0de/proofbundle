@@ -23,7 +23,14 @@ the form of a path, and a form cannot tell a placeholder from a user called NAME
 as ``<name>``. NOT READ, and stated as limits: a ``file:`` URL that names another host
 (``file://host/home/x``, a path on that host), a Windows path (a drive letter and backslashes), any
 root other than ``/home`` and ``/Users`` (``/root``, ``/var/folders/...``), ``~`` and ``~name``, and
-a name that starts with a digit.
+a name that starts with a digit (a digit also starts a numbered directory such as ``/home/2024``,
+so the form cannot tell the two apart).
+
+The lens on d6d89763 wrote two more past it: ``TRACE /home/x`` and ``CONNECT /home/x`` were refused
+although both are HTTP methods (RFC 9110 section 9), and ``/home/`` followed by a name whose first
+letter is not ASCII (a capital E with an acute accent) was not read at all, because the first letter
+had to be ``[A-Za-z_]``. The method list now names all nine methods of RFC 9110 and RFC 5789, and the
+first letter is any letter or ``_`` (``[^\\W\\d]``, which is Unicode-aware for a ``str`` pattern).
 """
 from __future__ import annotations
 
@@ -34,18 +41,21 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "src" / "proofbundle"
 
 #: The HTTP methods whose request target is a URL path, each a fixed-width lookbehind of its own.
-_HTTP_METHODS = ("GET", "PUT", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS")
+_HTTP_METHODS = ("GET", "PUT", "HEAD", "POST", "PATCH", "TRACE", "DELETE", "CONNECT",
+                 "OPTIONS")
 
 # A path segment that starts a path: not preceded by a word character, a dot, a dash, a slash or a
 # backslash, so that a prose run such as "origin/root/tree-size" is no path (nor its JSON-escaped
 # form), and not a request target after an HTTP method; or preceded by a `file:` URL that names this
 # machine (empty host or `localhost`), whose next slash starts the path. The name ends where a word
 # character or a dash no longer follows it, so the name alone is a path, and so is the name before a
-# slash, a quote, a comma or the end of the text.
+# slash, a quote, a comma or the end of the text. The first letter of the name is any letter or `_`
+# (`[^\W\d]`: a word character that is not a digit), so a name that starts with a letter outside
+# ASCII is read too.
 _LOCAL_PATH = re.compile(
     r"(?:(?<![\w.\-/\\])" + "".join(rf"(?<!\b{m} )" for m in _HTTP_METHODS)
     + r"|(?<=(?i:file)://)|(?<=(?i:file://localhost)))"
-    r"/(?:home|(?i:users))/[A-Za-z_][\w.\-]*(?![\w\-])")
+    r"/(?:home|(?i:users))/[^\W\d][\w.\-]*(?![\w\-])")
 
 
 def local_paths(text: str) -> list:
@@ -104,6 +114,19 @@ class NoLocalPathShipsInThePackage(unittest.TestCase):
                 self.assertEqual(local_paths(text), [], text)
         self.assertEqual(len(local_paths("under /home/NAME/ each user")), 1)
         self.assertEqual(len(local_paths("FORGET /home/someone now")), 1)
+
+    def test_the_two_forms_the_third_lens_wrote_past_it(self):
+        """The lens on d6d89763: TRACE and CONNECT are HTTP methods too, so their request target is
+        no machine path; and a name whose first letter is outside ASCII is a name. The pattern of
+        d6d89763 refused the first two and found none of the last three."""
+        for text in ("TRACE /home/x HTTP/1.1", "CONNECT /home/x:443 HTTP/1.1"):
+            with self.subTest(text=text):
+                self.assertEqual(local_paths(text), [], text)
+        name = chr(0xC9) + "lodie"
+        for text in (f"see /home/{name}/x", f"see /Users/{name}", f"file:///home/{name}/x"):
+            with self.subTest(text=text):
+                self.assertEqual(len(local_paths(text)), 1, local_paths(text))
+        self.assertEqual(local_paths("see /home/2024/x"), [], "a leading digit stays a stated limit")
 
 
 if __name__ == "__main__":

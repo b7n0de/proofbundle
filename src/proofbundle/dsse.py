@@ -41,15 +41,30 @@ def _b64decode_any(s: str) -> bytes:
 
 
 def pae(payload_type: str, body: bytes) -> bytes:
-    """DSSEv1 Pre-Authentication Encoding. Signed/verified over the RAW body bytes, never base64."""
-    t = payload_type.encode("utf-8")
+    """DSSEv1 Pre-Authentication Encoding. Signed/verified over the RAW body bytes, never base64.
+
+    A ``payload_type`` that is no string or has no UTF-8 form (a lone surrogate), and a ``body`` that
+    is no bytes-like object (``bytes``, ``bytearray``, ``memoryview``), raise
+    :class:`BundleFormatError`, the one error this module documents. Measured on
+    d6d89763 (lens run 9, F5): ``sign_envelope(payload_type=10**5000)`` raised a raw AttributeError
+    from ``.encode`` and a lone surrogate a raw UnicodeEncodeError; a body of the wrong type raised a
+    raw TypeError from ``len`` or from the concatenation."""
+    if not isinstance(payload_type, str):
+        raise BundleFormatError(f"DSSE payloadType must be a string, not {type(payload_type).__name__}")
+    if not isinstance(body, (bytes, bytearray, memoryview)):
+        raise BundleFormatError(f"DSSE payload must be bytes, not {type(body).__name__}")
+    try:
+        t = payload_type.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise BundleFormatError("DSSE payloadType has no UTF-8 form (a lone surrogate)") from exc
     return (b"DSSEv1 " + str(len(t)).encode("ascii") + b" " + t + b" "
             + str(len(body)).encode("ascii") + b" " + body)
 
 
 def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str] = None) -> dict:
     """Sign the RAW `body` bytes into a DSSE envelope. `signer` is an Ed25519 private key (its `.sign`
-    signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}."""
+    signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}. A
+    `payload_type` or `body` that :func:`pae` cannot encode raises :class:`BundleFormatError`."""
     sig = signer.sign(pae(payload_type, body))
     entry = {"sig": base64.b64encode(sig).decode("ascii")}
     if keyid:

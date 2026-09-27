@@ -53,8 +53,9 @@ from typing import Any, TypeGuard
 
 from ._membership import as_dict, as_list, is_member
 # The one renderer for a value from outside in a message: an integer too long to write in decimal
-# (CVE-2020-10735 cap) is described, not printed, and an ordinary value renders as repr() did.
-from .budget import render_safe
+# (CVE-2020-10735 cap) is described, not printed, and a value within the bound budget.render_safe
+# states (strings of at most 254 characters, at most 8 items and 4 levels) renders as repr() did.
+from .budget import render_key_list, render_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -1250,6 +1251,20 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
 _HUMAN_LINE_ORDER = ("Involvement", "Review", "Findings", "Assurance", "Limits")
 
 
+def _als_zeile(wert: object, feld: str) -> str:
+    """A text the renderers write into the disclosure AS IT IS, or AgentReviewError when it is none.
+
+    THE RENDERED BYTES ARE BOUND (`disclosureCoreDigest` covers the block), so a digest, a URL or a
+    line is not rendered bounded here the way a message is: a clipped URL is another URL. A value that
+    is no string has no place in the line at all, and the renderer refuses it by its own typed error,
+    as it refuses an invalid predicate. Measured on d6d89763: `receipt_url=10**5000` and
+    `leaf_url=10**5000` raised ValueError from the f-string, `receipt_digest=[10**5000]` from its
+    `[:12]` slice, a 3000-deep list RecursionError, and `pruefweg=5` TypeError from the join."""
+    if isinstance(wert, str):
+        return wert
+    raise AgentReviewError(f"{feld} must be a string, not {type(wert).__name__}")
+
+
 def _listed_of_recorded(fnd: list, total: object) -> str | None:
     """The phrase `<n> listed of <total> recorded` when the recorded total is a count other than the
     listed one, else None. ONE PLACE FOR BOTH RENDERERS: a count is an int and not a bool, and it is
@@ -1267,8 +1282,12 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     weakest rung present, and the `Limits` line reproduces the predicate's own limitations verbatim.
     A reader who only skims the block must not come away with a stronger impression than a verifier
     would report.
+
+    Raises :class:`AgentReviewError` for an invalid predicate and for a ``receipt_digest`` that is set
+    and no string (see ``_als_zeile``).
     """
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
+    beleg = _als_zeile(receipt_digest, "receipt_digest") if receipt_digest else None
     # The sections are read as the verifiers read them: one that is no object is absent (lens run 7 on
     # 8ecb6edf, with the validator in front removed: a predicate, `declaration` or `coverage` that is
     # no object raised TypeError, KeyError or AttributeError here and in the line renderer).
@@ -1320,7 +1339,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
         "Limits": "; ".join(x for x in as_list(praed.get("limitations")) if isinstance(x, str)),
     }
     body = "\n".join(f"- **{k}:** {lines[k]}" for k in _HUMAN_LINE_ORDER)
-    tail = f"\n- **Receipt:** `sha256:{receipt_digest}`" if receipt_digest else ""
+    tail = f"\n- **Receipt:** `sha256:{beleg}`" if beleg else ""
     return f"{DISCLOSURE_BEGIN}\n{body}{tail}\n{DISCLOSURE_END}"
 
 
@@ -1338,8 +1357,15 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     transparency-log leaf is referenced it states whether that leaf is WITNESSED yet. An entry can be
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
+
+    Raises :class:`AgentReviewError` for an invalid predicate, and for a ``receipt_digest`` or
+    ``receipt_url`` that is no string, or a ``leaf_url`` or ``pruefweg`` that is set and no string.
     """
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
+    beleg = _als_zeile(receipt_digest, "receipt_digest")
+    beleg_url = _als_zeile(receipt_url, "receipt_url")
+    blatt_url = _als_zeile(leaf_url, "leaf_url") if leaf_url else None
+    weg = _als_zeile(pruefweg, "pruefweg") if pruefweg else None
     # As in the block renderer: a predicate or `declaration` that is no object is read as absent.
     dec = as_dict(as_dict(predicate).get("declaration"))
     rungs = {i.get("assurance") for i in as_list(dec.get("authoring")) + as_list(dec.get("reviewRuns"))
@@ -1348,21 +1374,21 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
                                 "independentlyWitnessed") if r in rungs), "selfDeclared")
     fnd = as_list(dec.get("findings"))
     zahl = _listed_of_recorded(fnd, dec.get("findingsTotal")) or f"{len(fnd)}"
-    teile = [f"Agent review receipt: [{receipt_digest[:12]}]({receipt_url})",
-             f"`sha256:{receipt_digest}`",
+    teile = [f"Agent review receipt: [{beleg[:12]}]({beleg_url})",
+             f"`sha256:{beleg}`",
              f"{zahl} findings",
              f"assurance {weakest}, not independently witnessed"]
-    if leaf_url:
-        teile.append(f"[transparency log entry]({leaf_url})"
+    if blatt_url:
+        teile.append(f"[transparency log entry]({blatt_url})"
                      + ("" if leaf_witnessed else ", not yet in a witnessed checkpoint"))
-    if pruefweg:
+    if weg:
         # DER BEZUGSORT, und warum er nicht "pip install" heisst (Owner-Entscheid 31.08.2026).
         # Eine Zeile, die zum Nachrechnen auffordert, muss sagen WOMIT. Solange das
         # veroeffentlichte Release dieses Predicate nicht traegt, waere `pip install` eine
         # Anleitung, die beim Leser fehlschlaegt — und eine fehlschlagende Anleitung ist schlimmer
         # als keine, weil sie den Beleg als kaputt erscheinen laesst statt als noch nicht
         # ausgeliefert. Der Bezugsort wechselt auf den Paketnamen, sobald ein Release ihn traegt.
-        teile.append(pruefweg)
+        teile.append(weg)
     return "- " + " · ".join(teile)
 
 
@@ -1657,10 +1683,16 @@ def _zielbindung(r: dict, predicate: dict, statement: dict,
         if derived != expected_subject_digest:
             r["expected_subject_match"] = "MISMATCH"
             r["subject_binding_ok"] = False
+            # THE CALLER'S VALUE IS RENDERED BOUNDED, after the slice it always had: a str keeps its
+            # 16 characters, and any other value that slices is rendered bounded (one that does not,
+            # an int, is the TypeError the handler below already reads as not computable).
+            # `[10**5000]` or a 3000-deep list made all four verifiers answer `internal_error`
+            # (ValueError, RecursionError from the f-string); they answer MISMATCH now, as for any
+            # other expected digest that differs.
             r["errors"].append(
                 f"subjectContext digest {derived[:16]}… is not the expected "
-                f"{expected_subject_digest[:16]}… (receipt belongs to a different pull "
-                "request or issue)")
+                f"{render_safe(expected_subject_digest[:16], quote=False)}… (receipt belongs to a "
+                "different pull request or issue)")
             return
         r["expected_subject_match"] = "MATCH"
         r["subject_binding_ok"] = intern
@@ -1916,13 +1948,13 @@ def validate_statement_shape(statement: object, predicate: object) -> list[Shape
         elif "sha256" not in dig:
             errs.append(_shape_err(
                 "SUBJECT_DIGEST_SHA256_ABSENT",
-                f"subject[0].digest carries {sorted(dig)} but no sha256 — the subject is bound "
+                f"subject[0].digest carries {render_key_list(dig)} but no sha256 — the subject is bound "
                 "by an algorithm this verifier does not read, which is not the same as being "
                 "unbound: a producer can point the two at different objects"))
         else:
             errs.append(_shape_err(
                 "SUBJECT_DIGEST_EXTRA_ALGORITHMS",
-                f"subject[0].digest must carry exactly sha256, got {sorted(dig)} "
+                f"subject[0].digest must carry exactly sha256, got {render_key_list(dig)} "
                 "(an extra algorithm lets a producer choose which one a verifier reads)"))
     elif not (isinstance(dig["sha256"], str) and _HEX64.match(dig["sha256"])):
         errs.append(_shape_err(
@@ -2345,7 +2377,8 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
                           f"producer"}
     return {"decision": "insufficient_evidence", "policy_kind": art, "axis": achse,
             "axis_state": zustand,
-            "reason": (f"{achse} is {zustand} — a producer's own statement about its own time "
+            "reason": (f"{achse} is {render_safe(zustand, quote=False)} — a producer's own statement "
+                       "about its own time "
                        f"cannot satisfy a {art} policy, because that is precisely the statement "
                        f"the policy exists to check")}
 

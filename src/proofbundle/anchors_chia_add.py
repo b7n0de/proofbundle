@@ -71,10 +71,17 @@ class ChiaRpcError(RuntimeError):
 
 def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict:
     """Call ``chia rpc <service> <method> '<json>'`` and return the parsed dict. Raises ChiaRpcError on
-    any failure (missing binary, timeout, non-zero exit, non-JSON, ``success:false``)."""
+    any failure (missing binary, timeout, non-zero exit, non-JSON, ``success:false``), and on a
+    request with no JSON form (a caller's ``store_id`` of ``10**5000``, a set, bytes, a nesting deeper
+    than the interpreter allows), which raised raw from ``json.dumps`` (lens run 10 generator)."""
+    try:
+        anfrage = json.dumps(payload)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ChiaRpcError(f"chia rpc {service} {method}: the request has no JSON form "
+                           f"({type(exc).__name__})") from exc
     try:
         proc = subprocess.run(
-            [_CHIA_BIN, "rpc", service, method, json.dumps(payload)],
+            [_CHIA_BIN, "rpc", service, method, anfrage],
             capture_output=True, text=True, timeout=timeout, check=False,
         )
     except FileNotFoundError as exc:
@@ -96,6 +103,15 @@ def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict
     if data.get("success") is False:
         raise ChiaRpcError(f"chia rpc {service} {method}: {data.get('error', 'success=false')}")
     return data
+
+
+def _json_bytes(obj: dict) -> bytes:
+    """The anchor proof as JSON bytes, or ChiaRpcError when a value in it has no JSON form (a caller's
+    ``network`` of ``10**5000``): the same refusal ``_rpc`` gives a request, never a raw one."""
+    try:
+        return json.dumps(obj).encode()
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ChiaRpcError(f"the exported anchor has no JSON form ({type(exc).__name__})") from exc
 
 
 def _hx(b: bytes) -> str:
@@ -155,7 +171,7 @@ def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receip
     return {
         "type": ANCHOR_TYPE, "target": target,
         "canonicalRoot": base64.b64encode(bytes(canonical_root)).decode(),
-        "proof": base64.b64encode(json.dumps(proof_obj).encode()).decode(),
+        "proof": base64.b64encode(_json_bytes(proof_obj)).decode(),
     }
 
 

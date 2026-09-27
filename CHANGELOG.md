@@ -60,7 +60,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   defect. `agent_review.validate_time_claim` tested a time claim's rung with
   `tc.get("assurance") in (_TIME_ASSURANCE - _V02_ASSURANCE_ALLOWED_FOR_CLAIMS)`
   (`src/proofbundle/agent_review.py:1948` on fc863e2e, `:1978` on 8ecb6edf, `:2036` on d5747000,
-  `:2074` now). A set
+  `:2074` on d6d89763, `:2106` now). A set
   difference is a set and `in` hashed the value, so an `assurance` of `[]`, `{}` or
   `["runnerObserved"]` raised `TypeError`
   out of `validate_time_claim`, `validate_agent_review_v02_predicate` and
@@ -244,7 +244,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   extra key of every object of thirteen seed predicates measured 351 raw raises in 5,411 calls at 42
   source lines of nine modules, each a message that interpolated the value, and 9 more sites at
   caller arguments and policy fields; every one renders through `render_safe` now, which is `repr()`
-  for an ordinary value, and the generator finds 0
+  within a stated bound (strings of at most 254 characters, with `quote=False` a top-level string
+  up to 512; ints nested in a container of at most 64 digits; at most 8 items and 4 levels; at most
+  512 characters in all) and elides past it, and the generator finds 0
   (`tests/test_every_validator_renders_a_number_bounded.py`, 64 cases, 51 red on d5747000). The
   membership guard split a conditional only where it stood directly as a binding's value, so under
   a walrus its branches counted as bound while the readers
@@ -279,7 +281,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   a default instead of refusing, so they need a typed refusal per section, which is a change of its
   own. The `.get(k, {})` spelling of the same assumption was not swept. Not seen by the guard: a
   container built at run time from a value that is not constant (`x in set(allowed)`: two
-  membership tests in the tree, `adapters/agt_receipt.py:312` and `relation.py:752`, each behind
+  membership tests in the tree, `adapters/agt_receipt.py:333` and `relation.py:757`, each behind
   `isinstance(x, str)`), a literal on its own (`x in {"a"}`, `{"a": 1}[k]`: no membership test and
   six lookups in the tree, each behind `is_member` or `isinstance` or keyed by a literal the package
   chose), a container reached as a module attribute (`x.NAME`), through a string (`globals()`) or
@@ -287,6 +289,122 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   tuple constant imported from another module, a value after it leaves the container
   (`for v in CONST.values()`, or a copy of the values bound to a name), and a wrapper outside the
   listed passing calls.
+
+  **A lens on d6d89763: a value from outside reaching a message, a subject name or a serializer, in
+  the public functions.** d6d89763 bounded the validators the lens had named, and the same class
+  stood at caller arguments and policy fields it had not named: the policy labels and the lineage
+  value of `evaluate_relations_policy`, `expected_subject_digest` in the agent-review verifiers, the
+  subject name of `build_trust_pack_statement`, the policy keys of `public_transparency` and
+  `sdjwt_vc`, `evaluate_policy`, `lint_policy` and `explain_policy`, and the arguments of both
+  disclosure renderers. The class, as the violated assumption: a value that reaches a message, a
+  subject name or a serializer can be rendered. `10**5000` has no decimal form under the int->str
+  cap, a list nested past the interpreter's recursion guard has no `repr`, `json.dumps` refuses a
+  set or bytes, and an object's own `__repr__` can raise anything. The family is derived now, not
+  listed: `tests/test_public_functions_render_a_value_from_outside_bounded.py` takes every public
+  function of every module but `cli` and `pytest_plugin` (318, 309 of them with a parameter), seeds
+  each with one or two calls the suite itself makes to it (`tests/fixtures/public_surface_seeds.json`,
+  372 KB, one entry written by hand for the lineage value no recorded call reaches, or a seed built at
+  run time where a file, a key or a callable is needed; a private key in a seed is the name of one of
+  two fixed test keys, because the test ships in the sdist and must not read key material from a
+  file), and plants `10**5000`, `-10**5000`, a list too deep to render, a tuple holding
+  `10**5000`, a set, bytes and an object whose `__repr__`, `__str__` and `__format__` raise into
+  every parameter, into every node of a dict or list argument and as a new
+  key of every dict (once with the value 1, once with a copy of a sibling's value, so that a relation
+  name whose rule is an object is read). Each call must return an answer that is no
+  `internal_error`, or raise an exception class the package defines (or the builtin one its module
+  documents), with a message that renders. Measured on d6d89763: 52 of 307 functions let such a value
+  out raw or answered `internal_error`, in 2,237 of 54,785 calls; now 0 of 309 functions in 54,827
+  calls. A forcing test turns red for a public function without a seed or a named reason, and two
+  plant-and-catch tests swap a bounded renderer and a mapped serializer back for the raw ones and
+  require the sweep to report it; a sweep with nothing to plant fails instead of passing. Every site
+  renders through `budget.render_safe` now, or through `budget.render_text` (new: a str unchanged,
+  anything else bounded) where the text is data, a subject name or a compared or stored key, and
+  every serializer maps its refusal to the module's typed error. Per module: `policy` (the relation
+  label of the policy form, every value `evaluate_decision_policy` and `evaluate_policy` name, a
+  `max_age` past the integer budget, which fails the freshness check closed, `assurance_min_level`
+  outside the ladder, and every line of `explain_policy`, which skips an issuer that is no object
+  instead of listing a pin that does not exist); `relation` (`max_depth`, the successor warning,
+  the lineage value); `agent_review` (the four renderer arguments, which must be strings and raise
+  `AgentReviewError` otherwise, `expected_subject_digest`, the digest keys of
+  `validate_statement_shape`, the time policy state); `trust_pack` (the subject name);
+  `public_transparency`, `sdjwt_vc`, `policy_profiles`, `statuslist`, `renewal`, `persample`,
+  `hf_evals`, `anchors`, `subject_binding` (messages, key lists and paths); `anchors_chia_add`,
+  `experimental.enclave`, `experimental.attested_inference`, `hf_evals`, `persample`, `statuslist`
+  and the adapters `agt_receipt`, `eee` and `_provenance` (a `json.dumps`, a deep copy or a `str()`
+  of a field from outside, each mapped to the module's error; `verify_agt_receipt` answers an
+  authorization payload without a JSON form as unreadable); `adapters.inspect_ai` and
+  `adapters.lm_eval` (paths, metric and task names); `anchors_rootcommit.build_preimage` (every
+  field a str, and the two verifiers map the refusal to `malformed_checkpoint` as before);
+  `anchors_rfc3161.create_rfc3161_anchor` (urllib renders the URL with `str()`, so `tsa_url` must be
+  a str); `pqsig` (an unknown ML-DSA level); `checkpoint.checkpoint_note` (a tree size past
+  `2**64 - 1`, which the note parser refuses) and `tlogproof.format_tlog_proof` (an index past the
+  parser's 20 digits). The three P3 findings raise their module's typed error now:
+  `load_statement_strict` with a body that is not bytes, `dsse.sign_envelope` with a `payload_type`
+  that is not a string or has no UTF-8 form (through `pae`), and `build_verifier_block` with a
+  `build`, `vector_set` or `test_result` that is not an object. The new test file has 315 cases
+  here and 313 on d6d89763, where 60 are red: 52 sweep cases with class escapes, 5 whose only raw
+  raises are the three P3 functions (`sign_envelope` and `build_test_result_statement` through
+  them), the forcing test (the two new renderers are seeded) and both plant-and-catch tests (the
+  names they swap do not exist on d6d89763). Kept: the 305 verdicts of valid receipts, policies and
+  payloads the lens recorded are byte-identical to d6d89763, and of the lens's 46,147 renderer
+  messages 341 elide a long value against d5747000 (343 on d6d89763), each a value past that bound: a
+  string over 254 characters, a container over 8 items or a nesting over 4 levels. The two
+  `verify_trust_pack` sites that d6d89763 turned from a plain `{x}` into a quoting `render_safe(x)`
+  say `previous version bogus` again, not `previous version 'bogus'`, and a test pins it; no other
+  ordinary message changed.
+
+  Not changed, by the rule of this change: five files another branch of the same release rewrites,
+  `intoto.py`, `_verdict.py`, `sdjwt_issue.py`, `canonical.py` and `evalclaim.py`. They raise the
+  class at this head, and the test holds their sites as an upper bound (93 site and exception pairs
+  over 22 functions), so the other branch landing first turns nothing red: `_verdict.py:68` and
+  `:72` (reached from the in-toto exports and `svr_properties`), `evalclaim.py:108` and `:120`
+  (`_reject_non_jcs`, reached from the three adapters, `build_eval_claim`, `canonicalize` and
+  `emit_eval_receipt`), `:217` and `:233` (`build_eval_claim`), `:662` (`check_freshness`, which
+  `evaluate_policy` no longer reaches with such a `max_age`), `intoto.py:220`, `:325`, `:352`,
+  `:378`, `:476` and `:489`, and `sdjwt_issue.py:62`, `:158` and `:195`. A raw raise OUTSIDE the
+  class is pinned per function instead, 194 pairs in 116 functions: a value of the wrong type used
+  in a computation (`'int' object has no attribute 'get'`, a comparison or an arithmetic operation
+  it does not support, `open()` or `len()` of an int, `bytes + int`, a JSON decode of bytes where
+  text belongs) or a third-party exception that crossed unmapped (rfc8785's `CanonicalizationError`,
+  urllib's `URLError`). The pin is an upper bound, so a new raw raise is red, and exact wherever
+  every seed of the function returned at baseline, so a closed gap has to leave the list; each is
+  the next class to close, not this one. `outcome.detect_outcome_sequence_gaps` loops over the range
+  between the smallest and the largest sequence number, so a planted `10**5000` does not return: a
+  compute bound, pinned as its one timeout. HOW DEEP IS TOO DEEP depends on the interpreter, so
+  the test measures it at import: the smallest depth at which `repr` and `json.dumps` raise
+  RecursionError was 996 and 993 on 3.10 and 3.11 (the recursion limit), 9,997 on 3.12, 9,998 on
+  3.13 (a fixed C recursion limit) and 40,121 and 74,509 on 3.14 (a limit from the C stack). The
+  planted list is 1.5 times the depth `json.dumps` refuses, never below 3000 and searched up to
+  `2**20`, and `repr` is asked at that depth (its cost grows with the square of the depth). A fixed
+  3000 was refused on 3.10 and 3.11 only, so on the CI interpreter the RecursionError half of the
+  class went unexercised and the meta test that pins it was red; it now asserts both refusals at
+  the planted depth on the running interpreter. The chain is built once per process and every plant
+  gets a fresh outer list around it, checked and rebuilt if a call changed its top 4096 levels or
+  its innermost list. The pins are the same on CPython 3.10, 3.11, 3.12, 3.13 and 3.14. A seed
+  reaches the code its one or two calls reach, and a parameter taken by `*args` or `**kwargs` is
+  not planted into.
+
+  The membership guard missed `k in set((s := _A if c else x))` with `x` from outside, and the same
+  under `frozenset()` and `dict.fromkeys(...).get(k)`: each raised `TypeError`, and all three
+  detectors were silent, because the walrus made `_A` bound and the copy then read as iteration,
+  while the membership reader saw a set over a conditional that is no source. A hashing copy over a
+  walrus or a conditional whose passed values are not all sources is an other use now. Three planted
+  forms, all three unseen by the guard of d6d89763, and a test of its own with three anti-parity
+  forms (iterated, measured, sorted); the lens's generator over 9,570 forms falls from 74 false
+  negatives to 38, and none of the 38 holds a constant container (they are `k in set(x)` over a
+  value from outside, the guard's stated limit `x in set(allowed)` named above); its 355 false
+  reports do not move. The counts over the tree do not move either; one classified read changed its
+  name, `json.dumps(daten)` in `agt_receipt.canonical_payload` is `_sortkeys_json(daten)` now. The
+  path guard refused `TRACE /home/x` and `CONNECT /home/x`, both HTTP methods (RFC 9110), and missed
+  a home directory whose name starts with a letter outside ASCII; the method list names all nine of
+  RFC 9110 and RFC 5789 now and the first letter is any letter, five planted texts, all five wrong
+  on the pattern of d6d89763. A name that starts with a digit stays a stated limit. The renderer
+  contract said "every validator and every renderer" in its headline; it names the nine modules it
+  measures now, and the claim for every public function is the new test's, with the limits above.
+  An earlier fix of this class that never landed (414bf702) derived its family of public surfaces,
+  swept every argument position and proved its rule by a planted violation and a blinded rule; the
+  new test takes those three ideas and none of its code, and `budget.render_safe` stays the one
+  renderer.
 
 - **The decision validator refuses what the published decision schema refuses, null included**
   (`decision._NESTED_TYPES`, `subject_binding.nested_type_violations`). JSON null satisfied the

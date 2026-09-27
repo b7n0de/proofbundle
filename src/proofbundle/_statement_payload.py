@@ -37,8 +37,19 @@ def load_statement_strict(body: bytes, *, budget: Any = None, require_canonical:
     EXACTLY the signed bytes — the hash_binding rule every standalone verify path applies. NaN/Infinity
     (which ``json.loads`` accepts but JCS cannot represent) and any non-canonical spelling fail here.
     The canonicalizer is a core dependency; its absence is a broken install and fails closed too.
+
+    A ``body`` that is no ``bytes`` or ``bytearray``, and a ``budget`` that is no
+    :class:`~proofbundle.budget.VerificationBudget`, are this ``BundleFormatError`` too.
     """
-    from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
+    from .budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudget  # noqa: PLC0415 - avoids a cycle
+    # THE SIGNED BYTES ARE BYTES. Measured on d6d89763 (lens run 9, F5): an int, None, a set or a tuple
+    # raised a raw TypeError from `len`, a str, a memoryview, a set or a tuple a raw AttributeError from
+    # `.decode`, both out of a function whose one documented error is BundleFormatError. A memoryview is
+    # refused as well rather than copied: every caller hands over the payload `bytes` it decoded.
+    if not isinstance(body, (bytes, bytearray)):
+        raise BundleFormatError(f"DSSE payload must be bytes, not {type(body).__name__}")
+    if budget is not None and not isinstance(budget, VerificationBudget):
+        raise BundleFormatError(f"budget must be a VerificationBudget, not {type(budget).__name__}")
     b = budget if budget is not None else DEFAULT_BUDGET
     # AN OVER-BUDGET BODY IS THE BundleFormatError THIS DOCSTRING NAMES, not the budget's own sibling.
     # Measured on d5747000: a canonical payload holding `2**8194` left as a bare BudgetExceeded (from

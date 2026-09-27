@@ -39,6 +39,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from ..budget import render_text
 from ..errors import BundleFormatError
 
 __all__ = ["ASSURANCE_PROVIDER_DECLARED", "binding_present", "normalise_provider_evidence",
@@ -78,8 +79,11 @@ def _without_credentials(obj: Any, _depth: int = 0) -> Any:
     if _depth >= _MAX_DEPTH:
         return _TOO_DEEP
     if isinstance(obj, dict):
+        # A key is judged by its text; `str(k)` raised ValueError for a key of `10**5000` and whatever
+        # a hostile `__str__` raises (lens run 10 generator on d6d89763). `render_text` keeps a str key
+        # whole and renders any other key bounded, so the credential filter reads the same names.
         return {k: _without_credentials(v, _depth + 1) for k, v in obj.items()
-                if not any(h in str(k).lower() for h in _CREDENTIAL_HINTS)}
+                if not any(h in render_text(k).lower() for h in _CREDENTIAL_HINTS)}
     if isinstance(obj, list):
         return [_without_credentials(x, _depth + 1) for x in obj]
     return obj
@@ -94,9 +98,14 @@ def evidence_digest(evidence: dict) -> str:
     if not isinstance(evidence, dict):
         raise BundleFormatError("evidence_digest needs a dict")
     clean = _without_credentials(evidence)
-    return hashlib.sha256(
-        json.dumps(clean, sort_keys=True, separators=(",", ":"),
-                   ensure_ascii=False).encode("utf-8")).hexdigest()
+    # A MAPPING WITHOUT A JSON FORM is refused by this module's typed error, as a non-mapping already
+    # is: `10**5000` (ValueError), a set, bytes or a tuple key (TypeError), or a lone surrogate
+    # (UnicodeEncodeError) escaped raw from `json.dumps` (lens run 10 generator on d6d89763).
+    try:
+        text = json.dumps(clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"evidence has no canonical JSON form ({type(exc).__name__})") from exc
 
 
 def binding_present(evidence: dict, expected_binding: str) -> bool:
@@ -114,7 +123,12 @@ def binding_present(evidence: dict, expected_binding: str) -> bool:
         return False
     if not isinstance(evidence, dict):
         return False
-    return expected_binding in json.dumps(_without_credentials(evidence), ensure_ascii=False)
+    # Evidence without a JSON form carries no binding this function can find (the same conservative
+    # answer as for evidence that is no mapping); `json.dumps` raised raw for it before.
+    try:
+        return expected_binding in json.dumps(_without_credentials(evidence), ensure_ascii=False)
+    except (ValueError, TypeError, RecursionError):
+        return False
 
 
 def normalise_provider_evidence(evidence: dict, *, provider: str,
@@ -300,7 +314,7 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # 4. Did the route silently move? A change of backend is an attestation failure, not a detail:
     #    the evidence describes a machine that did not serve this answer.
     reported_route = evidence.get("route") or evidence.get("upstream") or evidence.get("backend")
-    if planned_route and reported_route and str(reported_route) != str(planned_route):
+    if planned_route and reported_route and render_text(reported_route) != render_text(planned_route):
         reasons.append(REASON_ROUTE_DRIFT)
     elif planned_route and not reported_route:
         unmeasurable.append(REASON_ROUTE_DRIFT)
@@ -308,7 +322,7 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     normalised = normalise_provider_evidence(
         evidence, provider=provider, expected_binding=nonce,
         request_id=req_h[:16] if req_h else None,
-        route=str(reported_route) if reported_route else None)
+        route=render_text(reported_route) if reported_route else None)
 
     if reasons:
         outcome = OUTCOME_ATTESTATION_FAILURE

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 from ._wire_b64 import decode_b64
+from .errors import BundleFormatError
 from typing import Optional
 
 
@@ -160,6 +161,10 @@ def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
     import urllib.request  # noqa: PLC0415
 
     import rfc3161_client as tsp  # noqa: PLC0415
+    if not isinstance(tsa_url, str):
+        # urllib renders the URL with str() before it parses it: 10**5000 raised ValueError (the
+        # int->str cap) and a list 3000 deep RecursionError, out of this function (d6d89763).
+        raise BundleFormatError(f"tsa_url must be a str, not {type(tsa_url).__name__}")
     request = tsp.TimestampRequestBuilder().data(canonical_root).cert_request().build()
     http = urllib.request.Request(
         tsa_url, data=request.as_bytes(), method="POST",

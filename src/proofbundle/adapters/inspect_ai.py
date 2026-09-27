@@ -14,11 +14,26 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ..budget import render_safe
 from ..evalclaim import build_eval_claim
 
 
 class InspectAdapterError(RuntimeError):
     """Raised when inspect_ai is missing or the log lacks the expected structure (no bare AttributeError)."""
+
+
+def _text(wert, feld: str) -> str:
+    """``str(wert)`` for a log or caller value this adapter writes as text, or InspectAdapterError.
+
+    `str()` has no answer for `10**5000` (ValueError, the int->str cap), a nesting deeper than the
+    interpreter allows (RecursionError) or an object whose `__str__` raises; measured with the lens
+    run 10 generator on d6d89763, `capture=10**5000` escaped raw, and an EvalLog handed over as an
+    object carries its attributes from the same place. A shortened text would sign a value the log
+    does not hold, so the log is refused."""
+    try:
+        return str(wert)
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no text"
+        raise InspectAdapterError(f"{feld} has no text form: {render_safe(wert)} ({type(exc).__name__})") from exc
 
 
 def _score_str(value) -> str:
@@ -28,12 +43,12 @@ def _score_str(value) -> str:
     if isinstance(value, bool):
         return "1" if value else "0"
     if isinstance(value, int):
-        return str(value)
+        return _text(value, "metric value")
     if isinstance(value, float):
         if value != value or value in (float("inf"), float("-inf")):
             raise InspectAdapterError("metric value must be finite")
         return format(value, ".12f").rstrip("0").rstrip(".") or "0"
-    return str(value)
+    return _text(value, "metric value")
 
 
 def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, timestamp: str,
@@ -64,7 +79,7 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
         try:
             log = read_eval_log(str(path), header_only=True)
         except Exception as e:  # noqa: BLE001 — surface any read/parse failure as a clear adapter error
-            raise InspectAdapterError(f"could not read inspect_ai log {path!r}: {e}") from e
+            raise InspectAdapterError(f"could not read inspect_ai log {render_safe(path)}: {e}") from e
 
     ev = getattr(log, "eval", None)
     results = getattr(log, "results", None)
@@ -80,19 +95,19 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
             matched_score = score
             break
     if value is None or matched_score is None:
-        raise InspectAdapterError(f"metric {metric!r} not found in any score.metrics of the log")
+        raise InspectAdapterError(f"metric {render_safe(metric)} not found in any score.metrics of the log")
 
-    suite = str(getattr(ev, "task", "inspect_ai"))
-    model_id = str(getattr(ev, "model", "unknown"))
+    suite = _text(getattr(ev, "task", "inspect_ai"), "eval.task")
+    model_id = _text(getattr(ev, "model", "unknown"), "eval.model")
     dataset = getattr(ev, "dataset", None)
-    dataset_id = str(getattr(dataset, "name", None) or suite)
+    dataset_id = _text(getattr(dataset, "name", None) or suite, "eval.dataset.name")
 
     # Provenance parity with the lm-eval adapter: inspect_ai exposes the same run provenance for free.
-    provenance: dict[str, Any] = {"harness": "inspect_ai", "capture_mechanism": str(capture)}
+    provenance: dict[str, Any] = {"harness": "inspect_ai", "capture_mechanism": _text(capture, "capture")}
     revision = getattr(ev, "revision", None)
     commit = getattr(revision, "commit", None)
     if commit:
-        provenance["git_hash"] = str(commit)
+        provenance["git_hash"] = _text(commit, "eval.revision.commit")
     packages = getattr(ev, "packages", None) or {}
     # v5.0.0: explicit reporting status beside each harness-reported version (see _provenance).
     from ._provenance import bind_reported_version  # noqa: PLC0415
@@ -109,13 +124,13 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
     # objective identity/configuration facts only; no reliability class is inferred here.
     scorer = getattr(matched_score, "scorer", None)
     if scorer:
-        provenance["scorer"] = str(scorer)
+        provenance["scorer"] = _text(scorer, "score.scorer")
     score_name = getattr(matched_score, "name", None)
     if score_name:
-        provenance["score_name"] = str(score_name)
+        provenance["score_name"] = _text(score_name, "score.name")
     reducer = getattr(matched_score, "reducer", None)
     if reducer:
-        provenance["score_reducer"] = str(reducer)
+        provenance["score_reducer"] = _text(reducer, "score.reducer")
     scored_samples = getattr(matched_score, "scored_samples", None)
     unscored_samples = getattr(matched_score, "unscored_samples", None)
     for name, count in (("scored_samples", scored_samples), ("unscored_samples", unscored_samples)):
@@ -144,7 +159,7 @@ def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, t
                 else int(getattr(results, "total_samples", 0) or 0))
 
     return build_eval_claim(
-        suite=suite, suite_version=str(getattr(ev, "task_version", "1")),
+        suite=suite, suite_version=_text(getattr(ev, "task_version", "1"), "eval.task_version"),
         metric=metric, comparator=comparator, threshold=threshold, score=_score_str(value),
         n=metric_n,
         model_id=model_id, dataset_id=dataset_id, issuer="", timestamp=timestamp,

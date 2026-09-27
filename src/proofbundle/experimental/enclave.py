@@ -200,5 +200,12 @@ def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
     if exp is not None:
         claims["exp"] = exp
     header = {"alg": "EdDSA", "typ": EAT_TYP}
-    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(claims).encode())
+    # The claims come from the caller and are serialized: one without a JSON form (`iat=10**5000`, a
+    # set, bytes, a nesting deeper than the interpreter allows) raised raw from `json.dumps` (lens run 10
+    # generator on d6d89763). Refused by the module's typed error, as a malformed binding is elsewhere.
+    try:
+        claims_json = json.dumps(claims)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"attestation claims have no JSON form ({type(exc).__name__})") from exc
+    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(claims_json.encode())
     return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))

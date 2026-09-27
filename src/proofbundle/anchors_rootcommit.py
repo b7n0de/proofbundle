@@ -79,8 +79,23 @@ def parse_checkpoint_head(text: str) -> Optional[tuple[str, str, str]]:
 
 
 def build_preimage(origin: str, size: str, root: str, wallet: str, *, tag: str = TAG_V1) -> bytes:
-    """The frozen 5-line preimage (SPEC §"Preimage — frozen byte layout"), LF-terminated, trailing \\n."""
-    return (f"{tag}\norigin={origin}\nsize={size}\nroot={root}\nwallet={wallet}\n").encode("utf-8")
+    """The frozen 5-line preimage (SPEC §"Preimage — frozen byte layout"), LF-terminated, trailing \\n.
+
+    Every field is a str, or BundleFormatError. The preimage is the committed bytes, so a field is
+    never rendered into it: `f"{10**5000}"` raised ValueError (the int->str cap), a list 3000 deep
+    RecursionError, and an object's own `__format__` anything it liked, measured on d6d89763 with the
+    public-surface generator. A str with no UTF-8 form (a lone surrogate) is the same refusal. Both
+    verify surfaces below read these fields from a parsed note, so they only ever pass str, and
+    they map this error to `malformed_checkpoint` as they did the UnicodeEncodeError."""
+    felder = {"tag": tag, "origin": origin, "size": size, "root": root, "wallet": wallet}
+    for name, wert in felder.items():
+        if not isinstance(wert, str):
+            raise BundleFormatError(f"rootcommit preimage field {name} must be a str, not "
+                                    f"{type(wert).__name__}")
+    try:
+        return (f"{tag}\norigin={origin}\nsize={size}\nroot={root}\nwallet={wallet}\n").encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise BundleFormatError("rootcommit preimage field has no UTF-8 form (a lone surrogate)") from exc
 
 
 def _iter_our_anchor_opaques(text: str, want_id: str):
@@ -173,7 +188,7 @@ def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
     # exception" surface (docstring on _iter helper). Fail closed to the same malformed verdict instead.
     try:
         commitment = hashlib.sha256(build_preimage(origin, size, root, wallet)).digest()
-    except (UnicodeError, ValueError, TypeError):
+    except (UnicodeError, ValueError, TypeError, BundleFormatError):
         return {"known_anchors": known, "binding": False, "reject": True, "status": "malformed_checkpoint",
                 "detail": "checkpoint field is not UTF-8 encodable (surrogate/non-encodable), fail-closed"}
     b = _binding_status(ots, commitment, frozen=frozen, rp_trust=rp_trust)
@@ -272,7 +287,7 @@ def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = No
     # DEEP-GATE re-gate F-8 neighbour (as in verify_rootcommit_v1): fail closed on a non-encodable field.
     try:
         commitment = hashlib.sha256(build_preimage(origin, size, root, wallet, tag=TAG_V1)).digest()
-    except (UnicodeError, ValueError, TypeError):
+    except (UnicodeError, ValueError, TypeError, BundleFormatError):
         return {"known_anchors": known, "binding": False, "sig_ok": None, "reject": True,
                 "status": "malformed_checkpoint",
                 "detail": "checkpoint field is not UTF-8 encodable (surrogate/non-encodable), fail-closed"}

@@ -48,6 +48,7 @@ from typing import List, Optional, Sequence
 
 from . import merkle
 from ._strict_json import loads_strict
+from .budget import render_safe
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -85,7 +86,15 @@ def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
         raise BundleFormatError("tree_secret must be at least 16 random bytes (32 recommended)")
     if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
         raise BundleFormatError("epoch must be a non-negative integer")
-    msg = _SALT_DOMAIN + str(sample_id).encode("utf-8") + b"\x00" + str(epoch).encode("ascii")
+    # The id and the epoch are written as text into the PRF input: a value without a UTF-8 text form
+    # (`10**5000` for either, a nesting deeper than the interpreter allows, a lone surrogate, an object
+    # whose `__str__` raises) raised raw from here (lens run 10 generator on d6d89763). A shortened text
+    # would derive another salt, so the value is refused by this module's typed error.
+    try:
+        msg = _SALT_DOMAIN + str(sample_id).encode("utf-8") + b"\x00" + str(epoch).encode("ascii")
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no text"
+        raise BundleFormatError(f"sample id {render_safe(sample_id)} or epoch {render_safe(epoch)} has no "
+                                f"text form ({type(exc).__name__})") from exc
     return hmac.new(tree_secret, msg, hashlib.sha256).digest()[:_SALT_BYTES]
 
 
@@ -102,8 +111,14 @@ def make_disclosure(record: dict, salt: bytes) -> str:
         raise BundleFormatError("sample record must embed its committed index as 'idx' (int >= 0)")
     if len(salt) < _SALT_BYTES:
         raise BundleFormatError("per-leaf salt must be at least 16 bytes")
-    disclosure_json = json.dumps([_b64url(salt), record], sort_keys=True,
-                                 separators=(",", ":"))
+    # The record is the caller's and is serialized: a value without a JSON form (`10**5000`, a set,
+    # bytes, a tuple key, a nesting deeper than the interpreter allows) raised raw from `json.dumps`
+    # (lens run 10 generator on d6d89763). A record the disclosure cannot carry is malformed.
+    try:
+        disclosure_json = json.dumps([_b64url(salt), record], sort_keys=True,
+                                     separators=(",", ":"))
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"sample record has no JSON form ({type(exc).__name__})") from exc
     return _b64url(disclosure_json.encode("utf-8"))
 
 
@@ -132,7 +147,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
         rec = dict(rec)
         if "idx" in rec and rec["idx"] != i:
             raise BundleFormatError(
-                f"record {i} carries idx={rec['idx']!r} — indices are assigned by the tree "
+                f"record {i} carries idx={render_safe(rec['idx'])} — indices are assigned by the tree "
                 "builder from canonical order, never by the caller")
         rec["idx"] = i
         # Enforce the documented canonical (id, epoch) order (release-review #7/#10): the producer has NO ordering
@@ -143,7 +158,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
         # real int (a float/bool is rejected, not silently truncated — matches derive_leaf_salt's guard).
         epoch = rec.get("epoch", 1)
         if isinstance(epoch, bool) or not isinstance(epoch, int):
-            raise BundleFormatError(f"record {i} has a non-integer epoch {epoch!r}")
+            raise BundleFormatError(f"record {i} has a non-integer epoch {render_safe(epoch)}")
         idv = rec.get("id", i)
         key = (0 if (isinstance(idv, int) and not isinstance(idv, bool)) else 1, idv, epoch)
         if prev_key is not None and key < prev_key:

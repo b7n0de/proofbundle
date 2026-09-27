@@ -33,7 +33,24 @@ import hashlib
 import json
 from typing import Optional
 
+from ..budget import render_safe
+
 _CONFIG_DOMAIN = b"proofbundle/v1.8/config-hash\x00"
+
+
+def _als_text(wert, name: str) -> str:
+    """``str(wert)`` for a provenance field, or this module's ValueError when it has none.
+
+    A PROVENANCE FIELD IS WRITTEN AS TEXT, and a value from outside does not always have one: `str()`
+    of `10**5000` raises ValueError (the int->str cap), of a nesting deeper than the interpreter
+    allows RecursionError, and of an object whose `__str__` raises whatever that raises. Measured
+    with the lens run 10 generator: each escaped raw from `add_provenance` and
+    `bind_reported_version`. A shortened text would put a value into evidence that nobody reported,
+    so the field is refused, by the ValueError these helpers already document."""
+    try:
+        return str(wert)
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no text"
+        raise ValueError(f"{name} has no text form: {render_safe(wert)} ({type(exc).__name__})") from exc
 
 
 def config_hash(config) -> Optional[str]:
@@ -46,13 +63,15 @@ def config_hash(config) -> Optional[str]:
         import rfc8785  # noqa: PLC0415 — same optional dep as the emit path
         canonical = rfc8785.dumps(config)
         alg = "sha256-jcs"
-    except (ImportError, ValueError, TypeError):
+    except (ImportError, ValueError, TypeError, RecursionError):
         # rfc8785 rejects non-JCS-able values (e.g. floats it deems unsafe); fall back to a
         # deterministic stdlib serialization and label it so the difference is never hidden.
+        # RecursionError joins both clauses: a config nested deeper than the interpreter allows made
+        # `config_hash` raise it raw (lens run 10 generator); it has no hash here, as a set has none.
         try:
             canonical = json.dumps(config, sort_keys=True, separators=(",", ":"),
                                    ensure_ascii=False).encode("utf-8")
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return None
         alg = "sha256-sortkeys"
     return f"{alg}:{hashlib.sha256(_CONFIG_DOMAIN + canonical).hexdigest()}"
@@ -73,21 +92,22 @@ def add_provenance(provenance: dict, *, run_id=None, config=None, log_timestamp=
     fields for benchmark-hacking transparency — see the module docstring; they carry no
     verification semantics here (no gate calls this a "guarantee")."""
     if run_id:
-        provenance["run_id"] = str(run_id)
+        provenance["run_id"] = _als_text(run_id, "run_id")
     if log_timestamp is not None:
-        provenance["run_timestamp"] = str(log_timestamp)
+        provenance["run_timestamp"] = _als_text(log_timestamp, "log_timestamp")
     ch = config_hash_value if config_hash_value is not None else config_hash(config)
     if ch:
         provenance["config_hash"] = ch
     for name, value in (("run_attempts", run_attempts), ("aborted_runs", aborted_runs)):
         if value is not None:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(f"{name} must be a non-negative integer, got {value!r}")
+                raise ValueError(f"{name} must be a non-negative integer, got {render_safe(value)}")
             provenance[name] = value
     if methodology_sha256 is not None:
-        provenance["methodology_sha256"] = str(methodology_sha256)
+        provenance["methodology_sha256"] = _als_text(methodology_sha256, "methodology_sha256")
     if benchjack_audit_report_sha256 is not None:
-        provenance["benchjack_audit_report_sha256"] = str(benchjack_audit_report_sha256)
+        provenance["benchjack_audit_report_sha256"] = _als_text(benchjack_audit_report_sha256,
+                                                                "benchjack_audit_report_sha256")
     return provenance
 
 
@@ -159,16 +179,16 @@ def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
     """
     if field not in REPORTED_VERSION_FIELDS:
         raise ValueError(
-            f"{field!r} is not a reported-version field {list(REPORTED_VERSION_FIELDS)} — a status "
+            f"{render_safe(field)} is not a reported-version field {list(REPORTED_VERSION_FIELDS)} — a status "
             f"on an unlisted field would never be checked by the verifier")
     status_key, reason_key = f"{field}_status", f"{field}_status_reason"
     if bound and value not in (None, ""):
-        provenance[field] = str(value)
+        provenance[field] = _als_text(value, field)
         provenance[status_key] = VERSION_STATUS_REPORTED
         # A previously written reason would now be stale; the reported case explains itself.
         provenance.pop(reason_key, None)
         return provenance
-    if not str(reason or "").strip():
+    if not _als_text(reason or "", "reason").strip():
         raise ValueError(
             f"{status_key}={'not_bound' if not bound else 'not_reported'} requires a reason — "
             f"a status without a reason moves the ambiguity instead of closing it")
@@ -179,7 +199,7 @@ def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
     provenance.pop(field, None)
     provenance[status_key] = (VERSION_STATUS_NOT_BOUND if not bound
                               else VERSION_STATUS_NOT_REPORTED)
-    provenance[reason_key] = str(reason).strip()
+    provenance[reason_key] = _als_text(reason, "reason").strip()
     return provenance
 
 
@@ -242,14 +262,16 @@ def version_status_issues(provenance: dict) -> list[str]:
             continue
         status = provenance.get(key)
         if status not in VERSION_STATUS_VALUES:
-            issues.append(f"{key}={status!r} is not one of {list(VERSION_STATUS_VALUES)}")
+            issues.append(f"{key}={render_safe(status)} is not one of {list(VERSION_STATUS_VALUES)}")
             continue
-        reason = str(provenance.get(f"{field}_status_reason") or "").strip()
+        # The verifier side reports and never raises: a reason without a decimal form is still a
+        # reason that is there, so it is rendered bounded for the emptiness test, not refused.
+        reason = render_safe(provenance.get(f"{field}_status_reason") or "", quote=False).strip()
         if status != VERSION_STATUS_REPORTED and not reason:
             issues.append(f"{key}={status} without {field}_status_reason (reason is mandatory)")
         present = provenance.get(field) not in (None, "")
         if status == VERSION_STATUS_REPORTED and not present:
             issues.append(f"{key}=reported but {field} is absent")
         if status != VERSION_STATUS_REPORTED and present:
-            issues.append(f"{key}={status} but {field} is present ({provenance.get(field)!r})")
+            issues.append(f"{key}={status} but {field} is present ({render_safe(provenance.get(field))})")
     return issues

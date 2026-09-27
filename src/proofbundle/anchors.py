@@ -314,7 +314,8 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     if not anchors:
         if require:
             return {"status": "FAIL", "require_met": False,
-                    "detail": f"--require-anchor {require} set but the receipt has no anchors",
+                    "detail": (f"--require-anchor {render_safe(require, quote=False)} set but the receipt "
+                               "has no anchors"),
                     "results": []}
         return {"status": "SKIP", "detail": "no external time anchors present", "results": []}
     if not isinstance(anchors, list):
@@ -338,9 +339,13 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
                        and _target_ok(r)]
         if not matched:
             tgt = f" with target {render_safe(require_target)}" if require_target is not None else ""
-            detail = (f"--require-anchor {require}{tgt} (--allow-pending): no verifying or pending anchor of that type/target"
+            # `require` is the caller's (CLI flag or library argument): rendered bounded like the target
+            # beside it. `require=10**5000` raised ValueError here (lens run 10 generator, d6d89763).
+            gefordert = render_safe(require, quote=False)
+            detail = (f"--require-anchor {gefordert}{tgt} (--allow-pending): no verifying or pending anchor "
+                      "of that type/target"
                       if allow_pending else
-                      f"--require-anchor {require}{tgt}: no verifying anchor of that type/target")
+                      f"--require-anchor {gefordert}{tgt}: no verifying anchor of that type/target")
             return {"status": "FAIL", "require_met": False, "detail": detail, "results": results}
     hard_fail = any(not r["ok"] and not r["warn"] for r in results)
     if hard_fail:

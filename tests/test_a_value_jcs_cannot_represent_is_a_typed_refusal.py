@@ -341,7 +341,8 @@ _BUDGET_ANSWERS: dict = {
     # refusal there, 2**8194 is RFC 8785's refusal and takes the labelled fallback, and a lone
     # surrogate has no UTF-8 form in either serialization. Measured and not changed here:
     # `config_hash` answers None, and `add_provenance` then leaves the field out; `_record_digest`
-    # raises the adapter's ValueError (a UnicodeEncodeError).
+    # raises the adapter's ValueError (EEEAdapterError since the lens run 10 fix; a raw
+    # UnicodeEncodeError before it, which is a ValueError too).
     ("adapters._provenance", "config_hash"): {"lone surrogate": None, "nesting 70 deep": "sha256-jcs:",
                                               "2**8194": "sha256-sortkeys:"},
     ("adapters.eee", "_record_digest"): {"lone surrogate": ValueError, "nesting 70 deep": "sha256-jcs:",

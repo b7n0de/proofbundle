@@ -392,7 +392,7 @@ def _validate_digests(data_digests: Sequence[str]) -> None:
     for d in data_digests:
         if not (isinstance(d, str) and _HEXRE.match(d)):
             raise RenewalError(
-                f"data digest must be a non-empty lowercase-hex string (no separators), got {d!r}")
+                f"data digest must be a non-empty lowercase-hex string (no separators), got {_rs(d)}")
 
 
 def _cover_data(data_digests: Sequence[str], hash_alg: str, *, allow_deprecated: bool = False) -> str:
@@ -640,7 +640,7 @@ def _require_prior_anchor(prior: ArchiveTimeStamp, *,
     if prior.anchor_status != _CONFIRMED:
         raise RenewalError(
             f"cannot renew: the prior ArchiveTimeStamp is not confirmed (anchor_status="
-            f"{prior.anchor_status!r}) — renew_without_prior_anchor is a fail-closed error")
+            f"{_rs(prior.anchor_status)}) — renew_without_prior_anchor is a fail-closed error")
     return "self_asserted_status"
 
 

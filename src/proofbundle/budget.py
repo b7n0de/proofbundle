@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from .errors import ProofBundleError
 
 __all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok",
-           "render_safe", "render_keys_safe"]
+           "render_safe", "render_keys_safe", "render_key_list", "render_text"]
 
 
 class _BoundedRepr(_reprlib.Repr):
@@ -102,8 +102,20 @@ def render_safe(value, budget: "VerificationBudget | None" = None, *, quote: boo
     ``TypeError`` out of a typed-raise or never-raise surface. The renderer is now bounded in DEPTH
     and WIDTH too (``reprlib``), never raises for any input (a hostile ``__repr__``, a
     self-referential container, a nested huge int), and it is the ONE renderer every message site
-    on those paths uses. For the ordinary cases — a string, a small int, a short tuple — the output
-    is byte-identical to ``repr()`` / ``str()``, so existing message assertions keep their meaning.
+    on those paths uses. For the ordinary cases — a short string, an int of at most ``int_bits``
+    bits, a short tuple — the output is byte-identical to ``repr()`` / ``str()``, so existing message
+    assertions keep their meaning.
+
+    THE BOUND, stated as measured rather than as "ordinary". ``render_safe(v) == repr(v)`` holds
+    while every string in ``v`` has at most 254 characters (reprlib elides a longer one in the middle,
+    ``'aaa...aaa'``), every int nested in a container at most 64 digits, every container at most 8
+    items (``[0, 1, 2, 3, 4, 5, 6, 7, ...]``) and the nesting at most 4 levels, and the whole at most
+    512 characters (``_MAX_RENDER_CHARS``, then ``...``). With ``quote=False`` a top-level string is
+    itself up to 512 characters. A top-level int within the budget (8,192 bits) is written in full,
+    up to 2,467 digits; it is the one rendering longer than 512 characters. A value past these bounds
+    is a long value, not a different one: its message is shorter than before, and says where it was
+    cut. Where the text is data rather than a diagnostic (a subject name, a key that is looked up),
+    :func:`render_text` keeps a ``str`` whole.
 
     ``quote=True`` (default) is the bounded replacement for ``{value!r}``; ``quote=False`` is the
     bounded replacement for a plain ``{value}`` — a ``str`` renders as itself (clipped), everything
@@ -147,6 +159,28 @@ def render_keys_safe(keys) -> "list[str]":
         return sorted(render_safe(k) for k in keys)
     except BaseException:  # noqa: BLE001 — a hostile __iter__/__hash__ must not escape either
         return ["<unrenderable keys>"]
+
+
+def render_key_list(keys) -> str:
+    """The keys of an untrusted mapping as ONE list literal for a message, sorted and bounded.
+
+    For string keys this is the text ``str(sorted(keys))`` gave (``['sha512']``), so a message that
+    named its keys that way keeps its bytes; unlike it, two keys of incomparable types or a key
+    that cannot be written in decimal do not raise (:func:`render_keys_safe` renders before it
+    sorts). The order is the order of the rendered keys, which for ordinary names is theirs."""
+    return "[" + ", ".join(render_keys_safe(keys)) + "]"
+
+
+def render_text(value, budget: "VerificationBudget | None" = None) -> str:
+    """A value that stands in text AS ITSELF: a ``str`` unchanged, anything else bounded.
+
+    For the places where the text is data rather than a diagnostic: a subject name, a key that is
+    looked up, a line whose bytes a digest binds, two texts that are compared. There a clipped
+    string would be a different string, so a ``str`` is never clipped here; everything else goes
+    through :func:`render_safe` with ``quote=False`` and so cannot raise, whatever it holds."""
+    if isinstance(value, str):
+        return value
+    return render_safe(value, budget, quote=False)
 
 
 def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:

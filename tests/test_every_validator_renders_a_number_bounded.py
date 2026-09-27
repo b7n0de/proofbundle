@@ -1,4 +1,10 @@
-"""A number too long to write in decimal is rendered bounded by every validator and every renderer.
+"""A number too long for decimal is rendered bounded by the validators and renderers of nine modules.
+
+SCOPE, corrected after the lens on d6d89763: the first line said "every validator and every renderer",
+and the policy renderers (`lint_policy`, `explain_policy`, `evaluate_policy`), `public_transparency`,
+`sdjwt_vc` and the disclosure renderers' own arguments contradicted it. This file measures the nine
+modules named below. The package-wide claim, every public function against seven hostile values, is
+carried by `test_public_functions_render_a_value_from_outside_bounded.py`, with its stated limits.
 
 THE CLASS, stated as the violated assumption: *a value that reaches a message can be written in
 decimal.* It cannot. CPython caps int->str conversion at 4300 digits (CVE-2020-10735), so a message
@@ -18,7 +24,10 @@ run_ledger, verification_summary, trust_pack, relation_statement, relation), and
 arguments and policy fields (`validate_statement_shape`, `evaluate_time_policy`, the policy form,
 `evaluate_relations_policy`, `build_test_result_statement`, `verify_trust_pack`'s `prev_version` and
 `prev_root_threshold`). Every message site renders through `budget.render_safe` now, which describes
-such an integer as `<int, 16610 bits>` and renders an ordinary value as `repr()` did. The same
+such an integer as `<int, 16610 bits>`, and renders a value as `repr()` did within the bound its
+docstring states: strings of at most 254 characters (with `quote=False`, a top-level string is
+itself up to 512), ints nested in a container of at most 64 digits, at most 8 items and 4 levels, at
+most 512 characters in all. Past that it elides. The same
 generator finds 0. Measured with this file against the source of d5747000: 51 of its 64 cases fail
 there. The 13 that pass are the anti-parity pin and the twelve generator cases of
 `derive_limitation_codes` and `evaluate_limitation_policy`, which render nothing from the predicate
@@ -256,14 +265,18 @@ def test_a_boolean_findings_total_is_no_count(monkeypatch):
 
 
 # ── caller arguments and policy fields the seeds do not reach ──────────────────────────────
-def _single_cases() -> dict:
+def _trust_pack_and_signer() -> tuple:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
     sk = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
     tp = {"schemaVersion": "0.1.0", "trustPackId": "t", "version": 1, "expires": "2099-01-01T00:00:00Z",
           "prevVersionDigest": None, "roles": {"root": {"keyIds": ["k1"], "threshold": 1}},
           "keys": {"k1": {"publicKey": base64.b64encode(sk.public_key().public_bytes_raw()).decode()}},
           "nonClaims": ["n"]}
-    env = trust_pack.sign_trust_pack(tp, {"k1": sk})
+    return tp, {"k1": sk}
+
+
+def _single_cases() -> dict:
+    env = trust_pack.sign_trust_pack(*_trust_pack_and_signer())
     return {
         "agent_review.validate_statement_shape _type": lambda: AR.validate_statement_shape(
             {"_type": RIESE, "subject": [{"name": "x", "digest": {"sha256": H("0")}}]}, None),
@@ -302,7 +315,10 @@ def test_a_huge_number_in_a_caller_argument_or_a_policy_field_is_rendered_bounde
 # ── anti-parity: an ordinary value renders as it always did ───────────────────────────────
 def test_an_ordinary_value_renders_byte_identically():
     """The pins below held on d5747000 too: `render_safe` is `repr()` for a short string, a small int
-    and a short tuple, and `str()` with `quote=False`."""
+    and a short tuple, and `str()` with `quote=False`. The last two are the two sites of
+    `verify_trust_pack` that d6d89763 changed from a plain `{x}` to a quoting `render_safe(x)`, so that
+    `previous version bogus` read `previous version 'bogus'` (lens on d6d89763): they are `quote=False`
+    again, and the bytes are the bytes of d5747000."""
     p = _v01()
     p["sneaky"] = 1
     p["coverage"]["observedRuns"] = -3
@@ -314,3 +330,9 @@ def test_an_ordinary_value_renders_byte_identically():
     assert "executor.extra is not an allowed field" in oc
     tp = trust_pack.validate_trust_pack_predicate({"keys": {"k1": {"publicKey": "AA==", "bogus": 1}}})
     assert "keys['k1'].bogus is not an allowed field" in tp
+    env = trust_pack.sign_trust_pack(*_trust_pack_and_signer())
+    alt = trust_pack.verify_trust_pack(env, prev_version="bogus")["errors"]
+    assert "version 1 is not greater than the previous version bogus (rollback/freeze, fail-closed)" in alt
+    rot = trust_pack.verify_trust_pack(env, prev_root_keys={}, prev_root_threshold="two")["errors"]
+    assert any(e.startswith("rotation not authorized by old root: 0 distinct old-root signature(s), need two ")
+               for e in rot), rot

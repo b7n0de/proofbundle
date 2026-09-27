@@ -400,7 +400,7 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
 
     def _dfs(node_hex: str, depth: int, path: set) -> str | None:
         if depth > max_depth:
-            return f"relation:depth_exceeded: chain deeper than {max_depth}"
+            return f"relation:depth_exceeded: chain deeper than {render_safe(max_depth, quote=False)}"
         if node_hex in path:
             return "relation:cycle: attached chain revisits a receipt on its own ancestry path"
         if node_hex in proven_safe:
@@ -550,7 +550,8 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
                 unlesbar = (
                     f"relation:malformed_successor ({CODE_RELATION_MALFORMED_SUCCESSOR}): attached "
                     f"receipt {other_hex[:12]}… carries a signed payload this verifier cannot read "
-                    f"({str(_payload_kaputt)[:80]}); a retraction or supersession declared in it "
+                    f"({render_safe(_payload_kaputt, quote=False)[:80]}); a retraction or supersession "
+                    "declared in it "
                     "cannot be evaluated and is therefore NOT ruled out (fail-closed — an "
                     "unreadable statement about this receipt is never silence)")
             continue
@@ -699,7 +700,11 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # (2) reject_superseded — an attached, verified successor/retractor over THIS receipt.
     if relations_section.get("reject_superseded") and lineage_result.get("supersededByAttached"):
         out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
-                    "message": f"reject_superseded: {lineage_result['supersededByAttached']}"})
+                    # A caller's lineage dict is from outside: its value is rendered bounded. The value
+                    # `successor_warning` writes is a sentence of at most ~420 characters, below the
+                    # renderer's 512, so its message keeps its bytes; `10**5000` raised ValueError here.
+                    "message": ("reject_superseded: "
+                                + render_safe(lineage_result["supersededByAttached"], quote=False))})
 
     # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
     _signer = relations_section.get("relation_signer")  # adversarial re-audit round 4: non-dict guard (.get below)

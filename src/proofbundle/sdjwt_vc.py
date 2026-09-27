@@ -26,6 +26,7 @@ import hashlib
 from typing import Any
 
 from ._strict_json import loads_strict
+from .budget import render_safe
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64
 from ._membership import is_member
@@ -60,7 +61,7 @@ def validate_vc_policy(policy: Any) -> list[str]:
         return ["policy must be a JSON object"]
     for k in policy:
         if not is_member(k, _POLICY_KEYS):
-            errors.append(f"unknown policy key {k!r}")
+            errors.append(f"unknown policy key {render_safe(k)}")
     va = policy.get("vctAllowlist")
     if not (isinstance(va, list) and va and all(isinstance(x, str) and x for x in va)):
         errors.append("vctAllowlist must be a non-empty list of allowed vct strings")

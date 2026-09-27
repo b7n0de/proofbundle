@@ -1021,6 +1021,16 @@ def other_uses(quelle: str, name: str = "<quelle>", modul: str | None = None, is
 
     def use_of(n: ast.AST, art: str) -> tuple[bool, str]:
         p, known = parents.get(n), False
+        if (isinstance(n, (ast.NamedExpr, ast.IfExp)) and _hashed_downstream(n, parents)
+                and not sicht._source(n, sicht.visible(n))):
+            # A HASHING COPY OVER A VALUE BUILT AT RUN TIME IS NO DERIVED CONTAINER, so no reader reads
+            # it, and it is reported here. The lens on d6d89763 wrote `k in set((s := _A if c else x))`
+            # with `x` from outside: the walrus bound `_A` to `s`, so `_A` read as bound and then as
+            # iteration into `set()`, while the membership reader saw a set over a conditional that is
+            # no source and looked away. `frozenset(...)` and `dict.fromkeys(...).get(k)` went the same
+            # way. Without the walrus the branch was an other use of its own (`IfExp`); now both are
+            # judged by what the copy hashes and whether every value it passes on is a source.
+            return False, "hashed together with a value built at run time"
         if isinstance(p, ast.IfExp) and p.test is not n and bound(n):
             # A BOUND BRANCH GOES WHERE ITS CONDITIONAL GOES, and is judged there. `_bindings` binds
             # the conditional and its branches to one name, so the conditional is bound as well, and
@@ -1342,9 +1352,9 @@ _OTHER_USES_CLASSIFIED = {
         (2, "passed to automation_summary: it reads the mapping with literal keys only"),
     # Seen once a set or dict built over a module-level tuple constant is a container (the lens on
     # c3bd89a4). Each was read at its source.
-    ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "json.dumps(argument 1)"):
-        (1, "passed to json.dumps: it serialises the mapping and sorts its keys, the string literals of "
-         "_PFLICHTFELDER and _WAHLFELDER; it hashes nothing"),
+    ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "_sortkeys_json(argument 1)"):
+        (1, "passed to _sortkeys_json: it hands the mapping to json.dumps, which serialises it and sorts "
+         "its keys, the string literals of _PFLICHTFELDER and _WAHLFELDER; it hashes nothing"),
     ("proofbundle/cli.py", "_error_verify_fields", "fields", "Return"):
         (1, "own value: keyed by the string literals of _VERIFY_NULLABLE_FIELDS and three more literals; "
          "the one caller, _cmd_verify, spreads it into a dict display and hands that to json.dumps"),
@@ -2260,6 +2270,16 @@ _PLANTED_FORMS: dict[str, tuple[str, object]] = {
         _ueber_die_werte("set(list(_M.values()) if v else [])"),
     "walrus over a conditional with a branch from outside in a set operation":
         ('_A = {"a"}\ndef f(k, c=True, x=frozenset()):\n    return k in ((s := _A if c else x) | {"a"})\n', []),
+    # the lens on d6d89763: a hashing copy over a walrus over a conditional with a branch from outside,
+    # unseen by all three detectors
+    "set() over a walrus over a conditional with a branch from outside":
+        ('_A = {"a"}\ndef f(k, c=True, x=frozenset()):\n    return k in set((s := _A if c else x))\n', []),
+    "frozenset() over a walrus over a conditional with a branch from outside":
+        ('_A = {"a"}\ndef f(k, c=True, x=frozenset()):\n    return k in frozenset((s := _A if c else x))\n',
+         []),
+    "dict.fromkeys over a walrus over a conditional with a branch from outside":
+        ('_A = {"a"}\ndef f(k, c=True, x=frozenset()):\n    return dict.fromkeys((s := _A if c else x)).get(k)\n',
+         []),
     # controls, seen before this change
     "control: unpacking two containers":
         ('_S, _M = {"a"}, {"a": 1}\ndef f(k):\n    return _M.get(k)\n', []),
@@ -2285,7 +2305,12 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
     8ecb6edf, and `test_a_walrus_passes_its_value_to_the_expression_around_it` fails there too. The
     lens on d5747000 wrote a walrus over a conditional in six forms, and closing it found four
     siblings; all ten fail `test_every_planted_form_that_raises_is_reported` against the guard of
-    d5747000, and so does `test_a_conditional_passes_a_branch_to_the_expression_around_it`."""
+    d5747000, and so does `test_a_conditional_passes_a_branch_to_the_expression_around_it`. The lens
+    on d6d89763 wrote three more, a `set()`, `frozenset()` or `dict.fromkeys()` copy over a walrus over
+    a conditional with one branch from outside; all three fail
+    `test_every_planted_form_that_raises_is_reported` against the guard of d6d89763, and so does
+    `test_a_hashing_copy_over_a_value_built_at_run_time_is_reported`. (A set comprehension over such a
+    walrus is no fourth form: Python refuses a walrus in a comprehension's iterable at compile time.)"""
 
     @staticmethod
     def _funde(quelle: str) -> list:
@@ -2516,6 +2541,43 @@ class TestEveryBindingAndEveryCopyIsFollowedOrReported(unittest.TestCase):
                          [("_M", "foo(argument 1)"), ("_N", "foo(argument 1)")])
         for label, access in (("in", lambda k: k in (s := {"a"} if k else {"b"})),
                               ("get", lambda k: (m := {"a": 1} if k else {"b": 2}).get(k))):
+            with self.subTest(form=label), self.assertRaises(TypeError):
+                access([[1]])
+
+    def test_a_hashing_copy_over_a_value_built_at_run_time_is_reported(self):
+        """The lens on d6d89763: a walrus over a conditional with one branch from outside, copied by
+        `set()`, `frozenset()` or `dict.fromkeys()`, hid the constant branch from all three detectors,
+        because the walrus made it bound and the copy was then read as iteration. Each copy is now
+        reported where the constant is read. A conditional whose branches are all
+        constant is a source, so its copy is a derived container the membership reader reads; a
+        conditional that is only iterated, measured or sorted hashes nothing (anti-parity)."""
+        quelle = textwrap.dedent('''
+            _A = {"a", "b"}
+            _B = {"b"}
+            def f(k, c, x):
+                r1 = k in set((s := _A if c else x))
+                r2 = k in frozenset((t := _A if c else x))
+                r3 = dict.fromkeys((u := _A if c else x)).get(k)
+                r4 = k in set((w := _A if c else _B))
+                n = len((a := _A if c else x))
+                o = sorted((b := _A if c else x))
+                for y in (d := _A if c else x):
+                    pass
+                return r1, r2, r3, r4, n, o
+        ''')
+        zeilen = quelle.splitlines()
+
+        def wo(funde) -> list[str]:
+            return [zeilen[z - 1].strip() for z, _c, _w in sorted(funde)]
+
+        self.assertEqual(wo(other_uses(quelle)),
+                         ["r1 = k in set((s := _A if c else x))",
+                          "r2 = k in frozenset((t := _A if c else x))",
+                          "r3 = dict.fromkeys((u := _A if c else x)).get(k)"])
+        self.assertEqual(wo(unguarded_membership_sites(quelle)), ["r4 = k in set((w := _A if c else _B))"])
+        self.assertEqual(wo(constant_lookups(quelle)), [])
+        for label, access in (("set", lambda k: k in set((s := {"a"} if k else ()))),
+                              ("fromkeys", lambda k: dict.fromkeys((s := {"a"} if k else ())).get(k))):
             with self.subTest(form=label), self.assertRaises(TypeError):
                 access([[1]])
 

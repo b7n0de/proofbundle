@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .budget import render_safe
 from .errors import ProofBundleError
 from .signature import verify_ed25519
 
@@ -54,8 +55,10 @@ def _mldsa_classes(level: str) -> tuple[Any, Any]:
         "mldsa65": (mldsa.MLDSA65PrivateKey, mldsa.MLDSA65PublicKey),
         "mldsa87": (mldsa.MLDSA87PrivateKey, mldsa.MLDSA87PublicKey),
     }
-    if level not in table:
-        raise PQUnavailable(f"unknown ML-DSA level {level!r} (mldsa44 | mldsa65 | mldsa87)")
+    if not isinstance(level, str) or level not in table:
+        # A level from a caller is rendered bounded and tested only as a str: `{level!r}` of
+        # 10**5000 raised ValueError and `level not in table` of a list TypeError (d6d89763).
+        raise PQUnavailable(f"unknown ML-DSA level {render_safe(level)} (mldsa44 | mldsa65 | mldsa87)")
     return table[level]
 
 

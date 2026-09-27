@@ -52,6 +52,7 @@ import re
 from typing import Any, Dict, Optional, Sequence
 
 from .._membership import is_member
+from ..budget import render_safe
 from ..errors import VerificationResult
 
 __all__ = [
@@ -112,6 +113,20 @@ class AGTReceiptError(ValueError):
     """
 
 
+def _sortkeys_json(daten: Dict[str, Any], was: str) -> bytes:
+    """The sort_keys JSON bytes AGT signs, or AGTReceiptError when the values have none.
+
+    A RECEIPT FIELD FROM OUTSIDE IS SERIALIZED HERE, and `json.dumps` refuses more than a JSON reader
+    would ever hand it: `10**5000` (ValueError, the int->str cap), a set, bytes or an object
+    (TypeError), a nesting deeper than the interpreter allows (RecursionError). Measured with the lens
+    run 10 generator on d6d89763: each escaped raw from `canonical_payload` and `payload_hash`. Such a
+    receipt is not readable, which is what AGTReceiptError says (exit 2)."""
+    try:
+        return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise AGTReceiptError(f"{was} has no JSON form: {type(exc).__name__}") from exc
+
+
 def _text(receipt: Dict[str, Any], feld: str) -> str:
     wert = receipt.get(feld)
     if not isinstance(wert, str):
@@ -134,7 +149,7 @@ def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     for f in _WAHLFELDER:
         if receipt.get(f) is not None:
             daten[f] = receipt[f]
-    return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return _sortkeys_json(daten, "the receipt payload")
 
 
 def payload_hash(receipt: Dict[str, Any]) -> str:
@@ -156,7 +171,7 @@ def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
         "receipt_payload_hash": payload_hash(receipt),
         "type": AGT_AUTHORIZATION_TYPE,
     }
-    return json.dumps(daten, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return _sortkeys_json(daten, "the authorization payload")
 
 
 def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> bool:
@@ -287,7 +302,13 @@ def verify_agt_receipt(
     if a_key == pubkey:
         return ergebnis
 
-    a_nutzlast = canonical_authorization_payload(receipt)
+    try:
+        a_nutzlast = canonical_authorization_payload(receipt)
+    except AGTReceiptError as fehler:
+        # Same never-raise rule as the payload above: an authorization payload without a JSON form
+        # (`authorizer_id=10**5000`) is an unreadable receipt, named, not an exception out of here.
+        ergebnis.add("readable", False, str(fehler))
+        return ergebnis
     ergebnis.add("external-authorization-signature",
                  _ed25519_gueltig(a_key, a_sig, a_nutzlast),
                  f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
@@ -354,7 +375,8 @@ def verify_agt_receipt_chain(
             continue
         gefunden = receipts[i].get("parent_receipt_hash")
         ergebnis.add(f"[{i}] chain-link", gefunden == erwartet,
-                     f"parent_receipt_hash={str(gefunden)[:16]}… expected {erwartet[:16]}…")
+                     f"parent_receipt_hash={render_safe(gefunden, quote=False)[:16]}… expected "
+                     f"{erwartet[:16]}…")
     return ergebnis
 
 

@@ -25,7 +25,8 @@ from datetime import datetime, timezone
 from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET, render_keys_safe
+from .budget import (DEFAULT_BUDGET, int_magnitude_ok, render_key_list, render_keys_safe, render_safe,
+                     render_text)
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -215,7 +216,11 @@ def _huelle_relations(rel) -> None:
     if isinstance(rs, dict):
         for relname, rule in rs.items():
             if isinstance(rule, dict):
-                _reject_unknown(rule, {"mode", "keys"}, f"relations.relation_signer[{relname}]")
+                # A LABEL IS A MESSAGE: a relation name from the caller's dict is rendered bounded. A key
+                # of `10**5000` raised ValueError here, out of `evaluate_relations_policy` ("never
+                # raises") and through it out of the decision, outcome and relation statement verifiers.
+                _reject_unknown(rule, {"mode", "keys"},
+                                f"relations.relation_signer[{render_safe(relname, quote=False)}]")
 
 
 def _huelle_pruefen(policy: dict) -> None:
@@ -653,13 +658,14 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # A-P0-4 §8.2: the decision verifier accepts only a decision-purpose policy. Absent = transitional
     # default (documented), matching the eval path's treatment of legacy policies without the field.
     if policy.get("policyPurpose") is not None and policy["policyPurpose"] != "decision":  # null == absent
-        errors.append(f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the "
+        errors.append(f"policyPurpose {render_safe(policy['policyPurpose'])} — this policy is not for the "
                       "decision verify path (wrong purpose, fail-closed)")
 
     # predicateType allow-list (confusion defense at the policy layer)
     apt = section.get("accepted_predicate_types")  # adversarial re-audit round 4: guard non-iterable apt ('in' crash)
     if isinstance(apt, (list, tuple)) and statement.get("predicateType") not in apt:
-        errors.append(f"predicateType {statement.get('predicateType')!r} not in accepted_predicate_types")
+        errors.append(f"predicateType {render_safe(statement.get('predicateType'))} not in "
+                      "accepted_predicate_types")
 
     # signer <-> trusted_decision_makers (by public key; decisionMaker.id only as a hint that must not conflict)
     signer_trusted = None
@@ -684,11 +690,11 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     dt = predicate.get("decisionType")
     _adt = _as_list(section.get("allowed_decision_types"))  # adversarial re-audit r5: non-list -> kein 'x in 5'-Crash
     if _adt and dt not in _adt:
-        errors.append(f"decisionType {dt!r} not allowed by policy")
+        errors.append(f"decisionType {render_safe(dt)} not allowed by policy")
     verdict = _as_dict(predicate.get("decision")).get("verdict")
     _av = _as_list(section.get("allowed_verdicts"))  # adversarial re-audit r5: non-list -> kein 'x in 5'-Crash
     if _av and verdict not in _av:
-        errors.append(f"verdict {verdict!r} not allowed by policy")
+        errors.append(f"verdict {render_safe(verdict)} not allowed by policy")
 
     req_rel = [r for r in _as_list(section.get("required_evidence_relations")) if isinstance(r, str)]  # adversarial re-audit r5
     if req_rel:
@@ -739,7 +745,8 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         satisfied = anchor_status == "PASS" or (allow_pending and anchor_status == "WARN")
         if not satisfied:
             errors.append(
-                f"policy requires an external anchor but none satisfies it (anchor status: {anchor_status or 'none'}"
+                f"policy requires an external anchor but none satisfies it (anchor status: "
+                f"{render_safe(anchor_status or 'none', quote=False)}"
                 + ("" if allow_pending else "; pending excluded, set allow_pending to accept a pending anchor") + ")")
 
     policy_ok = (not errors) and (signer_trusted is not False)
@@ -810,8 +817,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if policy.get("policyPurpose") is not None:   # null == absent (Lens-4 F1)
         purpose_ok = policy["policyPurpose"] == "eval"
         add("policy:purpose", purpose_ok,
-            f"policyPurpose {policy['policyPurpose']!r} accepted on the eval verify path" if purpose_ok
-            else f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the eval "
+            f"policyPurpose {render_safe(policy['policyPurpose'])} accepted on the eval verify path"
+            if purpose_ok
+            else f"policyPurpose {render_safe(policy['policyPurpose'])} — this policy is not for the eval "
                  "verify path (wrong purpose, fail-closed)")
     if policy.get("requiresIdentityOverlay") is True:
         add("policy:not_template", False,
@@ -835,16 +843,16 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if allowed_schemas:
         got = bundle.get("schema")
         add("policy:schema_version", got in allowed_schemas,
-            f"schema {got!r} not in allowed {allowed_schemas}" if got not in allowed_schemas
-            else f"schema {got!r} allowed")
+            f"schema {render_safe(got)} not in allowed {render_safe(allowed_schemas)}"
+            if got not in allowed_schemas else f"schema {render_safe(got)} allowed")
 
     # 2. signature algorithm
     allowed_algs = _as_list(_as_dict(policy.get("signature")).get("allowed_algs"))
     if allowed_algs:
         got = sig.get("alg")
         add("policy:signature_alg", got in allowed_algs,
-            f"alg {got!r} not in allowed {allowed_algs}" if got not in allowed_algs
-            else f"alg {got!r} allowed")
+            f"alg {render_safe(got)} not in allowed {render_safe(allowed_algs)}"
+            if got not in allowed_algs else f"alg {render_safe(got)} allowed")
 
     # 3. issuer / signer — matched by PUBLIC KEY (kid is a hint only)
     allowed_issuers = _as_list(policy.get("allowed_issuers"))
@@ -870,8 +878,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if required_hash is not None:
         got = _as_dict(bundle.get("merkle")).get("hash_alg")
         add("policy:merkle_hash_alg", got == required_hash,
-            f"merkle.hash_alg {got!r} != required {required_hash!r}" if got != required_hash
-            else f"merkle.hash_alg {got!r} matches")
+            f"merkle.hash_alg {render_safe(got)} != required {render_safe(required_hash)}"
+            if got != required_hash else f"merkle.hash_alg {render_safe(got)} matches")
 
     root_authenticated = None
 
@@ -984,7 +992,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
         if kb_check is not None:
             add("policy:key_binding_present", kb_check.ok,
-                "key binding verified" if kb_check.ok else f"key binding failed: {kb_check.detail}")
+                "key binding verified" if kb_check.ok
+                else f"key binding failed: {render_safe(kb_check.detail, quote=False)}")
         elif kb is not None and kb.get("present"):
             # a KB-shaped segment IS attached but no crypto verdict exists for it (no cnf AND no issuer
             # key → sd-jwt-key-binding was never run). An UNVERIFIED KB is not an acceptable "key
@@ -1043,9 +1052,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             got_vct = _issuer_payload.get("vct") if isinstance(_issuer_payload, dict) else None
             vct_ok = got_vct == expected_vct
             add("policy:expected_vct", vct_ok,
-                f"vct {got_vct!r} matches expected {expected_vct!r}" if vct_ok
-                else f"vct {got_vct!r} does not match policy's expected_vct {expected_vct!r} "
-                     "(fail-closed)")
+                f"vct {render_safe(got_vct)} matches expected {render_safe(expected_vct)}" if vct_ok
+                else f"vct {render_safe(got_vct)} does not match policy's expected_vct "
+                     f"{render_safe(expected_vct)} (fail-closed)")
 
     # 6. status — verify --policy v0.1 has NO status-snapshot input, so an ENABLED status requirement
     #    cannot be evaluated here. Fail closed rather than silently pass (the honest boundary).
@@ -1074,17 +1083,28 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             min_level = asr.get("minimum_level")
             if min_level is not None:
                 got_level = claim.get("assurance_level")
-                ok = (got_level in ASSURANCE_LEVELS
+                # A minimum this evaluator does not know is not met (fail-closed): `.index` raised a raw
+                # ValueError for it, out of a surface that answers a malformed policy with a verdict.
+                ok = (got_level in ASSURANCE_LEVELS and min_level in ASSURANCE_LEVELS
                       and ASSURANCE_LEVELS.index(got_level) >= ASSURANCE_LEVELS.index(min_level))
                 add("policy:assurance_min_level", ok,
-                    f"assurance_level {got_level!r} below minimum {min_level!r}" if not ok
-                    else f"assurance_level {got_level!r} meets minimum {min_level!r}")
+                    f"assurance_level {render_safe(got_level)} below minimum {render_safe(min_level)}"
+                    if not ok else
+                    f"assurance_level {render_safe(got_level)} meets minimum {render_safe(min_level)}")
             if asr.get("reject_self_attested_without_prereg"):
                 weak = (claim.get("assurance_level") == "self_attested" and not claim.get("prereg_sha256"))
                 add("policy:assurance_prereg", not weak,
                     "self_attested without prereg_sha256 (weakest, rejected by policy)" if weak
                     else "assurance/pre-registration acceptable")
-            if max_age is not None:
+            if (isinstance(max_age, int) and not isinstance(max_age, bool)
+                    and not int_magnitude_ok(max_age)):
+                # An age bound past the integer budget is no bound this evaluator judges, and
+                # `check_freshness` would write it in decimal in its reason, which raised ValueError
+                # for `10**5000` out of this verdict surface. load_policy refuses such a value too.
+                add("policy:freshness", False,
+                    f"sd_jwt.max_iat_age_seconds is {render_safe(max_age)}, past the integer "
+                    "budget — freshness not judged (fail-closed)")
+            elif max_age is not None:
                 fresh = check_freshness(claim, max_age_seconds=max_age, now=now)
                 add("policy:freshness", bool(fresh.get("fresh")),
                     fresh.get("reason", ""))
@@ -1113,27 +1133,30 @@ def explain_policy(policy: dict) -> list:
     if policy.get("requiresIdentityOverlay") is True:
         lines.append("raw template (requiresIdentityOverlay:true) — must be instantiated (policy:not_template)")
     if policy.get("policyPurpose") is not None:
-        lines.append(f"policyPurpose == {policy['policyPurpose']!r} (wrong verifier path fails)")
+        lines.append(f"policyPurpose == {render_safe(policy['policyPurpose'])} (wrong verifier path fails)")
     if policy.get("valid_from") is not None:
-        lines.append(f"not valid before {policy['valid_from']} (policy:not_before)")
+        lines.append(f"not valid before {render_safe(policy['valid_from'], quote=False)} (policy:not_before)")
     if policy.get("valid_until") is not None:
-        lines.append(f"expires {policy['valid_until']} (policy:not_expired)")
+        lines.append(f"expires {render_safe(policy['valid_until'], quote=False)} (policy:not_expired)")
     if policy.get("allowed_schema_versions"):
-        lines.append(f"schema version in {policy['allowed_schema_versions']}")
+        lines.append(f"schema version in {render_safe(policy['allowed_schema_versions'], quote=False)}")
     for issuer in _as_list(policy.get("allowed_issuers", [])):
+        if not isinstance(issuer, dict):
+            continue   # an entry that is no object pins nothing (load_policy refuses it); `.get` raised
         who = issuer.get("issuer") or issuer.get("kid") or "(unnamed)"
         key = issuer.get("public_key_b64", "")
-        lines.append(f"issuer {who}: public key pinned ({key[:12]}…)")
+        lines.append(f"issuer {render_safe(who, quote=False)}: public key pinned "
+                     f"({render_text(key)[:12]}…)")
     sig = _as_dict(policy.get("signature"))
     if sig.get("allowed_algs"):
-        lines.append(f"signature alg in {sig['allowed_algs']}")
+        lines.append(f"signature alg in {render_safe(sig['allowed_algs'], quote=False)}")
     if sig.get("require_expected_signer"):
         lines.append("signer MUST match an allowed_issuers entry (require_expected_signer)")
     mk = _as_dict(policy.get("merkle"))
     if mk.get("required_hash_alg") is not None:
         # evaluate_policy enforces this whenever it is not None (incl. an empty string), so explain
         # must list it too — otherwise lint calls the policy vacuous while verify actually FAILs it.
-        lines.append(f"merkle.hash_alg == {mk['required_hash_alg']!r}")
+        lines.append(f"merkle.hash_alg == {render_safe(mk['required_hash_alg'])}")
     if mk.get("require_authenticated_root"):
         lines.append("merkle root MUST be authenticated (--expected-root or trusted_roots; coherent-rewrap guard)")
     if mk.get("trusted_roots"):
@@ -1146,19 +1169,19 @@ def explain_policy(policy: dict) -> list:
     if sdj.get("require_key_binding_when_cnf_present"):
         lines.append("SD-JWT: key binding required when cnf present")
     if sdj.get("expected_aud") is not None:
-        lines.append(f"SD-JWT: audience == {sdj['expected_aud']!r}")
+        lines.append(f"SD-JWT: audience == {render_safe(sdj['expected_aud'])}")
     if sdj.get("require_nonce"):
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
     if sdj.get("max_iat_age_seconds") is not None:
-        lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+        lines.append(f"eval claim freshness <= {render_safe(sdj['max_iat_age_seconds'], quote=False)}s")
     if sdj.get("expected_vct") is not None:
-        lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (from a VERIFIED issuer signature)")
+        lines.append(f"SD-JWT VC: vct == {render_safe(sdj['expected_vct'])} (from a VERIFIED issuer signature)")
     st = _as_dict(policy.get("status"))
     if st.get("reject_self_issued") or _as_list(st.get("allowed_status_authorities")):
         lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")
     asr = _as_dict(policy.get("assurance"))
     if asr.get("minimum_level") is not None:
-        lines.append(f"assurance_level >= {asr['minimum_level']!r}")
+        lines.append(f"assurance_level >= {render_safe(asr['minimum_level'])}")
     if asr.get("reject_self_attested_without_prereg"):
         lines.append("self_attested without prereg_sha256 rejected")
     # WP3 (v2-audit): the anchors section is a REAL pin — the CLI (`_cmd_verify`) reads
@@ -1172,9 +1195,9 @@ def explain_policy(policy: dict) -> list:
     req_anchor = anc.get("require_anchor")
     req_target = anc.get("require_anchor_target")
     if req_anchor is not None or req_target is not None:
-        detail = f"type={req_anchor!r}" if req_anchor is not None else "any type"
+        detail = f"type={render_safe(req_anchor)}" if req_anchor is not None else "any type"
         if req_target is not None:
-            detail += f", target={req_target!r}"
+            detail += f", target={render_safe(req_target)}"
         if anc.get("allow_pending"):
             detail += " (pending accepted)"
         lines.append(f"external time anchor required ({detail})")
@@ -1183,7 +1206,8 @@ def explain_policy(policy: dict) -> list:
     rel = _as_dict(policy.get("relations"))
     if rel.get("require_relation_resolution"):
         lines.append("lineage relations must resolve (target attached + verified): "
-                     + ", ".join(rel["require_relation_resolution"]))
+                     + ", ".join(render_safe(r, quote=False)
+                                 for r in _as_list(rel["require_relation_resolution"])))
     if rel.get("reject_superseded"):
         lines.append("superseded receipt rejected (an attached, verified successor blocks automation)")
     # reject_retracted (3.5.0, relation-statement standalone) is ENFORCED at exit-3 by the verify path
@@ -1197,20 +1221,21 @@ def explain_policy(policy: dict) -> list:
     rsig = _as_dict(rel.get("relation_signer"))
     for relname, rule in rsig.items():
         if isinstance(rule, dict) and rule.get("mode") == "pinned":
-            lines.append(f"relation_signer[{relname}]: successor issuer key pinned to a set of "
-                         f"{len(_as_list(rule.get('keys')))} key(s)")
+            lines.append(f"relation_signer[{render_safe(relname, quote=False)}]: successor issuer key "
+                         f"pinned to a set of {len(_as_list(rule.get('keys')))} key(s)")
         elif isinstance(rule, dict) and rule.get("mode") == "same-key":
-            lines.append(f"relation_signer[{relname}]: successor issuer key MUST equal the target's "
-                         "(same-key)")
+            lines.append(f"relation_signer[{render_safe(relname, quote=False)}]: successor issuer key MUST "
+                         "equal the target's (same-key)")
     rtgt = _as_dict(rel.get("require_relation_target"))
     for relname, roots in rtgt.items():
         n = len(roots) if isinstance(roots, list) else 1
-        lines.append(f"require_relation_target[{relname}]: edge MUST resolve to one of {n} pinned "
-                     "parent root(s)")
+        lines.append(f"require_relation_target[{render_safe(relname, quote=False)}]: edge MUST resolve "
+                     f"to one of {n} pinned parent root(s)")
     dr = _as_dict(policy.get("decision_receipt"))
     if dr:
         active = [k for k in dr if dr.get(k)]
-        lines.append(f"decision_receipt section active ({len(active)} knob(s): {sorted(active)})")
+        lines.append(f"decision_receipt section active ({len(active)} knob(s): "
+                     f"{render_key_list(active)})")
     return lines
 
 

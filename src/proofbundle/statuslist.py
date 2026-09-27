@@ -255,7 +255,7 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     arr = bytearray((len(statuses) + per_byte - 1) // per_byte)
     for i, s in enumerate(statuses):
         if isinstance(s, bool) or not isinstance(s, int) or not 0 <= s < (1 << bits):
-            raise BundleFormatError(f"status value {s!r} does not fit in {bits} bit(s)")
+            raise BundleFormatError(f"status value {render_safe(s)} does not fit in {bits} bit(s)")
         byte_i, slot = divmod(i, per_byte)
         arr[byte_i] |= s << (slot * bits)
     payload = {"sub": uri, "iat": iat,
@@ -265,5 +265,12 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     if ttl is not None:
         payload["ttl"] = ttl
     header = {"alg": "EdDSA", "typ": TYP}
-    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(json.dumps(payload).encode())
+    # `uri`, `iat`, `exp` and `ttl` come from the caller and are serialized: one without a JSON form
+    # (`iat=10**5000` passes the int check above, a set, bytes, a nesting deeper than the interpreter
+    # allows) raised raw from `json.dumps` (lens run 10 generator on d6d89763).
+    try:
+        payload_json = json.dumps(payload)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"status list token claims have no JSON form ({type(exc).__name__})") from exc
+    signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(payload_json.encode())
     return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))

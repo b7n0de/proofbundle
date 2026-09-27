@@ -40,6 +40,7 @@ import importlib.resources
 import os
 import sys
 from ._membership import is_member
+from .budget import render_safe
 
 __all__ = ["PROFILE_NAMES", "PROFILE_ALIASES", "PROFILE_ID_PREFIX", "list_profiles",
            "profile_aliases", "canonical_profile_name", "profile_path", "resolve_policy_source",
@@ -184,7 +185,7 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
 
     canonical = canonical_profile_name(template)
     if canonical is None:
-        raise PolicyError(f"no such template profile {template!r}; known profiles: {list_profiles()}")
+        raise PolicyError(f"no such template profile {render_safe(template)}; known profiles: {list_profiles()}")
     base = load_policy(profile_path(template))   # emits a deprecation line for an alias name
     if base.get("requiresIdentityOverlay") is not True and base.get("deploymentReady") is not False:
         raise PolicyError(

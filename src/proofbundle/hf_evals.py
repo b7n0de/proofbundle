@@ -29,7 +29,7 @@ from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
-from .budget import render_keys_safe
+from .budget import render_key_list, render_keys_safe, render_safe
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -55,7 +55,13 @@ def receipt_token(bundle: dict) -> str:
     the bundle, offline, no lookup."""
     if not isinstance(bundle, dict) or "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
-    canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # The caller's bundle is serialized: a value without a JSON form (`10**5000`, a set, bytes, a
+    # nesting deeper than the interpreter allows) raised raw from `json.dumps` (lens run 10 generator on
+    # d6d89763). Such a bundle is malformed, which is what BundleFormatError says here.
+    try:
+        canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise BundleFormatError(f"receipt bundle has no JSON form ({type(exc).__name__})") from exc
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
 
 
@@ -152,7 +158,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     try:
         numeric = float(_val)
     except (TypeError, ValueError, OverflowError):
-        out["detail"] = f"entry value {_val!r} is not a number"
+        out["detail"] = f"entry value {render_safe(_val)} is not a number"
         return out
     if not _math.isfinite(numeric):
         out["detail"] = "entry value is not finite"
@@ -218,7 +224,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     try:
         numeric = float(value)
     except (ValueError, TypeError, OverflowError) as exc:   # OverflowError: an int beyond float range
-        raise BundleFormatError(f"value {value!r} is not a representable finite number") from exc
+        raise BundleFormatError(f"value {render_safe(value)} is not a representable finite number") from exc
     if not math.isfinite(numeric):
         raise BundleFormatError(
             "value must be a finite number — inf/-inf/nan cannot be represented in eval_results.yaml")
@@ -290,9 +296,16 @@ def _yaml_scalar(value) -> str:
     escaping is valid YAML), so dates stay strings and tokens survive any special characters."""
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return json.dumps(value)
-    return json.dumps(str(value))
+    # A value without a JSON or text form (`10**5000`, a nesting deeper than the interpreter allows, an
+    # object whose `__str__` raises) raised raw from here out of `eval_results_yaml` (lens run 10
+    # generator on d6d89763); it cannot be written into the document, which is BundleFormatError.
+    try:
+        if isinstance(value, (int, float)):
+            return json.dumps(value)
+        return json.dumps(str(value))
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no form"
+        raise BundleFormatError(f"eval_results value {render_safe(value)} cannot be written "
+                                f"({type(exc).__name__})") from exc
 
 
 def eval_results_yaml(entries) -> str:
@@ -320,7 +333,7 @@ def eval_results_yaml(entries) -> str:
                 # would silently omit data from the published entry (release-review fix).
                 sub_unknown = set(val) - set(sub_order)
                 if sub_unknown:
-                    raise BundleFormatError(f"unknown {key} field(s): {sorted(sub_unknown)}")
+                    raise BundleFormatError(f"unknown {key} field(s): {render_key_list(sub_unknown)}")
                 lines.append(f"{prefix}{key}:")
                 for sub in sub_order:
                     if sub in val:

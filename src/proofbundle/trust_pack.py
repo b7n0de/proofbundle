@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
-from .budget import DEFAULT_BUDGET, render_safe
+from .budget import DEFAULT_BUDGET, render_safe, render_text
 from .errors import BundleFormatError, ProofBundleError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -324,7 +324,13 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
     errs = validate_trust_pack_predicate(predicate, strict=False)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
-    name = subject_name or f"trust-pack:{predicate.get('trustPackId', '')}:v{predicate.get('version', '')}"
+    # A SUBJECT NAME IS TEXT, and the validator above bounds `version` from below only: `10**5000` is
+    # an integer >= 1 and passed it, and this f-string raised ValueError out of `build_trust_pack_statement`
+    # and `sign_trust_pack` (lens run 9 on d6d89763; the branch pinned `2**8194`, which still writes). The
+    # parts are rendered as text (`render_text`: a str unchanged, an int of at most 8192 bits in decimal),
+    # and the canonicalizer below refuses such a predicate by the module's typed error anyway.
+    name = subject_name or (f"trust-pack:{render_text(predicate.get('trustPackId', ''))}"
+                            f":v{render_text(predicate.get('version', ''))}")
     sha = subject_sha256 or hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
     return {
         "_type": STATEMENT_TYPE,
@@ -578,7 +584,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         if not r["version_monotone"]:
             r["errors"].append(
                 f"version {render_safe(predicate.get('version'))} is not greater than the previous version "
-                f"{render_safe(prev_version)} (rollback/freeze, fail-closed)")
+                f"{render_safe(prev_version, quote=False)} (rollback/freeze, fail-closed)")
     if prev_version_digest is not None:
         pvd = predicate.get("prevVersionDigest")
         pvd_hex = pvd.get("sha256") if _is_digest(pvd) else None
@@ -631,7 +637,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         if not r["rotation_authorized"]:
             r["errors"].append(
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
-                f"need {render_safe(prev_root_threshold)} (old root must vouch for the new pack, fail-closed)")
+                f"need {render_safe(prev_root_threshold, quote=False)} (old root must vouch for the new "
+                "pack, fail-closed)")
     elif _is_digest(predicate.get("prevVersionDigest")):
         # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the
         # previous root role, so two-stage rotation authorization cannot be checked. FAIL CLOSED by default:

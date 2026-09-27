@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Optional, Union
 
+from ..budget import render_safe
 from ..evalclaim import build_eval_claim
 from ._provenance import add_provenance
 
@@ -35,6 +36,20 @@ _SCHEMA_VERSION = "0.2.2"
 
 class EEEAdapterError(ValueError):
     """Raised when the EEE record is missing the expected structure — a clear error, not a bare KeyError."""
+
+
+def _text(wert, feld: str) -> str:
+    """``str(wert)`` for a field this adapter writes as text, or EEEAdapterError when it has none.
+
+    A VALUE FROM THE RECORD OR THE CALLER IS WRITTEN AS TEXT into the claim (suite, ids, provenance),
+    and `str()` has no answer for `10**5000` (ValueError, the int->str cap), a nesting deeper than the
+    interpreter allows (RecursionError) or an object whose `__str__` raises. Measured with the lens run
+    10 generator on d6d89763: each escaped raw from `from_eee_dataset`. A shortened text would sign a
+    value the record does not hold, so the record is refused."""
+    try:
+        return str(wert)
+    except Exception as exc:  # noqa: BLE001 — str() runs the value's own code; any failure is "no text"
+        raise EEEAdapterError(f"{feld} has no text form: {render_safe(wert)} ({type(exc).__name__})") from exc
 
 
 def _load(source: Union[str, Path, dict]) -> dict:
@@ -66,7 +81,7 @@ def _num_to_decimal_str(x) -> str:
     if isinstance(x, bool) or not isinstance(x, (int, float)):
         raise EEEAdapterError(f"score must be a number, got {type(x).__name__}")
     if isinstance(x, int):
-        return str(x)
+        return _text(x, "score")
     if x != x or x in (float("inf"), float("-inf")):   # NaN/Inf
         raise EEEAdapterError("score must be finite")
     s = repr(x)
@@ -93,7 +108,7 @@ def _extract_score(score_details: dict, metric_config: dict) -> str:
         idx = int(raw)
         if idx == -1 and metric_config.get("has_unknown_level"):
             raise EEEAdapterError("levels score is -1 (Unknown) — cannot build a threshold claim")
-        return str(idx)
+        return _text(idx, "levels score")
     return _num_to_decimal_str(raw)
 
 
@@ -131,13 +146,24 @@ def _record_digest(record: dict) -> str:
     else a labeled deterministic sort_keys fallback (the label tells a verifier which normalization
     produced the hex, never a silent difference)."""
     import hashlib  # noqa: PLC0415
-    stripped = _model_id_stripped(record)
+    # THE RECORD IS SERIALIZED, and its values come from outside: a copy or a serialization that
+    # cannot write them (a nesting deeper than the interpreter allows, `10**5000`, a set or bytes in a
+    # dict the caller handed over, a lone surrogate) is EEEAdapterError, the ValueError this adapter
+    # documents. Measured with the lens run 10 generator on d6d89763: RecursionError
+    # from the deep copy, ValueError and TypeError from the fallback serializer, each raw.
+    try:
+        stripped = _model_id_stripped(record)
+    except RecursionError as exc:
+        raise EEEAdapterError("EEE record nests deeper than it can be copied") from exc
     try:
         import rfc8785  # noqa: PLC0415
         return "sha256-jcs:" + hashlib.sha256(rfc8785.dumps(stripped)).hexdigest()
-    except (ImportError, ValueError, TypeError):
-        canonical = json.dumps(stripped, sort_keys=True, separators=(",", ":"),
-                               ensure_ascii=False).encode("utf-8")
+    except (ImportError, ValueError, TypeError, RecursionError):
+        try:
+            canonical = json.dumps(stripped, sort_keys=True, separators=(",", ":"),
+                                   ensure_ascii=False).encode("utf-8")
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise EEEAdapterError(f"EEE record has no JSON form: {type(exc).__name__}") from exc
         return "sha256-sortkeys:" + hashlib.sha256(canonical).hexdigest()
 
 
@@ -185,10 +211,11 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
         chosen = next((r for r in results if isinstance(r, dict)
                        and _pick_metric(r.get("metric_config") or {}) == metric_name), None)
         if chosen is None:
-            raise EEEAdapterError(f"no evaluation_result with metric {metric_name!r}")
+            raise EEEAdapterError(f"no evaluation_result with metric {render_safe(metric_name)}")
     else:
         if eval_index < 0 or eval_index >= len(results):
-            raise EEEAdapterError(f"eval_index {eval_index} out of range (0..{len(results) - 1})")
+            raise EEEAdapterError(f"eval_index {render_safe(eval_index, quote=False)} out of range "
+                                  f"(0..{len(results) - 1})")
         chosen = results[eval_index]
     if not isinstance(chosen, dict):
         raise EEEAdapterError("evaluation_results item is not an object")
@@ -200,7 +227,7 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
     suite = chosen.get("evaluation_name")
     if not suite:
         raise EEEAdapterError("evaluation_results[].evaluation_name is required")
-    dataset_id = source_data.get("dataset_name") or str(suite)   # dataset_name is required in EEE; defensive fallback
+    dataset_id = source_data.get("dataset_name") or _text(suite, "evaluation_name")   # required in EEE; fallback
     metric = _pick_metric(metric_config)
     score = _extract_score(score_details, metric_config)
 
@@ -222,10 +249,10 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
     # component appears (six-lens review: the exact full-repo-id substring test missed the bare
     # name and slug variants — 'arc/gpt2/run1' leaked 'gpt2'). Case-insensitive over a token set.
     _rid = chosen.get("evaluation_result_id")
-    if isinstance(_rid, str) and _rid and not _leaks_model_id(_rid, str(model_id)):
+    if isinstance(_rid, str) and _rid and not _leaks_model_id(_rid, _text(model_id, "model_info.id")):
         add_provenance(provenance, run_id=_rid)
     if eval_library.get("name"):
-        provenance["harness"] = str(eval_library["name"])
+        provenance["harness"] = _text(eval_library["name"], "eval_library.name")
     # v5.0.0: explicit reporting status beside the harness-reported version (see _provenance).
     from ._provenance import bind_reported_version  # noqa: PLC0415
     bind_reported_version(
@@ -235,19 +262,21 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
     # which would defeat proofbundle's salted model commitment (a receipt is meant to hide the model). So it
     # is deliberately NOT copied into provenance — the receipt keeps the model private by design.
     if metric_config.get("metric_id"):
-        provenance["metric_id"] = str(metric_config["metric_id"])
+        provenance["metric_id"] = _text(metric_config["metric_id"], "metric_config.metric_id")
     if metric_config.get("score_type"):
-        provenance["score_type"] = str(metric_config["score_type"])
+        provenance["score_type"] = _text(metric_config["score_type"], "metric_config.score_type")
     se = ((score_details.get("uncertainty") or {}).get("standard_error") or {}).get("value")
     if isinstance(se, (int, float)) and not isinstance(se, bool):
-        provenance["stderr"] = str(se)
+        provenance["stderr"] = _text(se, "standard_error.value")
     rel = (record.get("source_metadata") or {}).get("evaluator_relationship")
     if rel:
-        provenance["evaluator_relationship"] = str(rel)
+        provenance["evaluator_relationship"] = _text(rel, "evaluator_relationship")
 
     return build_eval_claim(
-        suite=str(suite), suite_version=str(eval_library.get("version") or "unknown"),
+        suite=_text(suite, "evaluation_name"),
+        suite_version=_text(eval_library.get("version") or "unknown", "eval_library.version"),
         metric=metric, comparator=comparator, threshold=threshold, score=score,
         n=int((score_details.get("uncertainty") or {}).get("num_samples") or 0),
-        model_id=str(model_id), dataset_id=str(dataset_id), issuer="", timestamp=str(ts),
+        model_id=_text(model_id, "model_info.id"), dataset_id=_text(dataset_id, "dataset_name"), issuer="",
+        timestamp=_text(ts, "timestamp"),
         provenance=provenance, model_salt=model_salt, dataset_salt=dataset_salt)

@@ -40,7 +40,7 @@ import base64
 from typing import Optional, Sequence
 
 from . import merkle
-from .budget import DEFAULT_BUDGET
+from .budget import DEFAULT_BUDGET, render_text
 from .checkpoint import (_log_key_material_of, _split_signed_note, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
@@ -69,6 +69,12 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     optionally cosignatures) included verbatim; it must end with a newline."""
     if isinstance(index, bool) or not isinstance(index, int) or index < 0:
         raise BundleFormatError("tlog-proof index must be a non-negative integer")
+    # THE INDEX LINE IS WRITTEN IN DECIMAL, and `parse_tlog_proof` refuses more than 20 digits. A larger
+    # index built a proof the parser of this library refuses, and `10**5000` raised ValueError from the
+    # f-string below (lens run 10 generator on d6d89763). Refused here, by the parser's own bound.
+    if index >= 10 ** 20:
+        raise BundleFormatError("tlog-proof index has more than 20 decimal digits — the parser of this "
+                                "library refuses such a proof")
     if not isinstance(signed_checkpoint, str):    # iter5 never-raise: non-str raised raw AttributeError from .endswith
         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
     if not signed_checkpoint.endswith("\n"):
@@ -176,7 +182,10 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
                                    apply_budget_cap=False)[0].split("\n")
     if len(note_text) < 3:
         raise BundleFormatError("signed checkpoint note must have at least 3 lines")
-    if note_text[1] != str(mk.get("tree_size")):
+    # The bundle's value is compared as text: `str()` of a `tree_size` of `10**5000` raised ValueError
+    # here (lens run 10 generator on d6d89763). `render_text` writes an int of up to 8192 bits in decimal
+    # as `str()` did, and a larger one as a description no note line equals, so it is a mismatch.
+    if note_text[1] != render_text(mk.get("tree_size")):
         raise BundleFormatError("checkpoint tree size does not match the bundle's merkle.tree_size")
     if note_text[2] != mk.get("root_b64"):
         raise BundleFormatError("checkpoint root does not match the bundle's merkle.root_b64")

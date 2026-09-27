@@ -26,6 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .budget import render_safe
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -121,7 +122,7 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
         return ["policy must be a JSON object"]
     for k in policy:
         if not is_member(k, _POLICY_KEYS):
-            errors.append(f"unknown policy key {k!r}")
+            errors.append(f"unknown policy key {render_safe(k)}")
     if "requireSignedCheckpoint" in policy and not isinstance(policy["requireSignedCheckpoint"], bool):
         errors.append("requireSignedCheckpoint must be a boolean")
     if "requireConsistencyProof" in policy and not isinstance(policy["requireConsistencyProof"], bool):
@@ -139,7 +140,7 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
                 errors.append("witnessQuorum.threshold must be an integer >= 1")
             for k in wq:
                 if k not in ("threshold",):
-                    errors.append(f"witnessQuorum.{k} is not an allowed field")
+                    errors.append(f"witnessQuorum.{render_safe(k, quote=False)} is not an allowed field")
     return errors
 
 
@@ -312,7 +313,8 @@ def evaluate_public_transparency(
                 ok, _ = cp.witness_quorum(signed_note, witness_vkeys, th, log_key_material=log_km)
                 statuses["WITNESS_QUORUM"] = "PASS" if ok else "FAIL"
                 if not ok:
-                    errors.append(f"witness quorum not met (need {th} distinct witnesses)")
+                    errors.append(f"witness quorum not met (need {render_safe(th, quote=False)} distinct "
+                                  "witnesses)")
             except ProofBundleError:
                 statuses["WITNESS_QUORUM"] = "FAIL"
                 errors.append("witness quorum check raised (malformed witness vkey)")

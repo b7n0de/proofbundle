@@ -381,7 +381,16 @@ def build_verifier_block(*, build: dict, version: str, vector_set: "dict | None"
                          test_result: "dict | None" = None,
                          implementation: str = IMPLEMENTATION) -> dict:
     """Assemble a block from measured parts and validate it. Absent parts are absent, not null:
-    a key with a null value would read as "measured, and there was nothing"."""
+    a key with a null value would read as "measured, and there was nothing".
+
+    A part that is no object raises :class:`VerifierBlockError`, as an invalid block does. Measured
+    on d6d89763 (lens run 9, F5): ``build=5`` raised a raw TypeError from ``dict(build)`` and a set of
+    strings a raw ValueError; ``vector_set`` and ``test_result`` took the same path."""
+    for name, teil in (("build", build), ("vector_set", vector_set), ("test_result", test_result)):
+        if teil is not None and not isinstance(teil, dict):
+            raise VerifierBlockError(f"{name} must be an object, not {type(teil).__name__}")
+    if build is None:
+        raise VerifierBlockError("build must be an object, not NoneType")
     block: dict = {"implementation": implementation, "version": version, "build": dict(build),
                    "assurance": VERIFIER_BLOCK_ASSURANCE}
     if vector_set is not None:
