@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -136,6 +137,84 @@ def crates_io_in_git_spelling(text: str) -> str:
             .replace(f"({CRATES_IO_SPARSE})", f"({CRATES_IO_GIT})"))
 
 
+_ADVISORY_ID = re.compile(r"RUSTSEC-[0-9]{4}-[0-9]{4}")
+_TABLE = re.compile(r"\[\[?\s*(.*?)\s*\]\]?")
+_KEY = re.compile(r"([^=]+?)\s*=\s*(.*)")
+_LIST_ITEMS = re.compile(r'((?:"[^"\\]*"\s*,\s*)*(?:"[^"\\]*"\s*,?)?)\s*(\])?')
+
+
+def audit_toml_path(directory: Path):
+    """The audit.toml cargo-audit applies when it runs in `directory`: `.cargo/audit.toml` there, else
+    `audit.toml` under CARGO_HOME (lens finding F2 on PR 296: the second applies only when the first is
+    absent). None when neither exists."""
+    lokal = directory / ".cargo" / "audit.toml"
+    if lokal.is_file():
+        return lokal
+    heim = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo") / "audit.toml"
+    return heim if heim.is_file() else None
+
+
+def audit_toml_ignore(text: str) -> tuple:
+    """(the advisory IDs under `[advisories] ignore`, the reasons the file carries anything else).
+
+    audit.toml may list exceptions and nothing more. Every other table or key can hide an advisory
+    without naming it: measured with cargo-audit 0.22.2, `[target] os = ["linux"]` beside grep-cli 0.1.5
+    gave exit 0 and no vulnerability, `[yanked] enabled = false` dropped the yanked libc 0.2.165, and
+    `[database]` points the audit at another or a stale database (lens finding F2 at 5138b4d2). So any
+    table other than `[advisories]`, any key other than `ignore` in it, any key before it, and any ID
+    that is not a RUSTSEC advisory ID is refused by name. Read by hand, line by line (tomllib is not in
+    Python 3.10); a line this reader does not know is refused too, never skipped."""
+    ids: list = []
+    gruende: list = []
+    tabelle = None
+    advisories_gesehen = ignore_gesehen = False
+    in_ignore = in_fremder_liste = False
+    for nr, roh in enumerate(text.splitlines(), 1):
+        zeile = roh.split("#", 1)[0].strip()
+        if not zeile:
+            continue
+        if in_fremder_liste:
+            in_fremder_liste = "]" not in zeile
+            continue
+        if not in_ignore:
+            kopf = _TABLE.fullmatch(zeile)
+            if kopf:
+                if zeile == "[advisories]" and not advisories_gesehen:
+                    tabelle, advisories_gesehen = "advisories", True
+                else:
+                    tabelle = kopf.group(1)
+                    gruende.append(f"audit.toml line {nr} opens the table {zeile}: only [advisories] ignore "
+                                   "may stand in audit.toml")
+                continue
+            paar = _KEY.fullmatch(zeile)
+            if tabelle == "advisories" and paar and paar.group(1) == "ignore" and not ignore_gesehen:
+                if not paar.group(2).startswith("["):
+                    gruende.append(f"audit.toml line {nr}: advisories.ignore is not a list")
+                    continue
+                ignore_gesehen = in_ignore = True
+                zeile = paar.group(2)[1:].strip()
+            else:
+                name = paar.group(1).strip() if paar else zeile[:60]
+                if tabelle in (None, "advisories"):
+                    gruende.append(f"audit.toml line {nr} sets {tabelle + '.' if tabelle else ''}{name}: "
+                                   "only [advisories] ignore may stand in audit.toml")
+                if paar and paar.group(2).startswith("[") and "]" not in paar.group(2):
+                    in_fremder_liste = True
+                continue
+        eintraege = _LIST_ITEMS.fullmatch(zeile)
+        if not eintraege:
+            raise GateError(f"audit.toml line {nr}: advisories.ignore is not a list of quoted advisory IDs")
+        for kennung in re.findall(r'"([^"\\]*)"', eintraege.group(1)):
+            if not _ADVISORY_ID.fullmatch(kennung):
+                gruende.append(f"audit.toml ignores {kennung!r}, which is not a RUSTSEC advisory ID")
+            ids.append(kennung)
+        if eintraege.group(2):
+            in_ignore = False
+    if in_ignore or in_fremder_liste:
+        raise GateError("audit.toml ends inside a list")
+    return ids, gruende
+
+
 #: The informational kinds cargo-audit 0.22.2 reports by default (`settings.informational_warnings`).
 _ALL_INFORMATIONAL = ("unmaintained", "unsound", "notice")
 
@@ -144,8 +223,8 @@ def listed_ids(report) -> set:
     """The advisory IDs cargo-audit applied from `[advisories] ignore` of the audit.toml it read, as its
     report states them in `settings.ignore`. The step runs next to the checked-in
     tools/pb_verify_rs/.cargo/audit.toml, so that is the file read (an audit.toml under CARGO_HOME
-    applies only when none lies there, lens finding F2). Read from the report and not by parsing the
-    file: that needs tomllib, which Python 3.10, the floor of this repository, does not have."""
+    applies only when none lies there, lens finding F2). `gate` also reads the file itself
+    (`audit_toml_ignore`) and requires both lists to agree."""
     settings = report.get("settings") if isinstance(report, dict) else None
     ignore = settings.get("ignore") if isinstance(settings, dict) else None
     if not (isinstance(ignore, list) and all(isinstance(i, str) for i in ignore)):
@@ -166,6 +245,13 @@ def _narrowed(settings) -> list:
     if settings.get("severity") is not None:
         gruende.append(f"audit.toml sets severity_threshold {settings.get('severity')!r}: advisories "
                        "below it are not reported")
+    for feld in ("target_arch", "target_os"):
+        filter_ = settings.get(feld)
+        if not isinstance(filter_, list):
+            raise GateError(f"cargo audit --json lacks settings.{feld}")
+        if filter_:
+            gruende.append(f"the audit filters by {feld} {filter_}: advisories for other targets are not "
+                           "reported")
     arten = settings.get("informational_warnings")
     if not isinstance(arten, list):
         raise GateError("cargo audit --json lacks settings.informational_warnings")
@@ -222,6 +308,16 @@ def run_audit(directory: Path, lock: str, cargo: str, no_fetch: bool):
 
 
 def gate(directory: Path, lock: str, cargo: str, no_fetch: bool) -> int:
+    toml = audit_toml_path(directory)
+    try:
+        ids, verweigert = audit_toml_ignore(toml.read_text(encoding="utf-8")) if toml else ([], [])
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GateError(f"{toml} could not be read ({exc})") from exc
+    if verweigert:
+        for grund in verweigert:
+            print(f"FAIL {grund}")
+        print(f"FAIL {toml}: audit.toml carries more than [advisories] ignore; the audit was not run")
+        return 1
     try:
         text = (directory / lock).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -236,6 +332,9 @@ def gate(directory: Path, lock: str, cargo: str, no_fetch: bool) -> int:
         rc, report = run_audit(directory, datei, cargo, no_fetch)
     gruende = fremd + judge(report)
     listed = listed_ids(report)
+    if listed != set(ids):
+        raise GateError(f"cargo-audit applied the ignore list {sorted(listed)}, the audit.toml it runs next "
+                        f"to ({toml or 'none'}) states {sorted(set(ids))}")
     if rc == 1 and not report["vulnerabilities"]["list"]:
         raise GateError("cargo audit exited 1 but reports no vulnerability")
     for grund in gruende:

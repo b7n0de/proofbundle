@@ -284,6 +284,36 @@ class F2AuditTomlCarriesOnlyTheIgnoreList(unittest.TestCase):
                 self.assertIn(name, ausgabe)
 
 
+class TheAuditTomlReader(unittest.TestCase):
+    """`audit_toml_ignore` reads the list and refuses everything else, line by line."""
+
+    def test_the_committed_file(self) -> None:
+        self.assertEqual(g.audit_toml_ignore(_COMMITTED_TOML), (["RUSTSEC-2023-0071"], []))
+
+    def test_a_list_over_several_lines_with_comments(self) -> None:
+        text = ('# head\n[advisories]\nignore = [\n  "RUSTSEC-2023-0071", # rsa\n  "RUSTSEC-2020-0166",\n]\n'
+                "# tail\n")
+        self.assertEqual(g.audit_toml_ignore(text), (["RUSTSEC-2023-0071", "RUSTSEC-2020-0166"], []))
+        self.assertEqual(g.audit_toml_ignore(""), ([], []))
+
+    def test_an_id_that_is_no_advisory_id_is_refused(self) -> None:
+        ids, gruende = g.audit_toml_ignore('[advisories]\nignore = ["GHSA-xxxx-xxxx-xxxx"]\n')
+        self.assertEqual(len(gruende), 1)
+        self.assertIn("GHSA-xxxx-xxxx-xxxx", gruende[0])
+
+    def test_a_list_of_another_shape_is_an_error(self) -> None:
+        for text in ('[advisories]\nignore = [\n"RUSTSEC-2023-0071",\n', '[advisories]\nignore = [RUSTSEC-2023-0071]\n'):
+            with self.subTest(text=text):
+                with self.assertRaises(g.GateError):
+                    g.audit_toml_ignore(text)
+
+    @unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
+    def test_the_applied_list_must_be_the_files_list(self) -> None:
+        # cargo-audit reports an ignore list the file does not state: some other configuration applied.
+        rc, ausgabe = _run_gate(_lock(), {"settings": {"ignore": []}}, audit_toml=_COMMITTED_TOML)
+        self.assertEqual(rc, 2, ausgabe)
+
+
 @unittest.skipIf(sys.platform == "win32", "the stand-in for cargo is a POSIX script")
 class F3ALookupErrorIsNeverAPass(unittest.TestCase):
     """PROPERTY (lens run on PR 296 at 5138b4d2, F3, P1): a lookup cargo-audit could not make is an
