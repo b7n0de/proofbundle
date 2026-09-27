@@ -17,6 +17,9 @@
 //!   verify-scitt-statement-signature <statement.cbor> [<spki_hex>...]
 //!                                              -> scitt-ccf/v1 statement signature under relying-party
 //!                                                 keys (src/scitt.rs); prints `<status> <valid>`
+//!   verify-scitt-transparent-statement <statement.cbor> <canonical_root_hex> [<rp_trust.json>]
+//!                                              -> scitt-ccf/v1 Transparent Statement against a target's
+//!                                                 root (src/scitt_transparent.rs); prints the result as JSON
 //!   coverage-report                            -> JSON self-declaration of the subcommands above (single
 //!                                                  source of truth consumed by scripts/rust_parity_gate.py
 //!                                                  in the Python repo — never hand-duplicate this list)
@@ -26,6 +29,7 @@ use std::fmt;
 use std::process::exit;
 
 mod scitt;
+mod scitt_transparent;
 
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -1013,6 +1017,7 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
     "verify-relation",
     "verify-relation-statement",
     "verify-scitt-statement-signature",
+    "verify-scitt-transparent-statement",
 ];
 
 // ---------------------------------------------------------------------------
@@ -3021,7 +3026,7 @@ fn main() {
         eprintln!(
             "usage: pb_verify_rs <budget|content-root|verify-dsse|merkle-root|strict-parse|verify-bundle|\
 verify-trust-pack-threshold|verify-relation|verify-relation-statement|verify-scitt-statement-signature|\
-coverage-report> ..."
+verify-scitt-transparent-statement|coverage-report> ..."
         );
         exit(2);
     }
@@ -3213,6 +3218,31 @@ coverage-report> ..."
                 scitt::INVALID => 1,
                 _ => 3,
             });
+        }
+        "verify-scitt-transparent-statement" => {
+            let usage =
+                "verify-scitt-transparent-statement needs a statement file and a canonical root";
+            let path = args.get(2).unwrap_or_else(|| fatal(usage));
+            let root = hex::decode(args.get(3).unwrap_or_else(|| fatal(usage)))
+                .unwrap_or_else(|e| fatal(&format!("the canonical root is not hex: {e}")));
+            // Relying-party trust as JSON: {"scitt_statement_keys": [...], "scitt_ccf_services":
+            // {"<issuer>": [...]}}, each key SubjectPublicKeyInfo DER as hex or {"spki", "kid"}.
+            let trust = match args.get(4) {
+                Some(p) => strict_parse(&read_file(p))
+                    .unwrap_or_else(|e| fatal(&format!("bad relying-party trust: {e}"))),
+                None => serde_json::Value::Null,
+            };
+            // As for the statement signature: bytes past the input budget are `malformed`, as the
+            // Python reader reads them, and only a file that cannot be read at all is `fatal`.
+            let check = match read_input(path) {
+                Ok(data) => scitt_transparent::verify_transparent_statement(&data, &root, &trust),
+                Err(ReadRefusal::OverBudget(_)) => {
+                    scitt_transparent::TransparentStatementCheck::malformed()
+                }
+                Err(ReadRefusal::Unreadable(m)) => fatal(&m),
+            };
+            println!("{}", check.to_json());
+            exit(check.exit_class());
         }
         "coverage-report" => {
             // Self-declared, single source of truth (see VERIFY_SUBCOMMANDS doc comment above) — the
