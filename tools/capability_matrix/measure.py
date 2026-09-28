@@ -179,6 +179,14 @@ def _label_at(ref: str, paare: list):
     return None, None
 
 
+def _present_at(ref: str, module: list, cli: list, eps: list, repo: list) -> bool:
+    """Every module, console subcommand, entry point and repository path of a capability is found at `ref`."""
+    commands = _subcommands((_git_bytes(ref, "src/proofbundle/cli.py") or b"").decode("utf-8")) if cli else set()
+    points = _entry_points_in_pyproject((_git_bytes(ref, "pyproject.toml") or b"").decode("utf-8")) if eps else set()
+    return (all(_git_bytes(ref, _src(m)) is not None for m in module) and all(c in commands for c in cli)
+            and all(e in points for e in eps) and all(_git_bytes(ref, p) is not None for p in repo))
+
+
 class LabelMissing(Exception):
     """A capability is present at a ref and no label for it was found there: its status is not measured."""
 
@@ -285,6 +293,16 @@ def measure_rows(artefakte: dict, main: str) -> list:
             rel_da = all(mess_rel["repo_paths_at_tag"].values())
             main_da = all(mess_main["repo_paths_at_main"].values())
             kanal = f"git tag {cap['git_tag']}" if cap.get("git_tag") else "repository only (built from source)"
+        if not rel_da and not cap.get("elsewhere"):
+            # The release column reads the wheel (the tag for a repository capability), but main only and
+            # planned promise absence from every v6.1.0 artifact and from the tag. The sdist is read as a file
+            # list, so there the capability's files decide.
+            carried_by = [where for where, found in (
+                ("the sdist", all(mess_rel["modules_in_sdist"].values()) and all(mess_rel["repo_paths_in_sdist"].values())),
+                ("the tag", _present_at(TAG, module, cli, eps, repo))) if found]
+            if carried_by:
+                raise SystemExit(f"{cap['id']}: absent from the v{VERSION} wheel but carried by "
+                                 f"{' and '.join(carried_by)}; no status in the vocabulary says so")
         pfade = [_src(m) for m in module] + repo
         diff = _git("diff", "--shortstat", TAG, main, "--", *pfade).strip() if pfade and rel_da and main_da else ""
         branch = cap.get("branch")
