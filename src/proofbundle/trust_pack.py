@@ -28,6 +28,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
+from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
@@ -381,8 +382,14 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
     an unknown identity). The predicate is read once (`_read_once`): what is validated is what is
-    signed."""
+    signed.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     from .signature import plain_text  # noqa: PLC0415
     predicate = _read_once(predicate)
     errs = validate_trust_pack_predicate(predicate, strict=strict)
@@ -511,7 +518,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     keys MUST also have validly signed THIS pack (old root vouches for the new pack). Without this the documented
     two-stage rotation was documentation-only: ``prevVersionDigest`` is a hash of PUBLIC bytes (no key needed), so
     anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
-    alone."""
+    alone. ``allow_unverified_rotation`` opts out of that check only as the exact ``True``; a value that is not
+    a bool keeps the check, and the error says so and names the value's type."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
     try:
@@ -702,7 +710,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # a v2 minting self-owned keys + a real v1 digest would otherwise pass on its own self-signature
         # (the exact footgun this predicate defends against). A caller that deliberately wants only a
         # standalone self-signature check opts out explicitly with allow_unverified_rotation=True.
-        if allow_unverified_rotation:
+        # Only the exact True opts out: the flag was read by its truth, so "false" accepted an unverified
+        # rotation (measured: ok true). A value that is not a bool is the default refusal, named below.
+        if allow_unverified_rotation is True:
             r["warnings"].append(
                 "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
                 "was NOT verified (allow_unverified_rotation=True) — this proves only self-signature by the "
@@ -712,7 +722,10 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             r["errors"].append(
                 "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
                 "was NOT verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches "
-                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)")
+                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)"
+                + ("" if type(allow_unverified_rotation) is bool else
+                   f"; allow_unverified_rotation is not a bool (a value of type "
+                   f"{type_name(allow_unverified_rotation)}), and only the exact True opts out"))
 
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]

@@ -25,7 +25,7 @@ import base64
 import hmac
 import os
 import stat
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
@@ -417,8 +417,10 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
                    else "stated root does NOT match the expected root — possible root/rewrap substitution")
     if expected_tree_size is not None:
         # strict: a real int only — reject bool (1==True) and float (1==1.0), matching _require_int.
-        size_ok = (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
-                   and tree_size == expected_tree_size)
+        # type() and not isinstance(): isinstance believes an object's own __class__, and the == below then ran
+        # that object's __eq__, so an expectation that only claimed to be an int passed the tree-size check
+        # (measured), and one whose __class__ raised escaped verify_bundle raw. type(x) is int also rejects bool.
+        size_ok = type(expected_tree_size) is int and tree_size == expected_tree_size
         # 6-lens gate L2-BDOS-EXPECTED-TREE-SIZE: expected_tree_size is RP-supplied and NOT routed through
         # _require_int, so str()-rendering an absurd int (e.g. 10**5000) in the mismatch detail tripped
         # CPython's int<->str cap (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of this
@@ -427,8 +429,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # or ill-typed expectation gets a safe generic detail (no str() of the raw value).
         if size_ok:
             detail = f"tree_size {tree_size} matches the expected size"
-        elif (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
-              and expected_tree_size.bit_length() <= 8192):
+        elif type(expected_tree_size) is int and expected_tree_size.bit_length() <= 8192:
             detail = (f"tree_size {tree_size} != expected {expected_tree_size} "
                       "— possible tree-size substitution")
         else:
@@ -599,6 +600,42 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     return result
 
 
+def _checks_passed(result) -> "tuple[bool, list[str]]":
+    """Whether a caller's crypto result passed, counted only on exact bools.
+
+    Returns ``(passed, not_bool)``. ``passed`` is True only when every check's ``ok`` is the exact
+    ``True`` and ``result.ok`` is the exact ``True``; ``not_bool`` names every one of these values
+    that is not a bool (``checks['<name>'].ok`` or ``ok``). ``VerificationResult.ok`` folds its checks
+    by their truth, so a caller-built ``Check("root-authenticity", "false")`` made it True; it is read
+    here only after every check is known to be a bool, so the caller's ``__bool__`` never runs. Shared
+    by :func:`root_authenticity_summary` and ``policy.evaluate_policy``: the summary and the policy's
+    crypto gate count one crypto result by one rule.
+
+    ``checks`` is read by what it stores: a ``list`` or ``tuple``, a subclass included, through the base
+    type's own iterator (``list.__iter__`` / ``tuple.__iter__``), so a subclass's ``__iter__`` never runs.
+    3a8074fc asked ``type(raw) is list``, so a duck-typed result whose checks sat in a list subclass skipped
+    the per-check test, and ``Check("root-authenticity", "false")`` in it passed the gate on the result's own
+    ``ok`` (measured), while the same check in a plain list did not."""
+    raw: Any = getattr(result, "checks", None)
+    if issubclass(type(raw), list):
+        checks = list(list.__iter__(raw))
+    elif issubclass(type(raw), tuple):
+        checks = list(tuple.__iter__(raw))
+    else:
+        checks = []
+    not_bool: list[str] = []
+    for c in checks:
+        if type(getattr(c, "ok", None)) is not bool:
+            name = getattr(c, "name", None)
+            not_bool.append(f"checks[{name!r}].ok" if type(name) is str else "checks[?].ok")
+    if not_bool:
+        return False, not_bool
+    ok = getattr(result, "ok", False)
+    if type(ok) is not bool:
+        return False, ["ok"]
+    return ok is True, []
+
+
 def root_authenticity_summary(result: VerificationResult, *,
                               policy_authenticated_root: Optional[bool] = None,
                               policy_ok: Optional[bool] = None,
@@ -635,14 +672,34 @@ def root_authenticity_summary(result: VerificationResult, *,
     passed) — ``None`` (no policy evaluated) can never make it true. ``policy_warnings`` (the vacuous
     'attributes to nobody' lint) forces it false too: a policy that pins no signer authorises no
     identity, so a crypto-valid, root-pinned receipt under it is NOT automation-safe.
+
+    EVERY VERDICT AND FLAG COUNTS ONLY AS A BOOL. A check's ``ok`` passes only as the exact ``True``;
+    a gate verdict (``policy_ok``, ``anchor_ok``, ``public_transparency_ok``, ``replay_ok``) blocks
+    unless it is ``None`` or the exact ``True``; a blocker flag (``policy_expired``,
+    ``policy_not_yet_valid``, ``requires_identity_overlay``) blocks unless it is ``None`` or the
+    exact ``False``; ``policy_warnings`` counts as empty only when it is ``None`` or an empty list
+    or tuple. These used to be read by their truth or only on the one exact value that blocks, so
+    ``Check("root-authenticity", "false")``, ``policy_ok="false"``, ``anchor_ok="false"`` and
+    ``policy_expired="true"`` each left ``safeForAutomation`` true. A value that is not a bool never
+    passes, its own methods never run, and the result then carries ``notBooleanInputs``, the names
+    of those values (absent when every input is a bool, so the shape is unchanged for them).
     """
     by = {c.name: c.ok for c in result.checks}
+    crypto_passed, not_bool = _checks_passed(result)
+    for _name, _value in (("policy_authenticated_root", policy_authenticated_root), ("policy_ok", policy_ok),
+                          ("anchor_ok", anchor_ok), ("signer_trusted", signer_trusted),
+                          ("policy_expired", policy_expired), ("policy_not_yet_valid", policy_not_yet_valid),
+                          ("requires_identity_overlay", requires_identity_overlay),
+                          ("public_transparency_ok", public_transparency_ok), ("replay_ok", replay_ok),
+                          ("tree_context_authenticated", tree_context_authenticated)):
+        if _value is not None and type(_value) is not bool:
+            not_bool.append(_name)
 
     def _tri(name: str) -> str:
-        return "PASS" if by.get(name) else ("FAIL" if name in by else "NOT_EVALUATED")
+        return "PASS" if by.get(name) is True else ("FAIL" if name in by else "NOT_EVALUATED")
 
     if "root-authenticity" in by:
-        root_auth = "PASS" if by["root-authenticity"] else "FAIL"
+        root_auth = "PASS" if by["root-authenticity"] is True else "FAIL"
     elif policy_authenticated_root is True:
         root_auth = "PASS"
     elif policy_authenticated_root is False:
@@ -661,7 +718,10 @@ def root_authenticity_summary(result: VerificationResult, *,
         tree_context = "FAIL"
     else:
         tree_context = "NOT_EVALUATED"
-    cp_auth = checkpoint_authenticity if checkpoint_authenticity in ("PASS", "FAIL") \
+    # A plain str only: `in ("PASS", "FAIL")` and `== "PASS"` below ran the caller's own __eq__, and an
+    # object answering True reached rootTrustLevel CHECKPOINT (measured). Anything else is NOT_EVALUATED.
+    cp_auth = checkpoint_authenticity if (type(checkpoint_authenticity) is str
+                                          and checkpoint_authenticity in ("PASS", "FAIL")) \
         else "NOT_EVALUATED"
     if tree_context == "PASS" and cp_auth == "PASS":
         root_trust_level = "CHECKPOINT"
@@ -685,8 +745,19 @@ def root_authenticity_summary(result: VerificationResult, *,
     # public-transparency policy section is 3.2.0, and replay (aud/nonce) already fails the crypto verdict
     # (CRYPTO_FAILED) when a required KB-JWT is absent — so these two blockers are defined for forward
     # compatibility and stay dormant unless a future policy layer supplies a False verdict.
+    # A gate verdict passes only as the exact True, a blocker flag is cleared only by the exact False; the
+    # former `is False` / `is True` reads let "false" and "true" through the one side that does not block.
+    def _gate_failed(verdict) -> bool:
+        return verdict is not None and verdict is not True
+
+    def _flag_raised(flag) -> bool:
+        return flag is not None and flag is not False
+
+    overlay = _flag_raised(requires_identity_overlay)
+    warnings_present = policy_warnings is not None and not (
+        (type(policy_warnings) is list or type(policy_warnings) is tuple) and len(policy_warnings) == 0)
     blockers: list[str] = []
-    if not bool(result.ok):
+    if not crypto_passed:
         blockers.append("CRYPTO_FAILED")
     if root_auth != "PASS":
         blockers.append("ROOT_NOT_AUTHENTICATED")
@@ -696,13 +767,13 @@ def root_authenticity_summary(result: VerificationResult, *,
         blockers.append("TREE_CONTEXT_NOT_AUTHENTICATED")
     if policy_ok is None:
         blockers.append("POLICY_NOT_EVALUATED")
-    elif policy_ok is False:
+    elif policy_ok is not True:
         blockers.append("POLICY_FAILED")
-    elif signer_trusted is not True and not requires_identity_overlay:
+    elif signer_trusted is not True and not overlay:
         blockers.append("SIGNER_NOT_PINNED")   # policy passed but pins no trusted identity (attributes to nobody)
-    elif signer_trusted is True and policy_warnings:
+    elif signer_trusted is True and warnings_present:
         blockers.append("POLICY_WARNINGS_PRESENT")   # signer pinned yet the policy still warns (forward-compat)
-    if requires_identity_overlay:
+    if overlay:
         # AP-2 §6.2 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) is never automation-safe
         # — reported as its OWN blocker, not SIGNER_NOT_PINNED, which would be factually wrong when the template
         # actually does match a signer (the real reason is the un-cleared template-lifecycle flag). Independent
@@ -712,19 +783,20 @@ def root_authenticity_summary(result: VerificationResult, *,
     # AP-2 §6.4 lifecycle: an EXPIRED policy is unsafe to automate on even if it otherwise passed (a stale
     # signer pin the relying party has since rotated away from). Independent of the signer/warning chain so
     # it is reported alongside, never in place of, another reason.
-    if policy_expired is True:
+    if _flag_raised(policy_expired):
         blockers.append("POLICY_EXPIRED")
     # A-P0-2 not-before mirror (Lens-2/3/4/6 review): a policy whose valid_from is in the FUTURE at the
     # real current time is not in force, so a crypto-valid receipt under it is not automation-safe even
     # when historically verified — the symmetric case to POLICY_EXPIRED. Reported at current time.
-    if policy_not_yet_valid is True:
+    if _flag_raised(policy_not_yet_valid):
         blockers.append("POLICY_NOT_YET_VALID")
-    if anchor_ok is False:
+    if _gate_failed(anchor_ok):
         blockers.append("ANCHOR_REQUIRED_FAILED")
-    if public_transparency_ok is False:
+    if _gate_failed(public_transparency_ok):
         blockers.append("PUBLIC_TRANSPARENCY_REQUIRED_FAILED")
-    if replay_ok is False:
+    if _gate_failed(replay_ok):
         blockers.append("REPLAY_BINDING_REQUIRED_FAILED")
+    extra = {"notBooleanInputs": not_bool} if not_bool else {}
     return {
         "payloadSignature": _tri("ed25519-signature"),
         "merkleConsistency": _tri("merkle-inclusion"),
@@ -739,6 +811,7 @@ def root_authenticity_summary(result: VerificationResult, *,
         "publicTransparency": "NOT_EVALUATED",
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,
+        **extra,
     }
 
 

@@ -27,6 +27,7 @@ import math
 import zlib
 from typing import Optional, Tuple
 
+from ._membership import require_switch
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
@@ -259,6 +260,14 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
     ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
 
+    ``allow_value_mismatch``, ``require_verified`` and ``include_token`` must be bools; anything else
+    raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError`` and a ``ProofBundleError``)
+    naming the parameter and the type, before the bundle is read. They were read by their truth, so
+    ``allow_value_mismatch="false"`` skipped the consistency check, ``require_verified=None``, ``0`` or
+    ``""`` built an entry from a bundle that does not verify (beside ``allow_value_mismatch=True``;
+    without it the value check refused that bundle), and ``include_token="false"`` published the token
+    (measured at 3a8074fc).
+
     EVERY VALUE THAT IS CHECKED AND PUBLISHED IS READ ONCE (lens run 8 at fddc00f4, the sweep of
     finding B). The consistency check used `float(value)`, the caller's `__float__`, while the entry
     published the stored number: a float subclass storing 99.9 whose `__float__` answers 0.5 passed the
@@ -266,6 +275,9 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     numeric text, a subclass of int or float is refused, and the bundle that is verified is the one
     that is decoded and packed into the token.
     """
+    require_switch(allow_value_mismatch, "allow_value_mismatch")
+    require_switch(require_verified, "require_verified")
+    require_switch(include_token, "include_token")
     from ._plain_value import plain_json  # noqa: PLC0415
     from .signature import plain_text  # noqa: PLC0415
     if isinstance(bundle, dict):

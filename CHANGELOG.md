@@ -10,6 +10,307 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **Code a caller hands in promotes a verdict only when it answers the exact True**
+  (`assurance.classify_digest_evidence`, `assurance.classify_receiver_corroboration`,
+  `renewal.verify_sequence`, `anchors.verify_anchor`). Each of these calls code its caller supplies and
+  promoted on the truthiness of the answer, although the documented contract is a bool:
+  `bool(evidence_resolver(digest_obj))` lifted a digest from `REFERENCE_WELL_FORMED` to
+  `CONTENT_RESOLVED`; `bool(res)`, in the branch of `classify_receiver_corroboration` with neither 32
+  bytes of key material nor an expected key, lifted a receiver ref to `INDEPENDENTLY_ATTESTED`;
+  `bool(verify_anchor(newest))` anchored the newest ArchiveTimeStamp in the `anchor_verifier` mode; and
+  `verify_anchor` read the result of a verifier registered through `register_anchor_type`, a public
+  extension point, with `bool(res.get("ok"))`, `bool(res.get("warn"))` and `bool(res.get(flag))` for
+  `rp_trusted`, `needs_rp_trust` and `frozenEvidence`.
+
+  Measured on main 20e91c8e: the answers `1`, `1.0`, `"true"`, `"false"`, `[0]` and an object whose
+  `__bool__` says True promoted on every one of these surfaces, directly and through
+  `verify_decision_receipt` and `verify_outcome_receipt`, which pass `evidence_resolver` and
+  `receiver_attestation_resolver` on; a truthy evidence answer next to an attestation resolver answering
+  True took a digest nobody had resolved to `INDEPENDENTLY_ATTESTED`. `verify_sequence` returned ok for
+  an anchor verifier answering `"false"` or `1`. A registered anchor verifier answering
+  `{"ok": "false"}` met `verify_anchors(require="any")` and gave `anchors_ok` true and an aggregate `ok`
+  true in `verify_decision_receipt(anchors=...)`; `{"ok": False, "warn": "false"}` turned a failed
+  anchor into a pending one that met `require` with `allow_pending`; and a result that is not a dict
+  (`True`, `None`, a list, a string, an int) raised a raw AttributeError out of `verify_anchor`,
+  `verify_anchors` and the never-raise `verify_decision_receipt`, because the result was read outside
+  the `try` that guards the verifier call.
+
+  Now only the exact `True`, or where a key is asked for 32 bytes of key material in a plain `bytes` or
+  `bytearray` object, promotes, anchors or counts. Any other answer leaves the level, the anchor check or
+  the flag where it was (round 2 below: the first version of this sentence did not hold for an answer
+  that only claims to be bytes); none of the answer's own methods is called and the answer is never
+  rendered into a detail; and when the answer is not a bool at all, the detail says so and says that
+  only the exact True counts. A registered anchor verifier's result is read only when it is a plain
+  `dict`; anything else, a dict subclass with its own `get` included, is a failed anchor whose detail
+  says the verifier returned no result object. Unchanged, and held by controls: the exact `True`
+  promotes, the exact `False` does not and keeps the detail it had, a raising resolver still counts as
+  False, a raising anchor verifier is still a failed anchor, and 32 bytes of key material still attest;
+  the expected-key branch of `classify_receiver_corroboration` is not touched. The package's own
+  verifiers on these paths already return exact bools, read line by line: the authority-signature and
+  no-anchor modes of `verify_sequence` and its structural mode for an `anchor_status` that is a str, and
+  the anchor verifiers for `rfc3161-tsa`, `opentimestamps`, `chia-datalayer/v1` and the opt-in
+  `markovian-provenance/v1`. The per-anchor `status` a registered verifier reports is
+  still carried as given; no gate in the package reads it, only `ok` and `warn`.
+
+  Reach: the Python API only. The CLI sets none of these resolvers and registers no anchor type beyond
+  the built-ins. The same lines stand in the tagged files of v6.0.0 (4e32e83b) and v6.1.0 (dcac5aee),
+  so the released 6.0.0 and 6.1.0 carry the old behavior. Contract
+  `tests/test_a_resolver_promotes_only_on_exact_true.py`: against 20e91c8e, 87 subtests fail in 11 of
+  its 16 cases, each on the promotion itself or, for a result that is not a dict, on the raw
+  AttributeError; the five control cases are green there. With this change all 16 cases and all 87
+  subtests pass.
+
+  **Round 2: a type check that believes the answer, and the verdicts a caller builds** (`assurance`,
+  `outcome`, `verifier_block`, `policy`, `bundle`, `automation_verdict`). The first version of this
+  entry said that any other answer leaves the level where it was. Measured at 6d102950, the first
+  version of this change, and on main 31816e08 alike, that was false on the one branch it did not
+  touch: `classify_receiver_corroboration` asked `isinstance(res, (bytes, bytearray))`, which believes
+  an object's own `__class__`, and then read the object with its own `__len__` and `__bytes__`. An
+  answer whose `__class__` says `bytes`, whose `__len__` says 32 and whose `__bytes__` gives `b""`
+  reached `INDEPENDENTLY_ATTESTED` with zero bytes of key material, also through
+  `verify_outcome_receipt` with `ok` true; a raising `__len__` or `__class__`, or a `__bytes__` that
+  returns a str, escaped both functions, which never raise; and a real `bytes` subclass was read the
+  same way. `verify_outcome_receipt` repeated the check for `receiver_role_trusted`, and
+  `pack_key_binds_signer` for the key it is handed. Key material now counts only as a plain `bytes` or
+  `bytearray` object (`assurance._is_key_material`, one predicate for both modules). A `bytes`
+  subclass is refused as well, because its `__len__` and `__bytes__` are the caller's code; such an
+  answer takes the branch of an answer that is neither True nor key material. The expectation
+  `expected_receiver_public_key` is judged the same way (`"abc"` raised a raw TypeError out of
+  `bytes()`). The key ids that decide independence and role membership count only as a plain `str`
+  (`classify_receiver_corroboration`, `receiver_trusted_by_role`, `executor_trusted_by_role`,
+  `pack_key_binds_signer`): a key id whose `__class__` said str had its own `__eq__` decide, measured
+  as `INDEPENDENTLY_ATTESTED` for a receiver key id whose `__eq__` said False, and as role membership
+  for a key id that is not in the role. `evidence_ladder_best` and `evidence_ladder_summary` take a
+  level only as a plain `int` or `EvidenceLevel` in a plain `dict`: a level whose `__class__` said
+  int decided the rollup with its own comparisons, and a raising `__class__` escaped both. The digest
+  object `classify_digest_evidence` classifies counts only as a plain `dict` holding a plain `str`: one
+  whose `__class__` raised escaped a function that never raises, and one that only claimed to be a dict
+  reached `REFERENCE_WELL_FORMED` through its own `get`. `verify_bundle(expected_tree_size=)` compares
+  the pin only as a plain `int`: a pin whose `__class__` said int and whose `__eq__` said equal passed
+  the tree-size check, and a raising `__class__` escaped `verify_bundle` raw.
+
+  The same rule, one level up, for a verdict or flag the caller builds. `build_test_result_statement`
+  read a case's `ok` with `not r.get("ok")`, so `"false"`, `"FAIL"`, `1` and `[0]` made the case and
+  the statement PASSED, and `sign_test_result_statement` signed it; a case `ok` that is not a bool is
+  now a `VerifierBlockError` naming the case. `evaluate_policy` gated on `result.ok`, which
+  `VerificationResult` folds by the truth of each check, and read `Check.ok` by its truth: a
+  caller-built `Check("root-authenticity", "false")` gave `policy_ok` true under
+  `require_authenticated_root`, and the same string on `sd-jwt-key-binding` or
+  `sd-jwt-issuer-signature` satisfied `require_key_binding_when_cnf_present`, `require_nonce` and
+  `expected_vct` (measured on a real key-bound SD-JWT bundle). Crypto now passes that gate only when
+  every check's `ok` and `result.ok` are the exact True (`bundle._checks_passed`); otherwise the
+  policy is not evaluated and the reason names each value that is not a bool. `root_authenticity_summary`
+  read `Check.ok` by its truth, blocked on `policy_ok`, `anchor_ok`, `public_transparency_ok` and
+  `replay_ok` only when they were the exact False, on `policy_expired` and `policy_not_yet_valid` only
+  when the exact True, and on `requires_identity_overlay` and `policy_warnings` by their truth;
+  `automation_summary` read crypto and structure with `bool(value)` and counted a reference as
+  unresolved only on the exact False. Each left `safeForAutomation` true for a string, and
+  `{"crypto_ok": "false", "structure_ok": "false", "evidence_bound": "false"}` read as `cryptoValid`
+  true. In both summaries a value that is not a bool now never passes, and the summary carries
+  `notBooleanInputs` with the names of those values; the key is absent when every input is a bool, so a
+  caller that passes bools sees the shape it saw before.
+
+  `evaluate_decision_policy` and `evaluate_policy` read the boolean policy fields by their truth or
+  with `is True`. Through `verify_decision_receipt(policy=<dict>)` without `load_policy`,
+  `allow_raw_inputs: "false"` and `allow_pending: "false"` gave `policy_ok`, `ok` and
+  `safeForAutomation` all true, `requiresIdentityOverlay: "true"` let a raw template authorise, and
+  `require_*: 0` switched a requirement off. `load_policy` refuses each of these, and the evaluators
+  left types to it. They now refuse a boolean field that is not a bool with the loader's own checker
+  and message (`_check_bool_fields`, the loader's `_require_bool` over one table of the boolean
+  fields); a contract test derives the boolean fields from `load_policy` itself, so the two paths
+  agree field by field. `lint_policy` reports the same message, and `policy_warnings` counts only the
+  exact True as a signer requirement. `_require_bool` itself asked `isinstance`, so an object whose
+  `__class__` says bool passed `load_policy`; it asks `type()` now, which agrees with `isinstance` for
+  every real bool.
+
+  Reach: the Python API only. The CLI loads every policy through `load_policy` and passes exact bools
+  to both summaries. Contracts: `tests/test_a_resolver_promotes_only_on_exact_true.py` gains 12 cases
+  with 55 subtests; against 44e12b72 (6d102950 merged with main 31816e08), 47 subtests fail in 8 of
+  them and the four controls are green. The new `tests/test_a_caller_verdict_counts_only_as_a_bool.py`
+  had 21 cases with 268 subtests; against 44e12b72, 14 of its cases are red, 250 subtests fail in 11
+  of them and 4 fail outside a subtest (one of those inside as well), and the seven others are green
+  there: six controls, and the check that the derivation of the boolean fields finds every section.
+  Each red subtest fails on its own defect: a verdict, an escaped exception, a refusal that did not
+  happen, a missing detail, or a recorded call of the caller's own method. With the round-2 change all
+  49 cases and all 410 subtests of the two files passed, on Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+
+  **Round 3: the flags, type checks and str verdicts the round-2 text left open** (`anchors`,
+  `hashalg`, `renewal`, `trust_pack`, `hf_evals`, `agent_review`, `_membership`, `sdjwt_vc`,
+  `public_transparency`, `errors`, `verifier_block`, `bundle`, `policy`, `relation`). The round-2
+  version of this entry listed them as not closed. Measured at 67bb104e, the round-2 commit:
+
+  A permissive flag relaxed its check on the flag's truth. `anchors.verify_anchors(allow_pending="false")`
+  let a pending anchor meet `require`; `hashalg.resolve_hash_alg("sha1", allow_deprecated="false")`,
+  and `compute_digest` through it, accepted a deprecated hash;
+  `renewal.verify_sequence(allow_unauthenticated_anchor="false")` switched on the structural-only mode
+  and returned ok; and `trust_pack.verify_trust_pack(allow_unverified_rotation="false")` accepted a
+  rotation nobody had verified. A sweep of every permissive keyword flag in `src` found two more:
+  `hf_evals.to_eval_results_entry(allow_value_mismatch="false")` skipped the value-verdict consistency
+  check, and `agent_review.render_disclosure_line(leaf_witnessed="false")` dropped the "not yet in a
+  witnessed checkpoint" caveat. Now only the exact True relaxes. The functions that raise typed errors
+  refuse a flag that is not a bool with their own error (`BundleFormatError`, `HashAlgError`,
+  `AgentReviewError`); the two verifiers that report instead of raising keep the check and say that
+  the flag is not a bool (the `renewal:last_anchor` detail, the trust pack's rotation error). No method
+  of the flag runs. The flags that tighten a check (`strict`, `require_*`) are not in this class: a
+  string `"false"` makes them stricter, not weaker.
+
+  A type check believed the value's `__class__`. `_membership.is_bool` and the boolean field checks of
+  `sdjwt_vc.validate_vc_policy` and `public_transparency.validate_public_transparency_policy` asked
+  `isinstance`: an object whose `__class__` said bool passed and then decided with its own `__bool__`,
+  and one whose `__class__` raised escaped `is_bool`. They ask `type(x) is bool` now; `bool` cannot be
+  subclassed, so the two tests agree for every real bool, and the callers of `is_bool` behave as before
+  for real bools. `VerificationResult.ok` folded its checks by their truth, so a caller-built
+  `Check("x", "false")` made the result ok; it counts a check only when its `ok` is the exact True, and
+  `Check.__str__` marks it the same way.
+
+  A str verdict was compared with the caller's own `__eq__`. A case `scope` whose `__eq__` said it
+  equals `"full"` made the case PASSED instead of WARNED in `build_test_result_statement`; a
+  `checkpoint_authenticity` doing the same gave `root_authenticity_summary` the root trust level
+  CHECKPOINT; an `anchor_status` doing the same met the anchor requirement of
+  `evaluate_decision_policy`. Each is read only as a plain str now; anything else takes the branch that
+  does not pass (WARNED, NOT_EVALUATED, no anchor status) and none of its methods runs. The sweep found
+  the same in two more evaluators. `agent_review.evaluate_time_policy` accepted an axis state whose own
+  `__eq__` and `__hash__` answered its membership test; a state that is not a plain str is now
+  NOT_EVALUATED. `relation.evaluate_relations_policy` compared an edge's relation, resolution and target
+  digest with the caller's methods and read `supersededByAttached` by its truth: a resolution that
+  claimed to be VERIFIED met `require_relation_resolution`, one that claimed not to be skipped the
+  same-key check, a target digest that claimed to be the pinned root passed `require_relation_target`,
+  and a `supersededByAttached` whose `__bool__` said False hid a supersession. It reads plain values
+  now: an edge whose relation is not a plain str fails every rule that is set, a required relation
+  resolves only as the plain str VERIFIED, the same-key check runs unless the resolution is a plain str
+  other than VERIFIED, and only None and `""` mean not superseded. Its flags `reject_superseded` and
+  `reject_retracted` are refused with the loader's `_require_bool` message when they are not bools, as
+  the two other evaluators refuse theirs since round 2.
+
+  Reach: the Python API only; on these paths the CLI and the package's own verifiers pass exact bools
+  and plain strs. Not closed here, measured and left to their own change: `intoto.svr_properties` and
+  `intoto.export_svr_dsse` still read `prereg_verified` and `anchor_verified` by their truth (another
+  change edits that file in this round); and an expectation a caller passes as a str
+  (`known_newest_token_digest` in `verify_sequence`, `prev_version_digest` in `verify_trust_pack`, the
+  `expected_*` arguments of the decision, outcome, key-binding and checkpoint verifiers) is still
+  compared with the caller's own `__eq__`, a neighbouring class in which the caller decides against
+  itself, not for a document. Contract: `tests/test_a_caller_verdict_counts_only_as_a_bool.py` gains
+  22 cases with 48 subtests; against 67bb104e, 18 of them are red (44 subtests fail in 12 cases, and 7
+  cases fail outside a subtest, one of those inside as well) and the four controls are green. Each red
+  case fails on its own defect: a refusal that did not happen, a verdict, a recorded call of the
+  caller's own method, or an escaped exception. With this change the two files have 71 cases and 458
+  subtests, and all of them pass on Python 3.10 and 3.12.
+
+  **Round 4: a switch counts only as an exact bool, everywhere, and an honest subclass of the
+  documented type is read as what it stores** (`assurance`, `adapters._provenance`, `adapters.eee`,
+  `agent_review`, `anchors`, `anchors_chia_add`, `decision`, `outcome`, `run_ledger`, `trust_pack`,
+  `verification_summary`, `hashalg`, `hf_evals`, `renewal`, `bundle`, `_integration`, `_membership`,
+  `errors`). A review of 3a8074fc, the round-3 commit, measured three switches that still read their
+  value by its truth, and one regression of round 1:
+
+  - `assurance.classify_digest_evidence(applicable=)`, and `classify_receiver_corroboration`, which
+    passes it on: `None`, `0`, `""` and `[]` made a weak field not applicable, and
+    `evidence_ladder_summary` rose past it (CLAIMED and CONTENT_RESOLVED summarised to CONTENT_RESOLVED).
+  - `adapters._provenance.bind_reported_version(bound=)`: `"false"`, `"no"`, `1` and `[0]` wrote the
+    version with status `reported` into a provenance block that is signed into the receipt.
+  - `agent_review.emit_agent_review(legacy_v01=)`: `"false"` and `"no"` issued and signed a v0.1
+    predicate under the v0.1 rules, which `False` refuses under the v0.2 rules. The renderers
+    (`render_disclosure_block`, `render_disclosure_line`, `require_valid_agent_review_predicate_any`)
+    read `legacy_v01` the same way and checked a predicate under the v0.1 rules for `"false"`.
+  - `anchors.verify_anchor`: round 1 read a registered verifier's result only as a plain `dict`, so an
+    `OrderedDict` or `defaultdict` with `ok` True, a verified anchor on main 31816e08, was a failed
+    anchor whose detail said "no result object".
+
+  A sweep of every bool keyword of every public function, discovered at run time (89 at 3a8074fc, 90
+  with the helper below), found the rest of the class there: `decision.emit_decision_receipt` with
+  `strict=None`, `0` or `""` signed a predicate the strict rules refuse (one without `notChecked`);
+  `hf_evals.to_eval_results_entry` with `require_verified=None`, `0` or `""` built an entry from a
+  bundle that does not verify (beside `allow_value_mismatch=True`), and with `include_token="false"`
+  published the token; `adapters.eee.from_eee_dataset` with `validate=None`, `0` or `""` built a claim
+  from a record that fails the schema; and `_integration.emit_enabled("false")` opened the gate that
+  decides whether an integration writes a receipt into a host run. `anchors_chia_add.anchor_add` read
+  `wait` by its truth as well, so `None` would skip the on-chain confirmation (read, not run: it needs
+  a node). `v02` of `agent_review` relaxed only on the exact False, and `strict` of `emit_agent_review`,
+  `emit_outcome_receipt`, `emit_run_ledger`, `sign_trust_pack` and `emit_verification_summary` reaches
+  a validator that reads no `strict` today; they are held to the same rule, so no later reader can
+  reopen the class.
+
+  Now one rule, one helper. A switch whose one side weakens a verdict or a check, or changes what is
+  signed or published, goes through `_membership.require_switch`, which reads only an exact bool (and
+  None where the switch means "not given") and otherwise raises the new `errors.SwitchTypeError`,
+  which is both a `TypeError` and a `ProofBundleError`, naming the parameter and the type, before
+  anything is computed or signed. The type is named by `_membership.type_name`, which runs no code of
+  the caller and marks a foreign type that carries a built-in name (`numpy.bool` reads
+  `bool (not the built-in bool)`). The round-3 refusals of `allow_pending`, `allow_deprecated`,
+  `allow_value_mismatch` and `leaf_witnessed` raised each module's own error without the type; they
+  raise `SwitchTypeError` now, still a `ProofBundleError`. Three surfaces refuse without raising and
+  say why: `renewal.verify_sequence(allow_unauthenticated_anchor=)` and
+  `trust_pack.verify_trust_pack(allow_unverified_rotation=)` keep their check and name the type in the
+  detail and the error (a raise inside `verify_sequence` would become a failed check anyway), and
+  `_integration.emit_enabled` opens only for the exact True, because an integration must never fail
+  the host run. The round-3 sentence that the flags that tighten a check (`strict`, `require_*`) are
+  not in this class held only for a default of False: `emit_decision_receipt`'s `strict` defaults to
+  True, so a falsy value relaxed it. Left as they are, each with its reason in the contract test: 44
+  switches that tighten (default False, and True only adds a check or a refusal, so a value read by its
+  truth tightens or equals leaving it out), 11 verdict inputs (default None, exact since round 2), two
+  that only change how something prints (`render_safe(quote=)`, `run_demo(as_json=)`), and the four of
+  `intoto.svr_properties` and `intoto.export_svr_dsse`, which another change closes.
+
+  An honest subclass of the documented type is read by what it stores. A registered verifier's result
+  is a dict when its real type is one (`issubclass(type(res), dict)`, an identity walk of the MRO) and
+  is read once with `dict.get`, so an `OrderedDict` verifies again, while a subclass whose own `get`,
+  `__getitem__`, `__contains__` or `__missing__` answers True promotes nothing, because none of them
+  runs; a result that is not a dict names its type in the detail. The round-2 checks in `assurance`
+  had the same effect: an `OrderedDict` digest object was CLAIMED (main: REFERENCE_WELL_FORMED), and an
+  `OrderedDict` field or a level from the caller's own `IntEnum` was skipped by both rollups, so
+  `evidence_ladder_summary` rose past a CLAIMED field (main: CLAIMED). They read with `dict.get`,
+  `str.__str__` and `int.__int__` of the base types now. `bundle._checks_passed` read only a plain list
+  or tuple of checks, so a duck-typed result whose checks sat in a list subclass passed the crypto gate
+  on its own `ok` with `Check("root-authenticity", "false")` inside; it reads list and tuple
+  subclasses through the base type's iterator now.
+
+  Reach: the Python API only; the CLI passes exact bools and the package's own verifiers return plain
+  dicts. Not closed here: `intoto` (the other change); `evidence_ladder_summary` still skips a field
+  that is not a dict holding an int level, which lets an AND summary rise past it, as on main 31816e08;
+  and the str, bytes and int checks of rounds 2 and 3 still refuse a subclass (a `StrEnum` relation, a
+  bytes subclass key, an int subclass tree-size pin), which fails closed. Contract: the two test files
+  gain 25 cases (one of them replaces the round-1 not-a-dict case) and 6 round-3 cases change to the
+  new form of the refusal. Against 3a8074fc, 24 cases are red, 18 of the new ones and the 6 changed
+  ones, with 375 failing subtests, and 7 new ones are green there (five controls and two premises of
+  the sweep). With this change the two files have 95 cases and 964 subtests, and all of them pass on
+  Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+
+  The sweep also runs in the as-shipped bare install, which has no optional extra. There
+  `inspect_hook` and `_inspect_registry` cannot import (they need `inspect_ai`, extra `inspect`), and
+  the first form of the sweep counted that as a failure, so the hermetic cleanroom went red on
+  c8865652. A module that fails to import is now left out of the sweep only when the failure is a
+  `ModuleNotFoundError` for the top-level module of a package that a declared optional extra
+  installs, that no core dependency installs, and that is absent from the running environment; it
+  is then named in a skip, together with the classified switches that could not be checked there.
+  Every other import failure still fails, and the map from extra to module is held to
+  `[project.optional-dependencies]` of pyproject.toml, so it cannot go stale. This adds 5 cases and
+  11 subtests (100 cases, 975 subtests); they are green against 3a8074fc as well, because they test
+  the sweep itself, and the red case they answer is the cleanroom run of the unchanged file.
+
+  **Round 5: reading what the caller hands in runs none of its code** (`anchors`, `assurance`,
+  `decision`, `_membership`). A review of c8865652 found that reading "by what it stores" still ran
+  code of the caller. `dict.get` of the base type compares a stored key whose hash equals the looked-up
+  one through that key's own `__eq__`. In `verify_anchor`, `status or ...` called the status value's
+  `__bool__`, and `isinstance(tt, dict)` read the trustedTime value's `__class__`. When one of them
+  raised, a RuntimeError escaped `verify_anchor`, `verify_anchors` and
+  `verify_decision_receipt(anchors=...)`, and the four documented never-raise functions of the evidence
+  ladder. A key whose `__eq__` answered True stood in for `"ok"` and verified an anchor, and stood in
+  for `"sha256"` or `"level"`. The same happened on main 31816e08. The fail-closed try ended at the
+  verifier call and did not cover the reading of its answer. Now `_membership.stored_str_items`
+  reads a dict by iterating what it stores, and a key counts only when it is exactly a `str`. The
+  anchor result and the ladder inputs are read that way, each value only by its exact type (`is True`,
+  an exact `str`, an `int` read with `int.__int__`). A carried `trustedTime` is a plain copy of
+  JSON scalars. What is not read is named in the detail. The reading of a verifier's result sits
+  inside the fail-closed boundary. `verify_anchor`, `verify_anchors` and `receipt_canonical_root` refuse
+  input whose own code raises while it is read with their documented `BundleFormatError`. `verify_decision_receipt`'s
+  guard around the anchors also takes any other exception, naming only its type. A plain dict,
+  `OrderedDict`, `defaultdict` or method-less subclass storing ok exactly True still verifies. The
+  resolver answers of the ladder, `verify_sequence` and `verify_outcome_receipt` were already read
+  only with `is True` and `type()`, and are held by a test now. Not closed here: validators and
+  verifiers elsewhere in the package that read a caller-built dict directly still run the code of a
+  stored key or value, 37 and 59 surfaces in two generated sweeps (see the commit message). JSON
+  input cannot produce such objects.
+
 - **A producer reads each value it checks and writes once, not only the key** (lens run 8 at
   fddc00f4, findings A, B and D; the class of the entry "A small-order key is refused at every
   carrier" below, widened from keys to every value a producer both checks and writes). That entry
@@ -515,7 +816,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   not in a presentation from `present_with_key_binding`, with or without a KB-JWT. (4) A low s is
   required only of signatures proofbundle makes itself. It makes no ES256 signature today; its own
   signatures on these paths are Ed25519, which has one spelling by the S bound, and a test keeps an
-  inventory of the ECDSA code in the package so a new signing path is noticed. proofbundle also
+  inventory of the ECDSA code in the package so a new signing path is noticed. Up to 31816e08 that
+  inventory knew two curve names, so a P-384 signing path in `signature.py`, where the verifier's
+  `ECDSA` is allowed, passed it. It now knows every curve `cryptography` and python-ecdsa ship, the
+  names that make an EC private key and the signing call `<key>.sign(data, algorithm)` itself, and a
+  path planted on each curve fails it (a test change; nothing under `src/` changed). proofbundle also
   signs with ML-DSA (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal layer);
   whether an ML-DSA signature has a second spelling was not measured in this change.
 

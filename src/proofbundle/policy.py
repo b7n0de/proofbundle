@@ -264,9 +264,50 @@ def _huelle_pruefen(policy: dict) -> None:
 
 def _require_bool(obj: dict, key: str, where: str) -> None:
     """A present flag MUST be a real JSON boolean — a string like "false" is truthy and would
-    silently flip a fail-closed toggle (the schema declares these boolean)."""
-    if key in obj and not isinstance(obj[key], bool):
+    silently flip a fail-closed toggle (the schema declares these boolean). ``type()``, not
+    ``isinstance()``: ``isinstance`` also believes an object's own ``__class__``, and an object whose
+    ``__class__`` says ``bool`` passed this check and later decided the flag with its own ``__bool__``.
+    ``bool`` cannot be subclassed, so for every honest value the two tests agree."""
+    if key in obj and type(obj[key]) is not bool:
         raise PolicyError(f"{where}.{key} must be a boolean (true/false)")
+
+
+#: Every boolean field of a trust policy, by section (``None`` is the top level), in the words
+#: ``load_policy`` names them. The evaluators check these with the loader's own ``_require_bool`` at
+#: entry (:func:`_check_bool_fields`), so a policy dict handed straight to ``evaluate_policy`` or
+#: ``evaluate_decision_policy`` is judged by the rule ``load_policy`` applies. A contract test holds this
+#: table equal to the set of fields ``load_policy`` refuses as "must be a boolean".
+_BOOL_FIELDS: tuple = (
+    (None, ("deploymentReady", "requiresIdentityOverlay")),
+    ("signature", ("require_expected_signer",)),
+    ("merkle", ("require_authenticated_root",)),
+    ("sd_jwt", ("require_key_binding_when_cnf_present", "require_nonce")),
+    ("status", ("reject_self_issued",)),
+    ("assurance", ("reject_self_attested_without_prereg",)),
+    ("anchors", ("allow_pending",)),
+    ("relations", ("reject_superseded", "reject_retracted")),
+    ("decision_receipt", _DECISION_BOOL_KEYS),
+)
+
+
+def _check_bool_fields(policy: dict) -> None:
+    """Refuse a policy whose boolean field is not a bool, with the message ``load_policy`` gives.
+
+    THE DEFECT, measured on the library path (``verify_decision_receipt(policy=<dict>)`` and
+    ``evaluate_policy`` without ``load_policy``): the evaluators read these fields by their truth or
+    with ``is True``. ``decision_receipt.allow_raw_inputs: "false"`` and ``allow_pending: "false"``
+    were read as True and gave ``policy_ok``, ``ok`` and ``safeForAutomation`` all true;
+    ``requiresIdentityOverlay: "true"`` was read as False, so a raw template authorised a decision;
+    and ``require_*: 0`` switched a requirement off. ``load_policy`` refuses every one of these, and
+    :func:`_huelle_pruefen` left types to it, so the two paths disagreed. A section that is not a dict
+    is skipped here, as in :func:`_huelle_pruefen`: its type is ``load_policy``'s to report. Raises
+    :class:`PolicyError`."""
+    for section, keys in _BOOL_FIELDS:
+        obj = policy if section is None else policy.get(section)
+        if not isinstance(obj, dict):
+            continue
+        for key in keys:
+            _require_bool(obj, key, "trust policy" if section is None else section)
 
 
 def _require_str_or_null(obj: dict, key: str, where: str) -> None:
@@ -618,6 +659,7 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
     try:
         _huelle_pruefen(policy)
+        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
     except PolicyError as exc:
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
@@ -721,22 +763,27 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         errors.append("policy requires traceContext but it is absent")
 
     # privacy: allow_raw_inputs defaults FALSE — a receipt carrying raw inputs is rejected unless opted in.
-    if not section.get("allow_raw_inputs"):
+    # An opt-in counts only as the exact True (a non-bool is refused at entry by _check_bool_fields; this
+    # read stays exact so the permissive side can never be reached by truthiness).
+    if section.get("allow_raw_inputs") is not True:
         _praw = predicate.get("privacy")
         priv = _praw if isinstance(_praw, dict) else {}
         if priv.get("rawInputsIncluded") is True:
             errors.append("privacy.rawInputsIncluded=true but the policy does not allow raw inputs (allow_raw_inputs)")
 
     if section.get("require_external_anchor"):
-        allow_pending = bool(section.get("allow_pending"))
+        allow_pending = section.get("allow_pending") is True
         # Anchors are DETACHED (Fix 2): the real anchor verification ran in verify_decision_receipt and its
         # status is passed in as anchor_status. A PASS (a full verifying anchor) always satisfies; a
         # pending/inclusion-only anchor (WARN) satisfies ONLY when allow_pending is set (default false —
         # pending is the ABSENCE of a time anchor, not a weaker one). SKIP (no anchors) and FAIL never satisfy.
-        satisfied = anchor_status == "PASS" or (allow_pending and anchor_status == "WARN")
+        # A plain str only: `anchor_status == "PASS"` ran the caller's own __eq__, and an object answering
+        # True satisfied the requirement (measured). Anything else counts as no anchor status at all.
+        _status = anchor_status if type(anchor_status) is str else None
+        satisfied = _status == "PASS" or (allow_pending and _status == "WARN")
         if not satisfied:
             errors.append(
-                f"policy requires an external anchor but none satisfies it (anchor status: {anchor_status or 'none'}"
+                f"policy requires an external anchor but none satisfies it (anchor status: {_status or 'none'}"
                 + ("" if allow_pending else "; pending excluded, set allow_pending to accept a pending anchor") + ")")
 
     policy_ok = (not errors) and (signer_trusted is not False)
@@ -784,6 +831,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # diese Flaeche liefert Verdikte.
     try:
         _huelle_pruefen(policy)
+        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
     except PolicyError as exc:
         grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {exc}"
         return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
@@ -795,9 +843,18 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     # A policy is NEVER evaluated on unverified bytes (verify-lens L2): enforce the module invariant
     # HERE, not only in the CLI caller, so any public-API consumer of evaluate_policy is safe too.
-    if not getattr(result, "ok", False):
-        return {"policy_ok": None, "checks": [],
-                "reason": "crypto verification did not pass — policy not evaluated"}
+    # Crypto passed only when every check's ok and result.ok are the exact True (bundle._checks_passed,
+    # the rule root_authenticity_summary uses too). `result.ok` alone folded the checks by their truth, so
+    # a caller-built Check("root-authenticity", "false") passed this gate and then satisfied
+    # require_authenticated_root, require_key_binding_when_cnf_present, require_nonce and expected_vct.
+    from .bundle import _checks_passed  # noqa: PLC0415 - local import, as the rest of this module's peers
+    crypto_passed, not_bool = _checks_passed(result)
+    if not crypto_passed:
+        reason = "crypto verification did not pass — policy not evaluated"
+        if not_bool:
+            reason += (f" (not a bool: {', '.join(not_bool)}; a crypto verdict counts only as the exact "
+                       "True)")
+        return {"policy_ok": None, "checks": [], "reason": reason}
 
     sig = _as_dict(bundle.get("signature"))
 
@@ -938,7 +995,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     trusted_roots = _as_list(mk_pol.get("trusted_roots"))
     if require_auth_root or trusted_roots:
         ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
-        via_expected = ra_check is not None and ra_check.ok
+        via_expected = ra_check is not None and ra_check.ok is True   # exact, as the crypto gate above
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
             stated_root = decode_b64(stated_root_b64) if isinstance(stated_root_b64, str) else b""
@@ -980,8 +1037,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # authoritative when present.
         kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
         if kb_check is not None:
-            add("policy:key_binding_present", kb_check.ok,
-                "key binding verified" if kb_check.ok else f"key binding failed: {kb_check.detail}")
+            add("policy:key_binding_present", kb_check.ok is True,
+                "key binding verified" if kb_check.ok is True else f"key binding failed: {kb_check.detail}")
         elif kb is not None and kb.get("present"):
             # a KB-shaped segment IS attached but no crypto verdict exists for it (no cnf AND no issuer
             # key → sd-jwt-key-binding was never run). An UNVERIFIED KB is not an acceptable "key
@@ -1000,7 +1057,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # PRESENCE of a nonce in a verified KB-JWT; binding the nonce VALUE to this transaction still
         # requires --nonce (RFC 9901 challenge, exactly like --aud) — see docs/TRUST_ANCHORS.md.
         kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
-        verified_nonce = bool(kb_check is not None and kb_check.ok and kb and kb.get("nonce"))
+        verified_nonce = bool(kb_check is not None and kb_check.ok is True and kb and kb.get("nonce"))
         add("policy:nonce_present", verified_nonce,
             "verified KB-JWT carries a nonce" if verified_nonce
             else "policy requires a nonce from a VERIFIED key binding, but none is present "
@@ -1016,7 +1073,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     expected_vct = sdj.get("expected_vct")
     if expected_vct is not None:
         sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
-        if sig_check is None or not sig_check.ok:
+        if sig_check is None or sig_check.ok is not True:
             add("policy:expected_vct", False,
                 "policy requires a specific vct but the SD-JWT issuer signature was never verified "
                 "(fail-closed: an unverified vct claim proves nothing — supply "
@@ -1217,7 +1274,8 @@ def _attributes_to_nobody(policy: dict) -> bool:
     under such a policy proves integrity by an UNKNOWN party — 'attribution to nobody'
     (docs/TRUST_ANCHORS.md's first row)."""
     has_issuers = bool(policy.get("allowed_issuers"))
-    has_require = bool(_as_dict(policy.get("signature")).get("require_expected_signer"))
+    # Exact True only: bool("false") counted a string as a signer pin and suppressed this warning.
+    has_require = _as_dict(policy.get("signature")).get("require_expected_signer") is True
     has_dm = bool(_as_dict(policy.get("decision_receipt")).get("trusted_decision_makers"))
     return not (has_issuers or has_require or has_dm)
 
@@ -1329,6 +1387,12 @@ def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     pins = explain_policy(policy)
     errors: list = []
     warnings = policy_warnings(policy)
+    # explain_policy reads the flags by their truth, so a string "false" counted as a pin and a policy whose
+    # only pin was {"require_nonce": "false"} linted ok. The loader's rule and message make that a lint error.
+    try:
+        _check_bool_fields(policy)
+    except PolicyError as exc:
+        errors.append(str(exc))
     if not pins:
         errors.append(
             "policy pins nothing (only schema/policy_id): every verify would report POLICY: OK "

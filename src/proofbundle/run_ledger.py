@@ -19,7 +19,7 @@ from typing import Any
 
 from ._statement_payload import load_statement_strict
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 RUN_LEDGER_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/run-ledger/v0.1"
 RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
@@ -246,7 +246,14 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:
+    """Sign a Run Ledger as a DSSE-signed in-toto Statement; an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:
