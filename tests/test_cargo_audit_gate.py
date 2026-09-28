@@ -680,6 +680,46 @@ class C3TheWorktreeIsTheFetchedCommit(unittest.TestCase):
             datei.symlink_to(ziel)
         self._refused(ersetzen, "worktree")
 
+    # The maintainer's rule of 28 September 2026: git status --porcelain --untracked-files=all is empty.
+
+    def test_c3_a_mode_change_git_status_reports_ends_the_gate_with_2(self) -> None:
+        # The bytes stay, so the content comparison passes; git status reports the mode.
+        self._refused(lambda db: (db / "README.md").chmod(0o755), "git status")
+
+    def test_c3_an_edit_an_index_flag_hides_from_git_status_ends_the_gate_with_2(self) -> None:
+        # skip-worktree tells git status to trust the index; the content comparison does not.
+        def verbergen(db: Path) -> None:
+            datei = db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md"
+            _git(db, "update-index", "--skip-worktree", "crates/curve25519-dalek/RUSTSEC-2024-0344.md")
+            datei.write_text("x\n", encoding="utf-8")
+            self.assertEqual(_git(db, "status", "--porcelain", "--untracked-files=all"), "",
+                             "the flag must hide the edit from git status")
+        self._refused(verbergen, "differ from commit")
+
+    def _a_command_in_the_config_is_refused_and_not_run(self, setzen) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = _database_with_an_advisory(Path(tmp))
+            spur = Path(tmp) / "ran"
+            setzen(db, f"touch {spur}")
+            # The stat data changes, so a git status would hash the file again, through a clean filter.
+            datei = db / "README.md"
+            os.utime(datei, (time.time() - 7200,) * 2)
+            with self.assertRaises(g.GateError) as fall:
+                self._state(db)
+            self.assertIn("would run a command", str(fall.exception))
+            self.assertFalse(spur.exists(), "the gate ran a command the database's config names")
+
+    def test_c3_a_clean_filter_in_the_databases_config_is_refused_and_not_run(self) -> None:
+        def setzen(db: Path, befehl: str) -> None:
+            _git(db, "config", "filter.pb.clean", f"{befehl}; cat")
+            (db / ".git" / "info").mkdir(exist_ok=True)
+            (db / ".git" / "info" / "attributes").write_text("* filter=pb\n", encoding="utf-8")
+        self._a_command_in_the_config_is_refused_and_not_run(setzen)
+
+    def test_c3_a_file_system_monitor_in_the_databases_config_is_refused_and_not_run(self) -> None:
+        self._a_command_in_the_config_is_refused_and_not_run(
+            lambda db, befehl: _git(db, "config", "core.fsmonitor", befehl))
+
 
 @unittest.skipUnless(_cargo_audit_ready(), _WHY_NOT_READY)
 class C3AgainstTheRealTool(unittest.TestCase):
