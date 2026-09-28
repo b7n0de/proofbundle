@@ -21,6 +21,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+from .canonical import _bytes_von
+
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
            "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
 
@@ -153,9 +155,13 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     (``DistinctPointsAreNotDistinctParties``). That is one party holding several keys, which any party
     can do by generating a second key; no signature reveals it, so a count of distinct keys is never a
     count of distinct parties."""
-    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+    # Read by what the key stores (round 12, `canonical._bytes_von`): `len()` and `bytes()` of a
+    # `bytes` subclass run its own `__len__` and `__bytes__`, and the verify below would then read
+    # another key than the one this rule judged.
+    public_key = _bytes_von(public_key)
+    if public_key is None or len(public_key) != 32:
         return "malformed"
-    y = int.from_bytes(bytes(public_key), "little") & _ED25519_Y_MASK   # strip the x sign bit
+    y = int.from_bytes(public_key, "little") & _ED25519_Y_MASK   # strip the x sign bit
     if y >= _ED25519_P:
         return "non-canonical"
     if y in _LOW_ORDER_ED25519_Y:
@@ -169,7 +175,11 @@ def verify_ed25519_pinned(public_key: bytes, signature: bytes, message: bytes) -
     never-raise contract. Every verify path whose key is a trust anchor supplied from outside the
     signed object goes through here; the in-band key of a bundle, whose trust comes from a policy pin,
     keeps the plain SPEC §4a check."""
-    if ed25519_trust_anchor_weakness(public_key) is not None:
+    # ONE READING (round 12): the key this rule judges is the key the signature is checked under. At
+    # cd5d39f4 both read the caller's object, and a `bytes` subclass whose own `__bytes__` answered a
+    # sound key to the rule and the identity point to the check passed the rule with a low-order key.
+    public_key = _bytes_von(public_key)
+    if public_key is None or ed25519_trust_anchor_weakness(public_key) is not None:
         return False
     return verify_ed25519(public_key, signature, message)
 
@@ -181,8 +191,12 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     the 64 byte raw signature. Any malformed input returns False rather than
     raising, so callers get a boolean per check.
     """
-    if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
-            or not isinstance(message, (bytes, bytearray))):
+    # Each input is read once, by what it stores (round 12, `canonical._bytes_von`): a `bytes` or
+    # `bytearray` as plain `bytes`, anything else malformed. `bytes(x)` and `len(x)` of a subclass run
+    # its own `__bytes__` and `__len__`, and the length checked below and the bytes verified could
+    # then be two readings.
+    public_key, signature, message = _bytes_von(public_key), _bytes_von(signature), _bytes_von(message)
+    if public_key is None or signature is None or message is None:
         return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
         # adversarial re-audit: ``message`` was previously unguarded — a non-bytes ``message`` (None) reached
         # cryptography's .verify(sig, data) and raised a raw TypeError that the (InvalidSignature, ValueError)
@@ -190,12 +204,9 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     if len(public_key) != 32 or len(signature) != 64:
         return False
     try:
-        # CB-01 (RE-GATE never-raise): the isinstance guard admits a bytearray, but
-        # Ed25519PublicKey.from_public_bytes / .verify require exact ``bytes`` and raise a raw TypeError on a
-        # bytearray — which escaped every DSSE verify_* entrypoint (decision/outcome/…) as an uncaught crash,
-        # defeating their never-raise contract. Coerce to bytes so a VALID bytearray key/sig VERIFIES
-        # (correct) rather than crashing; mirrors verify_ecdsa_p256, which already coerces.
-        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))
+        # CB-01 (RE-GATE never-raise): a bytearray key or signature verifies as the bytes it holds; the
+        # plain copy above is exact `bytes`, which Ed25519PublicKey.from_public_bytes / .verify require.
+        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, message)
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
@@ -218,19 +229,20 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
     Both spellings of a signature verify, ``(r, s)`` and ``(r, n - s)``; see
     :func:`canonical_es256_signature` for why that stays so and what an identity is formed over.
     """
-    if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
-            or not isinstance(message, (bytes, bytearray))):
+    # One reading by what each input stores, as in `verify_ed25519` (round 12).
+    public_key, signature, message = _bytes_von(public_key), _bytes_von(signature), _bytes_von(message)
+    if public_key is None or signature is None or message is None:
         return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
         # adversarial re-audit: ``message`` guard mirrors verify_ed25519 — a non-bytes ``message`` reached
         # pub.verify(sig, data) and raised a raw TypeError the (InvalidSignature, ValueError) except missed.
-    if len(public_key) != 65 or bytes(public_key[:1]) != b"\x04" or len(signature) != 64:
+    if len(public_key) != 65 or public_key[:1] != b"\x04" or len(signature) != 64:
         return False   # SEC1 uncompressed only (0x04 prefix) — compressed/hybrid points are rejected
     try:
-        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes(public_key))
-        r = int.from_bytes(bytes(signature[:32]), "big")
-        s = int.from_bytes(bytes(signature[32:]), "big")
+        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_key)
+        r = int.from_bytes(signature[:32], "big")
+        s = int.from_bytes(signature[32:], "big")
         der_sig = encode_dss_signature(r, s)
-        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))
+        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False

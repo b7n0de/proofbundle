@@ -120,7 +120,20 @@ def emit_bundle(
     for every verifier that hashes the bytes it gets (finding D1, measured on f536af50). An identity
     of the bundle is computed over the canonical low-s form instead
     (:func:`proofbundle.anchors.receipt_canonical_root`).
+
+    Each input is read once, by what it holds (round 12): the payload and every prior leaf as the bytes
+    they store (so the bytes signed, hashed into the tree and written are one reading, not three calls
+    of a `bytes` subclass's own buffer; a ``memoryview`` as the bytes it views, as the leaf hash read it
+    before), the prior leaves through the base iteration, and a dict ``sd_jwt_vc`` as the plain copy of
+    what it stores, which is what the bundle carries.
     """
+    from .canonical import _folge_von, _plain_for_jcs, _puffer_von  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    if _puffer_von(payload) is not None:
+        payload = _puffer_von(payload)
+    prior_leaves = [_puffer_von(p) if _puffer_von(p) is not None else p for p in _folge_von(prior_leaves)]
+    if sd_jwt_vc is not None and issubclass(type(sd_jwt_vc), dict):
+        sd_jwt_vc = _plain_for_jcs(sd_jwt_vc, lambda text: BundleFormatError(f"sd_jwt_vc: {text}"))
     leaves = list(prior_leaves) + [payload]
     index = len(leaves) - 1
     root = merkle.merkle_tree_hash(leaves)

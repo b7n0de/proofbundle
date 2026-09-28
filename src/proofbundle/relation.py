@@ -30,8 +30,9 @@ import re
 from typing import Any
 
 from .budget import render_keys_safe
+from .canonical import _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
@@ -60,7 +61,10 @@ LINEAGE_DECLARED_UNRESOLVED = "DECLARED_UNRESOLVED"
 LINEAGE_FAIL = "FAIL"
 LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 
-_RFC3339_Z = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
+# \A..\Z (not ^..$): $ matches before a trailing newline. [0-9], not \d: in a str pattern \d is every Unicode
+# decimal digit, so an Arabic-Indic year or Devanagari seconds passed here while the Rust verifier
+# (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
+_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")
@@ -108,6 +112,10 @@ def validate_relationships(value: Any) -> list[str]:
     ``try/except`` (a caller that treats "no exception" as "valid" reports a malformed
     block as valid). Use :func:`require_valid_relationships` for the raising form.
     """
+    try:
+        value = _pruefkopie(value)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"value is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(value, list):
         return ["relationships must be a JSON array of edge objects"]
@@ -161,6 +169,63 @@ def require_valid_relationships(value: Any) -> None:
 #      "payload_malformed": str | None}      # L4-01: the strict parser's reason when the SIGNED payload
 #                                            #   is not a well-formed statement (hard FAIL at any hop)
 # keyed by its content-root hex in `related`.
+
+
+def _read_attached_entries(related: Any) -> list[tuple[str, Any, str | None]]:
+    """The entries of a ``related`` map, each read on its own: ``(label, target, reason)``.
+
+    ``label`` is the characters of the entry's key (`_zeichen_von`) and ``target`` the plain copy of what
+    the entry stores (`_pruefkopie`), with ``reason`` None. An entry that cannot be read so, because its
+    value is no JSON value or its key is no string, is ``(label, _UNREADABLE, reason)``: it is kept and
+    named, never dropped, and it changes nothing about the entries beside it. A key that is no string is
+    labelled ``"(no str key)"``, which no content root can equal, so no edge can name it. A value that is
+    no dict holds no entries. The map is read through ``dict.items`` of the base type, so no method of
+    the caller's map, key or value runs.
+
+    Codex review of PR 300 (thread 4121924153, P1), measured on the source of 3c5755c0: the map was
+    read as ONE plain copy, and a map holding one value that is no JSON value was replaced by an empty
+    map. One unreadable sibling such as ``{"irrelevant": object()}`` then hid a verified retraction from
+    ``supersededByAttached``, so ``reject_superseded`` raised nothing, and turned a direct edge to an
+    attached target that does not verify from FAIL into DECLARED_UNRESOLVED."""
+    if not issubclass(type(related), dict):
+        return []
+    entries: list[tuple[str, Any, str | None]] = []
+    for key, value in list(dict.items(related)):
+        label = _zeichen_von(key)
+        if label is None:
+            entries.append(("(no str key)", _UNREADABLE,
+                            f"its key is a value of type {type_name(key)}, not a string"))
+            continue
+        try:
+            entries.append((label, _pruefkopie(value), None))
+        except ValueError as exc:
+            entries.append((label, _UNREADABLE, str(exc)))
+    return entries
+
+
+def _attached_targets(entries: list[tuple[str, Any, str | None]]) -> dict[str, Any]:
+    """The targets an edge can name, by label, from `_read_attached_entries`. An unreadable entry stays
+    `_UNREADABLE`, so an edge that names it FAILs as an attached target that is malformed. Two entries
+    whose keys hold the same characters are one JSON key, and which of the two the caller meant is
+    unknown, so that label holds `_UNREADABLE` as well: it never resolves an edge."""
+    targets: dict[str, Any] = {}
+    for label, target, _reason in entries:
+        targets[label] = _UNREADABLE if label in targets else target
+    return targets
+
+
+def _carries_attached_entries(related: Any) -> bool:
+    """Whether ``related`` holds any attached entry, read from what the map stores (``dict.__len__`` of
+    the base type), never through the caller's own ``__len__`` or ``__bool__``. A value that is no dict
+    holds none.
+
+    The decision and outcome verifiers asked ``if "relationships" in predicate or related``: the
+    caller's map answered through its own ``__bool__``. Measured 2026-09-28 on main 86671552 and on
+    D4: a ``dict`` subclass whose ``__len__`` is 0, holding a verified retraction of the subject,
+    skipped the lineage block, so ``reject_superseded`` never saw the retraction and both verifiers
+    answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False."""
+    return issubclass(type(related), dict) and dict.__len__(related) > 0
+
 
 def _edge_target_hex(edge: dict) -> str | None:
     tgt = edge.get("targetReceiptDigest")
@@ -251,12 +316,20 @@ def verify_relationship_edges(
     unresolved; else VERIFIED (>=1 edge verified); NOT_EVALUATED when no profile present.
     The aggregate NEVER upgrades any other verdict — wiring into cryptoValid is forbidden.
     """
-    related = related if isinstance(related, dict) else {}
+    # One reading of the attached targets, by what they store (round 12): the plain copy, so the
+    # targets judged below are not answered by a dict subclass's own `get` and `__contains__`. Each
+    # entry is read on its own (`_read_attached_entries`, Codex review of PR 300, thread 4121924153):
+    # an entry that cannot be read is kept as `_UNREADABLE`, an edge that names it FAILs, and
+    # `successor_warning` names it, but it never clears the entries beside it. A `related` that is no
+    # dict holds no targets: every edge stays unresolved, never verified.
+    attached_entries = _read_attached_entries(related)
+    related = _attached_targets(attached_entries)
     # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
     # value ([1]/{1:2}/{1,2}/bytearray) crashed the ``{subject_hex}`` seed in the resolved-edge branch
     # (TypeError: unhashable type). A non-str hex can never legitimately equal a str target_hex, so
     # None is the correct fail-closed coercion (self-reference check + cycle seed both stay honest).
-    subject_hex = subject_hex if isinstance(subject_hex, str) else None
+    # A `str` subclass is read as its characters (round 12).
+    subject_hex = _zeichen_von(subject_hex)
     # DER SCHLUESSEL WIRD HIER GESETZT, NICHT BEIM AUFRUFER (deep gate Lauf 7, Fund L4-600-02, P1).
     #
     # WAS WAR: `supersededByAttached` fuellten die AUFRUFER — decision.py:682 und outcome.py:673 taten
@@ -280,7 +353,7 @@ def verify_relationship_edges(
     #
     # Die Aufrufer, die ihn heute selbst setzen, ueberschreiben ihn mit demselben Wert — ein
     # No-Op. Ihre Zeilen zu entfernen ist die Nacharbeit, nicht die Bedingung dieser Haertung.
-    _sba = successor_warning(None, related, subject_hex=subject_hex)
+    _sba = _successor_warning_over(attached_entries, subject_hex)
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": [],
                 "supersededByAttached": _sba}
@@ -307,6 +380,14 @@ def verify_relationship_edges(
                            f"(fail-closed): {exc}"],
                 "supersededByAttached": _sba}
 
+    # The edges are read once as well, into the plain copy of what they store (round 12); the
+    # validator and the loop below read that copy.
+    try:
+        relationships = _pruefkopie(relationships)
+    except ValueError as exc:
+        return {"lineage": LINEAGE_FAIL, "edges": [],
+                "errors": [f"relation:malformed:relationships are not a JSON value: {exc}"],
+                "supersededByAttached": _sba}
     structural = validate_relationships(relationships)
     if structural:
         return {"lineage": LINEAGE_FAIL, "edges": [],
@@ -327,7 +408,7 @@ def verify_relationship_edges(
         if subject_hex is not None and target_hex == subject_hex:
             entry["resolution"] = LINEAGE_FAIL
             entry["errors"].append("relation:cycle: edge targets the receipt itself")
-        elif target_hex in related:
+        elif target_hex is not None and target_hex in related:
             target = related[target_hex]
             if not isinstance(target, dict):
                 entry["resolution"] = LINEAGE_FAIL
@@ -490,8 +571,17 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     VERIFIED receipt declares a successor relation (supersedes/revises/corrects) OR a
     retraction (retracts) whose target is THIS receipt, the receipt under verification
     is superseded/retracted by attached material (retracts-then-use, prompt §7.6 —
-    the retraction never breaks the target's crypto, it is a declared statement about it)."""
-    related = related if isinstance(related, dict) else {}
+    the retraction never breaks the target's crypto, it is a declared statement about it).
+
+    Each entry of ``related`` is read on its own (`_read_attached_entries`): an entry that cannot be
+    read is named with ``relation:malformed_successor`` unless a readable entry declares such a
+    relation, and it never hides the entries beside it."""
+    return _successor_warning_over(_read_attached_entries(related), subject_hex)
+
+
+def _successor_warning_over(entries: list[tuple[str, Any, str | None]], subject_hex: Any) -> str | None:
+    """`successor_warning` over the entries `_read_attached_entries` read. `verify_relationship_edges`
+    passes the entries it resolves its edges against, so the caller's map is read once there."""
     if subject_hex is None:
         return None
     # OWNER-ANORDNUNG 2026-09-08 (Karte OA-dccd141d78), deep gate Lauf 5 Fund L4-600-01 (P1).
@@ -526,7 +616,23 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     # Sprachen, zwei Antworten, und der Unterschied haette nach einem Fund ausgesehen, der keiner ist.
     unlesbar: str | None = None
     unlesbar_hex: str | None = None
-    for other_hex, other in related.items():
+    for other_hex, other, reason in entries:
+        if other is _UNREADABLE:
+            # An entry that cannot be read (Codex review of PR 300, thread 4121924153): whether it
+            # declares a retraction or supersession over this receipt is unknown, so it is named and
+            # never skipped, and it is named only when no readable entry declares one. Only the relying
+            # party's own object can hold such an entry (the `--with-related` resolver builds every entry
+            # from a parsed file), so no third party can use it to mark a receipt. The smallest label,
+            # then the smallest text, is chosen, so the answer does not depend on the order of the map.
+            shown = other_hex if len(other_hex) <= 12 else other_hex[:12] + "…"
+            text = (f"relation:malformed_successor ({CODE_RELATION_MALFORMED_SUCCESSOR}): attached "
+                    f"entry {shown} is not a JSON value this verifier can read ({str(reason)[:80]}); a "
+                    "retraction or supersession declared in it cannot be evaluated and is therefore NOT "
+                    "ruled out (fail-closed — an unreadable statement about this receipt is never silence)")
+            if unlesbar_hex is None or unlesbar is None or (other_hex, text) < (unlesbar_hex, unlesbar):
+                unlesbar_hex = other_hex
+                unlesbar = text
+            continue
         if not isinstance(other, dict):
             continue
         # EIN UNLESBARER PAYLOAD IST NICHT DASSELBE WIE EINE UNGUELTIGE SIGNATUR (Lauf 8, beim
@@ -642,6 +748,50 @@ def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:
     return len(ra) == 32 and ra == rb
 
 
+class _Unreadable:
+    """What a lineage result stores where it holds no JSON scalar. It is neither text nor None, so every
+    rule, which reads a field by its exact type, finds it meets nothing and grants nothing, and asking
+    its type runs only this class's code. `_read_attached_entries` keeps it for an attached entry that
+    cannot be read: it is no dict, so an edge that names it FAILs, and `successor_warning` names it."""
+
+    __slots__ = ()
+
+
+_UNREADABLE = _Unreadable()
+
+
+def _stored_scalar(value: Any) -> Any:
+    """A field of a lineage result by what it stores: an exact JSON scalar as it is, a ``str`` subclass
+    as the text it holds (as the plain copy reads it), anything else `_UNREADABLE`."""
+    typ = type(value)
+    if value is None or typ is str or typ is bool or typ is int or typ is float:
+        return value
+    if issubclass(typ, str):
+        return str.__str__(value)
+    return _UNREADABLE
+
+
+def _lineage_as_stored(value: Any) -> dict:
+    """A lineage result that has no plain copy, read from what it stores and running no code of the
+    caller: its items under keys of type ``str`` itself (`_membership.stored_str_items`), each field by
+    `_stored_scalar`, and its ``edges``, when they are a list, through ``list.copy`` of the base type,
+    each edge that is a dict read the same way. A value that is not a dict is ``{}``, as the rules have
+    always read it.
+
+    Found in review of the 6.2.0 chain (PR 300 carrying PR 291): the fallback that judges such a
+    result as it stands handed on the caller's object, and the rules then read it through its own
+    ``get``, so a dict subclass holding one value that is no JSON value chose the edges the rules
+    judged, and a stored field that is no JSON value reached `_keys_equal`, whose ``isinstance`` reads
+    the value's own ``__class__``."""
+    gespeichert = stored_str_items(value)
+    oben = {k: _stored_scalar(v) for k, v in gespeichert.items() if k != "edges"}
+    kanten: Any = gespeichert.get("edges")
+    if issubclass(type(kanten), list):
+        oben["edges"] = [{k: _stored_scalar(v) for k, v in stored_str_items(e).items()}
+                         for e in list.copy(kanten) if issubclass(type(e), dict)]
+    return oben
+
+
 def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                               successor_key_b64: str | None) -> list[dict]:
     """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed
@@ -663,6 +813,39 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     self-assertion) — same policy code, different subject. ``reject_retracted`` is the retracts sibling,
     standalone-only. Both extensions live in ``relation_statement`` and are NOT evaluated here."""
     out: list[dict] = []
+    # The three inputs are read once, by what they hold (round 12): the section and the lineage result
+    # as the plain copies of what they store (a `str` subclass `resolution` answered "VERIFIED" through
+    # its own `__ne__`), the successor key as its characters. A section that is no dict reads as absent;
+    # a dict section holding a value that is no JSON value is refused (below). A lineage result holding
+    # a value that is no JSON value is judged as it stands (PR 291,
+    # which lands before this change): every rule below reads an edge's fields by their exact type, so
+    # such a value fails a rule that is set and grants nothing, where reading the whole result as
+    # absent let the rule pass over it. "As it stands" is what it stores (`_lineage_as_stored`), never
+    # the caller's object: its own `get` would decide which edges the rules see.
+    try:
+        relations_section = _pruefkopie(relations_section)
+    except ValueError as exc:
+        # A dict section holding one value that is no JSON value is refused, as `evaluate_policy` and
+        # `evaluate_decision_policy` refuse such a policy (Codex review of PR 300, thread 4121924153, the
+        # neighbour on this verdict path). It was read as absent, so one unreadable entry dropped every
+        # rule the section sets, `reject_superseded` among them: measured on the source of 3c5755c0,
+        # `verify_outcome_receipt` reported `policy_ok` True over an attached retraction and
+        # `verify_relation_statement` over an attached supersession. A boolean flag that is no bool
+        # gets the loader's message, read from what the section stores.
+        if issubclass(type(relations_section), dict):
+            stored = stored_str_items(relations_section)
+            reason = next((f"relations.{flag} must be a boolean (true/false)"
+                           for flag in ("reject_superseded", "reject_retracted")
+                           if flag in stored and type(stored[flag]) is not bool),
+                          f"the relations section is not a JSON value: {exc}")
+            return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                     "message": f"relations policy section rejected before evaluation (fail-closed): {reason}"}]
+        relations_section = None
+    try:
+        lineage_result = _pruefkopie(lineage_result)
+    except ValueError:
+        lineage_result = _lineage_as_stored(lineage_result)
+    successor_key_b64 = _zeichen_von(successor_key_b64)
     if not isinstance(relations_section, dict):
         return out
     # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached

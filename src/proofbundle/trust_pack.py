@@ -31,6 +31,7 @@ from typing import Any, TypeGuard
 from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
+from .canonical import _eine_kopie, _pruefkopie
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
@@ -40,9 +41,14 @@ TRUST_PACK_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
-_RFC3339_Z = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-_SEMVER_0_1_X = re.compile(r"^0\.1\.\d+$")
+# The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for
+# `pattern`): `$` is the end of the input and `\d` is [0-9]. Under Python `re`, `$` also matches before a
+# final newline and `\d` matches every Unicode decimal digit, so these are written `\A..\Z` with [0-9]
+# (round 11, lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion` with a
+# trailing newline, and `expires`/`schemaVersion` with Arabic-Indic digits, validated as []).
+_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
+_SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
 
 _ROLE_NAMES = ("root", "evalIssuers", "decisionMakers", "outcomeExecutors", "outcomeReceivers",
               "timeAuthorities", "witnesses")
@@ -93,11 +99,11 @@ def _is_int(v: Any) -> TypeGuard[int]:
 def _parse_rfc3339_z(s: str) -> datetime:
     """Parse an RFC-3339 UTC 'Z' timestamp, tolerating optional fractional seconds of ANY length.
 
-    ``_RFC3339_Z`` accepts ``(\\.\\d+)?`` fractional seconds, but ``strptime`` with ``%S`` (no ``%f``) rejects
+    ``_RFC3339_Z`` accepts ``(\\.[0-9]+)?`` fractional seconds, but ``strptime`` with ``%S`` (no ``%f``) rejects
     them, and ``%f`` itself caps at 6 digits — so an ``expires`` like ``...T00:00:00.5Z`` (regex-valid) would
     raise and be read as EXPIRED (a false-closed availability bug). This parser splits off the fractional part
     and truncates it to microseconds (enough for an expiry comparison). Raises ``ValueError`` on a non-match."""
-    m = re.match(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?Z$", s)
+    m = re.match(r"\A([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]+))?Z\Z", s)
     if not m:
         raise ValueError(f"not an RFC-3339 UTC 'Z' timestamp: {s!r}")
     dt = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
@@ -118,6 +124,10 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
     ``strict`` currently adds no extra predicate-level required fields (the trust-pack predicate is small and
     fully required by default); it is kept for signature parity with the emit/verify entry points, where it
     additionally makes RFC-8785 canonicality fail-closed in ``verify_trust_pack`` (mirrors ``outcome.py``)."""
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -363,6 +373,7 @@ def _read_once(predicate: Any) -> Any:
 def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
     predicate = _read_once(predicate)
+    predicate = _eine_kopie(predicate, TrustPackError, "trust-pack predicate")   # one reading (round 12)
     errs = validate_trust_pack_predicate(predicate, strict=False)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
@@ -392,6 +403,7 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     require_switch(strict, "strict")
     from .signature import plain_text  # noqa: PLC0415
     predicate = _read_once(predicate)
+    predicate = _eine_kopie(predicate, TrustPackError, "trust-pack predicate")   # one reading (round 12)
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
@@ -530,6 +542,13 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # surface (mirrors decision/outcome — BudgetExceeded is a ProofBundleError the old narrow except
         # missed). The documented BundleFormatError raise on non-list signatures is now surfaced as the
         # fail-closed verdict + errors[] entry instead.
+        # ONE READING (round 11, class A, owner decision option A): the envelope is read once into its plain
+        # copy (`dsse._read_once`), and the payload, the signatures cap, the payloadType pin and both
+        # threshold loops below read that copy. At fa555f13 `signatures` was read through the caller's
+        # envelope for the cap and again for the loop: a dict subclass answering 20 000 entries from the
+        # second read on passed the cap of 512 with its stored three, and the loop checked 20 000
+        # signatures (2.0 s). This path still never calls `verify_envelope`.
+        envelope = dsse._read_once(envelope)
         body = dsse.load_payload(envelope)
         # Finding 15b: refuse an absurdly oversized payload BEFORE any JSON parsing/canonicalization work runs.
         DEFAULT_BUDGET.check("input_bytes", len(body))

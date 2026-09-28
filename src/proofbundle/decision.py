@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
+from .canonical import _eine_kopie, _pruefkopie, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
@@ -154,6 +155,10 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     strict=True enforces the strict-v0.1 requirements (notChecked / decisionChangeConditions / privacy present,
     policyBoundary.policyDigest present, and — when `validity` is present — audience+nonce).
     """
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -363,7 +368,18 @@ def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
     pinning, a DIFFERENT question from claim identity). Returns ``{content_root_ok, artifact_ok, detail}``;
     a check that was not requested is ``None``. WHO signed the evidence is a Trust-Policy question, not this."""
     from . import anchors as _anchors_mod  # noqa: PLC0415
+    from .canonical import _bytes_von  # noqa: PLC0415
     out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
+    # One reading of each input, by what it holds (round 12): the reference as its plain copy, the
+    # fetched blob as the bytes it stores.
+    gelesen: Any
+    try:
+        gelesen = _pruefkopie(ref)
+    except ValueError:
+        gelesen = None
+    ref = gelesen
+    if artifact_bytes is not None and _bytes_von(artifact_bytes) is not None:
+        artifact_bytes = _bytes_von(artifact_bytes)
     want = _as_dict(ref.get("digest")).get("sha256") if isinstance(ref, dict) else None
     if evidence_payload is not None:
         got = _anchors_mod.statement_content_root(evidence_payload).hex()
@@ -414,7 +430,7 @@ def _predicate_once(predicate):
     finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
     while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
     predicate validated and another signed. A value that cannot be read this way is refused."""
-    if not isinstance(predicate, dict):
+    if not issubclass(type(predicate), dict):   # its own type: `isinstance` reads `__class__`
         return predicate          # the validator's own refusal names a predicate that is no object
     from ._plain_value import plain_json  # noqa: PLC0415
     return plain_json(predicate, what="the decision predicate",
@@ -433,6 +449,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
     the subject a true commitment to the signed predicate."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
@@ -459,6 +476,7 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
     from . import dsse  # noqa: PLC0415
     require_switch(strict, "strict")
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=strict)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
@@ -582,12 +600,16 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # try and the except catches ProofBundleError, else an oversized/over-wide untrusted envelope raised a
         # raw uncaught BudgetExceeded DoS out of verify() (breaking never-raise + API/CLI parity — the CLI
         # already caught it via its ProofBundleError handler, the API did not).
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
             # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)  # EXACT bytes as signed — never re-serialize
         # Finding 15b: refuse an absurdly oversized payload before any JSON parsing/canonicalization work.
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
         # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
@@ -696,7 +718,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # caller-attached targets (`related`, offline — the CLI's --with-related). Computed ONLY over
         # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
         # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
-        if "relationships" in predicate or related:
+        # Whether targets are attached is read from what the map stores, never through the caller's own
+        # `__bool__` or `__len__` (`_carries_attached_entries`): a map that said it was empty skipped this
+        # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
+        from .relation import _carries_attached_entries  # noqa: PLC0415
+        if "relationships" in predicate or _carries_attached_entries(related):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
             from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
@@ -731,14 +757,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # audience MUST be a real JSON array: with a STRING value Python's `in` degrades to
             # SUBSTRING matching ("rp.example" in "rp.example" is True) — a wrong-TYPE audience
             # would satisfy the binding (found by the 3.1.3 regression corpus, fail-closed now).
+            # The expectation is compared by its CHARACTERS (round 12, lens run 11 O1's siblings):
+            # at cd5d39f4 `in` asked a `str` subclass's own `__eq__` for every element, and it answered
+            # True for another audience. An expectation that is no string never matches.
             _aud = _validity.get("audience")
-            r["audience_ok"] = isinstance(_aud, list) and expected_audience in _aud
+            _erwartet = _zeichen_von(expected_audience)
+            r["audience_ok"] = isinstance(_aud, list) and _erwartet is not None and _erwartet in _aud
             if not r["audience_ok"]:
                 r["errors"].append(
                     "audience mismatch or absent validity.audience — requested audience binding cannot be "
                     "enforced (cross-audience replay?, fail-closed)")
         if expected_nonce is not None:
-            r["nonce_ok"] = _validity.get("nonce") == expected_nonce
+            # By its characters as well (round 12): a `str` subclass's own `__eq__` answered True for
+            # another nonce at cd5d39f4.
+            _erwartet = _zeichen_von(expected_nonce)
+            r["nonce_ok"] = _erwartet is not None and _validity.get("nonce") == _erwartet
             if not r["nonce_ok"]:
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "

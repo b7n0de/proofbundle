@@ -26,6 +26,7 @@ import hashlib
 import re
 from typing import Any
 
+from .canonical import _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -59,6 +60,10 @@ def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     or anything other than EXACTLY ONE well-formed edge is an error."""
     from .relation import validate_relationships  # noqa: PLC0415
 
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -120,7 +125,7 @@ def _predicate_once(predicate):
     finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
     while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
     predicate validated and another signed. A value that cannot be read this way is refused."""
-    if not isinstance(predicate, dict):
+    if not issubclass(type(predicate), dict):   # its own type: `isinstance` reads `__class__`
         return predicate          # the validator's own refusal names a predicate that is no object
     from ._plain_value import plain_json  # noqa: PLC0415
     return plain_json(predicate, what="the relation-statement predicate",
@@ -133,6 +138,7 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
     is by DEFAULT a commitment to the predicate (sha256 over its RFC-8785 canonical form). A
     caller-supplied override is self-attested and NOT cross-checked (No-Overclaim)."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, RelationStatementError, "relation-statement predicate")   # one reading (round 12)
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
@@ -152,6 +158,7 @@ def emit_relation_statement(predicate: dict, signer, *, subject_name: str | None
     Fail-closed: an invalid predicate raises before signing."""
     from . import dsse  # noqa: PLC0415
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, RelationStatementError, "relation-statement predicate")   # one reading (round 12)
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
@@ -223,11 +230,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # malformed untrusted envelope yields a fail-closed verdict, never a raw uncaught BudgetExceeded (a
         # ProofBundleError sibling of BundleFormatError the old narrow except let escape) out of this
         # dict-returning verify surface (mirrors decision/outcome).
-        r["crypto_ok"] = bool(dsse.verify_envelope(
-            envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         # L4-01 (deep gate 2026-09-05): the ONE payload oracle shared with the --with-related resolver, so
         # "well-formed standalone" and "well-formed as an attached target" can never mean two things.
         # (input_bytes budget + strict parse + object check; canonicality is judged below, as before.)

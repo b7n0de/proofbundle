@@ -162,9 +162,11 @@ def _sd_jwt_bundle(vct: str) -> dict:
         n=100, model_id="m", dataset_id="d", issuer="placeholder", timestamp="2026-07-09T10:00:00Z",
         assurance_level="reproduced")
     plain = emit_eval_receipt(ev_claim, issuer)
-    issuer_field = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
-    compact = issue_sd_jwt({"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-                            "issuer": issuer_field}, issuer, root_b64=plain["merkle"]["root_b64"],
+    # The SD-JWT is a view of this signed claim: since D4 (PR 300) `issue_sd_jwt` refuses a claim that
+    # `decode_eval_claim` refuses, a dict of the five always-open fields among them (as in
+    # tests/test_trust_policy.py).
+    signed_claim = json.loads(base64.b64decode(plain["payload_b64"]))
+    compact = issue_sd_jwt(signed_claim, issuer, root_b64=plain["merkle"]["root_b64"],
                            exact_score="0.9",
                            holder_public_key=holder.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw),
                            vct=vct)
