@@ -431,6 +431,31 @@ def worktree_problem(db: Path, kopf: str) -> str:
     return ""
 
 
+#: Keys of the database's own git config under which `git status` runs a command: a clean filter, applied
+#: when it hashes a file whose stat data changed; a file-system monitor it asks for changes; and an include,
+#: which can bring either in from another file.
+_RUNS_A_COMMAND = re.compile(r"(filter|include|includeif)\..*|core\.fsmonitor", re.IGNORECASE)
+
+
+def status_problem(db: Path) -> str:
+    """'' when `git status --porcelain --untracked-files=all` reports nothing for the database's worktree;
+    otherwise its first line, or why it was not run. The rule the maintainer set for the worktree on
+    28 September 2026. It runs after `worktree_problem`, which compares by content and runs nothing the
+    database configures; git status reads the database's own config, so the gate first refuses a config
+    under which it would run a command, and switches the file-system monitor off for the call."""
+    eigene = [eintrag.split("\n", 1)[0] for eintrag in _git(db, "config", "--local", "--list", "-z").split("\0")
+              if eintrag]
+    befehl = [schluessel for schluessel in eigene if _RUNS_A_COMMAND.fullmatch(schluessel)]
+    if befehl:
+        return (f"its git config sets {befehl[0]}, under which git status would run a command; the gate does "
+                "not run it")
+    bericht = _git(db, "-c", "core.fsmonitor=false", "--no-optional-locks", f"--work-tree={db}", "status",
+                   "--porcelain", "--untracked-files=all")
+    if bericht.strip():
+        return f"git status --porcelain --untracked-files=all reports {bericht.splitlines()[0]!r}"
+    return ""
+
+
 def database_state(db: Path) -> str:
     """What the gate established about the advisory database `db`; a GateError when it cannot vouch for it.
 
@@ -438,7 +463,8 @@ def database_state(db: Path) -> str:
     (its first line the remote HEAD commit, two tabs and the URL), last written no longer ago than
     FETCH_AGE_BOUND and not ahead of this clock by more than _CLOCK_LEAD; have HEAD at the commit that
     fetch brought, so the marker speaks of this content; have a worktree that is exactly that commit, since
-    rustsec reads the advisories from the worktree (`worktree_problem`); and have that commit younger than
+    rustsec reads the advisories from the worktree (`worktree_problem`, by content) and of which git status
+    reports nothing (`status_problem`); and have that commit younger than
     COMMIT_AGE_BOUND by its committer time, the time rustsec judges."""
     if not db.is_dir():
         raise GateError(f"the advisory database {db} does not exist (the gate reads $CARGO_HOME/advisory-db, "
@@ -472,6 +498,10 @@ def database_state(db: Path) -> str:
     if abweichung:
         raise GateError(f"the worktree of the advisory database {db} is not the commit the last fetch brought: "
                         f"{abweichung}; cargo-audit would read those bytes, not the fetched ones")
+    abweichung = status_problem(db)
+    if abweichung:
+        raise GateError(f"the worktree of the advisory database {db} is not clean by git's own report: "
+                        f"{abweichung}")
     kopfzeilen = _git(db, "cat-file", "commit", kopf).split("\n\n", 1)[0].split("\n")
     committer = [z for z in kopfzeilen if z.startswith("committer ")]
     teile = committer[0].rsplit(" ", 2) if len(committer) == 1 else []
@@ -699,7 +729,8 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
     faelle = [
         # (name, lock, audit.toml text or None, .cargo/config.toml text or None, yanked check,
         #  exit codes that hold, texts the output must name, database: None for the fetched one,
-        #  "empty", "stale", "edited" or "missing" for one the case builds, or leaves out, in its directory)
+        #  "empty", "stale", "edited", "changed", "planted" or "missing" for one the case builds, or leaves out,
+        #  in its directory)
         ("a notice-class advisory fails the gate", _lock_with("personnummer", "0.1.0"), "", None, False,
          {1}, ["notice RUSTSEC-2020-0166"], None),
         ("the listed exception passes next to audit.toml", geliehen, "", None, False,
@@ -726,6 +757,10 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
          "missing"),
         ("C3: the fetched database with RUSTSEC-2024-0344 deleted from its worktree ends the gate with 2", curve,
          "", None, False, {2}, ["worktree"], "edited"),
+        ("C3: the fetched database with RUSTSEC-2024-0344 changed in its worktree ends the gate with 2", curve,
+         "", None, False, {2}, ["worktree"], "changed"),
+        ("C3: the fetched database with an untracked advisory in its worktree ends the gate with 2", curve,
+         "", None, False, {2}, ["worktree"], "planted"),
     ]
     fehler = 0
     for name, inhalt, toml_zusatz, config, yanked, erlaubt, muss_nennen, datenbank in faelle:
@@ -735,11 +770,23 @@ def self_test(directory: Path, cargo: str, no_fetch: bool, listed_lock: str | No
             db, holen_nicht = advisory_db_path(), no_fetch
             if datenbank is not None:
                 db, holen_nicht = ort / "advisory-db", True
-                if datenbank == "edited":
-                    # The review's case: the fetched database, refs and fetch marker kept, one advisory gone
-                    # from the worktree cargo-audit reads.
+                if datenbank in ("edited", "changed", "planted"):
+                    # The review's cases: the fetched database, refs and fetch marker kept, and its worktree,
+                    # the one cargo-audit reads, altered: one advisory gone, one advisory that no longer covers
+                    # 4.1.2 (its patched bound moved, which rustsec loads without complaint), or one advisory
+                    # git does not track.
                     shutil.copytree(advisory_db_path(), db, symlinks=True)
-                    (db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md").unlink()
+                    beratung = db / "crates" / "curve25519-dalek" / "RUSTSEC-2024-0344.md"
+                    if datenbank == "edited":
+                        beratung.unlink()
+                    elif datenbank == "changed":
+                        beratung.write_bytes(beratung.read_bytes().replace(b'patched = [">= 4.1.3"]',
+                                                                           b'patched = [">= 4.1.2"]'))
+                    else:
+                        (db / "crates" / "pb-self-test-planted").mkdir()
+                        (db / "crates" / "pb-self-test-planted" / "RUSTSEC-2099-0001.md").write_bytes(
+                            beratung.read_bytes().replace(b"RUSTSEC-2024-0344", b"RUSTSEC-2099-0001")
+                            .replace(b"package = \"curve25519-dalek\"", b"package = \"pb-self-test-planted\""))
                 elif datenbank != "missing":
                     _database_without_advisories(ort, FETCH_AGE_BOUND + 600 if datenbank == "stale" else 0)
             (ort / "Cargo.lock").write_text(inhalt, encoding="utf-8")
