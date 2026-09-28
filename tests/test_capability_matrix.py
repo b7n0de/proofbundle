@@ -195,6 +195,34 @@ class MainOnlyIsAbsentFromEveryReleaseArtifact(unittest.TestCase):
             _measure(dict(_X, cli=["x"]), tag={_X_SRC, "cli:x"}, main={_X_SRC, "cli:x"})
 
 
+class PlannedIsMeasuredAtTheRecordedBranchHead(unittest.TestCase):
+    """PROPERTY (the vocabulary in measure.py): planned is absent from the tag and from main and present on
+    the named branch, measured at the head the row records. That a branch of the name exists says nothing
+    about what its head carries. A branch head without the capability, a capability the release carries
+    and main lacks, and one present nowhere have no main cell in the vocabulary: the measurement stops."""
+
+    def test_a_branch_head_that_carries_the_capability_is_planned_at_that_head(self) -> None:
+        # The catch proof: this fixture reaches the planned rule, so a stop below is the branch check.
+        z = _measure(dict(_X, cli=["x"], branch="feat/x"), branch={_X_SRC, "cli:x"})
+        self.assertEqual((z["release"]["status"], z["main"]["status"]), ("absent", "planned"))
+        self.assertEqual(z["main"]["branch"], {"name": "feat/x", "head": _HEAD})
+        self.assertEqual(z["channel"], "branch feat/x only")
+
+    def test_a_branch_head_without_the_capability_stops_the_measurement(self) -> None:
+        for fall, zweig in (("module missing", {"cli:x"}), ("subcommand missing", {_X_SRC}), ("empty", set())):
+            with self.subTest(fall), self.assertRaisesRegex(SystemExit, rf"^x: branch feat/x at {_HEAD} "):
+                _measure(dict(_X, cli=["x"], branch="feat/x"), branch=zweig)
+
+    def test_a_capability_the_release_carries_and_main_lacks_is_not_planned(self) -> None:
+        with self.assertRaisesRegex(SystemExit, r"^x: present in v6\.1\.0, absent from main "):
+            _measure(dict(_X, branch="feat/x"), wheel={"proofbundle/x.py"}, sdist={_X_SRC}, tag={_X_SRC},
+                     branch={_X_SRC})
+
+    def test_a_capability_present_nowhere_gets_no_main_cell(self) -> None:
+        with self.assertRaisesRegex(SystemExit, r"^x: absent from v6\.1\.0 and from main "):
+            _measure(_X)
+
+
 class TheReadmeTablesAreTheData(unittest.TestCase):
     def test_both_rendered_blocks_equal_the_recorded_data(self) -> None:
         modul = _load()
