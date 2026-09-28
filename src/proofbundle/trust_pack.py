@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any, TypeGuard
 
+from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
 from .errors import BundleFormatError, ProofBundleError
@@ -316,8 +318,51 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _read_once(predicate: Any) -> Any:
+    """The caller's predicate read ONCE: its RFC 8785 bytes, parsed back into plain JSON values.
+
+    WHAT IS VALIDATED IS WHAT IS SIGNED (lens run 7 at 75c3aa48, F2). The validator read each key
+    through the decoder, which called the caller's own `encode`, and through the caller's containers
+    (`get`, `__getitem__`), while the canonicaliser wrote what `dict(obj)` yields (the storage, or the
+    subclass's `keys()` and `__getitem__` when it overrides `__iter__`; lens run 8, finding H) and the
+    text each `str` holds. A `str` subclass whose `encode` answers for a real key and whose text is
+    the base64 of the identity point passed the validator and was signed into the pack by
+    `sign_trust_pack` and written by `build_trust_pack_statement`; a `dict` subclass whose `get` and
+    `__getitem__` answer for a real key while its stored item is the weak one did the same. Now the
+    predicate is written once, and the validator, the subject digest and the signature all read the
+    parse of those bytes, in which every value is a plain `dict`, `list`, `str`, `int`, `float`,
+    `bool` or None, so no method of the caller's runs after that one write. A predicate that cannot
+    be written as RFC 8785 JSON is invalid and raises `TrustPackError`, never another exception.
+
+    `json.loads`, not the Statement oracle: the bytes are this function's own RFC 8785 output of a
+    predicate, not a received Statement, so they hold no duplicate key and no `_type` to judge, and
+    the canonicaliser has already held the value to the structure budget. The received side keeps
+    `load_statement_strict` (tests/test_a_statement_says_it_is_an_in_toto_statement.py).
+
+    THE CANONICALISER WAS NOT YET THE ONE READ (lens run 8 at fddc00f4, finding D). It read a number
+    through the caller's `__float__` and `__int__` and a dict subclass through `dict(obj)`, which runs
+    the subclass's `keys()` and `__getitem__` when it overrides `__iter__`: a float subclass storing
+    1.5 whose `__float__` answers 1.0 was signed as version 1, and a `numpy.float64(1.0)` as well, where
+    75c3aa48 and main refused both. So the predicate is first copied from its storage by
+    `_plain_value.plain_json`, which refuses a subclass of `int` or `float` and a numpy scalar, and only
+    that plain copy is canonicalised. An exact float of integral value (`1.0`) and a tuple keep being
+    signed as round 8 decided: the RFC 8785 form writes them as the integer and the array."""
+    from ._plain_value import plain_json  # noqa: PLC0415
+    plain = plain_json(predicate, what="the trust-pack predicate",
+                       error=lambda m: TrustPackError(f"invalid trust-pack predicate: {m}"))
+    try:
+        return json.loads(_rfc8785_bytes(plain))
+    except TrustPackError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — whatever cannot be written is no valid predicate
+        # The cause is chained, not formatted: its name and text may be the caller's own code.
+        raise TrustPackError("invalid trust-pack predicate: it cannot be written as RFC 8785 JSON "
+                             "within the structure budget") from exc
+
+
 def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
+    predicate = _read_once(predicate)
     errs = validate_trust_pack_predicate(predicate, strict=False)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
@@ -336,20 +381,44 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
     Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
-    an unknown identity)."""
+    an unknown identity). The predicate is read once (`_read_once`): what is validated is what is
+    signed.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
+    from .signature import plain_text  # noqa: PLC0415
+    predicate = _read_once(predicate)
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
     known = set(_as_dict(predicate.get("keys")).keys())
-    for kid in signers:
+    # THE SIGNERS MAP IS READ ONCE, from its storage (lens run 8 at fddc00f4, finding B). The check
+    # iterated `for kid in signers` and the signing loop read `signers.items()`: a dict subclass whose
+    # `__iter__` yields a declared keyId while its `items()` yields another was signed under the
+    # undeclared one, and so was a `str` subclass keyId whose text is undeclared while it hashes and
+    # compares as a declared one. Now the stored pairs are read through `dict.items`, each keyId as the
+    # text it holds, and the check and the signatures use that list.
+    if not issubclass(type(signers), dict):
+        raise TrustPackError(f"signers must be a dict mapping keyId -> private key, got {type(signers).__name__}")
+    paare: list = []
+    for roh_kid, sk in list(dict.items(signers)):
+        kid = plain_text(roh_kid)
+        if kid is None:
+            raise TrustPackError(f"signer keyId must be text, got {type(roh_kid).__name__}")
         if kid not in known:
             raise TrustPackError(f"signer keyId {kid!r} is not declared in the pack's keys")
+        if any(kid == frueher for frueher, _ in paare):
+            raise TrustPackError(f"signer keyId {kid!r} is named twice")
+        paare.append((kid, sk))
     statement = build_trust_pack_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     signatures = [{"keyid": kid, "sig": base64.b64encode(sk.sign(msg)).decode("ascii")}
-                  for kid, sk in signers.items()]
+                  for kid, sk in paare]
     return {"payload": base64.b64encode(body).decode("ascii"),
             "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE, "signatures": signatures}
 
@@ -449,7 +518,8 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     keys MUST also have validly signed THIS pack (old root vouches for the new pack). Without this the documented
     two-stage rotation was documentation-only: ``prevVersionDigest`` is a hash of PUBLIC bytes (no key needed), so
     anyone could mint a ``v2`` naming self-owned keys and chain it to a real ``v1``. Read ``ok`` — never a field
-    alone."""
+    alone. ``allow_unverified_rotation`` opts out of that check only as the exact ``True``; a value that is not
+    a bool keeps the check, and the error says so and names the value's type."""
     from . import dsse  # noqa: PLC0415
     r = _empty_result()
     try:
@@ -640,7 +710,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # a v2 minting self-owned keys + a real v1 digest would otherwise pass on its own self-signature
         # (the exact footgun this predicate defends against). A caller that deliberately wants only a
         # standalone self-signature check opts out explicitly with allow_unverified_rotation=True.
-        if allow_unverified_rotation:
+        # Only the exact True opts out: the flag was read by its truth, so "false" accepted an unverified
+        # rotation (measured: ok true). A value that is not a bool is the default refusal, named below.
+        if allow_unverified_rotation is True:
             r["warnings"].append(
                 "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
                 "was NOT verified (allow_unverified_rotation=True) — this proves only self-signature by the "
@@ -650,7 +722,10 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             r["errors"].append(
                 "this pack declares a prevVersionDigest (claims to be a rotation) but rotation authorization "
                 "was NOT verified — pass prev_root_keys + prev_root_threshold to confirm the old root vouches "
-                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)")
+                "for it, or allow_unverified_rotation=True to accept a self-signature-only check (fail-closed)"
+                + ("" if type(allow_unverified_rotation) is bool else
+                   f"; allow_unverified_rotation is not a bool (a value of type "
+                   f"{type_name(allow_unverified_rotation)}), and only the exact True opts out"))
 
     r["ok"] = bool(
         r["structure_ok"] and r["predicate_type_ok"] and r["root_threshold_met"]

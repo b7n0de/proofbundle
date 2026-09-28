@@ -10,6 +10,796 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **Code a caller hands in promotes a verdict only when it answers the exact True**
+  (`assurance.classify_digest_evidence`, `assurance.classify_receiver_corroboration`,
+  `renewal.verify_sequence`, `anchors.verify_anchor`). Each of these calls code its caller supplies and
+  promoted on the truthiness of the answer, although the documented contract is a bool:
+  `bool(evidence_resolver(digest_obj))` lifted a digest from `REFERENCE_WELL_FORMED` to
+  `CONTENT_RESOLVED`; `bool(res)`, in the branch of `classify_receiver_corroboration` with neither 32
+  bytes of key material nor an expected key, lifted a receiver ref to `INDEPENDENTLY_ATTESTED`;
+  `bool(verify_anchor(newest))` anchored the newest ArchiveTimeStamp in the `anchor_verifier` mode; and
+  `verify_anchor` read the result of a verifier registered through `register_anchor_type`, a public
+  extension point, with `bool(res.get("ok"))`, `bool(res.get("warn"))` and `bool(res.get(flag))` for
+  `rp_trusted`, `needs_rp_trust` and `frozenEvidence`.
+
+  Measured on main 20e91c8e: the answers `1`, `1.0`, `"true"`, `"false"`, `[0]` and an object whose
+  `__bool__` says True promoted on every one of these surfaces, directly and through
+  `verify_decision_receipt` and `verify_outcome_receipt`, which pass `evidence_resolver` and
+  `receiver_attestation_resolver` on; a truthy evidence answer next to an attestation resolver answering
+  True took a digest nobody had resolved to `INDEPENDENTLY_ATTESTED`. `verify_sequence` returned ok for
+  an anchor verifier answering `"false"` or `1`. A registered anchor verifier answering
+  `{"ok": "false"}` met `verify_anchors(require="any")` and gave `anchors_ok` true and an aggregate `ok`
+  true in `verify_decision_receipt(anchors=...)`; `{"ok": False, "warn": "false"}` turned a failed
+  anchor into a pending one that met `require` with `allow_pending`; and a result that is not a dict
+  (`True`, `None`, a list, a string, an int) raised a raw AttributeError out of `verify_anchor`,
+  `verify_anchors` and the never-raise `verify_decision_receipt`, because the result was read outside
+  the `try` that guards the verifier call.
+
+  Now only the exact `True`, or where a key is asked for 32 bytes of key material in a plain `bytes` or
+  `bytearray` object, promotes, anchors or counts. Any other answer leaves the level, the anchor check or
+  the flag where it was (round 2 below: the first version of this sentence did not hold for an answer
+  that only claims to be bytes); none of the answer's own methods is called and the answer is never
+  rendered into a detail; and when the answer is not a bool at all, the detail says so and says that
+  only the exact True counts. A registered anchor verifier's result is read only when it is a plain
+  `dict`; anything else, a dict subclass with its own `get` included, is a failed anchor whose detail
+  says the verifier returned no result object. Unchanged, and held by controls: the exact `True`
+  promotes, the exact `False` does not and keeps the detail it had, a raising resolver still counts as
+  False, a raising anchor verifier is still a failed anchor, and 32 bytes of key material still attest;
+  the expected-key branch of `classify_receiver_corroboration` is not touched. The package's own
+  verifiers on these paths already return exact bools, read line by line: the authority-signature and
+  no-anchor modes of `verify_sequence` and its structural mode for an `anchor_status` that is a str, and
+  the anchor verifiers for `rfc3161-tsa`, `opentimestamps`, `chia-datalayer/v1` and the opt-in
+  `markovian-provenance/v1`. The per-anchor `status` a registered verifier reports is
+  still carried as given; no gate in the package reads it, only `ok` and `warn`.
+
+  Reach: the Python API only. The CLI sets none of these resolvers and registers no anchor type beyond
+  the built-ins. The same lines stand in the tagged files of v6.0.0 (4e32e83b) and v6.1.0 (dcac5aee),
+  so the released 6.0.0 and 6.1.0 carry the old behavior. Contract
+  `tests/test_a_resolver_promotes_only_on_exact_true.py`: against 20e91c8e, 87 subtests fail in 11 of
+  its 16 cases, each on the promotion itself or, for a result that is not a dict, on the raw
+  AttributeError; the five control cases are green there. With this change all 16 cases and all 87
+  subtests pass.
+
+  **Round 2: a type check that believes the answer, and the verdicts a caller builds** (`assurance`,
+  `outcome`, `verifier_block`, `policy`, `bundle`, `automation_verdict`). The first version of this
+  entry said that any other answer leaves the level where it was. Measured at 6d102950, the first
+  version of this change, and on main 31816e08 alike, that was false on the one branch it did not
+  touch: `classify_receiver_corroboration` asked `isinstance(res, (bytes, bytearray))`, which believes
+  an object's own `__class__`, and then read the object with its own `__len__` and `__bytes__`. An
+  answer whose `__class__` says `bytes`, whose `__len__` says 32 and whose `__bytes__` gives `b""`
+  reached `INDEPENDENTLY_ATTESTED` with zero bytes of key material, also through
+  `verify_outcome_receipt` with `ok` true; a raising `__len__` or `__class__`, or a `__bytes__` that
+  returns a str, escaped both functions, which never raise; and a real `bytes` subclass was read the
+  same way. `verify_outcome_receipt` repeated the check for `receiver_role_trusted`, and
+  `pack_key_binds_signer` for the key it is handed. Key material now counts only as a plain `bytes` or
+  `bytearray` object (`assurance._is_key_material`, one predicate for both modules). A `bytes`
+  subclass is refused as well, because its `__len__` and `__bytes__` are the caller's code; such an
+  answer takes the branch of an answer that is neither True nor key material. The expectation
+  `expected_receiver_public_key` is judged the same way (`"abc"` raised a raw TypeError out of
+  `bytes()`). The key ids that decide independence and role membership count only as a plain `str`
+  (`classify_receiver_corroboration`, `receiver_trusted_by_role`, `executor_trusted_by_role`,
+  `pack_key_binds_signer`): a key id whose `__class__` said str had its own `__eq__` decide, measured
+  as `INDEPENDENTLY_ATTESTED` for a receiver key id whose `__eq__` said False, and as role membership
+  for a key id that is not in the role. `evidence_ladder_best` and `evidence_ladder_summary` take a
+  level only as a plain `int` or `EvidenceLevel` in a plain `dict`: a level whose `__class__` said
+  int decided the rollup with its own comparisons, and a raising `__class__` escaped both. The digest
+  object `classify_digest_evidence` classifies counts only as a plain `dict` holding a plain `str`: one
+  whose `__class__` raised escaped a function that never raises, and one that only claimed to be a dict
+  reached `REFERENCE_WELL_FORMED` through its own `get`. `verify_bundle(expected_tree_size=)` compares
+  the pin only as a plain `int`: a pin whose `__class__` said int and whose `__eq__` said equal passed
+  the tree-size check, and a raising `__class__` escaped `verify_bundle` raw.
+
+  The same rule, one level up, for a verdict or flag the caller builds. `build_test_result_statement`
+  read a case's `ok` with `not r.get("ok")`, so `"false"`, `"FAIL"`, `1` and `[0]` made the case and
+  the statement PASSED, and `sign_test_result_statement` signed it; a case `ok` that is not a bool is
+  now a `VerifierBlockError` naming the case. `evaluate_policy` gated on `result.ok`, which
+  `VerificationResult` folds by the truth of each check, and read `Check.ok` by its truth: a
+  caller-built `Check("root-authenticity", "false")` gave `policy_ok` true under
+  `require_authenticated_root`, and the same string on `sd-jwt-key-binding` or
+  `sd-jwt-issuer-signature` satisfied `require_key_binding_when_cnf_present`, `require_nonce` and
+  `expected_vct` (measured on a real key-bound SD-JWT bundle). Crypto now passes that gate only when
+  every check's `ok` and `result.ok` are the exact True (`bundle._checks_passed`); otherwise the
+  policy is not evaluated and the reason names each value that is not a bool. `root_authenticity_summary`
+  read `Check.ok` by its truth, blocked on `policy_ok`, `anchor_ok`, `public_transparency_ok` and
+  `replay_ok` only when they were the exact False, on `policy_expired` and `policy_not_yet_valid` only
+  when the exact True, and on `requires_identity_overlay` and `policy_warnings` by their truth;
+  `automation_summary` read crypto and structure with `bool(value)` and counted a reference as
+  unresolved only on the exact False. Each left `safeForAutomation` true for a string, and
+  `{"crypto_ok": "false", "structure_ok": "false", "evidence_bound": "false"}` read as `cryptoValid`
+  true. In both summaries a value that is not a bool now never passes, and the summary carries
+  `notBooleanInputs` with the names of those values; the key is absent when every input is a bool, so a
+  caller that passes bools sees the shape it saw before.
+
+  `evaluate_decision_policy` and `evaluate_policy` read the boolean policy fields by their truth or
+  with `is True`. Through `verify_decision_receipt(policy=<dict>)` without `load_policy`,
+  `allow_raw_inputs: "false"` and `allow_pending: "false"` gave `policy_ok`, `ok` and
+  `safeForAutomation` all true, `requiresIdentityOverlay: "true"` let a raw template authorise, and
+  `require_*: 0` switched a requirement off. `load_policy` refuses each of these, and the evaluators
+  left types to it. They now refuse a boolean field that is not a bool with the loader's own checker
+  and message (`_check_bool_fields`, the loader's `_require_bool` over one table of the boolean
+  fields); a contract test derives the boolean fields from `load_policy` itself, so the two paths
+  agree field by field. `lint_policy` reports the same message, and `policy_warnings` counts only the
+  exact True as a signer requirement. `_require_bool` itself asked `isinstance`, so an object whose
+  `__class__` says bool passed `load_policy`; it asks `type()` now, which agrees with `isinstance` for
+  every real bool.
+
+  Reach: the Python API only. The CLI loads every policy through `load_policy` and passes exact bools
+  to both summaries. Contracts: `tests/test_a_resolver_promotes_only_on_exact_true.py` gains 12 cases
+  with 55 subtests; against 44e12b72 (6d102950 merged with main 31816e08), 47 subtests fail in 8 of
+  them and the four controls are green. The new `tests/test_a_caller_verdict_counts_only_as_a_bool.py`
+  had 21 cases with 268 subtests; against 44e12b72, 14 of its cases are red, 250 subtests fail in 11
+  of them and 4 fail outside a subtest (one of those inside as well), and the seven others are green
+  there: six controls, and the check that the derivation of the boolean fields finds every section.
+  Each red subtest fails on its own defect: a verdict, an escaped exception, a refusal that did not
+  happen, a missing detail, or a recorded call of the caller's own method. With the round-2 change all
+  49 cases and all 410 subtests of the two files passed, on Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+
+  **Round 3: the flags, type checks and str verdicts the round-2 text left open** (`anchors`,
+  `hashalg`, `renewal`, `trust_pack`, `hf_evals`, `agent_review`, `_membership`, `sdjwt_vc`,
+  `public_transparency`, `errors`, `verifier_block`, `bundle`, `policy`, `relation`). The round-2
+  version of this entry listed them as not closed. Measured at 67bb104e, the round-2 commit:
+
+  A permissive flag relaxed its check on the flag's truth. `anchors.verify_anchors(allow_pending="false")`
+  let a pending anchor meet `require`; `hashalg.resolve_hash_alg("sha1", allow_deprecated="false")`,
+  and `compute_digest` through it, accepted a deprecated hash;
+  `renewal.verify_sequence(allow_unauthenticated_anchor="false")` switched on the structural-only mode
+  and returned ok; and `trust_pack.verify_trust_pack(allow_unverified_rotation="false")` accepted a
+  rotation nobody had verified. A sweep of every permissive keyword flag in `src` found two more:
+  `hf_evals.to_eval_results_entry(allow_value_mismatch="false")` skipped the value-verdict consistency
+  check, and `agent_review.render_disclosure_line(leaf_witnessed="false")` dropped the "not yet in a
+  witnessed checkpoint" caveat. Now only the exact True relaxes. The functions that raise typed errors
+  refuse a flag that is not a bool with their own error (`BundleFormatError`, `HashAlgError`,
+  `AgentReviewError`); the two verifiers that report instead of raising keep the check and say that
+  the flag is not a bool (the `renewal:last_anchor` detail, the trust pack's rotation error). No method
+  of the flag runs. The flags that tighten a check (`strict`, `require_*`) are not in this class: a
+  string `"false"` makes them stricter, not weaker.
+
+  A type check believed the value's `__class__`. `_membership.is_bool` and the boolean field checks of
+  `sdjwt_vc.validate_vc_policy` and `public_transparency.validate_public_transparency_policy` asked
+  `isinstance`: an object whose `__class__` said bool passed and then decided with its own `__bool__`,
+  and one whose `__class__` raised escaped `is_bool`. They ask `type(x) is bool` now; `bool` cannot be
+  subclassed, so the two tests agree for every real bool, and the callers of `is_bool` behave as before
+  for real bools. `VerificationResult.ok` folded its checks by their truth, so a caller-built
+  `Check("x", "false")` made the result ok; it counts a check only when its `ok` is the exact True, and
+  `Check.__str__` marks it the same way.
+
+  A str verdict was compared with the caller's own `__eq__`. A case `scope` whose `__eq__` said it
+  equals `"full"` made the case PASSED instead of WARNED in `build_test_result_statement`; a
+  `checkpoint_authenticity` doing the same gave `root_authenticity_summary` the root trust level
+  CHECKPOINT; an `anchor_status` doing the same met the anchor requirement of
+  `evaluate_decision_policy`. Each is read only as a plain str now; anything else takes the branch that
+  does not pass (WARNED, NOT_EVALUATED, no anchor status) and none of its methods runs. The sweep found
+  the same in two more evaluators. `agent_review.evaluate_time_policy` accepted an axis state whose own
+  `__eq__` and `__hash__` answered its membership test; a state that is not a plain str is now
+  NOT_EVALUATED. `relation.evaluate_relations_policy` compared an edge's relation, resolution and target
+  digest with the caller's methods and read `supersededByAttached` by its truth: a resolution that
+  claimed to be VERIFIED met `require_relation_resolution`, one that claimed not to be skipped the
+  same-key check, a target digest that claimed to be the pinned root passed `require_relation_target`,
+  and a `supersededByAttached` whose `__bool__` said False hid a supersession. It reads plain values
+  now: an edge whose relation is not a plain str fails every rule that is set, a required relation
+  resolves only as the plain str VERIFIED, the same-key check runs unless the resolution is a plain str
+  other than VERIFIED, and only None and `""` mean not superseded. Its flags `reject_superseded` and
+  `reject_retracted` are refused with the loader's `_require_bool` message when they are not bools, as
+  the two other evaluators refuse theirs since round 2.
+
+  Reach: the Python API only; on these paths the CLI and the package's own verifiers pass exact bools
+  and plain strs. Not closed here, measured and left to their own change: `intoto.svr_properties` and
+  `intoto.export_svr_dsse` still read `prereg_verified` and `anchor_verified` by their truth (another
+  change edits that file in this round); and an expectation a caller passes as a str
+  (`known_newest_token_digest` in `verify_sequence`, `prev_version_digest` in `verify_trust_pack`, the
+  `expected_*` arguments of the decision, outcome, key-binding and checkpoint verifiers) is still
+  compared with the caller's own `__eq__`, a neighbouring class in which the caller decides against
+  itself, not for a document. Contract: `tests/test_a_caller_verdict_counts_only_as_a_bool.py` gains
+  22 cases with 48 subtests; against 67bb104e, 18 of them are red (44 subtests fail in 12 cases, and 7
+  cases fail outside a subtest, one of those inside as well) and the four controls are green. Each red
+  case fails on its own defect: a refusal that did not happen, a verdict, a recorded call of the
+  caller's own method, or an escaped exception. With this change the two files have 71 cases and 458
+  subtests, and all of them pass on Python 3.10 and 3.12.
+
+  **Round 4: a switch counts only as an exact bool, everywhere, and an honest subclass of the
+  documented type is read as what it stores** (`assurance`, `adapters._provenance`, `adapters.eee`,
+  `agent_review`, `anchors`, `anchors_chia_add`, `decision`, `outcome`, `run_ledger`, `trust_pack`,
+  `verification_summary`, `hashalg`, `hf_evals`, `renewal`, `bundle`, `_integration`, `_membership`,
+  `errors`). A review of 3a8074fc, the round-3 commit, measured three switches that still read their
+  value by its truth, and one regression of round 1:
+
+  - `assurance.classify_digest_evidence(applicable=)`, and `classify_receiver_corroboration`, which
+    passes it on: `None`, `0`, `""` and `[]` made a weak field not applicable, and
+    `evidence_ladder_summary` rose past it (CLAIMED and CONTENT_RESOLVED summarised to CONTENT_RESOLVED).
+  - `adapters._provenance.bind_reported_version(bound=)`: `"false"`, `"no"`, `1` and `[0]` wrote the
+    version with status `reported` into a provenance block that is signed into the receipt.
+  - `agent_review.emit_agent_review(legacy_v01=)`: `"false"` and `"no"` issued and signed a v0.1
+    predicate under the v0.1 rules, which `False` refuses under the v0.2 rules. The renderers
+    (`render_disclosure_block`, `render_disclosure_line`, `require_valid_agent_review_predicate_any`)
+    read `legacy_v01` the same way and checked a predicate under the v0.1 rules for `"false"`.
+  - `anchors.verify_anchor`: round 1 read a registered verifier's result only as a plain `dict`, so an
+    `OrderedDict` or `defaultdict` with `ok` True, a verified anchor on main 31816e08, was a failed
+    anchor whose detail said "no result object".
+
+  A sweep of every bool keyword of every public function, discovered at run time (89 at 3a8074fc, 90
+  with the helper below), found the rest of the class there: `decision.emit_decision_receipt` with
+  `strict=None`, `0` or `""` signed a predicate the strict rules refuse (one without `notChecked`);
+  `hf_evals.to_eval_results_entry` with `require_verified=None`, `0` or `""` built an entry from a
+  bundle that does not verify (beside `allow_value_mismatch=True`), and with `include_token="false"`
+  published the token; `adapters.eee.from_eee_dataset` with `validate=None`, `0` or `""` built a claim
+  from a record that fails the schema; and `_integration.emit_enabled("false")` opened the gate that
+  decides whether an integration writes a receipt into a host run. `anchors_chia_add.anchor_add` read
+  `wait` by its truth as well, so `None` would skip the on-chain confirmation (read, not run: it needs
+  a node). `v02` of `agent_review` relaxed only on the exact False, and `strict` of `emit_agent_review`,
+  `emit_outcome_receipt`, `emit_run_ledger`, `sign_trust_pack` and `emit_verification_summary` reaches
+  a validator that reads no `strict` today; they are held to the same rule, so no later reader can
+  reopen the class.
+
+  Now one rule, one helper. A switch whose one side weakens a verdict or a check, or changes what is
+  signed or published, goes through `_membership.require_switch`, which reads only an exact bool (and
+  None where the switch means "not given") and otherwise raises the new `errors.SwitchTypeError`,
+  which is both a `TypeError` and a `ProofBundleError`, naming the parameter and the type, before
+  anything is computed or signed. The type is named by `_membership.type_name`, which runs no code of
+  the caller and marks a foreign type that carries a built-in name (`numpy.bool` reads
+  `bool (not the built-in bool)`). The round-3 refusals of `allow_pending`, `allow_deprecated`,
+  `allow_value_mismatch` and `leaf_witnessed` raised each module's own error without the type; they
+  raise `SwitchTypeError` now, still a `ProofBundleError`. Three surfaces refuse without raising and
+  say why: `renewal.verify_sequence(allow_unauthenticated_anchor=)` and
+  `trust_pack.verify_trust_pack(allow_unverified_rotation=)` keep their check and name the type in the
+  detail and the error (a raise inside `verify_sequence` would become a failed check anyway), and
+  `_integration.emit_enabled` opens only for the exact True, because an integration must never fail
+  the host run. The round-3 sentence that the flags that tighten a check (`strict`, `require_*`) are
+  not in this class held only for a default of False: `emit_decision_receipt`'s `strict` defaults to
+  True, so a falsy value relaxed it. Left as they are, each with its reason in the contract test: 44
+  switches that tighten (default False, and True only adds a check or a refusal, so a value read by its
+  truth tightens or equals leaving it out), 11 verdict inputs (default None, exact since round 2), two
+  that only change how something prints (`render_safe(quote=)`, `run_demo(as_json=)`), and the four of
+  `intoto.svr_properties` and `intoto.export_svr_dsse`, which another change closes.
+
+  An honest subclass of the documented type is read by what it stores. A registered verifier's result
+  is a dict when its real type is one (`issubclass(type(res), dict)`, an identity walk of the MRO) and
+  is read once with `dict.get`, so an `OrderedDict` verifies again, while a subclass whose own `get`,
+  `__getitem__`, `__contains__` or `__missing__` answers True promotes nothing, because none of them
+  runs; a result that is not a dict names its type in the detail. The round-2 checks in `assurance`
+  had the same effect: an `OrderedDict` digest object was CLAIMED (main: REFERENCE_WELL_FORMED), and an
+  `OrderedDict` field or a level from the caller's own `IntEnum` was skipped by both rollups, so
+  `evidence_ladder_summary` rose past a CLAIMED field (main: CLAIMED). They read with `dict.get`,
+  `str.__str__` and `int.__int__` of the base types now. `bundle._checks_passed` read only a plain list
+  or tuple of checks, so a duck-typed result whose checks sat in a list subclass passed the crypto gate
+  on its own `ok` with `Check("root-authenticity", "false")` inside; it reads list and tuple
+  subclasses through the base type's iterator now.
+
+  Reach: the Python API only; the CLI passes exact bools and the package's own verifiers return plain
+  dicts. Not closed here: `intoto` (the other change); `evidence_ladder_summary` still skips a field
+  that is not a dict holding an int level, which lets an AND summary rise past it, as on main 31816e08;
+  and the str, bytes and int checks of rounds 2 and 3 still refuse a subclass (a `StrEnum` relation, a
+  bytes subclass key, an int subclass tree-size pin), which fails closed. Contract: the two test files
+  gain 25 cases (one of them replaces the round-1 not-a-dict case) and 6 round-3 cases change to the
+  new form of the refusal. Against 3a8074fc, 24 cases are red, 18 of the new ones and the 6 changed
+  ones, with 375 failing subtests, and 7 new ones are green there (five controls and two premises of
+  the sweep). With this change the two files have 95 cases and 964 subtests, and all of them pass on
+  Python 3.10, 3.11, 3.12, 3.13 and 3.14.
+
+  The sweep also runs in the as-shipped bare install, which has no optional extra. There
+  `inspect_hook` and `_inspect_registry` cannot import (they need `inspect_ai`, extra `inspect`), and
+  the first form of the sweep counted that as a failure, so the hermetic cleanroom went red on
+  c8865652. A module that fails to import is now left out of the sweep only when the failure is a
+  `ModuleNotFoundError` for the top-level module of a package that a declared optional extra
+  installs, that no core dependency installs, and that is absent from the running environment; it
+  is then named in a skip, together with the classified switches that could not be checked there.
+  Every other import failure still fails, and the map from extra to module is held to
+  `[project.optional-dependencies]` of pyproject.toml, so it cannot go stale. This adds 5 cases and
+  11 subtests (100 cases, 975 subtests); they are green against 3a8074fc as well, because they test
+  the sweep itself, and the red case they answer is the cleanroom run of the unchanged file.
+
+  **Round 5: reading what the caller hands in runs none of its code** (`anchors`, `assurance`,
+  `decision`, `_membership`). A review of c8865652 found that reading "by what it stores" still ran
+  code of the caller. `dict.get` of the base type compares a stored key whose hash equals the looked-up
+  one through that key's own `__eq__`. In `verify_anchor`, `status or ...` called the status value's
+  `__bool__`, and `isinstance(tt, dict)` read the trustedTime value's `__class__`. When one of them
+  raised, a RuntimeError escaped `verify_anchor`, `verify_anchors` and
+  `verify_decision_receipt(anchors=...)`, and the four documented never-raise functions of the evidence
+  ladder. A key whose `__eq__` answered True stood in for `"ok"` and verified an anchor, and stood in
+  for `"sha256"` or `"level"`. The same happened on main 31816e08. The fail-closed try ended at the
+  verifier call and did not cover the reading of its answer. Now `_membership.stored_str_items`
+  reads a dict by iterating what it stores, and a key counts only when it is exactly a `str`. The
+  anchor result and the ladder inputs are read that way, each value only by its exact type (`is True`,
+  an exact `str`, an `int` read with `int.__int__`). A carried `trustedTime` is a plain copy of
+  JSON scalars. What is not read is named in the detail. The reading of a verifier's result sits
+  inside the fail-closed boundary. `verify_anchor`, `verify_anchors` and `receipt_canonical_root` refuse
+  input whose own code raises while it is read with their documented `BundleFormatError`. `verify_decision_receipt`'s
+  guard around the anchors also takes any other exception, naming only its type. A plain dict,
+  `OrderedDict`, `defaultdict` or method-less subclass storing ok exactly True still verifies. The
+  resolver answers of the ladder, `verify_sequence` and `verify_outcome_receipt` were already read
+  only with `is True` and `type()`, and are held by a test now. Not closed here: validators and
+  verifiers elsewhere in the package that read a caller-built dict directly still run the code of a
+  stored key or value, 37 and 59 surfaces in two generated sweeps (see the commit message). JSON
+  input cannot produce such objects.
+
+- **A producer reads each value it checks and writes once, not only the key** (lens run 8 at
+  fddc00f4, findings A, B and D; the class of the entry "A small-order key is refused at every
+  carrier" below, widened from keys to every value a producer both checks and writes). That entry
+  has a producer read a caller's key object once; the lens then found the same split on names, maps,
+  bodies, overlays, ids, status and numbers. A: `checkpoint.vkey` checked a name's stored text,
+  hashed `keyname.encode()` into the key ID and wrote `f"{keyname}+…"`, the caller's `__format__`,
+  so a `str` subclass name wrote a whole vkey line for the identity point in front of the real one;
+  the same split stood at `key_id`, `cosign_vkey`, `cosign_key_id`, the two ML-DSA forms,
+  `checkpoint_note` (origin), `sign_checkpoint` (key name) and `cosign_checkpoint` (witness name,
+  note and timestamp). B: `sign_trust_pack` checked `for kid in signers` and signed
+  `signers.items()`; the three `assemble` steps under `scripts/` checked a body through `items()` or
+  `__getitem__` and wrote its storage; `instantiate_template` checked an overlay through `__iter__`
+  and a policy_id through `__eq__`; `issue_sd_jwt` checked a status through `__contains__`. D:
+  `trust_pack._read_once` read numbers through `__float__` and `__int__`, so a float subclass
+  storing 1.5 whose `__float__` answers 1.0 was signed as version 1.
+
+  A producer now reads each such value once, and the check and the writer use only what that read
+  returned. Text is the stored text of a `str` (`signature.plain_text`), bytes the stored bytes of a
+  `bytes` or `bytearray` (`signature.plain_bytes`), a number an exact `int` (not `bool`) or an exact
+  `float`, and a JSON value a copy made by the new `_plain_value.plain_json`, which reads a `dict`
+  through `dict.items` (an `OrderedDict` through `OrderedDict.items`), a `list` through `list.copy`
+  and a `tuple` through `tuple.__iter__`, keeps the kind of each container, is bounded by the
+  structural budget, and refuses anything else with the producer's own typed error naming the
+  parameter and the path. A legitimate value is copied to an equal value, so every serialiser writes
+  the same bytes as before. The sweep names every public function under `src/` and `scripts/` whose
+  name marks it as forming, signing, hashing, linking, measuring or renewing something from its
+  arguments, 159 in all (133 under `src/`): 80 read once (79 held by a case of the contract, one
+  through the producer it calls), 58 not affected (they check nothing they write, take no caller
+  value, or are private helpers called with parsed values) and 21 not producers (verify side and
+  lookups). The first pattern of the scan missed 55 of them; a read of every public function it
+  missed widened it, and that read found the split in eight more producers, now fixed:
+  `beacon.beacon_nonce` and `beacon_audit_challenge` (a NUL check through `__contains__`, the nonce
+  over `encode()`, and the request writing the caller's objects), `persample.audit_challenge`
+  (length and range checks through `__len__` and comparisons, the seed over the buffer and
+  `to_bytes`), `persample.sample_opening` (the proof over one reading of the list, the disclosure
+  written from another), `anchors.prereg_canonical_root` (the length through `__len__`, the root
+  through the stored text), `run_ledger.link_runs` (the count through `__len__`, the runs through
+  `__iter__`, a status checked through `__eq__` and written as the object), `evalclaim.canonicalize`
+  (the profile check through `values()` and `__abs__`, the bytes through the canonicaliser's own
+  reads) and `hashalg.compute_dual_hash`, whose two digests each read the caller's buffer and could
+  bind two different byte strings from 3.12 on.
+
+  What changes for a caller, measured at fddc00f4 and at this change on 3.10: a subclass of `int` or
+  `float` (an `IntEnum`, `numpy.float64`) is refused where a producer checks and writes a number, as
+  the trust pack's `version`, a checkpoint's tree size, a renewal time, a beacon round or an audit's
+  `n` and `k`; before, each was accepted. A value a producer copies as JSON must be null, a boolean,
+  an exact int or float, text, a list, a tuple or a dict. `build_evidence_pack` refuses a proof and
+  `make_disclosure` a salt that is not `bytes` or `bytearray` (a `memoryview` was accepted before),
+  and `build_initial_sequence` refuses an `anchor_status` that is not text (`bytes` was accepted
+  before). Where a wrong type raised a raw error it now raises the documented one:
+  `present_with_key_binding` with a non-text compact (`ValueError`), `sample_opening` with a
+  non-text disclosure and `beacon_nonce` with a non-text beacon id (`BundleFormatError`),
+  `issue_status_list_token` with statuses that are not iterable (`BundleFormatError`). A list or
+  tuple is read from its storage and any other iterable once through its iterator, so
+  `issue_status_list_token`, `link_runs` and `sample_opening` accept a generator, which raised
+  `TypeError` before; `issue_status_list_token` reads `bytes` and `bytearray` statuses from their
+  storage, and a renewal sequence of other iterables (a `deque`) renews as before. The in-toto
+  exporters read a claim's `passed` from its storage: a `dict` subclass whose `get` answers `True`
+  while it stores `"false"` was exported by `to_eval_result_predicate` as `True` and is refused now;
+  the case of `tests/test_das_verdikt_muss_ein_bool_sein.py` that pinned `True` pins the refusal,
+  and a new case pins the reverse (a stored boolean is written whatever `get` answers).
+  `instantiate_template` names the type of a non-text template in its refusal, and the statements of
+  the `build_*` producers carry a plain copy of the predicate instead of the caller's object.
+
+  Where this meets the entry "Code a caller hands in promotes a verdict only when it answers the
+  exact True" above: `build_test_result_statement` now reads its cases once before it judges them.
+  A case `ok` or `scope` that is no JSON value (an object whose `__class__` says bool or str) is
+  refused by that read, which names its position (`results[0].ok`), where that entry names the case
+  or counts such a `scope` as WARNED. A `scope` that is a `str` subclass is judged by the text it
+  stores: one storing `"full"` is a full run, one storing other text is WARNED whatever its own
+  `__eq__` answers, and none of its methods runs. The crypto gate that `root_authenticity_summary`
+  and `policy.evaluate_policy` share (`bundle._checks_passed`) read each check's `ok` for its type and
+  then took its verdict from `result.ok`, which reads every `ok` again: a check answering True, then
+  False, then True gave `safeForAutomation` True with no blocker (Codex on pull request 293, round
+  three, measured). The verdict now comes from one read of each check.
+
+  The residual findings of the lens, measured again at both trees on 3.10 and 3.14: E (`1e16` as a
+  trust-pack `version` raises `IntegerDomainError` from `build_trust_pack_statement`), F (the depth
+  wording for a `list` subclass on 3.10 and 3.11) and G (the statement's key order without
+  `sort_keys`) are unchanged. H changed: a `dict` subclass that stores the identity point and
+  answers a real key through `get` and `__iter__` is read from its storage and refused, 0 of 4966
+  text cells of the lens harness against 104 at fddc00f4; the `_read_once` docstring now says what
+  the canonicaliser read (`dict(obj)`).
+
+  Contract `tests/test_a_producer_reads_a_callers_value_once.py`, 13 tests and 209 subtests: every
+  covered producer handed its values as subclasses of `str`, `bytes`, `bytearray`, `dict`, `list`,
+  `tuple`, `int` and `float` whose every method records its call, 77 cases, with no method of the
+  caller's run, the output equal to the plain call's and holding none of the caller's objects; the
+  lens's own forms of A, B and D; 20 number sites; the three `assemble` steps in a process of their
+  own; and the scan and the sweep list compared in both directions. Green on 3.10.12, 3.11.15,
+  3.12.14, 3.13.15 and 3.14.7. Against the source of fddc00f4 it fails 134 times on 3.10 and 3.11
+  and 136 times on 3.12 to 3.14, with all 77 cases among them on 3.12 to 3.14 and 75 on 3.10 and
+  3.11: there the dual hash and the audit challenge over a base64 root and a `bytearray` nonce read
+  a buffer, which no Python class can steer before 3.12, so they have no second reading. With
+  deterministic keys, the 77 cases in three forms each (as built, every list a tuple, every dict an
+  `OrderedDict`) and the trust pack with `version` 1 and 1.0 give 233 outputs byte-identical to
+  fddc00f4 on all five interpreters, and the lens's D8-3 regression probe gives its 23 outputs
+  unchanged. Planted in a throwaway copy, each of eleven second readings turns the contract red: the
+  vkey writing the caller's name (3 failures), the trust pack skipping the copy (2), `plain_json`
+  keeping number subclasses (19), the status written as handed (1), the signers signed through
+  `items()` (2), the register body not copied (2), the audit request writing the caller's beacon id
+  (1), the opening writing the caller's item (1), `link_runs` writing the caller's status (1),
+  `canonicalize` checking the caller's claim (2), and the dual hash reading the data per digest (1,
+  on 3.12 and later only: on 3.10 and 3.11 no Python class can steer a buffer, so two reads of the
+  storage give the same bytes).
+
+- **A small-order key is refused at every carrier: the AGT signer, the register view and the
+  `show-eval` issuer pin** (SPEC §4b, unchanged; register entry
+  `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, release scope line R-B2). The trust-anchor rule of the
+  entry "A key a verifier relies on …" below reached about twenty places and left three where a key
+  is relied on without it. Measured on 126ed1dc with the identity point `0100..00` as key and the
+  signature R = identity, S = 0, which the §4a profile accepts for every message:
+  `adapters/agt_receipt.py` checked the receipt's `signer_public_key` under §4a and returned
+  `ok=True`, exit 0, for a receipt nobody signed. AGT's authorization binds `receipt_payload_hash`
+  and not the signer key, so the same swap under an externally authorized receipt kept the
+  authorization and still exited 0. `_signatur_lage` in `scripts/gen_findings_register.py` answered
+  `VERIFIZIERT`, and both generated views printed "Signed and verified against the canonical body,
+  ed25519." (32 zero bytes as key and 64 as signature: `VERIFIZIERT` for 7 of 16 bodies of the
+  line-610 carrier). `show-eval --expect-issuer ed25519:<identity>` exited 0 with `=> OK` for a
+  PASS receipt nobody signed: the pin was compared as a string with a key the bundle check had
+  accepted under §4a, so the pin §4b says carries the rule did not.
+
+  Each site now refuses such a key before any signature arithmetic and names the reason from
+  `signature.TRUST_ANCHOR_REFUSAL`. The AGT signer goes through `verify_ed25519_pinned`, which adds
+  the key check and asks for no pin list, so trust in the signer still comes through the authorizer
+  as before; the adapter left the `IN_BAND` list of the trust-anchor test and no longer imports the
+  bare primitive. A key is refused where it is authorised, not only when a receipt uses it: a weak
+  key on the relying party's `trusted_authorizer_keys` refuses the list before the receipt is read
+  (new check `trusted-authorizer-keys`, exit 2), and a weak `--expect-issuer` pin is refused when it
+  is supplied (exit 2, the code a weak trust-policy pin gets). An entry or pin that decodes to no
+  32-byte key still matches nothing, as before. A lens run at 053c7800 measured that the list
+  refusal walked only list, tuple, set and frozenset while the comparison walked any iterable, so a
+  `deque`, a `UserList`, a `dict` or a `dict.keys()` view holding the identity point next to the
+  real authorizer key gave exit 0, as did the identity point given as raw bytes, and a nested-list
+  entry raised `TypeError` (on main too): the list is now read once, as one tuple that the refusal
+  and the comparison share (once per chain), 32 raw bytes are judged as a key, an entry that names
+  no key matches nothing and is counted in the check detail, and a value that cannot be walked
+  refuses the list (exit 2). A second lens run at 8cf49247 measured three more ways past that
+  reading: a list whose walk raised anything but `TypeError` (a generator that yields the real key
+  and then raises `ValueError`, a closed file, a generator raising `KeyError`) escaped from both
+  verifiers, for a receipt without an authorization as well, which exited 0 at 053c7800; the chain
+  caught the `TypeError` of a list that yields the identity point, raises once and then yields the
+  real key, and passed the half-read iterator on, exit 0 where the single call gave exit 2; and an
+  entry was judged by its Python type, so the identity point as a `memoryview` or an `array('B', …)`
+  next to the real key gave exit 0, and one key passed instead of a list was walked character by
+  character (the identity point as a bare string: exit 0). Now any `Exception` raised while the
+  caller's list is read refuses the list and names the exception type (exit 2); the single call
+  and the chain read the list through one helper, once, and when that reading is a refusal every
+  receipt of the chain reports it and the list is not read again; an entry that exports a buffer of
+  bytes or numbers is judged as its bytes; and a str or byte string passed as the whole list is
+  refused as a single key (exit 2). The register exit has a new state `KEY_REFUSED`,
+  which `pruefe_v2` counts as an error and the views print as unauthenticated. SPEC §4b needed no
+  change: it already covers every key that is not the bundle's own.
+
+  The sweep went over every Ed25519 verification under `src/`, `scripts/` and `tools/`. The bundle's
+  own key stays the one in-band key of the package. The three producers under `scripts/` where a key
+  enters a carrier (`assemble` in `gen_findings_register.py` and `sign_readiness_artifact.py`,
+  `assemble_receipt` in `pre_tag_receipt.py`) refuse such a key too, through the same shared rule,
+  with the reason named, a non-zero exit and nothing written; they had checked the handed-in pair
+  under §4a and written a carrier under the identity point with exit 0, relying on the verifiers of
+  their output, so the in-band list names no script any more, and the producer part of the entry
+  "The release tooling refuses a weak key it pins" below no longer holds. The third-party vector
+  tools under `tools/` trust nothing and stay named. The same holds for what proofbundle signs
+  itself: at 053c7800 `export_svr_dsse` signed `PROOFBUNDLE_SIGNATURE_VALID` and
+  `PROOFBUNDLE_THRESHOLD_MET` over a PASS receipt nobody signed under the identity point, and the
+  eval-result and test-result exports signed the same claim; all three now refuse with
+  `BundleFormatError` (exit 2 on `svr` and `intoto`) when the claim's issuer key is one the rule
+  refuses, read by the same issuer parser `--expect-issuer` uses, while verifying a receipt keeps the
+  bundle's own key on the §4a profile, as §4b says. Every other place under `src/` that signs was
+  swept, and none signs a verdict about a receipt it read; two that the first sweep list left out
+  are not the pattern either: `renewal._sign_ats_content` signs a time authority's own archive
+  time-stamp content, a digest it computed, and `sdjwt_issue.present_with_key_binding` signs the
+  holder's key-binding JWT over the presentation it holds; neither reads an eval receipt. Contract
+  `tests/test_a_small_order_key_is_refused_at_every_carrier.py`, as it stood at d461b41a with 48
+  cases and 702 subtests: on 126ed1dc 35 cases fail, 15 of them outright (one of those also with
+  13 failing subtests) and 20
+  only through 623 subtests, 636 failing subtests in all; on 053c7800 23 fail, 7 outright and 16
+  through 564 subtests; on 8cf49247 11 fail, 2 outright and 9 through 297 subtests; on 481a1f26 8
+  fail, 1 outright and 7 through 429 subtests, and these 8 are the cases of the third lens run
+  below; the 13 controls and preconditions pass on every tree. A case counts once, as outright when
+  its own assertion fails, whatever its subtests do; two unittest result counters and `pytest -rA`
+  give the same numbers.
+
+  A third lens run at 481a1f26 measured a regression against main and one more escape, and a sweep
+  of the neighbours found four classes that main has as well. Taking every value that exports a
+  buffer as one byte string refused `np.array([key])` and the same array with `dtype=object` as a
+  single key, exit 2 where main 20e91c8e gives exit 0: numpy exports them with the formats `64w` and
+  `O`. The list reader now goes by the format of the buffer. References (`O`, `P`, `Z`, `z`) and
+  text items of more than one character are a collection, walked as main walked it (as an entry
+  they refuse the list since the fourth lens run below); single bytes in one dimension,
+  fixed-width byte strings and single characters
+  stay one key; numbers and records are walked too, after their bytes were judged as the one key
+  they spell; and a buffer of more than one dimension is refused whole, as 481a1f26 refused it (main
+  raised `TypeError` on it). Reading only a one-dimensional buffer of `B`, `b` or `c` as a byte
+  string and everything else as a collection lost the refusal in 3122 of 12672 weak-key cases,
+  `array('I')` entries and a weak key given as a numpy uint32 array among them, which is why numbers
+  are still judged by their bytes. The reader's `except` handler read the exception's type name
+  through its metaclass, so an exception whose metaclass `__name__` raises escaped from both
+  verifiers; every message of the module that names a caller's type now reads it through `type`
+  itself (the handler, its two sibling reads, the receipt and chain shape checks, a field of the
+  wrong type). Only an `Exception` refuses a list: every `BaseException` that is not an `Exception`
+  propagates, `GeneratorExit`, `asyncio.CancelledError` and a caller's own subclass as well as
+  `KeyboardInterrupt` and `SystemExit`. The sweep called both verify surfaces 16324 times with input
+  of the wrong shape (the receipt, the chain value, each chain element, `now`, every field of the
+  five vectors) and 3664 calls raised, the same 3664 on main: a field the serialiser cannot encode
+  (3168, `TypeError`, `ValueError`, `RecursionError`, and `UnicodeEncodeError` for a lone surrogate,
+  which `json.loads` produces from a receipt file), a `cedar_decision` that is not text (450,
+  `AGTReceiptError` raised outside its guard), an instant beyond the float range (24,
+  `OverflowError` from `float()`), and a chain element that is not an object (22 kinds,
+  `AttributeError`). None raises now: 3640 are exit 2, the 23 whose signed instant changed or whose
+  `now` lies after the expiry are exit 1, and `now=-10**400` is exit 0. Kept, measured on the final
+  tree: the 366-key regression set of the second run is byte-identical (sha256 `5374a6a4…`), the
+  1794-key form sweep equals 8cf49247 on its 156 numpy cases and 481a1f26 on the other 1638, the
+  12672-case weak-key sweep (the lens's 9504 and 3168 more with numpy text, numpy object and ctypes
+  `py_object` arrays) gives exit 2 in every case, and `KeyboardInterrupt` and `SystemExit` still
+  propagate.
+
+  A fourth lens run at d461b41a measured two more classes, both on main 20e91c8e as well. Text held
+  in a buffer was never read as text: the identity point as hex text W inside `np.array(W)`,
+  `np.array(W, dtype=object)`, `ctypes.c_wchar_p(W)`, `ctypes.create_unicode_buffer(W)`,
+  `array('u', W)` or `np.array(list(W))`, next to the real key, gave exit 0 for a receipt without an
+  authorization, for the authorized one and for the chain, with the detail "1 of which name no key",
+  where the plain str W gives exit 2 (main: exit 0 for the first, `TypeError` for the others). The
+  lens swept 15 such text forms at 8 positions over 48 weak encodings, 5760 values, and the raw key
+  as `ctypes.c_char_p(key)`, 384 more. A buffer of references or of multi-character text at no
+  dimension was taken for a collection, and single characters were handed on as their UCS-4 code
+  units, 256 or 260 bytes that name no key. Decided: such an entry is not read as the text it holds,
+  it refuses the list (exit 2, naming its position, its type and its buffer format). Reading it would
+  run code of the caller's object (numpy's `item()`, ctypes' `.value`) or follow a pointer, and
+  `ctypes.c_char_p(12345).value` ends the process with SIGSEGV, measured; decoding the code units by
+  hand would be a second reading with conventions of its own, since numpy drops trailing NUL
+  characters from an item, ctypes stops at the first NUL and `array('u')` keeps them. The same rule
+  covers every reference or pointer entry (`c_char_p`, `c_wchar_p`, `c_void_p`, `py_object`, a
+  ctypes pointer) and every record entry, so the structured array that `np.genfromtxt(names=True)`
+  returns for a key column, which gave exit 0 for a receipt without an authorization, is refused
+  too: a record's fields may hold text or references, and a ctypes field name containing `:` makes
+  its format ambiguous. This changes one sentence above: a one-dimensional numpy text or object
+  array as an entry no longer names no key, it refuses the list; as the whole list it is still
+  walked, and a nested list, which exports no buffer, still names no key. Every entry that exports a
+  buffer is now either judged by its bytes or refuses the list. The second class: an instant beyond
+  the float range still met a comparison that converts to float. `authorization_expires_at` as a
+  310-digit JSON integer, judged at `now=np.float64(time.time())`, raised `OverflowError` out of both
+  verifiers, because `np.float64` passed the `isinstance` test for float and its own `__le__`
+  converts the int; a `now` that is an int or float subclass whose `__le__` raises gave
+  `RuntimeError` (exit 0 at 481a1f26 and on main, which converted with `float()` first). Every value
+  the verifier compares or tests is now read as its plain value first, through `type()` and
+  `float.__float__`, `int.__index__` or `str.__str__`, and compared exactly. The sweep of the module
+  found the same class at the claim `assurance_level` and at `parent_receipt_hash` (an int whose
+  `__eq__` raises escaped; one whose `__eq__` answers True passed the `chain-link` check for any
+  parent), at every text field given as a `str` subclass (`not signatur` ran its `__bool__`, the
+  decision lookup its `__hash__`), and at every `isinstance` test on a receipt value, on the receipt
+  and on the chain (a `__class__` property that raises escaped); all of them are read the same way
+  now. The exact comparison also corrects a rounding that no sentence above names: an expiry of
+  2**53 judged at 2**53 + 1 is expired, where 481a1f26 and main converted the instant to 2**53 and
+  called it unexpired; 2**53, 2**53 - 1 and `float(2**53)` stay unexpired everywhere.
+  `[real key, closed mmap]` is exit 2 where main gives exit 0, and that follows from the rule of the
+  second lens run: a closed mmap refuses its buffer with `ValueError`, as a released `memoryview`
+  does, and an entry that cannot be read refuses the list. Kept, measured on the final tree: the
+  366-key regression set is byte-identical (sha256 `5374a6a4…`), the 1794-key form sweep is
+  byte-identical to d461b41a, the 12672-case weak-key sweep gives exit 2 in every case, the real key
+  as hex text in 35 container forms by 4 lists keeps all 288 accepts main gives the authorized
+  receipt and the two chains, and every `BaseException` that is not an `Exception` still propagates.
+  Of the lens's sweeps, the text one has no value left below exit 2 (7920 values) and the raw one 94
+  of 50208: the raw key bytes as a numpy `<U8` or `>U4` array passed as the whole list, whose items
+  are read as the texts they are and spell no key. For 8 of those 140 lists (the real key inside
+  `np.array(key)` or `c_wchar_p(key)` as an entry) the receipt without an authorization gets exit 2
+  where d461b41a gave exit 0; main raised `TypeError` there for the authorized one. Not fixed, and
+  named: the truth value of `require_external_authorization` is read through the caller's value (a
+  numpy array of two booleans raises `ValueError`). The receipt mapping and the chain sequence were
+  read through their own methods here as well (a `dict` subclass whose `get` raises escaped from both
+  verifiers, on main too); the fifth lens run below closed that. Contract as it stood at c8c61651: 53
+  cases and 1159 subtests; at d461b41a 6 cases fail, none outright and all 6 through
+  454 subtests, the five new cases and the one whose entry assertion changed, and pytest reports
+  those 6 as passed next to 454 failed subtests.
+
+  A fifth lens run at c8c61651 measured two more classes, both on main 20e91c8e as well, and five
+  smaller findings. The list reader took the buffer format for the item, and ctypes exports a record
+  it cannot describe with the bare format `B`: a `ctypes.Union`, a `Structure` with `_pack_` (a
+  big-endian one too) and an array of either, which exports `B` in one dimension. The identity point
+  as hex text in a `c_wchar * 65` field of such a record, next to the real key, gave exit 0 for
+  receipt 01, for receipt 03 and for the chain, so the sentence above that the rule covers every
+  record entry did not hold at c8c61651. The kind is now decided by the type as well as by the
+  format: a ctypes Structure, Union, pointer or function pointer is a record whatever it exports, and
+  so is any buffer whose one-item format the struct module sizes to another number than the item
+  size the buffer reports, which covers an array of such records at any depth without reading its
+  element type. Every such entry refuses the list, and a weak key's raw bytes inside one are still
+  judged and named in the refusal. numpy cannot hide a record this way: with numpy 2.2.6, every dtype
+  with fields that was measured (the lens's eight and ten more, overlay dtypes included) exports
+  `T{...}`. Of the lens's 344-form classification table, two rows change class, the Union and the
+  packed Structure (numbers to record), and four `P` rows now hand on their bytes. Next to it, a
+  whole ctypes pointer (`POINTER(c_char)`) was walked item by item from its address with no end; it
+  is refused as a pointer now, before anything is read. The second class: a plain JSON receipt made
+  both verifiers raise. The payload was serialised inside the guard for the signature and again
+  through `payload_hash` for the self-consistency check, one frame deeper and outside every `try`, so
+  a `tool_name` nested 989 deep raised `AGTReceiptError … RecursionError` out of both verifiers, and
+  the window moves with the caller's stack (N = 988 at no extra frame, 488 at 500). Each receipt is
+  now serialised once, and the self-consistency check, the authorization binding and the chain link
+  take their hash from those bytes; a value whose `items()` raises on a second read no longer
+  escapes either. Of the smaller findings, two are fixed. A `P` buffer over a weak key's bytes passed
+  as the whole list (`memoryview(key).cast('P')`, `(c_void_p * 4)`) was walked as addresses that
+  name no key, 96 values at exit 0 or 3, and is judged by its bytes now. A key object whose hash
+  equals `hash("agent_did")` and whose `__eq__` raises made both verifiers raise from a plain dict.
+  The receipt is now read through `dict.items` into a plain copy and the chain through
+  `list.__iter__` or `tuple.__iter__`, which call no method of the caller's, and that also closes the
+  limit named above for a `dict` subclass whose `get` raises and a list subclass whose `__len__`
+  raises (of the lens's 2765 hostile calls, 3 escaped at c8c61651 and none now). The other three are
+  named limits below. Kept, measured on the final tree: the text sweep has 0 of 7920 values below
+  exit 2, the raw sweep the same 94 of 50208, the weak-key sweep gives exit 2 in all 12672 cases, the
+  real key as hex text in 35 container forms by 4 lists keeps all 288 accepts main gives, the
+  366-key regression set (sha256 `5374a6a4…`) and the 1794-key form sweep (sha256 `e534b806…`) are
+  byte-identical to c8c61651, the two counter-examples of the fourth run stay fixed, and every
+  `BaseException` that is not an `Exception` still propagates (36 of 36 sites). Contract: 59 cases
+  and 1542 subtests; at c8c61651 the 6 new cases fail, none outright and all 6 through 342
+  subtests, and pytest reports those 6 as passed next to 342 failed subtests.
+
+  The CI test matrix at a4e2fa5c (the fifth run's fix merged with main) measured one verdict that
+  depended on the interpreter and two cases whose premise did. A receipt field nested 5000 levels was
+  unreadable, exit 2, on Python 3.10 and 3.11 and a failed signature, exit 1, on 3.12, 3.13 and 3.14,
+  for all 11 fields of both payloads: the depth was bounded only by where `json.dumps` raised
+  `RecursionError`, and that moves with the interpreter (measured at a shallow caller: 3.10 and 3.11
+  write 990 levels and not 1500, 3.12 and 3.13 write 5000 and not 20000, 3.14 writes 20000 and not
+  200000). The depth is the module's own rule now. A payload whose canonical form nests arrays and
+  objects more than 64 deep, the house ceiling `budget.json_depth`, is `readable` False, exit 2, on
+  every interpreter; the plain containers are measured before anything is written, without
+  recursion, without running a method of the caller's and once per container and level (60 lists
+  each held twice by the next, 2**60 paths, cost one visit per list), and what the serialiser reads
+  through a caller's own methods (the `items()` of a `dict` subclass, the `__iter__` of a `list`
+  subclass, each still read once) is measured in the form it wrote. The message is the same on every
+  interpreter except in one case, which the first wording of this entry ("with one message on every
+  interpreter") left out and lens run 7 at 75c3aa48 measured (F4): where a caller's own `items()` or
+  `__iter__` hands the serialiser a form so deep that `json.dumps` raises `RecursionError` before it
+  has written it, 3.10 and 3.11 name that exception ("encoding it raised RecursionError") while 3.12
+  to 3.14 write the form and give the depth message; measured at 990, 1500 and 4998 levels, and at
+  70 and 600 levels all five give the depth message. The verdict and the exit code are the same on
+  all five in every case, and the behaviour is unchanged. `canonical_payload`,
+  `payload_hash` and `canonical_authorization_payload` raise `AGTReceiptError` for such a payload the
+  same way. This changes the verdict for a value nested past 64 levels that the interpreter could
+  still write, from exit 1 to exit 2, and a signature over such a form is no longer checked; an AGT
+  payload is one level deep. The sweep of the module found no other verdict that depends on the
+  recursion limit: the list reader, the field copy, the chain reading and every message walk no
+  nested value, and `_kurzwert` already names a nested value by its type. Of the functions this
+  branch changed outside the module, the issuer pin parser, the export refusal and the key checks of
+  the three `assemble` steps walk no nested value, and the register and the readiness artifact are
+  signed over `canonical.canonicalize_statement`, whose depth bound is explicit already. One
+  neighbour is named, not changed: `pre_tag_receipt.py --assemble` over a context file nested 5000
+  deep exits 1 without writing a receipt on 3.10, 3.11 and 3.13, from a `RecursionError` traceback
+  of `json.loads` on 3.10 and 3.11 and from its signature refusal on 3.13; the load is code this
+  branch did not change. The other two findings were premises of the contract, not of the source.
+  numpy 2.4.6 (3.11) and 2.5.3 (3.12 to 3.14) cannot infer the types of a CSV whose first key is
+  the identity point in hex, 64 digits and no letter, and raise `TypeError` inside
+  `np.genfromtxt(dtype=None)`, where numpy 2.2.6 (3.10) fell back to text; the table now names its
+  field types (`dtype="U64,U8"`), which gives on all three the `<U64` key column numpy 2.2.6
+  inferred (the label is `<U8` where it inferred `<U4`), and numpy's inference still reads the
+  table whose first key has letters. From 3.12 on ctypes describes a `Structure` with `_pack_` as a
+  record (`T{(65)<u:f:}`, `T{(64)>I:f:}`) instead of the bare `B`, so the precondition that each
+  form of the fifth run's case exports `B` failed there; a Union exports `B` on all five. The case
+  now demands that each form exports `B` or a record format, that every Union form exports `B`, and
+  the refusal for whichever it exports, and the source refused both kinds on every interpreter (10
+  forms, exit 2 each on all five). Against the source of a4e2fa5c the three cases of the depth rule
+  fail 41 subtests on 3.10 and 3.11 and 45 on 3.12 to 3.14, and the two premise cases pass.
+
+  A Codex review at a4e2fa5c found the same class where a key is AUTHORISED rather than verified:
+  `sdjwt_issue.issue_sd_jwt` checked `holder_public_key` only for its length, wrote it into
+  `cnf.jwk` and signed. A key a producer writes for a relying party to trust gets the rule its
+  verifier applies, before it is written. The sweep went over every producer under `src/` that
+  writes an Ed25519 key the caller hands it. Three wrote all 13 weak encodings of the contract at
+  a4e2fa5c (main 31816e08 has the same files): `issue_sd_jwt` (the holder binding),
+  `checkpoint.vkey` (a log verifier key) and `checkpoint.cosign_vkey` (a witness verifier key).
+  Each refuses them now with
+  the shared rule: `issue_sd_jwt` raises `ValueError`, its documented refusal for a bad holder key,
+  and the two vkey producers raise the `BundleFormatError` their parsers raise. Two refused already
+  and are pinned as controls: `policy_profiles.instantiate_template` (pinned issuer keys) and
+  `trust_pack.sign_trust_pack` (root keys). The rest write the key of the private key they sign
+  with (`emit_bundle`, `emit_eval_receipt`, `sign_checkpoint`, `cosign_checkpoint`, the statement
+  emitters, `dsse.sign_envelope`), which is never of small order for a real Ed25519 key, or write a
+  key ID. `emit_bundle` also copies a caller's `sd_jwt_vc` verbatim, a foreign issuer's key
+  included; the bundle signature does not cover it, and `verify_bundle` checks the SD-JWT under that
+  key with the rule. The contract carries this sweep as a list. At the tags v6.0.0 and v6.1.0
+  `issue_sd_jwt` carries the same lines (98 to 102), and the verifiers did not refuse either: an
+  SD-JWT bound to the identity point and a Key Binding JWT signed by nobody (R = identity, S = 0)
+  gave "key binding valid", and all 13 weak log and witness vkeys were written and parsed back; at
+  a4e2fa5c the verifiers refused them. The case in
+  `tests/test_trust_anchor_keys_refused_on_every_surface.py` that bound the identity point as the
+  holder and measured only the verifier now demands the refusal at issuance and measures the
+  verifier on a `cnf.jwk` a foreign issuer wrote; its checkpoint cases measure the parsers on vkeys
+  written without the rule. The search question of the finding, a key checked by its length alone,
+  is a case: every comparison of a `len(...)` with 32 under `src/` (26 in 25 functions) is listed
+  with the reason it is no carrier, and a new one turns the contract red until it is named. Three
+  more length checks that scan cannot see, found by a wider one (a comparison with a name or with
+  33), are named in the case next to `trust_pack`'s `want_len`: two are the vkey parsers, followed
+  by the rule, and one compares a hash.
+  Contract: 66 cases and 1653 subtests with numpy installed, green on 3.10.12, 3.11.15, 3.12.14,
+  3.13.15 and 3.14.7, each with the numpy its CI job installs; against the source of a4e2fa5c 93
+  subtests fail on 3.10 and 3.11 and 97 on 3.12 to 3.14 (41 or 45 of the depth rule, 52 of the two
+  producer cases). The trust-anchor file has 53 cases and 159 subtests, green on all five; its
+  turned case fails outright against the source of a4e2fa5c.
+
+  A lens run at 75c3aa48 measured that those refusals judged one reading of the caller's key and
+  wrote another. The rule reads `len(key)` and `bytes(key)`, the caller's `__len__` and `__bytes__`;
+  the writers read the key's own buffer (base64) or ran its `__radd__` (a concatenation); and a key
+  given as base64 text reached the rule through `_wire_b64`, which called the caller's `encode`,
+  while the producer wrote the text itself. A `bytes` subclass whose `__bytes__` returns a real key
+  while its own bytes are the identity point was bound by `issue_sd_jwt` and written by
+  `checkpoint.vkey` and `checkpoint.cosign_vkey`, and a `bytearray` subclass the same way by
+  `issue_sd_jwt`, 13 of 13 weak encodings each on all five interpreters; under v6.0.0 and v6.1.0
+  the SD-JWT so issued, with a Key Binding JWT signed by nobody, verifies as "key binding valid". A
+  `str` subclass whose `encode` returns the base64 of a real key while its text is the base64 of
+  the identity point was pinned by `policy_profiles.instantiate_template`, signed into a pack by
+  `trust_pack.sign_trust_pack` and written by `trust_pack.build_trust_pack_statement` and the three
+  `assemble` steps under `scripts/`, so "refused already" above holds for a plain `str` only; no
+  command line reaches it, since arguments are plain `str`. From Python 3.12 on a class can define
+  `__buffer__` (PEP 688), and a `bytes` subclass that stores a real key and whose `__buffer__` names
+  the identity point passed the rule, which reads the storage through the inherited
+  `bytes.__bytes__`, and had the identity point written, measured on 3.12.14, 3.13.15 and 3.14.7.
+  Now each such producer reads the key once, from the value's own storage, into an exact `bytes` or
+  `str` (`signature.plain_bytes` and `signature.plain_text`, next to the rule, and
+  `_wire_b64.wire_value` for a field that may be either), and the rule, the key ID and the written
+  output use that one value. The read is `bytes.__getitem__` or `bytearray.__getitem__` with a full
+  slice, and `str.__str__`: on all five interpreters none of them ran a method the caller's class
+  defined, while `bytes(x)`, `x[:]`, `b"" + x`, `x.encode()`, `str(x)`, `f"{x}"` and `"" + x` did,
+  and from 3.12 on `memoryview(x)`, base64 and `hashlib` too. The decoders of `_wire_b64` read their
+  input the same way. `sign_trust_pack` and `build_trust_pack_statement` read the whole predicate
+  once: its RFC 8785 bytes are parsed back, and the validator, the subject digest and the signature
+  use that parse, so a `dict` subclass whose `get` answers for a real key while it stores the
+  identity point is refused too, and a predicate that cannot be written as RFC 8785 JSON raises
+  `TrustPackError`. That read changes one verdict for a plain predicate as well, decided and pinned
+  by the contract: an integer field given as a float of integral value (`version`, a role's
+  `threshold`) and an array given as a tuple (`keyIds`, `nonClaims`) were refused at 75c3aa48 by
+  the validator's type checks and are signed now, because the RFC 8785 form does not carry the
+  difference; the statement and the signed payload are byte-identical to the ones for the integer
+  or the list, and `1.5` or `True` stay refused. The issuer parser of `--expect-issuer` and of the
+  exports that refuse to vouch (`evalclaim._issuer_key_weakness`) reads the issuer once, so a `str`
+  subclass whose `startswith`
+  and `__getitem__` answer for a real key no longer lets `export_eval_result_dsse` or
+  `export_intoto_dsse` sign over a claim that holds the identity point. `checkpoint.key_id`,
+  `cosign_key_id`, `cosign_key_id_mldsa` and `cosign_vkey_mldsa` read the key once as well, so a key
+  ID is the ID of the key written (no rule applies to an ML-DSA key). Which types are read: a raw
+  key is `bytes` or `bytearray`, the two types the rule judges. `issue_sd_jwt` wrote a real key
+  given as a `memoryview`, an `array('B')`, a ctypes byte array or a numpy uint8 array at a4e2fa5c
+  and refused it at 75c3aa48 with the reason "a trusted Ed25519 key is exactly 32 bytes", which is
+  wrong for 32 bytes. Decided: it stays refused, because such a value has no storage apart from its
+  buffer, which a subclass can steer from 3.12 on, and the refusal now says the key must be `bytes`
+  or `bytearray` and to pass `bytes(...)` of it. `vkey`, `cosign_vkey`, `key_id` and `cosign_key_id`
+  refused a `bytearray` until now and accept it, as `issue_sd_jwt` did. One effect on the verifier
+  side, through the shared decoder, measured on 3.10: `policy.load_policy` accepted a pin given as a
+  `str` subclass whose `encode` answers for a real key while its text is the identity point, and
+  now refuses it. Contract `tests/test_a_producer_reads_a_callers_key_once.py`, 15 cases and 1008
+  subtests, green on 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7; every producer of its sweep list
+  gets each hostile form in both directions (the weak key stored and a real key answered, and the
+  reverse), and a scan names every call of the rule's helpers under `src/` and `scripts/`. Against
+  the source of 75c3aa48 it fails 713 times on 3.10 and 3.11 and 805 times on 3.12 to 3.14 (1
+  outright, the readers that do not exist there; 4 are the plain trust-pack predicates above; the
+  92 more are the `__buffer__` form), with every
+  producer of the list among them; of those, the `bytearray` cases of the vkeys and key IDs fail
+  because a `bytearray` was refused there, not because it was read twice. Planted in a throwaway
+  copy, each of six second readings turns it red: `issue_sd_jwt` writing `bytes(key)`, `vkey`
+  concatenating the caller's key, `sign_trust_pack` validating and signing the caller's predicate,
+  the issuer parser slicing the caller's `str`, `sign_readiness_artifact` writing `str(key)`, and the
+  decoder calling the caller's `encode` (26, 13, 17, 52, 13 and 1 failures).
+
+  Named limits, measured and not stated elsewhere: the AGT adapter does not relate `agent_did` to
+  `signer_public_key`. A receipt whose `agent_did` names another party verified with exit 0 under a
+  fresh signer key, and the five vectors carry `did:key:z6MkZ179Demo`, which decodes to 8 bytes and
+  is no Ed25519 did:key. `trusted_authorizer_keys` is compared as text: the real authorizer key
+  listed in capitals gives exit 3, and so does the real key given as a byte string (32 raw bytes,
+  a `memoryview`, an `array`), which the rule judges but which is not text, so the error falls on
+  the closed side. A whole ctypes array of `c_char_p` or `c_wchar_p` is walked, and ctypes reads the
+  text each pointer names: the caller's pointers are followed by design, and the 288 accepts include
+  `(c_wchar_p * n)`. Measured with memory the probe allocated, the verdict follows the bytes at the
+  address (the weak key there: exit 2, other bytes: exit 0); a pointer in such an array that names
+  no valid address was not run and is not detected. Text held where no buffer of text holds it
+  names no key: `collections.UserString(W)` as an entry, and the hex text as ASCII bytes (`W.encode()`,
+  a `bytearray`, a `memoryview`, `np.bytes_`, an `S64` array, `create_string_buffer`), give exit 0
+  next to the real key, because bytes are read as raw key bytes and an object without a buffer names
+  no key. A record entry next to the real key refuses a list that main authorised (a read-only numpy
+  record: exit 2 where main gives exit 0); it fails closed. Serialising a signed field still runs
+  that value's own methods (`items()` of a `dict` subclass, `__iter__` of a `list` subclass, a
+  `__class__` property through the serialiser's `default()`); with one serialisation per receipt,
+  none of them makes a verifier raise. Four NULL `c_void_p` passed as the whole list are 32 zero
+  bytes, a point of small order, and are refused (exit 2) where c8c61651 walked them (exit 0 or 3);
+  one, two, three, five or eight are walked as before. A verify function that reads a caller's key
+  object twice is not changed here: `verify_ed25519_pinned` reads `bytes(key)` for the rule and again
+  for the signature check, and a key object whose `__bytes__` answers a real key first and the
+  identity point after verified a signature made by nobody, directly and through
+  `dsse.verify_envelope`, measured on 3.10 and 3.13. Still read through the caller's own methods, and
+  not measured: the name a vkey is written under, the `signers` map of `sign_trust_pack` (checked
+  against the pack's keys, then signed with), and the body an `assemble` step checks the signature
+  over and then copies.
+
 - **An ES256 or eip191 signature has one identity, and a foreign signer's bytes are never
   rewritten** (finding D1; `signature.canonical_es256_signature`, `sdjwt.canonical_sd_jwt_compact`,
   `kbjwt.verify_key_binding`, `anchors.receipt_canonical_root`, `hf_evals.receipt_token_identity`,

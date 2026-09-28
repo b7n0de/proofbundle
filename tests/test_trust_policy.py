@@ -577,12 +577,21 @@ class TestExpectedVct(unittest.TestCase):
         # must NEVER trust a vct claim from an unverified issuer payload — even when the bundle's own
         # sd_jwt_vc.compact is well-formed and carries the "right" vct on its face. This is the
         # "verified vs. merely present" discipline policy:nonce_present already established.
+        # Two ways an issuer signature is not verified. It never ran: crypto passes, and the vct gate
+        # itself refuses. It ran and failed: since the crypto gate counts every check's `ok` from one
+        # read (Codex on pull request 293, round three), a failed check fails crypto, and the policy is
+        # not evaluated at all. This case used to hand in `ok = True` beside a failed check, a result
+        # `verify_bundle` never builds, and relied on the gate reading only `result.ok`.
         from proofbundle.errors import Check  # noqa: PLC0415
 
-        class _Result:
+        class _NeverRan:
+            ok = True
+            checks = [Check("ed25519-signature", True), Check("sd-jwt-disclosures", True)]
+
+        class _Failed:
             ok = True
             checks = [Check("ed25519-signature", True), Check("sd-jwt-disclosures", True),
-                     Check("sd-jwt-issuer-signature", False, "unsigned")]
+                      Check("sd-jwt-issuer-signature", False, "unsigned")]
 
         issuer = generate_signer()
         compact = issue_sd_jwt(
@@ -591,10 +600,13 @@ class TestExpectedVct(unittest.TestCase):
             issuer, root_b64="cm9vdA==", vct="https://attacker.example/vct")
         bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact}}
         policy = load_policy(_base_policy(sd_jwt={"expected_vct": "https://attacker.example/vct"}))
-        res = evaluate_policy(bundle, _Result(), policy)
+        res = evaluate_policy(bundle, _NeverRan(), policy)
         self.assertFalse(res["policy_ok"])
         vct_check = next(c for c in res["checks"] if c["name"] == "policy:expected_vct")
         self.assertIs(vct_check["ok"], False)
+        res = evaluate_policy(bundle, _Failed(), policy)
+        self.assertIsNone(res["policy_ok"], res)
+        self.assertEqual(res["checks"], [])
 
     def test_expected_vct_listed_in_explain(self):
         pol = load_policy(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/mine"}))

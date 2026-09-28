@@ -27,6 +27,7 @@ import math
 import zlib
 from typing import Optional, Tuple
 
+from ._membership import require_switch
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
@@ -65,7 +66,13 @@ def receipt_token(bundle: dict) -> str:
     the same receipt, and each one verifies. So a receipt and its twin give two token strings. Their
     identity is one: :func:`receipt_token_identity`, the key to deduplicate or replay-check tokens
     by (finding D1, owner decision 2026-09-26)."""
-    if not isinstance(bundle, dict) or "payload_b64" not in bundle:
+    if not isinstance(bundle, dict):
+        raise BundleFormatError("receipt_token needs a bundle dict")
+    # read once (lens run 8 at fddc00f4, the sweep of finding B): the check asked the caller's
+    # `__contains__` and the token packed what `json.dumps` reads through its `items()`
+    from ._plain_value import plain_json  # noqa: PLC0415
+    bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
+    if "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
     canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
@@ -252,7 +259,43 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     a value that CONTRADICTS the verdict (a "passed" receipt published with a failing value); it does
     NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
     ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
+
+    ``allow_value_mismatch``, ``require_verified`` and ``include_token`` must be bools; anything else
+    raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError`` and a ``ProofBundleError``)
+    naming the parameter and the type, before the bundle is read. They were read by their truth, so
+    ``allow_value_mismatch="false"`` skipped the consistency check, ``require_verified=None``, ``0`` or
+    ``""`` built an entry from a bundle that does not verify (beside ``allow_value_mismatch=True``;
+    without it the value check refused that bundle), and ``include_token="false"`` published the token
+    (measured at 3a8074fc).
+
+    EVERY VALUE THAT IS CHECKED AND PUBLISHED IS READ ONCE (lens run 8 at fddc00f4, the sweep of
+    finding B). The consistency check used `float(value)`, the caller's `__float__`, while the entry
+    published the stored number: a float subclass storing 99.9 whose `__float__` answers 0.5 passed the
+    check against a failing verdict and was published as 99.9. The value is an exact int or float or a
+    numeric text, a subclass of int or float is refused, and the bundle that is verified is the one
+    that is decoded and packed into the token.
     """
+    require_switch(allow_value_mismatch, "allow_value_mismatch")
+    require_switch(require_verified, "require_verified")
+    require_switch(include_token, "include_token")
+    from ._plain_value import plain_json  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    if isinstance(bundle, dict):
+        bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
+    dataset_text, task_text = plain_text(dataset_id), plain_text(task_id)
+    if not dataset_text or not task_text:
+        raise BundleFormatError("dataset_id and task_id are required (the Hub benchmark identity)")
+    dataset_id, task_id = dataset_text, task_text
+    if type(value) not in (int, float):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            raise BundleFormatError(f"value is of type {type(value).__name__}, a subclass of int or float — a "
+                                    "published number must be an exact int or float (or a numeric string)")
+        text = plain_text(value)
+        if text is not None:
+            value = text
+    date, source_url, source_name, source_user, notes = (
+        (plain_text(v) if plain_text(v) is not None else v)
+        for v in (date, source_url, source_name, source_user, notes))
     if require_verified:
         result = verify_bundle(bundle)
         if not result.ok:
@@ -353,8 +396,15 @@ def eval_results_yaml(entries) -> str:
     order = ("dataset", "value", "verifyToken", "date", "source", "notes")
     dataset_order = ("id", "task_id", "revision")
     source_order = ("url", "name", "user")   # HF hub-docs spec fields (no 'org' — 'user' covers the HF org/user)
+    from ._plain_value import plain_json  # noqa: PLC0415
     lines = []
-    for entry in entries:
+    from ._plain_value import plain_list  # noqa: PLC0415
+    stored = plain_list(entries)               # the list read once from storage (lens run 8, finding B)
+    for entry in (stored if stored is not None else entries):
+        # read once (lens run 8, the sweep of finding B): the field check iterated the caller's entry
+        # and the lines read its items through `__getitem__`
+        if isinstance(entry, dict):
+            entry = plain_json(entry, what="eval_results entry", error=BundleFormatError)
         unknown = set(entry) - set(order)
         if unknown:
             raise BundleFormatError(f"unknown eval_results entry field(s): {render_keys_safe(unknown)}")

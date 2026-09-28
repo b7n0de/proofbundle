@@ -65,7 +65,9 @@ def validate_vc_policy(policy: Any) -> list[str]:
     if not (isinstance(va, list) and va and all(isinstance(x, str) and x for x in va)):
         errors.append("vctAllowlist must be a non-empty list of allowed vct strings")
     for b in ("requireTypeMetadataIntegrity", "requireKeyBinding", "requireIssuerSignature"):
-        if b in policy and not isinstance(policy[b], bool):
+        # type(), not isinstance(): an object whose __class__ says bool passed and then switched a
+        # requirement off with its own __bool__ (policy._require_bool had the same hole).
+        if b in policy and type(policy[b]) is not bool:
             errors.append(f"{b} must be a boolean")
     return errors
 
