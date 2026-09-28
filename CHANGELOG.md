@@ -518,6 +518,21 @@ so a rule refusing everything could not pass as correct. Catch proof: restoring 
 the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
 before and after.
 
+- **The release-scope title gate trusts only a tag the clone shows, and the cut's test checks each
+  cited line in its own tree** (`scripts/b7_release_scope_title_gate.py`,
+  `tests/test_release_scope_cut_holds.py`, pull request 294, the 6.2.0 cut). Two P1 findings of the
+  fourth review round, each reproduced at 5a9ddc06 before it was fixed. `git tag --list` lists the
+  tags a clone holds, not the tags that exist: with `pyproject.toml` at 6.2.0 and only `v6.1.0`
+  fetched, a branch that only the 6.3.0 scope names came back outside the scope with exit 0. Only a
+  source tag the clone shows decides now; without it the gate judges the branch by whichever of the
+  two candidate scope files names it, and the landing card says NOT MEASURABLE rather than count a
+  release it cannot know. And a `path:line` citation passed if any tree its row names matched, so a
+  line stale in its claimed revision stayed green beside another revision. Each citation is now
+  checked in the tree its own sentence names, or the one its row names for its path, and in the
+  working tree only where the row names none; a row that names trees and none for the citation is a
+  finding. The cut's R1 and R-B4 rows had one each, true in every tree the rows name, and now name
+  `v6.1.0` for them.
+
 ### Added
 
 - **Offline verification of Agent Governance Toolkit (AGT) governance receipts**

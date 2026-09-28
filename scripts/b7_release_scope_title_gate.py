@@ -94,9 +94,14 @@ _FREIGEGEBEN = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\.post[0-9]+)?$")
 
 
 def _tag_stand(wurzel: pathlib.Path, version: str) -> str:
-    """Whether `v<version>` is a tag of the repository at `wurzel`: "da", "fehlt", or the reason it
-    cannot be read. A clone that shows no release tag at all (the CI checkout at depth 1 fetches
-    none) cannot tell a missing tag from an unfetched one, so that is not "fehlt"."""
+    """Whether this clone SHOWS `v<version>`: "da", "fehlt", or the reason the tags cannot be read.
+    A clone that shows no release tag at all (the CI checkout at depth 1 fetches none) says
+    nothing about any tag, so that is not "fehlt".
+
+    "fehlt" MEANS NOT SHOWN HERE, NOT ABSENT UPSTREAM (Codex on pull request 294, round four, P1).
+    `git tag --list` lists the tags this clone holds; a clone whose tags were fetched in part shows
+    `v6.1.0` and not `v6.2.0` whether or not `v6.2.0` exists. Only "da" is a fact about the release;
+    the callers read "fehlt" as not knowing."""
     import subprocess  # noqa: PLC0415
     try:
         r = subprocess.run(["git", "-C", str(wurzel), "tag", "--list", "v[0-9]*"],
@@ -112,10 +117,12 @@ def _tag_stand(wurzel: pathlib.Path, version: str) -> str:
 
 
 def umfangskandidaten_ohne_tags(wurzel: pathlib.Path = REPO) -> list[str]:
-    """The releases a run without `--version` may be judging when the tags cannot be read: the
-    source version, which has its own scope file, and the oldest scope file above it. Empty when
-    the source version has no scope file of its own (then `naechste_umfangsversion` decides
-    without tags) or cannot be read."""
+    """The releases a run without `--version` may be judging when this clone does not show the
+    source version's tag, because the tags cannot be read or because `v<source>` is not among the
+    ones it shows: the source version, which has its own scope file, and the oldest scope file
+    above it. Empty when the source version has no scope file of its own (then
+    `naechste_umfangsversion` decides without tags), when its tag is shown here (then the next
+    scope file decides alone), or when the version cannot be read."""
     version, _ = naechste_umfangsversion(wurzel)
     if version is not None:
         return []
@@ -133,9 +140,11 @@ def umfangskandidaten_ohne_tags(wurzel: pathlib.Path = REPO) -> list[str]:
         return []
     draussen = tuple(int(x) for x in m.groups())
     eigene = ".".join(str(x) for x in draussen)
-    if f"{eigene}.md" not in namen or _tag_stand(wurzel, eigene) in ("da", "fehlt"):
-        # Only an UNREADABLE tag state opens the candidates. Readable tags decide by themselves,
-        # and a NOT MEASURABLE they leave (no scope file above a tagged source) stays one.
+    if f"{eigene}.md" not in namen or _tag_stand(wurzel, eigene) == "da":
+        # Only a tag this clone SHOWS decides by itself, and a NOT MEASURABLE it leaves (no scope
+        # file above a tagged source) stays one. A tag not shown here opens the candidates, whether
+        # the tags cannot be read at all or the clone holds some of them: a tag not fetched is not
+        # a tag that does not exist (Codex on pull request 294, round four, P1).
         return []
     darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
                                   for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
@@ -166,11 +175,16 @@ def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, st
 
     THE ONE QUESTION A TAG ANSWERS (Codex on pull request 294, round three, P1): when the source
     version has a scope file of its own, is it out or being built? RELEASE.md bumps the version in
-    the release-prep pull request and tags after the merge, so the version alone cannot tell. Tagged
-    `v<source>`, the answer is the scope file above; untagged in a clone that shows release tags, it
-    is the source version itself; in a clone that shows none, NOT MEASURABLE, and the gate's `main`
+    the release-prep pull request and tags after the merge, so the version alone cannot tell. And
+    only a tag this clone SHOWS answers it (round four, P1): `git tag --list` lists the tags a clone
+    holds, so a clone whose tags were fetched in part shows `v6.1.0` without `v6.2.0` whether or not
+    `v6.2.0` is out. Measured at 5a9ddc06 with the source at 6.2.0 and only `v6.1.0` in the clone: a
+    branch that only the 6.3.0 scope names was judged against 6.2.0, outside the scope, exit 0. So
+    `v<source>` shown here, the answer is the scope file above; not shown, whether because the
+    clone shows no tag at all or because it shows others, NOT MEASURABLE, and the gate's `main`
     then judges the branch by whichever of the two scope files names it
-    (`umfangskandidaten_ohne_tags`).
+    (`umfangskandidaten_ohne_tags`). The landing card counts one release and has no branch to
+    choose by, so there it stays NOT MEASURABLE until the tag is fetched or `--version` is given.
 
     THE SOURCE VERSION IS READ BY THE RELEASE-INTEGRITY GATE'S OWN READER,
     `scripts/check_version_and_changelog.py::_pyproject_version`, loaded from beside this file, not by
@@ -183,8 +197,8 @@ def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, st
     reads the same one.
 
     Not measurable, with the reason in the second value: the reader not loadable, an unreadable or
-    version-less pyproject.toml, a source version that is not a released one, or no scope file
-    above it.
+    version-less pyproject.toml, a source version that is not a released one, a source version
+    with a scope file of its own whose tag this clone does not show, or no scope file above it.
     """
     leser = pathlib.Path(__file__).resolve().parent / "check_version_and_changelog.py"
     try:
@@ -213,15 +227,18 @@ def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, st
     # the tag the source version names the release being built, and "the oldest scope file above
     # it" judged a 6.2.0 correction against 6.3.0: outside the scope, and green. The tag is the one
     # fact that tells the two states apart. A post-release (`X.Y.Z.postN`) says `X.Y.Z` is out.
+    #
+    # AND ONLY A TAG THIS CLONE SHOWS IS THAT FACT (round four, P1). Round three read a tag missing
+    # from a clone that shows other tags as a tag that does not exist, and a partial fetch made that
+    # a pass: 6.2.0 judged while `v6.2.0` may be out upstream. Not shown here is not knowing.
     eigene = ".".join(str(x) for x in draussen)
     if f"{eigene}.md" in namen and ".post" not in quelle:
         stand = _tag_stand(wurzel, eigene)
-        if stand == "fehlt":
-            return eigene, (f"derived: the source version {quelle} in pyproject.toml has its own "
-                            f"scope file and no tag v{eigene}, so it is the release being built")
         if stand != "da":
+            warum = (f"this clone shows release tags and not v{eigene}, and a tag it has not "
+                     "fetched may exist upstream" if stand == "fehlt" else stand)
             return None, (f"NOT MEASURABLE: the source version {quelle} has its own scope file, "
-                          f"and whether v{eigene} is tagged cannot be read here ({stand}); tagged, "
+                          f"and whether v{eigene} is tagged cannot be read here ({warum}); tagged, "
                           f"the release being built is the next scope file, untagged it is {eigene}")
     darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
                                   for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
@@ -561,9 +578,10 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
 
 
 def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[str | None, str]:
-    """Without readable tags, the release is chosen by the branch: the one candidate whose scope
-    file names it. A branch named by two candidates is ambiguous and not measurable; a branch named
-    by none is outside every candidate, and the newest candidate reports that."""
+    """Without a source tag this clone shows, the release is chosen by the branch: the one
+    candidate whose scope file names it. A branch named by two candidates is ambiguous and not
+    measurable; a branch named by none is outside every candidate, and the newest candidate
+    reports that."""
     treffer = [v for v in kandidaten
                if branch in lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")[0]]
     if len(treffer) > 1:

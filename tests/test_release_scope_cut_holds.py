@@ -63,13 +63,32 @@ the commit that fixed it:
     judged 6.3.0 and a 6.2.0 correction came back outside the scope. The tag decides now; where no
     tag can be read, the branch decides between the two candidates.
 
+A review of 5a9ddc06 reported three more, two P1 and one P2, and section 7 has a case for each that
+fails at 5a9ddc06 and passes on the commit that fixed it:
+
+12. A TAG THIS CLONE DOES NOT SHOW WAS READ AS A TAG THAT DOES NOT EXIST. `git tag --list` lists
+    the tags a clone holds, so with the source at 6.2.0 and only `v6.1.0` fetched, the gate judged
+    6.2.0, and a branch that only the 6.3.0 scope names passed outside the scope. Only a tag the
+    clone shows decides now; without it the branch decides between the two candidates, and the
+    landing card, which has no branch to choose by, is NOT MEASURABLE.
+13. A `path:line` REFERENCE PASSED IN ANY TREE ITS UNIT NAMES. A reference is bound to its own tree
+    now: the tree named in its own sentence, else the tree its unit names for its path ("the path
+    at the tree"), else the working tree where the unit names no tree at all. A reference in a
+    unit that names trees and none of them for it is a finding; the cut's R1 and R-B4 rows had one
+    each, both lines true in every tree the rows name, and now name `v6.1.0` for them.
+14. A FULL CLONE WITHOUT TAGS FAILED THE CASE THAT HOLDS THE LIST OF MAIN AGAINST GIT. It skips
+    there now and names the tag it did not have.
+
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
 their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
 stands in the lines it points at; and fenced blocks, which quote tool output and artefact digests
-rather than cite.
+rather than cite. The symbols a reference is checked for are those of its whole row or paragraph,
+not of its sentence: the R1 row names what stands at its register lines in the sentence before
+the one that cites them, so a sentence-bound reading would refuse a correct row.
 """
 from __future__ import annotations
 
+import bisect
 import importlib.util
 import json
 import os
@@ -237,12 +256,19 @@ def _commit_words(unit: str) -> list[tuple[str, str]]:
     a run of 7 or more hex digits, holding a digit and a letter, that is not a whole word of 7 to
     40 (glued to other characters, or longer than 40 digits) raises with the word named.
     """
+    return [(written, read) for written, read, _ in _commit_words_at(unit)]
+
+
+def _commit_words_at(unit: str) -> list[tuple[str, str, int]]:
+    """`_commit_words` with the offset of each word in the unit, so a commit can be placed in the
+    sentence that names it (`_bound_trees`)."""
     out = []
-    for word in _WORD.findall(unit):
+    for m in _WORD.finditer(unit):
+        word = m.group()
         if word in NOT_A_COMMIT:
             continue
         if _HEX_WORD.fullmatch(word):
-            out.append((word, word.lower()))
+            out.append((word, word.lower(), m.start()))
             continue
         for run in _HEX_RUN.findall(word):
             if re.search(r"[0-9]", run) and re.search(r"[A-Fa-f]", run):
@@ -521,7 +547,13 @@ def test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts
     if _git("rev-parse", "--is-shallow-repository").stdout.strip() != "false":
         return
     base_c, since_c = _commit(base), _commit(since)
-    assert base_c and since_c, f"{base} or {since} does not resolve in a full clone"
+    # A FULL CLONE MAY HOLD NO TAG (`git clone --no-tags`; Codex on pull request 294, round four,
+    # P2). History alone does not give the release tag, so the comparison with git is not measured
+    # there, and the skip says so. The commit of main is no tag, and a full clone has it.
+    if since_c is None:
+        pytest.skip(f"NOT MEASURED: the release tag {since} is not in this clone, so the list of "
+                    f"main is held against its own sentence only, not against git")
+    assert base_c, f"{base} does not resolve in a full clone"
     assert int(_git("rev-list", "--count", f"{since_c}..{base_c}").stdout) == int(total)
     fp_commits = _git("log", "--first-parent", "--format=%H", f"{since_c}..{base_c}").stdout.split()
     assert len(fp_commits) == int(fp)
@@ -708,8 +740,27 @@ def _is_path(token: str) -> bool:
             and ("/" in token or bool(_FILE_SUFFIX.search(token))))
 
 
-def _plain_words(segment: str) -> list[str]:
-    return [w for w in (raw.lstrip(_OPEN).rstrip(_CLOSE) for raw in segment.split()) if w]
+def _plain_words(unit: str, start: int, end: int) -> list[tuple[str, bool, int]]:
+    """(word, False, offset) for every whitespace-separated word of `unit[start:end]`, with the
+    punctuation around it taken off."""
+    out = []
+    for raw in re.finditer(r"\S+", unit[start:end]):
+        word = raw.group().lstrip(_OPEN).rstrip(_CLOSE)
+        if word:
+            out.append((word, False, start + raw.start()))
+    return out
+
+
+def _tokens_at(unit: str) -> list[tuple[str, bool, int]]:
+    """(token, backticked, offset) in the order the unit writes them; see `_tokens`. The offset of a
+    backticked token is that of its opening backtick."""
+    out: list[tuple[str, bool, int]] = []
+    pos = 0
+    for m in re.finditer(r"`([^`]+)`", unit):
+        out += _plain_words(unit, pos, m.start())
+        out.append((m.group(1), True, m.start()))
+        pos = m.end()
+    return out + _plain_words(unit, pos, len(unit))
 
 
 def _tokens(unit: str) -> list[tuple[str, bool]]:
@@ -719,43 +770,27 @@ def _tokens(unit: str) -> list[tuple[str, bool]]:
     with the punctuation around it taken off, so a reference written in plain prose is the same
     reference as its backticked form and is not passed over for want of backticks.
     """
-    out: list[tuple[str, bool]] = []
-    pos = 0
-    for m in re.finditer(r"`([^`]+)`", unit):
-        out += [(w, False) for w in _plain_words(unit[pos:m.start()])]
-        out.append((m.group(1), True))
-        pos = m.end()
-    return out + [(w, False) for w in _plain_words(unit[pos:])]
+    return [(token, ticked) for token, ticked, _ in _tokens_at(unit)]
 
 
-def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[str], list[str]]:
-    """(references, needles, trees, refused) of one unit.
-
-    A reference is `path:N` or `path:N-M`, and a bare `:N` continues the last path named before it,
-    as in "`src/proofbundle/intoto.py` (`:246`, `:424`)". It is read in one grammar with or without
-    backticks, and a plain path with an extension counts as the last path named. A path may start
-    with `.` and need not have an extension; one that climbs out of the repository with `..` is
-    refused. A token that begins like a reference and is none of these forms, or a `:N` with no path
-    before it, is refused with its name. A needle is every other backticked name in the unit, split
-    at " / ", that is neither a path nor a tree: what the unit says stands there. The trees are
-    every tag or commit the unit names; a unit that names none is checked in the working tree
-    (`reference_findings`).
-    """
-    refs, needles, trees, refused = [], [], [], []
+def _references_at(unit: str) -> tuple[list[tuple[str, int, int, int]], list[str], list[str]]:
+    """(references with the offset each is written at, needles, refused) of one unit; the reading
+    is `_references`."""
+    refs, needles, refused = [], [], []
     last_path = None
-    for token, ticked in _tokens(unit):
+    for token, ticked, at in _tokens_at(unit):
         m = _REF.match(token)
         if m and re.search(r"[A-Za-z]", m["path"]):
             if ".." in m["path"].split("/"):
                 refused.append(f"{token!r} names a path outside the repository")
                 continue
             last_path = m["path"]
-            refs.append((m["path"], int(m["a"]), int(m["b"] or m["a"])))
+            refs.append((m["path"], int(m["a"]), int(m["b"] or m["a"]), at))
             continue
         m = _CONT.match(token)
         if m:
             if last_path:
-                refs.append((last_path, int(m["a"]), int(m["b"] or m["a"])))
+                refs.append((last_path, int(m["a"]), int(m["b"] or m["a"]), at))
             else:
                 refused.append(f"{token!r} continues a path, and no path is named before it")
             continue
@@ -768,16 +803,121 @@ def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[
                 last_path = token
             continue
         if _TAG.fullmatch(f"`{token}`"):
-            trees.append(token)
-            continue
+            continue                          # a tag names a tree, not a symbol
         if _is_path(token):
             last_path = token
             continue
         if _cited_commits(token) == [token.lower()] or token in ("main", "HEAD"):
             continue                          # a commit or a branch names a tree, not a symbol
         needles += [p.strip() for p in token.split(" / ") if len(p.strip()) >= 3]
-    trees += _cited_commits(unit)
-    return refs, needles, trees, refused
+    return refs, needles, refused
+
+
+def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[str], list[str]]:
+    """(references, needles, trees, refused) of one unit.
+
+    A reference is `path:N` or `path:N-M`, and a bare `:N` continues the last path named before it,
+    as in "`src/proofbundle/intoto.py` (`:246`, `:424`)". It is read in one grammar with or without
+    backticks, and a plain path with an extension counts as the last path named. A path may start
+    with `.` and need not have an extension; one that climbs out of the repository with `..` is
+    refused. A token that begins like a reference and is none of these forms, or a `:N` with no path
+    before it, is refused with its name. A needle is every other backticked name in the unit, split
+    at " / ", that is neither a path nor a tree: what the unit says stands there. The trees are
+    every tag or commit the unit names, by name; which of them a reference is checked in is decided
+    per reference (`_bound_trees`), and a unit that names none is checked in the working tree.
+    """
+    refs, needles, refused = _references_at(unit)
+    trees = [name for group, _ in _trees_at(unit) for name in group]
+    return [(p, a, b) for p, a, b, _ in refs], needles, trees, refused
+
+
+#: A release tag written with its commit, "`v6.1.0` (`dcac5aee`)": ONE tree under two names.
+_TAG_AND_COMMIT = re.compile(r"`(v[0-9]+(?:\.[0-9]+)+)`\s*\(`([0-9A-Fa-f]{7,40})`\)")
+
+#: How a unit names the tree of a path's line numbers apart from the sentence that cites them, the
+#: form the R-B4 row of the cut uses: the path in backticks, the word "at", and a tree, which is a
+#: tag, a tag with its commit in parentheses, or a commit ("`src/proofbundle/intoto.py` at `v6.1.0`
+#: (`dcac5aee`)").
+_DECLARED = re.compile(rf"`(?P<path>{_PATH})`\s+at\s+`(?P<tree>v[0-9]+(?:\.[0-9]+)+|"
+                       rf"[0-9A-Fa-f]{{7,40}})`(?:\s*\(`(?P<commit>[0-9A-Fa-f]{{7,40}})`\))?")
+
+
+def _trees_at(unit: str) -> list[tuple[tuple[str, ...], int]]:
+    """(names, offset) for every tree a unit names, in the order it names them: a backticked release
+    tag, a commit word, and a tag written with its commit (`_TAG_AND_COMMIT`), which is one tree
+    with two names. The offset is that of the first character of the first name."""
+    pairs = {m.start(1): (m[1], m[2].lower()) for m in _TAG_AND_COMMIT.finditer(unit)}
+    paired = {m.start(2) for m in _TAG_AND_COMMIT.finditer(unit)}
+    out = [(pairs.get(at + 1, (token,)), at + 1) for token, ticked, at in _tokens_at(unit)
+           if ticked and _TAG.fullmatch(f"`{token}`")]
+    out += [((read,), at) for _, read, at in _commit_words_at(unit) if at not in paired]
+    return sorted(out, key=lambda tree: tree[1])
+
+
+def _declared(unit: str) -> list[tuple[str, tuple[str, ...], int]]:
+    """(path, tree names, offset of the tree) for every "`path` at `tree`" of a unit (`_DECLARED`).
+    A leading `./` of the path is dropped, as `_lines_at` drops it."""
+    out = []
+    for m in _DECLARED.finditer(unit):
+        if not _is_path(m["path"]):
+            continue
+        path = m["path"][2:] if m["path"].startswith("./") else m["path"]
+        tree = m["tree"] if m["tree"].startswith("v") else m["tree"].lower()
+        out.append((path, (tree, m["commit"].lower()) if m["commit"] else (tree,), m.start("tree")))
+    return out
+
+
+def _sentence_ends(unit: str) -> list[int]:
+    """The offsets at which the sentences of a unit end: every `|`, which ends a table cell, and
+    every `.`, `!` or `?` outside a backticked span that white space or the end of the unit follows.
+
+    A full stop inside a word such as "e.g." ends a sentence too early. That can part a citation
+    from the tree beside it, which makes a finding, never a pass."""
+    masked = re.sub(r"`[^`]+`", lambda m: "x" * len(m.group()), unit)
+    return [i for i, ch in enumerate(masked)
+            if ch == "|" or (ch in ".!?" and (i + 1 == len(masked) or masked[i + 1].isspace()))]
+
+
+def _bound_trees(path: str, at: int, trees: list[tuple[tuple[str, ...], int]],
+                 declared: list[tuple[str, tuple[str, ...], int]], ends: list[int]
+                 ) -> tuple[list[tuple[str, ...] | None], str]:
+    """(the trees a reference at offset `at` is checked in, in each of them; or [] and why).
+
+    A REFERENCE IS BOUND TO THE TREE ITS OWN TEXT NAMES, not to every tree of its unit (Codex on
+    pull request 294, round four, P1). Measured at 5a9ddc06: a unit citing `MATCH` at `file.py:1`
+    in the tree `abcdef0`, and naming the comparison tree `1234567` as well, passed with `OTHER` at
+    `abcdef0:file.py:1`, because `1234567` held `MATCH` there and any tree of the unit could answer.
+    The R-B4 row of the cut cites seven lines and names six trees, so a stale line could stay green
+    because another named revision happened to match. The binding, in this order:
+
+    1. the trees named in the reference's own sentence (`_sentence_ends`), except a tree the unit
+       names for another path ("`other.py` at `abc1234`"); the reference must hold in each;
+    2. else the one tree its unit names for its path ("`path` at `tree`", `_DECLARED`), which is how
+       the R-B4 row binds the three line numbers its quoted middle column may not change;
+    3. else, when the unit names no tree at all, the working tree, as before;
+    4. else no tree: the unit names trees and does not say which one this reference belongs to, and
+       choosing one would be the guess this binding exists to end. That is a finding.
+    """
+    rel = path[2:] if path.startswith("./") else path
+    for_other = {offset for p, _, offset in declared if p != rel}
+    sentence = bisect.bisect_left(ends, at)
+    own = [names for names, offset in trees
+           if bisect.bisect_left(ends, offset) == sentence and offset not in for_other]
+    if own:
+        return list(dict.fromkeys(own)), ""
+    mine = list(dict.fromkeys(names for p, names, _ in declared if p == rel))
+    if len(mine) == 1:
+        return mine, ""
+    if mine:
+        return [], (f"cites no tree in its own sentence, and its unit names {len(mine)} trees "
+                    f"for `{path}` ({[' / '.join(t) for t in mine]}), so which one it belongs to "
+                    f"is not stated")
+    if not trees:
+        return [None], ""
+    named = sorted({name for names, _ in trees for name in names})
+    return [], (f"names no tree in its own sentence, and its unit names the trees {named}; which "
+                f"of them its lines are those of is not stated (name the tree in its sentence, or "
+                f"write `{path}` at `<tree>` in its unit)")
 
 
 def _lines_at(tree: str | None, path: str) -> list[str] | None:
@@ -792,42 +932,50 @@ def _lines_at(tree: str | None, path: str) -> list[str] | None:
 
 
 def reference_findings(text: str) -> tuple[list[str], list[str]]:
-    """(findings, not measured here) for every path:line reference of one scope file."""
+    """(findings, not measured here) for every path:line reference of one scope file.
+
+    Each reference is checked in the trees `_bound_trees` binds it to and must hold in each of
+    them. A tag written with its commit is one tree: it is measured where either name resolves, and
+    two names that resolve to two commits are a finding. A bound tree no name of which resolves in
+    this clone is not measured here, and says so.
+    """
     findings, unmeasured = [], []
     for unit in _units(text):
-        refs, needles, trees, refused = _references(unit)
+        refs, needles, refused = _references_at(unit)
         findings += refused
         if not refs:
             continue
-        # A UNIT THAT NAMES A TREE IS CHECKED IN THAT TREE ONLY (Codex on pull request 294, round
-        # three, P1). The working tree stood first in every list, so a `path:N` citing an old tree
-        # passed whenever its needle happened to stand at those lines of the checkout, and the
-        # tree the citation claims to bind was never established. The working tree answers only a
-        # unit that names no tree.
-        resolved = [c for t in trees if (c := _commit(t))] if trees else [None]
-        missing = [t for t in trees if _commit(t) is None]
-        for path, a, b in refs:
+        trees, declared, ends = _trees_at(unit), _declared(unit), _sentence_ends(unit)
+        for path, a, b, at in refs:
+            where = f"{path}:{a}-{b}"
             if not needles:
-                findings.append(f"{path}:{a}-{b} stands in a unit that names nothing to find there")
+                findings.append(f"{where} stands in a unit that names nothing to find there")
                 continue
-            hit, a_file = False, False
-            for tree in resolved:
+            bound, why = _bound_trees(path, at, trees, declared, ends)
+            if not bound:
+                findings.append(f"{where} {why}")
+            for names in bound:
+                if names is None:
+                    tree, named = None, "the working tree"
+                else:
+                    named = "the tree " + " / ".join(names)
+                    commits = {n: c for n in names if (c := _commit(n))}
+                    if len(set(commits.values())) > 1:
+                        findings.append(f"{where} is bound to {named}, and its names are two "
+                                        f"commits ({commits})")
+                        continue
+                    if not commits:
+                        unmeasured.append(f"{where} ({named} is not in this clone)")
+                        continue
+                    tree = next(iter(commits.values()))
                 lines = _lines_at(tree, path)
-                a_file = a_file or lines is not None
                 span = "\n".join(lines[a - 1:b]) if lines and b <= len(lines) else None
                 if span is not None and any(n in span for n in needles):
-                    hit = True
-                    break
-            if hit:
-                continue
-            where = f"{path}:{a}-{b}"
-            named = f"the named trees {trees}" if trees else "the working tree"
-            if missing:
-                unmeasured.append(f"{where} (trees not in this clone: {missing})")
-            elif not a_file:
-                findings.append(f"{where} names no file in {named}")
-            else:
-                findings.append(f"{where} holds none of {needles[:6]} in {named}")
+                    continue
+                if lines is None:
+                    findings.append(f"{where} names no file in {named}")
+                else:
+                    findings.append(f"{where} holds none of {needles[:6]} in {named}")
     return findings, unmeasured
 
 
@@ -992,13 +1140,20 @@ def test_RED_a_bumped_source_without_its_tag_is_the_release_being_built(tmp_path
                                                                         monkeypatch):
     """Codex on pull request 294, round three, P1. RELEASE.md bumps the version inside the
     release-prep pull request and tags after the merge. With pyproject.toml at 6.2.0 and no tag
-    v6.2.0, the gate and the card must judge 6.2.0; at 346fa924 both judged 6.3.0, and a 6.2.0
-    correction came back outside the scope and green."""
-    root = _tree(tmp_path, "6.2.0", SCOPES, _TAGS_UP_TO["6.1.0"])
+    v6.2.0, a 6.2.0 correction must be judged against 6.2.0; at 346fa924 the gate and the card
+    both judged 6.3.0, and the correction came back outside the scope and green.
+
+    Since round four the missing tag decides nothing by itself (a tag this clone does not show
+    may exist upstream), so the gate judges the branch by the candidate that names it, here 6.2.0,
+    and the card, which has no branch to choose by, is NOT MEASURABLE rather than counting 6.2.0.
+    The 6.3.0 scope carries its own branch, as a real one does; the case where both candidates
+    name the branch is in the tagless case below."""
+    root = _tree(tmp_path, "6.2.0", SCOPES, _TAGS_UP_TO["6.1.0"], {"6.3.0": "fix/b1"})
     rc, d = _gate_without_version(root, capsys)
     assert d["version"] == "6.2.0", d
     assert rc == 1 and not d["ausserhalb_des_umfangs"], d
-    assert _card_without_version(root, monkeypatch).get("version") == "6.2.0"
+    card = _card_without_version(root, monkeypatch)
+    assert card["zustand"] == "NOT MEASURABLE" and "v6.2.0" in card["grund"], card
 
 
 def test_without_readable_tags_the_gate_judges_the_branch_by_the_scope_that_names_it(
@@ -1305,3 +1460,120 @@ def test_catch_proof_a_branch_name_is_read_in_every_spelling():
                                                                      moved_findings(in_sentence))
     assert not frozen_fix_findings(text), frozen_fix_findings(text)
     assert not moved_findings(text), moved_findings(text)
+
+
+# -- 7. the review of 5a9ddc06: a tag this clone lacks, a citation's own tree, a tagless clone ----
+#
+# Each case reproduces its finding with the measurement the review gave, and fails at 5a9ddc06.
+
+
+def test_RED_a_source_tag_this_clone_does_not_show_is_not_read_as_absent(tmp_path, capsys,
+                                                                          monkeypatch):
+    """Codex on pull request 294, round four, P1, its measurement taken over. `git tag --list`
+    lists the tags this clone holds, not the tags that exist. With the source version at 6.2.0,
+    only `v6.1.0` in the clone and the scopes 6.2.0 and 6.3.0, a branch that only 6.3.0 names was
+    judged against 6.2.0 at 5a9ddc06, outside the scope, exit 0, although `v6.2.0` may be out
+    upstream and 6.3.0 the release being built. A source tag this clone does not show decides
+    nothing: the branch is judged by the candidate that names it. Only a tag this clone shows
+    decides for the next release alone. The card counts one release and cannot know which, so it
+    is NOT MEASURABLE there and names the tag."""
+    root = _tree(tmp_path, "6.2.0", ("6.2.0", "6.3.0"), ("v6.1.0",), {"6.3.0": "fix/new"})
+    gate = _load(root / "scripts" / "b7_release_scope_title_gate.py", "gate_partial_tags")
+    for branch, title, version, rc_expected in (("fix/new", "fix(x): y", "6.3.0", 1),
+                                                ("fix/new", "[6.3.0 A1] fix(x): y", "6.3.0", 0),
+                                                ("fix/a1", "fix(x): y", "6.2.0", 1),
+                                                ("fix/a1", "[6.2.0 A1] fix(x): y", "6.2.0", 0)):
+        rc = gate.main(["--branch", branch, "--title", title, "--json"])
+        d = json.loads(capsys.readouterr().out)
+        assert (d["version"], rc, d["ausserhalb_des_umfangs"]) == (version, rc_expected, False), (
+            branch, title, d)
+    rc = gate.main(["--branch", "chore/elsewhere", "--title", "chore: y", "--json"])
+    d = json.loads(capsys.readouterr().out)
+    assert rc == 0 and d["ausserhalb_des_umfangs"], d
+    card = _card_without_version(root, monkeypatch)
+    assert card["zustand"] == "NOT MEASURABLE" and "v6.2.0" in card["grund"], card
+    visible = _tree(tmp_path / "visible", "6.2.0", ("6.2.0", "6.3.0"), ("v6.1.0", "v6.2.0"),
+                    {"6.3.0": "fix/new"})
+    gate = _load(visible / "scripts" / "b7_release_scope_title_gate.py", "gate_visible_tag")
+    rc = gate.main(["--branch", "fix/a1", "--title", "fix(x): y", "--json"])
+    d = json.loads(capsys.readouterr().out)
+    assert (d["version"], rc, d["ausserhalb_des_umfangs"]) == ("6.3.0", 0, True), d
+    assert _card_without_version(visible, monkeypatch).get("version") == "6.3.0"
+
+
+def test_RED_each_citation_is_checked_in_the_tree_its_own_text_names(monkeypatch):
+    """Codex on pull request 294, round four, P1, its counter-example taken over: `MATCH` is cited
+    at `file.py:1` in the tree `abcdef0`, and the unit also names the comparison tree `1234567`.
+    `abcdef0` holds `OTHER` there and `1234567` holds `MATCH`. At 5a9ddc06 every tree of the unit
+    was searched and any hit passed, so the citation passed in a tree it does not name. The
+    controls: the named tree holding `MATCH` passes whatever the other tree holds; a citation whose
+    sentence names no tree, in a unit that names trees, is refused; a row that names its path at a
+    tree binds it; and a tag written with its commit is one tree, refused when the two names are
+    two commits."""
+    lines = {"abcdef0": ["OTHER"], "1234567": ["MATCH"]}
+    names = {"abcdef0": "abcdef0", "1234567": "1234567", "v9.9.9": "abcdef0"}
+    monkeypatch.setitem(globals(), "_lines_at", lambda tree, path: lines.get(tree))
+    monkeypatch.setitem(globals(), "_commit", names.get)
+    unit = "`MATCH` stands at `file.py:1` in tree `abcdef0`. The comparison tree is `1234567`."
+    findings, unmeasured = reference_findings(unit)
+    assert any(f.startswith("file.py:1-1 holds none of") and "abcdef0" in f for f in findings), (
+        findings, unmeasured)
+    assert not any("1234567" in f for f in findings), findings
+    lines.update({"abcdef0": ["MATCH"], "1234567": ["OTHER"]})
+    assert reference_findings(unit) == ([], [])
+    loose = "`MATCH` stands at `file.py:1`. The trees are `abcdef0` and `1234567`."
+    findings, _ = reference_findings(loose)
+    assert any(f.startswith("file.py:1-1 ") and "names no tree" in f for f in findings), findings
+    declared = ("`MATCH` stands at `file.py:1`. The line numbers are those of `file.py` at "
+                "`abcdef0`; `1234567` is the comparison.")
+    assert reference_findings(declared) == ([], [])
+    lines.update({"abcdef0": ["OTHER"], "1234567": ["MATCH"]})
+    assert any(f.startswith("file.py:1-1 holds none of") and "abcdef0" in f
+               for f in reference_findings(declared)[0])
+    twice = ("`MATCH` stands at `file.py:1`. It is `file.py` at `abcdef0`, or `file.py` at "
+             "`1234567`.")
+    assert any(f.startswith("file.py:1-1 ") and "2 trees for `file.py`" in f
+               for f in reference_findings(twice)[0]), reference_findings(twice)
+    pair ="`MATCH` stands at `file.py:1` in `v9.9.9` (`abcdef0`)."
+    assert any("abcdef0" in f for f in reference_findings(pair)[0])
+    lines["abcdef0"] = ["MATCH"]
+    assert reference_findings(pair) == ([], [])
+    names["v9.9.9"] = "1234567"
+    assert any("two commits" in f for f in reference_findings(pair)[0])
+
+
+def test_RED_the_list_of_main_is_not_measured_without_its_release_tag(monkeypatch):
+    """Codex on pull request 294, round four, P2: a full clone may hold no tag (`git clone
+    --no-tags`), and at 5a9ddc06 the case that holds the list of main against git then failed,
+    because it checked only for a shallow clone and required `v6.1.0` to resolve. Planted here by
+    a resolver that knows no tag; the case must skip and name what it did not measure."""
+    _full_history_or_skip()
+    real = _commit
+    monkeypatch.setitem(globals(), "_commit",
+                        lambda rev: None if rev.startswith("v") else real(rev))
+    with pytest.raises(pytest.skip.Exception, match="NOT MEASURED"):
+        test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts_match()
+
+
+def test_catch_proof_a_line_bound_to_the_wrong_revision_of_the_real_row_is_found():
+    """The class of the second finding on the real file: the R-B4 row binds the three line numbers
+    of its quoted middle column to `v6.1.0` (`dcac5aee`). Planted: the same row binding them to
+    `31816e08`, where the file's previous version stands and the three lines hold other code. The
+    row still names `v6.1.0`, for the register, so a reader that lets any tree of the row answer
+    passes the plant; the binding must name each of the three lines. The control is the row as it
+    stands: none of its seven references is a finding."""
+    _full_history_or_skip()
+    if _commit("31816e08") is None or _commit("dcac5aee") is None:
+        pytest.skip("NOT MEASURED: 31816e08 or dcac5aee is not in this clone")
+    text = CUT.read_text(encoding="utf-8")
+    row = next(u for u in _units(text) if u.startswith("| R-B4 |"))
+    assert len(_references(row)[0]) == 7, _references(row)
+    assert reference_findings(row) == ([], [])
+    old = "those of `src/proofbundle/intoto.py` at `v6.1.0` (`dcac5aee`)"
+    assert old in row and "`RESTRISIKO_610.md` at `v6.1.0`" in row, "nothing to plant on"
+    findings, _ = reference_findings(row.replace(old, "those of `src/proofbundle/intoto.py` at "
+                                                      "`31816e08`"))
+    for line in (246, 424, 551):
+        assert any(f.startswith(f"src/proofbundle/intoto.py:{line}-{line} holds none of")
+                   and "31816e08" in f for f in findings), (line, findings)
+    assert len(findings) == 3, findings
