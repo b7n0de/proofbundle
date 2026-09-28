@@ -1623,13 +1623,24 @@ class TestPlainInputIsWrittenAsBefore(_Basis):
                 else:
                     oben = mitte
             return unten, ergebnis(schreibe, unten + 1, art)
+        # UNDER A TRACER THE DISTANCE IS NOT THE LIBRARY'S. Measured 2026-09-28 on Python 3.12 under
+        # coverage 7.15.1 (`sys.gettrace()` is its CTracer): the distance was 3, in CI run 36414971006
+        # and locally; without a tracer it is within two on 3.10 to 3.14. The tracer moves the depth at
+        # which the stack gives out, so the two-level claim is measured only where no tracer runs, and
+        # said so where one does. The other assertions of this case hold under a tracer too.
+        unter_tracer = sys.gettrace() is not None
         for art in ("list", "dict"):
             with self.subTest(art=art):
                 (serialisierer, _), (kopie, danach) = (tiefste(rfc8785.dumps, art),
                                                        tiefste(kopie_geschrieben, art))
                 self.assertGreater(kopie, 64)
-                self.assertIn(serialisierer - kopie, (0, 1, 2))
                 self.assertEqual(danach, "EvalClaimError")
+            with self.subTest(art=art, abstand="to the serializer"):
+                if unter_tracer:
+                    self.skipTest("NOT MEASURED under a tracer (coverage): it moves the depth at which "
+                                  f"the stack gives out; measured distance {serialisierer - kopie}")
+                self.assertIn(serialisierer - kopie, (0, 1, 2))
+            with self.subTest(art=art):
                 kanonisch, danach = tiefste(canonicalize, art)
                 self.assertLessEqual(kanonisch, 64)
                 self.assertEqual(danach, "EvalClaimError")
