@@ -289,6 +289,36 @@ class TheRestartRule(unittest.TestCase):
             wieder = self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=(h0, h1))
             self.assertEqual(wieder.inclusion_proof_at(0), [h1])
 
+    def test_a_state_signature_is_one_snapshot_and_the_text_claims_no_more(self) -> None:
+        """The boundary, measured: restore checks a state against the pinned key and against itself, and knows
+        no other state. Written at size 1 and at size 2, the size-1 state restores after the size-2 one, and
+        another leaf appended to it gives a second tree of size 2 beside the first. So the signed statement
+        and the docstrings claim no append-only tree: the house rule (scripts/claims_hygiene_check.py) keeps
+        that word for a public transparency log, and a signed statement is not prose a negation elsewhere
+        in its clause may excuse, so it must not carry the word at all."""
+        import re
+        pub = _pub(self.signer)
+        akku = self.a.MerkleAccumulator()
+        akku.append(_LEAVES[0])
+        eins = akku.state(self.signer)
+        wurzel_zwei, _ = akku.append(_LEAVES[1])
+        self.assertEqual(akku.state(self.signer)["state"]["tree_size"], 2)
+        zurueck = self.a.MerkleAccumulator.restore(eins, pub)
+        self.assertEqual(zurueck.size, 1)
+        gabel, _ = zurueck.append(b"another second leaf")
+        self.assertNotEqual(gabel, wurzel_zwei)
+
+        spec = importlib.util.spec_from_file_location("_claims_hygiene", REPO / "scripts/claims_hygiene_check.py")
+        hygiene = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hygiene)
+        for name, text in (("WHAT_IS_SIGNED", self.a.WHAT_IS_SIGNED), ("the persisted state", json.dumps(eins))):
+            with self.subTest(signed=name):
+                self.assertIsNone(re.search(hygiene._APPEND_ONLY_PATTERN, text, re.IGNORECASE))
+        for name, text in (("module", self.a.__doc__), ("class", self.a.MerkleAccumulator.__doc__),
+                           ("restore", self.a.MerkleAccumulator.restore.__doc__), ("tests", __doc__)):
+            with self.subTest(docstring=name):
+                self.assertEqual(hygiene.scan_text(text, name), [])
+
     def test_a_low_order_pinned_key_refuses_a_state_that_nobody_signed(self) -> None:
         """R = identity, S = 0 verifies for every message under the identity point, so under such a pinned
         key a state needs no private key at all (tests/test_trust_anchor_keys_refused_on_every_surface.py).
