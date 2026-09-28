@@ -59,6 +59,7 @@ from proofbundle.policy import evaluate_policy, load_policy
 
 REPO = Path(__file__).resolve().parents[2]
 _ACCUMULATOR = REPO / "tools" / "merkle_accumulator" / "accumulator.py"
+_RESULTS = Path(__file__).resolve().parent / "results"
 
 
 # ---- environment -----------------------------------------------------------------------------------------
@@ -90,8 +91,11 @@ def environment(out: Path) -> dict:
     try:
         kopf = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True,
                               check=True).stdout.strip()
+        # The harness's own results are not source: an earlier run's files under results/ must not read as
+        # a changed tree. They did in the first three runs of 2026-09-28, which were retaken.
         sauber = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "src", "benchmarks",
-                                 "tools"], capture_output=True, text=True, check=True).stdout.strip() == ""
+                                 "tools", ":(exclude)" + _RESULTS.relative_to(REPO).as_posix()],
+                                capture_output=True, text=True, check=True).stdout.strip() == ""
     except (OSError, subprocess.CalledProcessError):
         kopf, sauber = None, None
     pakete = {}
