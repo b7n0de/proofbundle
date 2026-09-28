@@ -214,6 +214,8 @@ prune tools
 prune audit_artifacts
 prune .github
 prune target
+# The Claude Code plugin installs the package from PyPI; the package never carries the plugin.
+prune plugins
 global-exclude __pycache__
 global-exclude *.py[cod]
 global-exclude *.so
