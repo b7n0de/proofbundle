@@ -26,13 +26,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from typing import Optional
 
 from .errors import BundleFormatError
 from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
 
-__all__ = ["pae", "sign_envelope", "verify_envelope"]
+__all__ = ["openssh_sha256_keyid", "pae", "sign_envelope", "verify_envelope"]
 
 
 def _b64decode_any(s: str) -> bytes:
@@ -48,11 +49,45 @@ def pae(payload_type: str, body: bytes) -> bytes:
             + str(len(body)).encode("ascii") + b" " + body)
 
 
+def openssh_sha256_keyid(public_key_raw: bytes) -> str:
+    """OpenSSH's SHA256 fingerprint of a raw 32-byte Ed25519 public key: ``SHA256:`` and the unpadded
+    standard base64 of SHA-256 over the key's SSH wire form (RFC 8709 section 4: string "ssh-ed25519",
+    string key). It is the keyid go-securesystemslib's ``dsse.SHA256KeyID`` derives and the one sigstore's
+    key providers compare, measured against securesystemslib 1.5.1 and GUAC 1.1.0 in
+    tools/intoto_external on claude/intoto-external (Z225, finding F3)."""
+    if not isinstance(public_key_raw, bytes) or len(public_key_raw) != 32:
+        raise ValueError("an Ed25519 public key is 32 raw bytes")
+
+    def string(b: bytes) -> bytes:
+        return len(b).to_bytes(4, "big") + b
+
+    digest = hashlib.sha256(string(b"ssh-ed25519") + string(public_key_raw)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _default_keyid(signer) -> Optional[str]:
+    """The keyid of an Ed25519 signer, or None for a signer that exposes no Ed25519 public key."""
+    try:
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
+        raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return openssh_sha256_keyid(raw) if isinstance(raw, bytes) and len(raw) == 32 else None
+
+
 def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str] = None) -> dict:
     """Sign the RAW `body` bytes into a DSSE envelope. `signer` is an Ed25519 private key (its `.sign`
-    signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}."""
+    signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{keyid, sig}]}.
+
+    The in-toto envelope layer says a keyid SHOULD be included for each signing key (in-toto/attestation
+    v1.2.0, spec/v1/envelope.md), and securesystemslib and GUAC refuse an envelope without one (Z225, F3).
+    So `keyid=None` writes the signer's OpenSSH SHA256 fingerprint (`openssh_sha256_keyid`), a given
+    string is written as it is, and `keyid=""` writes none. The keyid is not signed; no verifier in this
+    package reads it for a verdict."""
     sig = signer.sign(pae(payload_type, body))
     entry = {"sig": base64.b64encode(sig).decode("ascii")}
+    if keyid is None:
+        keyid = _default_keyid(signer)
     if keyid:
         entry = {"keyid": keyid, "sig": entry["sig"]}
     return {
