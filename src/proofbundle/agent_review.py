@@ -51,8 +51,8 @@ import re
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from ._membership import is_member
-from .canonical import _eine_kopie, _feld_von, _flagge, _folge_von, _pruefkopie, _zeichen_von
+from ._membership import is_member, require_switch
+from .canonical import _eine_kopie, _feld_von, _folge_von, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -158,6 +158,18 @@ def _is_digest(obj: Any) -> bool:
 
 
 # ── bodyCoreDigest ──────────────────────────────────────────────────────────────────────────────
+def _text_once(value: Any, refusal: str) -> str:
+    """A text the caller hands in, read ONCE from its own storage (`signature.plain_text`), or
+    `AgentReviewError(refusal)`. The body helpers counted the markers, sliced and encoded a body
+    through the caller's `count`, `index`, `__getitem__` and `encode`, so the checks and the digest
+    could read two bodies (lens run 8 at fddc00f4, the sweep of finding B)."""
+    from .signature import plain_text  # noqa: PLC0415
+    text = plain_text(value)
+    if text is None:
+        raise AgentReviewError(refusal)
+    return text
+
+
 def body_core_bytes(body: str) -> bytes:
     """The exact UTF-8 bytes the digest is taken over: the body with the disclosure block replaced.
 
@@ -166,8 +178,7 @@ def body_core_bytes(body: str) -> bytes:
     reduce to one canonical form, and guessing which block is 'the' one would let an attacker choose
     the digest. That raises instead of picking.
     """
-    if not isinstance(body, str):
-        raise AgentReviewError("body must be a string")
+    body = _text_once(body, "body must be a string")
     n_begin, n_end = body.count(DISCLOSURE_BEGIN), body.count(DISCLOSURE_END)
     if n_begin != n_end:
         raise AgentReviewError(
@@ -210,8 +221,9 @@ def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
     changes what a human reads, and quietly relocating it is how a disclosure ends up where nobody
     looks.
     """
-    if not isinstance(body, str):
-        raise AgentReviewError("body must be a string")
+    body = _text_once(body, "body must be a string")
+    if anchor is not None:
+        anchor = _text_once(anchor, "anchor must be a string")
     if DISCLOSURE_BEGIN in body:
         raise AgentReviewError(
             "the body already carries a disclosure block — preparing it again would create a second "
@@ -230,6 +242,8 @@ def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
 
 def replace_disclosure_block(body: str, block: str) -> str:
     """Swap the block for a rendered one. The core digest MUST survive this — that is the contract."""
+    body = _text_once(body, "body must be a string")
+    block = _text_once(block, "block must be a string")
     if body.count(DISCLOSURE_BEGIN) != 1 or body.count(DISCLOSURE_END) != 1:
         raise AgentReviewError("the body must carry exactly one disclosure block to replace")
     vorher = body_core_digest(body)
@@ -270,8 +284,7 @@ def disclosure_core_bytes(body: str) -> bytes:
     assurance rung, the finding counts, the limitations and the witnessed-or-not statement are all
     inside the preimage, which is the entire point.
     """
-    if not isinstance(body, str):
-        raise AgentReviewError("body must be a string")
+    body = _text_once(body, "body must be a string")
     n_begin, n_end = body.count(DISCLOSURE_BEGIN), body.count(DISCLOSURE_END)
     if n_begin != n_end:
         raise AgentReviewError(
@@ -1179,8 +1192,13 @@ def _traegt_verifier_block(predicate: Any) -> bool:
 
 
 def _fassung_fuer_renderer(predicate: Any, legacy_v01: bool | None) -> bool:
-    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide."""
-    if legacy_v01 is not None:
+    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide.
+
+    ``legacy_v01`` is None or an exact bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is read. ``not legacy_v01`` read
+    it by its truth, so ``legacy_v01="false"`` checked the predicate under the v0.1 rules, and one that
+    the v0.2 rules refuse passed (measured at 3a8074fc)."""
+    if require_switch(legacy_v01, "legacy_v01", allow_none=True) is not None:
         return not legacy_v01
     return _traegt_v02_felder(predicate) or _traegt_verifier_block(predicate)
 
@@ -1229,6 +1247,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     A reader who only skims the block must not come away with a stronger impression than a verifier
     would report.
     """
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and rendered
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     cov = predicate["coverage"]
@@ -1275,12 +1294,13 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
 
-    ``leaf_witnessed`` is the caller's word that the leaf is witnessed, so it must be True or False;
-    any other value is ProofBundleError before anything is rendered (round 11, class B of lens run 10,
-    `canonical._flagge`). Measured at fa555f13: it was read by its truth, so ``leaf_witnessed="false"``
-    dropped "not yet in a witnessed checkpoint" from the line.
+    ``leaf_witnessed`` must be a bool, and ``legacy_v01`` None or a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``). ``leaf_witnessed`` was read by its
+    truth, so ``leaf_witnessed="false"`` dropped the "not yet in a witnessed checkpoint" caveat.
     """
-    leaf_witnessed = _flagge(leaf_witnessed, "render_disclosure_line", "leaf_witnessed")
+    require_switch(leaf_witnessed, "leaf_witnessed")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and rendered
+    receipt_digest = _text_once(receipt_digest, "receipt_digest must be a string")
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
@@ -1358,7 +1378,15 @@ def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bo
 
     WIDERSPRUCH IST EIN FEHLER, KEINE RANGFOLGE. ``legacy_v01=True, v02=True`` verlangt beide
     Fassungen zugleich. Eine stille Vorfahrt haette hier eine der beiden Absichten verschluckt.
+
+    ONLY EXACT BOOLS CHOOSE A VERSION. ``legacy_v01`` must be a bool and ``v02`` None or a bool;
+    anything else raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``) before
+    anything is validated, built or signed. ``return not legacy_v01`` read the switch by its truth,
+    so ``legacy_v01="false"`` or ``"no"`` issued a v0.1 predicate under the v0.1 rules, which
+    ``False`` refuses under the v0.2 rules (measured at 3a8074fc through ``emit_agent_review``).
     """
+    require_switch(legacy_v01, "legacy_v01")
+    require_switch(v02, "v02", allow_none=True)
     import warnings  # noqa: PLC0415
     if v02 is not None:
         warnings.warn(
@@ -1373,6 +1401,20 @@ def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bo
             return False
         return True
     return not legacy_v01
+
+
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    version choice, the validator, the subject and the signed statement read one value (lens run 8 at
+    fddc00f4, finding B, the sweep). The validator read a dict subclass through its `get` and
+    `__getitem__` while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass
+    could have one predicate validated and another signed. A value that cannot be read this way is
+    refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the agent-review predicate",
+                      error=lambda m: AgentReviewError(f"invalid agent-review predicate: {m}"))
 
 
 def build_agent_review_statement(predicate: dict, *, subject_name: str | None = None,
@@ -1394,6 +1436,7 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
     # EINMAL ENTSCHEIDEN, DANN DURCHREICHEN. Ein zweiter Aufruf derselben Wahl waere ein zweiter
     # Leser derselben Groesse — er wuerde die Verwarnung doppelt ausloesen und koennte im
     # Grenzfall etwas anderes ergeben als der erste.
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, AgentReviewError, "agent-review predicate")   # one reading (round 12)
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="build_agent_review_statement")
     # THE BLOCK PULLS v0.3, TYPE AND VALIDATOR TOGETHER. No parameter chooses v0.3: the version
@@ -1430,10 +1473,19 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
     Ohne Argument v0.2, wie beim Statement. ``legacy_v01=True`` stellt die Altfassung aus; ``v02``
     ist der Altweg, warnt und verschwindet in einer spaeteren MAJOR.
+
+    ``legacy_v01`` must be a bool and ``v02`` None or a bool: anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed (see
+    ``_fassung_waehlen``). ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape).
     """
-    predicate = _eine_kopie(predicate, AgentReviewError, "agent-review predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="emit_agent_review")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, AgentReviewError, "agent-review predicate")   # one reading (round 12)
     # Dieselbe Regel wie in `build_agent_review_statement`: der Block zieht v0.3.
     _fassung = ("/v0.3" if _ist_v02 and _traegt_verifier_block(predicate)
                 else "/v0.2" if _ist_v02 else "")
@@ -2251,6 +2303,11 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
                 "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
     achse = _POLICY_ACHSE[art]
     zustand = axes.get(achse, "NOT_EVALUATED")
+    # A state counts only as a plain str: `axes` is the caller's, and an object whose own __eq__ and
+    # __hash__ answered for the membership test below was accepted (measured). Anything else is a state
+    # nobody evaluated.
+    if type(zustand) is not str:
+        zustand = "NOT_EVALUATED"
     if zustand == "CONFLICT":
         return {"decision": "reject", "policy_kind": art, "axis": achse, "axis_state": zustand,
                 "reason": "the axis reports CONFLICT — two time statements contradict each other, "

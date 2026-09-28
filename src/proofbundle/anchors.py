@@ -39,14 +39,16 @@ error while stamping never corrupts the local receipt.
 from __future__ import annotations
 
 import binascii
+import functools
 import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
-from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _feld_von, _flagge, _folge_von, _plain_for_jcs,
-                        _puffer_von, _type_name, _zeichen_von)
-from .errors import BundleFormatError
-from ._membership import is_member
+from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _feld_von, _folge_von, _plain_for_jcs, _puffer_von,
+                        _zeichen_von)
+from .errors import BundleFormatError, ProofBundleError
+from ._membership import is_member, require_switch, stored_str_items
+from ._membership import type_name as _type_name  # the parameter of register_anchor_type is type_name
 from ._wire_b64 import decode_b64
 
 ANCHOR_TARGETS = ("receipt", "preRegistration", "statement")
@@ -55,6 +57,85 @@ _ANCHOR_KEYS = {"type", "target", "canonicalRoot", "proof", "anchoredAt", "froze
 # type name -> verifier callable:
 #   (proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int]) -> {"ok": bool, "detail": str}
 _VERIFIERS: dict[str, Callable] = {}
+
+#: The flags of a verifier's result that count only as the exact True.
+_RESULT_FLAGS = ("ok", "warn", "rp_trusted", "needs_rp_trust", "frozenEvidence")
+
+#: The value types a carried ``trustedTime`` may hold, each by its exact type (the JSON scalars).
+_TRUSTED_TIME_VALUE_TYPES = (str, int, float, bool, type(None))
+
+
+def _refuse_unreadable_input(surface: Callable) -> Callable:
+    """The fail-closed boundary of ``verify_anchor``, ``verify_anchors`` and ``receipt_canonical_root`` over what
+    the caller hands in.
+
+    They read caller objects: the anchor entries, the list holding them, ``require``, ``require_target`` and
+    the receipt bundle.
+    A key or a value there can run its own code while it is read (a ``str`` subclass whose ``__eq__`` raises
+    as a key or as ``type``, a value whose ``__class__`` raises inside the structural budget's walk), and
+    before round 5 that code's exception escaped them as a RuntimeError, and through the first two the
+    never-raise ``verify_decision_receipt(anchors=...)`` (measured on 3d5b992a). Their documented refusal of
+    malformed input is ``BundleFormatError``, so that is what any other exception becomes here, naming only
+    its type (rendering it could run the caller's code again). A ``ProofBundleError`` (the documented typed
+    refusals, ``SwitchTypeError`` among them) and a ``ValueError`` pass through unchanged. Nothing is ever
+    promoted by this path: it raises."""
+
+    @functools.wraps(surface)
+    def guarded(*args, **kwargs):
+        try:
+            return surface(*args, **kwargs)
+        except (ProofBundleError, ValueError):
+            raise
+        except Exception as exc:  # noqa: BLE001 - the boundary: anything else is unreadable input
+            raise BundleFormatError(
+                f"{surface.__name__} could not read its input: reading it raised an error of type "
+                f"{_type_name(exc)} (a caller's object ran its own code, or the input is not JSON data); "
+                "refused fail-closed") from exc
+    return guarded
+
+
+def _read_verifier_result(res: dict) -> dict:
+    """The fields of a registered verifier's result that ``verify_anchor`` reports, read without running any
+    code of the result: its keys only as exact ``str`` keys (:func:`_membership.stored_str_items`), each flag
+    only as the exact ``True`` (``is``), ``status`` and ``detail`` only as exact ``str`` values, and
+    ``trustedTime`` only as a dict whose exact-``str`` keys hold JSON scalars of their exact type, one of them a
+    non-empty ``source``, carried as a plain copy. Whatever is not read that way is named in the detail."""
+    stored = stored_str_items(res)
+    fields: dict = {flag: stored.get(flag) is True for flag in ("ok", "warn")}
+    status = stored.get("status")
+    if type(status) is str and status:
+        fields["status"] = status
+    else:
+        fields["status"] = "pass" if fields["ok"] else ("warn" if fields["warn"] else "fail")
+    detail = stored.get("detail")
+    fields["detail"] = detail if type(detail) is str else ""
+    for flag in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
+        if flag in stored:
+            fields[flag] = stored[flag] is True
+    notes = []
+    not_bool = [flag for flag in _RESULT_FLAGS if flag in stored and type(stored[flag]) is not bool]
+    if not_bool:
+        notes.append(f"(the anchor verifier answered something other than True or False for "
+                     f"{', '.join(not_bool)}; only the exact True counts)")
+    if status is not None and type(status) is not str:
+        notes.append(f"(the anchor verifier's status was a value of type {_type_name(status)}, not a str, so the "
+                     "status here is derived from ok and warn)")
+    if detail is not None and type(detail) is not str:
+        notes.append(f"(the anchor verifier's detail was a value of type {_type_name(detail)}, not a str, and is "
+                     "not shown)")
+    trusted_time = stored.get("trustedTime")
+    if trusted_time is not None:
+        plain = stored_str_items(trusted_time)
+        source = plain.get("source")
+        if (plain and len(plain) == dict.__len__(trusted_time) and type(source) is str and source
+                and all(any(type(v) is t for t in _TRUSTED_TIME_VALUE_TYPES) for v in plain.values())):
+            fields["trustedTime"] = plain
+        else:
+            notes.append("(the anchor verifier's trustedTime is not a dict of str keys holding JSON scalars with a "
+                         "non-empty str source, and is not carried)")
+    if notes:
+        fields["detail"] = " ".join(([fields["detail"]] if fields["detail"] else []) + notes)
+    return fields
 
 
 def _as_dict(v):
@@ -69,7 +150,16 @@ def _as_list(v):
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
-    never raise for an ordinary bad proof."""
+    never raise for an ordinary bad proof. The result must be a ``dict``; a dict subclass (an
+    ``OrderedDict``, a ``defaultdict``) is read by what it stores, never through its own methods. ``ok``,
+    ``warn``, ``rp_trusted``, ``needs_rp_trust`` and ``frozenEvidence`` count only as the exact ``True``:
+    any other value, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list), counts as
+    False and the detail says so; a result that is not a dict is a failed anchor whose detail names the
+    type returned. A key counts only when it is exactly a ``str`` (a key of another type, a ``str``
+    subclass included, is not read, so its own ``__eq__`` can neither raise nor stand in for ``"ok"``);
+    ``status`` and ``detail`` are read only as exact ``str`` values, and ``trustedTime`` only as a dict of
+    exact-``str`` keys holding JSON scalars with a non-empty ``source``, carried as a plain copy. Nothing the
+    result's objects could run is ever called while it is read."""
     if not type_name or not isinstance(type_name, str) or not callable(verifier):
         raise BundleFormatError("register_anchor_type needs a non-empty name and a callable verifier")
     _VERIFIERS[type_name] = verifier
@@ -116,9 +206,18 @@ def _b64d(value, field: str) -> bytes:
         raise BundleFormatError(f"anchor {field} is not valid base64") from exc
 
 
+@_refuse_unreadable_input
 def receipt_canonical_root(bundle: dict) -> bytes:
     """The RFC 8785 (JCS) sha256 of the receipt bundle — the canonical root a ``receipt`` anchor stamps.
-    Uses a real RFC 8785 canonicalizer (the ``[anchors]``/``[eval]`` extra); never a home-grown sort."""
+    Uses a real RFC 8785 canonicalizer (the ``[anchors]``/``[eval]`` extra); never a home-grown sort.
+
+    Every ES256 signature in ``sd_jwt_vc.compact``, the issuer JWT's and a Key Binding JWT's, enters
+    the root in its low-s spelling (finding D1, :func:`proofbundle.sdjwt.canonical_sd_jwt_compact`):
+    ``verify_bundle`` accepts ``(r, s)`` and ``(r, n - s)``, and one receipt has one root. The bundle
+    itself is not rewritten. Measured on 126ed1dc: a bundle and its twin gave two roots, so an
+    anchor over one did not cover the other. An anchor stamped before this change over a bundle
+    with a high ``s`` in one of those signatures no longer matches; measured on 2026-09-26, none of
+    the JSON files tracked in this repository carries an ES256 ``sd_jwt_vc``."""
     try:
         import rfc8785  # noqa: PLC0415
     except ImportError as exc:   # pragma: no cover - guarded by the extra
@@ -132,7 +231,8 @@ def receipt_canonical_root(bundle: dict) -> bytes:
         # below, NOT a ProofBundleError, so it escaped this public verify-path primitive). This mirrors the
         # round-5 fix on the peer canonical.canonicalize_statement / statement_content_root.
         enforce_structural_budget(bundle)
-        return hashlib.sha256(rfc8785.dumps(bundle)).digest()
+        from .bundle import _canonical_signature_form  # noqa: PLC0415 - local import, as above
+        return hashlib.sha256(rfc8785.dumps(_canonical_signature_form(bundle))).digest()
     except BundleFormatError:
         raise
     except (ProofBundleError, ValueError, RecursionError) as exc:
@@ -146,10 +246,15 @@ def receipt_canonical_root(bundle: dict) -> bytes:
 def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
     """The canonical root a ``preRegistration`` anchor stamps: the sha256 (raw bytes) of the eval
     protocol file, i.e. the receipt's ``prereg_sha256``."""
-    if not isinstance(prereg_sha256_hex, str) or len(prereg_sha256_hex) != 64:
+    # Read once (lens run 8 at fddc00f4, the sweep of finding A): the length check asked a `str`
+    # subclass's `__len__`, and `bytes.fromhex` read its stored text, so a root of another length could
+    # pass as a sha256.
+    from .signature import plain_text  # noqa: PLC0415
+    text = plain_text(prereg_sha256_hex)
+    if text is None or len(text) != 64:
         raise BundleFormatError("prereg canonical root needs a 64-char hex sha256")
     try:
-        return bytes.fromhex(prereg_sha256_hex)
+        return bytes.fromhex(text)
     except ValueError as exc:
         raise BundleFormatError("prereg_sha256 is not valid hex") from exc
 
@@ -193,12 +298,17 @@ def _call_verifier(fn: Callable, proof: bytes, canonical_root: bytes, *,
     return fn(proof, canonical_root, **kw)
 
 
+@_refuse_unreadable_input
 def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None,
                   rp_trust: Optional[dict] = None) -> dict:
     """Verify ONE anchor entry, fail-closed. ``target_roots`` maps a target name to its canonical root
     bytes (only the targets that exist for this receipt). ``rp_trust`` (WP-A1) is the relying-party trust
     material (TSA roots, Bitcoin block headers) — the ONLY source of trust for a confirmed time anchor;
-    the bundle's own ``frozen`` block is evidence, never trust. Returns ``{ok, type, target, detail}``."""
+    the bundle's own ``frozen`` block is evidence, never trust. Returns ``{ok, type, target, detail}``.
+
+    A malformed entry raises ``BundleFormatError``, and so does an entry whose keys or values run code of
+    their own that raises while they are read (:func:`_refuse_unreadable_input`); a registered verifier
+    that raises, or whose result cannot be read, is a failed anchor, never an exception."""
     _ensure_builtin_types()
     if not isinstance(anchor, dict):
         raise BundleFormatError("each anchor must be a JSON object")
@@ -275,26 +385,47 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
-    out["ok"] = bool(res.get("ok"))
-    out["warn"] = bool(res.get("warn"))
-    out["status"] = res.get("status") or ("pass" if out["ok"] else ("warn" if out["warn"] else "fail"))
-    out["detail"] = res.get("detail", "")
-    # WP-A1: surface the trust provenance so the relying party can see WHY (and the require gate can only
+    # A registered verifier is caller code (register_anchor_type is a public extension point), so each
+    # verdict and flag of its result counts only as the exact True: bool(res.get("ok")) made {"ok": "false"}
+    # a verified anchor, {"warn": "false"} turned a hard FAIL into a pending one, and a result that is not a
+    # dict raised a raw AttributeError here. The result is a dict when its REAL type is one
+    # (issubclass(type(res), dict), an identity walk of the MRO; isinstance would believe the object's own
+    # __class__), and it is read ONCE, by what it stores (dict.get of the base type): an OrderedDict or a
+    # defaultdict is read as the dict it is, and a subclass whose own get, __getitem__, __contains__ or
+    # __missing__ answers True promotes nothing, because none of them runs. 3a8074fc refused every dict
+    # subclass, so an OrderedDict with ok True, a verified anchor on main 31816e08, was a failed anchor whose
+    # detail said "no result object" (measured). A result that is not a dict names its type in the detail
+    # (read with type_name, which runs no code of the caller); the values are never rendered.
+    if not issubclass(type(res), dict):
+        out["detail"] = (f"the anchor verifier returned a value of type {_type_name(res)}, which is not a dict "
+                         "(a dict whose ok is the exact True is required); not verified (fail-closed)")
+        return out
+    # Round 5 (review of c8865652, F1): the result was read with dict.get of the base type, which still
+    # compared a stored key whose hash equals hash("ok") through the key's own __eq__, `status or ...` called
+    # the status value's __bool__, and isinstance(tt, dict) read the trustedTime value's __class__. When one of
+    # them raised, a RuntimeError escaped this function, verify_anchors and verify_decision_receipt(anchors=)
+    # (measured on 3d5b992a), and a key whose __eq__ answered True stood in for "ok" and verified the anchor.
+    # The fail-closed try ended at the verifier CALL above and did not cover the reading of its answer. Now
+    # the reading runs no code of the result (_read_verifier_result), and it sits inside the boundary as
+    # well: if it ever raised, the anchor stays failed and the detail names the error's type.
+    #
+    # WP-A1: the trust provenance is surfaced so the relying party can see WHY (and the require gate can only
     # count RP-trusted anchors). `rp_trusted` True → verified against RP-supplied trust material;
     # `needs_rp_trust` True → the proof exists but confirming it needs RP material (frozen is not trust);
-    # `frozenEvidence` True → the bundle carried frozen material, reported but never trusted.
-    for _f in ("rp_trusted", "needs_rp_trust", "frozenEvidence"):
-        if _f in res:
-            out[_f] = bool(res.get(_f))
-    # WP-A2: structured trusted time, carried VERBATIM from the type verifier — present only when
-    # the proof genuinely carries it (rfc3161 gen_time; a confirmed Bitcoin height). NEVER guessed,
-    # NEVER derived from the informative anchoredAt field.
-    tt = res.get("trustedTime")
-    if isinstance(tt, dict) and tt.get("source"):
-        out["trustedTime"] = tt
+    # `frozenEvidence` True → the bundle carried frozen material, reported but never trusted. WP-A2: the
+    # structured trusted time is carried from the type verifier only when the proof genuinely carries it
+    # (rfc3161 gen_time; a confirmed Bitcoin height), NEVER guessed, NEVER derived from anchoredAt.
+    try:
+        fields = _read_verifier_result(res)
+    except Exception as exc:  # noqa: BLE001 - fail-closed: a result that cannot be read verifies nothing
+        out["detail"] = (f"the anchor verifier's result could not be read (an error of type {_type_name(exc)}); "
+                         "not verified (fail-closed)")
+        return out
+    out.update(fields)
     return out
 
 
+@_refuse_unreadable_input
 def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None,
                    require_target: Optional[str] = None,
                    allow_pending: bool = False, now: Optional[int] = None,
@@ -319,12 +450,15 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     count as a verifying anchor, so ``--require-anchor`` demands a full external-time proof. With
     ``allow_pending=True`` (CLI ``--require-anchor … --allow-pending``) a pending anchor also satisfies
     the requirement — weaker, and the relying party opted into it explicitly. It never turns a broken
-    anchor into a pass: a hard-failing anchor still aggregates to FAIL.
+    anchor into a pass: a hard-failing anchor still aggregates to FAIL. ``allow_pending`` must be a
+    bool: anything else raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError`` and a
+    ``ProofBundleError``) naming the parameter and the type, before anything else is read. It was read
+    by its truth, so ``allow_pending="false"`` let a pending anchor meet the requirement (measured at
+    fa555f13 too, round 11, class B of lens run 10).
 
-    ``allow_pending`` must be True or False; any other value is ProofBundleError before anything is
-    read (round 11, class B of lens run 10, `canonical._flagge`). Measured at fa555f13: it was read by
-    its truth, so ``allow_pending="false"`` let a pending anchor satisfy ``require``."""
-    allow_pending = _flagge(allow_pending, "verify_anchors", "allow_pending")
+    Like :func:`verify_anchor`, it refuses input whose objects raise from their own code while they are read
+    with ``BundleFormatError`` (:func:`_refuse_unreadable_input`), never with the caller's exception."""
+    require_switch(allow_pending, "allow_pending")
     # The requirements by their characters and the anchors through the list's own iteration, each
     # read once (round 12): a `str` subclass's own `__eq__` never matches a type or a target, and a
     # list subclass's own `__len__` and `__iter__` never decide which anchors are judged.
@@ -335,12 +469,12 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     if _zeichen_von(require) is not None:
         require = _zeichen_von(require)
     elif type(require) not in eingebaut:
-        raise BundleFormatError(f"require must be an anchor type string, got {_type_name(type(require))}")
+        raise BundleFormatError(f"require must be an anchor type string, got {_type_name(require)}")
     if _zeichen_von(require_target) is not None:
         require_target = _zeichen_von(require_target)
     elif type(require_target) not in eingebaut:
         raise BundleFormatError(
-            f"require_target must be one of {ANCHOR_TARGETS}, got {_type_name(type(require_target))}")
+            f"require_target must be one of {ANCHOR_TARGETS}, got {_type_name(require_target)}")
     if issubclass(type(anchors), list):
         anchors = _folge_von(anchors)
     elif type(anchors) not in eingebaut:

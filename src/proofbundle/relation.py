@@ -702,9 +702,14 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
     # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein
     # unbekannter Schluessel ist hier eine Verletzung, kein Wurf (diese Funktion wirft nie).
-    from .policy import PolicyError, _huelle_relations  # noqa: PLC0415 - lokal, wie die Nachbarn
+    from .policy import PolicyError, _huelle_relations, _require_bool  # noqa: PLC0415 - lokal, wie die Nachbarn
     try:
         _huelle_relations(relations_section)
+        # The loader's boolean rule and message for the two flags of this section (the two other
+        # evaluators apply it since round 2): "false" read by its truth switched reject_superseded ON,
+        # and 0 switched it off, where load_policy refuses both.
+        for _flag in ("reject_superseded", "reject_retracted"):
+            _require_bool(relations_section, _flag, "relations")
     except PolicyError as exc:
         return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
                  "message": f"relations policy section rejected before evaluation (fail-closed): {exc}"}]
@@ -724,16 +729,35 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # (1) require_relation_resolution — a named relation that APPEARS as an edge must VERIFY.
     _req = relations_section.get("require_relation_resolution")  # adversarial re-audit round 4: non-list guard ('in')
     req = _req if isinstance(_req, (list, tuple)) else []
+    # An edge's relation and resolution count only as plain strs. `lineage_result` may be the caller's, and
+    # `in req` / `!=` ran the value's own __eq__/__ne__: a resolution answering "equal" met the requirement
+    # without resolving (measured). A relation that is not a plain str cannot be matched against a rule, so
+    # it fails any rule that is set; a required relation resolves only as the plain str VERIFIED. Values
+    # that are not plain strs are never rendered.
+    _not_plain = ("an edge's relation is not a plain str, so the relations policy cannot be judged on it "
+                  "(fail-closed)")
     for e in edges:
-        if e.get("relation") in req and e.get("resolution") != LINEAGE_VERIFIED:
+        _rel, _res = e.get("relation"), e.get("resolution")
+        if type(_rel) is not str:
+            if req:
+                out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED, "message": _not_plain})
+            continue
+        if _rel in req and not (type(_res) is str and _res == LINEAGE_VERIFIED):
             out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
-                        "message": (f"relation {e.get('relation')!r} must resolve (target attached "
-                                    f"and verified), got {e.get('resolution')}")})
+                        "message": (f"relation {_rel!r} must resolve (target attached "
+                                    f"and verified), got {_res if type(_res) is str else '(not a str)'}")})
 
     # (2) reject_superseded — an attached, verified successor/retractor over THIS receipt.
-    if relations_section.get("reject_superseded") and lineage_result.get("supersededByAttached"):
+    # supersededByAttached is None or a str message. It was read by its truth, which ran the caller's own
+    # __bool__ (an object saying False hid a supersession); now only None and "" are "not superseded", and
+    # a value that is not a str is superseded and not rendered.
+    _sba = lineage_result.get("supersededByAttached")
+    if relations_section.get("reject_superseded") and _sba is not None and not (type(_sba) is str
+                                                                                and _sba == ""):
         out.append({"code": CODE_LINEAGE_REQUIREMENT_FAILED,
-                    "message": f"reject_superseded: {lineage_result['supersededByAttached']}"})
+                    "message": ("reject_superseded: " + _sba if type(_sba) is str else
+                                "reject_superseded: the lineage result's supersededByAttached is not a "
+                                "str (fail-closed)")})
 
     # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
     _signer = relations_section.get("relation_signer")  # adversarial re-audit round 4: non-dict guard (.get below)
@@ -742,7 +766,10 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         # R7-2b: a non-str edge['relation'] is unhashable (list/dict/set/bytearray) and crashed the
         # dict-key lookup; relations are always strings, so a non-str never names a rule (fail-closed None).
         _rel = e.get("relation")
-        rule = signer.get(_rel) if isinstance(_rel, str) else None
+        if signer and type(_rel) is not str:
+            out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED, "message": _not_plain})
+            continue
+        rule = signer.get(_rel) if type(_rel) is str else None
         if not isinstance(rule, dict):
             continue
         mode = rule.get("mode")
@@ -750,7 +777,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
             keys = _as_list(rule.get("keys"))
             if not any(_keys_equal(successor_key_b64, k) for k in keys):
                 out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
-                            "message": (f"relation {e.get('relation')!r}: successor issuer key is not "
+                            "message": (f"relation {_rel!r}: successor issuer key is not "
                                         "a member of the pinned relation_signer set")})
         elif mode == "same-key":
             # same-key can only be confirmed against a RESOLVED target's real verify key; absence on a
@@ -759,11 +786,14 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
             # present verified_under that byte-matches the successor key. A VERIFIED edge with a missing/None
             # verified_under is a fail-open footgun in the direct related-API path (the CLI loader always sets
             # it) — treat it as unauthorized, never as satisfied.
-            if e.get("resolution") == LINEAGE_VERIFIED:
+            # Checked unless the resolution is a plain str other than VERIFIED: `== LINEAGE_VERIFIED`
+            # ran the caller's __eq__, and an object answering False skipped the key check (measured).
+            _res = e.get("resolution")
+            if not (type(_res) is str and _res != LINEAGE_VERIFIED):
                 vu = e.get("verified_under")
                 if vu is None or not _keys_equal(successor_key_b64, vu):
                     out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
-                                "message": (f"relation {e.get('relation')!r}: same-key requires a target "
+                                "message": (f"relation {_rel!r}: same-key requires a target "
                                             "verified_under that byte-matches the successor key; got "
                                             f"{'none' if vu is None else 'a differing key'}")})
 
@@ -774,7 +804,10 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     for e in edges:
         # R7-2b: a non-str relation is unhashable → guard the dict-key lookup (a non-str never names a pin).
         _rel = e.get("relation")
-        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None
+        if target_pin and type(_rel) is not str:
+            out.append({"code": CODE_RELATION_TARGET_MISMATCH, "message": _not_plain})
+            continue
+        pinned = target_pin.get(_rel) if type(_rel) is str else None
         if pinned is None:
             continue
         # adversarial re-audit r5: nur hashbare str-Digests in die Menge; ein dict/list-Wert crasht sonst set() (unhashable).
@@ -783,9 +816,10 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         # R7-2b: a non-str/unhashable targetDigest crashed ``x not in set(...)`` — a non-str can never be a
         # pinned 64-hex root, so treat it as a mismatch (fail-closed decoy/wrong-parent), never a raw crash.
         _td = e.get("targetDigest")
-        if not (isinstance(_td, str) and _td in set(allowed)):
+        # type(), not isinstance(): the set membership hashed and compared the caller's own object.
+        if not (type(_td) is str and _td in set(allowed)):
             out.append({"code": CODE_RELATION_TARGET_MISMATCH,
-                        "message": (f"relation {e.get('relation')!r}: edge resolves to parent "
-                                    f"{str(e.get('targetDigest'))[:12]}… which is not in the pinned "
-                                    "require_relation_target set (decoy/wrong parent)")})
+                        "message": (f"relation {_rel!r}: edge resolves to parent "
+                                    f"{_td[:12] if type(_td) is str else '(not a str)'}… which is not in "
+                                    "the pinned require_relation_target set (decoy/wrong parent)")})
     return out

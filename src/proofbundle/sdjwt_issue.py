@@ -31,11 +31,12 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
 from .budget import render_safe
-from .canonical import _feld_von, _ganzzahl_von, _plain_for_jcs, _zeichen_von
+from .canonical import _feld_von, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
 from ._verdict import require_bool_verdict, require_eval_claim
+from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -80,7 +81,11 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     withheld numeric detail. All extras are selectively-disclosable; the pass/threshold facts are open.
 
     `holder_public_key` (raw 32-byte Ed25519, v1.2) binds a holder key via the `cnf.jwk` claim
-    (RFC 7800), enabling Key Binding JWT presentations verified by :mod:`proofbundle.kbjwt`.
+    (RFC 7800), enabling Key Binding JWT presentations verified by :mod:`proofbundle.kbjwt`. A key
+    the trust-anchor rule refuses (low-order or non-canonical, SPEC section 4b) raises ValueError
+    before anything is signed. The key is `bytes` or `bytearray`, read once from its own storage
+    (`signature.plain_bytes`); any other type raises ValueError, a `memoryview`, an `array` or a
+    numpy array included: pass `bytes(...)` of it.
 
     v1.3 (SD-JWT VC markers): the header `typ` is ``dc+sd-jwt`` and the payload carries a `vct`
     type URI (override per profile). `status` (build via
@@ -205,30 +210,55 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                 f"gives passed={ergibt}, and the claim says passed={always_open['passed']}; a "
                 "disclosure that contradicts the always-open verdict is not signed")
     if status is not None:
-        # A plain copy, read once, with every key as its characters (`canonical._plain_for_jcs`): the
-        # check below and the signature read the same dict, and a key is tested by the characters that
-        # are signed. Lens run 4 at c3ca546b: `dict(status)` kept a `str` subclass key whose `__hash__`
-        # and `__eq__` claimed to be "status_list", so the membership test passed and the signed
-        # status carried another key; a non-string key or two keys equal as characters are refused.
-        # The copy reads each container by its stored contents, and a circular or too deeply nested
+        # READ ONCE, from its storage (lens run 8 at fddc00f4, finding B): the check asked the caller's
+        # `__contains__`, the payload wrote the stored items, so a dict subclass answering True for
+        # `"status_list"` while holding none was signed without one. The plain copy is what is checked
+        # and what is signed.
+        # With every key as its characters (`canonical._plain_for_jcs`): lens run 4 at c3ca546b:
+        # `dict(status)` kept a `str` subclass key whose `__hash__` and `__eq__` claimed to be
+        # "status_list", so the membership test passed and the signed status carried another key; a
+        # non-string key or two keys equal as characters are refused. A circular or too deeply nested
         # status is this ValueError too (lens run 5 at 5a21b199: a raw KeyError and a raw
-        # RecursionError; see `_plain_for_jcs`). Every status is copied now, not only one that
-        # `isinstance` calls a dict: that test read `__class__` (round 8).
+        # RecursionError). The type is the object's own, not `isinstance`, which reads `__class__`
+        # (round 8).
+        if not issubclass(type(status), dict):
+            raise ValueError("status must be a dict with a status_list member "
+                             "(use proofbundle.statuslist.status_claim)")
+        from ._plain_value import plain_json  # noqa: PLC0415
+        status = plain_json(status, what="status", error=ValueError)
         status = _plain_for_jcs(status, _fehler(ValueError), "status")
         if type(status) is not dict or "status_list" not in status:
             raise ValueError("status must be a dict with a status_list member "
                              "(use proofbundle.statuslist.status_claim)")
         always_open["status"] = status
     if holder_public_key is not None:
-        # The key's BYTES, read once through the buffer protocol, are what is measured and what is
-        # encoded; `len()` of the caller's object was a second reading. Not a bytes-like object is
-        # this function's documented refusal, not the TypeError the encoder would raise.
-        try:
-            schluessel = memoryview(holder_public_key).tobytes()
-        except TypeError:
-            schluessel = b""
+        # READ ONCE, AND ONLY WHAT WAS READ IS JUDGED AND WRITTEN (lens run 7 at 75c3aa48, F1). The rule
+        # read the key through `len()` and `bytes()`, the caller's `__len__` and `__bytes__`, and
+        # `_b64url` wrote the key's own buffer: a `bytes` or `bytearray` subclass whose `__bytes__`
+        # returns a real key while its own bytes are the identity point passed and was bound, and under
+        # v6.0.0 and v6.1.0 a Key Binding JWT signed by nobody verified against it. The one value read
+        # here is judged, measured and written; no method of the caller's runs.
+        schluessel = plain_bytes(holder_public_key)
+        if schluessel is None:
+            # F3 of the same run: a memoryview, an `array('B')`, a ctypes byte array or a numpy uint8
+            # array holding a real key was written at a4e2fa5c and was refused at 75c3aa48 with the
+            # rule's length reason, which is wrong for 32 bytes. It stays refused, for its type.
+            raise ValueError("holder_public_key must be bytes or bytearray holding a raw 32-byte "
+                             "Ed25519 public key; a buffer of another type is not read, pass bytes(...) "
+                             "of it")
         if len(schluessel) != 32:
             raise ValueError("holder_public_key must be a raw 32-byte Ed25519 public key")
+        # THE HOLDER KEY IS AUTHORISED HERE, so it gets the trust-anchor rule before it is written and
+        # signed, the rule `kbjwt.verify_key_binding` applies to the same `cnf.jwk` (SPEC section 4b).
+        # Only the length was checked, so a small-order or non-canonical key was bound as the holder:
+        # measured at a4e2fa5c for all 13 weak encodings of the contract, and at the tags v6.0.0 and
+        # v6.1.0, where the same lines stand and a Key Binding JWT signed by nobody (R = identity,
+        # S = 0) under the identity point verified with "key binding valid". An issuer that binds a key
+        # nobody holds vouches for a possession no one can prove, so the key is refused where it enters.
+        schwaeche = ed25519_trust_anchor_weakness(schluessel)
+        if schwaeche is not None:
+            raise ValueError(f"holder_public_key is a {schwaeche} Ed25519 key, refused as a trusted key "
+                             f"before it is bound: {TRUST_ANCHOR_REFUSAL[schwaeche]}")
         always_open["cnf"] = {"jwk": {"kty": "OKP", "crv": "Ed25519",
                                       "x": _b64url(schluessel)}}
     disclosures: list[str] = []
@@ -298,17 +328,26 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     SD-JWT's ``_sd_alg`` hash — so dropping or swapping a disclosure after signing is detectable.
     ``iat`` is the POSIX issuance time chosen by the holder (explicit, not sampled here, so
     presentations are reproducible in tests).
+
+    The compact is presented byte for byte as handed, and ``sd_hash`` is computed over exactly the
+    bytes this function emits. The issuer JWT belongs to a foreign issuer and is never rewritten, an
+    ES256 signature with a high s included (finding D1, owner decision 2026-09-26). The one
+    signature this function makes is the holder's EdDSA signature over the KB-JWT.
     """
-    # One reading of each input, by what it holds (round 12): the presentation hashed into sd_hash is
-    # the presentation written, and the time checked is the time signed. At cd5d39f4 a `str`
-    # subclass's own `encode` fed sd_hash and its own `__add__` wrote the result.
-    compact = _zeichen_von(compact)
-    if compact is None:
-        raise ValueError("compact SD-JWT must be a string")
-    if not compact.endswith("~"):
+    # THE PRESENTED COMPACT AND THE TIME ARE READ ONCE (lens run 8, the sweep of finding B): the tilde
+    # check, the payload read and the `sd_hash` went through the caller's `endswith`, `split` and
+    # `encode`, and the presentation was built with its `__add__`, so what was hashed could differ from
+    # what was presented. Now one exact `str` is checked, hashed and extended, and `iat` is an exact
+    # `int` (a subclass of `int` is refused, like every number a producer both checks and writes).
+    # Round 12 found the same at cd5d39f4: a `str` subclass's own `encode` fed sd_hash and its own
+    # `__add__` wrote the result.
+    from ._plain_value import plain_int  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    compact_text = plain_text(compact)
+    if compact_text is None or not compact_text.endswith("~"):
         raise ValueError("compact SD-JWT already carries a key binding JWT (or is malformed)")
-    iat = _ganzzahl_von(iat)
-    if iat is None:
+    compact = compact_text
+    if plain_int(iat) is None:
         raise ValueError("iat must be a POSIX timestamp integer")
     # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
     # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).

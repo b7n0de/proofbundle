@@ -67,16 +67,23 @@ def _b64d(value: str, what: str) -> bytes:
 def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_checkpoint: str,
                       extra: Optional[bytes] = None) -> str:
     """Serialize a tlog-proof. ``signed_checkpoint`` is a complete signed note (log signature,
-    optionally cosignatures) included verbatim; it must end with a newline."""
+    optionally cosignatures) included verbatim; it must end with a newline.
+
+    Every argument is read once (lens run 8 at fddc00f4, the sweep of finding B): the index as an exact
+    `int` (it was compared through the caller's `__lt__` and written through `__format__`), the note as
+    the text it holds (checked through `endswith` and the framing, written through `__add__`), and each
+    hash and the extra as their stored bytes (measured through `__len__`, written through the buffer)."""
     # Each input by what it holds (round 12): the index, the note, the extra bytes and every proof hash
     # that are checked are the ones written. At cd5d39f4 the written file was the caller's own
     # `__format__`, `__len__`/`__radd__` and `__add__`, beside checks on other readings.
-    index = _ganzzahl_von(index)
-    if index is None or index < 0:
+    from ._plain_value import plain_int, plain_list  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    if plain_int(index) is None or index < 0:
         raise BundleFormatError("tlog-proof index must be a non-negative integer")
-    signed_checkpoint = _zeichen_von(signed_checkpoint)
-    if signed_checkpoint is None:    # iter5 never-raise: non-str raised raw AttributeError from .endswith
+    note = plain_text(signed_checkpoint)
+    if note is None:    # iter5 never-raise: non-str raised raw AttributeError from .endswith
         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
+    signed_checkpoint = note
     if not signed_checkpoint.endswith("\n"):
         raise BundleFormatError("signed checkpoint must end with a newline")
     # Der Emitter darf nichts bauen, was sein eigener Verifizierer malformed nennt (dieselbe Regel,
@@ -88,12 +95,14 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     if extra is not None and not issubclass(type(extra), bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
         raise BundleFormatError("tlog-proof extra must be bytes or None")
     if extra is not None:
-        extra = _bytes_von(extra)
+        extra = bytes.__getitem__(extra, slice(None))
     # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
     # TypeError from the loop below; guard the container type, then each hash's type, before len().
     if issubclass(type(inclusion_proof), (str, bytes, bytearray)) or not hasattr(type(inclusion_proof), "__iter__"):
         raise BundleFormatError("inclusion proof must be a sequence of 32-byte hashes")
-    inclusion_proof = _folge_von(inclusion_proof)   # read once, through the base iteration (round 12)
+    stored = plain_list(inclusion_proof)                # the list read once from storage
+    # any other iterable read once, through the base iteration where it has one (round 12)
+    inclusion_proof = stored if stored is not None else _folge_von(inclusion_proof)
     lines = [MAGIC]
     if extra is not None:
         lines.append(f"extra {_b64(extra)}")
@@ -174,14 +183,20 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     over the SAME root/size. No-Fake guard: the checkpoint's tree size and root MUST match the
     bundle's merkle fields — a proof whose checkpoint disagrees with its bundle is refused at
     build time rather than left to fail at verify time."""
+    from ._plain_value import plain_json  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
     if not issubclass(type(bundle), dict):    # iter5 never-raise: non-dict raised raw AttributeError from .get
         raise BundleFormatError("bundle must be a dict")
+    # read once (lens run 8, the sweep of finding B): the merkle fields were checked through `get` and
+    # the leaf index written through `__getitem__`; the note checked here is the note that is framed.
     # One reading of the bundle and of the note, by what they store (round 12): the fields compared
     # against the checkpoint are the fields written into the proof.
+    bundle = plain_json(bundle, what="bundle", error=BundleFormatError)
     bundle = _plain_for_jcs(bundle, lambda text: BundleFormatError(f"bundle: {text}"))
-    signed_checkpoint = _zeichen_von(signed_checkpoint)
-    if signed_checkpoint is None:    # iter5 never-raise: non-str raised raw AttributeError from .split
+    note = plain_text(signed_checkpoint)
+    if note is None:    # iter5 never-raise: non-str raised raw AttributeError from .split
         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
+    signed_checkpoint = note
     mk = bundle.get("merkle")
     if not isinstance(mk, dict):
         raise BundleFormatError("bundle has no merkle object")

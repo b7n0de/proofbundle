@@ -27,15 +27,16 @@ import math
 import zlib
 from typing import Optional, Tuple
 
+from ._membership import require_switch
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
-from .canonical import _feld_von, _flagge, _plain_for_jcs, _zahl_von, _zeichen_von
+from .canonical import _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
 
-__all__ = ["TOKEN_PREFIX", "receipt_token", "verify_receipt_token",
+__all__ = ["TOKEN_PREFIX", "receipt_token", "receipt_token_identity", "verify_receipt_token",
            "verify_eval_results_entry", "to_eval_results_entry", "eval_results_yaml"]
 
 TOKEN_PREFIX = "pb1."
@@ -56,13 +57,27 @@ def receipt_token(bundle: dict) -> str:
     base64url(zlib(canonical bundle JSON)). The token IS the receipt — verifying it is verifying
     the bundle, offline, no lookup.
 
+    The bundle goes in as it is. An ``sd_jwt_vc`` compact belongs to a foreign issuer and is never
+    rewritten, an ES256 signature with a high s included: a Key Binding JWT's ``sd_hash`` covers
+    the issuer JWT exactly as presented (RFC 9901 §4.3). Measured on f536af50, which packed the
+    low-s spelling: the ``sd_hash`` no longer matched the compact inside the token.
+
+    THE IDENTITY OF A TOKEN is not the token string: another zlib level, other JSON whitespace or the
+    other spelling of an ES256 signature, ``(r, s)`` or ``(r, n - s)``, give a different string for
+    the same receipt, and each one verifies. So a receipt and its twin give two token strings. Their
+    identity is one: :func:`receipt_token_identity`, the key to deduplicate or replay-check tokens
+    by (finding D1, owner decision 2026-09-26).
+
     The bundle is read once, by what it stores (round 12, lens run 11 F5): ``json.dumps`` reads a
     dict subclass through its own ``items()``, so at cd5d39f4 the token could carry another receipt
-    than the object the caller holds. The plain copy (`canonical._plain_for_jcs`) is written; a
-    bundle holding a value that is no JSON value is BundleFormatError, where json raised a raw
-    TypeError."""
+    than the object the caller holds. The plain copy is written; a bundle holding a value that is no
+    JSON value is BundleFormatError, where json raised a raw TypeError."""
     if not issubclass(type(bundle), dict):
         raise BundleFormatError("receipt_token needs a bundle dict")
+    # read once (lens run 8 at fddc00f4, the sweep of finding B): the check asked the caller's
+    # `__contains__` and the token packed what `json.dumps` reads through its `items()`
+    from ._plain_value import plain_json  # noqa: PLC0415
+    bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
     bundle = _plain_for_jcs(bundle, lambda text: BundleFormatError(f"receipt_token: {text}"))
     if "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
@@ -70,14 +85,53 @@ def receipt_token(bundle: dict) -> str:
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
 
 
+def receipt_token_identity(token: str) -> bytes:
+    """The identity of a ``pb1.`` token: the receipt root of the bundle it carries, i.e.
+    :func:`proofbundle.anchors.receipt_canonical_root` over that bundle without its ``anchors``, the
+    same 32 bytes a ``receipt`` anchor on it stamps as ``canonicalRoot`` (SPEC §7i). Every ES256
+    signature in ``sd_jwt_vc.compact`` enters it in its low-s spelling, so a receipt and its
+    ``(r, n - s)`` twin have one identity while their token strings differ; JSON whitespace, key
+    order and the zlib level do not enter it either. ``anchors`` are detached evidence about the
+    receipt, so two tokens that carry one receipt with different anchors have one identity.
+
+    This is the key to deduplicate, replay-check or log tokens by. It says nothing about validity:
+    it is computed without verifying, and :func:`verify_receipt_token` gives the verdict. A
+    malformed token raises BundleFormatError, as in :func:`verify_receipt_token`."""
+    from .anchors import receipt_canonical_root  # noqa: PLC0415 - local import, as elsewhere in this module
+    bundle = _unpack_receipt_token(token)
+    return receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
+
+
 def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]]:
     """Unpack and verify a ``pb1.`` receipt token. Returns (VerificationResult, bundle_dict).
     Malformed tokens raise BundleFormatError — never a crash, never a silent pass.
 
+    The returned bundle is the one the token carries, byte for byte in every field: a foreign
+    issuer's ES256 signature keeps the spelling the token held (finding D1). Two tokens of one
+    receipt can therefore return two bundles that differ in that signature only; compare them by
+    :func:`receipt_token_identity`.
+
     The token is read once, as its characters (round 12, lens run 11 F7): at cd5d39f4 the
     pre-decode cap counted the caller's own ``len()`` and the decode read the caller's own slice, so
     a ``str`` subclass reporting 12 characters handed 64 MiB to the decoder. Now the cap counts the
-    characters that are decoded, and no method of the caller's string runs."""
+    characters that are decoded, and no method of the caller's string runs (`_unpack_receipt_token`)."""
+    bundle = _unpack_receipt_token(token)
+    # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
+    # token never escapes as a different exception type (release-review fix).
+    try:
+        return verify_bundle(bundle), bundle
+    except ProofBundleError as exc:
+        # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
+        # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
+        # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization in `_unpack_receipt_token`
+        # already does this for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign type either.
+        raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
+
+
+def _unpack_receipt_token(token) -> dict:
+    """The bundle dict a ``pb1.`` token carries, as it carries it. Every malformed token raises
+    BundleFormatError. Shared by :func:`verify_receipt_token` and :func:`receipt_token_identity` so
+    the two never read a token differently."""
     token = _zeichen_von(token) if _zeichen_von(token) is not None else token
     # `type()`, not `isinstance`: an object that is no str but claims one through `__class__` passed
     # `isinstance` and reached the cap through its own `__len__` (measured on this tree before the
@@ -110,16 +164,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
         raise BundleFormatError(f"receipt token is not valid base64url(zlib(JSON)): {exc}") from exc
     if not isinstance(bundle, dict):
         raise BundleFormatError("receipt token does not contain a bundle object")
-    # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
-    # token never escapes as a different exception type (release-review fix).
-    try:
-        return verify_bundle(bundle), bundle
-    except ProofBundleError as exc:
-        # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
-        # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
-        # tokens raise BundleFormatError" — the ValueError/TypeError/zlib normalization above already does this
-        # for non-PB errors, so no PB sibling from verify_bundle escapes as a foreign exception type either.
-        raise BundleFormatError(f"receipt token bundle uses an unsupported schema/algorithm: {exc}") from exc
+    return bundle
 
 
 def verify_eval_results_entry(entry: dict) -> dict:
@@ -240,24 +285,50 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     NOT stop an inflated value on the passing side (e.g. a true 0.81 published as 99.9, both above a
     ``>=0.80`` threshold). See THREAT_MODEL.md ("published value" row).
 
-    ``allow_value_mismatch`` must be True or False; any other value is ProofBundleError before anything
-    is read (round 11, class B of lens run 10, `canonical._flagge`). Measured at fa555f13: it was read
-    by its truth, so ``allow_value_mismatch="false"`` built an entry whose value contradicts the signed
-    verdict.
+    ``allow_value_mismatch``, ``require_verified`` and ``include_token`` must be bools; anything else
+    raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError`` and a ``ProofBundleError``)
+    naming the parameter and the type, before the bundle is read. They were read by their truth, so
+    ``allow_value_mismatch="false"`` skipped the consistency check, ``require_verified=None``, ``0`` or
+    ``""`` built an entry from a bundle that does not verify (beside ``allow_value_mismatch=True``;
+    without it the value check refused that bundle), and ``include_token="false"`` published the token
+    (measured at 3a8074fc).
+
+    EVERY VALUE THAT IS CHECKED AND PUBLISHED IS READ ONCE (lens run 8 at fddc00f4, the sweep of
+    finding B). The consistency check used `float(value)`, the caller's `__float__`, while the entry
+    published the stored number: a float subclass storing 99.9 whose `__float__` answers 0.5 passed the
+    check against a failing verdict and was published as 99.9. The value is an exact int or float or a
+    numeric text, a subclass of int or float is refused, and the bundle that is verified is the one
+    that is decoded and packed into the token.
     """
-    allow_value_mismatch = _flagge(allow_value_mismatch, "to_eval_results_entry", "allow_value_mismatch")
+    require_switch(allow_value_mismatch, "allow_value_mismatch")
+    require_switch(require_verified, "require_verified")
+    require_switch(include_token, "include_token")
+    from ._plain_value import plain_json  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    if isinstance(bundle, dict):
+        bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
+    dataset_text, task_text = plain_text(dataset_id), plain_text(task_id)
+    if not dataset_text or not task_text:
+        raise BundleFormatError("dataset_id and task_id are required (the Hub benchmark identity)")
+    dataset_id, task_id = dataset_text, task_text
+    if type(value) not in (int, float):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            raise BundleFormatError(f"value is of type {type(value).__name__}, a subclass of int or float — a "
+                                    "published number must be an exact int or float (or a numeric string)")
+        text = plain_text(value)
+        if text is not None:
+            value = text
+    date, source_url, source_name, source_user, notes = (
+        (plain_text(v) if plain_text(v) is not None else v)
+        for v in (date, source_url, source_name, source_user, notes))
     # ONE READING of the bundle (round 12, lens run 11 F4 and F5): a path is loaded once, an object
     # is copied once by what it stores (`evalclaim._eine_lesung`), and the verification, the claim
     # decode, the "is this an eval claim" rule and the written token all read that one copy. At
     # cd5d39f4 the rule read `bundle["payload_b64"]` a third time through the caller's object, and the
-    # token was written through the caller's own `items()`. The published value is read once as well,
-    # by its own type, so the number checked against the verdict is the number written.
+    # token was written through the caller's own `items()`. The published value is read once as well
+    # (above), so the number checked against the verdict is the number written.
     from .evalclaim import _eine_lesung  # noqa: PLC0415
     bundle = _eine_lesung(bundle)
-    if _zahl_von(value) is not None:
-        value = _zahl_von(value)
-    elif _zeichen_von(value) is not None:
-        value = _zeichen_von(value)
     if require_verified:
         result = verify_bundle(bundle)
         if not result.ok:
@@ -361,8 +432,15 @@ def eval_results_yaml(entries) -> str:
     order = ("dataset", "value", "verifyToken", "date", "source", "notes")
     dataset_order = ("id", "task_id", "revision")
     source_order = ("url", "name", "user")   # HF hub-docs spec fields (no 'org' — 'user' covers the HF org/user)
+    from ._plain_value import plain_json  # noqa: PLC0415
     lines = []
-    for entry in entries:
+    from ._plain_value import plain_list  # noqa: PLC0415
+    stored = plain_list(entries)               # the list read once from storage (lens run 8, finding B)
+    for entry in (stored if stored is not None else entries):
+        # read once (lens run 8, the sweep of finding B): the field check iterated the caller's entry
+        # and the lines read its items through `__getitem__`
+        if isinstance(entry, dict):
+            entry = plain_json(entry, what="eval_results entry", error=BundleFormatError)
         unknown = set(entry) - set(order)
         if unknown:
             raise BundleFormatError(f"unknown eval_results entry field(s): {render_keys_safe(unknown)}")

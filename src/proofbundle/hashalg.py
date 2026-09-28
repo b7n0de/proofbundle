@@ -28,8 +28,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
+from ._membership import require_switch
 from .budget import DEFAULT_BUDGET, render_safe
-from .canonical import _bytes_von, _flagge, _puffer_von, _zeichen_von
+from .canonical import _bytes_von, _puffer_von, _zeichen_von
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -99,13 +100,18 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
     Raises ``MissingHashAlgId`` for an absent/empty id (no implicit default), ``UnknownHashAlg`` for an
     id not in the registry, and ``DeprecatedHashAlg`` for a weak algorithm unless ``allow_deprecated``.
 
-    ``allow_deprecated`` must be True or False, and any other value is ProofBundleError before the id
-    is read (round 11, `canonical._flagge`). Measured at fa555f13, and by the lens on main 31816e08
-    (lens run 10, finding L7): the flag was read by its truth, so ``"false"``, ``"no"``, ``1`` and
-    ``[0]`` opened the gate for sha1 and md5. ``compute_digest`` reaches the gate through this
-    function.
+    ``allow_deprecated`` must be a bool; anything else raises :class:`~proofbundle.errors.SwitchTypeError`
+    (a ``TypeError`` and a ``ProofBundleError``) naming the parameter and the type, before the id is
+    read. It was read by its truth, so ``allow_deprecated="false"`` accepted sha1 (measured). Measured
+    at fa555f13 too, and by the lens on main 31816e08 (lens run 10, finding L7): ``"false"``, ``"no"``,
+    ``1`` and ``[0]`` opened the gate for sha1 and md5. ``compute_digest`` reaches the gate through
+    this function.
     """
-    allow_deprecated = _flagge(allow_deprecated, "resolve_hash_alg", "allow_deprecated")
+    # The exact bool passes inline, without a call: compute_digest runs this once per element of a
+    # renewal sequence, and the call alone added 6.5 % to renewal_ats_chain at its limit under coverage
+    # (measured 0.170 s on main, 0.181 s with the call), past the 1.0 s bound on the CI runner.
+    if type(allow_deprecated) is not bool:
+        require_switch(allow_deprecated, "allow_deprecated")
     # The id by its characters (round 12): a `str` subclass's own `__hash__` and `__eq__` never choose
     # the registry entry. An id that is no string is missing, as before.
     alg_id = _zeichen_von(alg_id)
@@ -153,7 +159,15 @@ def compute_dual_hash(data: bytes, alg_ids: Sequence[str]) -> dict[str, str]:
         raise HashAlgError(
             "a dual hash needs at least two distinct current algorithms "
             "(e.g. sha256 + sha512 or sha256 + sha3-256)")
-    return {alg_id: compute_digest(data, alg_id) for alg_id in seen}
+    # THE DATA IS READ ONCE (lens run 8 at fddc00f4, the sweep of finding B): each digest read the
+    # caller's buffer on its own, and from 3.12 on a class can answer `__buffer__` differently per call,
+    # so the two digests that promise to bind the same bytes could bind two different ones. A `bytes` or
+    # `bytearray` is read from its storage, anything else through one buffer read.
+    from .signature import plain_bytes  # noqa: PLC0415 - local import avoids an import cycle
+    once = plain_bytes(data)
+    if once is None:
+        once = bytes(memoryview(data))
+    return {alg_id: compute_digest(once, alg_id) for alg_id in seen}
 
 
 def _enforce_structural_budget(obj, *, budget=None):

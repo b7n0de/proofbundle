@@ -32,7 +32,7 @@ from typing import Optional
 
 from .budget import int_magnitude_ok
 from .budget import render_safe as _rs
-from .canonical import _flagge
+from ._membership import type_name
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
 from .pqsig import PQUnavailable, sign_mldsa, verify_hybrid, verify_mldsa
@@ -580,14 +580,86 @@ def _make_ats(hash_alg: str, covered: str, time: int, anchor_status: str,
                             renewal_seed_evidence_class)
 
 
+def _text_param(value, name: str, *, optional: bool = False):
+    """A text parameter of a renewal producer read ONCE from its storage, or `RenewalError` (lens run 8
+    at fddc00f4, the sweep of finding B). The hash algorithm was resolved through the registry lookup
+    (the caller's `__hash__`/`__eq__`) and written into the token through `__format__`; the anchor
+    status is written into the ArchiveTimeStamp and judged by the next renewal through `__ne__`."""
+    from .signature import plain_text  # noqa: PLC0415
+    if value is None and optional:
+        return None
+    text = plain_text(value)
+    if text is None:
+        raise RenewalError(f"{name} must be text, got {type(value).__name__} (fail-closed)")
+    return text
+
+
+def _alg_text(value):
+    """A hash algorithm id read once as the text it holds; a value that is not text is handed on
+    unchanged, so `resolve_hash_alg` gives its own typed refusal (`MissingHashAlgId`)."""
+    from .signature import plain_text  # noqa: PLC0415
+    text = plain_text(value)
+    return text if text is not None else value
+
+
+def _time_param(value) -> int:
+    """The time of a new ArchiveTimeStamp as an exact `int` (`_plain_value.plain_int`): it is compared
+    with the prior time and written into the signed token, and a subclass of `int` answered the
+    comparison and the rendering through its own methods."""
+    from ._plain_value import plain_int  # noqa: PLC0415
+    number = plain_int(value)
+    if number is None:
+        raise RenewalError(f"renewal time must be an int, got {type(value).__name__} (fail-closed)")
+    return number
+
+
+def _digests_once(data_digests) -> list:
+    """The data digests read once, as a plain list of the texts they hold. A list subclass was measured
+    through `__len__`, validated through one `__iter__` and sorted through another, and each digest
+    compared through its own `__lt__`. A non-text entry is kept as it is, so `_validate_digests` names it."""
+    from ._plain_value import plain_list  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    stored = plain_list(data_digests)
+    seq = stored if stored is not None else list(data_digests)
+    return [plain_text(d) if plain_text(d) is not None else d for d in seq]
+
+
+def _sequence_once(sequence) -> list:
+    """The caller's sequence of chains read once from storage, as a list of lists. The newest ATS was
+    taken through `__getitem__` and the chains copied through `__iter__`, so the ATS a renewal covered
+    could be another than the one the returned sequence carries."""
+    from ._plain_value import plain_list  # noqa: PLC0415
+
+    def _liste(x):
+        stored = plain_list(x)
+        if stored is not None:
+            return stored
+        # any other iterable once through its iterator, as the renewal read it before; text, bytes and
+        # a mapping are no sequence of chains
+        if not isinstance(x, (str, bytes, bytearray, dict)):
+            try:
+                return list(x)
+            except TypeError:
+                pass
+        raise RenewalError(f"a renewal sequence is a list of chains (lists), got {type(x).__name__}")
+    return [_liste(chain) for chain in _liste(sequence)]
+
+
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
                            anchor_status: str = _CONFIRMED, sig_alg: str = "",
                            signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
     """The original evidence: one chain with one ATS over the data objects' hash-tree root.
 
     When ``sig_alg`` + ``signers`` are given the ATS is authenticated by a time-authority signature (the
-    RFC-4998 TimeStampToken; verify with ``authority_keys``). Fail-closed on a weak/unknown hash."""
+    RFC-4998 TimeStampToken; verify with ``authority_keys``). Fail-closed on a weak/unknown hash.
+
+    Each parameter that is checked and written is read once (lens run 8, the sweep of finding B)."""
+    hash_alg = _alg_text(hash_alg)
     resolve_hash_alg(hash_alg)  # current-only: never seed a sequence with a deprecated hash
+    time = _time_param(time)
+    anchor_status = _text_param(anchor_status, "anchor_status")
+    sig_alg = _text_param(sig_alg, "sig_alg")
+    data_digests = _digests_once(data_digests)
     if not data_digests:
         raise RenewalError("cannot anchor an empty set of data objects")
     ats = _make_ats(hash_alg, _cover_data(data_digests, hash_alg), time, anchor_status, sig_alg, signers)
@@ -675,10 +747,14 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     prior; ``require_verified_prior=True`` makes it MANDATORY (no bare-label fallback). Neither argument
     changes the default (unverified-label) behavior of an existing caller — additive, fail-closed only when
     opted into. The produced ATS's ``renewal_seed_evidence_class`` records which path was taken."""
+    sequence = _sequence_once(sequence)          # lens run 8, the sweep of finding B: one read
+    anchor_status = _text_param(anchor_status, "anchor_status")
+    sig_alg = _text_param(sig_alg, "sig_alg", optional=True)
     prior = _newest(sequence)
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     _require_int_time(time, prior)
+    time = _time_param(time)
     if time <= prior.time:
         raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = compute_digest(prior.token().encode(), prior.hash_alg)
@@ -704,11 +780,17 @@ def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequenc
     ``prior_verification`` / ``require_verified_prior`` (finding 09): same contract as
     ``renew_timestamp`` — an optional (or, with ``require_verified_prior=True``, mandatory) bound,
     cryptographically verified proof of the prior ATS, additive and fail-closed only when opted into."""
+    new_hash_alg = _alg_text(new_hash_alg)
     resolve_hash_alg(new_hash_alg)  # current-only
+    sequence = _sequence_once(sequence)          # lens run 8, the sweep of finding B: one read
+    data_digests = _digests_once(data_digests)
+    anchor_status = _text_param(anchor_status, "anchor_status")
+    sig_alg = _text_param(sig_alg, "sig_alg", optional=True)
     prior = _newest(sequence)
     evidence_class = _require_prior_anchor(
         prior, prior_verification=prior_verification, require_verified_prior=require_verified_prior)
     _require_int_time(time, prior)
+    time = _time_param(time)
     if time <= prior.time:
         raise RenewalError(f"renewal time {_rs(time)} must be strictly after the prior ATS time {_rs(prior.time)}")
     covered = _cover_prior_and_data(_all_ats(sequence), data_digests, new_hash_alg)
@@ -751,10 +833,16 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         (``_verify_ats_signature``) under those keys — a real cryptographic anchor, PQ-capable. A hybrid ATS
         needs both legs. The key material comes from the relying party (WP-A1), never the sequence itself.
       * ``anchor_verifier``: a caller callback bound to an external proof (e.g. an OTS proof), when the
-        anchor is not a native ATS signature.
+        anchor is not a native ATS signature. Only the exact ``True`` anchors: any other answer, a truthy
+        one included (``1``, ``"true"``, ``"false"``, a non-empty list, an object whose ``__bool__``
+        says True), leaves the newest ATS not anchored, the answer's own ``__bool__`` is never called,
+        and when the answer is not a bool at all the ``renewal:last_anchor`` detail says so.
       * ``allow_unauthenticated_anchor=True`` (EXPLICIT opt-in): fall back to the bare ``anchor_status``
         string, which is NOT cryptographically bound (excluded from ``token()``) — a STRUCTURAL check only.
-        A PASS here means "structurally consistent", never "cryptographically anchored".
+        A PASS here means "structurally consistent", never "cryptographically anchored". Only the exact
+        ``True`` opts in: the flag was read by its truth, so ``"false"`` switched this weak mode on
+        (measured: ok true). A value that is not a bool now leaves the newest ATS unanchored, and the
+        ``renewal:last_anchor`` detail says the flag is not a bool and names its type.
       * NONE of the above: fail closed — the newest-anchor check is FALSE with a clear message. This makes
         a naive ``verify_sequence(seq, data)`` refuse to certify an unauthenticated anchor (API-safety audit).
 
@@ -790,19 +878,8 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     present ANYWHERE in the presented sequence (truncated away) and PASSES when it is still present —
     whether unchanged or followed by legitimate further renewals (forward progress). Not surfaced when
     omitted (fully backward compatible).
-
-    ``allow_unauthenticated_anchor`` must be True or False; any other value is a failed
-    ``renewal:anchor_mode`` check, before anything else is read (round 11, class B of lens run 10,
-    `canonical._flagge`). Measured at fa555f13: it was read by its truth, so ``"false"`` selected the
-    structural-only anchor mode and an unauthenticated sequence verified ok=True.
     """
     result = VerificationResult()
-    try:
-        allow_unauthenticated_anchor = _flagge(allow_unauthenticated_anchor, "verify_sequence",
-                                               "allow_unauthenticated_anchor")
-    except ProofBundleError as exc:
-        result.checks.append(Check("renewal:anchor_mode", False, str(exc)))
-        return result
 
     # shape guard: an untrusted/deserialized sequence must be a list of chains (lists) of ArchiveTimeStamp
     # — a malformed shape fails closed, never an uncaught crash (the never-raise contract).
@@ -838,9 +915,17 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     elif anchor_verifier is not None:
         verify_anchor = anchor_verifier
         anchor_mode = "caller anchor_verifier"
-    elif allow_unauthenticated_anchor:
+    elif allow_unauthenticated_anchor is True:
         verify_anchor = _default_anchor
         anchor_mode = "structural-only (unauthenticated, opted-in)"
+    elif type(allow_unauthenticated_anchor) is not bool:
+        # Never the weak mode for a flag that is not a bool ("false" is truthy); say why nothing anchors, and
+        # name the type (type_name runs no code of the caller). This never-raise verifier refuses in its
+        # verdict: _never_raise_verdict would turn a raise into a failed check anyway.
+        verify_anchor = _no_anchor
+        anchor_mode = (f"none supplied — allow_unauthenticated_anchor is not a bool (a value of type "
+                       f"{type_name(allow_unauthenticated_anchor)}); only the exact True opts into the "
+                       "structural-only mode")
     else:
         verify_anchor = _no_anchor
         anchor_mode = "none supplied"
@@ -1000,11 +1085,22 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
     #    structural fallback (API-safety audit: the PASS text must not conflate the two).
     newest = flat[-1]
-    anchored = bool(verify_anchor(newest))
-    result.checks.append(Check("renewal:last_anchor", anchored,
-                               f"newest ATS anchored via {anchor_mode}" if anchored
-                               else f"newest ATS not anchored (mode: {anchor_mode}) — supply authority_keys "
-                                    "for a cryptographic anchor"))
+    # Only the exact True anchors. In the "caller anchor_verifier" mode verify_anchor is the caller's
+    # callback, and bool(answer) would anchor on 1, "true", "false", [0] or any object whose __bool__
+    # says True (and run that __bool__). The house verifiers above return exact bools (_default_anchor
+    # whenever anchor_status is a str). The answer is never rendered into the detail (rendering could run
+    # caller code as well).
+    answer = verify_anchor(newest)
+    anchored = answer is True
+    if anchored:
+        anchor_detail = f"newest ATS anchored via {anchor_mode}"
+    elif type(answer) is not bool:
+        anchor_detail = (f"newest ATS not anchored (mode: {anchor_mode}) — the anchor verifier answered "
+                         "something other than True; only the exact True anchors")
+    else:
+        anchor_detail = (f"newest ATS not anchored (mode: {anchor_mode}) — supply authority_keys "
+                         "for a cryptographic anchor")
+    result.checks.append(Check("renewal:last_anchor", anchored, anchor_detail))
 
     # 4b) optional, ADDITIONAL corroboration of the newest ATS against a REAL external RFC-3161/OTS proof
     #     (Finding 14a-b, ADR 0006 B3 OPEN item, pure glue — never a replacement for the anchor modes above).

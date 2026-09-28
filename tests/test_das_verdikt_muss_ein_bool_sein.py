@@ -261,17 +261,28 @@ class TestGEPRUEFTUNDVERWENDETMussDERSELBEWertSein(unittest.TestCase):
     def test_der_export_gibt_den_gepruefte_wert_aus_nicht_ein_zweites_lesen(self):
         c = self._Zweizuengig(self.echt)
         c["passed"] = "false"
-        # THE EXPECTED OUTCOME CHANGED IN 6.2.0, and the reason is the same principle one step on.
-        # This case asserted that the predicate carries True, the value `get` returned to the check.
-        # The canonical bytes of this object say "false" (the serializer copies the stored items and
-        # never calls `get`), and those bytes are what `emit_eval_receipt` signs and what a verifier
-        # reads. So the predicate would have vouched for a verdict that no receipt of this claim can
-        # carry. The export now reads the claim back from its canonical bytes and judges that
-        # (`_verdict.require_eval_claim`): the stored string is not a boolean, and the export refuses.
-        # Checked and used are one value because both are the value read back.
+        # The one value the exporter reads is the STORED item (lens run 8 at fddc00f4, finding B: a
+        # producer reads a caller's value once, from its storage, and checks and writes that). The
+        # caller's `get` answers True and runs no more; the stored `"false"` is what is checked, and it
+        # is refused. Before that change this case pinned the value `get` answered, True, which was
+        # also one value checked and written, but one the caller's class chose.
         with self.assertRaises(BundleFormatError) as ctx:
             to_eval_result_predicate(c)
-        self.assertIn("passed", str(ctx.exception))
+        self.assertIn("`passed` is str 'false'", str(ctx.exception))
+
+    def test_die_gegenrichtung_der_gespeicherte_bool_wird_ausgegeben(self):
+        """The reverse form: the item stored is the real boolean, the caller's `get` answers a string.
+        The exporter reads and writes the stored boolean, so the answer of `get` reaches nothing."""
+
+        class GetLies(dict):
+            def get(self, k, d=None):  # noqa: D102
+                return "false" if k == "passed" else super().get(k, d)
+
+        for wert in (True, False):
+            with self.subTest(passed=wert):
+                c = GetLies(self.echt)
+                c["passed"] = wert
+                self.assertIs(to_eval_result_predicate(c)["claims"][0].get("passed"), wert)
 
     def test_beide_echten_booleans_bleiben_unveraendert(self):
         """Without this case the site could turn every value into True and the case above would pass."""

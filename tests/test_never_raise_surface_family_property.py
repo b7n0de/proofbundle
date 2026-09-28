@@ -86,6 +86,15 @@ _NAME_PATTERN = re.compile(
     # caller-supplied key (any type) and must name a reason ("malformed") instead of crashing. In the
     # denominator; `verify_ed25519_pinned` already falls in through its prefix.
     r"|ed25519_trust_anchor_weakness"
+    # 2026-09-26, finding D1: `canonical_es256_signature` and `canonical_sd_jwt_compact` take a
+    # signature or a presented compact from outside (a bundle, a token) and form the one spelling an
+    # identity is built over. Neither is a verdict, but both read untrusted input, so they must hand
+    # back a value for every input rather than crash; both return a non-str or non-bytes input as it came.
+    # `receipt_token_identity` (same finding, second owner decision) reads a pb1 token from outside and
+    # computes its identity; like `verify_receipt_token` it raises BundleFormatError on a malformed one.
+    # `eip191_signature_identity` (same finding, addendum 11) reads the signature bytes of a foreign
+    # checkpoint and returns None for every one it does not accept.
+    r"|canonical_es256_signature|canonical_sd_jwt_compact|receipt_token_identity|eip191_signature_identity"
     # 2026-09-05, CAP-1 Teil B: `is_conformant` ist ein Praedikat ueber ein vom Aufrufer geliefertes
     # Dokument (untrusted) und muss urteilen statt zu crashen — in den Nenner, wie das Vorbild eine
     # Zeile darueber. `check_cap1_document`/`load_cap1_document` fallen ueber ihre Praefixe hinein.
@@ -103,6 +112,11 @@ _NAME_PATTERN = re.compile(
     # den NENNER, nicht daneben. Der Populations-Riegel hat sie beim ersten Lauf gemeldet; das ist
     # genau die Bewegung, die er erzwingen soll.
     r"|subject_cardinality"
+    # 2026-09-27, lens run 7 at 75c3aa48, F1 and F2: `plain_bytes` and `plain_text` read a caller's key
+    # object once, from its own storage, for every producer that writes a caller's key. They take
+    # whatever the caller hands in and must hand back a value (the exact bytes or text, or None) for
+    # every input, never raise; so they belong in the denominator, like the rule they feed.
+    r"|plain_bytes|plain_text"
     # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
     # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
     # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —
@@ -330,6 +344,16 @@ _OUT_OF_SCOPE = frozenset({
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
     # Schluessel, unter dem ein Umschlag gerade verifiziert wurde; es wirft nie (eigene Tests).
     "pack_key_binds_signer",
+    # 2026-09-26, the OTS cap: `ots_binding_held` is a judgement of the same family. It reads a verdict
+    # dict that `verify_opentimestamps` itself produced and answers one question about it (did the
+    # binding hold); it consumes no foreign bytes. On anything parsed JSON can be it does not raise:
+    # a non-dict, a missing status and an unhashable one are all "not bound" (`_membership.is_member`),
+    # and a dict subclass with its own `get` is read through `dict.get`. It does raise on a key or a
+    # status whose own `__eq__` or `__hash__` raises, the line is_member draws; the first version of
+    # this comment said it never raises, and gate run 3 (229-3-02) measured that as wider than the
+    # code. The OTS cap's own test pins both sides. Listed here, not in the name pattern, for the
+    # reason `binding_present` gives above.
+    "ots_binding_held",
     "parse_checkpoint_head",  "parse_tlog_proof",
     "policy_anchor_trust",  "policy_expected_aud",  "policy_expired",  "policy_not_yet_valid",
     "policy_warnings",  "prereg_canonical_root",  "prereg_hash",  "present_with_key_binding",

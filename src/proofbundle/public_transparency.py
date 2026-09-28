@@ -131,9 +131,11 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     for k in policy:
         if not is_member(k, _POLICY_KEYS):
             errors.append(f"unknown policy key {k!r}")
-    if "requireSignedCheckpoint" in policy and not isinstance(policy["requireSignedCheckpoint"], bool):
+    # type(), not isinstance(): an object whose __class__ says bool passed and then switched a requirement
+    # off with its own __bool__ (policy._require_bool had the same hole).
+    if "requireSignedCheckpoint" in policy and type(policy["requireSignedCheckpoint"]) is not bool:
         errors.append("requireSignedCheckpoint must be a boolean")
-    if "requireConsistencyProof" in policy and not isinstance(policy["requireConsistencyProof"], bool):
+    if "requireConsistencyProof" in policy and type(policy["requireConsistencyProof"]) is not bool:
         errors.append("requireConsistencyProof must be a boolean")
     for lk in ("trustedLogOrigins", "trustedLogKeys"):
         if lk in policy and not (isinstance(policy[lk], list) and all(isinstance(x, str) for x in policy[lk])):

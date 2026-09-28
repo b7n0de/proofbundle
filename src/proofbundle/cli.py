@@ -379,6 +379,29 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _refuse_weak_issuer_pins(pins) -> None:
+    """Raise ValueError when an ``--expect-issuer`` pin names a key the trust-anchor rule refuses.
+
+    SPEC section 4b lets the bundle's own key keep the section 4a profile because "trust in it comes
+    from a pin that already carries this rule". ``--expect-issuer`` is that pin on this command, and
+    it did not carry the rule: it was compared as a string with a key the bundle check had accepted
+    under section 4a. Measured on 126ed1dc: a PASS receipt signed by nobody under the identity point
+    (signature R = identity, S = 0) and ``--expect-issuer ed25519:<that point>`` gave exit 0 and
+    "=> OK". The pin is judged when it is SUPPLIED, before the receipt is read, and a refused pin is
+    malformed input (exit 2), as a weak pin in a trust policy is.
+
+    A pin that does not decode to a 32-byte key names no key and matches nothing, as before; a
+    rotation list may carry one (``tests/test_cli_eval.py``). The issuer format is read by the one
+    parser the SVR and in-toto exporters use too, ``evalclaim._issuer_key_weakness``."""
+    from .evalclaim import _issuer_key_weakness  # noqa: PLC0415
+    from .signature import TRUST_ANCHOR_REFUSAL  # noqa: PLC0415
+    for pin in pins:
+        weakness = _issuer_key_weakness(pin)
+        if weakness is not None:
+            raise ValueError(f"--expect-issuer {pin} is a {weakness} Ed25519 key — refused as a "
+                             f"trusted key: {TRUST_ANCHOR_REFUSAL[weakness]} (fail-closed)")
+
+
 def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
@@ -386,6 +409,8 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         eval_evidence_class, sd_jwt_hidden_count,
     )
     try:
+        # The pin first: a key is refused when it is supplied, not when a receipt happens to match it.
+        _refuse_weak_issuer_pins(getattr(args, "expect_issuer", None) or [])
         # Resolve the path to a dict ONCE and pass that object to every reader — a second per-function re-read of
         # the same path would reopen a TOCTOU window (CWE-367) between the reads. Release-review fix 2026-07-02.
         bundle = load_bundle(args.receipt)
@@ -1392,7 +1417,7 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
     evidence pack. A still-PENDING proof is refused (exit 3, never a fake pass): upgrading it (embedding
     the Bitcoin block-header path) needs the OpenTimestamps client + a Bitcoin confirmation, which is
     time-gated and outside this tool. Structural binding is fail-closed here (exit 2 on unbound)."""
-    from .anchors_ots import verify_opentimestamps  # noqa: PLC0415
+    from .anchors_ots import ots_binding_held, verify_opentimestamps  # noqa: PLC0415
     from .evidence_pack import (  # noqa: PLC0415
         build_evidence_pack, describe_proof, ots_upgraded_proof_is_self_contained,
     )
@@ -1402,9 +1427,11 @@ def _cmd_anchor_upgrade(args: argparse.Namespace) -> int:
         canonical_root = _resolve_canonical_root(args)
         # fail-closed structural binding: the proof MUST commit to exactly this root (a mismatch is a
         # malformed request, not a lifecycle state). needs_rp_trust/pending here are fine — they mean
-        # bound-but-not-yet-confirmed; only unbound/malformed are hard binding errors.
+        # bound-but-not-yet-confirmed. Everything else is a hard binding error, read by membership: the
+        # list of refusals this line carried did not know `over_budget`, so an over-cap proof fell through
+        # to the pending branch and was told to run `ots upgrade`, which can never help (229B-01).
         binding = verify_opentimestamps(proof, canonical_root, frozen={})
-        if binding["status"] in ("unbound", "malformed", "no_lib"):
+        if not ots_binding_held(binding):
             # RT-06 sweep follow-up (2026-09-05): this ERROR line was MISSED by the first pass, which
             # matched the literal `{exc}` instead of enumerating every stderr writer — the same
             # symptom-vs-class mistake the class is about. `binding['detail']` is built by
@@ -2746,7 +2773,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="pin the accepted issuer (the receipt's signing key, e.g. 'ed25519:…'); "
                                 "repeatable for key rotation. Without it the receipt is verified against "
                                 "its own embedded key (self-attested scope) — a re-signed forgery would "
-                                "pass; with it, an issuer mismatch fails with exit 1")
+                                "pass; with it, an issuer mismatch fails with exit 1. A pin naming a "
+                                "low-order or non-canonical Ed25519 key is refused (exit 2, SPEC 4b)")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(
@@ -3101,7 +3129,8 @@ def build_parser() -> argparse.ArgumentParser:
         "upgrade",
         help="bundle an UPGRADED OpenTimestamps proof into a self-contained evidence pack "
              "(calendar-independent verification). A still-PENDING proof is refused (exit 3)",
-        description=("Exit codes: 0 self-contained pack written · 2 malformed input / unbound proof · "
+        description=("Exit codes: 0 self-contained pack written · 2 malformed input / unbound proof / "
+                     "proof over the size cap · "
                      "3 proof not upgraded yet (PENDING — upgrading embeds the Bitcoin block-header "
                      "path and needs the OpenTimestamps client after a Bitcoin confirmation, which is "
                      "time-gated; run `ots upgrade` first). The pack verifies OFFLINE against a "

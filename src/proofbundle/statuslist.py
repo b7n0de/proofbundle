@@ -29,8 +29,8 @@ from typing import Optional
 
 from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
-from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie,
-                        _type_name, _zeichen_von)
+from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ganzzahl_von, _pruefkopie, _type_name,
+                        _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519_pinned
 from ._inflate import InflateCapExceeded, inflate_whole_stream
@@ -65,12 +65,20 @@ def _b64url(data: bytes) -> str:
 
 
 def status_claim(uri: str, idx: int) -> dict:
-    """The `status` claim a Referenced Token (receipt SD-JWT) carries to point into a list."""
-    if not uri or not isinstance(uri, str):
+    """The `status` claim a Referenced Token (receipt SD-JWT) carries to point into a list.
+
+    Both values are read once (lens run 8, the sweep of finding B): the uri as the text it holds, the
+    index as an exact `int`. The index check asked the caller's `__lt__` and the claim wrote the stored
+    number; a subclass of `int` is refused, like every number a producer checks and writes."""
+    from ._plain_value import plain_int  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    uri_text = plain_text(uri)
+    if not uri_text:
         raise BundleFormatError("status list uri must be a non-empty string")
-    if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+    index = plain_int(idx)
+    if index is None or index < 0:
         raise BundleFormatError("status list index must be a non-negative integer")
-    return {"status_list": {"idx": idx, "uri": uri}}
+    return {"status_list": {"idx": index, "uri": uri_text}}
 
 
 def _status_at(bit_array: bytes, bits: int, idx: int) -> int:
@@ -274,19 +282,36 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
                             exp: Optional[int] = None, ttl: Optional[int] = None) -> str:
     """Issue a Status List Token (emit side, for tests/self-hosted lists). ``statuses`` is a list
     of small ints (< 2**bits); ``signer`` an Ed25519 private key; ``iat`` explicit POSIX seconds
-    (the library never samples wall clocks for signatures). zlib level 9 per the spec's example."""
+    (the library never samples wall clocks for signatures). zlib level 9 per the spec's example.
+
+    `bits`, `iat` and `statuses` are read once (lens run 8, the sweep of finding B): `bits` was checked
+    through the caller's `__eq__` (tuple membership) and written as the stored number, and the status
+    list was sized through `__len__` and walked through `__iter__`. Each number is an exact `int`."""
     # Each input by what it holds (round 12): the widths, the times, the uri and every status value
     # that are checked are the ones written and signed. At cd5d39f4 `len(statuses)` and the loop were
     # two readings of a list subclass, and an `int` subclass answered the range checks.
-    bits = _ganzzahl_von(bits)
-    if bits not in _ALLOWED_BITS:
+    from ._plain_value import plain_int, plain_list  # noqa: PLC0415
+    bits_in = plain_int(bits)
+    if bits_in is None or bits_in not in _ALLOWED_BITS:
         raise BundleFormatError(f"bits must be one of {_ALLOWED_BITS}")
-    iat = _ganzzahl_von(iat)
-    if iat is None:
+    bits = bits_in
+    if plain_int(iat) is None:
         raise BundleFormatError("iat must be a POSIX timestamp integer")
-    if not (issubclass(type(statuses), list) or issubclass(type(statuses), tuple)):
-        raise BundleFormatError("statuses must be a list of small integers")
-    statuses = _plain_for_jcs(statuses, BundleFormatError)
+    # the stored items, without the list budget of `plain_json`: a status list is long by design. A
+    # list or tuple is read from its storage, a `bytes` or `bytearray` (one status per byte) from its
+    # storage too, and any other iterable once through its iterator, as before this change.
+    from .signature import plain_bytes  # noqa: PLC0415
+    stored = plain_list(statuses)
+    if stored is None:
+        raw = plain_bytes(statuses)
+        if raw is not None:
+            stored = list(raw)
+        else:
+            try:
+                stored = list(statuses)
+            except TypeError:
+                raise BundleFormatError("statuses must be a sequence of small integers") from None
+    statuses = stored
     uri = _zeichen_von(uri) if _zeichen_von(uri) is not None else uri
     if exp is not None:
         exp = _ganzzahl_von(exp) if _ganzzahl_von(exp) is not None else exp
@@ -295,7 +320,7 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     per_byte = 8 // bits
     arr = bytearray((len(statuses) + per_byte - 1) // per_byte)
     for i, s in enumerate(statuses):
-        if isinstance(s, bool) or not isinstance(s, int) or not 0 <= s < (1 << bits):
+        if plain_int(s) is None or not 0 <= s < (1 << bits):
             raise BundleFormatError(f"status value {s!r} does not fit in {bits} bit(s)")
         byte_i, slot = divmod(i, per_byte)
         arr[byte_i] |= s << (slot * bits)

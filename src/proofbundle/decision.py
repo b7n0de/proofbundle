@@ -14,12 +14,12 @@ import hashlib
 import re
 from typing import Any, Callable
 
-from ._strict_json import loads_strict
+from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
 from .canonical import _eine_kopie, _pruefkopie, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
-from ._membership import is_member
+from ._membership import is_member, require_switch, type_name
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
@@ -424,6 +424,19 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the decision predicate",
+                      error=lambda m: DecisionReceiptError(f"invalid decision predicate: {m}"))
+
+
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
@@ -435,6 +448,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     is self-attesting what the statement applies to — a generic in-toto consumer that matches by
     `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
     the subject a true commitment to the signed predicate."""
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
     if errs:
@@ -453,9 +467,16 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
                           subject_sha256: str | None = None, keyid: str | None = None,
                           strict: bool = True) -> dict:
     """Sign a Decision Receipt as a DSSE-signed in-toto Statement. EMISSION is RFC-8785 canonical (Addendum
-    §2.2). Fail-closed: an invalid predicate raises before signing."""
-    predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
+    §2.2). Fail-closed: an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. It was read
+    by its truth, so ``strict=None``, ``0`` or ``""`` validated the predicate under the lenient rules
+    before signing it, where only ``strict=False`` asks for that (measured at 3a8074fc)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=strict)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
@@ -559,7 +580,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     ACTUALLY RESOLVED content — the missing wiring for `resolve_evidence_ref`, which existed but was never
     called from verify. When supplied, the corresponding `evidence_levels` entries reach
     `assurance.EvidenceLevel.CONTENT_RESOLVED` instead of stopping at `REFERENCE_WELL_FORMED` (a
-    syntactically valid digest, attacker-choosable content). Never changes `action_outcome_proven` /
+    syntactically valid digest, attacker-choosable content) only when it answers the exact `True`; any
+    other answer, a truthy one included (`1`, `"true"`, `"false"`, a non-empty list, an object whose
+    `__bool__` says True), does not promote. Never changes `action_outcome_proven` /
     `evidence_bound` (unchanged, additive) or the aggregate `ok`.
 
     `automation` (Finding 01, additive): a uniform `automationVerdict.automation_summary` verdict —
@@ -588,11 +611,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # would otherwise see none. The trust-derived fields below are also left None when crypto failed.
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
         # Finding 15b: refuse an absurdly oversized payload before any JSON parsing/canonicalization work.
-        DEFAULT_BUDGET.check("input_bytes", len(body))
         # WP-C1: strict parse — a duplicated key (e.g. two `decision` objects) is rejected with a
         # clear fail-closed error instead of last-wins; the canonicality check would also catch it,
-        # but only when the rfc8785 extra is installed.
-        statement = loads_strict(body.decode("utf-8"))
+        # but only when the rfc8785 extra is installed. Deep gate Z195 (L3-Z195-01): through the ONE
+        # Statement oracle, which also refuses a `_type` that is not in-toto Statement v1 — before, a
+        # receipt with `_type` absent, null or v0.1 reached structure_ok=true and safeForAutomation=true.
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
+        DEFAULT_BUDGET.check("input_bytes", len(body))
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
         # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw
@@ -825,6 +852,18 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["anchors_ok"] = False
                 r["errors"].append("anchor verification refused malformed anchor input (fail-closed): "
                                    f"{render_safe(exc, quote=False)}")
+                ar = None
+            except Exception as exc:  # noqa: BLE001 - never-raise: anything else from the anchor layer fails closed
+                # Round 5 (review of c8865652, F1): the anchor layer runs caller code (a registered verifier,
+                # the objects of a caller-built anchor list), and a RuntimeError from it escaped this guard,
+                # which took only the typed errors above, out of this never-raise surface (measured on
+                # 3d5b992a). verify_anchors now refuses such input with BundleFormatError itself; this arm keeps
+                # the guard whole for anything else. Only the type is named: rendering the exception could run
+                # the caller's code again.
+                anchor_status = "FAIL"
+                r["anchors_ok"] = False
+                r["errors"].append("anchor verification failed on an error of type "
+                                   f"{type_name(exc)} (fail-closed)")
                 ar = None
             if ar is not None:
                 # Per-anchor, not the aggregate: a broken/unknown anchor is fail-closed (a tamper signal), but

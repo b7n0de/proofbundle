@@ -16,10 +16,10 @@ import hashlib
 import re
 from typing import Any
 
-from ._strict_json import loads_strict
+from ._statement_payload import load_statement_strict
 from .canonical import _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 VERIFICATION_SUMMARY_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/verification-summary/v0.1"
 SUMMARY_SCHEMA_VERSION = "0.1.0"
@@ -158,8 +158,22 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the verification-summary predicate",
+                      error=lambda m: VerificationSummaryError(f"invalid verification-summary predicate: {m}"))
+
+
 def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, VerificationSummaryError, "verification-summary predicate")   # one reading (round 12)
     errs = validate_summary_predicate(predicate, strict=False)
     if errs:
@@ -177,8 +191,17 @@ def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
 def emit_verification_summary(predicate: dict, signer, *, subject_name: str | None = None,
                               subject_sha256: str | None = None, keyid: str | None = None,
                               strict: bool = True) -> dict:
-    predicate = _eine_kopie(predicate, VerificationSummaryError, "verification-summary predicate")   # one reading (round 12)
+    """Sign a Verification Summary as a DSSE-signed in-toto Statement; an invalid predicate raises before
+    signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, VerificationSummaryError, "verification-summary predicate")   # one reading (round 12)
     errs = validate_summary_predicate(predicate, strict=strict)
     if errs:
         raise VerificationSummaryError("invalid verification-summary predicate: " + "; ".join(errs))
@@ -232,8 +255,12 @@ def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bo
         r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
+        # The ONE Statement oracle (budget, strict parse, object, `_type` = in-toto Statement v1; deep
+        # gate Z195, L3-Z195-01 class, mirror of decision.py), over the bytes the signature covers.
+        # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
+        # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
         DEFAULT_BUDGET.check("input_bytes", len(body))
-        statement = loads_strict(body.decode("utf-8"))
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         r["structure_ok"] = False
         r["errors"].append(f"DSSE payload is not a well-formed in-toto Statement: {exc}")
