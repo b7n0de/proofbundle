@@ -49,7 +49,8 @@ control: what GitHub returns, not what the agent says it sent.
 
 ## 4. Records
 
-For every proposed action the pilot keeps two signed records and joins them:
+For every proposed action the pilot keeps a signed decision receipt and, once GitHub shows an effect of it,
+a signed outcome receipt, and joins them:
 
 - a **decision receipt** (`decision-receipt/v0.1`) that the gate issues for its verdict: who proposed what,
   on which surface, over which bytes, and the verdict with its reason;
@@ -68,7 +69,7 @@ own and are never counted as agreement.
 
 | measure | question | values |
 |---|---|---|
-| M1 arrival | Does the API return an effect for this approved action? | arrived, not arrived, not yet observed, unknown |
+| M1 arrival | Does the API return an effect for this proposed action? | arrived, not arrived, not yet observed, unknown |
 | M2 bytes | Is the SHA-256 of the stored bytes the SHA-256 of the approved bytes? | identical, different, not measured |
 | M3 surface | Is the observed surface the approved surface? | same, different, not measured |
 | M4 closing lines | Do the stored bytes end with the closing lines the approved surface requires at approval time? | yes, no, not measured |
@@ -77,7 +78,8 @@ own and are never counted as agreement.
 | M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target |
 | M8 attempts | How many verdicts were recorded for one action id? | a count |
 
-An action reconciles only when M1 is arrived and M2, M3 and M4 each hold. Every other combination is a
+An approved action reconciles only when M1 is arrived and M2, M3 and M4 each hold. A refused action
+reconciles only when M1 is not arrived; M2, M3 and M4 are not part of it. Every other combination is a
 mismatch with a name. M5 and M6 are measured over the observation window, not per action; "none found"
 means none found in what the API returned then, and says nothing about writes the API does not list.
 
@@ -109,8 +111,8 @@ It stops early, with the reason written down, when:
   deleted before it.
 - Byte identity (M2) does not make an action correct, and does not by itself make the surface right; the
   first example below is a case of exactly that.
-- "None found" for M5 and M6 is bounded by what the API returned during the window: pagination limits,
-  deleted content, rate limits and eventual consistency can all hide an effect.
+- "Not arrived" for M1 and "none found" for M5 and M6 are bounded by what the API returned during the
+  window: pagination limits, deleted content, rate limits and eventual consistency can all hide an effect.
 - The pilot says nothing about agents or gates outside this repository.
 
 ## 8. Data
