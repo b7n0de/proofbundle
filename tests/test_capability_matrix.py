@@ -101,6 +101,9 @@ class NoRowBindsACapabilityToAPackageThatLacksIt(unittest.TestCase):
                 for m in z["evidence"]["modules"]:
                     self.assertNotIn(m, self.rel["wheel_files"])
                     self.assertFalse(z["release"]["measured"]["modules_in_sdist"][m])
+                gemessen = z["release"]["measured"]
+                for feld in ("repo_paths_in_sdist", "repo_paths_at_tag", "subcommands_at_tag"):
+                    self.assertFalse(any(gemessen[feld].values()), feld)
                 self.assertNotEqual(z["channel"], "PyPI wheel")
                 if z["main"]["status"] == "planned":
                     self.assertRegex(z["main"]["branch"]["head"], r"^[0-9a-f]{40}$")
@@ -125,6 +128,71 @@ class NoRowBindsACapabilityToAPackageThatLacksIt(unittest.TestCase):
         self.assertEqual(modul.status(True, "EXPERIMENTAL (3.2.0)"), "experimental")
         self.assertEqual(modul.status(True, "shipped (2.1.0)"), "published")
         self.assertEqual(modul.status(False, None), "absent")
+
+
+_MAIN = "a" * 40
+_HEAD = "b" * 40
+_X = {"id": "x", "name": "the x capability", "modules": ["proofbundle/x.py"]}
+_X_SRC = "src/proofbundle/x.py"
+
+
+def _measure(cap: dict, *, wheel=(), sdist=(), tag=(), main=(), branch=()) -> dict:
+    """The script's row for one capability, measured over refs held in memory instead of git.
+
+    Each argument is what that place carries: repository paths (src/proofbundle/...), and "cli:<name>"
+    for a console subcommand. The wheel is given as package paths (proofbundle/...) and the sdist as
+    repository paths, the way the script reads them. `branch` is the tree at the named branch's head.
+    """
+    modul = _load()
+    orte = {modul.TAG: set(tag), _MAIN: set(main), _HEAD: set(branch)}
+
+    def git_bytes(ref: str, pfad: str):
+        if pfad == "NOTES.md":
+            return b"the x capability, stable\n"
+        if pfad == "src/proofbundle/cli.py":
+            return "".join(f'sub.add_parser("{e[4:]}")\n' for e in sorted(orte[ref]) if e.startswith("cli:")).encode()
+        return b"" if pfad in orte[ref] else None
+
+    def git(*args: str) -> str:
+        if args[:2] == ("rev-parse", f"origin/{cap.get('branch')}"):
+            return _HEAD + "\n"
+        if args[0] == "diff":
+            return ""
+        raise AssertionError(f"a git call the fixture does not serve: {args}")
+
+    modul._git_bytes, modul._git = git_bytes, git
+    modul.CAPABILITIES = [dict(cap, label=[("NOTES.md", r"(the x capability[^\n]*)")])]
+    artefakte = {"wheel_files": {p: "0" * 64 for p in wheel if not p.startswith("cli:")},
+                 "wheel_subcommands": sorted(p[4:] for p in wheel if p.startswith("cli:")),
+                 "wheel_entry_points": [], "sdist_files": sorted(sdist)}
+    return modul.measure_rows(artefakte, _MAIN)[0]
+
+
+class MainOnlyIsAbsentFromEveryReleaseArtifact(unittest.TestCase):
+    """PROPERTY (the vocabulary in measure.py): main only is present on main and absent from every v6.1.0
+    artifact and from the tag. The release column reads the wheel, so a capability the wheel lacks and the
+    sdist or the tag carries has no status in the vocabulary: the measurement stops instead of writing
+    main only. Each case leaves the other places empty, so only the check it names can stop it."""
+
+    def test_absent_from_the_wheel_the_sdist_and_the_tag_it_is_main_only(self) -> None:
+        # The catch proof: this fixture reaches the main-only rule, so a stop below is the absence check.
+        for cap, pfad in ((_X, _X_SRC), ({"id": "x", "name": "x", "repo_paths": ["tools/x/x.rs"]}, "tools/x/x.rs")):
+            with self.subTest(pfad):
+                z = _measure(cap, main={pfad})
+                self.assertEqual((z["release"]["status"], z["main"]["status"]), ("absent", "main only"))
+
+    def test_a_module_the_sdist_carries_stops_the_measurement(self) -> None:
+        with self.assertRaisesRegex(SystemExit, r"^x: .*carried by the sdist"):
+            _measure(_X, sdist={_X_SRC}, main={_X_SRC})
+
+    def test_a_repository_path_the_sdist_carries_stops_the_measurement(self) -> None:
+        cap = {"id": "x", "name": "x", "repo_paths": ["tools/x/x.rs"]}
+        with self.assertRaisesRegex(SystemExit, r"^x: .*carried by the sdist"):
+            _measure(cap, sdist={"tools/x/x.rs"}, main={"tools/x/x.rs"})
+
+    def test_a_capability_the_tag_carries_stops_the_measurement(self) -> None:
+        with self.assertRaisesRegex(SystemExit, r"^x: .*carried by the tag"):
+            _measure(dict(_X, cli=["x"]), tag={_X_SRC, "cli:x"}, main={_X_SRC, "cli:x"})
 
 
 class TheReadmeTablesAreTheData(unittest.TestCase):
