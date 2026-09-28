@@ -358,3 +358,102 @@ class DieDoppelungDerGruppennamenIstDieRATSCHE(unittest.TestCase):
         tell a working check from one that reports everything."""
         self.assertEqual(pruefe(_quelle()), [],
                          "the real source must still pass, or the duplicate rule is too wide")
+
+
+def _baum_mit_quelle(wurzel: Path, schreib_fremdes: bool = False, eltern_zurueck: int = 1) -> Path:
+    """A throwaway repository: the renderer as it is, a base commit X, then the commit S that carries a
+    source naming X (or an older commit, `eltern_zurueck` steps back). With `schreib_fremdes` S also
+    changes a file outside `release_notes/`. Returns the root; HEAD is S."""
+    import os
+    import shutil
+    (wurzel / "scripts").mkdir(parents=True)
+    (wurzel / "release_notes").mkdir()
+    shutil.copy2(SKRIPT, wurzel / "scripts" / "render_release.py")
+    (wurzel / "code.txt").write_text("the tree the notes describe\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+    def git(*a: str) -> str:
+        return subprocess.run(["git", "-C", str(wurzel), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *a], check=True, capture_output=True,
+                              text=True, env=env, timeout=60).stdout.strip()
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    for i in range(eltern_zurueck - 1):
+        (wurzel / "code.txt").write_text(f"a later change {i}\n", encoding="utf-8")
+        git("commit", "-qam", f"later {i}")
+    beschrieben = git("rev-parse", f"HEAD~{eltern_zurueck - 1}")
+    quelle = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+    quelle["release_commit"] = beschrieben
+    (wurzel / "release_notes" / "release-source.json").write_text(json.dumps(quelle, indent=2),
+                                                                  encoding="utf-8")
+    if schreib_fremdes:
+        (wurzel / "code.txt").write_text("changed in the carrier commit\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "the source for 9.9.9")
+    return wurzel
+
+
+def _render_im(wurzel: Path) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(wurzel / "scripts" / "render_release.py"),
+                           "--version", "9.9.9", "--aus", str(wurzel / "notes.md")],
+                          capture_output=True, text=True, timeout=60, cwd=str(wurzel))
+
+
+class DerGetaggteCommitKannSichNichtSelbstNennen(unittest.TestCase):
+    """THE SOURCE CANNOT NAME THE COMMIT THAT CARRIES IT, and the release workflow asked it to.
+
+    `release.yml` renders the body in the checkout of the tag, and the render refused unless the
+    source's `release_commit` was that checkout's HEAD. The source is a file of the tagged commit, and
+    a commit cannot hold its own id: measured on 2026-09-28 in a throwaway repository, three times
+    writing HEAD into the source and committing gave three new heads and three refusals, exit 2. So
+    no release after 6.1.0 could pass that step. The binding stays, and it now reads what it can
+    mean: the tagged commit is the one that carries the notes, directly on top of the tree they
+    describe, and changes nothing else. The house draws the same line for the tree digest, where
+    `MUTABLE_EVIDENCE_RELS` keeps the evidence out of the tree it binds.
+    """
+
+    def test_RED_der_traeger_direkt_ueber_dem_beschriebenen_baum_rendert(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_mit_quelle(Path(d)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_fang_ein_traeger_der_auch_code_aendert_wird_abgewiesen(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_mit_quelle(Path(d), schreib_fremdes=True))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("outside release_notes/", r.stderr)
+
+    def test_fang_eine_quelle_die_einen_aelteren_baum_nennt_wird_abgewiesen(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            r = _render_im(_baum_mit_quelle(Path(d), eltern_zurueck=2))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("different tree than the artefacts", r.stderr)
+
+
+class EinUngemessenerKopfIstKeinPassenderKopf(unittest.TestCase):
+    """THE DOCSTRING SAID IT AND THE CLI DID NOT DO IT. `kopf_des_baums` returns None when the tree
+    cannot be measured, "and the caller treats it as a finding". The CLI passed that None to `pruefe`,
+    which checks the binding only when a head is given, so a render outside a git checkout skipped
+    the binding and exited 0: measured on 2026-09-28 with the source of 6.1.0, 48 pull requests
+    rendered. A head that cannot be read is not a head that matches."""
+
+    def test_RED_ohne_git_verweigert_der_render(self):
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = Path(d)
+            (w / "scripts").mkdir()
+            (w / "release_notes").mkdir()
+            shutil.copy2(SKRIPT, w / "scripts" / "render_release.py")
+            shutil.copy2(QUELLE, w / "release_notes" / "release-source.json")
+            r = subprocess.run([sys.executable, str(w / "scripts" / "render_release.py"),
+                                "--version", "6.1.0", "--aus", str(w / "n.md")],
+                               capture_output=True, text=True, timeout=60, cwd=str(w))
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("cannot be measured", r.stderr)

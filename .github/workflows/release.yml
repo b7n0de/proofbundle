@@ -86,6 +86,12 @@ jobs:
       make-latest: ${{ steps.relmeta.outputs.make_latest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # TWO COMMITS, NOT ONE. The notes render below binds the source's `release_commit` to the
+          # tree it runs in, and the tagged commit is the one that carries the notes on top of that
+          # tree (`render_release.traegt_nur_die_notiz`). A clone of depth 1 shows no parent, so the
+          # render refused there: measured 2026-09-28, depth 1 exit 2, depth 2 exit 0.
+          fetch-depth: 2
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:

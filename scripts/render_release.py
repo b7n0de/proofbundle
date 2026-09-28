@@ -101,7 +101,49 @@ def kopf_des_baums(repo: Path) -> str | None:
     return kopf if r.returncode == 0 and len(kopf) == 40 else None
 
 
-def pruefe(daten: Dict[str, Any], kopf: str | None = None) -> List[str]:
+#: What the commit that carries the notes may change against the tree they describe.
+NOTIZPFAD = "release_notes/"
+
+
+def _git(repo: Path, *args: str) -> str | None:
+    import subprocess  # noqa: PLC0415 — only the CLI path needs it
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
+                           timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def traegt_nur_die_notiz(repo: Path, erklaert: str, kopf: str) -> str | None:
+    """None when `kopf` is the commit that carries the notes directly on top of `erklaert` and
+    changes nothing outside `release_notes/`; otherwise the reason it is not.
+
+    A SOURCE CANNOT NAME THE COMMIT THAT CARRIES IT. The release workflow renders in the checkout of
+    the tag and compared the source's `release_commit` with that checkout's HEAD. The source is a
+    file of the tagged commit, and a commit cannot hold its own id: measured on 2026-09-28, three
+    rounds of writing HEAD into the source and committing gave three new heads and three refusals.
+    So the tagged commit may be the carrier of the notes, with exactly one parent, the described
+    tree, and no change outside the notes. That is the line the tree digest draws with
+    `MUTABLE_EVIDENCE_RELS`: evidence stays out of the tree it binds.
+    """
+    eltern = _git(repo, "rev-list", "--parents", "-n", "1", kopf)
+    if eltern is None:
+        return "the parents of HEAD cannot be read"
+    if eltern.split()[1:] != [erklaert]:
+        return f"HEAD {kopf[:12]} is not a single-parent child of the described tree {erklaert[:12]}"
+    geaendert = _git(repo, "diff", "--name-only", "--no-renames", "-z", erklaert, kopf)
+    if geaendert is None:
+        return "the change from the described tree to HEAD cannot be read"
+    fremd = [p for p in geaendert.split("\0") if p and not p.startswith(NOTIZPFAD)]
+    if fremd:
+        return (f"HEAD changes {len(fremd)} path(s) outside {NOTIZPFAD} against the described tree "
+                f"({', '.join(fremd[:3])})")
+    return None
+
+
+def pruefe(daten: Dict[str, Any], kopf: str | None = None,
+           baum: Path | None = None) -> List[str]:
     """Structural findings, all of them, rather than the first one.
 
     A renderer that stops at the first problem makes a caller fix them one run at a time.
@@ -150,9 +192,15 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None) -> List[str]:
             befunde.append("the source declares no 40-character release_commit, so the notes cannot "
                            "say which tree they describe")
         elif erklaert != kopf:
-            befunde.append(
-                f"the source describes tree {erklaert[:12]} but the render is running in {kopf[:12]}"
-                " — the notes would describe a different tree than the artefacts")
+            # With the tree at hand, the carrier of the notes is the one commit that may differ
+            # (`traegt_nur_die_notiz`); a stated head without a tree keeps the exact comparison.
+            grund = (traegt_nur_die_notiz(baum, erklaert, kopf) if baum is not None
+                     else "no tree was given to read the commit between them")
+            if grund is not None:
+                befunde.append(
+                    f"the source describes tree {erklaert[:12]} but the render is running in "
+                    f"{kopf[:12]} — the notes would describe a different tree than the artefacts "
+                    f"({grund})")
 
     gesehen: Dict[int, str] = {}
     for g in gruppen:
@@ -235,7 +283,16 @@ def main(argv: List[str] | None = None) -> int:
     except QuellenFehler as fehler:
         print(f"  REFUSED: {fehler}", file=sys.stderr)
         return 2
-    befunde = pruefe(daten, kopf=a.kopf or kopf_des_baums(a.baum))
+    # A HEAD THAT CANNOT BE READ IS NOT A HEAD THAT MATCHES. `pruefe` checks the binding only when a
+    # head is given, and this call passed `kopf_des_baums`'s None straight through, so a render
+    # outside a git checkout skipped the binding and exited 0 (measured 2026-09-28 with the 6.1.0
+    # source: 48 pull requests rendered). The docstring of `kopf_des_baums` already promised this.
+    kopf = a.kopf or kopf_des_baums(a.baum)
+    if kopf is None:
+        print(f"  REFUSED: the HEAD of {a.baum} cannot be measured, so which tree the notes "
+              f"describe cannot be checked", file=sys.stderr)
+        return 2
+    befunde = pruefe(daten, kopf=kopf, baum=None if a.kopf else a.baum)
     if befunde:
         print(f"  REFUSED: the source is not renderable ({len(befunde)} finding(s)):",
               file=sys.stderr)
