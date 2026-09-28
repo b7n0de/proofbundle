@@ -1511,6 +1511,19 @@ so a rule refusing everything could not pass as correct. Catch proof: restoring 
 the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
 before and after.
 
+- **The second reader of the cost bound judges through the curve's own verdict**
+  (`tests/test_structural_budget_reachability.py`). The exclusion of `renewal.verify_sequence` from
+  the generic budget holds only while the cost curve holds its own bound, and this file checked that
+  with a copy of the rule: the maximum against the bare `GRENZE_S`, without the machine factor and
+  without the reference-machine binding the curve itself applies. On a CI runner under coverage it
+  judged the runner: measured 2026-09-28 at 3977fcdf, 1.025 s against 1.0 s, red, while the curve
+  skipped the same axis on that host with the measured factor as its reason. The check now calls
+  `test_kosten_am_limit_unter_der_obergrenze` of the curve, as `scripts/budget_axis_measurement.py`
+  does, and turns the curve's skip into a visible skip. Three counter-examples plant a measurement
+  with the reference machine's recorded clamp: five times the bound stays red with the curve's own
+  message, half the bound stays green, and 1.025 s on a build host is skipped naming the owner card.
+  Against the old copy the first and the third fail; the second passes in both.
+
 ### Added
 
 - **Offline verification of Agent Governance Toolkit (AGT) governance receipts**
