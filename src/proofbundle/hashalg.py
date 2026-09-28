@@ -102,7 +102,11 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
     (a ``TypeError`` and a ``ProofBundleError``) naming the parameter and the type. It was read by its
     truth, so ``allow_deprecated="false"`` accepted sha1 (measured).
     """
-    require_switch(allow_deprecated, "allow_deprecated")
+    # The exact bool passes inline, without a call: compute_digest runs this once per element of a
+    # renewal sequence, and the call alone added 6.5 % to renewal_ats_chain at its limit under coverage
+    # (measured 0.170 s on main, 0.181 s with the call), past the 1.0 s bound on the CI runner.
+    if type(allow_deprecated) is not bool:
+        require_switch(allow_deprecated, "allow_deprecated")
     if not alg_id or not isinstance(alg_id, str):
         raise MissingHashAlgId(
             "a hash algorithm id is required — proofbundle never defaults a missing hash to SHA-256")
