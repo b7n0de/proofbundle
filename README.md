@@ -24,7 +24,7 @@
 
 ## Current release
 
-**[v6.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0) · Beta · Closing audit not run**
+**[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit not run**
 
 [Known limitations](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/release_scope/6.1.0.md) · [Audit evidence](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md)
 
@@ -46,10 +46,10 @@ The v2 findings register is unsigned. Its signature state must not be inferred f
 Install the verifier, download an example, then verify the local file.
 
 ```bash
-python -m pip install proofbundle==6.1.0
+python -m pip install proofbundle==6.2.0
 
 curl -fsSLo receipt.json \
-  https://raw.githubusercontent.com/b7n0de/proofbundle/v6.1.0/examples/example_bundle.json
+  https://raw.githubusercontent.com/b7n0de/proofbundle/v6.2.0/examples/example_bundle.json
 
 proofbundle verify receipt.json
 ```
@@ -73,7 +73,7 @@ These exit codes apply to `proofbundle verify`, not to every command in the pack
 To try deliberate tampering, install the evaluation extra and run the demo.
 
 ```bash
-python -m pip install 'proofbundle[eval]==6.1.0'
+python -m pip install 'proofbundle[eval]==6.2.0'
 proofbundle demo
 ```
 
