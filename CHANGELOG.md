@@ -10,6 +10,27 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **One unreadable attached entry no longer hides the entries beside it** (Codex review of PR 300,
+  thread 4121924153, P1, `src/proofbundle/relation.py`). `verify_relationship_edges` read the whole
+  `related` map as one plain copy and went on with an empty map when one entry was no JSON value.
+  Measured on the source of 3c5755c0 with `{"irrelevant": object()}` beside a verified attachment
+  that retracts the subject: `supersededByAttached` was None, `reject_superseded` raised nothing and
+  `verify_relation_statement` reported `policy_ok` True; a direct edge to an attached target that
+  does not verify fell from FAIL to DECLARED_UNRESOLVED, and `verify_decision_receipt` went from `ok`
+  False to True. Each entry is read on its own now (`_read_attached_entries`): an entry that cannot
+  be read, one whose key is no string included, FAILs an edge that names it and is named by
+  `successor_warning` as `RELATION_MALFORMED_SUCCESSOR` when no readable entry declares a
+  supersession or retraction; it resolves nothing and removes no finding. The neighbour on the same
+  verdict path: `evaluate_relations_policy` read a relations section holding one value that is no
+  JSON value as absent, and `verify_outcome_receipt` reported `policy_ok` True over an attached
+  retraction; such a section is a `LINEAGE_REQUIREMENT_FAILED` violation now, as `evaluate_policy` and
+  `evaluate_decision_policy` refuse such a policy. Named, not changed: `agent_review.evaluate_time_policy`
+  reads axes or a policy holding such a value as empty (measured: a CONFLICT axis gives
+  `insufficient_evidence` instead of `reject`), `policy.explain_policy` and `lint_policy` read such a
+  policy as empty (lint fails, naming "pins nothing"), and `sdjwt_vc` reads such a metadata cache as no
+  cache. Tests: `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`, red on the source of
+  3c5755c0 and green here, on Python 3.10 and 3.14.
+
 - **D4 follows the heads that land before it in the 6.2.0 chain** (owner decision OA-c7d6ff7121,
   answer A; the merges of PR 293 at 1174ada8, which carries PR 291, of PR 296 and of PR 249). Where
   the entries of this branch below and those two pull requests disagree, the earlier heads decide:
