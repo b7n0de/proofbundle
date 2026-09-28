@@ -1968,6 +1968,209 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `scripts/pre_tag_receipt.py` keeps its process-wide switches on purpose, so that the audit program
   it starts inherits them.
 
+- **The pre-tag receipt chain asks git about the tree it names, and reads each path as git stores
+  it** (`scripts/pre_tag_receipt_lib.py`, `scripts/pre_tag_receipt.py`). The library's tree digest
+  and trust-anchor read ran with whatever environment their caller had. The producer cleaned its own
+  process, the release gate and the third-party verifier did not: measured on 2026-09-27, with
+  `GIT_DIR` pointing at a clone of a genuine release, `pre_tag_audit_gate.py` judged a tampered tree
+  that carried the copied receipt `ok=true, state=verified`, and `verify_pre_tag_receipt.py` said
+  `VERIFIED` for a checkout at a commit that injected a dependency after the receipt. The library
+  now passes every git call an environment without the redirecting names, one list shared with the
+  producer and checked against `git rev-parse --local-env-vars` (the producer's list lacked five of
+  git's own names, and `GIT_INTERNAL_SUPER_PREFIX` made a clean tree refuse), and it pins
+  `core.quotePath=true` for the listing it hashes, because `core.quotePath=false` in a user's
+  configuration changed the digest of a tree with a non-ASCII path; the pin is git's default, so no
+  digest computed so far changes. The producer binds the gate source as the head stores it and
+  refuses one that is a symbolic link (it had bound the target's digest while the commit carries
+  the link text), and it decodes git's listings the way the filesystem names are, so a committed
+  name that is not UTF-8 no longer refuses a clean tree. Contract:
+  `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`.
+
+- **Every git call of the pre-tag receipt chain goes through a funnel, and git's configuration and
+  environment no longer answer for it** (`scripts/pre_tag_receipt_lib.py`,
+  `scripts/pre_tag_receipt.py`, `scripts/verify_pre_tag_receipt.py`). The list of redirecting
+  environment names above did not hold. Measured on 2026-09-27 on the pushed head:
+  - The third-party verifier's own calls had never used it. With `GIT_WORK_TREE` on a clean clone
+    of the same commit, its cleanliness check came back empty for a checkout whose `verify_receipt`
+    had been edited to return true, and a commit with an invalid receipt was `VERIFIED`, exit 0.
+  - A `core.excludesFile` naming a tracked ignore file, set in the repository configuration, in
+    `~/.gitconfig`, in `$XDG_CONFIG_HOME/git/config` or through `includeIf`, hid an untracked file.
+    The producer took `check-ignore`'s source string for a tracked rule and emitted; on the real
+    tree an untracked `conftest.py` that rewrote failing outcomes to passed was bound.
+  - `core.useReplaceRefs=true` in the configuration switched replacement back on under
+    `GIT_NO_REPLACE_OBJECTS=1`. The release gate said `ok=true` for a tampered checkout, against
+    the replaced commit's digest. This holds for git before 2.42.0 (measured with 2.34.1); from
+    2.42.0 on the switch is final and the key can only turn replacement off (measured with 2.55.0).
+  - `core.worktree`, or a `--repo` naming a subdirectory, made `ls-tree` list relative to a prefix
+    while `git show HEAD:<path>` stayed root-relative. Gate and verifier verified a tampered root,
+    and with an attacker key in the root anchor the gate trusted it.
+  - `check-ignore` read untracked names as pathspecs: `:build/conftest.py` was hidden, and an
+    ignored `:!x.log` refused a clean tree.
+  - The executable bit was read as `& 0o111` where git reads the owner bit. `run.sh` at 0655 (git:
+    modified) emitted, and a file at 0645 (git: clean) refused.
+  - A tracked directory replaced by a symbolic link hidden by a tracked rule was read through the
+    link.
+  - `GIT_ICASE_PATHSPECS` and `GIT_GLOB_PATHSPECS` refused a clean tree, `GIT_LITERAL_PATHSPECS`
+    refused one that held an ignored file, and `GIT_TRACE`, `GIT_TRACE_SETUP` or
+    `GIT_TRACE2_EVENT` on standard output moved the digest.
+
+  Now `pre_tag_receipt_lib.git_run` is where the chain starts git. The third-party verifier
+  carries a copy in its own file (`_git`), because its cleanliness check exists to refuse a
+  modified library: routed through the library, a library whose funnel returned an empty `status`
+  and whose `verify_receipt` returned true hid itself and was `VERIFIED` (measured on an
+  intermediate version of this change). A contract test derives every call site of the chain and
+  of everything it loads from the syntax tree, fails on any outside the two funnels, and holds the
+  two equal in allowlist, pinned options and built environment. The funnel builds git's
+  environment from an allowlist: `PATH` (and `SYSTEMROOT` on Windows) pass through;
+  `LC_ALL`/`LANG=C`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL` empty,
+  `GIT_NO_REPLACE_OBJECTS=1`, `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0` are set; nothing
+  else is inherited. `GIT_WORK_TREE` is pinned to `--repo` and discovery stops at it, and git must
+  name `--repo` as the top level with an empty prefix before any question is asked; listings use
+  `--full-tree`. The configuration is pinned on the command line, where it outranks every file:
+  `--no-replace-objects` and `core.useReplaceRefs=false`, `core.quotePath=true`, `core.excludesFile`
+  and `core.attributesFile` on an empty file, an empty `core.fsmonitor` (no hook runs),
+  `core.untrackedCache=false`, `core.ignoreCase=false`, `core.commitGraph=false`,
+  `core.checkStat=default` with `core.trustctime=true`, and `color.ui=false`. A rule hides an
+  untracked path only if it comes from a tracked `.gitignore` in a directory that contains the path.
+  Names go to `check-ignore` as `./<name>`, because `check-ignore` rejects every path under
+  `GIT_LITERAL_PATHSPECS`. The mode is read from `S_IXUSR`, as git does with `core.fileMode=true`.
+  Every directory above a tracked path must be a real directory under `lstat`. The audit program
+  gets the caller's environment without the `GIT_` namespace.
+
+  Considered and not pinned, with the reason:
+  - `core.fileMode`, `core.symlinks`, `core.autocrlf`, `core.eol`, `core.safecrlf`,
+    `core.precomposeUnicode` and `core.protectNTFS`. The producer compares bytes and modes itself,
+    so these only reach the verifier's listing, where pinning them would refuse checkouts on
+    filesystems that need them.
+  - `core.sparseCheckout`, `diff.ignoreSubmodules` and `status.*`. They are overridden by
+    `--untracked-files=all` and `--ignore-submodules=none`, or they do not change a porcelain
+    listing.
+  - `core.abbrev`, `pager.*`, `alias.*`, `i18n.*`, `log.*` and `trace2.*`. `ls-tree` prints full ids,
+    there is no terminal, built-ins cannot be aliased, no commit is shown, and `trace2.*` is read
+    only from the system and global files, which are not read.
+  - `extensions.*`, grafts and a shallow file. They decide which objects are present and which
+    parents a commit shows, not which tree a commit names or which bytes a blob id stands for.
+    Alternates stood on this line and do not: an alternate object directory can hold other bytes
+    under an id (see the next entry).
+  - `safe.directory`. Nothing can supply it any more (no system or global file is read, and git
+    ignores it in a repository's own file), so a repository owned by another user fails closed.
+
+  Named limits, unchanged:
+  - A clean tree with a `text eol=crlf` or `ident` attribute, and a tracked or ignored name that
+    carries a newline, is refused by design. The real tree has none.
+  - A file that a tracked `.gitignore` of the tree ignores stood here as accepted, whatever the
+    audit reads from it. It is refused before the audit since the entry on ignored files below.
+  - A `PATH` that leads to a git wrapper is part of the trusted base, like the interpreter.
+  - The verifier's cleanliness listing is still `git status`. Index bits (`assume-unchanged`,
+    `skip-worktree`) and filters named in `.git/info/attributes` are state inside the reader's
+    clone, which the printed LIMIT already puts outside the verdict.
+  - `scripts/sign_readiness_artifact.py` is loaded for one constant, and its own git calls are
+    outside the chain.
+
+  The top level git names is compared with `--repo` as a resolved path, not as text (Codex on this
+  PR, round four, P1; estimated there and not measured here, as no Windows runner is available).
+  Git for Windows prints it with forward slashes (`C:/repo`) where the resolved `--repo` reads
+  `C:\repo`, so the text comparison refused the real top level of every repository on that
+  platform, in the library's funnel and in the verifier's copy. Measured with the POSIX form of the
+  same defect, a `git` first on `PATH` that answers `<root>/`: both funnels refused it at 0b7252c6
+  and accept it now, and the same `git` answering the parent directory is still refused. An answer
+  that is empty or not absolute names no directory and is refused, because resolved it would stand
+  for the working directory of the process. For an answer that already is the resolved path, as git
+  prints it on Linux, the verdict is the one the text comparison gave.
+
+  Contracts: `tests/test_pre_tag_git_configuration_does_not_answer.py` (a case red on the pushed
+  head for each finding above, and controls),
+  `tests/test_pre_tag_chain_asks_git_through_one_funnel.py`
+  (the call-site derivation, the allowlist, and a sweep of 72 environment names and configuration
+  keys against a clean baseline) and `tests/test_pre_tag_top_level_is_compared_as_a_path.py` (the
+  spelling, the empty and relative answers, and the two copies held to one answer).
+
+- **What the pre-tag receipt chain reads from git's object store is the object its id names**
+  (`scripts/pre_tag_receipt_lib.py`, `scripts/pre_tag_receipt.py`,
+  `scripts/verify_pre_tag_receipt.py`). git hands out whatever its object store holds under an id,
+  and it does not hash what it reads on every path. Measured on 2026-09-27 with plain git on a
+  rewritten loose object: 2.34.1 hashes an object it parses from a revision argument and 2.55.0 does
+  not, `cat-file` hashes nothing on either, and a tree below the root is read without a hash on both.
+  On the head before this change:
+  - The loose object of `audit_artifacts/pre_tag_trusted_pubkeys.txt`, rewritten with another key
+    under the same id, made the release gate answer `ok=true, state=verified` for a receipt signed
+    by that key, with the tree digest and the checked-out file unchanged (a review finding, P0; git
+    2.55.0). A pack whose index names that id for other content, and an alternate object directory
+    holding other content under it, did the same.
+  - The tree `audit_artifacts`, rewritten under its id to list another blob as the anchor, did it
+    with git 2.34.1 as well.
+  - The producer hashed the gate source from `cat-file blob`; with the gate's object rewritten, it
+    bound the digest of a gate the head does not carry (both versions).
+  - The third-party verifier read the gate source and the receipts with `show` and the anchor
+    through the library, and said `VERIFIED`, exit 0, for a receipt that binds another gate, for a
+    committed receipt that does not verify whose object held one that does, and for a key the
+    committed anchor does not name (git 2.55.0). With the tree `scripts` rewritten to list a
+    modified library, also added to the index, `git status` was clean and that library verified a
+    receipt nobody trusted signed (both versions).
+
+  Now every object the chain reads is read through `git cat-file --batch`, hashed in the process as
+  git defines an id (SHA-1 or SHA-256 by the length of the id) and compared with the id it was asked
+  for: the commit, every tree below it, the anchor and the gate source (`git_objects`, `git_tree`
+  and `git_file` in the library). The tree digest is still taken over the text of `ls-tree`, so no
+  digest changes, and that text must list exactly the tree read from checked objects. The producer
+  compares the checkout with the checked tree. The verifier carries its own copy of the check, runs
+  it on the commit and every tree before its cleanliness check, and on the gate source, the anchor
+  and each receipt before it uses them; an object that is not the one its id names ends the run as
+  `NOT_MEASURABLE`, exit 2. A genuine store in a pack or behind alternates verifies as before.
+
+  Named limits:
+  - The check shows that the bytes read are the object the id names. That the head is the commit a
+    reader expects stays the job of the tag and the attestation.
+  - The verifier's `git status` still takes the index's stat data on trust (the entry above names
+    the index as state inside the reader's clone).
+  - The verifier's `git status` and its listing of the receipt folder, and the producer's
+    `diff-index`, read the trees again after the check; a writer that changes the store in between
+    is outside the chain, as it is for the tree measurement.
+  - Outside the chain and unchanged: `scripts/sign_readiness_artifact.py` and
+    `scripts/audit_candidate_matrix.py` read the readiness anchor with `git show HEAD:<path>`.
+
+  Contract: `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`
+  (`EachObjectReadIsTheObjectItsIdNames`: the finding, a pack, alternates, a rewritten tree, the
+  producer's and the verifier's reads, a generator that rewrites every object of a head in turn, a
+  contract that holds the verifier's copy of the check to the library's, and three cases for the
+  order of the reads: a writer that rewrites a tree for exactly the duration of a second listing
+  must not decide the producer's comparison or the digest, and the verifier checks the commit's
+  trees before it loads a library that could act when it is loaded).
+
+- **The pre-tag receipt producer refuses a tree in which ignored files lie**
+  (`scripts/pre_tag_receipt.py`). A review comment on the pull request named it, and the maintainer
+  decided to close it before the tag: a file that the committed `.gitignore` names, lying
+  uncommitted in the checkout, is read by the audit, while the receipt binds `git ls-tree -r HEAD`,
+  which does not carry it. Measured on the head before this change: exit 0, and the audit's record
+  held that file's content.
+
+  Now every path on disk that the head does not carry refuses before the audit starts, ignored ones
+  included, and the audit does not run. The refusal names each such path as ignored, with the rule
+  and the file it comes from, and points at a fresh checkout (`git clean -ndX` names what lies
+  there). The paths come from the same walk of the filesystem as the untracked ones, so no
+  configuration decides the answer; `check-ignore` is asked only which rule to name.
+
+  After the audit, a path that a tracked `.gitignore` ignores is a file the audit wrote, because
+  the measurement before refused every one; it does not refuse. A test suite run as the audit writes
+  caches into the tree it runs in (hypothesis writes `.hypothesis/`, measured), and refusing them
+  would refuse every such audit. A file the audit writes that no tracked rule ignores still refuses.
+
+  The release workflow does not run the producer: its pre-tag step runs the release gate, which
+  this change does not touch, so the refusal cannot fire there. On the producer's own path the one
+  writer of ignored files that was found is the audit itself, handled above.
+
+  Named limits:
+  - An empty directory is not a path the walk reports. `git status --ignored` does not list an
+    empty ignored directory either; `git clean -ndX` names it (measured with git 2.34.1).
+  - A file that appears during the run and is gone before the second measurement is still
+    invisible to both measurements, as the entries above say.
+
+  Contract: `tests/test_pre_tag_receipt_refuses_a_dirty_tree.py` (the finding, five shapes of an
+  ignored path planted before the audit, a cache the audit writes, and an untracked file it
+  writes). Four cases of `tests/test_pre_tag_git_configuration_does_not_answer.py` that measure how
+  the answer of `check-ignore` is read now let the audit write their ignored file, because one that
+  lies there before the audit refuses whatever its name.
+
 - **An empty container is malformed in both implementations, and every malformed exit names its
   reason** (release scope lines S106 and S108, `tools/pb_verify_rs`). Python refuses `signatures: []`
   and an empty `payloadType` as "must be a non-empty list/string"; the Rust verifier ran an empty
