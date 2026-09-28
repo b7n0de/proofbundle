@@ -20,12 +20,17 @@ title, which says what the copy is and when it was last aligned. Remove that com
 file remains.
 
 The upstream file is the revised draft of 2026-09-28: the PR head `35c83da` plus the commits `3166f71`,
-`4476f0e` and `648b764` (the `evaluator` role, exactly one of commitment and descriptor for each of
+`4476f0e` and `0c70fc3` (the `evaluator` role, exactly one of commitment and descriptor for each of
 model and dataset, `salted` fixed to `true`, `evidence[]` with the digest of the artifact itself in place
-of the `receipt` block). Whether those commits have reached the PR is not stated here; the PR shows it.
+of the `receipt` block). The third commit replaces `648b764` after an external review: the Model section
+no longer presents a separate signed receipt as the general case, the release-gate paragraph links the
+vendor v0.2 example at `3ebc94a3` and says it is not a conformance example for the proposed type, and
+the changelog names the revision during review and links this implementation's draft pull request. The
+schema and field sections are unchanged from `648b764`. Whether those commits have reached the PR is
+not stated here; the PR shows it.
 
 SHA-256 of the upstream file (the mirror without its header):
-`122f8b2c0edcd3108517e4353a4433cebc72f54cd54aacd6d577640f9ded018d` (11806 bytes, git blob `46a33e7`).
+`b1a9dcbfe6ef234f002a7f9709784bb8ecd5e260d601cfb948dbedc47650588b` (12251 bytes, git blob `0996522`).
 `tests/test_intoto_spec_diff.py` removes the header and recomputes it, so any other edit of the mirror
 fails. Line numbers quoted from the draft elsewhere in this repository are those of the upstream file;
 in the mirror they are seven lines further down.

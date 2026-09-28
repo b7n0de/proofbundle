@@ -3,8 +3,8 @@
 <!-- MIRROR of the spec file submitted upstream as in-toto/attestation#575
 (spec/predicates/eval-result.md). The PR is OPEN; this copy exists so proofbundle's own docs and the
 submission cannot drift apart. When the two differ, the PR is the source of truth and this file is
-the one that is wrong. Last aligned 2026-09-28 against 35c83da plus 3166f71, 4476f0e and 648b764 (file
-blob 46a33e7). The protobuf definition follows as a separate PR, as SVR did: spec #470, proto #519,
+the one that is wrong. Last aligned 2026-09-28 against 35c83da plus 3166f71, 4476f0e and 0c70fc3 (file
+blob 0996522). The protobuf definition follows as a separate PR, as SVR did: spec #470, proto #519,
 README #537. -->
 
 Type URI: https://in-toto.io/attestation/eval-result/v0.1
@@ -45,11 +45,11 @@ issuer and is never in the attestation. A public model or dataset may instead be
 
 ## Model
 
-An evaluation run produces a signed, tamper-evident receipt. This predicate is a projection of that
-receipt onto an in-toto Statement: the `subject` is what the attestation is *about* (the receipt itself,
-a public model artifact, or a gated release artifact), and the predicate carries the eval's facts. The
-detailed per-metric result lives here; a companion [SVR](svr.md)
-may summarize "a verifier confirmed this passed" as passing property strings.
+This predicate records evaluation claims in an in-toto Statement. The `subject` identifies what the
+attestation is about, such as a receipt, a public model artifact, or a gated release artifact. The
+predicate carries the evaluation facts and may reference supporting material through `evidence`. A
+separate signed receipt is optional. Detailed per-metric results live here; a companion [SVR](svr.md)
+may summarize verified properties.
 
 ## Schema
 
@@ -206,12 +206,15 @@ A private-model eval (subject is the receipt; the model stays secret):
 In this example, the evidence artifact is supplied alongside the attestation, so no retrieval location
 is included.
 
-A release-gate example (subject is the deployed artifact's real digest) is in the reference
-implementation's `examples/intoto/release-gate.statement.json`. The reference implementation update for
-this revised shape is pending. Existing implementation examples may use the earlier shape and are not
-conformance examples for this revision.
+A release-gate example, whose subject is the deployed artifact's digest, is available in the
+[proofbundle implementation draft](https://github.com/b7n0de/proofbundle/blob/3ebc94a3781faec7cef1e7c9781191800e6b621a/examples/intoto/release-gate.statement.json).
+It uses `https://b7n0de.com/attestation/eval-result/v0.2` and illustrates the vendor implementation. It
+is not a conformance example for the proposed in-toto predicate type. The implementation is available in
+[draft PR 301](https://github.com/b7n0de/proofbundle/pull/301) and is not yet merged or released.
 
 ## Changelog and Migrations
 
--   v0.1: initial draft. Reference emitter/verifier: [proofbundle](https://github.com/b7n0de/proofbundle)
-    (`proofbundle intoto`). Discussion: in-toto/attestation#565.
+-   v0.1: initial proposal, revised during review in in-toto/attestation#575 to use `evaluator`, permit
+    public model and dataset descriptors, and replace the emitter-specific receipt block with generic
+    `evidence`. The [proofbundle implementation draft](https://github.com/b7n0de/proofbundle/pull/301)
+    uses an independently versioned vendor predicate type. Discussion: in-toto/attestation#565.

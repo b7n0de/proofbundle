@@ -6,7 +6,7 @@ Not standardized. The `predicateType` lives in a vendor namespace until (and unl
 upstream. Nothing here changes the native receipt or what it proves — see [NON_CLAIMS.md](NON_CLAIMS.md).
 
 The v0.2 field table below mirrors the submitted spec as revised on 2026-09-28 (the upstream file at
-git blob `46a33e7`). When the two differ, the
+git blob `0996522`; its schema and field sections are those of blob `46a33e7`). When the two differ, the
 PR is the source of truth and this page is the one that is wrong; a byte-for-byte copy of the submitted
 file lives in [docs/upstream/eval-result.md](upstream/eval-result.md).
 
