@@ -91,7 +91,13 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str | None = None) -> 
     if lage != "measured" and not lage.startswith("gemessen"):
         return {"schema": "b7n0de.release_scope_landing_card.v1", "zustand": "NOT MEASURABLE",
                 "grund": lage, "rc": 2}
-    zu_zweig, mitlaeufer, _ = G.lies_umfang(pfad)
+    # THE BRANCH READER HAS A STATE OF ITS OWN (the sweep for Codex round five on pull request 294).
+    # A scope whose branch column it cannot read makes every line a rider, and a card that kept
+    # only the riders counted no countable line and called that measured.
+    zu_zweig, mitlaeufer, zlage = G.lies_umfang(pfad)
+    if zlage != "gemessen":
+        return {"schema": "b7n0de.release_scope_landing_card.v1", "zustand": "NOT MEASURABLE",
+                "grund": zlage, "rc": 2}
     mit = set(mitlaeufer)
     # A line WITH its own branch is countable, a rider line never.
     ohne_mitlaeufer = [(k, punkt) for k, punkt, zweig in zeilen if k not in mit]

@@ -23,8 +23,8 @@ requests; an answer without P0 or P1 ended a series, and its P2 went into this f
 | Resolver promotes on the exact True | 291 | 3977fcdf, landed inside 293 | final round of the branch | 3 requests, the last with one P2 (thread 4119394589) |
 | Pre-tag cleanliness gate | 249 | 68745704, main 8da7ce16; carries 296 and the cost-bound class fix | Claude lens run 4 at f5939ab0, WITHSTANDS | 5 requests, the last without a finding |
 | Rust dependency audit | 296 | 2cf9908f, landed inside 249 | run 4 at d30f236e, FIX_FIRST for C3, fixed at f97cb257 | 2 requests, the last without a finding |
-| Commitment patterns at the verify boundary | 300 | 373bf64b; it lands after the head that carries this file is pushed | Claude lens run 11 at cd5d39f4; its P0 and P1 closed in round 12 | 3 requests, the last with one P2 (thread 4124587746) |
-| Release-scope cut | 294 | the head that carries this file | Claude lens at 989b582c; its four P1 closed in 346fa924 | the fifth and last request runs on the head that carries this file |
+| Commitment patterns at the verify boundary | 300 | 373bf64b, main a1e9774e | Claude lens run 11 at cd5d39f4; its P0 and P1 closed in round 12 | 3 requests, the last with one P2 (thread 4124587746) |
+| Release-scope cut | 294 | the head that carries this file | Claude lens at 989b582c; its four P1 closed in 346fa924 | 5 requests; the fifth, at 76f260a2, reported one P1 (thread 4125291621), fixed without a further request as the owner's rule sets it after the budget, and one P2 (thread 4125291624) |
 
 ## Closed in 6.2.0 — the open items of the 6.1.0 record
 
@@ -340,6 +340,26 @@ From the Claude lens of the release-scope cut (pull request 294) at 989b582c; it
   line holds a word the row quotes, not the one symbol the reference is about; the test names this limit itself.
 - **Five- and six-digit abbreviations of a commit are not read** (P3): git resolves them, the reader starts at seven
   digits, and no scope file uses a shorter one.
+
+From Codex round five on the release-scope cut (pull request 294) at 76f260a2, the last request of its series; its
+P1 (an unreadable candidate scope read as one that names nothing) is fixed on the head that carries this file:
+- **A shallow clone passes the case that holds the list of main against git without comparing anything** (P2, thread
+  4125291624, `tests/test_release_scope_cut_holds.py`,
+  `test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts_match`): at depth 1 the case returns
+  before its comparison with git and reports passed, where it should skip with NOT MEASURED. The same early return
+  stands in `test_a_word_the_reader_takes_for_a_name_stands_in_the_files_and_names_no_commit`, whose history check
+  is left out in a shallow clone. Not P0 or P1: both check this file's own record, not a verdict of the package, and
+  CI's test job checks out the full history, where both compare. The fix skips with the reason, after 6.2.0.
+- **Once the source version is 6.2.0, the title gate cannot read the 6.3.0 scope, and it is red on every pull
+  request** (P2, found by the sweep for that P1 and measured at 76f260a2 over the real scope files, with the source
+  version at 6.2.0 and no tag the clone shows): `docs/release_scope/6.3.0.md` has no `## Out` section and names no
+  branch, so `lies_umfang` answers NOT MEASURABLE for it. While the source version is 6.1.0 the candidates are 6.1.0
+  and 6.2.0, both readable, and nothing changes. With the source at 6.2.0, at 76f260a2 a branch of 6.2.0 was judged
+  against 6.2.0 and every other branch against 6.3.0, red with NOT MEASURABLE; since the fix of that P1 every branch
+  is red, because an unreadable candidate decides nothing. After the tag the gate judges 6.3.0 and stays red. Not P0
+  or P1: the job is not a required context of `protect-main`, so it shows red and stops no merge, and every branch of
+  6.2.0 has landed with this pull request. It ends when 6.3.0 names its first branch and its `## Out` section, which
+  is work of 6.3.0.
 
 ## Open — named limits carried by the fixes themselves
 

@@ -454,8 +454,14 @@ def pruefe_umfangsdatei(pfad: pathlib.Path) -> dict:
                for k, v in sorted(kollisionen.items())]
     # A LINE THIS MODULE CANNOT READ IS A FINDING, NOT AN ABSENCE. Without this, an unknown
     # identifier shape leaves the count silently and the verdict gets GREENER, not redder.
-    unlesbar, _ = zeilen_ohne_kennung(pfad)
-    if unlesbar:
+    # A GUARD THAT DID NOT RUN IS NOT A GUARD THAT FOUND NOTHING (the sweep for Codex round five on
+    # pull request 294). The guard answers NOT MEASURABLE when no table header names a branch
+    # column, and its empty list then says nothing about the rows it never reached.
+    unlesbar, lage = zeilen_ohne_kennung(pfad)
+    if lage != "gemessen":
+        gruende.append(f"the guard against lines without a readable identifier did not run over "
+                       f"this file ({lage}); a row it never reached is not a row it read")
+    elif unlesbar:
         gruende.append(
             f"{len(unlesbar)} Zeile(n) des In-Abschnitts fuehren keine lesbare Kennung {unlesbar} "
             "— sie fallen aus der Zaehlung und die Landekarte kann sie nie zaehlen. Zu tun ist es "
@@ -498,7 +504,10 @@ def pruefe(*, branch: str, title: str, version: str,
     # `pruefe_umfangsdatei` alone it would never be seen: CI calls `main`, and `main` calls this
     # function. A guard nobody calls is the same shape of failure it exists to catch.
     unlesbar, _ul = zeilen_ohne_kennung(pfad)
-    if unlesbar:
+    if _ul != "gemessen":
+        gruende.append(f"the guard against lines without a readable identifier did not run over "
+                       f"the scope file ({_ul}); a row it never reached is not a row it read")
+    elif unlesbar:
         gruende.append(
             f"die Umfangsdatei fuehrt {len(unlesbar)} Zeile(n) ohne lesbare Kennung {unlesbar} — "
             "sie fallen aus der Zaehlung, und kein Titel kann je auf sie zeigen")
@@ -581,9 +590,22 @@ def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[
     """Without a source tag this clone shows, the release is chosen by the branch: the one
     candidate whose scope file names it. A branch named by two candidates is ambiguous and not
     measurable; a branch named by none is outside every candidate, and the newest candidate
-    reports that."""
-    treffer = [v for v in kandidaten
-               if branch in lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")[0]]
+    reports that.
+
+    A CANDIDATE THIS GATE CANNOT READ DECIDES NOTHING (Codex on pull request 294, round five, P1).
+    `lies_umfang` returns an empty mapping together with its NOT MEASURABLE, and this function kept
+    the mapping only. Measured at 76f260a2: a 6.2.0 scope naming `fix/a1` without its `## Out`, and a
+    readable 6.3.0 scope, judged `fix/a1` against 6.3.0, outside the scope, exit 0. Whether an
+    unreadable scope names the branch is not known, so the release is not decided, whichever
+    candidate it is and whichever branch is asked about."""
+    treffer = []
+    for v in kandidaten:
+        zu_zweig, _mitlaeufer, zustand = lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")
+        if zustand != "gemessen":
+            return None, (f"{herkunft}; the scope file of candidate {v} cannot be read here "
+                          f"({zustand}), so whether it names the branch {branch!r} is not known")
+        if branch in zu_zweig:
+            treffer.append(v)
     if len(treffer) > 1:
         return None, (f"{herkunft}; the branch {branch!r} stands in the scope files of {treffer}, "
                       "so which release it belongs to is not decided")

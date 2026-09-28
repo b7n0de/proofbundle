@@ -79,6 +79,24 @@ fails at 5a9ddc06 and passes on the commit that fixed it:
 14. A FULL CLONE WITHOUT TAGS FAILED THE CASE THAT HOLDS THE LIST OF MAIN AGAINST GIT. It skips
     there now and names the tag it did not have.
 
+A review of 76f260a2 reported one P1, the last round of this pull request, and section 8 has a
+case for it and for the two neighbours the sweep found; each fails at 76f260a2 and passes on the
+commit that fixed it:
+
+15. AN UNREADABLE CANDIDATE SCOPE WAS READ AS ONE THAT NAMES NOTHING. Without a tag the clone
+    shows, the gate judges a branch by the candidate that names it, and a candidate it could not
+    read (no `## Out`) answered with an empty mapping, so a branch it names was judged against the
+    other candidate and passed outside the scope. An unreadable candidate leaves the release
+    undecided now.
+16. THE GUARD AGAINST UNREADABLE LINES SAID NOT MEASURABLE AND ITS CALLERS HEARD NOTHING. Both
+    callers kept its list and dropped its state, so a scope whose branch column is not headed
+    `Branch` or `Zweig` let a row without an identifier vanish in green.
+17. THE LANDING CARD DROPPED THE STATE OF THE BRANCH READER, so a scope whose branches it could not
+    read counted every line as a rider and answered measured.
+
+The same review's P2, that a shallow clone passes the case that holds the list of main against git
+without comparing anything, is recorded in `RESTRISIKO_620.md` and not fixed at this head.
+
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
 their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
 stands in the lines it points at; and fenced blocks, which quote tool output and artefact digests
@@ -1577,3 +1595,72 @@ def test_catch_proof_a_line_bound_to_the_wrong_revision_of_the_real_row_is_found
         assert any(f.startswith(f"src/proofbundle/intoto.py:{line}-{line} holds none of")
                    and "31816e08" in f for f in findings), (line, findings)
     assert len(findings) == 3, findings
+
+
+# -- 8. the review of 76f260a2: a reader's NOT MEASURABLE is not an empty result ------------------
+#
+# Codex on pull request 294, round five, P1: an unreadable candidate scope was collapsed into an
+# empty collection. The class is a reader that says NOT MEASURABLE and a caller that keeps only the
+# collection it returned. The sweep for it found two more callers of that shape, the two readers of
+# the gate's guard against unreadable lines and the landing card's reading of the branches. Each
+# case fails at 76f260a2 and passes on the commit that fixed it, and each carries its control.
+
+_NO_OUT = ("# Release scope - {v}\n\n## In\n\n| Identifier | Subject | Branch |\n|---|---|---|\n"
+           "| A1 | something | `{b}` |\n")
+
+
+def test_RED_an_unreadable_candidate_scope_decides_nothing(tmp_path, capsys):
+    """Codex on pull request 294, round five, P1, its measurement taken over: the source version at
+    6.2.0, no tag the clone shows, a 6.2.0 scope that names `fix/a1` and has no `## Out`, and a
+    valid 6.3.0 scope. At 76f260a2 `fix/a1` without an identifier was judged against 6.3.0,
+    outside the scope, exit 0: `_nach_dem_zweig` read the unreadable 6.2.0 scope as one that names
+    nothing. Either candidate unreadable leaves the release undecided now, for every branch. The
+    control is the tagless case of section 4, where both candidates can be read."""
+    for broken, named in (("6.2.0", "fix/a1"), ("6.3.0", "fix/b1")):
+        root = _tree(tmp_path / broken, "6.2.0", ("6.2.0", "6.3.0"), None, {"6.3.0": "fix/b1"})
+        (root / "docs" / "release_scope" / f"{broken}.md").write_text(
+            _NO_OUT.format(v=broken, b=named), encoding="utf-8")
+        gate = _load(root / "scripts" / "b7_release_scope_title_gate.py",
+                     f"gate_unreadable_{broken.replace('.', '_')}")
+        for branch in ("fix/a1", "fix/b1", "chore/elsewhere"):
+            rc = gate.main(["--branch", branch, "--title", "fix(x): y", "--json"])
+            d = json.loads(capsys.readouterr().out)
+            assert (rc, d["version"], d["ausserhalb_des_umfangs"]) == (1, None, False), (
+                broken, branch, d)
+            assert any(f"candidate {broken}" in g and "is not known" in g for g in d["gruende"]), d
+
+
+_HEAD_NOT_BRANCH = ("# s\n\n## In\n\n| Identifier | Subject | Head |\n|---|---|---|\n"
+                    "| A1 | something | `fix/a1` |\n| nameless | a line with no identifier | `fix/x` |\n"
+                    "\n## Out\n")
+
+
+def test_RED_a_guard_that_did_not_run_is_not_a_guard_that_found_nothing(tmp_path):
+    """The same class inside the gate. The guard against unreadable lines reports NOT MEASURABLE
+    when no table header names a branch column, and both of its callers kept only the list it
+    returned. So a scope whose branch column is headed `Head` let its nameless row vanish: at
+    76f260a2 `pruefe` was green for `fix/a1` and the file check green, over a row neither read. The
+    control is the same file with the column headed `Branch`, where the nameless row is named."""
+    gate = _load(REPO / "scripts" / "b7_release_scope_title_gate.py", "gate_guard_state")
+    p = tmp_path / "9.9.9.md"
+    for head, said in (("Head", "did not run"), ("Branch", "nameless")):
+        p.write_text(_HEAD_NOT_BRANCH.replace("| Head |", f"| {head} |"), encoding="utf-8")
+        d = gate.pruefe(branch="fix/a1", title="[9.9.9 A1] fix(x): y", version="9.9.9",
+                        scope_pfad=p)
+        assert d["urteil"] == "ROT" and any(said in g for g in d["gruende"]), (head, d)
+        f = gate.pruefe_umfangsdatei(p)
+        assert f["urteil"] == "ROT" and any(said in g for g in f["gruende"]), (head, f)
+
+
+def test_RED_the_card_does_not_count_a_scope_whose_branches_it_cannot_read(tmp_path, monkeypatch):
+    """The same class in the landing card. It checked the state of the line reader and dropped the
+    state of the branch reader, so a scope whose branch column is written without backticks read
+    every line as a rider: at 76f260a2 the card answered measured, with no countable line, where the
+    branch reader had said it found no branch at all. The control is the backticked column."""
+    for cell, expected in (("fix/a1", "NOT MEASURABLE"), ("`fix/a1`", "gemessen")):
+        root = _tree(tmp_path / expected.replace(" ", "_"), "6.1.0", ("6.1.0", "6.2.0"),
+                     _TAGS_UP_TO["6.1.0"])
+        p = root / "docs" / "release_scope" / "6.2.0.md"
+        p.write_text(p.read_text(encoding="utf-8").replace("`fix/a1`", cell), encoding="utf-8")
+        card = _card_without_version(root, monkeypatch)
+        assert card["zustand"] == expected, (cell, card)

@@ -1525,6 +1525,20 @@ before and after.
   working tree only where the row names none; a row that names trees and none for the citation is a
   finding. The cut's R1 and R-B4 rows had one each, true in every tree the rows name, and now name
   `v6.1.0` for them.
+
+- **A reader's NOT MEASURABLE is no longer an empty result in the release-scope gate and the landing
+  card** (`scripts/b7_release_scope_title_gate.py`, `scripts/b7_release_scope_landing_card.py`, pull
+  request 294, the 6.2.0 cut). The P1 of the fifth and last review round, reproduced at 76f260a2
+  before it was fixed: without a tag the clone shows, the gate judges a branch by the candidate scope
+  that names it, and a candidate it could not read answered with an empty mapping. A 6.2.0 scope
+  naming `fix/a1` without its `## Out`, beside a readable 6.3.0 scope, judged `fix/a1` against 6.3.0,
+  outside the scope, exit 0. An unreadable candidate now leaves the release undecided. The sweep for
+  the class found two more callers of that shape: the gate kept the list of its guard against lines
+  without an identifier and dropped the guard's NOT MEASURABLE, so a scope whose branch column is not
+  headed `Branch` or `Zweig` let such a line vanish in green; and the landing card dropped the state of
+  the branch reader, so a scope whose branches it could not read counted every line as a rider. Both
+  fail closed now. With the source version at 6.2.0 the 6.3.0 scope is a candidate, and it names no
+  branch yet, so the gate is red on every pull request until it does (`RESTRISIKO_620.md`).
 - **The second reader of the cost bound judges through the curve's own verdict**
   (`tests/test_structural_budget_reachability.py`). The exclusion of `renewal.verify_sequence` from
   the generic budget holds only while the cost curve holds its own bound, and this file checked that
