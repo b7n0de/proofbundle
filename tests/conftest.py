@@ -1240,3 +1240,17 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     terminalreporter.write_sep("-", "beim Import uebersprungen (nicht ausgeliefert)")
     for name in sorted(_UEBERSPRUNGEN_BEIM_IMPORT):
         terminalreporter.write_line(f"{name}: braucht {_UEBERSPRUNGEN_BEIM_IMPORT[name]}")
+
+
+# ── The Rust second verifier, once per session ────────────────────────────────────────────────────
+#
+# Owner note of 2026-09-28 on Z281: the binary is found through one seam, tests/_pb_verify_rs.py, at
+# run time and never at collection, so no test depends on another having built it first. Pytest
+# functions take this fixture; unittest classes call the module directly, because `unittest discover`
+# in the crypto-floor job knows no fixtures.
+
+
+@pytest.fixture(scope="session")
+def pb_verify_rs():
+    import _pb_verify_rs  # noqa: PLC0415 - tests/ is on sys.path under both runners
+    return _pb_verify_rs.binary_or_skip()

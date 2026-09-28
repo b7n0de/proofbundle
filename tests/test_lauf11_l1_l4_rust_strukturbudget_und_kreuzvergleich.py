@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import base64
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,19 +34,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402 — LAUF11-L3, eigene Testlast gedeckelt
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 REPO = Path(__file__).resolve().parent.parent
 RUST_DIR = REPO / "tools" / "pb_verify_rs"
 RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"
 
 
 def _binary():
-    if RUST_BIN.exists():
-        return RUST_BIN
-    if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-        return None
-    b = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                       capture_output=True, text=True, timeout=1800)
-    return RUST_BIN if b.returncode == 0 and RUST_BIN.exists() else None
+    """The binary through tests/_pb_verify_rs.py: pinned, or built once per process under a lock, or
+    a skip that names why (a failure where CI requires the binary)."""
+    return _pb_verify_rs.binary_or_skip()
 
 
 class TestBudgetParitaet(unittest.TestCase):
@@ -56,9 +56,6 @@ class TestBudgetParitaet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rust = _binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs fehlt oder cargo ist nicht "
-                                    "da — die Differentialprobe lief NICHT (env_blocked, nie grün)")
 
     def _signiertes_ziel(self, zusatz: str | None = None):
         from proofbundle.dsse import sign_envelope
@@ -326,8 +323,6 @@ class TestKreuzvergleichHatEinenNegativenVektor(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rust = _binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs fehlt oder cargo ist nicht da")
 
     def test_eine_policy_mit_tippfehler_wird_von_BEIDEN_verweigert(self):
         """Lauf 13 (Linse L4, F1, ausgefuehrt; Owner 11.09.: in denselben Kopf vor Lauf 14): `relatoins`
