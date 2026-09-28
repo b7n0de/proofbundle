@@ -10,6 +10,19 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does** (`relation._RFC3339_Z`).
+  The pattern read the timestamp with `\d`, which in a Python str pattern is every Unicode decimal digit.
+  Measured 2026-09-28 on main 86671552: an Arabic-Indic year, a fullwidth year and Devanagari seconds
+  passed `validate_relationships`, the emitter signed them, and `decision verify` answered exit 0 with
+  `ok` True, while `pb_verify_rs verify-relation` refused the same bytes with exit 2, "edge.declaredAt
+  must be RFC3339 Z" (`is_rfc3339_z` takes ASCII digits only). The pattern takes `[0-9]` now, the form
+  `trust_pack._RFC3339_Z` already has, and both verifiers give exit 2 for each of the three values.
+  Six more modules hold the same `\d` pattern for their own timestamps and schema versions
+  (`decision`, `outcome`, `run_ledger`, `verification_summary`, `agent_review`, `relation_statement`);
+  the Rust verifier reads none of those fields, so they change no verdict between the two verifiers
+  (measured for `decidedAt` and a relation statement's `schemaVersion`: Python `ok` True, Rust exit 0
+  on both sides), and they are changed after this release.
+
 - **A related map that says it is empty no longer hides an attached retraction** (`decision.py`,
   `outcome.py`, new `relation._carries_attached_entries`). Both verifiers asked the caller's map whether it
   held targets through its own `__bool__` (`if "relationships" in predicate or related`). Measured
