@@ -1270,7 +1270,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   refused by that read, which names its position (`results[0].ok`), where that entry names the case
   or counts such a `scope` as WARNED. A `scope` that is a `str` subclass is judged by the text it
   stores: one storing `"full"` is a full run, one storing other text is WARNED whatever its own
-  `__eq__` answers, and none of its methods runs.
+  `__eq__` answers, and none of its methods runs. The crypto gate that `root_authenticity_summary`
+  and `policy.evaluate_policy` share (`bundle._checks_passed`) read each check's `ok` for its type and
+  then took its verdict from `result.ok`, which reads every `ok` again: a check answering True, then
+  False, then True gave `safeForAutomation` True with no blocker (Codex on pull request 293, round
+  three, measured). The verdict now comes from one read of each check.
 
   The residual findings of the lens, measured again at both trees on 3.10 and 3.14: E (`1e16` as a
   trust-pack `version` raises `IntegerDomainError` from `build_trust_pack_statement`), F (the depth

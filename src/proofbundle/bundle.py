@@ -630,8 +630,8 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
 def _checks_passed(result) -> "tuple[bool, list[str]]":
     """Whether a caller's crypto result passed, counted only on exact bools.
 
-    Returns ``(passed, not_bool)``. ``passed`` is True only when every check's ``ok`` is the exact
-    ``True`` and ``result.ok`` is the exact ``True``; ``not_bool`` names every one of these values
+    Returns ``(passed, not_bool)``. ``passed`` is True only when every check's ``ok``, read once, is the
+    exact ``True`` and ``result.ok`` is the exact ``True``; ``not_bool`` names every one of these values
     that is not a bool (``checks['<name>'].ok`` or ``ok``). ``VerificationResult.ok`` folds its checks
     by their truth, so a caller-built ``Check("root-authenticity", "false")`` made it True; it is read
     here only after every check is known to be a bool, so the caller's ``__bool__`` never runs. Shared
@@ -650,9 +650,16 @@ def _checks_passed(result) -> "tuple[bool, list[str]]":
         checks = list(tuple.__iter__(raw))
     else:
         checks = []
+    # ONE READ PER CHECK, AND THE VERDICT COMES FROM IT (Codex on pull request 293, round three). The
+    # type test read each `ok` and the verdict then came from `result.ok`, which reads every `ok` again:
+    # a check whose `ok` answers True, then False, then True passed the type test with False and the
+    # verdict with True, and `root_authenticity_summary` gave `safeForAutomation` True (measured).
     not_bool: list[str] = []
+    gelesen: list = []
     for c in checks:
-        if type(getattr(c, "ok", None)) is not bool:
+        wert = getattr(c, "ok", None)
+        gelesen.append(wert)
+        if type(wert) is not bool:
             name = getattr(c, "name", None)
             not_bool.append(f"checks[{name!r}].ok" if type(name) is str else "checks[?].ok")
     if not_bool:
@@ -660,7 +667,7 @@ def _checks_passed(result) -> "tuple[bool, list[str]]":
     ok = getattr(result, "ok", False)
     if type(ok) is not bool:
         return False, ["ok"]
-    return ok is True, []
+    return ok is True and all(w is True for w in gelesen), []
 
 
 def root_authenticity_summary(result: VerificationResult, *,

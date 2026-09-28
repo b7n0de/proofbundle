@@ -1238,6 +1238,48 @@ class TestTheCryptoGateReadsAListSubclassByWhatItHolds(unittest.TestCase):
                 self.assertEqual(_checks_passed(self._Result(container([Check("x", True)]))), (True, []))
 
 
+class _FlippingCheck:
+    """A check whose ``ok`` answers from a script, one answer per read; every read is recorded."""
+
+    def __init__(self, name: str, answers: list):
+        self.name, self.detail, self._answers, self.reads = name, "", list(answers), 0
+
+    @property
+    def ok(self):
+        self.reads += 1
+        return self._answers.pop(0) if self._answers else self._answers_last
+
+    _answers_last = True
+
+
+class TestTheCryptoVerdictComesFromOneReadOfEachCheck(unittest.TestCase):
+    """Codex on pull request 293, round three: ``_checks_passed`` read each ``ok`` for its type and then
+    took the verdict from ``result.ok``, which reads every ``ok`` again. A check answering True, then
+    False, then True passed the type test with False and the verdict with True, and
+    ``root_authenticity_summary`` gave ``safeForAutomation`` True with no blocker."""
+
+    def test_a_check_that_answers_false_once_fails_the_crypto_gate(self):
+        from proofbundle.bundle import _checks_passed  # noqa: PLC0415
+        flip = _FlippingCheck("merkle-inclusion", [False, True, True])
+        result = VerificationResult([Check("ed25519-signature", True), flip,
+                                     Check("root-authenticity", True)])
+        self.assertEqual(_checks_passed(result), (False, []))
+
+    def test_the_summary_does_not_become_safe_through_a_second_read(self):
+        flip = _FlippingCheck("merkle-inclusion", [True, False, True, True])
+        r = _summary([Check("ed25519-signature", True), flip, Check("root-authenticity", True)])
+        self.assertIs(r["safeForAutomation"], False, r)
+        self.assertIn("CRYPTO_FAILED", r["automationBlockers"])
+
+    def test_control_a_check_that_always_answers_true_still_passes(self):
+        from proofbundle.bundle import _checks_passed  # noqa: PLC0415
+        steady = _FlippingCheck("merkle-inclusion", [True, True, True, True])
+        result = VerificationResult([Check("ed25519-signature", True), steady,
+                                     Check("root-authenticity", True)])
+        self.assertEqual(_checks_passed(result), (True, []))
+        self.assertIs(_summary(list(result.checks))["safeForAutomation"], True)
+
+
 #: Why a switch is left as it is, by class. Every bool keyword of every public function must stand in
 #: ``_SWITCHES`` under one of these, or under "relaxing" (refused with SwitchTypeError) and
 #: "relaxing, refused in the verdict" / "exact True only" (never-raise surfaces).
