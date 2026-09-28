@@ -400,8 +400,8 @@ AUSGESCHLOSSEN = {
     # broken collection was only where it became visible.
     "render_release.py": "renders a release note of this repository from release_notes/, which the sdist does not ship; no input inside a package",
     # 2026-09-28: judges the milestone and the description of one pull request from the event
-    # payload the runner writes; ci.yml runs it beside the title gate. An installed package has no
-    # pull request and no payload. Same reasoning as `b7_release_scope_title_gate.py`.
+    # payload the runner writes; its own workflow runs it on every pull request. An installed
+    # package has no pull request and no payload. Same reasoning as `b7_release_scope_title_gate.py`.
     "b7_pr_form_gate.py": "judges one pull request of this repository from the runner's event payload; no pull request inside a package",
     # 2026-09-26: asks the GitHub API for the Codex threads, the issue comments and the head of one
     # pull request, and a workflow runs it on every pull request. An installed package has no pull

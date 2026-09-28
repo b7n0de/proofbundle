@@ -10,9 +10,10 @@ attribution, no session link and neither of the two retired closing sentences. T
   (c) the description carries no tool attribution, no session link and no retired sentence.
 
 WHAT IS READ. The event payload the runner writes for this run, `$GITHUB_EVENT_PATH`: the fields
-`pull_request.milestone` and `pull_request.body`. No API call, no token. ci.yml runs this script in
-the step of the release-scope title gate and starts a run on `edited`, `milestoned` and
-`demilestoned`, so a changed description or milestone is judged by a run that reads the new state.
+`pull_request.milestone` and `pull_request.body`. No API call, no token. Its own workflow,
+`.github/workflows/pr-form.yml`, runs this script and starts a run on `edited`, `milestoned` and
+`demilestoned`, so a changed description or milestone is judged by a run that reads the new state;
+ci.yml does not run it and does not start on those events.
 
 WHAT (b) ACCEPTS. The two lines byte for byte, with one empty line between them, at the end of the
 text or after a line break. A line break is LF or CRLF, because a description saved from the browser
@@ -35,7 +36,7 @@ WHAT IS PRINTED. Never a byte of the description. The runner reads workflow comm
 and a description is text anyone who can open a pull request writes. The output names the rules
 that failed, in fixed words, and the milestone title through repr on one line.
 
-Exit: 0 green · 1 RED, with the reasons. The contract of the title gate in the same step: an input
+Exit: 0 green · 1 RED, with the reasons. The contract of the release-scope title gate: an input
 this gate cannot read is RED and says NOT MEASURABLE, never a pass.
 """
 from __future__ import annotations

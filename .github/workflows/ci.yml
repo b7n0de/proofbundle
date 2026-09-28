@@ -10,15 +10,7 @@ on:
     # einem ruhenden PR loeste damit GAR KEINEN Lauf aus, und die vier zusaetzlichen
     # Versionskontexte blieben abwesend, bis jemand zufaellig nachpusht. Ein Zustandspraedikat
     # ohne das passende Ereignis ist eine Bedingung, die niemand stellt.
-    #
-    # `edited`, `milestoned` and `demilestoned` (owner decision 2026-09-28): the pull-request form
-    # gate in the job release-scope-title judges the description and the milestone, and a verdict
-    # made on the last push would stay green after the milestone is removed. Each of these events
-    # starts the WHOLE workflow, not only that job: a job skipped by condition reports success, and
-    # a skipped required job on a later run of the same head could read as passed. The cost is a
-    # full run per edit, and the concurrency group below cancels the run in flight on the same pull
-    # request, as a push does.
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited, milestoned, demilestoned]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   merge_group:              # Merge Queue: der Kandidatenzweig, den die Queue selbst baut.
     # Ohne diesen Ausloeser laeuft auf einem Queue-Eintrag GAR KEIN Job, also meldet auch keiner
     # der sieben Pflichtkontexte, und der Eintrag wartet bis zum Timeout auf eine Pruefung, die
@@ -186,17 +178,11 @@ jobs:
           python-version: "3.12"
       # THE TITLE COMES THROUGH THE ENVIRONMENT, NOT THROUGH THE COMMAND LINE. A pull-request title
       # is attacker-controlled text; interpolating it into a `run:` line would make it shell input.
-      #
-      # THE FORM GATE IS ITS SIBLING IN THIS STEP (owner decision 2026-09-28): milestone, house
-      # footer, no attribution. It reads the description and the milestone from the runner's own
-      # event payload, never from the command line. Both gates run on every event, a red one does
-      # not skip the other, and either red turns the step red. This job is not a required context,
-      # so a red form shows and blocks nothing until the owner makes it required.
-      - name: Release-scope title gate and pull-request form gate
+      - name: Release-scope title gate
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: rc=0; python scripts/b7_release_scope_title_gate.py --branch "$PR_BRANCH" --title "$PR_TITLE" || rc=1; python scripts/b7_pr_form_gate.py --event "$GITHUB_EVENT_PATH" || rc=1; exit "$rc"
+        run: python scripts/b7_release_scope_title_gate.py --branch "$PR_BRANCH" --title "$PR_TITLE"
 
   new-lines-english:
     # OWNER DECISION OA-bba542170c, 2026-09-16: only NEW material is English, the existing body
