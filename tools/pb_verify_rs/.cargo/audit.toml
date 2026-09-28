@@ -1,0 +1,24 @@
+# cargo-audit configuration of pb_verify_rs, read by the "Rust dependency audit" step of the rust-parity
+# job in .github/workflows/ci.yml. cargo-audit reads .cargo/audit.toml from the directory it runs in, not
+# from the directory of --file (measured with cargo-audit 0.22.2), so that step runs in this directory.
+#
+# Exceptions are listed here and nowhere else: never as an --ignore flag in a workflow.
+#
+# RUSTSEC-2023-0071, rsa, "Marvin Attack: potential key recovery through timing sidechannels".
+#   What it says: the timing of operations with an RSA PRIVATE key leaks information about that key.
+#   No patched version exists (patched = [] in rustsec/advisory-db at e2111519, read 2026-09-27;
+#   rsa 0.9.10 and 0.10.0-rc.18 affected).
+#   Why it does not apply here: pb_verify_rs uses rsa for verification only.
+#   - Source: the rsa items used are RsaPublicKey, Pss, BigUint and the trait PublicKeyParts; no
+#     private-key type and no signing or decryption call.
+#   - Binary: the release build links only public-key verification from rsa (Pss::verify,
+#     emsa_pss_verify, emsa_pss_verify_salt, mgf1_xor, RsaPublicKey::new_with_max_size, read with nm);
+#     no private-key symbol.
+#   - Input: a public SubjectPublicKeyInfo, given as hex; the verifier never reads a private key.
+#   The rsa crate arrives with the scitt-ccf/v1 statement signature port (PR 290). Until it lands, the
+#   Cargo.lock here does not carry rsa and this entry changes nothing (measured on main's Cargo.lock:
+#   exit 0 with and without it).
+#   Decided by the owner on 2026-09-27. Review by 2026-12-27, or earlier when rsa publishes a fix or
+#   pb_verify_rs starts to use an rsa private key: then this entry is wrong and goes.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

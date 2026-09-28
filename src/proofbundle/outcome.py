@@ -22,9 +22,10 @@ import re
 from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
+from .assurance import _is_key_material
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 ACTION_OUTCOME_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/action-outcome/v0.1"
 OUTCOME_SCHEMA_VERSION = "0.1.0"
@@ -249,10 +250,13 @@ def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool
     have signed an Ed25519 DSSE envelope, so it never binds. A keyId without key material in the pack
     cannot be bound and is False (the pack contract requires every role key id in ``keys``).
 
-    Never raises on malformed input."""
-    if not isinstance(trust_pack, dict) or not isinstance(key_id, str) or not key_id:
+    Never raises on malformed input. The key id must be a plain ``str`` and the key a plain ``bytes`` or
+    ``bytearray`` object (``type()``, not ``isinstance()``, which believes an object's own ``__class__``:
+    an object claiming to be ``bytes`` was read with its own ``__len__`` and ``__bytes__``, and one whose
+    ``__bytes__`` returned a str raised a raw TypeError out of this function)."""
+    if not isinstance(trust_pack, dict) or type(key_id) is not str or not key_id:
         return False
-    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+    if not _is_key_material(public_key) or len(public_key) != 32:
         return False
     keys = trust_pack.get("keys")
     kv = keys.get(key_id) if isinstance(keys, dict) else None
@@ -286,7 +290,9 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
     if not isinstance(executor, dict) or not isinstance(trust_pack, dict):
         return False
     key_id = executor.get("keyId")
-    if not isinstance(key_id, str) or not key_id:
+    # type(), not isinstance(): a key id whose __class__ says str passed, and its own __eq__ then decided
+    # membership in the role's keyIds (measured: True for a key id that is not in the role).
+    if type(key_id) is not str or not key_id:
         return False
     roles = trust_pack.get("roles")
     role = roles.get(_OUTCOME_EXECUTOR_ROLE) if isinstance(roles, dict) else None
@@ -324,8 +330,10 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     trust in the pack itself.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
-    False — never a silent pass. Never raises on malformed input."""
-    if not isinstance(receiver_key_id, str) or not receiver_key_id or not isinstance(trust_pack, dict):
+    False — never a silent pass. Never raises on malformed input. The key id must be a plain ``str``
+    (``type()``, not ``isinstance()``): one whose ``__class__`` says str had its own ``__eq__`` decide
+    membership in the role."""
+    if type(receiver_key_id) is not str or not receiver_key_id or not isinstance(trust_pack, dict):
         return False
     roles = trust_pack.get("roles")
     role = roles.get(_OUTCOME_RECEIVER_ROLE) if isinstance(roles, dict) else None
@@ -433,11 +441,25 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the action-outcome predicate",
+                      error=lambda m: OutcomeReceiptError(f"invalid action-outcome predicate: {m}"))
+
+
 def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Outcome Receipt. The subject is by DEFAULT
     a commitment to the predicate: sha256 over its RFC-8785 canonical form. A caller-supplied override is
     self-attested and NOT cross-checked (No-Overclaim, same discipline as build_decision_statement)."""
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_outcome_predicate(predicate, strict=False)
     if errs:
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
@@ -455,8 +477,15 @@ def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = 
                          subject_sha256: str | None = None, keyid: str | None = None,
                          strict: bool = True) -> dict:
     """Sign an Outcome Receipt as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical. Fail-closed:
-    an invalid predicate raises before signing."""
+    an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_outcome_predicate(predicate, strict=strict)
     if errs:
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
@@ -556,7 +585,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
 
     ``evidence_resolver`` (Finding 03, additive): an optional callable ``f(digest_obj) -> bool`` checking a
     digest against ACTUALLY RESOLVED content; when supplied, ``evidence_levels["effect"]`` may reach
-    ``assurance.EvidenceLevel.CONTENT_RESOLVED`` instead of stopping at ``REFERENCE_WELL_FORMED``. Never
+    ``assurance.EvidenceLevel.CONTENT_RESOLVED`` instead of stopping at ``REFERENCE_WELL_FORMED``, and only
+    when it answers the exact ``True``: any other answer, a truthy one included (``1``, ``"true"``,
+    ``"false"``, a non-empty list, an object whose ``__bool__`` says True), does not promote. Never
     changes ``execution_proven`` (unchanged, additive) or the aggregate ``ok``.
 
     ``receiverRefs`` / Finding 16 (self-fixable part, additive) — third-party receiver/observer
@@ -569,7 +600,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       (reused, same param) lets an entry reach ``CONTENT_RESOLVED``; the NEW ``receiver_attestation_resolver``
       (an optional callable ``f(digest_obj) -> bool`` confirming the referenced content is itself a validly-
       signed statement from a party DISTINCT from the executor) lets it reach
-      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` — this is the built, self-fixable half of Finding 16;
+      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` only when it answers the exact ``True`` or the
+      32-byte signer key in a plain ``bytes`` or ``bytearray`` object; any other answer, a truthy one or an
+      object that only claims to be ``bytes`` included, does not promote, none of its methods runs, and
+      nothing it does escapes this function (see ``assurance.classify_receiver_corroboration``; the same
+      rule decides ``receiver_role_trusted`` and ``receiver_key_bound`` below) — this is the built,
+      self-fixable half of Finding 16;
       ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
       ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
     - ``receiver_role_trusted`` (Finding 16, additive) — when ``trust_pack`` is supplied AND ``receiverRefs``
@@ -802,7 +838,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     if not receiver_trusted_by_role(_kid, trust_pack):
                         continue
                     _ans = _recv_answers.get(i)
-                    if isinstance(_ans, (bytes, bytearray)):
+                    # The ladder's rule (assurance._is_key_material): an answer that only claims to be bytes
+                    # is not key material here either, so bytes() never runs its __bytes__ (a str from it
+                    # raised a raw TypeError out of this never-raise function) and it binds nothing.
+                    if _is_key_material(_ans):
                         if pack_key_binds_signer(_kid, trust_pack, bytes(_ans)):
                             _trusted = True
                             _rbound = True

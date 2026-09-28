@@ -19,7 +19,7 @@ from typing import Any
 
 from ._statement_payload import load_statement_strict
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 RUN_LEDGER_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/run-ledger/v0.1"
 RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
@@ -169,18 +169,30 @@ def link_runs(result_digests: list[str], statuses: list[str] | None = None) -> l
     ``statuses`` defaults to all ``completed``. seq is 1-based; prevDigest chains each run to the previous
     result; the first prevDigest is null. Fail-closed: a non-64-hex digest raises ``RunLedgerError`` (the
     ledger never carries a malformed chain link)."""
-    statuses = statuses or ["completed"] * len(result_digests)
-    if len(statuses) != len(result_digests):
+    # READ ONCE (lens run 8 at fddc00f4, the sweep of finding B): the length check asked the caller's
+    # `__len__` and the loop its `__iter__`, and a status was checked through a `str` subclass's
+    # `__eq__` and `__hash__` and written as the object; each list and each text is read once here.
+    from ._plain_value import plain_list  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    digests = plain_list(result_digests)
+    if digests is None:
+        digests = list(result_digests)
+    stored = plain_list(statuses) if statuses is not None else []
+    if stored is None:
+        stored = list(statuses) if statuses else []
+    stati = stored or ["completed"] * len(digests)
+    if len(stati) != len(digests):
         raise RunLedgerError("statuses length must match result_digests length")
     runs: list[dict] = []
     prev: dict | None = None
-    for i, (rd, st) in enumerate(zip(result_digests, statuses)):
-        if not (isinstance(rd, str) and _SHA256_HEX.match(rd)):
+    for i, (rd, st) in enumerate(zip(digests, stati)):
+        rd_text, st_text = plain_text(rd), plain_text(st)
+        if rd_text is None or not _SHA256_HEX.match(rd_text):
             raise RunLedgerError(f"result_digests[{i}] is not a 64-hex sha256")
-        if not is_member(st, _RUN_STATUS):
+        if st_text is None or not is_member(st_text, _RUN_STATUS):
             raise RunLedgerError(f"statuses[{i}] must be one of {sorted(_RUN_STATUS)}")
-        runs.append({"seq": i + 1, "status": st, "resultDigest": {"sha256": rd}, "prevDigest": prev})
-        prev = {"sha256": rd}
+        runs.append({"seq": i + 1, "status": st_text, "resultDigest": {"sha256": rd_text}, "prevDigest": prev})
+        prev = {"sha256": rd_text}
     return runs
 
 
@@ -202,8 +214,22 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the run-ledger predicate",
+                      error=lambda m: RunLedgerError(f"invalid run-ledger predicate: {m}"))
+
+
 def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_run_ledger_predicate(predicate, strict=False)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
@@ -220,7 +246,15 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:
+    """Sign a Run Ledger as a DSSE-signed in-toto Statement; an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))

@@ -93,7 +93,21 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
 
     The proof is deserialized ONCE for both figures below (the same class as 229A-01 in
     ``describe_proof``; here the two deserializations ran one after the other, doubling the work, not the
-    peak)."""
+    peak).
+
+    The proof and the bundled headers are read once (lens run 8 at fddc00f4, the sweep of finding B):
+    the figures derived from the proof and the proof written into the pack are one byte string, read
+    from storage (a `bytes` or `bytearray`), and the header map that decides `bundledHeaderEvidence` is
+    the one copied into `frozen`."""
+    from ._plain_value import plain_json  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    from .signature import plain_bytes  # noqa: PLC0415
+    proof_bytes = plain_bytes(proof)
+    if proof_bytes is None:
+        raise BundleFormatError(f"the OTS proof must be bytes or bytearray, got {type(proof).__name__}")
+    proof = proof_bytes
+    if bundled_headers is not None and isinstance(bundled_headers, dict):
+        bundled_headers = plain_json(bundled_headers, what="bundled_headers", error=BundleFormatError)
     try:
         timestamp = _deserialize_detached(proof).timestamp
     except Exception:   # no [anchors] extra, malformed, or over the cap: no calendars, not self-contained
