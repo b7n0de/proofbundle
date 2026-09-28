@@ -339,7 +339,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   not in a presentation from `present_with_key_binding`, with or without a KB-JWT. (4) A low s is
   required only of signatures proofbundle makes itself. It makes no ES256 signature today; its own
   signatures on these paths are Ed25519, which has one spelling by the S bound, and a test keeps an
-  inventory of the ECDSA code in the package so a new signing path is noticed. proofbundle also
+  inventory of the ECDSA code in the package so a new signing path is noticed. Up to 31816e08 that
+  inventory knew two curve names, so a P-384 signing path in `signature.py`, where the verifier's
+  `ECDSA` is allowed, passed it. It now knows every curve `cryptography` and python-ecdsa ship, the
+  names that make an EC private key and the signing call `<key>.sign(data, algorithm)` itself, and a
+  path planted on each curve fails it (a test change; nothing under `src/` changed). proofbundle also
   signs with ML-DSA (`pqsig.sign_mldsa`, `checkpoint.cosign_checkpoint_mldsa`, the renewal layer);
   whether an ML-DSA signature has a second spelling was not measured in this change.
 
