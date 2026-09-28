@@ -19,8 +19,11 @@ name: Landung
 #
 # THE STEPS ARE ci.yml's STEPS. A contract holds both copies equal apart from `needs` and `if`
 # (tests/test_ein_label_startet_keine_ci.py); the reasons for each step are written there, in ci.yml.
-# Unlike ci.yml, the layer here cannot wait for test and coverage: `needs` does not reach into
-# another workflow. The label is set at landing, when that CI is green.
+#
+# THE LAYER WAITS FOR test AND coverage OF THE SAME HEAD, as it does in ci.yml. `needs` does not
+# reach into another workflow, so the job `ci-prerequisites` waits for them in the ci.yml run of the
+# head and fails unless they succeeded, and `mutation` needs that job (Codex on pull request 310,
+# round two, P1: without it a push to a labelled candidate started 36 shards beside CI).
 
 on:
   pull_request:
@@ -47,9 +50,33 @@ permissions:
   contents: read
 
 jobs:
+  ci-prerequisites:
+    # The `needs: [test, coverage]` of ci.yml's mutation job, across the two workflows: it waits for
+    # those jobs in the latest ci.yml run of this head and fails unless all of them succeeded
+    # (scripts/landung_waits_for_ci.py says how, and why each outcome is what it is). It carries the
+    # layer's predicate, so it runs exactly when the layer would, and holds one runner, not 36.
+    if: >-
+      ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
+      || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
+           && contains(github.event.pull_request.labels.*.name, 'landung') )
+    runs-on: ubuntu-latest
+    # coverage takes about 55 minutes on a runner; the job waits for it, and not longer than this.
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Wait for test and coverage of ci.yml on this head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/landung_waits_for_ci.py
+
   mutation:
     # Starts when `landung` is SET, and on every new head of a pull request that carries it; not when
-    # it is removed and not for any other label.
+    # it is removed and not for any other label. Only after test and coverage of that head succeeded.
+    needs: [ci-prerequisites]
     if: >-
       ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
       || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )

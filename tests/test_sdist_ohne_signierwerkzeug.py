@@ -403,6 +403,9 @@ AUSGESCHLOSSEN = {
     # pull request, and a workflow runs it on every pull request. An installed package has no pull
     # request and no repository to ask. Same reasoning as `required_context_presence_gate.py`.
     "codex_threads_check.py": "asks the GitHub API for the Codex threads of one pull request; no pull request inside a package",
+    # 2026-09-28: asks the GitHub API for the ci.yml runs and jobs of one pull request head, and
+    # landung.yml runs it before the mutation layer. Same reasoning as the sibling one line up.
+    "landung_waits_for_ci.py": "asks the GitHub API for the ci.yml jobs of one pull request head; no pull request inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung

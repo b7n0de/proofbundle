@@ -17,9 +17,14 @@ WHAT THIS HOLDS, each with a counter-example it fails on:
      skipped by a condition as success; on a required context that could stand beside a red one. That is
      why ci.yml got no condition, and why this file must never carry a required context.
   5. Another label leaves a running layer alone: the concurrency group carries the label's name.
+  6. The layer waits for test and coverage of the same head, as it does in ci.yml (Codex on pull
+     request 310, round two, P1): `mutation` needs `ci-prerequisites`, which runs
+     scripts/landung_waits_for_ci.py with the layer's own predicate, and the jobs that script waits
+     for are the `needs` of ci.yml's mutation job. The script's verdict is measured as a program.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import pathlib
 
@@ -39,6 +44,35 @@ LABEL_BEDINGUNG = ("( github.event.action == 'labeled' && github.event.label.nam
                    "&& contains(github.event.pull_request.labels.*.name, 'landung') )")
 #: The events on which a labelled candidate gets a new head while the label stays.
 NEUER_KOPF = ("synchronize", "reopened")
+#: The job that holds the layer back until test and coverage of ci.yml succeeded on the same head.
+VORBEDINGUNG = "ci-prerequisites"
+SKRIPT = REPO / "scripts" / "landung_waits_for_ci.py"
+
+
+def _skript():
+    spec = importlib.util.spec_from_file_location("landung_waits_for_ci", SKRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _wartet_nicht(d: dict) -> list[str]:
+    """How the layer of a landung.yml could start without test and coverage of its head."""
+    jobs = d.get("jobs") or {}
+    schlecht = []
+    if VORBEDINGUNG not in jobs:
+        return [f"no job {VORBEDINGUNG}"]
+    if (jobs.get("mutation") or {}).get("needs") != [VORBEDINGUNG]:
+        schlecht.append(f"mutation does not need {VORBEDINGUNG}")
+    schritte = jobs[VORBEDINGUNG].get("steps") or []
+    laeufe = [s for s in schritte if "scripts/landung_waits_for_ci.py" in str(s.get("run", ""))]
+    if len(laeufe) != 1:
+        schlecht.append(f"{VORBEDINGUNG} does not run scripts/landung_waits_for_ci.py exactly once")
+    elif (laeufe[0].get("env") or {}).get("HEAD_SHA") != "${{ github.event.pull_request.head.sha }}":
+        schlecht.append(f"{VORBEDINGUNG} does not name the head of the event")
+    if (jobs[VORBEDINGUNG].get("permissions") or {}).get("actions") != "read":
+        schlecht.append(f"{VORBEDINGUNG} cannot read the runs of ci.yml")
+    return schlecht
 
 
 def _lade(name: str) -> dict:
@@ -159,7 +193,102 @@ def test_die_schicht_startet_nur_wenn_landung_gesetzt_wird():
     assert _kern(jobs["mutation-summary"]["if"]) == LABEL_BEDINGUNG, (
         "producer and collector carry different predicates -- the collector is then red when the layer "
         "stays away on purpose, or silent when it is red")
+    assert _kern(jobs[VORBEDINGUNG]["if"]) == LABEL_BEDINGUNG, (
+        "the prerequisite and the layer carry different predicates -- then the layer either never "
+        "starts or starts without its prerequisite having run")
     assert jobs["mutation-summary"]["needs"] == ["mutation"]
+
+
+def test_die_schicht_wartet_auf_test_und_coverage_desselben_kopfes():
+    """Codex on pull request 310, round two (P1): a push to a labelled candidate started 36 shards beside
+    CI. In ci.yml the layer needs test and coverage; the script waits for exactly those jobs."""
+    assert _wartet_nicht(_lade("landung.yml")) == []
+    s = _skript()
+    assert s.CI_NEEDS == tuple(_lade("ci.yml")["jobs"]["mutation"]["needs"]), (
+        "the script waits for other jobs than the ones ci.yml's mutation job needs")
+    assert (WF / s.CI_WORKFLOW).is_file()
+
+
+# ── the script's verdict, measured as a program ─────────────────────────────────────────────────────
+
+
+def _job(name: str, status: str = "completed", conclusion: "str | None" = "success") -> dict:
+    return {"name": name, "status": status, "conclusion": conclusion}
+
+
+GRUEN = [_job("test (3.10)"), _job("test (3.14)"), _job("coverage"), _job("guard"),
+         _job("mutation", conclusion="skipped")]
+
+
+@pytest.mark.parametrize("jobs,lauf,erwartet", [
+    (GRUEN, "completed", "green"),
+    # a red leg is red at once, while coverage is still running
+    ([_job("test (3.10)", conclusion="failure"), _job("coverage", "in_progress", None)], "in_progress", "red"),
+    ([_job("test (3.10)"), _job("coverage", conclusion="cancelled")], "completed", "red"),
+    ([_job("test (3.10)", conclusion="skipped"), _job("coverage")], "completed", "red"),
+    ([_job("test (3.10)"), _job("coverage", "in_progress", None)], "in_progress", "wait"),
+    ([_job("test (3.10)", "queued", None)], "in_progress", "wait"),
+    ([], "queued", "wait"),
+    # a finished run without one of the jobs never turns green
+    ([_job("test (3.10)")], "completed", "red"),
+    ([_job("coverage")], "completed", "red"),
+    # another job's red is not the layer's business, and a name that only starts like `test` is not a leg
+    ([_job("test (3.10)"), _job("coverage"), _job("anchors", conclusion="failure")], "completed", "green"),
+    ([_job("tests-extra", conclusion="failure"), _job("test (3.10)"), _job("coverage")], "completed", "green"),
+])
+def test_das_urteil_des_skripts(jobs, lauf, erwartet):
+    assert _skript().judge(jobs, lauf)[0] == erwartet
+
+
+class _FalscheApi:
+    """The two GitHub answers the script reads, served from a list of states, one per poll."""
+
+    def __init__(self, laeufe_je_ruf, jobs):
+        self.laeufe_je_ruf, self.jobs, self.schlaf, self.uhr = list(laeufe_je_ruf), jobs, 0, 0.0
+
+    def fetch(self, path, token):
+        if "/jobs?" in path:
+            return {"total_count": len(self.jobs), "jobs": self.jobs}
+        return {"workflow_runs": self.laeufe_je_ruf.pop(0) if self.laeufe_je_ruf else []}
+
+    def sleep(self, s):
+        self.schlaf += 1
+        self.uhr += s
+
+
+# Fixture values, not measurements: a head, and the creation stamps of two runs in a fixed order.
+ENV = {"GITHUB_REPOSITORY": "o/r", "HEAD_SHA": "a" * 40}
+LAUF = {"id": 7, "head_sha": "a" * 40, "created_at": "2026-01-01T00:00:00Z", "status": "completed"}
+
+
+def test_das_skript_wartet_bis_der_lauf_erscheint_und_urteilt_dann():
+    api = _FalscheApi([[], [], [LAUF]], GRUEN)
+    assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
+    assert api.schlaf == 2
+
+
+def test_das_skript_wird_rot_wenn_kein_lauf_erscheint():
+    api = _FalscheApi([], GRUEN)
+    s = _skript()
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
+    assert api.uhr > s.APPEAR_S
+
+
+def test_das_skript_liest_nur_den_lauf_dieses_kopfes():
+    fremd = dict(LAUF, head_sha="b" * 40, created_at="2026-01-02T00:00:00Z")
+    api = _FalscheApi([[fremd], [fremd, LAUF]], GRUEN)
+    assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
+    assert api.schlaf == 1, "the run of another head was read as this head's"
+
+
+def test_das_skript_wird_rot_wenn_die_api_nicht_lesbar_ist():
+    s = _skript()
+    api = _FalscheApi([], GRUEN)
+
+    def kaputt(path, token):
+        raise s.ReadError("HTTP 502")
+    assert s.main(fetch=kaputt, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
+    assert api.schlaf == s.MAX_READ_ERRORS - 1
 
 
 def test_die_schritte_beider_kopien_sind_gleich():
@@ -220,6 +349,24 @@ def test_fangnachweis_ein_verpasster_neuer_kopf_wird_gefunden():
     assert "type synchronize not subscribed" in befund and "mutation does not run on synchronize" in befund
     assert any(b.startswith("a new head does not join") for b in befund)
     assert _neuer_kopf_verpasst(_lade("landung.yml")) == []
+
+
+def test_fangnachweis_eine_schicht_ohne_vorbedingung_wird_gefunden():
+    d = _lade("landung.yml")
+    ohne_needs = json.loads(json.dumps(d, default=str))
+    del ohne_needs["jobs"]["mutation"]["needs"]
+    assert _wartet_nicht(ohne_needs) == [f"mutation does not need {VORBEDINGUNG}"]
+    ohne_job = json.loads(json.dumps(d, default=str))
+    del ohne_job["jobs"][VORBEDINGUNG]
+    assert _wartet_nicht(ohne_job) == [f"no job {VORBEDINGUNG}"]
+    fremder_kopf = json.loads(json.dumps(d, default=str))
+    for schritt in fremder_kopf["jobs"][VORBEDINGUNG]["steps"]:
+        if "env" in schritt:
+            schritt["env"]["HEAD_SHA"] = "${{ github.sha }}"
+    assert _wartet_nicht(fremder_kopf) == [f"{VORBEDINGUNG} does not name the head of the event"]
+    ohne_recht = json.loads(json.dumps(d, default=str))
+    ohne_recht["jobs"][VORBEDINGUNG]["permissions"] = {"contents": "read"}
+    assert _wartet_nicht(ohne_recht) == [f"{VORBEDINGUNG} cannot read the runs of ci.yml"]
 
 
 def test_fangnachweis_kern_streift_nur_ein_echtes_paar_ab():
