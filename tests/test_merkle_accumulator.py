@@ -200,6 +200,40 @@ class TheRestartRule(unittest.TestCase):
             with self.assertRaises(self.a.AccumulatorStateError):
                 self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
 
+    def test_restored_leaf_hashes_are_32_bytes_each_not_pieces_of_one_joined_string(self) -> None:
+        """The state commits to its leaf hashes by the SHA-256 of their concatenation, and the frontier check
+        feeds them to the unframed node hash: neither sees where one leaf hash ends and the next begins. A
+        re-split of the same bytes, [h0[:1], h0[1:] + h1], keeps the count, the digest and the frontier. Each
+        restored leaf hash is 32 bytes of type bytes (a bytearray could change after the check), and a
+        list of them, or the state is refused."""
+        from proofbundle import merkle
+        akku, zustand = self._state_at(2, keep=True)
+        pub = _pub(self.signer)
+        h0, h1 = akku.leaf_hashes
+        vorne, hinten = [h0[:1], h0[1:] + h1], [h0 + h1[:1], h1[1:]]
+        # Catch proof: the re-splits pass the count, the digest and the frontier as they stand, so only a rule
+        # on each leaf hash's own length can refuse them.
+        for teile in (vorne, hinten):
+            self.assertEqual(len(teile), 2)
+            self.assertEqual(b"".join(teile), h0 + h1)
+            self.assertEqual(self.a.MerkleAccumulator._frontier_from_leaf_hashes(teile), akku.frontier)
+            self.assertFalse(merkle.verify_inclusion(_LEAVES[0], 0, 2, [teile[1]], akku.root()))
+        faelle = {
+            "re-split after byte 1": vorne,
+            "re-split after byte 33": hinten,
+            "hex strings": [h0.hex(), h1.hex()],
+            "a bytearray": [bytearray(h0), h1],
+            "a generator": (h for h in (h0, h1)),
+            "one bytes object": h0 + h1,
+        }
+        for name, blaetter in faelle.items():
+            with self.subTest(case=name):
+                with self.assertRaises(self.a.AccumulatorStateError):
+                    self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=blaetter)
+        with self.subTest(case="the leaf hashes as written, as a tuple"):
+            wieder = self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=(h0, h1))
+            self.assertEqual(wieder.inclusion_proof_at(0), [h1])
+
     def test_a_low_order_pinned_key_refuses_a_state_that_nobody_signed(self) -> None:
         """R = identity, S = 0 verifies for every message under the identity point, so under such a pinned
         key a state needs no private key at all (tests/test_trust_anchor_keys_refused_on_every_surface.py).
