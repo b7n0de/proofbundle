@@ -428,7 +428,15 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: Beide Budgets tragen die korrigierten Werte weiterhin: coverage braucht ceil(41*1.25)=52 bei 60,
 #: `test` braucht ceil(33*1.25)=42 bei 50. Die Workflows aendern sich dadurch NICHT — korrigiert wird
 #: die Behauptung, nicht die Verdrahtung.
-GEMESSENE_MAXIMA_MIN = {"test": 33, "coverage": 41}
+#:
+#: MEASURED AGAIN 2026-09-28, AND THE OLD NUMBERS HAD STOPPED MEANING ANYTHING. Over the 40 most recent
+#: completed CI runs (139 jobs that ended success or failure, the same method as above), the longest
+#: test leg took 46.3 min (3.14, run 36414971006 at 3c5755c0) and the longest coverage run 59.5 min
+#: (run 36434288455 at 0d262332). With 33 and 41 here this case stayed green while test (3.10) was cut
+#: at its 50-minute limit twice and coverage at 60:22: a guard that compares against a measurement
+#: from two weeks ago judges a machine that no longer exists. With today's maxima, 50 and 60 fail it
+#: (59 and 75 needed); the owner decision of 2026-09-28 (card OA-cb15f2bf74) sets 70 and 80.
+GEMESSENE_MAXIMA_MIN = {"test": 47, "coverage": 60}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.
