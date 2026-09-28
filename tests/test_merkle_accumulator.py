@@ -190,6 +190,19 @@ class TheRestartRule(unittest.TestCase):
             with self.assertRaises(self.a.AccumulatorStateError):
                 self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
 
+    def test_a_low_order_pinned_key_refuses_a_state_that_nobody_signed(self) -> None:
+        """R = identity, S = 0 verifies for every message under the identity point, so under such a pinned
+        key a state needs no private key at all (tests/test_trust_anchor_keys_refused_on_every_surface.py).
+        The pinned key is checked as a trust anchor before any signature arithmetic, and the state refused."""
+        import base64
+        _akku, zustand = self._state_at(37)
+        universell = base64.b64encode(b"\x01" + b"\x00" * 31 + b"\x00" * 32).decode()
+        for name, schluessel in (("identity, canonical", b"\x01" + b"\x00" * 31),
+                                 ("identity, x-sign bit set", b"\x01" + b"\x00" * 30 + b"\x80")):
+            with self.subTest(key=name):
+                with self.assertRaises(self.a.AccumulatorStateError):
+                    self.a.MerkleAccumulator.restore(dict(zustand, signature=universell), schluessel)
+
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
 class HashWorkPerAppendDoesNotRecomputeTheHistory(unittest.TestCase):

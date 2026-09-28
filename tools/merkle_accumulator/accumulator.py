@@ -44,12 +44,14 @@ import base64
 import hashlib
 from typing import List, Optional
 
-import rfc8785
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import merkle
+from proofbundle._wire_b64 import decode_b64
+from proofbundle.canonical import canonicalize_statement
 from proofbundle.emit import SCHEMA
+from proofbundle.errors import ProofBundleError
+from proofbundle.signature import verify_ed25519_pinned
 
 STATE_FORMAT = "proofbundle-merkle-accumulator-state/1"
 WHAT_IS_SIGNED = ("the state of an append-only RFC 6962 tree (its size, frontier and root), not any event; "
@@ -142,19 +144,24 @@ class MerkleAccumulator:
 
     def state(self, signer: Ed25519PrivateKey) -> dict:
         inhalt = self._unsigned_state()
-        signatur = signer.sign(rfc8785.dumps(inhalt))
+        signatur = signer.sign(canonicalize_statement(inhalt))
         return {"state": inhalt, "signature": base64.b64encode(signatur).decode("ascii")}
 
     @classmethod
     def restore(cls, gespeichert: dict, public_key: bytes, leaf_hashes: Optional[List[bytes]] = None
                 ) -> "MerkleAccumulator":
         """Restart from a persisted state. Refuses, never rebuilds: see the module docstring."""
+        # The signature is decoded by the house's strict decoder (one wire form per signature), the state
+        # canonicalized as it was signed, and the pinned key checked as a trust anchor: a malformed,
+        # non-canonical or low-order key refuses the state before any signature arithmetic.
         try:
-            inhalt, signatur = gespeichert["state"], base64.b64decode(gespeichert["signature"], validate=True)
-            Ed25519PublicKey.from_public_bytes(public_key).verify(signatur, rfc8785.dumps(inhalt))
-        except (KeyError, TypeError, ValueError, InvalidSignature) as exc:
+            inhalt, signatur = gespeichert["state"], decode_b64(gespeichert["signature"])
+            nachricht = canonicalize_statement(inhalt)
+        except (KeyError, TypeError, ValueError, ProofBundleError) as exc:
             raise AccumulatorStateError(f"the state's signature does not verify under the pinned key "
                                         f"({type(exc).__name__})") from exc
+        if not verify_ed25519_pinned(public_key, signatur, nachricht):
+            raise AccumulatorStateError("the state's signature does not verify under the pinned key")
         if inhalt.get("format") != STATE_FORMAT or inhalt.get("what_is_signed") != WHAT_IS_SIGNED:
             raise AccumulatorStateError("the state is not in the format this accumulator writes")
         groesse = inhalt.get("tree_size")
