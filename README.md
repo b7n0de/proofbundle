@@ -24,20 +24,20 @@
 
 ## Current release
 
-**[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit not run**
+**[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit result in the release notes**
 
-[Known limitations](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/release_scope/6.1.0.md) · [Audit evidence](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md)
+[Known limitations](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/docs/release_scope/6.2.0.md)
 
 <details>
 <summary>What was checked, and what remains open</summary>
 
-The [release audit record](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md#the-pre-tag-receipt-and-the-closing-round-of-610) states that the closing round was not run because the required model family floor was not met. The audit readiness criteria C6.2, C6.3 and C8.2 remain red. The full 24 hour soak on the candidate was not included at tag time.
+6.2.0 closes five findings in the released 6.0.0 and 6.1.0 at the verify boundary: a related map that says it is empty no longer hides a retraction, an edge's `declaredAt` takes ASCII digits only as the Rust verifier does, a low-order Ed25519 key is refused both as a trusted key and as the holder key of a key binding, and a caller's resolver promotes a verdict only on the exact `True`. The release notes name the affected versions, the effect and the upgrade.
+
+The closing round runs on the frozen tree that carries this file, so this file cannot state its result. The release notes of v6.2.0 state it, with the families that ran and the checks that did not.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
-[Pre tag receipt](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/pre_tag_receipt_v6.1.0.json) · [Residual risks](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [Findings register](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/findings_register_v2.json)
-
-The v2 findings register is unsigned. Its signature state must not be inferred from the separate pre tag receipt.
+[Residual risks](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/RESTRISIKO_620.md)
 
 </details>
 
