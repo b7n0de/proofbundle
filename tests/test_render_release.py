@@ -506,3 +506,60 @@ class DerSicherheitsabschnittIstOptionalUndVollstaendig(unittest.TestCase):
     def test_ohne_abschnitt_rendert_nichts_davon(self):
         text = rendere(DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None))
         self.assertNotIn("## Security fixes", text)
+
+
+class DieKetteDes610ReleaseMussRendern(unittest.TestCase):
+    """THE ONE-CARRIER RULE WAS TOO NARROW, measured against the release it would have to serve.
+
+    `v6.1.0` points at `dcac5aee`, a MERGE commit (pull request 244, the receipt ceremony) whose first
+    parent is the frozen head `618f4b4b`; between them lie only files under `audit_artifacts/`. A
+    rule that accepts one single-parent carrier changing only `release_notes/` refuses that shape.
+    What the binding means is that the tagged tree ships the package the notes describe: the
+    described commit is an ancestor of HEAD, and everything between them lies under paths the package
+    does not ship (`release_notes/`, which MANIFEST.in never lists, and `audit_artifacts/`, which it
+    prunes)."""
+
+    def test_RED_ein_merge_mit_belegen_ueber_dem_beschriebenen_baum_rendert(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_mit_quelle(Path(d))
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+            def git(*a: str) -> str:
+                return subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c",
+                                       "user.email=t@t", "-c", "commit.gpgsign=false", *a],
+                                      check=True, capture_output=True, text=True, env=env,
+                                      timeout=60).stdout.strip()
+
+            git("checkout", "-q", "-b", "beleg", "HEAD")
+            (w / "audit_artifacts").mkdir()
+            (w / "audit_artifacts" / "pre_tag_receipt.json").write_text("{}\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-qm", "receipt")
+            git("checkout", "-q", "-")
+            git("merge", "-q", "--no-ff", "-m", "merge the receipt", "beleg")
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_RED_zwei_traeger_nacheinander_rendern(self):
+        """The notes, then the evidence: two single-parent commits over the described tree."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            w = _baum_mit_quelle(Path(d))
+            env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+            (w / "audit_artifacts").mkdir()
+            (w / "audit_artifacts" / "soak.json").write_text("{}\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", "commit", "-qam", "x", "--allow-empty"],
+                           check=True, capture_output=True, env=env, timeout=60)
+            subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", "add", "-A"], check=True, env=env)
+            subprocess.run(["git", "-C", str(w), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", "commit", "-qm", "evidence"],
+                           check=True, capture_output=True, env=env, timeout=60)
+            r = _render_im(w)
+        self.assertEqual(r.returncode, 0, r.stderr)

@@ -101,8 +101,10 @@ def kopf_des_baums(repo: Path) -> str | None:
     return kopf if r.returncode == 0 and len(kopf) == 40 else None
 
 
-#: What the commit that carries the notes may change against the tree they describe.
-NOTIZPFAD = "release_notes/"
+#: What may differ between the tree the notes describe and the tagged tree: paths the package does not
+#: ship. MANIFEST.in never lists `release_notes/` and prunes `audit_artifacts/`, and the wheel is
+#: built from `src/`, so a difference confined to these two leaves the shipped package unchanged.
+NICHT_AUSGELIEFERT = ("release_notes/", "audit_artifacts/")
 
 
 def _git(repo: Path, *args: str) -> str | None:
@@ -115,30 +117,33 @@ def _git(repo: Path, *args: str) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
-def traegt_nur_die_notiz(repo: Path, erklaert: str, kopf: str) -> str | None:
-    """None when `kopf` is the commit that carries the notes directly on top of `erklaert` and
-    changes nothing outside `release_notes/`; otherwise the reason it is not.
+def liefert_dasselbe_paket(repo: Path, erklaert: str, kopf: str) -> str | None:
+    """None when `erklaert` is an ancestor of `kopf` and every path that differs between them lies
+    under `NICHT_AUSGELIEFERT`; otherwise the reason it does not.
 
     A SOURCE CANNOT NAME THE COMMIT THAT CARRIES IT. The release workflow renders in the checkout of
     the tag and compared the source's `release_commit` with that checkout's HEAD. The source is a
     file of the tagged commit, and a commit cannot hold its own id: measured on 2026-09-28, three
     rounds of writing HEAD into the source and committing gave three new heads and three refusals.
-    So the tagged commit may be the carrier of the notes, with exactly one parent, the described
-    tree, and no change outside the notes. That is the line the tree digest draws with
-    `MUTABLE_EVIDENCE_RELS`: evidence stays out of the tree it binds.
+
+    THE FIRST FIX OF THIS WAS TOO NARROW. It accepted one single-parent commit on top of the described
+    tree that changed only `release_notes/`. `v6.1.0` points at a merge commit (pull request 244, the
+    receipt ceremony) whose first parent is the frozen head, with only `audit_artifacts/` between them,
+    and that rule refused it. What the binding has to mean is that the tagged tree ships the package
+    the notes describe, which is the line the tree digest already draws for the receipt and the
+    readiness evidence: evidence stays out of the tree it binds.
     """
-    eltern = _git(repo, "rev-list", "--parents", "-n", "1", kopf)
-    if eltern is None:
-        return "the parents of HEAD cannot be read"
-    if eltern.split()[1:] != [erklaert]:
-        return f"HEAD {kopf[:12]} is not a single-parent child of the described tree {erklaert[:12]}"
+    ist_vorfahre = _git(repo, "merge-base", "--is-ancestor", erklaert, kopf)
+    if ist_vorfahre is None:
+        return f"the described tree {erklaert[:12]} is not an ancestor of HEAD, or this clone lacks it"
     geaendert = _git(repo, "diff", "--name-only", "--no-renames", "-z", erklaert, kopf)
     if geaendert is None:
         return "the change from the described tree to HEAD cannot be read"
-    fremd = [p for p in geaendert.split("\0") if p and not p.startswith(NOTIZPFAD)]
+    fremd = [p for p in geaendert.split("\0")
+             if p and not any(p.startswith(n) for n in NICHT_AUSGELIEFERT)]
     if fremd:
-        return (f"HEAD changes {len(fremd)} path(s) outside {NOTIZPFAD} against the described tree "
-                f"({', '.join(fremd[:3])})")
+        return (f"HEAD changes {len(fremd)} path(s) outside {' and '.join(NICHT_AUSGELIEFERT)} "
+                f"against the described tree ({', '.join(fremd[:3])})")
     return None
 
 
@@ -192,9 +197,10 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None,
             befunde.append("the source declares no 40-character release_commit, so the notes cannot "
                            "say which tree they describe")
         elif erklaert != kopf:
-            # With the tree at hand, the carrier of the notes is the one commit that may differ
-            # (`traegt_nur_die_notiz`); a stated head without a tree keeps the exact comparison.
-            grund = (traegt_nur_die_notiz(baum, erklaert, kopf) if baum is not None
+            # With the tree at hand, HEAD may be a descendant that differs only in paths the package
+            # does not ship (`liefert_dasselbe_paket`); a stated head without a tree keeps the exact
+            # comparison.
+            grund = (liefert_dasselbe_paket(baum, erklaert, kopf) if baum is not None
                      else "no tree was given to read the commit between them")
             if grund is not None:
                 befunde.append(
