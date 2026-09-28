@@ -5,12 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    # `labeled` ist NICHT der Standard: GitHub sendet ohne `types` nur opened, synchronize und
-    # reopened. Die schwere Schicht haengt aber am Label `landung` — das Anbringen des Labels an
-    # einem ruhenden PR loeste damit GAR KEINEN Lauf aus, und die vier zusaetzlichen
-    # Versionskontexte blieben abwesend, bis jemand zufaellig nachpusht. Ein Zustandspraedikat
-    # ohne das passende Ereignis ist eine Bedingung, die niemand stellt.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # A LABEL STARTS NO RUN OF THIS WORKFLOW (owner word 2026-09-28, EIN-LABEL-STARTET-KEINE-CI-MEHR-01).
+    # Until then the types carried `labeled` and `unlabeled` for the label `landung`, and the
+    # concurrency group below cancels a running pull_request run: measured 2026-09-28 09:28Z and
+    # 09:40Z, every label set on a pull request of the 6.2.0 chain cancelled its running CI and
+    # started a full one, about 55 minutes each. What hangs on `landung` and has to start the
+    # moment the label is set -- the mutation layer -- lives in landung.yml. The label is still
+    # read here for a fork pull request's full matrix, at that pull request's next push.
+    types: [opened, synchronize, reopened]
   merge_group:              # Merge Queue: der Kandidatenzweig, den die Queue selbst baut.
     # Ohne diesen Ausloeser laeuft auf einem Queue-Eintrag GAR KEIN Job, also meldet auch keiner
     # der sieben Pflichtkontexte, und der Eintrag wartet bis zum Timeout auf eine Pruefung, die
@@ -469,13 +471,17 @@ jobs:
     # B3, der Landekandidat: die volle Mutationsschicht gehoert an den Kandidaten, nicht an jeden
     # WIP-Push. Drei Wege fuehren hinein und sie sind absichtlich verschieden — ein Label am PR,
     # ein release/-Zweig, oder der Griff von Hand. Auf allem anderen laeuft die schnelle Schicht.
+    #
+    # THE LABEL WAY MOVED TO landung.yml (owner word 2026-09-28, EIN-LABEL-STARTET-KEINE-CI-MEHR-01):
+    # this workflow no longer runs on a label event, so the label is read there, at the moment it
+    # is set. The other ways stay here, and so does `needs`. A contract holds the steps of the two
+    # copies equal (tests/test_ein_label_startet_keine_ci.py).
     needs: [test, coverage]
     if: >-
       github.event_name == 'workflow_dispatch'
       || ( github.event.pull_request.head.repo.full_name == github.repository
            && startsWith(github.head_ref, 'release/') )
       || startsWith(github.ref_name, 'release/')
-      || contains(github.event.pull_request.labels.*.name, 'landung')
       || github.event_name == 'merge_group'
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
@@ -651,7 +657,6 @@ jobs:
            || ( github.event.pull_request.head.repo.full_name == github.repository
                 && startsWith(github.head_ref, 'release/') )
            || startsWith(github.ref_name, 'release/')
-           || contains(github.event.pull_request.labels.*.name, 'landung')
            || github.event_name == 'merge_group' )
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -925,7 +930,8 @@ jobs:
           elif not full:
               print("::error title=all-checks-passed::the full test matrix did not run on this event "
                     "(fork pull request without the landung label); one version passing is not "
-                    "five versions passing -- add the label `landung` or push from this repository")
+                    "five versions passing -- add the label `landung` and push again (a label "
+                    "alone starts no run of this workflow), or push from this repository")
               sys.exit(1)
           print("all-checks-passed: every needed job succeeded" + ("" if not full else " on the full matrix"))
           PY
