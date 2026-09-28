@@ -15,7 +15,9 @@ and a skipped check at the same head could hide a red one.
 Properties, each with a case that fails without it:
 
 - pr-form.yml starts on `pull_request` with `edited`, `milestoned` and `demilestoned` beside the
-  three default types, for every base branch, so a stacked pull request is judged as well;
+  three default types, for every base branch, so a stacked pull request is judged as well, and not
+  on `labeled` or `unlabeled`: the milestone is the only sorting sign on a pull request, and the gate
+  has no rule about labels (owner order of 2026-09-28, 14:17 Berlin);
 - no job and no step of pr-form.yml carries `if:` or `continue-on-error`, so the check runs on every
   event it subscribes to and its red is red;
 - the workflow token reads contents and nothing else, and every action is pinned to a commit;
@@ -43,6 +45,7 @@ FORM_GATE = "b7_pr_form_gate.py"
 GATE_CALL = f'python scripts/{FORM_GATE} --event "$GITHUB_EVENT_PATH"'
 FORM_EVENTS = ("edited", "milestoned", "demilestoned")
 PUSH_EVENTS = ("opened", "synchronize", "reopened")
+LABEL_EVENTS = ("labeled", "unlabeled")
 _PINNED = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 
 
@@ -79,6 +82,7 @@ def trigger_findings(workflow: dict) -> list[str]:
         return found + ["does not start on `pull_request` with a list of types"]
     types = list(pull_request.get("types") or [])
     found += [f"does not start on `{t}`" for t in PUSH_EVENTS + FORM_EVENTS if t not in types]
+    found += [f"starts on `{t}`" for t in LABEL_EVENTS if t in types]
     found += [f"narrows the pull requests by `{key}`" for key in
               ("branches", "branches-ignore", "paths", "paths-ignore") if key in pull_request]
     return found
@@ -195,7 +199,7 @@ def _mutant(form: dict) -> dict:
     return yaml.safe_load(yaml.safe_dump(form))
 
 
-def test_catch_proof_a_missing_event_a_second_trigger_and_a_base_filter(form):
+def test_catch_proof_a_missing_event_a_second_trigger_a_base_filter_and_a_label_event(form):
     for event in FORM_EVENTS + PUSH_EVENTS:
         m = _mutant(form)
         _on(m)["pull_request"]["types"].remove(event)
@@ -206,6 +210,10 @@ def test_catch_proof_a_missing_event_a_second_trigger_and_a_base_filter(form):
     m = _mutant(form)
     _on(m)["pull_request"]["branches"] = ["main"]
     assert trigger_findings(m) == ["narrows the pull requests by `branches`"]
+    for event in LABEL_EVENTS:
+        m = _mutant(form)
+        _on(m)["pull_request"]["types"].append(event)
+        assert trigger_findings(m) == [f"starts on `{event}`"]
 
 
 def test_catch_proof_a_condition_on_the_job_or_the_step(form):

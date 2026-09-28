@@ -16,6 +16,10 @@ name: pr-form
 # EVERY BASE BRANCH. A stacked pull request carries a milestone and a footer as well; there is no
 # `branches` filter.
 #
+# NO LABEL EVENTS (owner decision 2026-09-28, 14:17 Berlin): the milestone is the only sorting sign
+# on a pull request, and the gate has no rule about labels, so `labeled` and `unlabeled` start
+# nothing here.
+#
 # ADVISORY. The job is not a required context of the ruleset protect-main, so a red form shows and
 # blocks nothing until the owner makes it required.
 #
