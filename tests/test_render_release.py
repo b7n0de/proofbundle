@@ -65,22 +65,33 @@ def _erklaerter_kopf() -> str:
     return _quelle()["release_commit"]
 
 
+def _version() -> str:
+    """The version the source in this tree declares.
+
+    THE CASES READ IT RATHER THAN TYPING 6.1.0. Every source is bound to one version on purpose, so
+    the next release replaces this file and its reviewed body under `release_notes/`. Cases that
+    typed the version would then have to change in the same commit, and the commit that carries the
+    notes may change nothing outside `release_notes/` (`render_release.liefert_dasselbe_paket`).
+    What the cases assert stays the same: the declared version renders, another one is refused."""
+    return _quelle()["version"]
+
+
 class DieVersionsbindungIstKeineHoeflichkeit(unittest.TestCase):
     """A source carries statements measured for ONE tree. Reusing them is a false claim."""
 
     def test_fang_falsche_version_wird_abgewiesen(self):
-        r = _fahre("--version", "6.2.0")
+        r = _fahre("--version", _version() + ".9")
         self.assertEqual(r.returncode, 2)
         self.assertIn("refusing", r.stderr)
         self.assertNotIn("## All changes", r.stdout, "nothing may be rendered on a refusal")
 
     def test_fang_fehlende_quelle_wird_abgewiesen(self):
-        r = _fahre("--version", "6.1.0", "--quelle", "/nonexistent/source.json")
+        r = _fahre("--version", _version(), "--quelle", "/nonexistent/source.json")
         self.assertEqual(r.returncode, 2)
 
     def test_gegenrichtung_die_erklaerte_version_rendert(self):
         """WITHOUT THIS CASE a renderer that refuses everything would pass both catches above."""
-        r = _fahre("--version", "6.1.0")
+        r = _fahre("--version", _version())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("## All changes", r.stdout)
 
@@ -100,7 +111,7 @@ class DieQuelleNANNTEDenBaumUndNichtsVerglichIhn(unittest.TestCase):
     """
 
     def test_fang_ein_fremder_baum_wird_abgewiesen(self):
-        r = _fahre("--version", "6.1.0", "--kopf", "0" * 40)
+        r = _fahre("--version", _version(), "--kopf", "0" * 40)
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("different tree than the artefacts", r.stderr)
         self.assertIn(_erklaerter_kopf()[:12], r.stderr, "the refusal must name the declared tree")
@@ -108,7 +119,7 @@ class DieQuelleNANNTEDenBaumUndNichtsVerglichIhn(unittest.TestCase):
 
     def test_gegenrichtung_der_erklaerte_baum_rendert(self):
         """WITHOUT THIS a check that refuses every tree would pass the catch above."""
-        r = _fahre("--version", "6.1.0", "--kopf", _erklaerter_kopf())
+        r = _fahre("--version", _version(), "--kopf", _erklaerter_kopf())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("## All changes", r.stdout)
 
@@ -163,11 +174,21 @@ class JederPullRequestGenauEinmal(unittest.TestCase):
         """WITHOUT THIS CASE a check that reports findings for everything would pass above."""
         self.assertEqual(pruefe(_quelle()), [])
 
-    def test_alle_achtundvierzig_genau_einmal(self):
+    def test_jeder_pull_request_genau_einmal_und_so_viele_wie_die_gepruefte_vorlage_nennt(self):
+        """The count comes from the reviewed body, not from a number typed here. The case said 48, the
+        count of 6.1.0; a typed count would have to change with the next source, in a commit that may
+        change nothing outside `release_notes/`. The reviewed body states its own count ("N pull
+        requests, grouped by area"), written by a human independently of this renderer."""
+        import re
         d = _quelle()
         nummern = [e["nr"] for g in d["gruppen"] for e in g["eintraege"]]
-        self.assertEqual(len(nummern), 48)
-        self.assertEqual(len(set(nummern)), 48, "a pull request appears twice")
+        self.assertEqual(len(nummern), len(set(nummern)), "a pull request appears twice")
+        vorlage = REPO / "release_notes" / f"RELEASE_NOTES_v{_version()}.md"
+        if not vorlage.is_file():
+            self.skipTest("NOT MEASURED: the reviewed body is not in the tree")
+        m = re.search(r"^(\d+) pull requests, grouped by area", vorlage.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(m, "the reviewed body names no count of pull requests")
+        self.assertEqual(len(nummern), int(m.group(1)))
 
 
 class DasTitelpraefixGruppiertNicht(unittest.TestCase):
@@ -206,8 +227,8 @@ class DasTitelpraefixGruppiertNicht(unittest.TestCase):
 class DerLaufIstDeterministisch(unittest.TestCase):
 
     def test_zwei_laeufe_sind_bitgleich(self):
-        a = rendere(lade(QUELLE, "6.1.0"))
-        b = rendere(lade(QUELLE, "6.1.0"))
+        a = rendere(lade(QUELLE, _version()))
+        b = rendere(lade(QUELLE, _version()))
         self.assertEqual(a, b)
 
 
@@ -221,10 +242,10 @@ class DasGerenderteIstDerVomOwnerGEPRUEFTEBody(unittest.TestCase):
     """
 
     def test_bytegleich_mit_der_gepruefte_vorlage(self):
-        vorlage = REPO / "release_notes" / "RELEASE_NOTES_v6.1.0.md"
+        vorlage = REPO / "release_notes" / f"RELEASE_NOTES_v{_version()}.md"
         if not vorlage.is_file():
             self.skipTest("the reviewed body is not in the tree")
-        self.assertEqual(rendere(lade(QUELLE, "6.1.0")),
+        self.assertEqual(rendere(lade(QUELLE, _version())),
                          vorlage.read_text(encoding="utf-8"),
                          "the render no longer reproduces the reviewed body")
 
@@ -298,13 +319,13 @@ class DieVerweigerungIstDASVerhaltenUndKeinUnfall(unittest.TestCase):
     written for it must not be published under the statements of another tree."""
 
     def test_ein_rc_tag_ohne_eigene_quelle_wird_abgewiesen(self):
-        r = _fahre("--version", "6.1.0-rc1")
+        r = _fahre("--version", _version() + "-rc1")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("6.1.0-rc1", r.stderr)
+        self.assertIn(_version() + "-rc1", r.stderr)
 
     def test_ein_versehentlich_mitgeschlepptes_v_wird_abgewiesen(self):
         """`${GITHUB_REF_NAME#v}` strips ONE leading v; a source that kept it would not match."""
-        r = _fahre("--version", "v6.1.0")
+        r = _fahre("--version", "v" + _version())
         self.assertEqual(r.returncode, 2)
 
 
@@ -453,7 +474,7 @@ class EinUngemessenerKopfIstKeinPassenderKopf(unittest.TestCase):
             shutil.copy2(SKRIPT, w / "scripts" / "render_release.py")
             shutil.copy2(QUELLE, w / "release_notes" / "release-source.json")
             r = subprocess.run([sys.executable, str(w / "scripts" / "render_release.py"),
-                                "--version", "6.1.0", "--aus", str(w / "n.md")],
+                                "--version", _version(), "--aus", str(w / "n.md")],
                                capture_output=True, text=True, timeout=60, cwd=str(w))
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("cannot be measured", r.stderr)
