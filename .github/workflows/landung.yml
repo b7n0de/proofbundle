@@ -26,12 +26,21 @@ on:
   pull_request:
     branches: [main]
     # `unlabeled` too: taking the label off starts a run in the same concurrency group, which
-    # cancels the running layer. The group carries the label's name, so any other label leaves the
-    # layer alone.
-    types: [labeled, unlabeled]
+    # cancels the running layer. `synchronize` and `reopened` because the label is a state and a
+    # new head keeps it: a push to a pull request that carries `landung` sends only `synchronize`,
+    # and ci.yml no longer runs the layer for the label, so without them the new head of a landing
+    # candidate had no mutation verdict (Codex on pull request 310, round one, P1).
+    types: [labeled, unlabeled, synchronize, reopened]
 
+# THE GROUP IS `landung` FOR EVERY EVENT THAT CONCERNS THE LAYER: the label set or taken off, and a
+# new head (`synchronize`, `reopened`). A new push therefore cancels the layer still running on the
+# old head, and taking the label off cancels it too. Any other label gets a group of its own name and
+# leaves the layer alone.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event.label.name }}
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{
+    ( github.event.label.name == 'landung' || github.event.action == 'synchronize'
+      || github.event.action == 'reopened' ) && 'landung' || github.event.label.name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -39,9 +48,12 @@ permissions:
 
 jobs:
   mutation:
-    # Starts when `landung` is SET, not when it is removed and not for any other label.
+    # Starts when `landung` is SET, and on every new head of a pull request that carries it; not when
+    # it is removed and not for any other label.
     if: >-
-      github.event.action == 'labeled' && github.event.label.name == 'landung'
+      ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
+      || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
+           && contains(github.event.pull_request.labels.*.name, 'landung') )
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
     #
@@ -187,7 +199,9 @@ jobs:
     needs: [mutation]
     if: >-
       always()
-      && ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
+      && ( ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
+           || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
+                && contains(github.event.pull_request.labels.*.name, 'landung') ) )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

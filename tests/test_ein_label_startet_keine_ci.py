@@ -8,8 +8,9 @@ one thing that has to start when `landung` is set, moved to landung.yml; ci.yml 
 
 WHAT THIS HOLDS, each with a counter-example it fails on:
   1. ci.yml subscribes exactly opened, synchronize and reopened on pull_request.
-  2. landung.yml runs on pull_request `labeled` and `unlabeled` only, and its layer starts only when
-     `landung` is set.
+  2. landung.yml runs on pull_request `labeled`, `unlabeled`, `synchronize` and `reopened`, and its layer
+     starts when `landung` is set and on every new head of a pull request that carries it (Codex on pull
+     request 310, round one, P1: a push to a labelled candidate sends only `synchronize`).
   3. The steps of `mutation` and `mutation-summary` are the same in both files, apart from `needs` and
      `if`, so a fix to one copy cannot miss the other.
   4. landung.yml produces no required context. Its jobs carry a condition, and GitHub reports a job
@@ -33,7 +34,11 @@ DECLARATION = REPO / ".github" / "required_status_checks.json"
 #: The jobs whose steps exist twice. `needs` and `if` differ by design and are left out of the comparison.
 KOPIERTE_JOBS = ("mutation", "mutation-summary")
 EIGENE_SCHLUESSEL = {"needs", "if"}
-LABEL_BEDINGUNG = "github.event.action == 'labeled' && github.event.label.name == 'landung'"
+LABEL_BEDINGUNG = ("( github.event.action == 'labeled' && github.event.label.name == 'landung' ) "
+                   "|| ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' ) "
+                   "&& contains(github.event.pull_request.labels.*.name, 'landung') )")
+#: The events on which a labelled candidate gets a new head while the label stays.
+NEUER_KOPF = ("synchronize", "reopened")
 
 
 def _lade(name: str) -> dict:
@@ -87,15 +92,45 @@ def _gruppe_traegt_label(d: dict) -> bool:
     return "github.event.label.name" in g and "github.event_name" in g
 
 
+def _umschliesst(s: str) -> bool:
+    """Whether the parenthesis that opens `s` is the one that closes it. `( a ) || ( b )` starts and ends
+    with a parenthesis without being one group, and stripping them would change the predicate."""
+    if not (s.startswith("(") and s.endswith(")")):
+        return False
+    tiefe = 0
+    for i, c in enumerate(s):
+        tiefe += {"(": 1, ")": -1}.get(c, 0)
+        if tiefe == 0:
+            return i == len(s) - 1
+    return False
+
+
 def _kern(s: str) -> str:
     s = " ".join(str(s).split())
     if s.startswith("always()"):
         s = s[len("always()"):].lstrip()
         if s.startswith("&&"):
             s = s[2:].lstrip()
-    if s.startswith("(") and s.endswith(")"):
+    if _umschliesst(s):
         s = s[1:-1].strip()
     return " ".join(s.split())
+
+
+def _neuer_kopf_verpasst(d: dict) -> list[str]:
+    """How a labelled candidate's new head could miss the layer: an event not subscribed, or a job
+    condition that does not run on it with the label present."""
+    schlecht = [f"type {e} not subscribed" for e in NEUER_KOPF if e not in (_pull_request_typen(d) or [])]
+    for job in KOPIERTE_JOBS:
+        bed = _kern(((d.get("jobs") or {}).get(job) or {}).get("if") or "")
+        for e in NEUER_KOPF:
+            if f"github.event.action == '{e}'" not in bed:
+                schlecht.append(f"{job} does not run on {e}")
+        if "contains(github.event.pull_request.labels.*.name, 'landung')" not in bed:
+            schlecht.append(f"{job} does not ask whether the pull request carries the label")
+    g = " ".join(str(((d.get("concurrency") or {}).get("group")) or "").split())
+    if not all(f"github.event.action == '{e}'" in g for e in NEUER_KOPF):
+        schlecht.append("a new head does not join the group of the layer, so it cannot replace the old head's run")
+    return schlecht
 
 
 # ── the repository as it stands ───────────────────────────────────────────────────────────────────
@@ -105,10 +140,17 @@ def test_ci_yml_laeuft_bei_keinem_label_ereignis():
     assert _pull_request_typen(_lade("ci.yml")) == ["opened", "synchronize", "reopened"]
 
 
-def test_landung_yml_laeuft_nur_bei_label_ereignissen():
+def test_landung_yml_laeuft_bei_label_und_neuem_kopf():
     d = _lade("landung.yml")
     assert set(_on(d)) == {"pull_request"}, f"landung.yml has other triggers: {sorted(_on(d))}"
-    assert _pull_request_typen(d) == ["labeled", "unlabeled"]
+    assert _pull_request_typen(d) == ["labeled", "unlabeled", "synchronize", "reopened"]
+
+
+def test_ein_neuer_kopf_eines_kandidaten_bekommt_die_schicht():
+    """Codex on pull request 310, round one (P1): the label is a state, and a push to a labelled
+    candidate sends only `synchronize`; ci.yml no longer runs the layer for the label, so the new head
+    had no mutation verdict."""
+    assert _neuer_kopf_verpasst(_lade("landung.yml")) == []
 
 
 def test_die_schicht_startet_nur_wenn_landung_gesetzt_wird():
@@ -167,6 +209,23 @@ def test_fangnachweis_ein_pflichtkontext_in_landung_yml_wird_gefunden():
 def test_fangnachweis_eine_gruppe_ohne_labelnamen_wird_gefunden():
     assert not _gruppe_traegt_label({"concurrency": {"group": "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}"}})
     assert _gruppe_traegt_label({"concurrency": {"group": "${{ github.event_name }}-${{ github.event.label.name }}"}})
+
+
+def test_fangnachweis_ein_verpasster_neuer_kopf_wird_gefunden():
+    nur_label = {"on": {"pull_request": {"types": ["labeled", "unlabeled"]}},
+                 "concurrency": {"group": "${{ github.event.label.name }}"},
+                 "jobs": {j: {"if": "github.event.action == 'labeled' && github.event.label.name == 'landung'"}
+                          for j in KOPIERTE_JOBS}}
+    befund = _neuer_kopf_verpasst(nur_label)
+    assert "type synchronize not subscribed" in befund and "mutation does not run on synchronize" in befund
+    assert any(b.startswith("a new head does not join") for b in befund)
+    assert _neuer_kopf_verpasst(_lade("landung.yml")) == []
+
+
+def test_fangnachweis_kern_streift_nur_ein_echtes_paar_ab():
+    assert _kern("( a ) || ( b )") == "( a ) || ( b )"
+    assert _kern("always() && ( ( a ) || ( b ) )") == "( a ) || ( b )"
+    assert _kern("( a && b )") == "a && b"
 
 
 def test_fangnachweis_ci_yml_mit_label_typen_wird_gefunden():

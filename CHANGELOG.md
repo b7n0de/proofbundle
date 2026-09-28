@@ -15,8 +15,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `unlabeled` for the label `landung`, and its concurrency group cancels a running pull-request run, so
   every label set on a pull request cancelled its CI and started a full one (measured 2026-09-28 on the
   pull requests of the 6.2.0 chain, about 55 minutes each). ci.yml now runs on opened, synchronize and
-  reopened only. The mutation layer runs from landung.yml when `landung` is set and is cancelled when it
-  is taken off; its other ways in (by hand, a `release/` branch, the merge queue) stay in ci.yml behind
+  reopened only. The mutation layer runs from landung.yml when `landung` is set and again on every new head
+  of a pull request that carries it, and is cancelled when the label is taken off; its other ways in (by hand, a `release/` branch, the merge queue) stay in ci.yml behind
   test and coverage. The two copies of the mutation jobs are held equal by
   `tests/test_ein_label_startet_keine_ci.py`, which also holds that landung.yml carries no required
   context: its jobs are skipped on every other label, and a skipped required check reads as passed. No
