@@ -1,0 +1,242 @@
+"""A pull request carries a milestone and ends its description with the house footer.
+
+Owner decision 2026-09-28: every pull request in this repository carries a milestone from the moment
+it opens. Its description ends with exactly the two lines of the house footer, and it carries no
+tool attribution, no session link and neither of the two retired closing sentences.
+`scripts/b7_pr_form_gate.py` judges the three from the event payload the runner writes.
+
+EVERY RULE HAS RED CASES ONLY IT CAN CATCH. An attribution placed before a correct footer is
+invisible to the footer rule, so only rule (c) can turn it red; a description with the footer and
+nothing else wrong is red only through a missing milestone. Each red case asserts which rule named
+it and that the other two stayed silent, so a rule that is removed or weakened turns its own cases
+red instead of hiding behind a neighbour.
+
+The tool and address names in the cases are placeholders. The rules are written against the form
+of an attribution and of a session link, not against a list of names.
+"""
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+
+import pytest
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
+_spec = importlib.util.spec_from_file_location(
+    "pr_form_gate", REPO / "scripts" / "b7_pr_form_gate.py")
+GATE = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(GATE)
+
+LINE_1 = "Written by an AI session of b7n0de under owner review."
+LINE_2 = "Measurement, not certification."
+FOOTER = LINE_1 + "\n\n" + LINE_2
+TEXT = "`abc1234` carries every change below.\n\n## Marking"
+BODY = TEXT + "\n\n" + FOOTER
+MILESTONE = {"number": 2, "title": "6.3.0", "state": "open"}
+
+RETIRED_1 = ("Written by the operating agent under a standing owner authorisation for Codex threads; "
+             "measurements are its own, at the head named above.")
+RETIRED_2 = "Prepared with AI agent involvement, reviewed and submitted under human oversight."
+
+
+def _judge(tmp_path, capsys, *, body=BODY, milestone=MILESTONE, drop=()):
+    pr = {"number": 1, "body": body, "milestone": milestone}
+    for key in drop:
+        del pr[key]
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"action": "edited", "pull_request": pr}), encoding="utf-8")
+    code = GATE.main(["--event", str(event)])
+    return code, capsys.readouterr().out
+
+
+def _rules(out: str) -> set:
+    return {r for r in ("(a)", "(b)", "(c)") if r in out}
+
+
+# ------------------------------------------------------------------------------------------------
+# Green
+# ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body", [
+    BODY,
+    FOOTER,
+    BODY + "\n",
+    BODY + "\r\n",
+    BODY.replace("\n", "\r\n"),
+    TEXT + "\n\nThe wheel was generated with setuptools 69.5.1.\n\n" + FOOTER,
+    TEXT + "\n\nSee [the session guide](https://docs.example.org/sessions.html).\n\n" + FOOTER,
+    TEXT + "\n\nA session_id field is read as given.\n\n" + FOOTER,
+], ids=["body", "footer-only", "trailing-lf", "trailing-crlf", "crlf", "prose-generated-with",
+        "prose-sessions-page", "prose-session-id"])
+def test_green_a_milestone_and_the_footer_as_the_last_text(tmp_path, capsys, body):
+    code, out = _judge(tmp_path, capsys, body=body)
+    assert code == 0, out
+    assert out.splitlines()[0] == "pr-form: green"
+
+
+# ------------------------------------------------------------------------------------------------
+# (a) the milestone
+# ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("milestone", [None, {}, {"title": ""}, {"title": "   "}, {"title": 3},
+                                       "6.3.0", 2, [MILESTONE]],
+                         ids=["none", "empty-object", "empty-title", "blank-title", "number-title",
+                              "string", "number", "list"])
+def test_red_a_without_a_milestone(tmp_path, capsys, milestone):
+    code, out = _judge(tmp_path, capsys, milestone=milestone)
+    assert code == 1
+    assert _rules(out) == {"(a)"}, out
+
+
+def test_red_a_a_payload_without_the_milestone_field(tmp_path, capsys):
+    code, out = _judge(tmp_path, capsys, drop=("milestone",))
+    assert code == 1
+    assert _rules(out) == {"(a)"} and "NOT MEASURABLE" in out, out
+
+
+# ------------------------------------------------------------------------------------------------
+# (b) the footer is the last text, exactly
+# ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body", [
+    None,
+    "",
+    TEXT,
+    TEXT + "\n\n" + LINE_2 + "\n\n" + LINE_1,
+    TEXT + "\n\n" + LINE_2,
+    TEXT + "\n\n" + LINE_1,
+    TEXT + "\n\n" + LINE_1 + "\n" + LINE_2,
+    TEXT + "\n\n" + LINE_1 + "\n\n\n" + LINE_2,
+    TEXT + "\n\n" + LINE_1 + "\n \n" + LINE_2,
+    BODY + " ",
+    BODY + "\n\nThanks.",
+    TEXT + "\n\n```\n" + FOOTER + "\n```",
+    TEXT + "\n\nMarking: " + FOOTER,
+    BODY.replace("owner review", "owner review"),
+    BODY.replace("session", "ses​sion"),
+    BODY.replace("\n\n" + LINE_2, "\r\r" + LINE_2),
+    BODY.replace("certification", "certification\u0000"),
+], ids=["null", "empty", "no-footer", "swapped", "second-line-only", "first-line-only",
+        "no-blank-line", "two-blank-lines", "blank-line-with-space", "trailing-space", "text-after",
+        "in-a-code-fence", "glued-to-text", "no-break-space", "zero-width-space", "bare-cr", "nul"])
+def test_red_b_the_description_does_not_end_with_the_footer(tmp_path, capsys, body):
+    code, out = _judge(tmp_path, capsys, body=body)
+    assert code == 1
+    assert _rules(out) == {"(b)"}, out
+
+
+def test_red_b_a_description_of_another_type_is_not_measurable(tmp_path, capsys):
+    code, out = _judge(tmp_path, capsys, body=["a", "list"])
+    assert code == 1
+    assert "(b)" in out and "NOT MEASURABLE" in out, out
+
+
+# ------------------------------------------------------------------------------------------------
+# (c) no attribution, no session link, no retired sentence, anywhere
+# ------------------------------------------------------------------------------------------------
+
+_BEFORE_THE_FOOTER = {
+    "robot-form": "\U0001F916 Generated with [ExampleTool](https://tool.example/)",
+    "rule-form": "---\n_Generated by [ExampleTool](https://tool.example/code/session_0000)_",
+    "attribution-link-only": "Generated by [ExampleTool](https://tool.example/)",
+    "attribution-bold": "**Generated with** [ExampleTool](https://tool.example/)",
+    "attribution-wrapped": "Generated\nwith [ExampleTool](https://tool.example/)",
+    "session-link": "https://tool.example/code/session_0000",
+    "session-link-without-scheme": "tool.example/code/session_0000",
+    "session-link-in-markdown": "[the session](https://tool.example/sessions/0000)",
+    "session-link-upper-case": "HTTPS://TOOL.EXAMPLE/CODE/SESSION_0000",
+    "session-link-zero-width": "https://tool.example/code/ses​sion_0000",
+    "session-link-entity": "https://tool&#46;example/code/session&#95;0000",
+    "session-link-escaped": "https://tool.example/code/session\\_0000",
+    "retired-1": RETIRED_1,
+    "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
+    "retired-1-upper-case": RETIRED_1.upper(),
+    "retired-1-italic": "_" + RETIRED_1 + "_",
+    "retired-1-us-spelling": RETIRED_1.replace("authorisation", "authorization"),
+    "retired-1-emphasis-inside": RETIRED_1.replace("operating agent", "*operating* agent"),
+    "retired-2": RETIRED_2,
+    "retired-2-wrapped-as-in-agents-md": RETIRED_2.replace("human oversight", "human\noversight"),
+    "retired-2-no-break-space": RETIRED_2.replace("human oversight", "human oversight"),
+}
+
+
+@pytest.mark.parametrize("inserted", list(_BEFORE_THE_FOOTER.values()), ids=list(_BEFORE_THE_FOOTER))
+def test_red_c_only_the_attribution_rule_can_see_it_before_a_correct_footer(tmp_path, capsys, inserted):
+    code, out = _judge(tmp_path, capsys, body=TEXT + "\n\n" + inserted + "\n\n" + FOOTER)
+    assert code == 1
+    assert _rules(out) == {"(c)"}, out
+
+
+def test_red_b_and_c_the_form_a_tool_appends_after_the_footer(tmp_path, capsys):
+    appended = ("\n\n\U0001F916 Generated with [ExampleTool](https://tool.example/tool)\n\n"
+                "https://tool.example/code/session_0000")
+    code, out = _judge(tmp_path, capsys, body=BODY + appended)
+    assert code == 1
+    assert _rules(out) == {"(b)", "(c)"}, out
+
+
+def test_red_b_and_c_a_retired_sentence_after_the_footer(tmp_path, capsys):
+    code, out = _judge(tmp_path, capsys, body=BODY + "\n\n" + RETIRED_1 + "\n")
+    assert code == 1
+    assert _rules(out) == {"(b)", "(c)"}, out
+
+
+def test_red_a_b_and_c_are_named_together(tmp_path, capsys):
+    code, out = _judge(tmp_path, capsys, milestone=None, body=TEXT + "\n\n" + RETIRED_2)
+    assert code == 1
+    assert _rules(out) == {"(a)", "(b)", "(c)"}, out
+
+
+# ------------------------------------------------------------------------------------------------
+# What the gate prints, and what it does with an input it cannot read
+# ------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("body", [
+    TEXT + "\n::error::MARKER-7f3a\n::stop-commands::MARKER-7f3a\n\n" + FOOTER,
+    "::warning::MARKER-7f3a\n" + RETIRED_1,
+])
+def test_no_byte_of_the_description_reaches_the_output(tmp_path, capsys, body):
+    """The runner reads workflow commands from stdout, and the description is text anyone who can
+    open a pull request writes. The gate prints fixed reasons, never the description."""
+    _, out = _judge(tmp_path, capsys, body=body)
+    assert "MARKER-7f3a" not in out
+    assert not any(line.startswith("::") for line in out.splitlines()), out
+
+
+def test_a_milestone_title_is_printed_on_one_line(tmp_path, capsys):
+    code, out = _judge(tmp_path, capsys, milestone={"title": "6.3.0\n::error::MARKER-7f3a"})
+    assert code == 0
+    assert not any(line.startswith("::") for line in out.splitlines()), out
+
+
+@pytest.mark.parametrize("content", [None, b"not json", b"[1, 2]", b'{"action": "edited"}',
+                                     b'{"pull_request": null}', b'{"pull_request": "x"}',
+                                     b"\xff\xfe"],
+                         ids=["missing-file", "not-json", "list", "no-pull-request",
+                              "null-pull-request", "string-pull-request", "not-utf-8"])
+def test_red_an_event_payload_the_gate_cannot_read(tmp_path, capsys, content):
+    event = tmp_path / "event.json"
+    if content is not None:
+        event.write_bytes(content)
+    code = GATE.main(["--event", str(event)])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "NOT MEASURABLE" in out, out
+
+
+def test_the_script_exits_0_and_1_when_the_step_runs_it(tmp_path):
+    script = REPO / "scripts" / "b7_pr_form_gate.py"
+    codes = []
+    for milestone in (MILESTONE, None):
+        event = tmp_path / "event.json"
+        event.write_text(json.dumps({"pull_request": {"body": BODY, "milestone": milestone}}),
+                         encoding="utf-8")
+        done = subprocess.run([sys.executable, str(script), "--event", str(event)],
+                              capture_output=True, text=True, timeout=60)
+        codes.append(done.returncode)
+    assert codes == [0, 1]
+
+
+def test_the_footer_the_gate_holds_is_the_house_footer():
+    assert GATE.FOOTER == (LINE_1, LINE_2)
