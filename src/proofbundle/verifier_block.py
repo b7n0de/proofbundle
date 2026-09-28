@@ -55,6 +55,7 @@ from pathlib import Path
 from typing import Any
 
 from ._membership import is_member
+from .canonical import _pruefkopie
 from .errors import ProofBundleError
 
 TEST_RESULT_PREDICATE_TYPE = "https://in-toto.io/attestation/test-result/v0.1"
@@ -285,6 +286,10 @@ def validate_verifier_block(block: Any) -> list[str]:
     """Fail-closed errors for a verifier block (empty = valid). Closed key sets throughout: an
     unknown key is an error, never ignored, because a field nobody validates is a field a producer
     can put anything into."""
+    try:
+        block = _pruefkopie(block)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"block is not a JSON value: {exc}"]
     errs: list[str] = []
     if not isinstance(block, dict):
         return [f"verifier block must be an object, got {type(block).__name__}"]
@@ -536,6 +541,10 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
 
 
 def validate_test_result_statement(statement: Any) -> list[str]:
+    try:
+        statement = _pruefkopie(statement)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"statement is not a JSON value: {exc}"]
     errs: list[str] = []
     if not isinstance(statement, dict):
         return ["statement must be a JSON object"]
@@ -662,9 +671,13 @@ def join_test_result(block: dict, statement: dict) -> dict:
 
 def sign_test_result_statement(statement: dict, signer, *, keyid: "str | None" = None) -> dict:
     """Wrap the statement in a DSSE envelope -- the same primitive every receipt of this package
-    uses, no new crypto. The statement is validated first; an invalid one is not signed."""
+    uses, no new crypto. The statement is validated first; an invalid one is not signed. It is read
+    once, into the plain copy of what it stores, so the statement validated is the statement signed
+    (round 12)."""
     from . import dsse  # noqa: PLC0415
     statement = _block_once(statement, "test-result statement")   # lens run 8: validated is signed
+    from .canonical import _eine_kopie  # noqa: PLC0415
+    statement = _eine_kopie(statement, VerifierBlockError, "test-result statement")
     errs = validate_test_result_statement(statement)
     if errs:
         raise VerifierBlockError("invalid test-result statement: " + "; ".join(errs))

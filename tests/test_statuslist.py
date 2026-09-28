@@ -179,8 +179,9 @@ class TestStatusList(unittest.TestCase):
         import json
         from proofbundle.sdjwt_issue import DEFAULT_VCT, SD_JWT_TYP, issue_sd_jwt
         issuer = generate_signer()
-        claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "s",
-                 "issuer": "ed25519:" + base64.b64encode(_raw(issuer)).decode()}
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
+        claim = full_eval_claim("ed25519:" + base64.b64encode(_raw(issuer)).decode(),
+                                suite="s", threshold="0.8")
         compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==",
                                status=status_claim(URI, 4))
         jwt = compact.split("~", 1)[0]

@@ -23,7 +23,7 @@ check and the writer use only what they return. No method a caller's class can d
   `float` and a numpy scalar are refused, because their only reads are the caller's methods or a
   conversion the caller controls;
 * a JSON value is copied by `plain_json`, which reads a `dict` through `dict.items` (an `OrderedDict`
-  through `OrderedDict.items`), a `list` through `list.copy` and a `tuple` through `tuple.__iter__` —
+  in its own order, see below), a `list` through `list.copy` and a `tuple` through `tuple.__iter__` —
   the base methods, which read the stored items of a subclass without calling its overrides — keeps
   `None`, exact `bool`, exact `int`, exact `float` and text, preserves the kind of each container, and
   refuses everything else with the caller's own typed error naming the parameter and the path.
@@ -31,12 +31,25 @@ check and the writer use only what they return. No method a caller's class can d
 A legitimate value is copied to an equal value of the same kinds in the same order, so every
 serialiser writes the same bytes for it as before; only a value whose class answered for something
 else than it holds changes its fate.
+
+TWO READS THAT STILL RAN THE CALLER'S CODE, found when the 6.2.0 chain carried D4 (PR 300), whose
+copy `canonical._plain_for_jcs` had closed both in its rounds 9 and 10, and whose tests measured them
+here. ``OrderedDict.items`` hashes every key of the OrderedDict's own list to find its node, so a
+``str`` subclass key ran its own ``__hash__`` and ``__eq__``, and an OrderedDict whose storage was
+written past its own methods raised a raw KeyError; and a refusal named the type through
+``type(x).__name__``, which runs a metaclass's ``__name__`` property and raised a raw AttributeError
+for a type whose name cannot be read. An OrderedDict is now read in its own order by the reader the
+JCS copy uses (`canonical._in_eigener_reihenfolge`: every key of type ``str`` itself and nothing else
+in its list, or a refusal before anything is hashed), and a type is named by
+`_membership.type_name`. Both copies therefore give the same answer for every OrderedDict.
 """
 from __future__ import annotations
 
 from collections import OrderedDict
 from typing import Any, Callable, Optional
 
+from ._membership import type_name
+from .canonical import _Abweisung, _in_eigener_reihenfolge
 from .signature import plain_text
 
 __all__ = ["plain_int", "plain_list", "plain_json"]
@@ -95,7 +108,13 @@ def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
             parent[slot] = str.__str__(cur)
             continue
         if issubclass(t, dict):
-            items = list(OrderedDict.items(cur) if issubclass(t, OrderedDict) else dict.items(cur))
+            items = list(dict.items(cur))
+            if issubclass(t, OrderedDict):
+                # its own order, read without hashing a key of the caller (see the module docstring)
+                try:
+                    items = _in_eigener_reihenfolge(cur, items)
+                except _Abweisung as abweisung:
+                    raise error(f"{where}: {abweisung.grund}") from None
             nodes += len(items)
             if nodes > max_nodes:
                 raise error(f"{where} holds more than {max_nodes} entries")
@@ -105,7 +124,7 @@ def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
             for key, val in items:
                 text = plain_text(key)
                 if text is None:
-                    raise error(f"{where} has a key of type {type(key).__name__}; a JSON key is text")
+                    raise error(f"{where} has a key of type {type_name(key)}; a JSON key is text")
                 if text in new:
                     raise error(f"{where} names the key {text!r} twice")
                 new[text] = None             # the slot, in the stored order
@@ -125,9 +144,9 @@ def plain_json(value: Any, *, what: str, error: Callable[[str], BaseException],
             continue
         if issubclass(t, (int, float)):
             base = "float" if issubclass(t, float) else "int"
-            raise error(f"{where} is of type {t.__name__}, a subclass of {base}; a number must be an exact "
+            raise error(f"{where} is of type {type_name(cur)}, a subclass of {base}; a number must be an exact "
                         "int or float, so that no method of the caller's class decides its value")
-        raise error(f"{where} is of type {t.__name__}; a JSON value is null, a boolean, an exact int or float, "
+        raise error(f"{where} is of type {type_name(cur)}; a JSON value is null, a boolean, an exact int or float, "
                     "text, a list, a tuple or a dict")
     for parent, slot, lst in reversed(tuples):
         parent[slot] = tuple(lst)

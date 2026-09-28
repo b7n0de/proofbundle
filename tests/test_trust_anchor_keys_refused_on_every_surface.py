@@ -707,8 +707,8 @@ class SdJwtAndKeyBinding(unittest.TestCase):
                                  assurance_level="reproduced")
         plain = emit_eval_receipt(ev, issuer)
         pc = json.loads(base64.b64decode(plain["payload_b64"]))
-        claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "s",
-                 "issuer": pc["issuer"]}
+        # The SD-JWT is a view of this signed claim; `issue_sd_jwt` refuses a partial one (6.2.0).
+        claim = pc
         compact = issue_sd_jwt(claim, issuer, root_b64=plain["merkle"]["root_b64"],
                                holder_public_key=holder_pub)
         return compact, issuer

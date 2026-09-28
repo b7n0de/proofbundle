@@ -32,6 +32,7 @@ from typing import Optional
 
 from .anchors_ots import (OtsProofTooLarge, _calendar_uris_of, _classify, _deserialize_detached,
                           calendar_operators, verify_opentimestamps)
+from .canonical import _plain_for_jcs
 from ._wire_b64 import decode_b64
 
 __all__ = [
@@ -175,6 +176,15 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     except ProofBundleError as exc:
         return {"ok": False, "warn": False, "status": "over_budget",
                 "detail": f"evidence pack exceeds the verification budget (fail-closed): {exc}"}
+    # ONE READING (round 12; lens run 11 named it, not measured): after the budget, the pack is read
+    # into the plain copy of what it stores, and the proof and root are decoded from that copy. At
+    # cd5d39f4 the budget walked the stored contents and `pack["proof"]` then read the caller's own
+    # `__getitem__`, so the size the budget bounded and the proof decoded were two readings.
+    try:
+        pack = _plain_for_jcs(pack, ValueError)
+    except ValueError as exc:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack is not a JSON object: {exc}"}
     try:
         proof = decode_b64(pack["proof"])
         canonical_root = decode_b64(pack["canonicalRoot"])

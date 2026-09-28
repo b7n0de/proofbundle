@@ -27,10 +27,11 @@ import math
 import zlib
 from typing import Optional, Tuple
 
-from ._membership import require_switch
+from ._membership import require_switch, type_name
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
+from .canonical import _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
@@ -65,13 +66,19 @@ def receipt_token(bundle: dict) -> str:
     other spelling of an ES256 signature, ``(r, s)`` or ``(r, n - s)``, give a different string for
     the same receipt, and each one verifies. So a receipt and its twin give two token strings. Their
     identity is one: :func:`receipt_token_identity`, the key to deduplicate or replay-check tokens
-    by (finding D1, owner decision 2026-09-26)."""
-    if not isinstance(bundle, dict):
+    by (finding D1, owner decision 2026-09-26).
+
+    The bundle is read once, by what it stores (round 12, lens run 11 F5): ``json.dumps`` reads a
+    dict subclass through its own ``items()``, so at cd5d39f4 the token could carry another receipt
+    than the object the caller holds. The plain copy is written; a bundle holding a value that is no
+    JSON value is BundleFormatError, where json raised a raw TypeError."""
+    if not issubclass(type(bundle), dict):
         raise BundleFormatError("receipt_token needs a bundle dict")
     # read once (lens run 8 at fddc00f4, the sweep of finding B): the check asked the caller's
     # `__contains__` and the token packed what `json.dumps` reads through its `items()`
     from ._plain_value import plain_json  # noqa: PLC0415
     bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
+    bundle = _plain_for_jcs(bundle, lambda text: BundleFormatError(f"receipt_token: {text}"))
     if "payload_b64" not in bundle:
         raise BundleFormatError("receipt_token needs a bundle dict")
     canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -102,7 +109,12 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     The returned bundle is the one the token carries, byte for byte in every field: a foreign
     issuer's ES256 signature keeps the spelling the token held (finding D1). Two tokens of one
     receipt can therefore return two bundles that differ in that signature only; compare them by
-    :func:`receipt_token_identity`."""
+    :func:`receipt_token_identity`.
+
+    The token is read once, as its characters (round 12, lens run 11 F7): at cd5d39f4 the
+    pre-decode cap counted the caller's own ``len()`` and the decode read the caller's own slice, so
+    a ``str`` subclass reporting 12 characters handed 64 MiB to the decoder. Now the cap counts the
+    characters that are decoded, and no method of the caller's string runs (`_unpack_receipt_token`)."""
     bundle = _unpack_receipt_token(token)
     # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
     # token never escapes as a different exception type (release-review fix).
@@ -120,7 +132,11 @@ def _unpack_receipt_token(token) -> dict:
     """The bundle dict a ``pb1.`` token carries, as it carries it. Every malformed token raises
     BundleFormatError. Shared by :func:`verify_receipt_token` and :func:`receipt_token_identity` so
     the two never read a token differently."""
-    if not isinstance(token, str) or not token.startswith(TOKEN_PREFIX):
+    token = _zeichen_von(token) if _zeichen_von(token) is not None else token
+    # `type()`, not `isinstance`: an object that is no str but claims one through `__class__` passed
+    # `isinstance` and reached the cap through its own `__len__` (measured on this tree before the
+    # change: 64 MiB decoded, as for F7).
+    if type(token) is not str or not token.startswith(TOKEN_PREFIX):
         raise BundleFormatError(f"not a proofbundle receipt token (expected {TOKEN_PREFIX!r} prefix)")
     # Deep gate Z195, L2-Z195-TOKEN-TRAILING-DATA-01: the body was base64-decoded in full before any
     # size check (64 MiB of 'A' took 0.97 s to refuse on main 1f7a62d2), where kbjwt, sdjwt and
@@ -174,7 +190,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     needs the salt opening (``verify_commitment``) out of band. THREAT_MODEL.md carries the same
     row — this function must never be read as a repo-binding check."""
     import math as _math  # noqa: PLC0415
-    if not isinstance(entry, dict):
+    if not issubclass(type(entry), dict):
         raise BundleFormatError("verify_eval_results_entry needs an entry dict")
     out: dict = {"ok": False, "crypto_ok": False, "value_consistent": False, "entry_value": None,
                  "claim": None, "detail": "",
@@ -183,8 +199,13 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # verifyToken is OPTIONAL in the HF schema (six-lens review): a batch verifier over a mixed list
     # must not crash on a token-less entry. It is simply not verifiable → fail-closed ok=False, not
     # a raised error. A malformed (non-string) token is likewise reported, not raised.
-    token = entry.get("verifyToken")
-    if not isinstance(token, str) or not token:
+    # The two fields this check judges are read from what the entry stores (round 12,
+    # `canonical._feld_von`): never the entry's own `get`, and each value by its own type (`_zeichen_von`,
+    # `_zahl_von`). The rest of the entry is not read, so an entry parsed from YAML with a date object
+    # in `date` keeps verifying as before.
+    token = _feld_von(entry, "verifyToken")
+    token = _zeichen_von(token) if _zeichen_von(token) is not None else token
+    if type(token) is not str or not token:   # `type()`: a `__class__` claim is no str (round 12)
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
         return out
     # adversarial re-audit (3.6.2): honour this surface's OWN never-raise contract (comment above: "a malformed
@@ -200,7 +221,19 @@ def verify_eval_results_entry(entry: dict) -> dict:
     if not result.ok:
         out["detail"] = "embedded receipt does not verify"
         return out
-    _val = entry.get("value")
+    _val = _feld_von(entry, "value")
+    _typ = type(_val)
+    if _typ is not bool and _typ is not int and _typ is not float and (issubclass(_typ, int)
+                                                                      or issubclass(_typ, float)):
+        # The one rule for a number (PR 293, as `to_eval_results_entry` builds it): a subclass of int or
+        # float is refused, never read through its own `__float__`.
+        out["detail"] = (f"entry value is of type {type_name(_val)}, a subclass of int or float — a published "
+                         "number must be an exact int or float (or a numeric string); fail-closed")
+        return out
+    if _zahl_von(_val) is not None:
+        _val = _zahl_von(_val)
+    elif _zeichen_von(_val) is not None:
+        _val = _zeichen_von(_val)
     if _val is None:   # narrow None out before float() (mypy) — a missing value is not verifiable
         out["detail"] = "entry carries no value to check against the signed verdict"
         return out
@@ -280,7 +313,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     require_switch(include_token, "include_token")
     from ._plain_value import plain_json  # noqa: PLC0415
     from .signature import plain_text  # noqa: PLC0415
-    if isinstance(bundle, dict):
+    if issubclass(type(bundle), dict):   # its own type: `isinstance` reads a caller's `__class__`
         bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
     dataset_text, task_text = plain_text(dataset_id), plain_text(task_id)
     if not dataset_text or not task_text:
@@ -296,6 +329,14 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     date, source_url, source_name, source_user, notes = (
         (plain_text(v) if plain_text(v) is not None else v)
         for v in (date, source_url, source_name, source_user, notes))
+    # ONE READING of the bundle (round 12, lens run 11 F4 and F5): a path is loaded once, an object
+    # is copied once by what it stores (`evalclaim._eine_lesung`), and the verification, the claim
+    # decode, the "is this an eval claim" rule and the written token all read that one copy. At
+    # cd5d39f4 the rule read `bundle["payload_b64"]` a third time through the caller's object, and the
+    # token was written through the caller's own `items()`. The published value is read once as well
+    # (above), so the number checked against the verdict is the number written.
+    from .evalclaim import _eine_lesung  # noqa: PLC0415
+    bundle = _eine_lesung(bundle)
     if require_verified:
         result = verify_bundle(bundle)
         if not result.ok:
@@ -304,7 +345,10 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                 + "; ".join(f"{c.name}: {c.detail}" for c in result.checks if not c.ok))
     if not dataset_id or not task_id:
         raise BundleFormatError("dataset_id and task_id are required (the Hub benchmark identity)")
-    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+    # By its own type (round 12): the value is exact after the reading above, and an object that
+    # claims a number through `__class__` would be checked through its own `__float__` and written as
+    # itself. A bool stays refused.
+    if type(value) not in (int, float, str):
         raise BundleFormatError("value must be a number (or numeric string)")
     # Reject non-numeric strings AND non-finite values (release-review fix): inf/-inf/nan (whether a float or a
     # string like '1e400'/'nan' that float() accepts) would serialize to the non-standard tokens Infinity/NaN —

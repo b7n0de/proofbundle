@@ -30,6 +30,7 @@ from typing import Any, Optional, Union
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
+from .canonical import _plain_for_jcs
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -306,9 +307,24 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     stated root's BYTES (canonicalization-agnostic). Absent, root authenticity stays NOT_EVALUATED and
     the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
     """
-    if isinstance(bundle, str):
+    return _verify_bundle(bundle, expected_aud=expected_aud, expected_nonce=expected_nonce,
+                          expected_root_b64=expected_root_b64,
+                          expected_tree_size=expected_tree_size)[0]
+
+
+def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
+                   expected_root_b64: Optional[str] = None,
+                   expected_tree_size: Optional[int] = None) -> tuple[VerificationResult, bytes]:
+    """`verify_bundle`, and the payload bytes its signature and inclusion checks read.
+
+    For a reader of the payload (round 11, `evalclaim.decode_eval_claim`): it parses exactly the
+    bytes that were verified, instead of decoding ``payload_b64`` a second time. This is the body of
+    `verify_bundle`, which returns the first element: the same checks in the same order."""
+    # The type is the object's own and a path its characters (round 12): `isinstance` read a caller's
+    # `__class__` for every object that is no str.
+    if issubclass(type(bundle), str):
         try:
-            bundle = load_bundle(bundle)
+            bundle = load_bundle(str.__str__(bundle))
         except (OSError, ValueError) as exc:
             # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
             # unreadable path surfaces as the documented BundleFormatError this function already raises for
@@ -317,7 +333,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
             # also raises a ValueError from open(), so widen to (OSError, ValueError).
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
-    if not isinstance(bundle, dict):
+    if not issubclass(type(bundle), dict):
         raise BundleFormatError("bundle must be a JSON object")
 
     # RT-09 (PB-2026-0718-16): the input_bytes + json_nodes + json_depth budget lives in loads_strict, which a
@@ -336,6 +352,17 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         raise
     except ProofBundleError as exc:
         raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
+    # ONE READING (round 11, class A): every check below reads the plain copy of what the caller's object
+    # stores (`canonical._plain_for_jcs`, after the budget bounded its depth), never the object again.
+    # Measured at fa555f13 with a dict subclass whose own `__getitem__`/`get` answer another receipt's
+    # `payload_b64` and `merkle` from the second read on: the signature and the inclusion proof read the
+    # first answer and the SD-JWT binding below the second, so an SD-JWT issued for receipt B (passed
+    # True) grafted onto receipt A (passed False) verified ok=True. A value that is no JSON value is
+    # refused here (BundleFormatError), and a tuple is read as the array JSON writes it. A parsed file
+    # holds only plain JSON values, so nothing changes for one.
+    bundle = _plain_for_jcs(bundle, BundleFormatError)
+    if type(bundle) is not dict:   # an object whose `__class__` claimed dict, holding another type
+        raise BundleFormatError("bundle must be a JSON object")
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
@@ -597,7 +624,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             "expected_aud/expected_nonce were supplied but the bundle carries no verifiable Key "
             "Binding JWT — the requested replay/audience binding cannot be enforced (fail-closed)")
 
-    return result
+    return result, payload
 
 
 def _checks_passed(result) -> "tuple[bool, list[str]]":
@@ -831,9 +858,11 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     same strict format validation as :func:`verify_bundle` — malformed input raises
     ``BundleFormatError``, never a raw traceback.
     """
-    if isinstance(bundle, str):
+    # The type is the object's own and a path its characters (round 12): `isinstance` read a caller's
+    # `__class__` for every object that is no str.
+    if issubclass(type(bundle), str):
         try:
-            bundle = load_bundle(bundle)
+            bundle = load_bundle(str.__str__(bundle))
         except (OSError, ValueError) as exc:
             # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
             # unreadable path surfaces as the documented BundleFormatError this function already raises for
@@ -842,7 +871,7 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
             # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
             # also raises a ValueError from open(), so widen to (OSError, ValueError).
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
-    if not isinstance(bundle, dict):
+    if not issubclass(type(bundle), dict):
         raise BundleFormatError("bundle must be a JSON object")
     # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
     # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
@@ -855,6 +884,11 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
         raise
     except ProofBundleError as exc:
         raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
+    # ONE READING, as in verify_bundle (round 12): the plain copy of what the bundle stores, so the root
+    # recomputed and the root stated come from the same reading and not from the bundle's own `get`.
+    bundle = _plain_for_jcs(bundle, BundleFormatError)
+    if type(bundle) is not dict:   # an object whose `__class__` claimed dict, holding another type
+        raise BundleFormatError("bundle must be a JSON object")
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value

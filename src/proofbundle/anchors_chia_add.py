@@ -114,6 +114,8 @@ def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receip
     read three times through the caller's `__bytes__`, for the key, for the self-check and for the
     written `canonicalRoot`, so the anchor could be checked for one root and written for another.
     """
+    # The root as the bytes it stores, read once (round 12): `bytes(x)` ran a subclass's own
+    # `__bytes__` three times here, for the key, the self-check and the written canonicalRoot.
     from .signature import plain_bytes, plain_text  # noqa: PLC0415
     root_bytes = plain_bytes(canonical_root)
     if root_bytes is None:

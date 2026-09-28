@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from typing import List
+from typing import Any, List
+
+from .canonical import _bytes_von, _ganzzahl_von, _puffer_von
 
 __all__ = [
     "leaf_hash",
@@ -32,13 +34,27 @@ __all__ = [
 
 
 def leaf_hash(data: bytes) -> bytes:
-    """RFC 6962 leaf hash: SHA-256(0x00 || data)."""
-    return hashlib.sha256(b"\x00" + data).digest()
+    """RFC 6962 leaf hash: SHA-256(0x00 || data).
+
+    ``data`` is read by the bytes it stores (round 12): ``b"\x00" + data`` asks a ``bytes``
+    subclass's own ``__radd__`` first, so at cd5d39f4 the caller's code chose the leaf that was
+    hashed. A ``memoryview`` is read as the bytes it views, as the concatenation read it
+    (`canonical._puffer_von`); any other type is refused with the TypeError the concatenation gave
+    before."""
+    roh = _puffer_von(data)
+    if roh is None:
+        raise TypeError(f"leaf data must be bytes, got {type(data).__name__}")
+    return hashlib.sha256(b"\x00" + roh).digest()
 
 
 def _node_hash(left: bytes, right: bytes) -> bytes:
-    """RFC 6962 interior node hash: SHA-256(0x01 || left || right)."""
-    return hashlib.sha256(b"\x01" + left + right).digest()
+    """RFC 6962 interior node hash: SHA-256(0x01 || left || right). Each side is read by the bytes it
+    stores (round 12), so a ``bytes`` subclass's own ``__radd__`` never chooses the node; a
+    ``memoryview`` side is read as the bytes it views, as before (`canonical._puffer_von`)."""
+    links, rechts = _puffer_von(left), _puffer_von(right)
+    if links is None or rechts is None:
+        raise TypeError("a Merkle node hash needs two bytes values")
+    return hashlib.sha256(b"\x01" + links + rechts).digest()
 
 
 def _largest_power_of_two_less_than(n: int) -> int:
@@ -121,7 +137,15 @@ def _subproof(m: int, leaves: List[bytes], b: bool) -> List[bytes]:
 def root_from_inclusion(
     leaf_index: int, tree_size: int, computed_leaf_hash: bytes, proof: List[bytes]
 ) -> bytes:
-    """Recompute the tree root from an inclusion proof (RFC 9162 2.1.3.2)."""
+    """Recompute the tree root from an inclusion proof (RFC 9162 2.1.3.2). The index and the size are
+    exact ints: a subclass of ``int`` is refused like any other value that is no int (the one rule for a
+    number, PR 293; round 12 read the integer it stores); every hash goes through `_node_hash`."""
+    # A bool is the int it is, as before; any other value that is no int is TypeError here, before a
+    # comparison could ask its own methods (an object claiming int through `__class__`).
+    leaf_index = int(leaf_index) if type(leaf_index) is bool else _ganzzahl_von(leaf_index)
+    tree_size = int(tree_size) if type(tree_size) is bool else _ganzzahl_von(tree_size)
+    if leaf_index is None or tree_size is None:
+        raise TypeError("leaf_index and tree_size must be integers")
     if not 0 <= leaf_index < tree_size:
         raise ValueError("leaf_index out of range for tree_size")
     fn = leaf_index
@@ -145,6 +169,20 @@ def root_from_inclusion(
     return r
 
 
+def _hashes_of(proof: Any, *, lesen: Any = _bytes_von, nur_bytes: bool = True) -> Any:
+    """The hashes a proof list stores, each as plain bytes (read by ``lesen``), read once through the
+    base type's own iteration (round 12). None for a proof that is no list, and with ``nur_bytes``
+    for a hash that cannot be read; without it such a hash stays None in the list, for the caller to
+    refuse. `verify_inclusion` reads with `canonical._puffer_von`, because its node hash took a
+    ``memoryview`` before; `verify_consistency` refused one and keeps `canonical._bytes_von`."""
+    if not issubclass(type(proof), list):
+        return None
+    hashes = [lesen(p) for p in list.__iter__(proof)]
+    if nur_bytes and any(h is None for h in hashes):
+        return None
+    return hashes
+
+
 def verify_inclusion(
     leaf_data: bytes,
     leaf_index: int,
@@ -166,11 +204,27 @@ def verify_inclusion(
     atomically from the same signed source as ``root``. proofbundle's own callers
     read ``tree_size`` and ``root`` together from a single ``verify_checkpoint`` result, honoring this."""
     from .budget import DEFAULT_BUDGET, int_magnitude_ok  # noqa: PLC0415
-    if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
+    # ONE READING of every input, by what it stores (round 12): the proof as the hashes its list
+    # holds, each hash, the leaf and the root as their bytes, the index and the size as their
+    # integers. At cd5d39f4 the step cap counted the caller's own `len()` and the loop read its own
+    # `__iter__` (a cap counted on one reading and applied to another), `b"\x00" + leaf` and
+    # `b"\x01" + left + right` asked a `bytes` subclass's own `__radd__`, and a subclassed size
+    # answered the comparisons. An input that cannot be read so is False, as a malformed one was.
+    proof = _hashes_of(proof, lesen=_puffer_von)
+    if proof is None or len(proof) > DEFAULT_BUDGET.merkle_path:
         # PB-2026-0718-16: enforce the audit-path STEP budget (merkle_path) in the verification core, so it
         # is effective on the DIRECT dict path where the byte-size proxy (input_bytes) never runs. A
         # log2(tree_size) proof needs <= 256 steps for any realistic tree; a longer (or non-list) proof is
         # fail-closed, never an unbounded per-step hash loop.
+        return False
+    # A bool or any other value that is no int is False, as the type check below answered for it.
+    leaf_index, tree_size = _ganzzahl_von(leaf_index), _ganzzahl_von(tree_size)
+    if leaf_index is None or tree_size is None:
+        return False
+    # The leaf as the leaf hash reads it (a `memoryview` too, as before); the root as bytes or a
+    # bytearray, the two types the tail compare accepted before.
+    leaf_data, expected_root = _puffer_von(leaf_data), _bytes_von(expected_root)
+    if leaf_data is None or expected_root is None:
         return False
     # THE STEP CAP ABOVE DOES NOT BOUND THE INTEGERS (L2-BDOS-HUGEINT, pre-tag deep gate 2026-08-25).
     # A one-element proof passes it; `tree_size = 2**1000000` then drives an O(bit_length) shift loop.
@@ -190,9 +244,8 @@ def verify_inclusion(
         computed = root_from_inclusion(leaf_index, tree_size, leaf_hash(leaf_data), proof)
     except (ValueError, TypeError):
         return False
-    if not isinstance(expected_root, (bytes, bytearray)):
-        return False  # 6-lens gate L3-02: a non-bytes expected_root reached the tail hmac.compare_digest
-                      # (outside the try) as a raw TypeError; fail-closed False on this public surface.
+    # expected_root is plain bytes here (checked above); a non-bytes one returned False before the
+    # tail compare (6-lens gate L3-02).
     return hmac.compare_digest(computed, expected_root)
 
 
@@ -216,18 +269,20 @@ def verify_consistency(
     set, so this is INHERENT to the primitive, not a defect here. It is harmless precisely because
     the sizes come from the signed STH, never from the claim being verified."""
     from .budget import DEFAULT_BUDGET, int_magnitude_ok  # noqa: PLC0415
-    if not isinstance(proof, list) or len(proof) > DEFAULT_BUDGET.merkle_path:
+    # One reading of every input by what it stores, as in `verify_inclusion` (round 12).
+    proof = _hashes_of(proof, nur_bytes=False)
+    if proof is None or len(proof) > DEFAULT_BUDGET.merkle_path:
         return False   # PB-2026-0718-16: audit-path step budget, effective on the direct dict path
-    if not isinstance(first_size, int) or isinstance(first_size, bool) \
-            or not isinstance(second_size, int) or isinstance(second_size, bool):
+    first_size, second_size = _ganzzahl_von(first_size), _ganzzahl_von(second_size)
+    if first_size is None or second_size is None:
         return False   # non-int sizes are malformed input, fail-closed (never a raw comparison TypeError)
     # The MAGNITUDE, not just the type (L2-BDOS-HUGEINT): the step cap and the type check above both pass
     # for `second_size = 2**1000000`, and the shift loop below is O(bit_length). Same shared ceiling as
     # bundle._require_int, read from the same budget.
     if not (int_magnitude_ok(first_size) and int_magnitude_ok(second_size)):
         return False
-    if not isinstance(first_root, (bytes, bytearray)) or not isinstance(second_root, (bytes, bytearray)) \
-            or not all(isinstance(p, (bytes, bytearray)) for p in proof):
+    first_root, second_root = _bytes_von(first_root), _bytes_von(second_root)
+    if first_root is None or second_root is None or any(p is None for p in proof):
         # 6-lens gate L3-02: non-bytes roots or proof elements reached hmac.compare_digest / _node_hash as a
         # raw TypeError (the tail compare, the first_size==second_size branch, and the _node_hash loop were
         # outside any guard); every byte input is validated up front so this public surface fails closed.

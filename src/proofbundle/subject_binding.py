@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from .canonical import _pruefkopie
 from .errors import ProofBundleError
 
 # AMBIGUOUS (deep gate 2026-09-05, finding L4-02): a Statement with MORE THAN ONE subject never binds silently
@@ -86,7 +87,14 @@ def classify_subject(statement: Any) -> dict:
         else ``EXTERNAL_ATTESTED`` (the subject points at something other than these predicate bytes).
       - ``matches`` mirrors ``mode == 'DERIVED'`` for a quick boolean gate.
     A malformed statement (no predicate / no subject digest) is ``EXTERNAL_ATTESTED`` with ``matches`` False —
-    fail-closed: we never call an unresolvable subject a genuine commitment."""
+    fail-closed: we never call an unresolvable subject a genuine commitment.
+
+    The statement is read once, into the plain copy of what it stores (round 12); one holding a value
+    that is no JSON value is a malformed statement, EXTERNAL_ATTESTED."""
+    try:
+        statement = _pruefkopie(statement)
+    except ValueError:
+        return {"mode": "EXTERNAL_ATTESTED", "matches": False, "derived_sha256": None, "declared_sha256": None}
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
     n = subject_cardinality(statement)
     if n is not None and n > 1:

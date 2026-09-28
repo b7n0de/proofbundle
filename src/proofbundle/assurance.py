@@ -20,6 +20,7 @@ import re
 from typing import Any, Callable, Optional, TypeGuard, Union
 
 from ._membership import require_switch, stored_str_items
+from .canonical import _pruefkopie
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
@@ -67,6 +68,13 @@ EFFECT_OBSERVED_NOT_IMPLEMENTED = (
     "still needs a real-world effect-observation channel, which is an inherent, not-yet-built limit outside "
     "proofbundle's own control) — TODO, tracked, not silently absent."
 )
+
+
+def _nur_str_schluessel(obj: Any) -> Any:
+    """A dict (or dict subclass) as the plain dict of the items it stores under keys of type ``str``
+    itself (`_membership.stored_str_items`), any other value as it is. The ladder counts a key only when
+    it is exactly a ``str`` (PR 291); the one reading of the digest object after this keeps that rule."""
+    return stored_str_items(obj) if issubclass(type(obj), dict) else obj
 
 
 def _is_digest(obj: Any) -> bool:
@@ -135,6 +143,14 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     """
     if not require_switch(applicable, "applicable"):
         return {"level": None, "level_name": None, "detail": "not applicable"}
+    # One reading of the caller's digest object, by what it stores (round 12): the shape judged and the
+    # object handed to the resolver are the same plain copy. One that is no JSON value is no digest. The
+    # keys count as PR 291 counts them, only when of type str itself (`stored_str_items`), before the
+    # copy, which reads a `str` subclass key as the text it holds.
+    try:
+        digest_obj = _pruefkopie(_nur_str_schluessel(digest_obj))
+    except ValueError:
+        digest_obj = None
     if not _is_digest(digest_obj):
         return {"level": EvidenceLevel.CLAIMED, "level_name": EvidenceLevel.CLAIMED.name,
                 "detail": "no well-formed sha256 digest object present"}
@@ -210,6 +226,16 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     (``outcome.receiver_trusted_by_role``: a curated list of trusted, genuinely-independent receiver keys).
     So key-id distinctness here is the STRUCTURAL floor; principal-level independence needs that out-of-band
     trust binding."""
+    # One reading of each caller value, by what it holds (round 12): the digest object as its plain copy
+    # (the same copy the base classifier and the attestation resolver see). The key ids count only as
+    # plain `str` values (below). WHETHER a key is expected is decided by the argument: a supplied
+    # expectation that is not a plain bytes or bytearray object (`_is_key_material`) keeps the binding
+    # required and is never compared (at cd5d39f4 `bytes()` raised a raw TypeError for a str).
+    try:
+        digest_obj = _pruefkopie(_nur_str_schluessel(digest_obj))
+    except ValueError:
+        digest_obj = None
+    schluessel_erwartet = expected_receiver_public_key is not None
     base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
     if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
         return base
@@ -255,7 +281,7 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                     "is signed by a key that is not the trust pack's key for receiverKeyId — the label names "
                     "a party that did not sign)"}
         attested = True
-    elif expected_receiver_public_key is not None:
+    elif schluessel_erwartet:
         return {**base, "detail": base["detail"] + " (receiverKeyId has key material in the trust pack, but "
                 "the attestation resolver did not return the signing key, so the label cannot be bound to "
                 "the signer — no promotion; return the 32-byte signer key from the resolver to bind it)"}

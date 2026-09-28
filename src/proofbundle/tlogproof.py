@@ -41,6 +41,7 @@ from typing import Optional, Sequence
 
 from . import merkle
 from .budget import DEFAULT_BUDGET
+from .canonical import _bytes_von, _folge_von, _ganzzahl_von, _plain_for_jcs, _zeichen_von
 from .checkpoint import (_log_key_material_of, _split_signed_note, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
@@ -72,6 +73,9 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     `int` (it was compared through the caller's `__lt__` and written through `__format__`), the note as
     the text it holds (checked through `endswith` and the framing, written through `__add__`), and each
     hash and the extra as their stored bytes (measured through `__len__`, written through the buffer)."""
+    # Each input by what it holds (round 12): the index, the note, the extra bytes and every proof hash
+    # that are checked are the ones written. At cd5d39f4 the written file was the caller's own
+    # `__format__`, `__len__`/`__radd__` and `__add__`, beside checks on other readings.
     from ._plain_value import plain_int, plain_list  # noqa: PLC0415
     from .signature import plain_text  # noqa: PLC0415
     if plain_int(index) is None or index < 0:
@@ -88,26 +92,24 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     # apply_budget_cap=False: die Zeilenkappe ist ein Verifikations-Budget gegen FREMDE Dateien, keine
     # Formatregel — ein Betreiber mit mehr Zeugen als dem Budget muss seine eigene Note verpacken koennen.
     _split_signed_note(signed_checkpoint, "signed checkpoint", apply_budget_cap=False)
-    if extra is not None and not isinstance(extra, bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
+    if extra is not None and not issubclass(type(extra), bytes):    # iter5 never-raise: non-bytes extra raised raw from b64encode
         raise BundleFormatError("tlog-proof extra must be bytes or None")
     if extra is not None:
         extra = bytes.__getitem__(extra, slice(None))
     # iter5 never-raise: a non-iterable proof (or a str/bytes/bytearray that iterates to chars/ints) raised a raw
     # TypeError from the loop below; guard the container type, then each hash's type, before len().
-    if isinstance(inclusion_proof, (str, bytes, bytearray)) or not hasattr(inclusion_proof, "__iter__"):
+    if issubclass(type(inclusion_proof), (str, bytes, bytearray)) or not hasattr(type(inclusion_proof), "__iter__"):
         raise BundleFormatError("inclusion proof must be a sequence of 32-byte hashes")
     stored = plain_list(inclusion_proof)                # the list read once from storage
-    if stored is not None:
-        inclusion_proof = stored
+    # any other iterable read once, through the base iteration where it has one (round 12)
+    inclusion_proof = stored if stored is not None else _folge_von(inclusion_proof)
     lines = [MAGIC]
     if extra is not None:
         lines.append(f"extra {_b64(extra)}")
     lines.append(f"index {index}")
     for h in inclusion_proof:
-        if not isinstance(h, bytes):
-            raise BundleFormatError("inclusion proof hashes must be 32-byte SHA-256 values")
-        h = bytes.__getitem__(h, slice(None))
-        if len(h) != 32:
+        h = _bytes_von(h) if issubclass(type(h), bytes) else None
+        if h is None or len(h) != 32:
             raise BundleFormatError("inclusion proof hashes must be 32-byte SHA-256 values")
         lines.append(_b64(h))
     return "\n".join(lines) + "\n\n" + signed_checkpoint
@@ -117,7 +119,8 @@ def parse_tlog_proof(text: str) -> dict:
     """Parse a tlog-proof into ``{extra, index, proof, checkpoint}``. Strict, fail-closed:
     unknown leading lines, bad base64, bad index formatting or a missing separator are
     ``BundleFormatError`` — never a crash, never a silent skip."""
-    if not isinstance(text, str):
+    text = _zeichen_von(text)   # its characters, one reading (round 12)
+    if text is None:
         # adversarial re-audit round 7: honor the "never a crash" contract for a direct caller — a non-str (None
         # from a mis-wired caller) previously raised a raw TypeError from the `in` test below.
         raise BundleFormatError("tlog-proof text must be a string (non-str is malformed, fail-closed)")
@@ -182,11 +185,14 @@ def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
     build time rather than left to fail at verify time."""
     from ._plain_value import plain_json  # noqa: PLC0415
     from .signature import plain_text  # noqa: PLC0415
-    if not isinstance(bundle, dict):    # iter5 never-raise: non-dict raised raw AttributeError from .get
+    if not issubclass(type(bundle), dict):    # iter5 never-raise: non-dict raised raw AttributeError from .get
         raise BundleFormatError("bundle must be a dict")
     # read once (lens run 8, the sweep of finding B): the merkle fields were checked through `get` and
-    # the leaf index written through `__getitem__`; the note checked here is the note that is framed
+    # the leaf index written through `__getitem__`; the note checked here is the note that is framed.
+    # One reading of the bundle and of the note, by what they store (round 12): the fields compared
+    # against the checkpoint are the fields written into the proof.
     bundle = plain_json(bundle, what="bundle", error=BundleFormatError)
+    bundle = _plain_for_jcs(bundle, lambda text: BundleFormatError(f"bundle: {text}"))
     note = plain_text(signed_checkpoint)
     if note is None:    # iter5 never-raise: non-str raised raw AttributeError from .split
         raise BundleFormatError("signed checkpoint must be a string (non-str is malformed, fail-closed)")
@@ -247,10 +253,16 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
     # RE-GATE never-raise (breadth sweep): this dict-returning verify surface must return a fail-closed
     # verdict for malformed / type-confused untrusted input, never a raw exception — a non-str `text` crashed
     # parse_tlog_proof with a raw TypeError, and a bad threshold raised BundleFormatError. Both fail-closed.
-    if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
+    # One reading of each input by what it holds (round 12): the proof text as its characters, the
+    # threshold as its integer, the leaf as its bytes, the pinned origin as its characters.
+    threshold = _ganzzahl_von(threshold)
+    if threshold is None or threshold < 0:
         return _tlog_failclosed("witness threshold must be a non-negative integer", expected_origin)
-    if not isinstance(text, str):
+    text = _zeichen_von(text)
+    if text is None:
         return _tlog_failclosed("tlog-proof text must be a string (non-str is malformed, fail-closed)", expected_origin)
+    if _bytes_von(leaf_data) is not None:
+        leaf_data = _bytes_von(leaf_data)
     try:
         parsed = parse_tlog_proof(text)
     except (ProofBundleError, ValueError, TypeError) as exc:
@@ -270,7 +282,9 @@ def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
         # origin acceptance (release-review fix #5): the log signature alone does not bind the checkpoint ORIGIN
         # line; a relying party that knows which log it expects passes expected_origin to reject a validly-signed
         # checkpoint from a DIFFERENT origin than intended. Default None = origin not constrained (documented).
-        log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)
+        # The pin by its characters (round 12, O1's class; a pin that is no string never matches).
+        log_ok = bool(log_res["ok"]) and (expected_origin is None
+                                          or log_res["origin"] == _zeichen_von(expected_origin))
         # step 3 — witness quorum via the SHARED helper (dedup by KEY MATERIAL, not name): a single key under N
         # names must NOT satisfy threshold>1. Reuses checkpoint.witness_quorum so this reimplementation cannot
         # drift from verify_witnessed_checkpoint's hardening again (release-review CRITICAL fix). Passes the log's

@@ -295,7 +295,13 @@ def payload_hash(receipt: Dict[str, Any]) -> str:
 
 
 def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
-    """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce."""
+    """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce. Read from
+    one copy of the receipt's fields (`_feldkopie`, round 12), so the metadata checked and the payload
+    bound are one reading."""
+    kopie = _feldkopie(receipt)
+    if kopie is None:
+        raise AGTReceiptError(f"receipt is {_typname(receipt)}, expected an object")
+    receipt = kopie
     fehlend = [f for f in ("authorizer_id", "authorization_expires_at", "authorization_nonce")
                if receipt.get(f) is None]
     if fehlend:
