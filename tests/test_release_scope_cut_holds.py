@@ -52,6 +52,17 @@ has a case for each that fails at 989b582c and passes on the commit that fixed i
    moved branch written plainly among the frozen fixes, or a staying one under Out, passed. Branch
    names are read in every spelling, and a moved branch may stand nowhere but under Out.
 
+A review of 346fa924 reported two more, both P1, and each has a case that fails there and passes on
+the commit that fixed it:
+
+10. A `path:line` REFERENCE THAT NAMES A TREE WAS CHECKED IN THE WORKING TREE FIRST, so a stale
+    citation passed whenever its needle happened to stand at those lines of the checkout. A unit
+    that names a tag or a commit is checked in the named trees only now.
+11. A BUMPED SOURCE VERSION WAS READ AS A RELEASE THAT IS OUT. RELEASE.md bumps the version in the
+    release-prep pull request and tags after the merge, so with `pyproject.toml` at 6.2.0 the gate
+    judged 6.3.0 and a 6.2.0 correction came back outside the scope. The tag decides now; where no
+    tag can be read, the branch decides between the two candidates.
+
 WHAT THIS FILE DOES NOT CHECK: the older scope files (6.1.0 and before), which are records of
 their own cuts; whether a reference names the RIGHT symbol, beyond that the symbol it names
 stands in the lines it points at; and fenced blocks, which quote tool output and artefact digests
@@ -61,6 +72,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -269,7 +281,7 @@ DECIDED_OPEN = {
 #: `git ls-remote` when the cut recorded it. The item has to say both (`_HEAD_STATE`). Every other
 #: staying branch stands without a digest, which is the file's rule.
 DECIDED_HEADS = {
-    "claude/cargo-audit-rust-parity": "f97cb2579b964e95bb801044962e851909bb5ea4",
+    "claude/cargo-audit-rust-parity": "2cf9908f8235116a50f424aa43b7ea0828545e16",
 }
 
 #: THE DECISION OF 2026-09-27, 20:16 UTC: the six branches of three frozen fixes that left 6.2.0
@@ -725,8 +737,9 @@ def _references(unit: str) -> tuple[list[tuple[str, int, int]], list[str], list[
     with `.` and need not have an extension; one that climbs out of the repository with `..` is
     refused. A token that begins like a reference and is none of these forms, or a `:N` with no path
     before it, is refused with its name. A needle is every other backticked name in the unit, split
-    at " / ", that is neither a path nor a tree: what the unit says stands there. The trees are the
-    working tree and every tag or commit the unit names.
+    at " / ", that is neither a path nor a tree: what the unit says stands there. The trees are
+    every tag or commit the unit names; a unit that names none is checked in the working tree
+    (`reference_findings`).
     """
     refs, needles, trees, refused = [], [], [], []
     last_path = None
@@ -786,7 +799,12 @@ def reference_findings(text: str) -> tuple[list[str], list[str]]:
         findings += refused
         if not refs:
             continue
-        resolved = [None] + [c for t in trees if (c := _commit(t))]
+        # A UNIT THAT NAMES A TREE IS CHECKED IN THAT TREE ONLY (Codex on pull request 294, round
+        # three, P1). The working tree stood first in every list, so a `path:N` citing an old tree
+        # passed whenever its needle happened to stand at those lines of the checkout, and the
+        # tree the citation claims to bind was never established. The working tree answers only a
+        # unit that names no tree.
+        resolved = [c for t in trees if (c := _commit(t))] if trees else [None]
         missing = [t for t in trees if _commit(t) is None]
         for path, a, b in refs:
             if not needles:
@@ -803,14 +821,13 @@ def reference_findings(text: str) -> tuple[list[str], list[str]]:
             if hit:
                 continue
             where = f"{path}:{a}-{b}"
+            named = f"the named trees {trees}" if trees else "the working tree"
             if missing:
                 unmeasured.append(f"{where} (trees not in this clone: {missing})")
             elif not a_file:
-                findings.append(f"{where} names no file in the working tree or in "
-                                f"{trees or 'no named tree'}")
+                findings.append(f"{where} names no file in {named}")
             else:
-                findings.append(f"{where} holds none of {needles[:6]} in the working tree or in "
-                                f"{trees or 'no named tree'}")
+                findings.append(f"{where} holds none of {needles[:6]} in {named}")
     return findings, unmeasured
 
 
@@ -840,6 +857,25 @@ def test_catch_proof_a_reference_moved_to_other_lines_is_found():
     assert planted != text, "the plant did not take"
     findings, _ = reference_findings(planted)
     assert any("RESTRISIKO_610.md:1-5" in f for f in findings), findings
+
+
+def test_RED_a_reference_that_names_a_tree_is_checked_in_that_tree_only(monkeypatch):
+    """Codex on pull request 294, round three, P1, and its measurement taken over: the working tree
+    holds `MATCH` at `file.py:1`, the named tree `abcdef0` holds `OTHER`. At 346fa924 the unit that
+    names `abcdef0` passed, because the working tree was always searched first. The controls: the
+    same unit with the named tree holding `MATCH` passes, and a unit that names no tree is checked
+    in the working tree."""
+    trees = {None: ["MATCH"], "abcdef0": ["OTHER"]}
+    monkeypatch.setitem(globals(), "_lines_at", lambda tree, path: trees.get(tree))
+    monkeypatch.setitem(globals(), "_commit", lambda rev: rev if rev == "abcdef0" else None)
+    unit = "`MATCH` stands at `file.py:1` in tree `abcdef0`."
+    findings, unmeasured = reference_findings(unit)
+    assert any(f.startswith("file.py:1-1 holds none of") and "abcdef0" in f for f in findings), (
+        findings, unmeasured)
+    trees["abcdef0"] = ["MATCH"]
+    assert reference_findings(unit) == ([], [])
+    trees["abcdef0"] = ["OTHER"]
+    assert reference_findings("`MATCH` stands at `file.py:1`.") == ([], [])
 
 
 def test_the_quoted_middle_column_is_still_the_previous_version_word_for_word():
@@ -872,9 +908,14 @@ _SCOPE_STUB = ("# Release scope - {v}\n\n## In\n\n"
                "| A1 | something | `fix/a1` |\n\n## Out\n")
 
 
-def _tree(tmp_path: pathlib.Path, source_version: str, scopes: tuple[str, ...]) -> pathlib.Path:
+def _tree(tmp_path: pathlib.Path, source_version: str, scopes: tuple[str, ...],
+          tags: tuple[str, ...] | None = None, branches: dict[str, str] | None = None
+          ) -> pathlib.Path:
     """A throwaway repository root: the two scripts and the version reader they load, as they are,
-    a pyproject, some scope files."""
+    a pyproject, some scope files. With `tags` it is a git repository with one commit carrying those
+    release tags (an empty tuple: a repository with no tag); without, it is no repository at all,
+    like a checkout whose tags cannot be read. `branches` gives a scope file its own branch instead
+    of `fix/a1`."""
     root = tmp_path / "tree"
     (root / "scripts").mkdir(parents=True)
     for name in ("b7_release_scope_title_gate.py", "b7_release_scope_landing_card.py",
@@ -884,8 +925,18 @@ def _tree(tmp_path: pathlib.Path, source_version: str, scopes: tuple[str, ...]) 
         f'[project]\nname = "probe"\nversion = "{source_version}"\n', encoding="utf-8")
     (root / "docs" / "release_scope").mkdir(parents=True)
     for v in scopes:
-        (root / "docs" / "release_scope" / f"{v}.md").write_text(_SCOPE_STUB.format(v=v),
-                                                                  encoding="utf-8")
+        text = _SCOPE_STUB.format(v=v)
+        if branches and v in branches:
+            text = text.replace("`fix/a1`", f"`{branches[v]}`")
+        (root / "docs" / "release_scope" / f"{v}.md").write_text(text, encoding="utf-8")
+    if tags is not None:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "probe"],
+                     *(["tag", t] for t in tags)):
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t",
+                            "-c", "commit.gpgsign=false", *args], check=True, capture_output=True,
+                           env=env, timeout=60)
     return root
 
 
@@ -911,28 +962,74 @@ def _card_without_version(root: pathlib.Path, monkeypatch) -> dict:
 SCOPES = ("3.7.1", "6.1.0", "6.2.0", "6.3.0")
 
 
-@pytest.mark.parametrize("source,expected", [("6.1.0", "6.2.0"), ("6.2.0", "6.3.0"),
-                                             ("6.1.0.post1", "6.2.0")])
-def test_without_a_version_the_gate_judges_the_oldest_scope_above_the_source(
-        tmp_path, capsys, source, expected):
+#: The release tags of the throwaway trees: every release up to the one named is out.
+_TAGS_UP_TO = {"6.1.0": ("v3.7.1", "v6.0.0", "v6.1.0"),
+               "6.2.0": ("v3.7.1", "v6.0.0", "v6.1.0", "v6.2.0"),
+               "6.3.0": ("v3.7.1", "v6.0.0", "v6.1.0", "v6.2.0", "v6.3.0")}
+
+
+@pytest.mark.parametrize("source,tags,expected", [("6.1.0", _TAGS_UP_TO["6.1.0"], "6.2.0"),
+                                                  ("6.2.0", _TAGS_UP_TO["6.2.0"], "6.3.0"),
+                                                  ("6.1.0.post1", _TAGS_UP_TO["6.1.0"], "6.2.0"),
+                                                  ("6.1.0.post1", None, "6.2.0")])
+def test_without_a_version_the_gate_judges_the_oldest_scope_above_a_tagged_source(
+        tmp_path, capsys, source, tags, expected):
     """Not the release that is out, not the release after next, not 3.7.1, a patch scope that never
-    shipped. The second row is the next release: the answer moves with the source version."""
-    _rc, d = _gate_without_version(_tree(tmp_path, source, SCOPES), capsys)
+    shipped. The second row is the next release: the answer moves with the source version. A
+    post-release says its base release is out, with or without readable tags."""
+    _rc, d = _gate_without_version(_tree(tmp_path, source, SCOPES, tags), capsys)
     assert d["version"] == expected, d
 
 
 @pytest.mark.parametrize("source,expected", [("6.1.0", "6.2.0"), ("6.2.0", "6.3.0")])
 def test_without_a_version_the_card_counts_the_same_release(tmp_path, monkeypatch, source,
                                                              expected):
-    d = _card_without_version(_tree(tmp_path, source, SCOPES), monkeypatch)
+    d = _card_without_version(_tree(tmp_path, source, SCOPES, _TAGS_UP_TO[source]), monkeypatch)
     assert d.get("version") == expected, d
 
 
-@pytest.mark.parametrize("source", ["6.3.0", "6.2.0rc1", "not-a-version"])
-def test_without_a_scope_above_a_released_source_both_refuse(tmp_path, capsys, monkeypatch, source):
-    """No scope file above the source, or a source that is no released version: the gate is RED
-    with the reason and the card NOT MEASURABLE. Neither falls back to a scope that is out."""
-    root = _tree(tmp_path, source, SCOPES)
+def test_RED_a_bumped_source_without_its_tag_is_the_release_being_built(tmp_path, capsys,
+                                                                        monkeypatch):
+    """Codex on pull request 294, round three, P1. RELEASE.md bumps the version inside the
+    release-prep pull request and tags after the merge. With pyproject.toml at 6.2.0 and no tag
+    v6.2.0, the gate and the card must judge 6.2.0; at 346fa924 both judged 6.3.0, and a 6.2.0
+    correction came back outside the scope and green."""
+    root = _tree(tmp_path, "6.2.0", SCOPES, _TAGS_UP_TO["6.1.0"])
+    rc, d = _gate_without_version(root, capsys)
+    assert d["version"] == "6.2.0", d
+    assert rc == 1 and not d["ausserhalb_des_umfangs"], d
+    assert _card_without_version(root, monkeypatch).get("version") == "6.2.0"
+
+
+def test_without_readable_tags_the_gate_judges_the_branch_by_the_scope_that_names_it(
+        tmp_path, capsys, monkeypatch):
+    """A clone that shows no release tag (the CI checkout at depth 1) cannot tell bumped from
+    tagged. The gate then judges a branch by whichever candidate names it, refuses a branch both
+    name, and the card is NOT MEASURABLE rather than guessing."""
+    root = _tree(tmp_path, "6.2.0", ("6.1.0", "6.2.0", "6.3.0"), None,
+                 {"6.2.0": "fix/a1", "6.3.0": "fix/b1", "6.1.0": "fix/old"})
+    gate = _load(root / "scripts" / "b7_release_scope_title_gate.py", "gate_tagless")
+    for branch, title, version, rc_expected in (("fix/a1", "[6.2.0 A1] fix(x): y", "6.2.0", 0),
+                                                ("fix/b1", "[6.3.0 A1] fix(x): y", "6.3.0", 0),
+                                                ("fix/a1", "[6.3.0 A1] fix(x): y", "6.2.0", 1)):
+        rc = gate.main(["--branch", branch, "--title", title, "--json"])
+        d = json.loads(capsys.readouterr().out)
+        assert (d["version"], rc) == (version, rc_expected), (branch, title, d)
+        assert "judged by the branch" in d["version_herkunft"], d
+    card = _card_without_version(root, monkeypatch)
+    assert card["zustand"] == "NOT MEASURABLE" and "tagged" in json.dumps(card), card
+    both = _tree(tmp_path / "both", "6.2.0", ("6.2.0", "6.3.0"), None)
+    rc, d = _gate_without_version(both, capsys)
+    assert rc == 1 and any("not decided" in g for g in d["gruende"]), d
+
+
+@pytest.mark.parametrize("source,tags", [("6.3.0", _TAGS_UP_TO["6.3.0"]), ("6.2.0rc1", None),
+                                         ("not-a-version", None)])
+def test_without_a_scope_above_a_released_source_both_refuse(tmp_path, capsys, monkeypatch, source,
+                                                              tags):
+    """No scope file above a source that is out, or a source that is no released version: the gate
+    is RED with the reason and the card NOT MEASURABLE. Neither falls back to a scope that is out."""
+    root = _tree(tmp_path, source, SCOPES, tags)
     rc, d = _gate_without_version(root, capsys)
     assert rc == 1 and d["urteil"] == "ROT", d
     assert any("NOT MEASURABLE" in g for g in d["gruende"]), d["gruende"]
@@ -952,7 +1049,11 @@ def test_an_explicit_version_still_wins(tmp_path, capsys):
 def test_in_this_tree_the_default_is_a_scope_the_changelog_does_not_record_as_released(
         capsys, monkeypatch):
     """Against the real tree, with an oracle the rule does not use: the changelog's dated release
-    headings, and the tags when this clone has them."""
+    headings, and the tags when this clone has them. A clone without tags cannot answer it when the
+    source version has a scope file of its own, and says so."""
+    if not _git("tag", "--list", "v[0-9]*").stdout.strip():
+        pytest.skip("NOT MEASURED: this clone shows no release tag, and the source version has a "
+                    "scope file of its own, so bumped and tagged cannot be told apart here")
     _rc, d = _gate_without_version(REPO, capsys)
     v = d["version"]
     assert v, d["gruende"]

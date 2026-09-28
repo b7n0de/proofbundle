@@ -93,6 +93,55 @@ _UMFANGSDATEI = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)\.md$")
 _FREIGEGEBEN = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\.post[0-9]+)?$")
 
 
+def _tag_stand(wurzel: pathlib.Path, version: str) -> str:
+    """Whether `v<version>` is a tag of the repository at `wurzel`: "da", "fehlt", or the reason it
+    cannot be read. A clone that shows no release tag at all (the CI checkout at depth 1 fetches
+    none) cannot tell a missing tag from an unfetched one, so that is not "fehlt"."""
+    import subprocess  # noqa: PLC0415
+    try:
+        r = subprocess.run(["git", "-C", str(wurzel), "tag", "--list", "v[0-9]*"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"git could not be asked: {type(e).__name__}"
+    if r.returncode != 0:
+        return "not a git repository, or git refused the question"
+    tags = set(r.stdout.split())
+    if not tags:
+        return "this clone shows no release tag"
+    return "da" if f"v{version}" in tags else "fehlt"
+
+
+def umfangskandidaten_ohne_tags(wurzel: pathlib.Path = REPO) -> list[str]:
+    """The releases a run without `--version` may be judging when the tags cannot be read: the
+    source version, which has its own scope file, and the oldest scope file above it. Empty when
+    the source version has no scope file of its own (then `naechste_umfangsversion` decides
+    without tags) or cannot be read."""
+    version, _ = naechste_umfangsversion(wurzel)
+    if version is not None:
+        return []
+    leser = pathlib.Path(__file__).resolve().parent / "check_version_and_changelog.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_release_integrity_version_k", leser)
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        quelle = modul._pyproject_version(wurzel)
+        namen = sorted(p.name for p in (wurzel / "docs" / "release_scope").iterdir() if p.is_file())
+    except Exception:  # noqa: BLE001 - no candidates; the caller keeps its NOT MEASURABLE
+        return []
+    m = _FREIGEGEBEN.match(quelle) if isinstance(quelle, str) else None
+    if m is None or ".post" in quelle:
+        return []
+    draussen = tuple(int(x) for x in m.groups())
+    eigene = ".".join(str(x) for x in draussen)
+    if f"{eigene}.md" not in namen or _tag_stand(wurzel, eigene) in ("da", "fehlt"):
+        # Only an UNREADABLE tag state opens the candidates. Readable tags decide by themselves,
+        # and a NOT MEASURABLE they leave (no scope file above a tagged source) stays one.
+        return []
+    darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
+                                  for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
+    return [eigene] + ([".".join(str(x) for x in darueber[0])] if darueber else [])
+
+
 def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, str]:
     """The release a run WITHOUT `--version` judges, and how it was found: (version, origin).
 
@@ -109,11 +158,19 @@ def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, st
     above it is the release being built. When the next release raises the source version, the
     answer moves with it, so there is no number here to keep in step.
 
-    WHY NOT GIT TAGS, though "the newest scope file without a tag" was the first candidate. The CI
-    job that calls this gate checks out at depth 1 and fetches no tag, so there every scope file
-    looks untagged. And with tags visible the rule still picks wrongly in both directions: the
+    WHY NOT GIT TAGS ALONE, though "the newest scope file without a tag" was the first candidate. The
+    CI job that calls this gate checks out at depth 1 and fetches no tag, so there every scope file
+    looks untagged. And with tags visible that rule still picks wrongly in both directions: the
     NEWEST untagged scope file is the release after next (6.3.0 while 6.2.0 is being built), the
     OLDEST untagged one is 3.7.1, a patch scope that never shipped.
+
+    THE ONE QUESTION A TAG ANSWERS (Codex on pull request 294, round three, P1): when the source
+    version has a scope file of its own, is it out or being built? RELEASE.md bumps the version in
+    the release-prep pull request and tags after the merge, so the version alone cannot tell. Tagged
+    `v<source>`, the answer is the scope file above; untagged in a clone that shows release tags, it
+    is the source version itself; in a clone that shows none, NOT MEASURABLE, and the gate's `main`
+    then judges the branch by whichever of the two scope files names it
+    (`umfangskandidaten_ohne_tags`).
 
     THE SOURCE VERSION IS READ BY THE RELEASE-INTEGRITY GATE'S OWN READER,
     `scripts/check_version_and_changelog.py::_pyproject_version`, loaded from beside this file, not by
@@ -150,6 +207,22 @@ def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, st
         namen = sorted(p.name for p in (wurzel / "docs" / "release_scope").iterdir() if p.is_file())
     except OSError as e:
         return None, f"NOT MEASURABLE: docs/release_scope is not readable ({type(e).__name__}: {e})"
+    # A SOURCE VERSION WITH A SCOPE FILE OF ITS OWN IS OUT ONLY ONCE ITS TAG EXISTS (Codex on pull
+    # request 294, round three, P1, measured with pyproject.toml at 6.2.0). RELEASE.md bumps the
+    # version inside the release-prep pull request and tags after the merge, so between the bump and
+    # the tag the source version names the release being built, and "the oldest scope file above
+    # it" judged a 6.2.0 correction against 6.3.0: outside the scope, and green. The tag is the one
+    # fact that tells the two states apart. A post-release (`X.Y.Z.postN`) says `X.Y.Z` is out.
+    eigene = ".".join(str(x) for x in draussen)
+    if f"{eigene}.md" in namen and ".post" not in quelle:
+        stand = _tag_stand(wurzel, eigene)
+        if stand == "fehlt":
+            return eigene, (f"derived: the source version {quelle} in pyproject.toml has its own "
+                            f"scope file and no tag v{eigene}, so it is the release being built")
+        if stand != "da":
+            return None, (f"NOT MEASURABLE: the source version {quelle} has its own scope file, "
+                          f"and whether v{eigene} is tagged cannot be read here ({stand}); tagged, "
+                          f"the release being built is the next scope file, untagged it is {eigene}")
     darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
                                   for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
     if not darueber:
@@ -487,6 +560,21 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
     }
 
 
+def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[str | None, str]:
+    """Without readable tags, the release is chosen by the branch: the one candidate whose scope
+    file names it. A branch named by two candidates is ambiguous and not measurable; a branch named
+    by none is outside every candidate, and the newest candidate reports that."""
+    treffer = [v for v in kandidaten
+               if branch in lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")[0]]
+    if len(treffer) > 1:
+        return None, (f"{herkunft}; the branch {branch!r} stands in the scope files of {treffer}, "
+                      "so which release it belongs to is not decided")
+    gewaehlt = treffer[0] if treffer else kandidaten[-1]
+    grund = (f"it stands in the scope file of {gewaehlt} only" if treffer
+             else f"it stands in none of {kandidaten}")
+    return gewaehlt, f"{herkunft}; judged by the branch: {grund}"
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--branch", required=True, help="der head-Zweig des Pull Requests")
@@ -499,6 +587,9 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     if a.version is None:
         version, herkunft = naechste_umfangsversion()
+        kandidaten = umfangskandidaten_ohne_tags() if version is None else []
+        if kandidaten:
+            version, herkunft = _nach_dem_zweig(a.branch, kandidaten, herkunft)
     else:
         version, herkunft = a.version, "argument --version"
     if version is None:
