@@ -791,10 +791,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `schemaVersion` ending in a newline, and `expires` and `schemaVersion` holding Arabic-Indic digits
   validated as []; the lens measured all five refused by node v22.22.2. The three are `\A..\Z` with
   [0-9] now, and so is `_parse_rfc3339_z`, which parsed both kinds of `expires`. Named, not changed:
-  twelve patterns in `decision`, `outcome`, `run_ledger`, `relation`, `verification_summary`,
-  `agent_review` and `relation_statement` are `\A..\Z` but still `\d`, and each matches
-  Arabic-Indic digits (measured here and on fa555f13); branch 234 (e5b39b81) moves all of them to
-  one module with [0-9].
+  eleven patterns in `decision`, `outcome`, `run_ledger`, `verification_summary`, `agent_review`
+  and `relation_statement` are `\A..\Z` but still `\d`, and each matches Arabic-Indic digits
+  (measured here and on fa555f13); branch 234 (e5b39b81) moves them to one module with [0-9], after
+  6.2.0. The twelfth, `relation._RFC3339_Z`, takes [0-9] since the `declaredAt` entry at the top of
+  this section, because the Rust verifier reads that field and refused what it accepted.
 
 - **The pair form of `emit_eval_receipt` refuses a duplicate key** (round 11, lens run 10 at
   fa555f13, finding L9, P1). The copy refuses two keys with the same characters in an object, and
