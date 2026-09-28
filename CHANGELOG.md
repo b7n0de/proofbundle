@@ -2447,6 +2447,34 @@ so a rule refusing everything could not pass as correct. Catch proof: restoring 
 the two catch cases red, and so does making the sentinel a registered name; 123 passed and 2 skipped
 before and after.
 
+- **The release-scope title gate trusts only a tag the clone shows, and the cut's test checks each
+  cited line in its own tree** (`scripts/b7_release_scope_title_gate.py`,
+  `tests/test_release_scope_cut_holds.py`, pull request 294, the 6.2.0 cut). Two P1 findings of the
+  fourth review round, each reproduced at 5a9ddc06 before it was fixed. `git tag --list` lists the
+  tags a clone holds, not the tags that exist: with `pyproject.toml` at 6.2.0 and only `v6.1.0`
+  fetched, a branch that only the 6.3.0 scope names came back outside the scope with exit 0. Only a
+  source tag the clone shows decides now; without it the gate judges the branch by whichever of the
+  two candidate scope files names it, and the landing card says NOT MEASURABLE rather than count a
+  release it cannot know. And a `path:line` citation passed if any tree its row names matched, so a
+  line stale in its claimed revision stayed green beside another revision. Each citation is now
+  checked in the tree its own sentence names, or the one its row names for its path, and in the
+  working tree only where the row names none; a row that names trees and none for the citation is a
+  finding. The cut's R1 and R-B4 rows had one each, true in every tree the rows name, and now name
+  `v6.1.0` for them.
+
+- **A reader's NOT MEASURABLE is no longer an empty result in the release-scope gate and the landing
+  card** (`scripts/b7_release_scope_title_gate.py`, `scripts/b7_release_scope_landing_card.py`, pull
+  request 294, the 6.2.0 cut). The P1 of the fifth and last review round, reproduced at 76f260a2
+  before it was fixed: without a tag the clone shows, the gate judges a branch by the candidate scope
+  that names it, and a candidate it could not read answered with an empty mapping. A 6.2.0 scope
+  naming `fix/a1` without its `## Out`, beside a readable 6.3.0 scope, judged `fix/a1` against 6.3.0,
+  outside the scope, exit 0. An unreadable candidate now leaves the release undecided. The sweep for
+  the class found two more callers of that shape: the gate kept the list of its guard against lines
+  without an identifier and dropped the guard's NOT MEASURABLE, so a scope whose branch column is not
+  headed `Branch` or `Zweig` let such a line vanish in green; and the landing card dropped the state of
+  the branch reader, so a scope whose branches it could not read counted every line as a rider. Both
+  fail closed now. With the source version at 6.2.0 the 6.3.0 scope is a candidate, and it names no
+  branch yet, so the gate is red on every pull request until it does (`RESTRISIKO_620.md`).
 - **The second reader of the cost bound judges through the curve's own verdict**
   (`tests/test_structural_budget_reachability.py`). The exclusion of `renewal.verify_sequence` from
   the generic budget holds only while the cost curve holds its own bound, and this file checked that

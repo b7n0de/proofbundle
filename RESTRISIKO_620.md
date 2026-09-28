@@ -1,0 +1,500 @@
+# Residual risk, release 6.2.0 — the record before the closing gate round
+
+
+This file lands before the closing round, not after it, as for 6.0.0 and 6.1.0: it goes on `main`
+first, the head that carries it is the frozen tree, and the closing round runs on exactly that head.
+
+**Nothing in this file claims the release is defect free.** It is the list of what was known and
+open when the tree was frozen, and why each item was judged not to block.
+
+## The exit rule this release was cut under
+
+Owner choice of 2026-09-27: for every fix branch of this release the round that was running was the
+last ordinary one. From its end, a finding blocked the release only if it changed a verdict, an exit
+code, a bound or a security property (P0 or P1). Every other finding is a line in this file and
+belongs to the next patch release. The lens rounds that closed the branches ran with three model
+families each, against targets fixed before each run, and every objection of the two foreign
+families was re-measured before it was filed. Each pull request's Codex review series was capped at five
+requests; an answer without P0 or P1 ended a series, and its P2 went into this file without a fix at the head.
+
+| Branch | Pull request | Head that landed | Last lens round | Codex series |
+|---|---|---|---|---|
+| Small-order keys | 293 | c9c274c4, main 86671552 | Claude lens run 8 at fddc00f4; its three P1 went into a further round, 068cd349 | 4 requests, the last with one P2 (thread 4121890211) |
+| Resolver promotes on the exact True | 291 | 3977fcdf, landed inside 293 | final round of the branch | 3 requests, the last with one P2 (thread 4119394589) |
+| Pre-tag cleanliness gate | 249 | 68745704, main 8da7ce16; carries 296 and the cost-bound class fix | Claude lens run 4 at f5939ab0, WITHSTANDS | 5 requests, the last without a finding |
+| Rust dependency audit | 296 | 2cf9908f, landed inside 249 | run 4 at d30f236e, FIX_FIRST for C3, fixed at f97cb257 | 2 requests, the last without a finding |
+| Commitment patterns at the verify boundary | 300 | 373bf64b, main a1e9774e | Claude lens run 11 at cd5d39f4; its P0 and P1 closed in round 12 | 3 requests, the last with one P2 (thread 4124587746) |
+| Release-scope cut | 294 | the head that carries this file | Claude lens at 989b582c; its four P1 closed in 346fa924 | 5 requests; the fifth, at 76f260a2, reported one P1 (thread 4125291621), fixed without a further request as the owner's rule sets it after the budget, and one P2 (thread 4125291624) |
+
+## Closed in 6.2.0 — the open items of the 6.1.0 record
+
+Each is stated as closed only where it is measured on the tree that carries this file. Measured again on
+2026-09-28 before the freeze, on main 86671552 and on the head of pull request 300, 657cc67c; the closing round repeats each
+on the frozen tree.
+
+- **The two commitment patterns at the verify boundary** (`COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`).
+  Measured 2026-09-27 before the freeze (to be repeated on the frozen tree): `emit_eval_receipt` with
+  `model_id_commit="sha256:x"` signs on main `31816e08` and is refused (`EvalClaimError`, the commitment
+  must be `sha256:<64 lowercase hex>`) at the head of the eval-claim branch, `493c2f86`. On 2026-09-28 it
+  still signs on main 86671552 and is refused at 657cc67c, the head of pull request 300, which carries the fix.
+- **A small-order key at the carrier's signature block** (`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`).
+  Measured 2026-09-27 before the freeze (to be repeated on the frozen tree), at `_signatur_lage` over
+  16 bodies (`register_revision` 0 to 15): the identity point as key with R = identity, S = 0 came back
+  `VERIFIZIERT` 16 of 16 times on main `31816e08`, and 32 zero bytes as key and 64 as signature 2 of 16
+  times; at the head of the small-order branch, `06f84b88`, both are `KEY_REFUSED` 16 of 16 times, and so on
+  main 86671552 (where the branch landed) and at 657cc67c, the head of pull request 300, measured 2026-09-28. The AGT signer,
+  the register view and the `--expect-issuer` pin were not measured again here; the closing round measures
+  them on the frozen tree. At the released tags v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`) the identity
+  point as a plain key verifies the signature (identity, 0), which no private key made: `verify_ed25519` and
+  `dsse.verify_envelope` answer True, measured 2026-09-28. `verify_ed25519_pinned` does not exist at either
+  tag; the double read of a caller's key object it had on main after pull request 293 (a `bytes` subclass
+  answering a real key to the rule and the identity point to the check verified that signature) is closed on
+  the head of pull request 300, where the key object's `__bytes__` is never called.
+- **Three public exporters coerced the verdict field** (`DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01`).
+  Measured 2026-09-27: `passed="false"` is already refused (`BundleFormatError`, `passed` must be a
+  boolean) at all three on main `31816e08`, so this closed before the cut and not with a branch of it.
+  The same on main 86671552 and at 657cc67c, the head of pull request 300, on 2026-09-28 (there `to_test_result_statement`
+  names `passed must be a boolean`; the control `passed=False` gives FAILED). To be repeated on the frozen tree.
+
+## Open — the released 6.0.0 and 6.1.0 carry a resolver that promotes on truth
+
+Four public functions call code their caller supplies and read the answer by its truth, although each
+documents a bool: `assurance.classify_digest_evidence`, `assurance.classify_receiver_corroboration`,
+`renewal.verify_sequence` and `anchors.verify_anchor` (for a verifier registered through
+`register_anchor_type`). 6.2.0 promotes only on the exact `True`. Measured 2026-09-27 by executing
+each function at the tagged trees of v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), with the answers
+`"false"`, `1` and `[0]`: `classify_digest_evidence` reached `CONTENT_RESOLVED`,
+`classify_receiver_corroboration` reached `INDEPENDENTLY_ATTESTED`, `verify_sequence` gave `ok=True`
+with the last anchor held, and `verify_anchors(require="any")` gave `require_met=True`, at both tags;
+the exact `False` promoted nowhere. At the head of the fix (`3a8074fc`) none of the three answers
+promotes and the exact `True` still does. The reach is the Python API; the CLI sets none of these
+resolvers. The caller-attested flags of `svr_properties` and
+`export_svr_dsse` had the same shape (`anchor_verified="false"` signed `PROOFBUNDLE_ANCHOR_VALID`,
+measured on main `31816e08`); 6.2.0 refuses any flag that is not True or False.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 accept a key binding that no key made
+
+`sdjwt_issue.issue_sd_jwt` bound a holder key of small order, and the verifier accepted a Key Binding
+JWT under such a key. Measured 2026-09-27 by executing it at v6.0.0 (`4e32e83b`) and v6.1.0
+(`dcac5aee`): an eval receipt carrying an SD-JWT bound to the identity point, presented with a Key
+Binding JWT whose signature is R = identity, S = 0 (made with no private key), gave
+`verify_key_binding` `{"ok": true, "detail": "key binding valid (cnf.jwk)"}`, `verify_bundle` `ok=True`
+with no failing check, and `proofbundle verify <receipt> --aud v --nonce n` exit 0 with
+`[PASS] sd-jwt-key-binding: key binding valid (cnf.jwk)`, both when proofbundle bound the key and when
+another issuer bound it. On main `31816e08` the verifier already refuses it (exit 1, `KB-JWT
+signature invalid (cnf.jwk)`), while `issue_sd_jwt` still binds the key; at the head of the
+small-order branch (`76c900ea`) `issue_sd_jwt` refuses the key with `ValueError` and the verifier
+refuses the presentation.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 let a related map that says it is empty hide a retraction
+
+`verify_decision_receipt` and `verify_outcome_receipt` asked the caller's `related` map whether it held
+targets through its own `__bool__`. Measured 2026-09-28 by executing both at the tagged trees of v6.0.0
+(`4e32e83b`) and v6.1.0 (`dcac5aee`), and on main `86671552`: a `dict` subclass whose `__len__` is 0,
+holding a verified retraction of the subject, with `reject_superseded` set, gave `ok` True at both
+tags and on main (decision: `policy_ok` None; outcome: `policy_ok` True); the plain dict with the same
+entry gives `ok` False. 6.2.0 reads the map by what it stores (pull request 300,
+`relation._carries_attached_entries`, commit 1f08bd50). The reach is the Python API: the CLI builds a plain dict.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 read an edge's declaredAt with any Unicode digit
+
+`relation._RFC3339_Z` read `declaredAt` with `\d`, which in a Python str pattern is every Unicode decimal
+digit, while the Rust verifier takes ASCII digits only. Measured 2026-09-28 by executing
+`validate_relationships` at the tagged trees of v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`): an
+Arabic-Indic year, a fullwidth year and Devanagari seconds are accepted at both tags. On main
+86671552 a signed decision receipt carrying such an edge verified in Python (`decision verify` exit 0,
+`ok` True) and was refused by `pb_verify_rs verify-relation` (exit 2, "edge.declaredAt must be RFC3339
+Z"): the same bytes got two verdicts. 6.2.0 takes `[0-9]` (pull request 300,
+`tests/test_declared_at_takes_only_ascii_digits.py`; red against the source of 1f08bd50 on all twelve
+non-ASCII cases, both verifiers exit 2 at the fix). The reach is any producer that signs such a
+timestamp; this package's own emitter signed it before the fix.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — findings of the last rounds judged not to block
+
+One line per P2 and P3 of the closing lens and Codex rounds of the branches in this release (the small-order keys, the commitment patterns,
+the resolver fix, the pre-tag cleanliness gate, the Rust dependency audit, the release-scope cut), each
+with branch, head, file and line, and the sentence why it is not P0 or P1. 234, 236 and the tooling stack
+moved to 6.3.0 (owner word of 2026-09-27); their lines are not part of this file.
+
+Kept from the lenses of branches that moved to 6.3.0, because each describes main as well and so the
+tree of this release (owner word of 2026-09-27: 234, 236 and the tooling stack moved to 6.3.0; their other
+lens lines travel with them):
+- **`__debug__` used as a truth value at a check is not seen by classes A and C of the mutant signature
+  guard** (P2, stated by the stack's lens at 0b9edc94 as the same on main): no mutation tool writes it, it has
+  no occurrence in `src` or `scripts`, and `if __debug__:` is a legitimate idiom. Measured on main 0ace3039 (the
+  guard from main, `--base` over one added commit in a throwaway repository): `if __debug__:` before `return True` and
+  `return __debug__` in `verify_a` both pass (rc 0, clean); the control `if False:` is blocked (rc 1).
+
+- **A shipped test walks the package and drops every module that does not import** (P2, on main, reported by
+  the resolver round 3 and read by the filer): `tests/test_automation_nie_nachsichtiger_als_ok.py`,
+  `_alle_verifier`, catches any exception from `importlib.import_module` and continues, so a `verify_*`
+  function in a module that fails to import is never checked, and the test cannot go red for it. No verdict
+  of the package changes; the guard is weaker than its name. The resolver branch fixed the same assumption
+  in its own sweep (3d5b992a: only a declared optional extra that is absent is named and left out, anything
+  else fails); this test gets the same rule after 6.2.0.
+
+- **`root_authenticity_summary` reads a caller's check twice: once for its rows, once for its crypto
+  gate** (P2, Codex round four on pull request 293 at c9c274c4, thread 4121890211, `src/proofbundle/bundle.py:643`
+  and `:694`). Measured by Codex and reproduced on main 86671552 (whose tree is the tree of c9c274c4, Python
+  3.10.12): a `merkle-inclusion` check whose `ok` answers False, then True, then True gives
+  `merkleConsistency: FAIL` in the row and `safeForAutomation: true` with no blocker, because the gate
+  (`_checks_passed`, one read since round three) and the row read the check separately, and `result.ok`
+  folds the checks a third time; `evaluate_policy` reads each check twice through that same `result.ok`.
+  The control, the same check answering False three times, gives `CRYPTO_FAILED`.
+  Same class as the round-three finding that was fixed (split reads of a caller-controlled verdict). Not
+  P0 or P1 under the owner's line for this class: the check and its `ok` are the caller's own claim, so the
+  sequence reaches no verdict that a check answering True would not reach, and nothing the package itself
+  established is hidden (unlike the related map above, where the caller's container hid a retraction the
+  verifier had verified); `verify_bundle` never builds a check whose `ok` changes between reads (`Check` is
+  a plain dataclass field, `src/proofbundle/errors.py:30-36`). What the sequence breaks is the agreement of
+  the row and the verdict of one summary. The fix is one snapshot of the checks per call, shared by the
+  rows, the gate and the policy, with the reversed sequence as its red case; it goes into the first cycle
+  after the tag (the owner's exit rule for this release: a P2 travels with this file).
+
+- **Two tests change the working tree that the rest of a parallel suite reads** (on main since #280,
+  ef832a92, found while measuring a local merge of the first landing window on 2026-09-28). `tests/test_gate_qualification_harness.py`
+  writes stripped versions of `scripts/pre_tag_receipt_lib.py` and `scripts/type_confusion_gate.py` into the real
+  tree and puts them back; under `pytest -n 8` a test that loads the library in that window sees the
+  stripped check (measured on 3.12: a receipt signed by an untrusted key read as verified in
+  `test_verify_pre_tag_receipt_third_party.py`; on 3.11 the library was read half written and lacked
+  `load_trusted_pubkeys`). `tests/test_byte_freeze_zweite_haelfte.py` unpacks an sdist into the tree root while
+  it runs. Both pass alone. Not P0 or P1: CI runs pytest in one process, so the release gates never see
+  the race, and no shipped code is involved; the local parallel measurements of this chain carry it as
+  known noise. The fix is to strip and unpack in a copy of the tree, after the tag.
+
+- **A shipped test rewrites real repository files in place while it runs** (P3, on main, seen by the rounds of
+  the small-order branch and the pre-tag cleanliness gate): `tests/test_gate_qualification_harness.py` plants
+  its strips in `scripts/pre_tag_receipt_lib.py` and `scripts/type_confusion_gate.py` and restores them after.
+  Under a parallel local run (`-n 8`) another worker can read a stripped copy: measured, a third-party receipt
+  test copied `if False and (signer not in trusted_pubkeys):` into its fixture and reported VERIFIED for an
+  untrusted key, and a site-data test read an empty file. CI runs `python -m pytest -q` without workers, so its
+  verdicts are not affected; the harness gets private copies after 6.2.0.
+
+- **Six more modules read a timestamp or a schema version with `\d`** (P2, the neighbours of the declaredAt fix
+  above; owner choice of 2026-09-28: fixed after the tag as a small pull request). Lines as at 373bf64b:
+  `decision.py:30` and `:32` (read at `:200` for `decidedAt`/`recordedAt` and `:182`), `outcome.py:36` and `:38`
+  (`:146`, `:114`), `run_ledger.py:30` and `:32` (`:158` `startedAt`, `:76`), `verification_summary.py:29` and `:31`
+  (`:81` `producedAt`, `:73`), `agent_review.py:91` and `:94` (`:494` `revisedAt`, `:913`, `:390`),
+  `relation_statement.py:37` (`:79`); each accepts a non-ASCII digit that the JSON schema's ECMA-262 `\d`
+  refuses. Not P0 or P1: the Rust verifier reads none of these fields (`is_rfc3339_z` has one call site,
+  `edge.declaredAt`, and no version check), so they change no verdict between the two verifiers. Measured
+  at 373bf64b over signed bytes: `decidedAt` with an Arabic-Indic digit, Python `ok` True and Rust
+  `verify-relation` exit 0; a relation statement's `schemaVersion` `0.1.` with an Arabic-Indic digit, Python
+  `ok` True and Rust `verify-relation-statement` exit 0, the same as for the ASCII controls. The fix takes
+  `[0-9]` in all six, as `trust_pack.py:49` already does. Swept and not of this class:
+  `adapters/agt_receipt.py:354` (`_POSTEN`, a CPython buffer format) and `:1069` (`_KETTENPRAEFIX`, a
+  prefix the package builds itself); outside the package, `scripts/findings_register.py:291` holds the same
+  pattern for the register's own timestamps.
+
+- **Pull request 300 copies every attached entry without the structural budget** (P2, Codex round three on pull request 300
+  at 373bf64b, thread 4124587746, `src/proofbundle/relation.py`, `_read_attached_entries`). Reading each entry on
+  its own, the fix of thread 4121924153 takes a plain copy of every attached entry, also one no edge names, and
+  that copy does not apply `enforce_structural_budget`. Measured 2026-09-28 with an entry holding ten times the
+  `json_nodes` budget (2 000 000 `None`): on main 86671552 the call takes 0.2 MB at most and does not read the
+  entry; at 373bf64b it takes 0.44 to 0.51 s and 33.1 MB at its peak, with one edge and without. The verdicts are
+  the same on both trees in every case measured (`NOT_EVALUATED` without edges, `DECLARED_UNRESOLVED` and `FAIL`
+  with one). Not P0 or P1: no verdict, exit code or signed property changes, and the cost is linear in an object
+  the caller already holds; the release exit rule's "a bound" is read here as a bound a verdict states, which
+  this is not. The fix copies only the entries an edge names, and those through the budget, after 6.2.0.
+
+Named by the fix of the Codex P1 on pull request 300 (thread 4121924153) as the same pattern elsewhere and
+not changed there, each measured by that fix's sweep:
+- **`agent_review.evaluate_time_policy` reads axes or a policy that hold one value that is no JSON value as empty**
+  (P2, `agent_review.py:2266`, `_gelesen_oder_leer`): a CONFLICT axis beside such a value gives
+  `insufficient_evidence` instead of `reject`; neither answer accepts.
+- **`policy.explain_policy` and `lint_policy` read such a policy as empty** (P2, `policy.py:1369`,
+  `_gelesene_richtlinie`): `explain_policy` returns no pins and `lint_policy` fails naming "pins nothing"; both
+  are diagnostics, no verdict reads them.
+- **`sdjwt_vc` reads a metadata cache holding such a value as no cache** (P3, `sdjwt_vc.py:113`,
+  `_plain_metadata`): documented, and fail-closed.
+
+Drafted from the lens of the small-order branch at 06f84b88 (pull request 293), measured by that lens:
+- **A caller object's finalizer runs when the list reader lets go of its last reference** (P3): an
+  exception there is unraisable and the verdict is the one of a direct call. It can only be named, not
+  closed.
+- **A receipt key that is a `str` subclass with its own `__hash__` is read by its text** (P3): the
+  verdicts move from 2 or 1 to 0 with a valid signature over exactly the judged bytes, and the
+  CHANGELOG line for it is missing; the public `payload_hash` and `canonical_payload` still read by
+  lookup, so for the same receipt `payload_hash` raises `AGTReceiptError` while the chain verifier
+  accepts it.
+
+Drafted from the lens of the release-scope cut (pull request 294) at 3892f291, measured by that lens; its
+P2 was corrected in 351fce0c:
+- **Four quoted titles are the commit subjects on main, not the later pull-request titles** (P3, #246,
+  #268, #269, #286): no item moves between releases because of it.
+- **"Named by a landing" is loose for the rewrite of the scope file by pull request 251** (P3): no line
+  of the scope moves because of it.
+- **The column-rename test measures nothing for the 6.2.0 scope file** (P3): the file has no `| Item |`
+  header left, so its four subtests for this file cannot fail; for the 6.3.0 file (nine headers) it
+  still measures.
+
+From the filer's re-measurement of a foreign review of the resolver branch (pull request 291) at 3a8074fc:
+- **The case that passes the resolvers through the public verifiers does not assert that the answer's
+  own `__bool__` stayed unasked** (P3): measured, it stays unasked (`asked` 0 through
+  `verify_outcome_receipt` and `verify_decision_receipt`); only the test's assertion is missing.
+
+Drafted from the lens of the small-order branch at 75c3aa48 (pull request 293, run 7), measured by that
+lens; its two P1s went into round 8 and are not listed here:
+- **Large legitimate AGT payloads are canonicalised 4 to 8 times slower than before the depth ceiling**
+  (P3): 10^6 small lists 0.30 s against 2.0 to 2.6 s, a 24 MB form 2.0 s against 8.2 s, measured on 3.10
+  under a load near 30; linear, and no verdict changes. Not measured again after round 8; the branch landed at
+  c9c274c4.
+
+Drafted from the reviews of the Rust dependency audit (pull request 296 at 47adce3e and 5138b4d2):
+- **The self-test prints the exit code of `cargo audit --deny warnings` and does not assert it** (P3, a
+  foreign review, confirmed by reading): a non-zero exit there fails the step at the command before the
+  gate, so no verdict depends on the missing assertion.
+- **The self-test's listed-exception case passes because cargo-audit leaves an ignored ID out of its
+  JSON** (P3, observation): measured with cargo-audit 0.22.2, a lock with rsa 0.9.10 beside the
+  committed audit.toml gives `vulnerabilities.count` 0; the gate's own comparison against the listed
+  IDs is exercised by the unit cases, not by the run against the real tool.
+
+From lens run 4 on pull request 296 at d30f236e (verdict FIX_FIRST for one P1, C3, which is not listed here: it was
+fixed at f97cb257 and re-measured there; Codex's later P1 on the database work tree, thread 4117518025, was reproduced
+red in ce3430bd and ac9bea55 and fixed in 77a5bfb3 and 2cf9908f, the head that landed; the Codex series of the pull
+request ended there without a finding). The author's three unmeasured points were measured by
+run 4 and held: a sparse-spelling lock written by cargo itself fails the step, and an audit.toml under CARGO_HOME is
+ignored while the checked-in one exists and refused otherwise. cargo-audit versions other than 0.22.2 stay out of scope
+(the step pins 0.22.2).
+- **The step audits `tools/pb_verify_rs/Cargo.lock` even when cargo builds pb_verify_rs from another lock** (P2): a root
+  `[workspace]` with pb_verify_rs as a member makes cargo write and build from `/Cargo.lock` (smallvec 1.6.0 there,
+  RUSTSEC-2021-0003), while the audited file is unchanged and the step ends with 0. P1 only if "pb_verify_rs's
+  Cargo.lock" is read as the lock it is built from. The neighbour `package.workspace` was not measured.
+- **A lock entry without a `source` line passes unaudited** (P2, from run 3): a path or workspace package, not a crates.io
+  identity RustSec covers; the docstring says so.
+- **A crates.io name in the wrong case passes** (P3): advisory names match case-sensitively. cargo 1.95 refuses such a
+  dependency, and the job's build step removes the entry from a committed lock before the audit.
+- **11 of 32 planted gate defects pass both the self-test and the unit tests** (P2; run 3 counted 19 planted, 2 caught
+  by the self-test, 12 by the unit cases): the shipped gate has none of them, and the gap only lets a later regression
+  through.
+- **Sentences the measurements contradict** (P3): 4cc525d6 says "a line it cannot read is exit 2" (an unreadable
+  audit.toml line outside the ignore list gives 1); MANIFEST.in says the shipped test loads the script (from the sdist
+  the module is skipped at import, because `tools/` is pruned); the test's readiness check reads `Path.home()` instead
+  of CARGO_HOME; "the self-test proves F1 to F3" proves one instance of each.
+- **A lock file written by hand in a form cargo does not write** (a list entry without its trailing comma) is refused
+  with exit 2 (the gemma review of run 4, measured by the filer: both real locks carry the comma on every entry); this
+  fails closed.
+
+From the review lens of the resolver branch (pull request 291) at 3a8074fc, measured by that lens:
+- **`hf_evals.to_eval_results_entry(include_token="false")` included the token** (P3). Round 3 closes it,
+  measured at c8865652 on Python 3.10.12: `"false"` raises `SwitchTypeError` naming `include_token`,
+  the exact True includes the token, and False leaves it out. The line leaves this list once that head
+  (or its successor) lands; until then it is kept as a record of what the round closed.
+
+From the Claude lens run 3 of the resolver branch (pull request 291) at c8865652, measured by that lens; its two P1s
+(an exception escaping a never-raise surface through a registered verifier's result or a passed dict) went into a
+further round and are not listed here:
+- **`root_authenticity_summary` reads a list subclass two ways** (P2): `bundle.py` builds its name map through the
+  subclass's own `__iter__`, while the crypto gate reads what the list stores. The aggregate is fail-closed
+  (safeForAutomation False, the stored value named); the single fields show PASS from an exact True that the
+  caller's own object yields. Nothing reads worse than at 3a8074fc.
+- **`_membership.type_name` has no test of its own** (P3): two planted defects in it stay green; its claims hold
+  as measured, and it only builds message text.
+- **A verifier result that is a `UserDict` or a `MappingProxyType` is a failed anchor** (P3): refused since the
+  first round of this branch, documented ("the result must be a dict"), and fail-closed; main verified both.
+
+From the Claude lens run 4 of the pre-tag cleanliness gate (pull request 249) at f5939ab0 (verdict WITHSTANDS),
+measured by that lens:
+- **The documentation still names `git show` as the way the anchor is read** (P3): `docs/PRE_TAG_AUDIT.md:28`, the
+  docstring of `load_trusted_pubkeys` and the verifier's `receipt_read_from` field; the chain runs no `show` any more
+  (traced: 30 git calls in the gate, 62 in the verifier), and the real read is stricter than the text.
+- **An unreadable directory in the tree is refused with a Python traceback instead of a named reason** (P3): exit 1,
+  no payload, and the audit does not run.
+- **A foreign writer in the moment between the producer's walk and the start of the audit** (P3 by the lens): a file
+  ignored by a tracked rule, written by a process other than the producer and the audit in that window, is not
+  refused (simulated in process). The same write a moment later, during the audit, is outside the property by design
+  and yields the identical receipt, so the window adds no capability (owner decision of 2026-09-27: P3). The
+  remedy is to run the audit from an exported tree (`git archive` or a fresh checkout), where no foreign writer
+  shares the directory; a candidate for 6.3.0.
+
+From the Claude lens run 8 of the small-order branch (pull request 293) at fddc00f4, measured by that lens; its three
+P1s (a caller's value checked through one read and written through another: the vkey name, the signers map, the
+assemble body, the template overlay, the status, and a float subclass) went into a further round and are not listed here:
+- **A large integral float in a trust-pack predicate raises the canonicaliser's own error** (P3): `version=1e16` gives
+  `rfc8785` IntegerDomainError instead of TrustPackError in `build_trust_pack_statement`; `sign_trust_pack` gives
+  TrustPackError, and the input is refused either way.
+- **The depth statement for 600 levels does not hold for a list subclass on 3.10 and 3.11** (P3): those give the
+  RecursionError message instead of the depth message; exit 2 and `readable` False on all five interpreters.
+- **`build_trust_pack_statement` returns a parsed copy in RFC 8785 key order** (P3): `json.dumps` without `sort_keys`
+  differs from the earlier head; the canonical bytes, the signed payload and every verdict are identical.
+- **Two sentences on a dict subclass did not hold for one with its own `__iter__`** (P3), closed in the further round
+  (068cd349): every checked and written value is read once from its storage, and the lens harness finds 0 of 4966 text
+  cells against 104 at fddc00f4 (measured by that round, not re-measured here). By the same round's measurement, the
+  three findings above are unchanged at 068cd349.
+
+From the Claude lens of the release-scope cut (pull request 294) at 989b582c; its four P1s were closed in round 5
+(346fa924) and are not listed here:
+- **A reference whose line holds another quoted word of the same row passes** (P2): the reader checks that the named
+  line holds a word the row quotes, not the one symbol the reference is about; the test names this limit itself.
+- **Five- and six-digit abbreviations of a commit are not read** (P3): git resolves them, the reader starts at seven
+  digits, and no scope file uses a shorter one.
+
+From Codex round five on the release-scope cut (pull request 294) at 76f260a2, the last request of its series; its
+P1 (an unreadable candidate scope read as one that names nothing) is fixed on the head that carries this file:
+- **A shallow clone passes the case that holds the list of main against git without comparing anything** (P2, thread
+  4125291624, `tests/test_release_scope_cut_holds.py`,
+  `test_what_landed_on_the_day_of_the_cut_is_in_the_list_of_main_and_the_counts_match`): at depth 1 the case returns
+  before its comparison with git and reports passed, where it should skip with NOT MEASURED. The same early return
+  stands in `test_a_word_the_reader_takes_for_a_name_stands_in_the_files_and_names_no_commit`, whose history check
+  is left out in a shallow clone. Not P0 or P1: both check this file's own record, not a verdict of the package, and
+  CI's test job checks out the full history, where both compare. The fix skips with the reason, after 6.2.0.
+- **Once the source version is 6.2.0, the title gate cannot read the 6.3.0 scope, and it is red on every pull
+  request** (P2, found by the sweep for that P1 and measured at 76f260a2 over the real scope files, with the source
+  version at 6.2.0 and no tag the clone shows): `docs/release_scope/6.3.0.md` has no `## Out` section and names no
+  branch, so `lies_umfang` answers NOT MEASURABLE for it. While the source version is 6.1.0 the candidates are 6.1.0
+  and 6.2.0, both readable, and nothing changes. With the source at 6.2.0, at 76f260a2 a branch of 6.2.0 was judged
+  against 6.2.0 and every other branch against 6.3.0, red with NOT MEASURABLE; since the fix of that P1 every branch
+  is red, because an unreadable candidate decides nothing. After the tag the gate judges 6.3.0 and stays red. Not P0
+  or P1: the job is not a required context of `protect-main`, so it shows red and stops no merge, and every branch of
+  6.2.0 has landed with this pull request. It ends when 6.3.0 names its first branch and its `## Out` section, which
+  is work of 6.3.0.
+
+## Open — named limits carried by the fixes themselves
+
+Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
+those on a verify, emit or release path:
+- A key's `__eq__` can still run on a collision of `str`'s own 64-bit hash while an OrderedDict's own
+  order is read.
+- A whole ctypes array of `c_char_p` or `c_wchar_p` in a relying party's authorizer list is walked and
+  each pointer read, by design; a pointer that names no valid address is not detected.
+- A registered anchor verifier's `status`, `detail` and `trustedTime` are carried as given; no gate
+  reads them.
+- The pre-tag receipt producer refuses a clean tree that carries a `text eol=crlf` or `ident`
+  attribute, a tracked or ignored name with a newline, or a gitlink (a submodule entry, also an
+  uninitialised one). The release tree has none of these (the attributes and names measured by the
+  review lens of pull request 249; 0 gitlinks and 0 names with a newline on main and on the
+  branch head, measured on 2026-09-28); the fix comes after 6.2.0 as an item of its own.
+- The pre-tag receipt chain is measured on Linux only. Its funnels compared git's top level with
+  `--repo` as text, which refuses `C:/repo` against `C:\repo` on Windows (Codex on pull request 249,
+  round four, P1, estimated); a510fc5a compares them as resolved paths, measured in the POSIX form of
+  the defect (a `git` that answers `<root>/`). Windows itself was run neither for the defect nor for
+  the fix, and no other place where the chain meets a Windows path was reviewed.
+- The inventory that keeps proofbundle from signing with ECDSA reads the source, not types: a
+  python-ecdsa signing key handed in from outside and called as `key.sign(data)` has the shape of the
+  package's own Ed25519 signing and is not seen (a review finding on pull request 295). The case
+  guards against a mistake, not against someone writing the package on purpose; the fix comes after
+  6.2.0 as an item of its own.
+- The Rust dependency audit reads its exceptions from `tools/pb_verify_rs/.cargo/audit.toml` beside the lock;
+  when no such file lies there, cargo-audit 0.22.2 falls back to `$CARGO_HOME/audit.toml` (measured: an
+  exception there is ignored while the file beside the lock exists, and applied without it). The CI step runs
+  beside the committed file. At d30f236e the gate reads the file cargo-audit applied and refuses it when the one
+  beside the lock is missing (lens run 4: exit 1), so the fallback no longer passes unseen.
+- `build_eval_claim` with an identifier holding a lone surrogate raises a raw `UnicodeEncodeError` from
+  `salted_commit` instead of `EvalClaimError` (a review lens on the commitment-pattern branch at
+  fa555f13, finding L12; named there as not changed). It fails closed at the emitter; the error type is wrong.
+- The copy of an OrderedDict bounds what its own order can hold through CPython's
+  `gc.get_referents`; on another interpreter that check falls back to the earlier behaviour
+  (commitment-pattern branch, round 10).
+- `svr_properties` looks a check up by its name in a dict, `check_binds_bundle` compares the
+  claim's values through their own `__ne__`, and `build_eval_claim` reads `n`, `samples`,
+  `threshold` and `score` through the caller's objects; each signs nothing on its own and is named
+  in the CHANGELOG of the commitment-pattern branch.
+- The AGT adapter does not relate `agent_did` to `signer_public_key`: a receipt whose `agent_did` names
+  another party verified with exit 0 under a fresh signer key. `trusted_authorizer_keys` is compared as text,
+  so the real key in capitals or as raw bytes gives exit 3, on the closed side (small-order entry).
+- A permissive flag reads a falsy non-bool (0, None) as False, the lenient branch where its default is True:
+  `to_eval_results_entry(require_verified=0)` built an entry from a receipt that does not verify ("A
+  permissive flag is True or False").
+- `canonicalize` refuses the last two nesting levels `rfc8785.dumps` writes, and `canonicalize_statement`
+  refuses a statement nested deeper than 64 levels, its structural budget; both deliberate (the eval-claim
+  producer entry).
+- The pre-tag receipt chain: an empty ignored directory is not reported (as with `git status --ignored`); a
+  file that appears and is gone again between the two measurements is invisible to both; the verifier's
+  `git status` takes the index's stat data on trust; a `PATH` that leads to a git wrapper is part of the
+  trusted base, like the interpreter (the three pre-tag entries).
+
+## Open — a caller's own Python objects can make a never-raise surface raise
+
+Owner decision of 2026-09-27 (the line for this class in 6.2.0): where a caller's object makes a verifier answer ok, PASS
+or a signed property it should not, or makes a written byte differ from the judged one, the release blocks and the
+branch closes it; where the object only makes an exception escape, with no promotion, it is a named limit here and gets
+a branch of its own after 6.2.0.
+
+Measured by the resolver branch's final round (pull request 291) over all 133 surfaces the package documents as never
+raising: a planted dict holding a colliding key whose `__eq__` raises, or a value every special method of which raises,
+lets the exception escape at 60 surfaces in 24 modules (the predicate validators, `agent_review`, `subject_binding`, the
+`evalclaim` helpers; 23 of them at one shared read in the structural budget walk, `_strict_json.py:91`). The same holds
+on main. JSON, the CLI and files cannot produce such objects; only a caller's own Python objects reach these
+surfaces, and no promotion was measured at any of them. The branch closed the two sites where the same class did
+promote (a registered anchor verifier's result, and the evidence ladder's digest object).
+
+The shared reader of the producers (`_plain_value.plain_json`, small-order branch, pull request 293) belongs to the same
+class (Codex, thread 4119391971, measured on 2026-09-28 at 068cd349): a value whose metaclass answers `__name__` by
+raising, in a list, as a key, alone or as an `int` subclass, lets the caller's exception escape where the reader
+promises its typed refusal; a plain `object()` gets the typed refusal. The value is refused either way, and nothing is
+written.
+
+A neighbour in the other direction (Codex, thread 4119394589, read on 2026-09-28 at 18e93d7a): the exact-type guard
+on `policy_warnings` in `root_authenticity_summary` reads any `list` or `tuple` subclass, an empty one included, as
+warnings present, so `safeForAutomation` stays false for an honest empty subclass (reproduced on main 86671552,
+Python 3.10.12: `POLICY_WARNINGS_PRESENT`; a plain empty list gives no blocker). The guard does not read a
+subclass through its own `__len__` on purpose; it fails towards no automation, never towards yes. The fix reads
+the subclass by what it stores (`list.__len__` and `tuple.__len__` of the base type, as pull request 300 does for the related
+map) and sweeps the sibling exact-type guards on containers, after 6.2.0.
+
+## Open — `subjectContext.humanRef` is untyped
+
+Owner decision of 2026-09-27: the typing comes with the next predicate version after 6.2.0.
+
+## Open — the mutation gate counts a confirmation run without a verdict as SURVIVED
+
+Measured by a review lens of the child memory cap (pull request 289): a confirmation run that ends
+without a verdict is counted as SURVIVED rather than NOT MEASURED. The same stands on main before that
+change, and that change adds no path to it on Linux. The shard-26 run of operator 96 belongs to the
+canonical mutation run on the frozen tree, the first after the cap landed; this file is written before it.
+
+## Open — wall-clock cases of the cost curve under load
+
+`tests/test_budget_kostenkurve.py` measures time exponents. Under a machine load near 15 the
+`input_bytes` case failed with an exponent of 1.23 against a bound of 1.2, on a tree with and on a
+tree without the change being tested; alone it passed. The resolver branch's final 3.10 suite showed it
+again (exponent 1.29 under a load between 14.5 and 35; the load-independent work-count exponent stayed
+within its bound; 3 of 3 passes alone). On 2026-09-28, three alternating local runs of the curve test under a load
+between 9 and 13: main passed 3 of 3; the resolver branch at 18e93d7a passed 1 of 3, failing `input_bytes` (1.27)
+once and `json_nodes` (1.23) once, although `loads_strict` runs the same code on both trees. CI's test jobs passed
+at the branch's previous head on all five interpreters. The same class outside this file: in a full 3.13 suite
+of the commitment-pattern branch at 7cc8fa0b, run beside a second full suite, `tests/test_cap1_regeln.py`'s
+linearity case measured an exponent of 1.354 against its bound of 1.35; alone it passed 3 of 3, and the branch
+does not touch that file. In a local mutation baseline the
+`renewal_work` case stopped the baseline of `bundle.py`. Whether CI on the frozen head shows it is a
+measurement of the closing round; the mutation baseline allowlist is the owner's weighing.
+
+The CPU bound of the same curve is at its edge on CI's shared runners. `renewal_ats_chain` at its limit of
+10,000 has a bound of 1.0 s CPU (maximum over nine runs) under coverage. The coverage job of the resolver
+branch failed on it at 1f76a305 twice (1.042 s, 1.068 s), passed at 18e93d7a, and failed at 3977fcdf (1.070 s).
+The test's own measurement, run locally under coverage in three alternating rounds on 2026-09-28, gave a
+maximum of 0.165 to 0.236 s on main 0ace3039 and 0.156 to 0.165 s at 3977fcdf: the branch does not raise the
+cost, the runner does. The same job ran 57:49 of its 60-minute limit at 3977fcdf. A second attempt there failed
+again (1.061 s). The cause is a second reader of the bound: `tests/test_structural_budget_reachability.py`
+compared the maximum with the bare bound, without the machine factor and the reference-machine binding the
+curve applies itself. The class fix (the second reader calls the curve's own verdict) lands with pull request 300 (commit 262ade50 there, cherry-picked from b8d7112c) and with pull request 249 (68745704, main 8da7ce16),
+where the coverage job then passed in 37:19 against 58:51 before.
+
+## Open — a docstring in shipped source names a local checkout path
+
+`src/proofbundle/_membership.py` (the `is_bool` docstring, added in 1a1b09f2 on 2026-09-24) names the
+local path of the maintainer's checkout. It is the only such path under `src/`; release records on main
+(`RESTRISIKO_600.md`, `audit_artifacts/`) have carried local paths since 6.0.0. No verdict depends on
+it. It stays in 6.2.0 because only a P0 or P1 reopens a frozen head; the sentence is rewritten after
+6.2.0.
+
+## Honest limits of this file
+
+- **This file is written before the closing round**, so it cannot contain that round's findings. A
+  finding of the closing round is a new iteration with a new freeze, never an edit to this file.
+- **Several lines are measured before the freeze, on main or on a branch head**, each naming the tree it
+  was measured on; the closing round repeats the ones it names on the frozen tree.
+- **Lines from a lens or from Codex that the filer did not re-measure say so**; they carry the source's
+  measurement, not this file's.
