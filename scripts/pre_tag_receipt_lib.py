@@ -116,6 +116,26 @@ def git_environment(root: Path) -> dict:
     return umgebung
 
 
+def _nennt_die_wurzel(antwort: bytes, root: Path) -> bool:
+    """Does git's `--show-toplevel` answer name `root` (already resolved)?
+
+    COMPARED AS PATHS, NOT AS TEXT (Codex on PR 249, round four, P1; estimated there and here, as
+    no Windows runner is available). Git for Windows prints the top level with forward slashes
+    (`C:/repo`) where the resolved `root` reads `C:\\repo`, so a text comparison refused the real top
+    level of every repository on that platform. An answer that is empty or not absolute names no
+    directory and is refused: resolved, it would stand for the working directory of this process,
+    which may be `root` itself. For an answer that already is the resolved path, as git prints it on
+    Linux, the verdict is the one the text comparison gave. The verifier carries a copy of this
+    function for the reason it carries a copy of the funnel."""
+    text = os.fsdecode(antwort)
+    if not text or not Path(text).is_absolute():
+        return False
+    try:
+        return Path(text).resolve() == root
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def git_run(repo, *args: str, stdin_bytes: bytes | None = None, timeout: float = 120):
     """Run `git <args>` about the repository whose top level is `repo`; the completed process.
 
@@ -147,7 +167,7 @@ def git_run(repo, *args: str, stdin_bytes: bytes | None = None, timeout: float =
         grund = ort.stderr.decode("utf-8", "replace").strip().splitlines()
         raise BaumNichtLesbar(f"git does not answer for {root} as a repository"
                               + (f": {grund[0]}" if grund else ""))
-    if len(zeilen) < 2 or os.fsdecode(zeilen[0]) != str(root) or zeilen[1] != b"":
+    if len(zeilen) < 2 or not _nennt_die_wurzel(zeilen[0], root) or zeilen[1] != b"":
         raise BaumNichtLesbar(
             f"git answers for {root} with the top level {os.fsdecode(zeilen[0])!r} and the prefix "
             f"{os.fsdecode(zeilen[1]) if len(zeilen) > 1 else ''!r}; the chain asks only about the "

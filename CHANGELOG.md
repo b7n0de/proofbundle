@@ -437,11 +437,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   - `scripts/sign_readiness_artifact.py` is loaded for one constant, and its own git calls are
     outside the chain.
 
+  The top level git names is compared with `--repo` as a resolved path, not as text (Codex on this
+  PR, round four, P1; estimated there and not measured here, as no Windows runner is available).
+  Git for Windows prints it with forward slashes (`C:/repo`) where the resolved `--repo` reads
+  `C:\repo`, so the text comparison refused the real top level of every repository on that
+  platform, in the library's funnel and in the verifier's copy. Measured with the POSIX form of the
+  same defect, a `git` first on `PATH` that answers `<root>/`: both funnels refused it at 0b7252c6
+  and accept it now, and the same `git` answering the parent directory is still refused. An answer
+  that is empty or not absolute names no directory and is refused, because resolved it would stand
+  for the working directory of the process. For an answer that already is the resolved path, as git
+  prints it on Linux, the verdict is the one the text comparison gave.
+
   Contracts: `tests/test_pre_tag_git_configuration_does_not_answer.py` (a case red on the pushed
-  head for each finding above, and controls) and
+  head for each finding above, and controls),
   `tests/test_pre_tag_chain_asks_git_through_one_funnel.py`
   (the call-site derivation, the allowlist, and a sweep of 72 environment names and configuration
-  keys against a clean baseline).
+  keys against a clean baseline) and `tests/test_pre_tag_top_level_is_compared_as_a_path.py` (the
+  spelling, the empty and relative answers, and the two copies held to one answer).
 
 - **What the pre-tag receipt chain reads from git's object store is the object its id names**
   (`scripts/pre_tag_receipt_lib.py`, `scripts/pre_tag_receipt.py`,

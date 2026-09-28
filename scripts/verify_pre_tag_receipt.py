@@ -299,6 +299,20 @@ def _git_environment(root: Path) -> dict:
     return umgebung
 
 
+def _nennt_die_wurzel(antwort: bytes, root: Path) -> bool:
+    """Does git's `--show-toplevel` answer name `root` (already resolved)? The library's
+    `_nennt_die_wurzel`, carried here for the reason `_git` is: compared as resolved paths, because
+    git for Windows prints `C:/repo` where the resolved path reads `C:\\repo`, and an empty or
+    relative answer names no directory (resolved, it would be this process's working directory)."""
+    text = os.fsdecode(antwort)
+    if not text or not Path(text).is_absolute():
+        return False
+    try:
+        return Path(text).resolve() == root
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
 def _git(repo: Path, *args: str, eingabe: bytes | None = None) -> tuple[int, bytes, str]:
     """One git call about `repo`, through this script's own funnel. -> (exit code, stdout, stderr)
 
@@ -327,7 +341,7 @@ def _git(repo: Path, *args: str, eingabe: bytes | None = None) -> tuple[int, byt
             return 128, b"", ("git does not answer for this directory as a repository: "
                               + ort.stderr.decode("utf-8", "replace").strip())
         zeilen = ort.stdout.split(b"\n")
-        if len(zeilen) < 2 or os.fsdecode(zeilen[0]) != str(root) or zeilen[1] != b"":
+        if len(zeilen) < 2 or not _nennt_die_wurzel(zeilen[0], root) or zeilen[1] != b"":
             return 128, b"", (f"git answers for {root} with the top level "
                               f"{os.fsdecode(zeilen[0])!r}; only the top level of a repository "
                               "is measured")
