@@ -698,7 +698,7 @@ def _lineage_as_stored(value: Any) -> dict:
     the value's own ``__class__``."""
     gespeichert = stored_str_items(value)
     oben = {k: _stored_scalar(v) for k, v in gespeichert.items() if k != "edges"}
-    kanten = gespeichert.get("edges")
+    kanten: Any = gespeichert.get("edges")
     if issubclass(type(kanten), list):
         oben["edges"] = [{k: _stored_scalar(v) for k, v in stored_str_items(e).items()}
                          for e in list.copy(kanten) if issubclass(type(e), dict)]
