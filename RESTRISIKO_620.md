@@ -72,8 +72,8 @@ resolvers. The caller-attested flags of `svr_properties` and
 `export_svr_dsse` had the same shape (`anchor_verified="false"` signed `PROOFBUNDLE_ANCHOR_VALID`,
 measured on main `31816e08`); 6.2.0 refuses any flag that is not True or False.
 
-Whether 6.0.0 and 6.1.0 need a note for their users is an owner decision. A security advisory or a
-release note is an outward act and is not part of this file.
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
 
 ## Open — the released 6.0.0 and 6.1.0 accept a key binding that no key made
 
@@ -89,8 +89,8 @@ signature invalid (cnf.jwk)`), while `issue_sd_jwt` still binds the key; at the 
 small-order branch (`76c900ea`) `issue_sd_jwt` refuses the key with `ValueError` and the verifier
 refuses the presentation.
 
-Whether 6.0.0 and 6.1.0 need a note for their users is an owner decision; a security advisory is an
-outward act and is not part of this file.
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
 
 ## Open — the released 6.0.0 and 6.1.0 let a related map that says it is empty hide a retraction
 
@@ -102,8 +102,8 @@ tags and on main (decision: `policy_ok` None; outcome: `policy_ok` True); the pl
 entry gives `ok` False. 6.2.0 reads the map by what it stores (pull request 300,
 `relation._carries_attached_entries`, commit 1f08bd50). The reach is the Python API: the CLI builds a plain dict.
 
-Whether 6.0.0 and 6.1.0 need a note for their users is an owner decision; a security advisory is an
-outward act and is not part of this file.
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
 
 ## Open — the released 6.0.0 and 6.1.0 read an edge's declaredAt with any Unicode digit
 
@@ -118,8 +118,8 @@ Z"): the same bytes got two verdicts. 6.2.0 takes `[0-9]` (pull request 300,
 non-ASCII cases, both verifiers exit 2 at the fix). The reach is any producer that signs such a
 timestamp; this package's own emitter signed it before the fix.
 
-Whether 6.0.0 and 6.1.0 need a note for their users is an owner decision, together with the related-map
-finding above; a security advisory is an outward act and is not part of this file.
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
 
 ## Open — findings of the last rounds judged not to block
 
