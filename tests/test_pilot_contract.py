@@ -57,6 +57,33 @@ class ThePilotContract(unittest.TestCase):
         self.assertIn("no\nnumber in it is a target", text)
         self.assertIn("never judged against a target", text)
 
+    def test_a_refused_action_that_did_not_arrive_reconciles(self) -> None:
+        """An enforced refusal is the gate working, so it reconciles and asks no maintainer decision.
+
+        The rule branches on the verdict and keeps its fail-closed else. Reconciling on `not arrived` is
+        honest only with the bound on what the API listed, so the bound is held here too.
+        """
+        text = " ".join(_text().split())
+        rule = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("An approved action reconciles only when M1 is arrived and M2, M3 and M4 each hold.", rule)
+        self.assertIn("A refused action reconciles only when M1 is not arrived;", rule)
+        self.assertIn("Every other combination is a mismatch with a name.", rule)
+        self.assertIn('"Not arrived" for M1 and "none found" for M5 and M6 are bounded by what the API returned',
+                      text)
+
+    def test_arrival_is_asked_of_every_proposed_action(self) -> None:
+        rows = [line for line in _text().splitlines() if line.startswith("| M1 ")]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("for this proposed action?", rows[0].split("|")[2])
+
+    def test_the_record_promise_matches_the_refused_rule(self) -> None:
+        """A refused action with no effect has a decision receipt and nothing for the observer to sign."""
+        text = " ".join(_text().split())
+        records = text[text.index("## 4. Records"):text.index("## 5. Measures")]
+        self.assertNotIn("For every proposed action the pilot keeps two signed records", records)
+        self.assertIn("For every proposed action the pilot keeps a signed decision receipt and, once GitHub shows "
+                      "an effect of it, a signed outcome receipt, and joins them:", records)
+
     def test_the_first_example_keeps_what_was_not_measured_apart(self) -> None:
         text = _text()
         beispiel = text[text.index("## 9. First reconciliation example"):text.index("## 10.")]
