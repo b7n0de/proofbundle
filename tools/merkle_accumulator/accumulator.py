@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An append-only RFC 6962 accumulator: the root and the new leaf's path without rebuilding the history.
+"""An RFC 6962 accumulator that only appends: the root and the new leaf's path without rebuilding the history.
 
 emit_bundle (src/proofbundle/emit.py) builds `list(prior_leaves) + [payload]` and recomputes the root and
 the inclusion path over the whole list on every call: about 4(n+1) SHA-256 calls for a history of n
@@ -34,6 +34,12 @@ per set bit of the size, whose root is not the fold of its frontier, or, when le
 leaf hashes are not 32 bytes each or do not reproduce the frontier and the size. It never rebuilds a
 refused state; rebuilding from the leaves is `from_leaves`, a separate and deliberate call.
 
+A STATE IS ONE SNAPSHOT. restore checks a state against the pinned key and against itself, and knows no
+other state: it restores an older state the same key signed (a rollback) and cannot tell two states of
+diverging histories apart (a fork). The signature says what one tree state was, not that it extends an
+earlier one. A caller that needs continuity across restarts keeps the last size and root it accepted and
+compares the restored state with them; restore does not.
+
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
 not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
 turns one into the other.
@@ -54,8 +60,9 @@ from proofbundle.errors import ProofBundleError
 from proofbundle.signature import verify_ed25519_pinned
 
 STATE_FORMAT = "proofbundle-merkle-accumulator-state/1"
-WHAT_IS_SIGNED = ("the state of an append-only RFC 6962 tree (its size, frontier and root), not any event; "
-                  "no receipt of an event may be read from this signature")
+WHAT_IS_SIGNED = ("one state of an RFC 6962 tree (its size, frontier and root), not any event; this signature "
+                  "does not say that the state extends an earlier one, and no receipt of an event may be read "
+                  "from it")
 
 
 class AccumulatorStateError(ValueError):
@@ -71,7 +78,8 @@ def _node(left: bytes, right: bytes) -> bytes:
 
 
 class MerkleAccumulator:
-    """Append-only; `size` leaves so far; `frontier` as (height, root) pairs, leftmost first."""
+    """Only appends, within one object (a restored state is one snapshot, see the module docstring);
+    `size` leaves so far; `frontier` as (height, root) pairs, leftmost first."""
 
     def __init__(self, keep_leaf_hashes: bool = False) -> None:
         self.size = 0
@@ -150,7 +158,8 @@ class MerkleAccumulator:
     @classmethod
     def restore(cls, gespeichert: dict, public_key: bytes, leaf_hashes: Optional[List[bytes]] = None
                 ) -> "MerkleAccumulator":
-        """Restart from a persisted state. Refuses, never rebuilds: see the module docstring."""
+        """Restart from a persisted state. Refuses, never rebuilds, and checks one snapshot, not that it is the
+        latest: see the module docstring."""
         # The signature is decoded by the house's strict decoder (one wire form per signature), the state
         # canonicalized as it was signed, and the pinned key checked as a trust anchor: a malformed,
         # non-canonical or low-order key refuses the state before any signature arithmetic.

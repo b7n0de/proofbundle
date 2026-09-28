@@ -1,4 +1,4 @@
-"""The append-only accumulator gives the RFC 6962 values emit_bundle gives, without rebuilding the history.
+"""The accumulator gives the RFC 6962 values emit_bundle gives, without rebuilding the history.
 
 tools/merkle_accumulator/accumulator.py keeps the frontier (one subtree root per set bit of the size) and,
 optionally, the leaf hashes. PROPERTIES held here, against the existing merkle module as the reference:
@@ -6,7 +6,8 @@ for the same ordered leaves, the root, the new leaf's inclusion path, later incl
 consistency proofs are byte-identical, and verify_inclusion and verify_consistency accept them, at the
 sizes 0 to 3 and around every power of two up to 2^12; a bundle emitted through it is byte-identical to
 emit_bundle's; a restart from a persisted state continues identically; a tampered state is refused, never
-rebuilt; and one append makes at most 2 * floor(log2(n)) + 2 hash calls, counted, whatever the history.
+rebuilt, while an older state the same key signed is restored, as the module says; and one append makes
+at most 2 * floor(log2(n)) + 2 hash calls, counted, whatever the history.
 """
 from __future__ import annotations
 
