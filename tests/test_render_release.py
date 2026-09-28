@@ -457,3 +457,52 @@ class EinUngemessenerKopfIstKeinPassenderKopf(unittest.TestCase):
                                capture_output=True, text=True, timeout=60, cwd=str(w))
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("cannot be measured", r.stderr)
+
+
+class DieNotizFolgtDerVersionUndNichtDer610(unittest.TestCase):
+    """THE KNOWN-LIMITATIONS LINK WAS 6.1.0's. `rendere` wrote `RESTRISIKO_610.md` into every body, so
+    a 6.2.0 source would have published a link to the residual-risk record of the release before it.
+    The record is named after its version, `RESTRISIKO_<digits of the version>.md`, and the link is
+    now derived from the source's version. The golden 6.1.0 body stays byte for byte (the case above)."""
+
+    def test_RED_eine_andere_version_verlinkt_ihr_eigenes_restrisiko(self):
+        d = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+        text = rendere(d)
+        self.assertIn("/RESTRISIKO_999.md)", text)
+        self.assertNotIn("RESTRISIKO_610", text)
+
+
+class DerSicherheitsabschnittIstOptionalUndVollstaendig(unittest.TestCase):
+    """OWNER DECISION OF 2026-09-28 (Z296, option A): the 6.2.0 notes name, for each finding in the
+    released versions, the affected versions, the effect and what fixes it. The source carries that as
+    `sicherheit`; a source without it renders as before, so 6.1.0 does not move. A section with an
+    incomplete row is refused, because a finding without its affected versions tells a user nothing
+    they can act on."""
+
+    def _mit_sicherheit(self) -> dict:
+        d = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+        d["sicherheit"] = {
+            "titel": "Security fixes for 9.9.8",
+            "einleitung": "Measured on the released tree. **Upgrade to 9.9.9.**",
+            "zeilen": [{"befund": "A thing that verified", "betroffen": "9.9.8",
+                        "wirkung": "It answered ok.", "behoben": "[#1](https://example.test/pull/1)"}],
+            "schluss": "The measurements are in the record."}
+        return d
+
+    def test_RED_der_abschnitt_steht_vor_what_changed(self):
+        text = rendere(self._mit_sicherheit())
+        self.assertIn("## Security fixes for 9.9.8", text)
+        self.assertIn("| Finding | Affected | Effect | Fixed by |", text)
+        self.assertIn("| **A thing that verified** | 9.9.8 | It answered ok. | "
+                      "[#1](https://example.test/pull/1) |", text)
+        self.assertLess(text.index("## Security fixes"), text.index("## What changed"))
+        self.assertEqual(pruefe(self._mit_sicherheit()), [])
+
+    def test_fang_eine_zeile_ohne_betroffene_versionen_wird_abgewiesen(self):
+        d = self._mit_sicherheit()
+        d["sicherheit"]["zeilen"][0]["betroffen"] = ""
+        self.assertTrue(any("betroffen" in b for b in pruefe(d)), pruefe(d))
+
+    def test_ohne_abschnitt_rendert_nichts_davon(self):
+        text = rendere(DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None))
+        self.assertNotIn("## Security fixes", text)

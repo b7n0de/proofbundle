@@ -202,6 +202,20 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None,
                     f"{kopf[:12]} — the notes would describe a different tree than the artefacts "
                     f"({grund})")
 
+    s = daten.get("sicherheit")
+    if s is not None:
+        # A finding without its affected versions or its fix tells a user nothing to act on.
+        if not isinstance(s, dict) or not all(s.get(f) for f in ("titel", "einleitung", "schluss")):
+            befunde.append("the security section needs a titel, an einleitung and a schluss")
+        zeilen = s.get("zeilen") if isinstance(s, dict) else None
+        if not isinstance(zeilen, list) or not zeilen:
+            befunde.append("the security section carries no rows")
+        else:
+            for i, z in enumerate(zeilen, 1):
+                for feld in ("befund", "betroffen", "wirkung", "behoben"):
+                    if not (isinstance(z, dict) and z.get(feld)):
+                        befunde.append(f"security row {i} lacks {feld}")
+
     gesehen: Dict[int, str] = {}
     for g in gruppen:
         if not isinstance(g, dict):
@@ -235,10 +249,22 @@ def rendere(daten: Dict[str, Any]) -> str:
     basis = f"https://github.com/b7n0de/proofbundle/blob/{commit}"
     teile: List[str] = [q["kopfsatz"], ""]
 
+    # THE RECORD IS NAMED AFTER ITS VERSION. This link was the literal `RESTRISIKO_610.md`, so every
+    # later body would have pointed at the residual-risk record of 6.1.0.
+    restrisiko = "RESTRISIKO_" + q["version"].replace(".", "") + ".md"
     teile.append(
         f"[Changelog]({basis}/CHANGELOG.md) · "
-        f"[Known limitations]({basis}/RESTRISIKO_610.md) · "
+        f"[Known limitations]({basis}/{restrisiko}) · "
         f"[Release scope]({basis}/docs/release_scope/{q['version']}.md)")
+    s = q.get("sicherheit")
+    if s:
+        # Owner decision of 2026-09-28 (Z296, option A): affected versions, effect and fix per
+        # finding of a released version. Optional, so a source without it renders as before.
+        teile += ["", f"## {s['titel']}", "", s["einleitung"], "",
+                  "| Finding | Affected | Effect | Fixed by |", "|---|---|---|---|"]
+        for z in s["zeilen"]:
+            teile.append(f"| **{z['befund']}** | {z['betroffen']} | {z['wirkung']} | {z['behoben']} |")
+        teile += ["", s["schluss"]]
     teile += ["", "## What changed", "", "| Area | Change | Evidence |", "|---|---|---|"]
     for z in q["was_sich_aenderte"]:
         teile.append(f"| **{z['bereich']}** | {z['aenderung']} | {z['beleg']} |")
