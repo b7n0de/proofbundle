@@ -520,6 +520,34 @@ before and after.
 
 ### Added
 
+- **eval-result v0.2, the revised in-toto/attestation#575 draft, under its own type**
+  (`https://b7n0de.com/attestation/eval-result/v0.2`; `intoto.EVAL_RESULT_V02_PREDICATE_TYPE`,
+  `export_eval_result_v02_dsse`, `to_eval_result_v02_statement`, `to_eval_result_v02_predicate`,
+  `receipt_evidence`, `classify_eval_result_v02_predicate`; `proofbundle intoto --predicate-version v0.2
+  --evaluator <URI> [--receipt-uri <URI>]`). The draft, as revised on 2026-09-28, changed three things:
+  `evaluator` (the evaluation role) in place of `verifier`, required and without a default, and not
+  refused when it is also the signer; for each of model and dataset exactly one of a salted commitment
+  (private, `salted` MUST be `true`) and a predicate-level ResourceDescriptor with `digest` (public),
+  both locations inspected, subject and evidence never counted; and `evidence[]` in place of the `receipt`
+  block, each entry with the digest of the artifact it names (the decoded bytes when `content` is
+  present). The receipt's entry is the SHA-256 of the receipt file's exact bytes, which carry its
+  signature; its internal Merkle root is written nowhere in the entry. `verify_eval_result_dsse` adds the
+  v0.2 shape to the verdict for a statement that declares v0.2 (`predicate_shape_ok`,
+  `predicate_shape_detail`); unknown fields are ignored at every level. The examples under
+  `examples/intoto/` are in the v0.2 shape, with the receipt they reference (`eval-receipt.json`) and a
+  public-model example that identifies the model by descriptor. `docs/upstream/eval-result.md` is the
+  upstream file byte for byte plus the repository's header comment; the vendor-alias note moved to
+  `docs/upstream/README.md`.
+
+  **Migration.** v0.1 keeps its meaning (gate G2), shown by regression evidence rather than a signature
+  check: `tests/fixtures/eval_result_v0_1/corpus.json` carries 14 v0.1 envelopes (5 fixtures from the
+  published 6.1.0 wheel, 9 own reconstructions from the source at the release tags v2.0.0 to v6.0.0),
+  and this version gives the released 6.1.0 verifier's verdict on each, on each under another key and
+  on six negative variants, judges each under the v0.1 rules (`predicate_shape_ok` is `None`), and
+  dispatches on `predicateType`. The default call still expects v0.1. `proofbundle intoto` still writes
+  v0.1 unless asked for v0.2; `--verify` accepts both. Field mapping and the readings of the draft (A1 to
+  A10): `docs/IN_TOTO_PROFILE.md`.
+
 - **Offline verification of Agent Governance Toolkit (AGT) governance receipts**
   (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT
   installed and without network access: Ed25519 over the canonical payload, the optional
