@@ -347,6 +347,35 @@ class EmitVerweigertEinenSchmutzigenBaum(unittest.TestCase):
                          "M link", "precondition: git itself reports the retargeted link")
         self._abgewiesen(self._emit(), "uncommitted path", "M link")
 
+    def test_a_file_replaced_by_a_link_to_the_same_bytes_is_refused(self):
+        """[ZAEHLT] Codex, round two on pull request 249, thread 4114953326: a tracked regular file
+        replaced by a symbolic link to identical bytes outside the tree, hidden by
+        `assume-unchanged`, emitted at 7b81bdb1. The entry type on disk is read with `lstat` and
+        compared with the head's mode. Until this case, nothing planted the sequence: measured on
+        2026-09-28, with `os.stat` in place of `os.lstat` for entries not committed as links, the
+        five pre-tag receipt test files passed and the sequence emitted again."""
+        same_bytes = self.aussen / "same_bytes.txt"
+        same_bytes.write_bytes((self.baum / "a.txt").read_bytes())
+        (self.baum / "a.txt").unlink()
+        os.symlink(same_bytes, self.baum / "a.txt")
+        _git(self.baum, "update-index", "--assume-unchanged", "a.txt")
+        self.assertEqual(_git(self.baum, "status", "--porcelain", "--untracked-files=all"), "",
+                         "the flag did not hide the replacement, so this case measures nothing")
+        self._abgewiesen(self._emit(), "uncommitted path", "mode a.txt (100644 -> 120000)")
+
+    def test_a_gitlink_with_a_file_in_its_directory_is_refused_by_name(self):
+        """[ZAEHLT] The gitlink sibling of the same thread: a submodule entry whose directory holds
+        a file the head does not carry emitted at 7b81bdb1, because a commit entry was skipped.
+        At head two layers refuse it: the entry by name, and the filesystem walk, which lists the
+        file below it as untracked. This case pins the first; measured on 2026-09-28, with the
+        entry skipped silently again, the refusal names only `?? sub/evil.py` and this case fails."""
+        head = _git(self.baum, "rev-parse", "HEAD")
+        _git(self.baum, "update-index", "--add", "--cacheinfo", f"160000,{head},sub")
+        _git(self.baum, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "gitlink")
+        (self.baum / "sub").mkdir()
+        (self.baum / "sub" / "evil.py").write_text("x = 1\n", encoding="utf-8")
+        self._abgewiesen(self._emit(), "uncommitted path", "?! sub (a commit entry")
+
     # ── the fourth round: git's configured path equality hid an untracked file ────────────────
 
     def test_core_ignoreCase_verbirgt_keine_unverfolgte_datei(self):
