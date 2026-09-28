@@ -51,13 +51,20 @@ AUTOMATION_BLOCKER_REASONS = {
 }
 
 
-def _tri(result: Mapping[str, Any], key: Optional[str]) -> Optional[bool]:
+def _tri(result: Mapping[str, Any], key: Optional[str], not_bool: list) -> Optional[bool]:
     # adversarial re-audit r5: ein Dimensions-Schluessel MUSS ein Feldname (str) sein; ein unhashbarer/nicht-str Wert
     # (list/dict) aus required_checks crasht sonst result.get(key) — fail-closed als "nicht anwendbar".
     if not isinstance(key, str):
         return None
     value = result.get(key)
-    return None if value is None else bool(value)
+    if value is None:
+        return None
+    # Only the exact True is True. bool(value) made "false", 1 and [0] a valid crypto/structure verdict and
+    # ran the caller's __bool__; a value that is not a bool is False here and named in notBooleanInputs.
+    if type(value) is not bool:
+        not_bool.append(key)
+        return False
+    return value
 
 
 def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[str, Any]) -> dict:
@@ -76,10 +83,19 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
                           When ``None``, this predicate type carries no policy/authorization layer at all
                           -- the policy dimension is reported ``None`` (not applicable) and never blocks
                           ``safeForAutomation``.
-      ``"references"`` -- a sequence of field names whose values, when EXPLICITLY ``False``, mean a
+      ``"references"`` -- a sequence of field names whose values, when not ``True``, mean a
                           referenced/bound artifact did not resolve (e.g. ``decision_bound``,
                           ``evidence_bound``, ``chain_intact``). ``None`` entries (not applicable / not
                           requested) never block.
+
+    Every verdict read from ``result`` counts only as a bool. ``crypto`` and ``structure`` are valid
+    only as the exact ``True``, a reference resolves only as ``None`` or the exact ``True``, and
+    ``policy`` and ``ok`` pass only as the exact ``True``. They used to be read by their truth
+    (``bool(value)``) or to block only on the exact ``False``, so ``{"crypto_ok": "false",
+    "structure_ok": "false", "evidence_bound": "false"}`` read as ``cryptoValid`` true and
+    ``safeForAutomation`` true. A value that is not a bool never passes, the caller's own methods on it
+    never run, and the summary then carries ``notBooleanInputs``, the field names of those values
+    (absent when every read value is a bool or ``None``, so the shape is unchanged for them).
 
     Returns ``{"cryptoValid", "structureValid", "policyAuthorized", "referencesResolved",
     "safeForAutomation", "automationBlockers"}``. This function is PURE (no side effects on ``result``);
@@ -105,10 +121,24 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     _refs = required_checks.get("references")
     reference_keys: Sequence[str] = _refs if isinstance(_refs, (list, tuple)) else ()
 
-    crypto_ok = _tri(result, crypto_key)
-    structure_ok = _tri(result, structure_key)
+    not_bool: list[str] = []
+    crypto_ok = _tri(result, crypto_key, not_bool)
+    structure_ok = _tri(result, structure_key, not_bool)
     policy_val = result.get(policy_key) if isinstance(policy_key, str) else None  # adversarial re-audit r5: unhashable key
-    unresolved = [name for name in reference_keys if isinstance(name, str) and result.get(name) is False]
+    if policy_val is not None and type(policy_val) is not bool:
+        not_bool.append(str(policy_key))
+    # A reference resolves only as None (not applicable) or the exact True; `is False` alone let "false" and 0
+    # through as resolved.
+    unresolved: list[str] = []
+    for name in reference_keys:
+        if not isinstance(name, str):
+            continue
+        ref_val = result.get(name)
+        if ref_val is None or ref_val is True:
+            continue
+        unresolved.append(name)
+        if type(ref_val) is not bool and name not in not_bool:
+            not_bool.append(name)
 
     blockers: list[str] = []
     if crypto_ok is not True:
@@ -141,9 +171,14 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     # nicht `True` ist, blockt.
     #
     # Die Funktion bleibt PUR: sie LIEST `result["ok"]`, sie schreibt nichts.
-    if "ok" in result and result.get("ok") is not True:
-        blockers.append("RECEIPT_NOT_OK")
+    if "ok" in result:
+        receipt_ok = result.get("ok")
+        if receipt_ok is not True:
+            blockers.append("RECEIPT_NOT_OK")
+        if receipt_ok is not None and type(receipt_ok) is not bool:
+            not_bool.append("ok")
 
+    extra = {"notBooleanInputs": not_bool} if not_bool else {}
     return {
         "cryptoValid": crypto_ok,
         "structureValid": structure_ok,
@@ -151,4 +186,5 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
         "referencesResolved": None if not reference_keys else not unresolved,
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,
+        **extra,
     }

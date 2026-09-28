@@ -26,6 +26,7 @@ import re
 from pathlib import Path
 from typing import Optional, Union
 
+from .._membership import require_switch
 from ..evalclaim import build_eval_claim
 from ._provenance import add_provenance
 
@@ -39,7 +40,11 @@ class EEEAdapterError(ValueError):
 
 def _load(source: Union[str, Path, dict]) -> dict:
     if isinstance(source, dict):
-        return source
+        # a record handed in as a dict is read once from its storage (lens run 8 at fddc00f4, the sweep
+        # of finding B): it was validated, picked from and digested through the caller's `get`,
+        # `__getitem__` and `items()`, which could each answer for another record
+        from .._plain_value import plain_json  # noqa: PLC0415
+        return plain_json(source, what="the EEE record", error=EEEAdapterError)
     try:
         return json.loads(Path(source).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -165,7 +170,13 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
     `comparator`/`threshold` set the pass/fail assertion (EEE stores the raw score, not a threshold verdict).
     `eval_index` selects which of `evaluation_results` to use; `metric_name` instead selects the first result
     whose metric matches. Returns (claim, salts). Raises EEEAdapterError on a malformed record.
+
+    ``validate`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the record is read. It was read by its truth, so
+    ``validate=None``, ``0`` or ``""`` skipped the record validation, where only ``validate=False`` asks
+    for that.
     """
+    require_switch(validate, "validate")
     record = _load(source)
     if not isinstance(record, dict):
         raise EEEAdapterError("EEE dataset must be a JSON object")
@@ -187,6 +198,9 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
         if chosen is None:
             raise EEEAdapterError(f"no evaluation_result with metric {metric_name!r}")
     else:
+        from .._plain_value import plain_int  # noqa: PLC0415
+        if plain_int(eval_index) is None:
+            raise EEEAdapterError(f"eval_index must be an int, got {type(eval_index).__name__}")
         if eval_index < 0 or eval_index >= len(results):
             raise EEEAdapterError(f"eval_index {eval_index} out of range (0..{len(results) - 1})")
         chosen = results[eval_index]

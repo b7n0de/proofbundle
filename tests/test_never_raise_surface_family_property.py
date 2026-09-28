@@ -112,6 +112,11 @@ _NAME_PATTERN = re.compile(
     # den NENNER, nicht daneben. Der Populations-Riegel hat sie beim ersten Lauf gemeldet; das ist
     # genau die Bewegung, die er erzwingen soll.
     r"|subject_cardinality"
+    # 2026-09-27, lens run 7 at 75c3aa48, F1 and F2: `plain_bytes` and `plain_text` read a caller's key
+    # object once, from its own storage, for every producer that writes a caller's key. They take
+    # whatever the caller hands in and must hand back a value (the exact bytes or text, or None) for
+    # every input, never raise; so they belong in the denominator, like the rule they feed.
+    r"|plain_bytes|plain_text"
     # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
     # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
     # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —

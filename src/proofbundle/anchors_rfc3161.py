@@ -156,7 +156,16 @@ def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
     do not embed it, the TSA cert) so the chain can be frozen for offline re-verification. This function
     only builds and returns the anchor dict — writing it into a receipt is the caller's job, so a network
     failure here never corrupts the local receipt.
+
+    The root is read once (lens run 8 at fddc00f4, the sweep of finding B): the request, the self-check
+    and the written `canonicalRoot` each read it through its buffer, which a class can answer for from
+    Python 3.12 on; the stored bytes are stamped, checked and written.
     """
+    from .signature import plain_bytes  # noqa: PLC0415
+    root_bytes = plain_bytes(canonical_root)
+    if root_bytes is None:
+        raise ValueError(f"canonical_root must be bytes or bytearray, got {type(canonical_root).__name__}")
+    canonical_root = root_bytes
     import urllib.request  # noqa: PLC0415
 
     import rfc3161_client as tsp  # noqa: PLC0415

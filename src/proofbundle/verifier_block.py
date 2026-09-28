@@ -376,17 +376,30 @@ def require_valid_verifier_block(block: Any) -> None:
         raise VerifierBlockError("invalid verifier block: " + "; ".join(errs))
 
 
+def _block_once(value: Any, what: str) -> Any:
+    """A value the caller hands in, read ONCE from its storage as plain JSON
+    (`_plain_value.plain_json`), or `VerifierBlockError` naming it (lens run 8 at fddc00f4, the sweep of
+    finding B: a check and a write through two reads of one caller object)."""
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(value, what=what, error=VerifierBlockError)
+
+
 def build_verifier_block(*, build: dict, version: str, vector_set: "dict | None" = None,
                          test_result: "dict | None" = None,
                          implementation: str = IMPLEMENTATION) -> dict:
     """Assemble a block from measured parts and validate it. Absent parts are absent, not null:
     a key with a null value would read as "measured, and there was nothing"."""
-    block: dict = {"implementation": implementation, "version": version, "build": dict(build),
+    # EVERY PART IS READ ONCE FROM STORAGE BEFORE IT IS JUDGED (lens run 8 at fddc00f4, the sweep of
+    # finding B): `dict(build)` ran a dict subclass's `keys()` and `__getitem__` and copied the top level
+    # only, and the validator then read the nested values through their own methods while a serialiser
+    # writes their storage. The plain copies are what is validated and what is returned.
+    block: dict = {"implementation": _block_once(implementation, "implementation"),
+                   "version": _block_once(version, "version"), "build": _block_once(build, "build"),
                    "assurance": VERIFIER_BLOCK_ASSURANCE}
     if vector_set is not None:
-        block["vectorSet"] = dict(vector_set)
+        block["vectorSet"] = _block_once(vector_set, "vector_set")
     if test_result is not None:
-        block["testResult"] = dict(test_result)
+        block["testResult"] = _block_once(test_result, "test_result")
     require_valid_verifier_block(block)
     return block
 
@@ -409,7 +422,9 @@ def measure_verifier_block(*, conformance_dir: "Path | str | None" = None,
 
 def attach(predicate: dict, block: dict) -> dict:
     """Put the block under ``producer.verifier`` of an agent-review predicate. Validates the block
-    first; a predicate is never handed an invalid one. Returns the same predicate object."""
+    first; a predicate is never handed an invalid one. Returns the same predicate object. The block is
+    read once from its storage, and that copy is what is validated and what is attached."""
+    block = _block_once(block, "verifier block")
     require_valid_verifier_block(block)
     if not isinstance(predicate, dict):
         raise VerifierBlockError(f"predicate must be a dict, not {type(predicate).__name__}")
@@ -452,16 +467,45 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     all is WARNED; PASSED only when every case ran in full and passed. A case that did not run in
     full is listed under ``warnedTests`` by name, so the reduction of scope is in the statement,
     not only in a headline.
+
+    ``ok`` must be a bool. Anything else is refused with a :class:`VerifierBlockError` before
+    anything is built or signed: the case ``ok`` used to be read by its truth, so ``"false"``,
+    ``"FAIL"``, ``1`` and ``[0]`` each made a case PASSED and the whole statement PASSED, which
+    ``sign_test_result_statement`` then signed. The cases are read once from their storage before
+    they are judged, so a value that is no JSON value at all (an object whose ``__class__`` says
+    bool) is refused by that read, which names its position (``results[0].ok``); every other value
+    that is not a bool is refused naming the case and the field. The value's own methods
+    (``__bool__``, ``__class__``) never run. A case ran in full only when the text ``scope`` stores
+    is ``"full"``: a ``str`` subclass is judged by what it stores, any other text is WARNED whatever
+    the value's own ``__eq__`` answers, and a ``scope`` that is no JSON value is refused by the read.
     """
+    # Read once (lens run 8, the sweep of finding B): each case was checked through `get` and written
+    # through `__getitem__`, and the version and the implementation name are checked by the block
+    # validator and written into the statement's name and annotations.
+    if isinstance(results, list):
+        results = _block_once(results, "results")
     if not isinstance(results, list) or not results:
         raise VerifierBlockError("a test-result statement needs at least one case result")
+    version = _block_once(version, "version")
+    implementation = _block_once(implementation, "implementation")
+    if url is not None:
+        url = _block_once(url, "url")
     passed, warned, failed = [], [], []
     for r in results:
         if not isinstance(r, dict) or not isinstance(r.get("caseId"), str) or not r["caseId"]:
             raise VerifierBlockError(f"case result without a caseId: {r!r}")
-        if not r.get("ok"):
+        ok = r.get("ok")
+        if type(ok) is not bool:
+            raise VerifierBlockError(
+                f"case result {r['caseId']!r}: ok is not a bool (true/false); only the exact True "
+                "passes a case, and a value that is not a bool is refused rather than read by its truth")
+        # Only the stored text "full" is a full run: `r.get("scope") == "full"` ran the value's own
+        # __eq__, so an object answering True made the case PASSED instead of WARNED (measured).
+        # After the one read above a scope is plain text, None, or another JSON value.
+        scope = r.get("scope")
+        if ok is not True:
             failed.append(r["caseId"])
-        elif r.get("scope") == "full":
+        elif type(scope) is str and scope == "full":
             passed.append(r["caseId"])
         else:
             warned.append(r["caseId"])
@@ -553,7 +597,9 @@ def validate_test_result_statement(statement: Any) -> list[str]:
 
 
 def test_result_ref(statement: dict) -> dict:
-    """The three fields a receipt carries about the separate statement."""
+    """The three fields a receipt carries about the separate statement. The statement is read once
+    (lens run 8, the sweep of finding B): what is validated is what is digested and cited."""
+    statement = _block_once(statement, "test-result statement")
     errs = validate_test_result_statement(statement)
     if errs:
         raise VerifierBlockError("invalid test-result statement: " + "; ".join(errs))
@@ -618,6 +664,7 @@ def sign_test_result_statement(statement: dict, signer, *, keyid: "str | None" =
     """Wrap the statement in a DSSE envelope -- the same primitive every receipt of this package
     uses, no new crypto. The statement is validated first; an invalid one is not signed."""
     from . import dsse  # noqa: PLC0415
+    statement = _block_once(statement, "test-result statement")   # lens run 8: validated is signed
     errs = validate_test_result_statement(statement)
     if errs:
         raise VerifierBlockError("invalid test-result statement: " + "; ".join(errs))

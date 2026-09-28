@@ -1908,8 +1908,20 @@ def _signatur_lage(doc) -> tuple[str, str]:
     und das ist ein Fehler, kein Bestehen. Ein Pruefer, der bei fehlendem Werkzeug gruen meldet,
     behauptet das Gegenteil dessen, was er gemessen hat.
 
-    Rueckgabe: (zustand, detail). zustand ist FEHLT, UNSIGNED, VERIFIZIERT, GEBROCHEN oder
-    NICHT_PRUEFBAR.
+    THE KEY IS JUDGED BEFORE THE SIGNATURE (SPEC section 4b; register entry
+    `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, target 6.2.0). This exit delegated to the SPEC
+    section 4a profile, which accepts small-order components, so under a low-order key a signature
+    made with no private key verified. Measured on 126ed1dc: the identity point `0100..00` as key
+    with the signature R = identity, S = 0 came back `VERIFIZIERT`, and both generated views printed
+    "Signed and verified against the canonical body, ed25519."; 32 zero bytes as key and 64 as
+    signature came back `VERIFIZIERT` for 7 of 16 bodies of the line-610 carrier
+    (`register_revision` 0..15). A key the trust-anchor rule refuses is now `KEY_REFUSED`:
+    `pruefe_v2` counts it as an error and the views say the carrier is unauthenticated. The
+    carrier's key is no in-band exception here, because
+    nothing pins it: this exit is the only check between that key and the word "verified".
+
+    Returns (state, detail). The state is `FEHLT`, `UNSIGNED`, `VERIFIZIERT`, `GEBROCHEN`,
+    `KEY_REFUSED` or `NICHT_PRUEFBAR`.
     """
     import binascii  # noqa: PLC0415
     s = doc.get("signature")
@@ -1923,21 +1935,26 @@ def _signatur_lage(doc) -> tuple[str, str]:
     if s.get("alg") != "ed25519":
         return "NICHT_PRUEFBAR", f"unbekanntes Verfahren: {s.get('alg')!r}"
     try:
-        from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
-            Ed25519PublicKey)
         from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+        from proofbundle.signature import (  # noqa: PLC0415
+            TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned)
     except ImportError as e:
         return "NICHT_PRUEFBAR", (f"die Signaturbibliothek fehlt ({e.name}) — NICHT GEMESSEN, "
                                   f"und nicht gemessen ist keine Freigabe")
     try:
-        pub = Ed25519PublicKey.from_public_bytes(decode_b64(s["public_key_b64"]))
+        schluessel = decode_b64(s["public_key_b64"])
         roh = decode_b64(s["sig_b64"])
     except (binascii.Error, ValueError) as e:
         return "GEBROCHEN", f"Signatur oder Schluessel ist kein kanonisches base64 ({e})"
-    try:
-        pub.verify(roh, canonical_bytes(doc))
-    except InvalidSignature:
+    grund = ed25519_trust_anchor_weakness(schluessel)
+    if grund == "malformed":
+        # Before the rule this length failure surfaced from the key constructor as GEBROCHEN, and
+        # it stays GEBROCHEN: a key of the wrong length is a broken block, not a weak key.
+        return "GEBROCHEN", f"the public key is {len(schluessel)} bytes, not the 32 of an Ed25519 key"
+    if grund is not None:
+        return "KEY_REFUSED", (f"the public key is a {grund} Ed25519 key, refused as a trusted key: "
+                               f"{TRUST_ANCHOR_REFUSAL[grund]}")
+    if not verify_ed25519_pinned(schluessel, roh, canonical_bytes(doc)):
         return "GEBROCHEN", "die Signatur haelt ueber den kanonischen Rumpf nicht"
     return "VERIFIZIERT", str(s.get("alg"))
 
@@ -2101,6 +2118,9 @@ def pruefe_v2(doc, repo) -> list[str]:
         fehler.append(f"Signatur: {_detail}")
     elif _zustand == "GEBROCHEN":
         fehler.append(f"Signatur: sie ist da und sie haelt nicht — {_detail}")
+    elif _zustand == "KEY_REFUSED":
+        # A refused key is an error of the carrier, like a signature that does not hold.
+        fehler.append(f"Signatur: the key cannot stand as a trusted key — {_detail}")
     elif _zustand == "VERIFIZIERT":
         pass
     else:
@@ -2371,6 +2391,9 @@ def _signaturzeile(doc) -> str:
     if lage == "GEBROCHEN":
         return ("A signature is present and it does NOT verify against the canonical body. "
                 "Treat this carrier as unauthenticated.")
+    if lage == "KEY_REFUSED":
+        return (f"A signature is present under a key that cannot stand as a trusted key ({detail}). "
+                f"Treat this carrier as unauthenticated.")
     if lage == "NICHT_PRUEFBAR":
         return (f"A signature is present but it could not be checked here ({detail}). "
                 f"Not checked is not verified.")
@@ -2597,25 +2620,49 @@ def canonical_bytes(body: dict) -> bytes:
 
 def assemble(body: dict, sig_b64: str, signer_pubkey_b64: str) -> dict:
     """Wrap an externally produced signature. REFUSES on a mismatch — fail-closed, so a bad
-    signature/body pair never becomes a register on disk."""
+    signature/body pair never becomes a register on disk.
+
+    AND IT REFUSES A KEY THE TRUST-ANCHOR RULE REFUSES (SPEC section 4b), before anything is written.
+    This is where the signer's key ENTERS the register. Measured on 3c9c98c3: the identity point with
+    the signature R = identity, S = 0 was assembled into a register, exit 0, because the check here
+    used the section 4a profile and left the refusal to `findings_register._signature_ok`. The rule
+    is the shared one (`signature.ed25519_trust_anchor_weakness`), not a copy.
+
+    Each field handed in is read once (`_wire_b64.wire_value`), and that plain value is decoded,
+    judged and written (lens run 7 at 75c3aa48, F2): a `str` subclass whose `encode` answered for a
+    real key passed the rule while its own text, the identity point, went into the register."""
     import binascii  # noqa: PLC0415
-    from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: PLC0415
-        Ed25519PublicKey)
-    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64, wire_value  # noqa: PLC0415
+    from proofbundle.signature import (  # noqa: PLC0415
+        TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned)
+    pub_feld, sig_feld = wire_value(signer_pubkey_b64), wire_value(sig_b64)
+    # THE BODY IS READ ONCE TOO, from its storage (lens run 8 at fddc00f4, finding B): the signature
+    # check read it through `canonical_bytes`, which runs a dict subclass's `items()` or `__getitem__`,
+    # and the copy below read its storage, so a body storing B and answering A was written as B
+    # under a signature over A. The plain copy is what is verified and what is written.
+    from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    if not issubclass(type(body), dict):
+        raise SystemExit(f"assemble: the register body must be a JSON object, got "
+                         f"{type(body).__name__} — refusing")
+    body = plain_json(body, what="the register body",
+                       error=lambda m: SystemExit(f"assemble: {m} — refusing"))
     # LAUF11-L2: strikt und kanonisch; unkanonisch wird abgewiesen, nicht geworfen.
     try:
-        pub = Ed25519PublicKey.from_public_bytes(decode_b64(signer_pubkey_b64))
-        roh_sig = decode_b64(sig_b64)
+        if pub_feld is None or sig_feld is None:
+            raise binascii.Error("the signature and the public key must be base64 text")
+        pub = decode_b64(pub_feld)
+        roh_sig = decode_b64(sig_feld)
     except (binascii.Error, ValueError) as e:
         raise SystemExit(f"assemble: signature/pubkey field is not canonical base64 — refusing: {e}") from None
-    try:
-        pub.verify(roh_sig, canonical_bytes(body))
-    except InvalidSignature:
+    grund = ed25519_trust_anchor_weakness(pub)
+    if grund is not None:
+        raise SystemExit(f"assemble: the signer public key is a {grund} Ed25519 key, refused as a "
+                         f"trusted key: {TRUST_ANCHOR_REFUSAL[grund]} — refusing")
+    if not verify_ed25519_pinned(pub, roh_sig, canonical_bytes(body)):
         raise SystemExit("assemble: the signature does not verify over the canonical register body "
-                         "— refusing") from None
+                         "— refusing")
     out = dict(body)
-    out["signature"] = {"alg": "ed25519", "public_key_b64": signer_pubkey_b64, "sig_b64": sig_b64}
+    out["signature"] = {"alg": "ed25519", "public_key_b64": pub_feld, "sig_b64": sig_feld}
     return out
 
 

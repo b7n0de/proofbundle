@@ -83,15 +83,31 @@ def beacon_nonce(pulse_randomness: bytes, beacon: str, round_: int) -> bytes:
     different beacons or rounds never collide to the same challenge, and the nonce is a fixed
     32 bytes regardless of the beacon's own randomness length.
     """
-    if not isinstance(pulse_randomness, (bytes, bytearray)) or len(pulse_randomness) < _MIN_PULSE_BYTES:
+    pulse, name, rnd = _beacon_once(pulse_randomness, beacon, round_)
+    return hashlib.sha256(_BEACON_DOMAIN + name.encode("utf-8") + b"\x00"
+                          + rnd.to_bytes(8, "big") + pulse).digest()
+
+
+def _beacon_once(pulse_randomness, beacon, round_) -> "tuple[bytes, str, int]":
+    """The pulse, the beacon id and the round, each read ONCE and checked on what was read (lens run 8
+    at fddc00f4, the sweep of findings A and D). The NUL check asked a `str` subclass's `__contains__`
+    and the nonce hashed its `encode()`; the length check asked `__len__` and the nonce hashed
+    `__bytes__`; the u64 check asked an int subclass's comparisons and the nonce used its `to_bytes`.
+    So an id with a NUL, a short pulse or a round out of range could be hashed under a check that had
+    seen another value."""
+    from ._plain_value import plain_int  # noqa: PLC0415
+    from .signature import plain_bytes, plain_text  # noqa: PLC0415
+    pulse = plain_bytes(pulse_randomness)
+    if pulse is None or len(pulse) < _MIN_PULSE_BYTES:
         raise BundleFormatError(
             f"beacon pulse randomness must be at least {_MIN_PULSE_BYTES} bytes")
-    if not beacon or "\x00" in beacon:
+    name = plain_text(beacon)
+    if not name or "\x00" in name:
         raise BundleFormatError("beacon id must be a non-empty string without NUL")
-    if isinstance(round_, bool) or not isinstance(round_, int) or round_ < 0 or round_ >= 2**64:
+    rnd = plain_int(round_)
+    if rnd is None or rnd < 0 or rnd >= 2**64:
         raise BundleFormatError("beacon round must be a u64 (0 <= round < 2**64)")
-    return hashlib.sha256(_BEACON_DOMAIN + beacon.encode("utf-8") + b"\x00"
-                          + round_.to_bytes(8, "big") + bytes(pulse_randomness)).digest()
+    return pulse, name, rnd
 
 
 def beacon_audit_challenge(root, n: int, k: int, *, pulse_randomness: bytes, beacon: str,
@@ -104,6 +120,9 @@ def beacon_audit_challenge(root, n: int, k: int, *, pulse_randomness: bytes, bea
     :class:`AuditRequest` recording the beacon id + round + indices, so the challenge is
     publicly re-derivable — no live auditor, no trust in who ran it.
     """
-    nonce = beacon_nonce(pulse_randomness, beacon, round_)
+    # The request records the values the nonce was derived from, read once (see `_beacon_once`);
+    # `audit_challenge` refuses an `n` or a `k` that is not an exact int, so the ones written are.
+    pulse, name, rnd = _beacon_once(pulse_randomness, beacon, round_)
+    nonce = beacon_nonce(pulse, name, rnd)
     indices = audit_challenge(root, n, k, nonce)
-    return AuditRequest(beacon=beacon, round_=round_, n=n, k=k, indices=indices)
+    return AuditRequest(beacon=name, round_=rnd, n=n, k=k, indices=indices)
