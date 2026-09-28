@@ -24,9 +24,11 @@ are rendered from that file by the same script; a test holds them to it.
   present capability whose label is not found stops the measurement; its status is then not measured.
 - **Status.** Derived, never set by hand: `experimental` when the label says experimental, `published`
   otherwise; `main only` when present on main and absent from the release; `planned` when present on a
-  named branch only; `from elsewhere` when another project provides it and the docs point there;
-  `absent` in the release column of a main-only or planned row. A capability the wheel lacks while the
-  sdist (its files) or the tag carries it has no status in this vocabulary, and the measurement stops.
+  named branch only, looked up at the branch head the row records; `from elsewhere` when another project
+  provides it and the docs point there; `absent` in the release column of a main-only or planned row. A
+  capability the wheel lacks while the sdist (its files) or the tag carries it, one the release carries
+  and main lacks, and one that neither main nor its named branch head carries have no status in this
+  vocabulary, and the measurement stops.
 - **Channel.** How a user gets it: the PyPI wheel, a git tag of this repository, the repository only
   (built from source), or another project.
 - **Changed since v6.1.0.** `git diff --shortstat` between the tag and main over the capability's files.

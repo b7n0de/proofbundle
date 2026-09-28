@@ -307,8 +307,20 @@ def measure_rows(artefakte: dict, main: str) -> list:
         diff = _git("diff", "--shortstat", TAG, main, "--", *pfade).strip() if pfade and rel_da and main_da else ""
         branch = cap.get("branch")
         branch_kopf = None
-        if branch and not main_da:
-            branch_kopf = _git("rev-parse", f"origin/{branch}").strip()
+        if not main_da:
+            # Planned is absent from the tag and from main and present on the named branch, measured at the head
+            # this row records; that a ref of the name resolves says nothing about what its head carries.
+            if rel_da:
+                raise SystemExit(f"{cap['id']}: present in v{VERSION}, absent from main {main[:8]}; "
+                                 "no status in the vocabulary says so")
+            if not branch:
+                raise SystemExit(f"{cap['id']}: absent from v{VERSION} and from main {main[:8]}, and no branch "
+                                 "is named; no status in the vocabulary says so")
+            head = _git("rev-parse", f"origin/{branch}").strip()
+            if not _present_at(head, module, cli, eps, repo):
+                raise SystemExit(f"{cap['id']}: branch {branch} at {head} does not carry the capability; "
+                                 "planned is not measured")
+            branch_kopf = head
         if not rel_da and not cap.get("elsewhere"):
             kanal = f"branch {branch} only" if branch_kopf else "main tree only, in no release"
         try:
