@@ -30,8 +30,8 @@ RFC 8785 form of the state; the signed content says what it is (`what_is_signed`
 never be read as a receipt of an event. `MerkleAccumulator.restore(state, public_key)` refuses (raises
 AccumulatorStateError) a state whose signature does not verify under the pinned key, whose format is
 another, whose frontier does not have one root per set bit of the size, whose root is not the fold of its
-frontier, or, when leaf hashes are given, whose leaf hashes do not reproduce the frontier and the size. It
-never rebuilds a refused state; rebuilding from the leaves is `from_leaves`, a separate and deliberate
+frontier, or, when leaf hashes are given, whose leaf hashes are not 32 bytes each or do not reproduce the
+frontier and the size. It never rebuilds a refused state; rebuilding from the leaves is `from_leaves`, a separate and deliberate
 call.
 
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
@@ -180,6 +180,12 @@ class MerkleAccumulator:
         if neu.root().hex() != inhalt.get("root"):
             raise AccumulatorStateError("the stated root is not the fold of the frontier")
         if leaf_hashes is not None:
+            # Each leaf hash is 32 bytes, checked before anything hashes them: the digest in the state and the
+            # frontier check both hash their concatenation, which does not see where one ends, so a re-split
+            # of the same bytes into pieces of other lengths passes both. Type bytes, since they are kept.
+            if not isinstance(leaf_hashes, (list, tuple)) or any(
+                    type(h) is not bytes or len(h) != 32 for h in leaf_hashes):
+                raise AccumulatorStateError("the leaf hashes are not a list of 32-byte SHA-256 values")
             if len(leaf_hashes) != groesse or hashlib.sha256(b"".join(leaf_hashes)).hexdigest() != inhalt.get(
                     "leaf_hashes_sha256"):
                 raise AccumulatorStateError("the leaf hashes are not the ones the state was written with")
