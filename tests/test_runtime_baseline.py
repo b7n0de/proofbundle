@@ -25,6 +25,7 @@ _RESULTS = REPO / "benchmarks/runtime_baseline/results"
 _README = REPO / "benchmarks/runtime_baseline/README.md"
 _RENDER = REPO / "benchmarks/runtime_baseline/render.py"
 _RUN = REPO / "benchmarks/runtime_baseline/run.py"
+_HISTORY = REPO / "scripts/b7_historie.py"
 
 
 def _runs() -> list:
@@ -49,6 +50,18 @@ def _render_module():
     modul = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modul)
     return modul
+
+
+def _history_cut(repo: Path):
+    """Why the history of `repo` is truncated, or None when it is complete.
+
+    Measured where the repository measures it once, scripts/b7_historie.py: a graft that the history of
+    HEAD ends on is a cut, an empty or unresolvable shallow marker is not.
+    """
+    spec = importlib.util.spec_from_file_location("_runtime_baseline_history", _HISTORY)
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul.historie_abgeschnitten(repo)
 
 
 class TheRecordedRuns(unittest.TestCase):
@@ -95,9 +108,16 @@ class TheRecordedRuns(unittest.TestCase):
         if shutil.which("git") is None or not (REPO / ".git").exists():
             self.skipTest("NOT MEASURABLE: no git checkout, so the measured commit cannot be read")
         kopf = self.laeufe[0][1]["environment"]["package"]["commit"]
+        present = subprocess.run(["git", "-C", str(REPO), "cat-file", "-e", f"{kopf}^{{commit}}"], capture_output=True)
+        if present.returncode != 0:
+            # A complete history holds every ancestor of HEAD, so an absent commit lies outside it. Only a
+            # history measured as truncated leaves the question open; a shallow marker alone does not.
+            cut = _history_cut(REPO)
+            if cut is not None:
+                self.skipTest(f"NOT MEASURABLE: the measured commit {kopf} is not in this clone ({cut})")
+            self.fail(f"the measured commit {kopf} is not in this clone, whose history is complete: the "
+                      "recorded measurement names a commit outside the reviewed history")
         vorfahr = subprocess.run(["git", "-C", str(REPO), "merge-base", "--is-ancestor", kopf, "HEAD"])
-        if vorfahr.returncode not in (0, 1):
-            self.skipTest(f"NOT MEASURABLE: the measured commit {kopf} is not in this clone's history")
         self.assertEqual(vorfahr.returncode, 0, f"{kopf} is not an ancestor of HEAD")
         damals = subprocess.run(["git", "-C", str(REPO), "show", f"{kopf}:benchmarks/runtime_baseline/run.py"],
                                 capture_output=True, check=True).stdout
