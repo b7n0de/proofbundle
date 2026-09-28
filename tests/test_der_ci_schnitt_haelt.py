@@ -196,9 +196,9 @@ def _label_verstoesse(wfs: dict) -> list[str]:
 
 
 def test_ein_label_praedikat_verlangt_das_label_ereignis():
-    """Ohne `types` sendet GitHub nur opened, synchronize, reopened. Ein Praedikat auf `landung`
-    ohne `labeled` ist eine Bedingung, die niemand stellt. Since 2026-09-28 with one owned exception,
-    ci.yml, which subscribes no label event at all (see `_label_verstoesse`)."""
+    """Without `types` GitHub sends only opened, synchronize and reopened, so a predicate on `landung`
+    without `labeled` is a condition nobody sets. Since 2026-09-28 with one owned exception, ci.yml,
+    which subscribes no label event at all (see `_label_verstoesse`)."""
     assert _label_verstoesse(_workflows()) == []
 
 
@@ -568,10 +568,10 @@ def test_ein_lauf_auf_einem_tag_wird_nie_abgebrochen():
 
 
 def test_ein_label_praedikat_verlangt_auch_das_entfernen():
-    """Ein Praedikat auf `landung` braucht beide Richtungen. Ohne `unlabeled` laeuft die schwere
-    Schicht weiter, nachdem das Label abgenommen wurde — die Ereignis-Momentaufnahme des laufenden
-    Laufs kennt die Abnahme nicht, und kein neuer Lauf betritt die Gruppe, der sie abloesen koennte.
-    `_label_verstoesse` asks for both events outside ci.yml; this case names the direction."""
+    """A predicate on `landung` needs both directions. Without `unlabeled` the heavy layer keeps
+    running after the label is taken off: the event snapshot of the running run does not know about
+    the removal, and no new run enters the group to replace it. `_label_verstoesse` asks for both
+    events outside ci.yml; this case names the direction."""
     for n, d in _workflows().items():
         if n == "ci.yml" or "'landung'" not in str((d or {}).get("jobs") or {}):
             continue
