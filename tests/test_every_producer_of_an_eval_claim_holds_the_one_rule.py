@@ -382,20 +382,19 @@ class _ZweiZugriffe(dict):
 
 class TestThePlantedObjectIsJudgedAsItSerializes(_Basis):
 
-    def test_an_int_that_serializes_differently_is_written_as_what_it_holds(self):
+    def test_an_int_that_serializes_differently_is_refused(self):
         """Round 2 against 62e8bbab: this int was serialized as -1 there and signed. Rounds 2 to 7
         refused it, because the read-back found -1 where 500 had been checked. Round 8 (lens run 6,
-        F4) reads an int subclass by the value it stores, so it is judged as 500 and written as 500:
-        the emitter and every producer accept it, and nothing carries -1. Red at 62e8bbab (-1 signed)
-        and at c8205c18 (refused)."""
+        F4) read an int subclass by the value it stores and wrote 500. Since the 6.2.0 chain carries
+        PR 293 the one copy rule (`_plain_value.plain_json`) refuses a subclass of int outright, and
+        the JCS copy agrees: the emitter and every producer refuse it, and nothing carries -1 or 500
+        (owner decision OA-c7d6ff7121). Red at 62e8bbab (-1 signed) and at the D4 head 7cc8fa0b (500
+        signed)."""
         claim = dict(self.basis, n=_ZahlMitAndererInt(500))
-        gelesen = decode_eval_claim(emit_eval_receipt(claim, self.signer))
-        self.assertEqual(gelesen["n"], 500)
-        for name, erzeuge in _produzenten().items():
-            with self.subTest(produzent=name):
-                self.assertIsNotNone(erzeuge(claim, self.signer))
-        stichprobe = intoto.to_eval_result_predicate(claim)["sampleSize"]
-        self.assertEqual((stichprobe, type(stichprobe)), (500, int))
+        with self.assertRaises(EvalClaimError) as ctx:
+            emit_eval_receipt(claim, self.signer)
+        self.assertIn("a subclass of int", str(ctx.exception))
+        self._alle_weisen_ab(claim)
 
     def test_a_str_equal_to_everything_is_refused_by_every_producer(self):
         claim = dict(self.basis, schema=_GleichAllem("x"), commit_alg=_GleichAllem("md5-plain"))
@@ -425,16 +424,18 @@ class TestThePlantedObjectIsJudgedAsItSerializes(_Basis):
         self.assertIs(intoto.to_intoto_statement(claim)["predicate"]["claims"][0]["passed"], False)
         self.assertIs(_immer_offen(issue_sd_jwt(claim, s, root_b64=ROOT_B64))["passed"], False)
 
-    def test_control_an_honest_int_subclass_is_accepted(self):
-        """The read-back must not refuse a subclass whose bytes say what it holds."""
+    def test_an_honest_int_subclass_is_refused_too(self):
+        """Until the 6.2.0 chain carried PR 293 this was the control that the read-back does not refuse a
+        subclass whose bytes say what it holds. The one copy rule refuses every subclass of int, an
+        honest one included, because the check cannot know it is honest without running its code (owner
+        decision OA-c7d6ff7121). The plain int is the control (`_Basis`)."""
         class Ehrlich(int):
             pass
         claim = dict(self.basis, n=Ehrlich(500))
-        self.assertIsInstance(decode_eval_claim(emit_eval_receipt(claim, self.signer)), dict)
-        for name, erzeuge in _produzenten().items():
-            with self.subTest(produzent=name):
-                self.assertIsNotNone(erzeuge(claim, self.signer))
-        self.assertEqual(intoto.to_eval_result_predicate(claim)["sampleSize"], 500)
+        with self.assertRaises(EvalClaimError):
+            emit_eval_receipt(claim, self.signer)
+        self._alle_weisen_ab(claim)
+        self.assertIsInstance(decode_eval_claim(emit_eval_receipt(dict(self.basis, n=500), self.signer)), dict)
 
 
 class TestTheSafeRangeHoldsAtDecode(_Basis):
@@ -852,7 +853,7 @@ class TestTheWithheldValueSignedIsTheValueJudged(_Basis):
     def test_control_plain_arguments_are_issued_as_before(self):
         roh = generate_signer().public_key().public_bytes_raw()
         status = {"status_list": {"idx": 7, "uri": "https://example.org/status/1"}}
-        for name, schluessel in (("bytes", roh), ("bytearray", bytearray(roh)), ("memoryview", memoryview(roh))):
+        for name, schluessel in (("bytes", roh), ("bytearray", bytearray(roh))):
             with self.subTest(schluessel=name):
                 compact = issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, ci95=("0.90", "0.94"),
                                        holder_public_key=schluessel, status=status)
@@ -861,6 +862,11 @@ class TestTheWithheldValueSignedIsTheValueJudged(_Basis):
                                  base64.urlsafe_b64encode(roh).rstrip(b"=").decode("ascii"))
                 self.assertEqual(offen["status"], status)
                 self.assertEqual(_offenlegungen(compact)["ci95"], ["0.90", "0.94"])
+        # A memoryview holder key is refused for its type since the 6.2.0 chain carries PR 293
+        # (`signature.plain_bytes`: bytes or bytearray only); the D4 head 7cc8fa0b bound it.
+        with self.assertRaises(ValueError) as ctx:
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, holder_public_key=memoryview(roh))
+        self.assertIn("must be bytes or bytearray", str(ctx.exception))
 
 
 class TestADisclosedScoreEarnsTheVerdict(_Basis):
@@ -1216,6 +1222,11 @@ class TestTheLastTwoReadsOfRoundFour(_Basis):
                          status={"status_list": {"idx": 7, "uri": "https://example.org/status/1"}, 5: 1})
 
     def test_the_copy_reads_lists_as_deep_as_the_serializer(self):
+        """The JCS copy itself still reads lists as deep as rfc8785 writes them. `canonicalize` no longer
+        reaches that depth since the 6.2.0 chain carries PR 293: it reads the claim first through
+        `_plain_value.plain_json`, the one copy rule, which refuses a value nested past the structural
+        budget (64 levels) with its own EvalClaimError. At the D4 head 7cc8fa0b `canonicalize` wrote
+        both depths."""
         import rfc8785  # noqa: PLC0415
         from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
         for tiefe in (497, 900):
@@ -1223,7 +1234,11 @@ class TestTheLastTwoReadsOfRoundFour(_Basis):
                 wert: object = 1
                 for _ in range(tiefe):
                     wert = [wert]
-                self.assertEqual(canonicalize({"provenance": wert}), rfc8785.dumps({"provenance": wert}))
+                self.assertEqual(rfc8785.dumps(canonical._plain_for_jcs({"provenance": wert}, ValueError)),
+                                 rfc8785.dumps({"provenance": wert}))
+                with self.assertRaises(EvalClaimError) as ctx:
+                    canonicalize({"provenance": wert})
+                self.assertIn("nests deeper than 64 levels", str(ctx.exception))
 
     def test_a_claim_nested_past_the_recursion_limit_is_a_typed_refusal(self):
         """Lens run 5 at 5a21b199 (both foreign lenses asked about depth): the profile walk that runs
@@ -1427,12 +1442,20 @@ class TestACircularOrDeepContainerIsATypedRefusal(_Basis):
             with self.subTest(kreis=name):
                 with self.assertRaises(ValueError) as ctx:
                     issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64, status=status)
-                self.assertIn("circular", str(ctx.exception))
+                # Since the 6.2.0 chain carries PR 293 the status is read first by
+                # `_plain_value.plain_json`, the one copy rule, which meets a circle as a value nested past
+                # the structural budget; at the D4 head 7cc8fa0b the JCS copy named the circle.
+                self.assertIn("nests deeper than 64 levels", str(ctx.exception))
 
     def test_a_status_nested_past_the_limit_is_refused_at_every_depth(self):
         """The depth at which a status stops signing depends on how deep the caller's stack is, so it
         is searched here, from one helper frame, and the eight depths past it must each be the
-        ValueError. At 93b3c6f5 they were RecursionError."""
+        ValueError. At 93b3c6f5 they were RecursionError.
+
+        Since the 6.2.0 chain carries PR 293 the status is read first by `_plain_value.plain_json`, the
+        one copy rule, whose structural budget (64 levels) ends the signed depths long before the
+        recursion limit: the deepest signed status is at most 64 deep now, where the D4 head 7cc8fa0b
+        signed several hundred levels."""
         for art in ("list", "dict"):
             def ergebnis(tiefe, art=art):
                 try:
@@ -1451,7 +1474,8 @@ class TestACircularOrDeepContainerIsATypedRefusal(_Basis):
                 else:
                     oben = mitte
             with self.subTest(art=art, tiefste_signierte=unten):
-                self.assertGreater(unten, 64)       # a deep status still signs; the case is not vacuous
+                self.assertGreater(unten, 1)        # a nested status still signs; the case is not vacuous
+                self.assertLessEqual(unten, 64)     # the one copy rule's structural budget
                 for tiefe in list(range(unten + 1, unten + 9)) + [5000]:
                     self.assertEqual(ergebnis(tiefe), "ValueError", tiefe)
 
@@ -1562,14 +1586,24 @@ class TestPlainInputIsWrittenAsBefore(_Basis):
                                                            status=status))["status"], status)
 
     def test_control_canonicalize_writes_to_within_two_levels_of_the_serializer(self):
-        """The limit the CHANGELOG states: called from the same place, `canonicalize` refuses by type
+        """The limit the CHANGELOG states: called from the same place, the JCS copy refuses by type
         at most the two deepest levels that `rfc8785.dumps` writes. Measured on Python 3.10.12.
 
         Every call goes through `ergebnis`, from `tiefste`, because the depth that is written moves
         with the caller's own stack: the first form of this case checked the next level from one
-        frame higher and found it written."""
+        frame higher and found it written.
+
+        Since the 6.2.0 chain carries PR 293 `canonicalize` reads the claim first through
+        `_plain_value.plain_json`, the one copy rule, which refuses past the structural budget of 64
+        levels; so the copy is measured here through the writer that uses it alone, and `canonicalize`
+        through the budget. At the D4 head 7cc8fa0b `canonicalize` itself reached within two levels."""
         import rfc8785  # noqa: PLC0415
-        from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
+        from proofbundle.evalclaim import _jcs_bytes, _reject_non_jcs, canonicalize  # noqa: PLC0415
+
+        def kopie_geschrieben(obj):
+            kopie = canonical._plain_for_jcs(obj, EvalClaimError)
+            _reject_non_jcs(kopie)                  # the walk `canonicalize` runs before the serializer
+            return _jcs_bytes(kopie)
 
         def ergebnis(schreibe, tiefe, art):
             try:
@@ -1591,10 +1625,13 @@ class TestPlainInputIsWrittenAsBefore(_Basis):
             return unten, ergebnis(schreibe, unten + 1, art)
         for art in ("list", "dict"):
             with self.subTest(art=art):
-                (serialisierer, _), (kanonisch, danach) = (tiefste(rfc8785.dumps, art),
-                                                          tiefste(canonicalize, art))
-                self.assertGreater(kanonisch, 64)
-                self.assertIn(serialisierer - kanonisch, (0, 1, 2))
+                (serialisierer, _), (kopie, danach) = (tiefste(rfc8785.dumps, art),
+                                                       tiefste(kopie_geschrieben, art))
+                self.assertGreater(kopie, 64)
+                self.assertIn(serialisierer - kopie, (0, 1, 2))
+                self.assertEqual(danach, "EvalClaimError")
+                kanonisch, danach = tiefste(canonicalize, art)
+                self.assertLessEqual(kanonisch, 64)
                 self.assertEqual(danach, "EvalClaimError")
 
 
@@ -1900,7 +1937,8 @@ class TestTheCopyRunsNoCodeOfTheCaller(_Basis):
                              subject_sha256=P[str]("AB" * 32)),
                 lambda kw: intoto.resolve_subject(kw.pop("profil"), b, **kw)),
             # Round 9: a flag must be True or False, so these recording ints are refused, and the
-            # proof is that the refusal reads them without running them.
+            # proof is that the refusal reads them without running them. The refusal is PR 291's
+            # SwitchTypeError since the 6.2.0 chain carries it (`_membership.require_switch`).
             "svr_properties flags": (
                 lambda: dict(prereg_verified=P[int](1), anchor_verified=P[int](0)),
                 lambda kw: intoto.svr_properties(_Ergebnis(), b, **kw)),
@@ -1932,30 +1970,42 @@ class TestTheCopyRunsNoCodeOfTheCaller(_Basis):
                                      policy=P[dict]({"uri": P[str]("u")}), prereg_verified=False,
                                      anchor_verified=False, keyid=P[str]("k"), content_root_alg=P[str](alg)),
                 lambda kw: intoto.export_svr_dsse(kw.pop("buendel"), s, **kw))
+        from proofbundle.errors import SwitchTypeError  # noqa: PLC0415
         for name, (aufbau, aufruf) in faelle.items():
-            self._pruefe(name, aufbau, aufruf, (BundleFormatError,))
+            self._pruefe(name, aufbau, aufruf,
+                         (BundleFormatError, SwitchTypeError) if "flags" in name else (BundleFormatError,))
 
     def test_control_a_recording_subclass_is_written_as_the_plain_value(self):
         """Green at c8205c18 too: the recording classes answer honestly, so every entry writes for them
         the bytes it writes for the plain values they hold. This keeps the proof above from passing
-        over entries that refuse everything."""
+        over entries that refuse everything.
+
+        The numbers are plain here since the 6.2.0 chain carries PR 293: a subclass of int or float is
+        refused by the one copy rule (`_plain_value.plain_json`, and the JCS copy agrees), never
+        written as the value it holds; the last lines hold that. At the D4 head 7cc8fa0b the recording
+        ints were written as the ints they hold."""
         from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
         b, s = self.basis, self.signer
         roh = {"k": 5, "s": "x", "l": [1, ["a"]], "d": {"e": None, "t": True}}
-        aufgezeichnet = P[dict]({"k": P[int](5), "s": P[str]("x"),
-                                 "l": P[list]([P[int](1), P[tuple]((P[str]("a"),))]),
+        aufgezeichnet = P[dict]({"k": 5, "s": P[str]("x"),
+                                 "l": P[list]([1, P[tuple]((P[str]("a"),))]),
                                  "d": P[dict]({"e": None, "t": True})})
         self.assertEqual(canonicalize(dict(b, provenance=aufgezeichnet)), canonicalize(dict(b, provenance=roh)))
-        self.assertEqual(emit_eval_receipt(dict(b, provenance=aufgezeichnet, n=P[int](500)), s),
+        self.assertEqual(emit_eval_receipt(dict(b, provenance=aufgezeichnet), s),
                          emit_eval_receipt(dict(b, provenance=roh), s))
         self.assertEqual(intoto.export_intoto_dsse(b, s, harness=aufgezeichnet),
                          intoto.export_intoto_dsse(b, s, harness=roh))
         status = {"status_list": {"idx": 7, "uri": "u"}, "x": roh}
         self.assertEqual(_immer_offen(issue_sd_jwt(b, s, root_b64=ROOT_B64, status=P[dict](
-            {"status_list": P[dict]({"idx": P[int](7), "uri": P[str]("u")}), "x": aufgezeichnet})))["status"],
+            {"status_list": P[dict]({"idx": 7, "uri": P[str]("u")}), "x": aufgezeichnet})))["status"],
             status)
         self.assertEqual(canonical.canonicalize_statement({"predicate": aufgezeichnet}),
                          canonical.canonicalize_statement({"predicate": roh}))
+        for aufruf in (lambda z: canonicalize(dict(b, provenance={"k": z})),
+                       lambda z: emit_eval_receipt(dict(b, n=z), s)):
+            with self.assertRaises(EvalClaimError) as ctx:
+                aufruf(P[int](5))
+            self.assertIn("a subclass of int; a number must be an exact int or float", str(ctx.exception))
 
 
 def _menge_die_spaeter_liste_sagt(tiefe: int) -> type:
@@ -2102,17 +2152,29 @@ class TestNoMethodOfTheCallerRaisesThroughAnEntry(_Basis):
 
         def gelesen(claim):
             return decode_eval_claim(emit_eval_receipt(claim, s))
-        faelle = (
-            ("canonicalize, provenance abs raises", lambda: json.loads(canonicalize(
-                dict(self.basis, provenance={"k": _AbsWirft(5)})))["provenance"], {"k": 5}),
-            ("emit, n abs raises", lambda: gelesen(dict(self.basis, n=_AbsWirft(5)))["n"], 5),
+        import rfc8785  # noqa: PLC0415
+        # A number subclass is the entry's typed refusal since the 6.2.0 chain carries PR 293 (the one
+        # copy rule refuses it, and the JCS copy agrees); at the D4 head 7cc8fa0b each was written as the
+        # number it holds. None of its methods runs either way.
+        verweigert = (
+            ("canonicalize, provenance abs raises", lambda: canonicalize(
+                dict(self.basis, provenance={"k": _AbsWirft(5)})), EvalClaimError),
+            ("emit, n abs raises", lambda: emit_eval_receipt(dict(self.basis, n=_AbsWirft(5)), s), EvalClaimError),
             ("canonicalize_statement, int() raises", lambda: canonical.canonicalize_statement(
-                {"_type": "t", "predicate": {"k": _IntWirft(5)}}), b'{"_type":"t","predicate":{"k":5}}'),
+                {"_type": "t", "predicate": {"k": _IntWirft(5)}}), rfc8785.CanonicalizationError),
+            ("emit, n comparisons raise", lambda: emit_eval_receipt(dict(self.basis, n=_VergleichWirft(500)), s),
+             EvalClaimError),
+        )
+        for name, lauf, fehler in verweigert:
+            with self.subTest(fall=name):
+                with self.assertRaises(fehler) as ctx:
+                    lauf()
+                self.assertIn("a number must be an exact int or float", str(ctx.exception))
+        faelle = (
             ("emit, ci95 len and iter raise", lambda: gelesen(dict(
                 self.basis, ci95=_LaengeWirft(["0.1", "0.2"])))["ci95"], ["0.1", "0.2"]),
             ("issue_sd_jwt, ci95 len and iter raise", lambda: _offenlegungen(issue_sd_jwt(
                 self.basis, s, root_b64=ROOT_B64, ci95=_LaengeWirft(["0.1", "0.2"])))["ci95"], ["0.1", "0.2"]),
-            ("emit, n comparisons raise", lambda: gelesen(dict(self.basis, n=_VergleichWirft(500)))["n"], 500),
             ("emit, samples iteration raises", lambda: gelesen(dict(self.basis, samples=_IterWirft(
                 root_b64=ROOT_B64, n=500, leaf_alg="sha256-rfc6962-sdjwt-v1")))["samples"]["n"], 500),
             ("emit, suite truthiness raises", lambda: gelesen(dict(
@@ -2148,25 +2210,31 @@ class _FloatAnders(float):
 
 class TestANumberIsWrittenAsWhatItHolds(_Basis):
     """F4 of lens run 6 at c8205c18: int and float subclasses passed the copy unchanged, the walks
-    judged the stored value, and rfc8785 wrote the value of `int()` and `float()`."""
+    judged the stored value, and rfc8785 wrote the value of `int()` and `float()`. Round 8 wrote the
+    stored value. Since the 6.2.0 chain carries PR 293 a subclass of int or float is refused by the one
+    copy rule (`_plain_value.plain_json`) and by the JCS copy, which agrees with it (owner decision
+    OA-c7d6ff7121): nothing writes the value of `int()` or `float()`, and nothing writes the stored one
+    either."""
 
-    def test_f4_the_stored_number_is_written(self):
+    def test_f4_a_number_subclass_is_refused(self):
+        import rfc8785  # noqa: PLC0415
         from proofbundle.evalclaim import _jcs_bytes, canonicalize  # noqa: PLC0415
         faelle = (
             ("canonicalize", lambda: canonicalize(dict(self.basis, provenance={"k": _IntAnders(5)})),
-             lambda: canonicalize(dict(self.basis, provenance={"k": 5}))),
+             EvalClaimError),
             ("_jcs_bytes, float", lambda: _jcs_bytes(dict(self.basis, provenance={"k": _FloatAnders(1.5)})),
-             lambda: _jcs_bytes(dict(self.basis, provenance={"k": 1.5}))),
+             EvalClaimError),
             ("canonicalize_statement", lambda: canonical.canonicalize_statement(
-                {"i": _IntAnders(5), "f": _FloatAnders(1.5)}),
-             lambda: canonical.canonicalize_statement({"i": 5, "f": 1.5})),
+                {"i": _IntAnders(5), "f": _FloatAnders(1.5)}), rfc8785.CanonicalizationError),
             ("emit_eval_receipt", lambda: emit_eval_receipt(
-                dict(self.basis, provenance={"k": _IntAnders(5)}), self.signer),
-             lambda: emit_eval_receipt(dict(self.basis, provenance={"k": 5}), self.signer)),
+                dict(self.basis, provenance={"k": _IntAnders(5)}), self.signer), EvalClaimError),
         )
-        for name, geschrieben, erwartet in faelle:
+        for name, lauf, fehler in faelle:
             with self.subTest(weg=name):
-                self.assertEqual(geschrieben(), erwartet())
+                with self.assertRaises(fehler) as ctx:
+                    lauf()
+                self.assertIn("a number must be an exact int or float", str(ctx.exception))
+        self.assertEqual(canonical.canonicalize_statement({"i": 5, "f": 1.5}), b'{"f":1.5,"i":5}')
 
 
 class TestATypeThatHidesItsBaseIsRefused(_Basis):
@@ -2303,10 +2371,14 @@ class TestPlainArgumentsKeepTheirBytes(_Basis):
     and the openings of an SD-JWT as a tuple, a list, a string or a JSON object."""
 
     def test_control_standard_library_subclasses_keep_their_bytes(self):
+        """An IntEnum is a subclass of int, and since the 6.2.0 chain carries PR 293 the one copy rule
+        refuses it (owner decision OA-c7d6ff7121); it stood among these controls at the D4 head 7cc8fa0b,
+        and it is held as a refusal at the end now."""
+        import rfc8785  # noqa: PLC0415
         from proofbundle.evalclaim import canonicalize  # noqa: PLC0415
         paare = (
             (collections.Counter(a=1), {"a": 1}), (collections.OrderedDict(b=2, a=1), {"a": 1, "b": 2}),
-            (collections.defaultdict(int, a=1), {"a": 1}), (_Zahl.EINS, 1), (_Wort.A, "a"),
+            (collections.defaultdict(int, a=1), {"a": 1}), (_Wort.A, "a"),
             (_Paar(1, "x"), [1, "x"]), ((1, "x"), [1, "x"]))
         for wert, roh in paare:
             with self.subTest(wert=type(wert).__name__):
@@ -2322,6 +2394,16 @@ class TestPlainArgumentsKeepTheirBytes(_Basis):
                 self.assertEqual(_immer_offen(issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
                                                            status=status))["status"],
                                  {"status_list": {"idx": 7}, "k": roh})
+        with self.assertRaises(EvalClaimError):
+            canonicalize(dict(self.basis, provenance={"k": _Zahl.EINS}))
+        with self.assertRaises(rfc8785.CanonicalizationError):
+            canonical.canonicalize_statement({"k": _Zahl.EINS})
+        with self.assertRaises(BundleFormatError):
+            intoto.export_intoto_dsse(self.basis, self.signer, harness={"k": _Zahl.EINS},
+                                      content_root_alg=intoto.LEGACY_CONTENT_ROOT_ALG)
+        with self.assertRaises(ValueError):
+            issue_sd_jwt(self.basis, self.signer, root_b64=ROOT_B64,
+                         status={"status_list": {"idx": 7}, "k": _Zahl.EINS})
 
     def test_control_plain_shapes_the_readers_accepted_are_read_as_before(self):
         paare = list(self.basis.items())
@@ -2346,13 +2428,16 @@ class TestTheChangesRoundEightNamesInReview(_Basis):
     Each was accepted at c8205c18, or named ambiguously there."""
 
     def test_a_flag_that_is_no_json_value_is_refused(self):
+        """PR 291's SwitchTypeError since the 6.2.0 chain carries it; a BundleFormatError at the D4 head
+        7cc8fa0b."""
+        from proofbundle.errors import SwitchTypeError  # noqa: PLC0415
         env = emit_eval_receipt(self.basis, self.signer)
         wege = (("svr_properties",
                  lambda f: intoto.svr_properties(_Ergebnis(), self.basis, prereg_verified=f)),
                 ("export_svr_dsse", lambda f: intoto.export_svr_dsse(env, self.signer, anchor_verified=f)))
         for name, aufruf in wege:
             with self.subTest(weg=name):
-                with self.assertRaises(BundleFormatError):
+                with self.assertRaises(SwitchTypeError):
                     aufruf(_NurWahr())
 
     def test_a_claim_given_as_an_iterator_of_pairs_is_refused(self):
@@ -2487,7 +2572,11 @@ class TestTheRefusalNamesEveryTypeWithoutRaising(_Basis):
                 _AUFRUFE.clear()
                 with self.assertRaises(EvalClaimError) as ctx:
                     emit_eval_receipt(dict(self.basis, provenance={"k": bau()}), s)
-                self.assertIn("a value of type <unnamed type> is not a JSON value", str(ctx.exception))
+                # The emitter reads the claim first through `_plain_value.plain_json` since the chain
+                # carries PR 293; its refusal names the type through `_membership.type_name`, which
+                # never raises either. At the D4 head 7cc8fa0b the JCS copy's words were
+                # "a value of type <unnamed type> is not a JSON value".
+                self.assertIn("is of type <unnamed type>; a JSON value is", str(ctx.exception))
                 for name, erzeuge in _produzenten().items():
                     with self.assertRaises(BundleFormatError, msg=name):
                         erzeuge(dict(self.basis, provenance={"k": bau()}), s)
@@ -2655,13 +2744,26 @@ class TestAnArgumentThatMustBeAStringIsOne(_Basis):
                 svr_umschlag, self.pub, expected_predicate_type=v),
         }
 
+    #: The arguments the 6.2.0 chain reads first through PR 293's `intoto._text_once` and `_alg_once`
+    #: (read once from storage, before this module's own reading), with the refusal those give. At the
+    #: D4 head 7cc8fa0b each was refused as "<entry>: <argument> must be a string".
+    _ZUERST_293 = {"content_root_alg": "unknown contentRootAlg of type ",
+                   "profile": "unknown subject profile of type ",
+                   "subject_profile": "unknown subject profile of type ",
+                   "subject_name": "subject_name must be text",
+                   "subject_sha256": "subject_sha256 must be text"}
+    #: `export_eval_result_dsse` reads these two itself before it hands them to `resolve_subject`.
+    _D4_ZUERST = {("export_eval_result_dsse", "subject_name"), ("export_eval_result_dsse", "subject_sha256")}
+
     def test_an_argument_of_another_type_is_refused_by_name(self):
         for (weg, argument), aufruf in self._wege().items():
             for wert in (10 ** 5000, 5, [1], {"a": "b"}, True):
                 with self.subTest(weg=weg, argument=argument, wert=type(wert).__name__):
                     with self.assertRaises(BundleFormatError) as ctx:
                         aufruf(wert)
-                    self.assertIn(f"{weg}: {argument} must be a string", str(ctx.exception))
+                    erwartet = (f"{weg}: {argument} must be a string" if (weg, argument) in self._D4_ZUERST
+                                else self._ZUERST_293.get(argument, f"{weg}: {argument} must be a string"))
+                    self.assertIn(erwartet, str(ctx.exception))
 
     def test_a_passed_the_message_cannot_print_is_refused(self):
         with self.assertRaises(BundleFormatError) as ctx:
@@ -2684,20 +2786,25 @@ class TestAnArgumentThatMustBeAStringIsOne(_Basis):
 class TestACallerAttestedFlagIsABoolean(_Basis):
     """R-B4 at the caller-attested flags, P2, found outside the targets of lens run 7 and measured at
     ee489403 and on main 20e91c8e: `export_svr_dsse(env, signer, anchor_verified="false")` signed
-    PROOFBUNDLE_ANCHOR_VALID. A flag was read by its truth."""
+    PROOFBUNDLE_ANCHOR_VALID. A flag was read by its truth.
+
+    The refusal is PR 291's since the 6.2.0 chain carries it: `_membership.require_switch`, a
+    SwitchTypeError (a TypeError and a ProofBundleError) naming the flag and the type. At the D4 head
+    7cc8fa0b it was this module's BundleFormatError "<entry>: <flag> must be True or False"."""
 
     def test_a_flag_that_is_not_true_or_false_is_refused(self):
+        from proofbundle.errors import SwitchTypeError  # noqa: PLC0415
         buendel = emit_eval_receipt(self.basis, self.signer)
         mit_prereg = dict(self.basis, prereg_sha256="a" * 64)
         for flagge in ("prereg_verified", "anchor_verified"):
             for wert in ("false", "true", "", 0, 1, None, [], {}):
                 with self.subTest(flagge=flagge, wert=wert):
-                    with self.assertRaises(BundleFormatError) as ctx:
-                        intoto.svr_properties(_Ergebnis(), mit_prereg, **{flagge: wert})
-                    self.assertIn(f"svr_properties: {flagge} must be True or False", str(ctx.exception))
-                    with self.assertRaises(BundleFormatError) as ctx:
-                        intoto.export_svr_dsse(buendel, self.signer, **{flagge: wert})
-                    self.assertIn(f"export_svr_dsse: {flagge} must be True or False", str(ctx.exception))
+                    for aufruf in (lambda: intoto.svr_properties(_Ergebnis(), mit_prereg, **{flagge: wert}),
+                                   lambda: intoto.export_svr_dsse(buendel, self.signer, **{flagge: wert})):
+                        with self.assertRaises(SwitchTypeError) as ctx:
+                            aufruf()
+                        self.assertIn(f"{flagge} must be a bool (True or False), not a value of type "
+                                      f"{type(wert).__name__}", str(ctx.exception))
 
     def test_control_true_and_false_attest_as_before(self):
         buendel = emit_eval_receipt(self.basis, self.signer)
@@ -3000,6 +3107,10 @@ class TestAnOrderedDictIsReadOnlyWithKeysOfTypeStr(_Basis):
         kopie = (ProofBundleError, ValueError)
         bfe = (BundleFormatError,)
         sd = (BundleFormatError, ValueError)
+        # A flag is a switch: PR 291's SwitchTypeError since the 6.2.0 chain carries it (a
+        # BundleFormatError at the D4 head 7cc8fa0b).
+        from proofbundle.errors import SwitchTypeError  # noqa: PLC0415
+        schalter = (SwitchTypeError,)
         return {
             "canonicalize_statement": (lambda w: canonical.canonicalize_statement({"k": w}), kopie),
             "canonicalize_statement, shape guard": (lambda w: canonical.canonicalize_statement(
@@ -3027,11 +3138,12 @@ class TestAnOrderedDictIsReadOnlyWithKeysOfTypeStr(_Basis):
                 lambda w: intoto.export_eval_result_dsse(b, s, subject_name=w), bfe),
             "svr_properties claim": (
                 lambda w: intoto.svr_properties(_Ergebnis(), dict(b, provenance={"k": w})), bfe),
-            "svr_properties flag": (lambda w: intoto.svr_properties(_Ergebnis(), b, anchor_verified=w), bfe),
+            "svr_properties flag": (lambda w: intoto.svr_properties(_Ergebnis(), b, anchor_verified=w),
+                                    schalter),
             "export_svr_dsse policy": (
                 lambda w: intoto.export_svr_dsse(buendel, s, policy=w, time_created=zeit), bfe),
             "export_svr_dsse anchor_verified": (
-                lambda w: intoto.export_svr_dsse(buendel, s, anchor_verified=w), bfe),
+                lambda w: intoto.export_svr_dsse(buendel, s, anchor_verified=w), schalter),
             "issue_sd_jwt claim": (
                 lambda w: issue_sd_jwt(dict(b, provenance={"k": w}), s, root_b64=ROOT_B64), sd),
             "issue_sd_jwt status": (lambda w: issue_sd_jwt(
@@ -3142,7 +3254,8 @@ class TestAnOrderedDictIsReadOnlyWithKeysOfTypeStr(_Basis):
             return od
         formen = {"OrderedDict": verschoben, "a subclass with an attribute": mit_attribut,
                   "a subclass whose slot holds a str": mit_slot,
-                  "recording values": lambda: verschoben(werte=(P[dict]({"k": P[int](1)}),
+                  # the number plain: a recording int is refused by the one copy rule (PR 293)
+                  "recording values": lambda: verschoben(werte=(P[dict]({"k": 1}),
                                                                 P[list]([P[str]("x")])))}
         for name, bau in formen.items():
             with self.subTest(form=name):
@@ -3205,8 +3318,11 @@ class TestAFlagIsReadAsABoolean(_Basis):
                     finally:
                         gesehen = list(_AUFRUFE)
                         _AUFRUFE.clear()
-                    self.assertIn(f"{weg}: require_statement_shape must be True or False",
-                                  str(ctx.exception))
+                    # PR 291's refusal since the 6.2.0 chain carries it (`_membership.require_switch`,
+                    # a SwitchTypeError); at the D4 head 7cc8fa0b it read
+                    # "<entry>: require_statement_shape must be True or False".
+                    self.assertIn("require_statement_shape must be a bool (True or False), not a value "
+                                  "of type", str(ctx.exception))
                     self.assertEqual(gesehen, [])
 
     def test_the_bytes_path_refuses_a_flag_that_is_no_bool_too(self):
@@ -3216,8 +3332,8 @@ class TestAFlagIsReadAsABoolean(_Basis):
             with self.subTest(wert=name):
                 with self.assertRaises(ProofBundleError) as ctx:
                     canonical.statement_content_root(b"{}", require_statement_shape=flagge)
-                self.assertIn("statement_content_root: require_statement_shape must be True or False",
-                              str(ctx.exception))
+                self.assertIn("require_statement_shape must be a bool (True or False), not a value of type",
+                              str(ctx.exception))   # PR 291's refusal (see above)
 
     def test_control_true_and_false_select_the_guard_as_before(self):
         import hashlib  # noqa: PLC0415

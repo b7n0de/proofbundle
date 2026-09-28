@@ -34,6 +34,7 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Callable, Union
 
+from ._membership import require_switch
 from .errors import ProofBundleError
 
 __all__ = ["CONTENT_ROOT_ALG", "STATEMENT_REQUIRED_KEYS", "CanonicalizerUnavailable",
@@ -125,12 +126,16 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     itself, ``issubclass`` walks the type's MRO tuple by identity and calls no hook of the caller's
     metaclass (measured on Python 3.10.12 with a metaclass that defines ``__subclasscheck__``,
     ``__eq__`` and ``__name__``: none ran; ``str in type.__mro__`` would have run the metaclass's
-    ``__eq__``). Containers are read with the base type's methods, and a ``str``, ``int`` or
-    ``float`` becomes the plain value it holds (``str.__str__``, ``int.__index__``,
-    ``float.__float__``), so a subclass is written as what it stores. ``bool`` and None are kept as
-    they are. EVERY OTHER TYPE IS REFUSED with ``key_error``: a set, a frozenset, bytes, a Decimal,
-    an object whose ``__class__`` claims a JSON type, and a type whose metaclass hides its base from
-    its MRO. Nothing is passed through to the serializer to judge. The refusal names the type
+    ``__eq__``). Containers are read with the base type's methods, and a ``str`` becomes the plain
+    text it holds (``str.__str__``), so a ``str`` subclass is written as what it stores. ``bool``,
+    None and an exact ``int`` or ``float`` are kept as they are. A SUBCLASS OF ``int`` OR ``float``
+    IS REFUSED, with the reason `_plain_value.plain_json` gives: plain_json is the one copy rule of
+    the 6.2.0 chain (PR 293, owner decision OA-c7d6ff7121), and this copy refuses every type it
+    refuses. Rounds 8 to 12 read such a number as the value it stores (``int.__index__``,
+    ``float.__float__``); that reading ran no code of the caller either, but it accepted a value the
+    one rule refuses. EVERY OTHER TYPE IS REFUSED with ``key_error``: a set, a frozenset, bytes, a
+    Decimal, an object whose ``__class__`` claims a JSON type, and a type whose metaclass hides its
+    base from its MRO. Nothing is passed through to the serializer to judge. The refusal names the type
     through `_type_name`, which never raises (round 9): at ee489403 it raised a raw TypeError for a
     type whose metaclass hides ``type`` from its own MRO and for a type whose ``__name__`` is a
     ``str`` subclass that hides ``str``, so that refusal was a raw exception, at the emitter and
@@ -164,7 +169,8 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     copy deepened a sibling that was not yet copied, so the written bytes exceeded the budget the
     statement had been checked against. An ``int`` or ``float`` subclass passed unchanged, and
     rfc8785 wrote it through its own ``__int__`` or ``__float__`` (an int holding 5 whose
-    ``__int__`` returns -1 was written as -1) or raised what they raised. A type whose metaclass
+    ``__int__`` returns -1 was written as -1) or raised what they raised; it is refused now (see
+    above). A type whose metaclass
     returns ``[cls, object]`` from ``mro()`` is no dict to ``issubclass`` while ``json.dumps``, which
     tests the type's C flags, writes it as one through its own ``items()``: a ``status`` holding
     such a dict with the stored item {"a": 1} was signed as {"fremd": 99}. Such a type cannot be read
@@ -310,32 +316,25 @@ _EINGEBAUTE_SKALARE = (type(None), bool, int, float, str, bytes)
 
 
 def _ganzzahl_von(wert: Any) -> Any:
-    """The integer an ``int`` holds, as a plain ``int``, or None for a bool or any other value.
+    """``wert`` if it is an exact ``int``, or None for a bool, a subclass of ``int`` or any other value:
+    the answer of `_plain_value.plain_int`, the one rule for a number (PR 293).
 
     For a caller's integer that a check compares or computes with (round 12). An ``int`` subclass
     answers comparisons and arithmetic through its own methods, and Python asks a subclass's
-    reflected method first (``5 == x`` calls ``x.__eq__``), so the stored value is read with
-    ``int.__index__``. A bool is None here because every caller refuses it as a count, a size or an
-    index."""
-    typ = type(wert)
-    if typ is int:
-        return wert
-    if typ is bool or not issubclass(typ, int):
-        return None
-    return int.__index__(wert)
+    reflected method first (``5 == x`` calls ``x.__eq__``). Round 12 read its stored value with
+    ``int.__index__``; the one rule refuses it instead, so every caller treats it as it treats a
+    value that is no integer. A bool is None here because every caller refuses it as a count, a
+    size or an index."""
+    return wert if type(wert) is int else None
 
 
 def _zahl_von(wert: Any) -> Any:
-    """The number an ``int`` or ``float`` holds, as a plain one, or None for any other value. A bool
-    is kept as it is: it cannot be subclassed, so none of its methods is the caller's (round 12)."""
+    """``wert`` if it is an exact ``int``, ``float`` or ``bool``, or None for any other value, a
+    subclass of ``int`` or ``float`` included (the one rule for a number, PR 293; round 12 read a
+    subclass's stored value). A bool is kept as it is: it cannot be subclassed, so none of its
+    methods is the caller's."""
     typ = type(wert)
-    if typ is int or typ is float or typ is bool:
-        return wert
-    if issubclass(typ, int):
-        return int.__index__(wert)
-    if issubclass(typ, float):
-        return float.__float__(wert)
-    return None
+    return wert if typ is int or typ is float or typ is bool else None
 
 
 #: What `_feld_von` answers for a field the dict does not store.
@@ -361,8 +360,8 @@ def _feld_von(wert: Any, name: str, fehlt: Any = None) -> Any:
 def _pruefkopie(wert: Any) -> Any:
     """For a validator (round 12): a caller's value as the plain copy of what it stores, so the
     judgment reads what the object holds and runs none of its methods. A dict or list is copied, a
-    ``str``, ``int`` or ``float`` subclass becomes the plain value it holds, and a tuple stays a
-    tuple of plain values, so a validator that refused a tuple refuses it as before (a tuple INSIDE
+    ``str`` subclass becomes the plain text it holds, a subclass of ``int`` or ``float`` is refused
+    (the one copy rule, see `_plain_for_jcs`), and a tuple stays a tuple of plain values, so a validator that refused a tuple refuses it as before (a tuple INSIDE
     is read as the array JSON writes it, as the signer writes it). A value of any other type, and a
     container holding one, raises ValueError, which the validator returns as its finding: such a
     value is no JSON value, and an object whose ``__class__`` claims a JSON type would otherwise
@@ -406,18 +405,19 @@ def _folge_von(wert: Any) -> list:
     return list(wert)
 
 
-def _flagge(wert: Any, wo: str, name: str) -> bool:
-    """A boolean keyword argument as the bool it is, or this module's ProofBundleError naming it.
+def _flagge(wert: Any, name: str) -> bool:
+    """A boolean keyword argument as the bool it is, or
+    :class:`~proofbundle.errors.SwitchTypeError` (a ``ProofBundleError`` and a ``TypeError``) naming
+    it and the type it got: `_membership.require_switch`, the one rule for a switch (PR 291).
 
     R-B4 at ``require_statement_shape`` (round 10, lens run 8 at 493c2f86, and on main): the flag
     was read by its truth, so a caller object's ``__bool__`` ran, what it raised escaped raw, and
     the string "false" switched the guard on. ``bool`` cannot be subclassed, so ``type(wert) is
     bool`` holds exactly for True and False, and nothing of the caller runs. The rule
-    ``intoto._eigene_flagge`` holds for the caller-attested flags: a refusal, not a coercion."""
-    if type(wert) is not bool:
-        raise ProofBundleError(
-            f"{wo}: {name} must be True or False, got {_type_name(type(wert))}; a flag that is not a "
-            "boolean is refused rather than read by its truth")
+    ``intoto._eigene_flagge`` holds for the caller-attested flags: a refusal, not a coercion. Until
+    the chain carried PR 291 the refusal was this module's own ProofBundleError "must be True or
+    False"."""
+    require_switch(wert, name)
     return wert
 
 
@@ -568,12 +568,15 @@ def _plain_value(value: Any, offen: set) -> Any:
                 raise
         offen.discard(id(value))
         return liste
-    if typ is bool or value is None:
+    if typ is bool or value is None or typ is int or typ is float:
         return value
-    if issubclass(typ, int):
-        return int.__index__(value)
-    if issubclass(typ, float):
-        return float.__float__(value)
+    if issubclass(typ, int) or issubclass(typ, float):
+        # The one copy rule (`_plain_value.plain_json`, PR 293): a subclass of int or float is
+        # refused, not read, because its only reads are the caller's methods or a conversion the
+        # caller controls. The reason is plain_json's.
+        zahlbasis = "float" if issubclass(typ, float) else "int"
+        raise _Abweisung(f"a value of type {_type_name(typ)} is a subclass of {zahlbasis}; a number must be an "
+                         "exact int or float, so that no method of the caller's class decides its value")
     raise _Abweisung(f"a value of type {_type_name(typ)} is not a JSON value")
 
 
@@ -593,8 +596,8 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     accidentally passing a bare ``predicate`` where the full-Statement scope is required (ADR 0002 §2). It is
     OFF by default because a bare-predicate canonicalization is a legitimate distinct operation (e.g. a
     subject-commitment digest); turning the check on by default would break those callers. The flag
-    must be True or False; any other value is ProofBundleError before anything is read (round 10,
-    `_flagge`: at 493c2f86 it was read by its truth).
+    must be True or False; any other value is :class:`~proofbundle.errors.SwitchTypeError` before
+    anything is read (round 10, `_flagge`: at 493c2f86 it was read by its truth).
 
     ORDER, unchanged: the shape guard, the structural budget, the one plain copy, the serializer on the
     copy. The guard and the budget read the statement before the copy, and that is safe because
@@ -608,8 +611,7 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     budget stays before the copy because it bounds depth without recursing and gives this function's
     documented BundleFormatError for a statement nested past 64 levels, where a recursive copy would
     give its own refusal first."""
-    require_statement_shape = _flagge(require_statement_shape, "canonicalize_statement",
-                                      "require_statement_shape")
+    require_statement_shape = _flagge(require_statement_shape, "require_statement_shape")
     if require_statement_shape:
         _require_statement_shape(statement)
     # adversarial re-audit round 5: bound nesting/node count BEFORE rfc8785.dumps recurses — a relying party that
@@ -664,10 +666,9 @@ def statement_content_root(statement: Union[Mapping, list, bytes, bytearray], *,
     refused here now, with this function's own ProofBundleError.
 
     ``require_statement_shape`` must be True or False on both paths, and any other value is
-    ProofBundleError before the path is chosen (round 10, `_flagge`). At 493c2f86 the object path
+    :class:`~proofbundle.errors.SwitchTypeError` before the path is chosen (round 10, `_flagge`). At 493c2f86 the object path
     read it by its truth, which ran a caller object's ``__bool__``, and the bytes path ignored it."""
-    require_statement_shape = _flagge(require_statement_shape, "statement_content_root",
-                                      "require_statement_shape")
+    require_statement_shape = _flagge(require_statement_shape, "require_statement_shape")
     typ = type(statement)
     if issubclass(typ, bytes) or issubclass(typ, bytearray):
         # Verifier path: hash the exact transmitted payload bytes; do NOT re-canonicalize (DSSE rule). The

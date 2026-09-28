@@ -415,21 +415,27 @@ class TestTheEmitterSignsExactlyWhatTheVerifierAccepts(_Basis):
         """Sizes the verifier refuses are not signed either. Measured at 2290d6c1: all three signed.
 
         These are refused after canonicalization and before signing, because a payload's size exists
-        only once it is serialized; the emitter reads its own bytes with decode's readers."""
+        only once it is serialized; the emitter reads its own bytes with decode's readers. The depth and
+        the width are refused one step earlier since the 6.2.0 chain carries PR 293: the emitter reads the
+        claim once through `_plain_value.plain_json`, the one copy rule, which holds the structural budget
+        and names it in its own words. Measured at the D4 head 7cc8fa0b, where the reason for all three
+        was "limit of the verifier"."""
         def tief(k):
             x = {}
             for _ in range(k):
                 x = {"a": x}
             return x
-        for fall, provenance in (("nested 70 deep", tief(70)),
-                                 ("250 000 list items", {"l": list(range(250_000))}),
-                                 ("payload_b64 past 1 000 000 characters", {"x": "a" * 900_000})):
+        for fall, provenance, grund in (("nested 70 deep", tief(70), "nests deeper than 64 levels"),
+                                        ("250 000 list items", {"l": list(range(250_000))},
+                                         "holds more than 200000 entries"),
+                                        ("payload_b64 past 1 000 000 characters", {"x": "a" * 900_000},
+                                         "limit of the verifier")):
             with self.subTest(fall=fall):
                 claim = dict(self.basis, provenance=provenance)
                 self.assertIsNone(decode_eval_claim(self._hand_signed(claim)))
                 with self.assertRaises(EvalClaimError) as ctx:
                     emit_eval_receipt(claim, self.signer)
-                self.assertIn("limit of the verifier", str(ctx.exception))
+                self.assertIn(grund, str(ctx.exception))
         kontrolle = dict(self.basis, provenance=tief(62))
         self.assertIsInstance(decode_eval_claim(emit_eval_receipt(kontrolle, self.signer)), dict)
 

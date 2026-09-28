@@ -310,6 +310,26 @@ def _check_bool_fields(policy: dict) -> None:
             _require_bool(obj, key, "trust policy" if section is None else section)
 
 
+def _bool_field_refusal_as_stored(policy: object) -> "str | None":
+    """The message of :func:`_check_bool_fields` for a policy that holds a value that is no JSON value,
+    read from what the policy stores, or None.
+
+    The evaluators read a policy once, into its plain copy, and refuse a policy the copy cannot make
+    (round 12 of PR 300). PR 291 lands before it and refuses a boolean field that is not a bool with the
+    loader's own message, an object whose ``__class__`` says bool included; the copy refused such a
+    policy with its own message first. When the copy refuses, the boolean fields are read here from the
+    stored items of the policy and of each section (`_membership.stored_str_items`, whose reading runs
+    no code of the caller), and the loader's message is the one given."""
+    from ._membership import stored_str_items  # noqa: PLC0415 - local, as the module's peers
+    top = stored_str_items(policy)
+    for section, keys in _BOOL_FIELDS:
+        obj = top if section is None else stored_str_items(top.get(section))
+        for key in keys:
+            if key in obj and type(obj[key]) is not bool:
+                return f"{'trust policy' if section is None else section}.{key} must be a boolean (true/false)"
+    return None
+
+
 def _require_str_or_null(obj: dict, key: str, where: str) -> None:
     if key in obj and obj[key] is not None and not isinstance(obj[key], str):
         raise PolicyError(f"{where}.{key} must be a string or null")
@@ -667,12 +687,18 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # own `get`). A policy or statement holding a value that is no JSON value is a fail-closed
     # verdict.
     try:
-        policy = _plain_for_jcs(policy, PolicyError)
+        policy_kopie = _plain_for_jcs(policy, PolicyError)
         if issubclass(type(statement), dict):
             statement = _plain_for_jcs(statement, PolicyError)
     except PolicyError as exc:
+        grund = _bool_field_refusal_as_stored(policy)
+        if grund is not None:   # the loader's message wins (PR 291)
+            return {"policy_ok": False, "signer_trusted": False,
+                    "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
+                               f"load_policy applies): {grund}"]}
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"policy or statement is not a JSON object (fail-closed): {exc}"]}
+    policy = policy_kopie
     signer_public_key_b64 = _zeichen_von(signer_public_key_b64)
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
@@ -857,9 +883,15 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # since round 11, so the policy now judges the bundle that was verified. A bundle or policy that is
     # no JSON object is a fail-closed verdict.
     try:
-        policy = _plain_for_jcs(policy, PolicyError)
+        policy_kopie = _plain_for_jcs(policy, PolicyError)
     except PolicyError as exc:
+        grund = _bool_field_refusal_as_stored(policy)
+        if grund is not None:   # the loader's message wins (PR 291)
+            grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {grund}"
+            return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
+                    "reason": grund}
         return {"policy_ok": False, "checks": [], "reason": f"policy is not a JSON object: {exc}"}
+    policy = policy_kopie
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy (Klasse und Messung
     # bei _huelle_pruefen). Ein unbekannter Schluessel ist ein fail-closed Verdikt, kein Wurf —
     # diese Flaeche liefert Verdikte.

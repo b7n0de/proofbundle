@@ -29,7 +29,7 @@ from ._strict_json import loads_strict
 from .canonical import _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64
-from ._membership import is_member
+from ._membership import is_member, stored_str_items
 # LAUF 14 L2 F1 (11.09.2026): dieses Modul trug eine DRITTE Kopie von `_b64url_decode` — ohne den
 # Vor-Deckel, den `sdjwt` und `kbjwt` seit "adversarial re-audit round 7" tragen. Gemessen: ein
 # 40-MiB-Segment wurde hier in 0,30 s voll zu 30 MiB dekodiert, bevor irgendeine Schranke griff;
@@ -59,7 +59,12 @@ def validate_vc_policy(policy: Any) -> list[str]:
     try:
         policy = _pruefkopie(policy)   # one reading, by what it stores (round 12)
     except ValueError as exc:
-        return [f"policy is not a JSON value: {exc}"]
+        # The boolean fields keep the message PR 291 gives them, an object whose `__class__` says bool
+        # included, read from what the policy stores (`stored_str_items` runs no code of the caller).
+        gespeichert = stored_str_items(policy)
+        return [f"policy is not a JSON value: {exc}"] + [
+            f"{b} must be a boolean" for b in ("requireTypeMetadataIntegrity", "requireKeyBinding", "requireIssuerSignature")
+            if b in gespeichert and type(gespeichert[b]) is not bool]
     errors: list[str] = []
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]

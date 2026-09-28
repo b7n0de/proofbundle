@@ -1193,36 +1193,63 @@ class TestReadingARegisteredVerifiersResultRunsNoneOfItsCode(unittest.TestCase):
         self.assertEqual((out["ok"], out["warn"], out["status"]), (False, False, "fail"))
         self.assertIn("could not be read (an error of type _Planted)", out["detail"])
 
-    def test_a_hostile_anchor_entry_is_a_typed_refusal(self):
+    def test_a_hostile_anchor_entry_is_refused_or_read_by_what_it_stores(self):
         """The anchor entry itself is the caller's too: what its keys and values run may not escape either.
-        verify_anchor and verify_anchors refuse it with their documented BundleFormatError (and so does
-        receipt_canonical_root for a receipt bundle of that kind), and verify_decision_receipt, which never
-        raises, turns it into a failed anchors verdict."""
+
+        A value that is no JSON value (every dunder raises) is refused: verify_anchor and verify_anchors with
+        their documented BundleFormatError (and so does receipt_canonical_root for a receipt bundle of that
+        kind), and verify_decision_receipt, which never raises, with a failed anchors verdict.
+
+        A ``str`` subclass, as the type, as the key ``target`` or as a receipt field, is read by the text it
+        stores since the 6.2.0 chain carries PR 300 (owner decision OA-79899af069): the entry answers what the
+        plain entry answers, and none of its methods runs. At the head of PR 291 and of PR 293 such an entry
+        was refused only because its own ``__eq__`` or ``__len__`` ran and raised, and a refusal that needs
+        the caller's code to run is the class this test is named for."""
         calls: list = []
         s_cls, _i, _d = _raising_subclass_values(calls)
         self.answer = {"ok": True}
+        env, pub, root = self._decision()
+
+        def ueber_alle_drei(make):
+            return (anchors.verify_anchor(make(self._anchor(self.root)), target_roots={"statement": self.root}),
+                    anchors.verify_anchors([make(self._anchor(self.root))], target_roots={"statement": self.root},
+                                           require="any"),
+                    verify_decision_receipt(env, pub, strict=True, anchors=[make(self._anchor(root))]))
+
+        with self.subTest(entry="a value whose dunders raise"):
+            make = lambda a: {**a, "anchoredAt": _RaisingValue(calls)}  # noqa: E731
+            with self.assertRaises(ProofBundleError):
+                anchors.verify_anchor(make(self._anchor(self.root)), target_roots={"statement": self.root})
+            with self.assertRaises(ProofBundleError):
+                anchors.verify_anchors([make(self._anchor(self.root))], target_roots={"statement": self.root},
+                                       require="any")
+            dec = verify_decision_receipt(env, pub, strict=True, anchors=[make(self._anchor(root))])
+            self.assertIs(dec["anchors_ok"], False)
+            self.assertIs(dec["ok"], False)
+        one_plain, many_plain, dec_plain = ueber_alle_drei(lambda a: a)
+        self.assertIs(one_plain["ok"], True)
+        self.assertIs(dec_plain["anchors_ok"], True)
         for label, make in (
                 ("type a str subclass whose __eq__ raises",
                  lambda a: {**a, "type": s_cls(self._TYPE)}),
-                ("a value whose dunders raise", lambda a: {**a, "anchoredAt": _RaisingValue(calls)}),
                 ("a key 'target' str subclass whose __eq__ raises",
                  lambda a: {**{k: v for k, v in a.items() if k != "target"},
                             _raising_str_key(calls, "target"): "statement"})):
             with self.subTest(entry=label):
-                with self.assertRaises(ProofBundleError):
-                    anchors.verify_anchor(make(self._anchor(self.root)), target_roots={"statement": self.root})
-                with self.assertRaises(ProofBundleError):
-                    anchors.verify_anchors([make(self._anchor(self.root))], target_roots={"statement": self.root},
-                                           require="any")
-                env, pub, root = self._decision()
-                dec = verify_decision_receipt(env, pub, strict=True, anchors=[make(self._anchor(root))])
-                self.assertIs(dec["anchors_ok"], False)
-                self.assertIs(dec["ok"], False)
-        for label, bundle in (("a value whose dunders raise", {"schema": "v1", "x": _RaisingValue(calls)}),
-                              ("a str-subclass value whose __len__ raises", {"schema": s_cls("v1")})):
-            with self.subTest(receipt_canonical_root=label):
-                with self.assertRaises(ProofBundleError):
-                    anchors.receipt_canonical_root(bundle)
+                calls.clear()
+                one, many, dec = ueber_alle_drei(make)
+                self.assertEqual(one, one_plain)
+                self.assertEqual(many, many_plain)
+                self.assertEqual((dec["anchors_ok"], dec["ok"]), (dec_plain["anchors_ok"], dec_plain["ok"]))
+                self.assertEqual(calls, [], "a method of the caller's str subclass ran")
+        with self.subTest(receipt_canonical_root="a value whose dunders raise"):
+            with self.assertRaises(ProofBundleError):
+                anchors.receipt_canonical_root({"schema": "v1", "x": _RaisingValue(calls)})
+        with self.subTest(receipt_canonical_root="a str-subclass value whose __len__ raises"):
+            calls.clear()
+            self.assertEqual(anchors.receipt_canonical_root({"schema": s_cls("v1")}),
+                             anchors.receipt_canonical_root({"schema": "v1"}))
+            self.assertEqual(calls, [], "a method of the caller's str subclass ran")
 
     def test_control_an_honest_result_verifies_through_all_three_calls(self):
         """R3-3: a plain dict, an OrderedDict, a defaultdict and a subclass without methods of its own, each

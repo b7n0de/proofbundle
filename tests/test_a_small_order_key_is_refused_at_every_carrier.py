@@ -1982,6 +1982,7 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
     def test_positive_control_a_real_receipt_still_exports(self):
         from proofbundle import dsse
         from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
         from proofbundle.intoto import (INTOTO_STATEMENT_PAYLOAD_TYPE, export_eval_result_dsse,
                                         export_intoto_dsse, export_svr_dsse, verify_svr_dsse)
         v = generate_signer()
@@ -1990,8 +1991,13 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
         self.assertIs(dsse.verify_envelope(export_eval_result_dsse(self.real_claim, v), _raw(v),
                                            payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE), True)
         export_intoto_dsse(self.real_claim, v)
+        # A claim that names no issuer has no key to judge here; since D4 (PR 300) the exporter refuses it
+        # by the claim rule instead (the issuer is a required field), not by the trust-anchor rule.
         claim_without_issuer = {k: val for k, val in self.real_claim.items() if k != "issuer"}
-        export_eval_result_dsse(claim_without_issuer, v)       # no issuer named: nothing to judge
+        with self.assertRaises(BundleFormatError) as ctx:
+            export_eval_result_dsse(claim_without_issuer, v)
+        self.assertIn("issuer", str(ctx.exception))
+        self.assertNotIn("refused as a trusted key", str(ctx.exception))
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "svr.json"
             rc, _o, err = _cli("svr", str(self.real_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
@@ -2052,7 +2058,8 @@ _LENGTH_32 = {
     ("cli.py", "_parse_bundled_headers"): (1, "a root, no key"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
-    ("evalclaim.py", "decode_eval_claim"): (1, "a root, no key"),
+    ("evalclaim.py", "_field_violation"): (1, "a root, no key (the samples root; D4, PR 300, moved this "
+                                              "check out of decode_eval_claim into the one claim rule)"),
     ("kbjwt.py", "holder_key_from_cnf"): (1, "reads cnf.jwk; the KB-JWT is checked with verify_ed25519_pinned"),
     ("outcome.py", "pack_key_binds_signer"): (2, "compares the pack's key with the key the receipt was "
                                                  "verified under; writes nothing"),
@@ -2099,10 +2106,11 @@ class ProducersRefuseAKeyNobodyHolds(unittest.TestCase):
 
     @staticmethod
     def _claim():
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
         from proofbundle.evalclaim import issuer_fingerprint
         issuer = Ed25519PrivateKey.generate()
-        claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "s",
-                 "issuer": issuer_fingerprint(issuer)}
+        # A whole claim: since D4 (PR 300) `issue_sd_jwt` refuses a claim `decode_eval_claim` refuses.
+        claim = full_eval_claim(issuer_fingerprint(issuer), suite="s")
         return issuer, claim, _b64(b"\x11" * 32)
 
     def test_issue_sd_jwt_binds_no_weak_holder_key(self):

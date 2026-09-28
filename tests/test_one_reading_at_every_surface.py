@@ -644,7 +644,12 @@ class AClassClaimIsNoType(unittest.TestCase):
         iteration = {"list.__iter__", "list.__len__"}
         erlaubt = {"agent_review.resolve_receipt_chain": iteration,   # the receipts
                    "public_transparency.evaluate_public_transparency": iteration,   # the witness roster
-                   "emit.emit_bundle": iteration}   # the prior leaves
+                   "emit.emit_bundle": iteration,   # the prior leaves
+                   # the relying party's trusted_authorizer_keys, documented as any iterable read once
+                   # through its own iterator by PR 293 (`agt_receipt._vertrauensliste`), which the 6.2.0
+                   # chain carries
+                   "adapters.agt_receipt.verify_agt_receipt": iteration,
+                   "adapters.agt_receipt.verify_agt_receipt_chain": iteration}
         flaechen, aufraeumen = _flaechen()
         self.addCleanup(aufraeumen)
         for name, aufruf in flaechen:
@@ -695,22 +700,29 @@ class ABytesLikeValueIsReadWhereItWasReadBefore(unittest.TestCase):
                 self.assertFalse(ok, "the log's own key counted as a witness")
 
     def test_the_expected_receiver_key(self) -> None:
+        """Not a parity case any more: since the 6.2.0 chain carries PR 291, key material counts only as
+        a plain bytes or bytearray object (`assurance._is_key_material`), the expectation included, so a
+        `memoryview` expectation is refused and never compared, and nothing is promoted over it. At the
+        D4 head 7cc8fa0b it was compared as the bytes it views (`canonical._puffer_von`). The plain
+        bytes are the control."""
         from proofbundle.assurance import EvidenceLevel, classify_receiver_corroboration  # noqa: PLC0415
         empfaenger = Ed25519PrivateKey.from_private_bytes(b"\x0c" * 32)
         basis = dict(digest_obj={"sha256": "d" * 64}, evidence_resolver=lambda d: True,
                      executor_key_id="e", receiver_key_id="r")
+        for antwort in (lambda d: _raw(empfaenger), lambda d: _raw(_T), lambda d: True):
+            with self.subTest(antwort=antwort):
+                res = classify_receiver_corroboration(
+                    independent_attestation_resolver=antwort,
+                    expected_receiver_public_key=memoryview(_raw(empfaenger)), **basis)
+                self.assertEqual(res["level"], EvidenceLevel.CONTENT_RESOLVED)
         gut = classify_receiver_corroboration(
             independent_attestation_resolver=lambda d: _raw(empfaenger),
-            expected_receiver_public_key=memoryview(_raw(empfaenger)), **basis)
+            expected_receiver_public_key=_raw(empfaenger), **basis)
         self.assertEqual(gut["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
         falsch = classify_receiver_corroboration(
             independent_attestation_resolver=lambda d: _raw(_T),
-            expected_receiver_public_key=memoryview(_raw(empfaenger)), **basis)
+            expected_receiver_public_key=_raw(empfaenger), **basis)
         self.assertEqual(falsch["level"], EvidenceLevel.CONTENT_RESOLVED)
-        wahr = classify_receiver_corroboration(
-            independent_attestation_resolver=lambda d: True,
-            expected_receiver_public_key=memoryview(_raw(empfaenger)), **basis)
-        self.assertEqual(wahr["level"], EvidenceLevel.CONTENT_RESOLVED, "a bare True bound a named key")
 
     def test_a_uri_that_is_no_string_never_matches(self) -> None:
         import zlib  # noqa: PLC0415
@@ -825,11 +837,23 @@ def _baue(wert):
         return _RStr(wert)
     if typ is bytes:
         return _RBytes(wert)
-    if typ is int:
-        return _RInt(wert)
-    if typ is float:
-        return _RFloat(wert)
+    # A number stays plain since the 6.2.0 chain carries PR 293: the one copy rule refuses a subclass of
+    # int or float (owner decision OA-c7d6ff7121), so a recording number is a refusal at every surface
+    # that copies, not a value read by what it holds. `_RInt` and `_RFloat` measured that reading at
+    # the D4 head 7cc8fa0b.
     return wert
+
+
+def _klare_schluessel(wert):
+    """`wert`, a dict of the reader's type, with its keys as plain `str`. PR 291, which the 6.2.0 chain
+    carries, counts a key of a digest object on the evidence ladder only when it is of type str itself
+    (`_membership.stored_str_items`), so a recording key would be no key there and the answer would
+    differ by design; the recording values and the recording dict are kept."""
+    _PAUSE.append(1)
+    try:
+        return type(wert)({str.__str__(k): v for k, v in dict.items(wert)})
+    finally:
+        _PAUSE.pop()
 
 
 def _klar(wert):
@@ -1114,7 +1138,7 @@ def _flaechen_zwei(ev_bundle, dec_pred, out_pred, policy, tp_pred):
                                                                  "digest": "a" * 64}}]), None,
             subject_hex=w("b" * 64))),
         ("assurance.classify_digest_evidence", lambda w: assurance.classify_digest_evidence(
-            w({"sha256": "a" * 64}))),
+            _klare_schluessel(w({"sha256": "a" * 64})))),
         ("subject_binding.classify_subject", lambda w: subject_binding.classify_subject(w(statement))),
         ("intoto.classify_svr_predicate_shape", lambda w: intoto.classify_svr_predicate_shape(
             w(json.loads(base64.b64decode(intoto.export_svr_dsse(ev_bundle, _T)["payload"]))))),
@@ -1188,6 +1212,12 @@ class EverySurfaceReadsTheCallersObjectsByWhatTheyStore(unittest.TestCase):
     ones that already held is in the round's commit message."""
 
     def test_no_surface_runs_a_method_of_the_callers_values(self) -> None:
+        # PR 293, which the 6.2.0 chain carries, documents the relying party's trusted_authorizer_keys as
+        # any iterable, read once through its own iterator after `isinstance` has asked whether it is one
+        # key (`agt_receipt._vertrauensliste`): those two reads are that contract, not a second reading.
+        vertrauensliste = {"list.__class__", "list.__iter__"}
+        erlaubt = {"adapters.agt_receipt.verify_agt_receipt": vertrauensliste,
+                   "adapters.agt_receipt.verify_agt_receipt_chain": vertrauensliste}
         flaechen, aufraeumen = _flaechen()
         self.addCleanup(aufraeumen)
         for name, aufruf in flaechen:
@@ -1201,7 +1231,7 @@ class EverySurfaceReadsTheCallersObjectsByWhatTheyStore(unittest.TestCase):
                     gesehen = aufruf(_aufgezeichnet)
                 except Exception as exc:  # noqa: BLE001
                     gesehen = ("raised", type(exc).__name__)
-                aufrufe = sorted(set(_AUFRUFE))
+                aufrufe = sorted(set(_AUFRUFE) - erlaubt.get(name, set()))
                 _AUFRUFE.clear()
                 self.assertEqual(aufrufe, [], f"{name} ran methods of the caller's values")
                 self.assertEqual(_klar(gesehen), _klar(erwartet), f"{name} answered differently")

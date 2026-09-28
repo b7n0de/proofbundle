@@ -1410,7 +1410,7 @@ def _predicate_once(predicate):
     `__getitem__` while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass
     could have one predicate validated and another signed. A value that cannot be read this way is
     refused."""
-    if not isinstance(predicate, dict):
+    if not issubclass(type(predicate), dict):   # its own type: `isinstance` reads `__class__`
         return predicate          # the validator's own refusal names a predicate that is no object
     from ._plain_value import plain_json  # noqa: PLC0415
     return plain_json(predicate, what="the agent-review predicate",

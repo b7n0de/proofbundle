@@ -685,8 +685,11 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     out: list[dict] = []
     # The three inputs are read once, by what they hold (round 12): the section and the lineage result
     # as the plain copies of what they store (a `str` subclass `resolution` answered "VERIFIED" through
-    # its own `__ne__`), the successor key as its characters. An input that is no JSON value reads as
-    # absent, which requires nothing and grants nothing.
+    # its own `__ne__`), the successor key as its characters. A section that is no JSON value reads as
+    # absent. A lineage result holding a value that is no JSON value is judged as it stands (PR 291,
+    # which lands before this change): every rule below reads an edge's fields by their exact type, so
+    # such a value fails a rule that is set and grants nothing, where reading the whole result as
+    # absent let the rule pass over it.
     try:
         relations_section = _pruefkopie(relations_section)
     except ValueError:
@@ -694,7 +697,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     try:
         lineage_result = _pruefkopie(lineage_result)
     except ValueError:
-        lineage_result = {}
+        pass
     successor_key_b64 = _zeichen_von(successor_key_b64)
     if not isinstance(relations_section, dict):
         return out

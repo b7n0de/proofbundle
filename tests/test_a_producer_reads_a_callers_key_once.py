@@ -242,10 +242,11 @@ class ProducersOfRawKeys(_Contract):
 
     @staticmethod
     def _claim():
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
         from proofbundle.evalclaim import issuer_fingerprint
         issuer = Ed25519PrivateKey.generate()
-        return issuer, {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "s",
-                        "issuer": issuer_fingerprint(issuer)}
+        # A whole claim: since D4 (PR 300) `issue_sd_jwt` refuses a claim `decode_eval_claim` refuses.
+        return issuer, full_eval_claim(issuer_fingerprint(issuer), suite="s")
 
     def test_where_buffer_steers(self):
         """The measurement behind the `__buffer__` form, as a precondition, not as the property: from

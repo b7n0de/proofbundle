@@ -28,7 +28,7 @@ from typing import Any
 
 from .canonical import _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, stored_str_items
 
 _STATUS_NAMES = (
     "LOG_ORIGIN", "CHECKPOINT_SIGNATURE", "ROOT_BYTES_AUTHENTICITY",
@@ -124,7 +124,12 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     try:
         policy = _pruefkopie(policy)   # one reading, by what it stores (round 12)
     except ValueError as exc:
-        return [f"policy is not a JSON value: {exc}"]
+        # The boolean fields keep the message PR 291 gives them, an object whose `__class__` says bool
+        # included, read from what the policy stores (`stored_str_items` runs no code of the caller).
+        gespeichert = stored_str_items(policy)
+        return [f"policy is not a JSON value: {exc}"] + [
+            f"{b} must be a boolean" for b in ("requireSignedCheckpoint", "requireConsistencyProof")
+            if b in gespeichert and type(gespeichert[b]) is not bool]
     errors: list[str] = []
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]

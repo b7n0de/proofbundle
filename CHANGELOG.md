@@ -10,6 +10,51 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **D4 follows the heads that land before it in the 6.2.0 chain** (owner decision OA-c7d6ff7121,
+  answer A; the merges of PR 293 at 1174ada8, which carries PR 291, of PR 296 and of PR 249). Where
+  the entries of this branch below and those two pull requests disagree, the earlier heads decide:
+  - A subclass of `int` or `float` is refused. `_plain_value.plain_json` is the one copy rule;
+    `canonical._plain_for_jcs` refuses such a number with plain_json's reason, and `_ganzzahl_von`
+    and `_zahl_von` answer as `plain_int` does (None for a subclass), so every caller treats it as a
+    value that is no number. Rounds 8 to 12 read such a number as the value it stores; where an
+    entry below says so, it describes the D4 head 7cc8fa0b. `hf_evals.verify_eval_results_entry`
+    names such a value and fails closed, where it would otherwise read it through its own
+    `__float__`.
+  - Every switch goes through `_membership.require_switch`: a value that is not a bool is PR 291's
+    `SwitchTypeError` (a TypeError and a ProofBundleError) naming the parameter and the type, at
+    `allow_deprecated`, `allow_pending`, `allow_value_mismatch`, `leaf_witnessed`,
+    `require_statement_shape`, `prereg_verified` and `anchor_verified`, and
+    `verify_sequence(allow_unauthenticated_anchor=)` and `verify_trust_pack(allow_unverified_rotation=)`
+    keep the check and name the flag in their verdict, as PR 291 does. The "must be True or False"
+    ProofBundleError and BundleFormatError of this branch are gone.
+  - Where both read a caller's value once, PR 291's switch check comes first, then PR 293's reading,
+    then this branch's own: PR 293's refusal and words decide a value both refuse (a text argument of
+    the in-toto exporters; a claim nested past the structural budget of 64 levels or wider than
+    200000 entries, which the emitter and `canonicalize` refuse before they canonicalize).
+  - Key material and keys count as PR 291 counts them: an attestation resolver's answer and a
+    relying party's `expected_receiver_public_key` only as a plain bytes or bytearray object (a
+    `memoryview` expectation is refused, where round 12 compared the bytes it views),
+    `issue_sd_jwt`'s holder key only as bytes or bytearray, a receiver key id only as a plain str,
+    and the key of a digest object on the evidence ladder only when it is of type str itself. A
+    lineage result holding a value that is no JSON value is judged by the rules of
+    `relation.evaluate_relations_policy` as it stands, where round 12 read it as absent, and a policy
+    whose boolean field is no JSON value is refused with the loader's message.
+  - Two reads of PR 293 still ran the caller's code, and they read as this branch reads now, which
+    changes no answer for a legitimate value: `plain_json` names a type through
+    `_membership.type_name` (a metaclass's `__name__` ran, and a name that cannot be read raised a raw
+    AttributeError) and reads an OrderedDict in its own order through the JCS copy's reader (a `str`
+    subclass key ran its own `__hash__`, and an OrderedDict whose storage was written past its own
+    methods raised a raw KeyError), so `plain_json` refuses the OrderedDicts the JCS copy refuses; and
+    the read-once helpers of PR 293 ask a value's own type where they asked `isinstance`, which reads
+    `__class__`.
+  - Where PR 293 refused an anchor entry only because a `str` subclass in it ran its own code and
+    raised (as its `type`, as the key `target`, or as a field of a receipt bundle), the entry is read
+    by the text it stores and answers what the plain entry answers (owner decision OA-79899af069,
+    answer A). PR 291's case for a hostile anchor entry holds that now: refused when the entry holds a
+    value that is no JSON value, read by what it stores otherwise, and no method of the caller runs.
+  - Tests of PR 291 and PR 293 that issued an SD-JWT or exported a claim from a partial claim use a
+    whole claim, because this branch's claim rule holds at every producer.
+
 - **The commitment pattern holds at the verify boundary and at emit, and so does the rest of the
   published claim schema** (release scope line R-B1, register entry
   `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`, `src/proofbundle/evalclaim.py`).
@@ -664,9 +709,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - **A permissive flag is True or False** (round 11, lens run 10 at fa555f13, finding L7 and the
   class-B sweep, P1). `hashalg.resolve_hash_alg` and `compute_digest` read `allow_deprecated` by its
   truth: measured at fa555f13, "false", "no", 1 and [0] opened the gate for sha1 and md5. It must be
-  True or False now (`canonical._flagge`), and anything else is ProofBundleError before the id is
-  read. The sweep measured the bool keywords the lens named and the other `allow_*` keywords of
-  `src/` with False, True, "false", 0 and an object whose `__bool__` records its call. Five more
+  True or False now, and anything else is refused before the id is read (this round's own
+  ProofBundleError through `canonical._flagge`; PR 291's SwitchTypeError since the chain carries
+  it, see the first entry). The sweep measured the bool keywords the lens named and the other
+  `allow_*` keywords of `src/` with False, True, "false", 0 and an object whose `__bool__` records
+  its call. Five more
   opened a gate for "false" at fa555f13 and are refused the same way:
   `anchors.verify_anchors(allow_pending=...)` let a pending anchor satisfy `require`,
   `renewal.verify_sequence(allow_unauthenticated_anchor=...)` verified an unauthenticated sequence
@@ -675,9 +722,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   accepted a rotation-claiming pack on its own self-signature, and
   `agent_review.render_disclosure_line(leaf_witnessed=...)` dropped "not yet in a witnessed
   checkpoint". `verify_sequence` and `verify_trust_pack` give a fail-closed verdict naming the flag,
-  because they never raise; the others raise ProofBundleError. Not changed, because "false" reads as
-  True there and a truthy value closes the gate: `strict`, `require_derived_subject`,
-  `require_canonical`, `require_signature_line` and `applicable`; `include_token` switches content,
+  because they never raise; the others raise (SwitchTypeError, see the first entry). Not changed,
+  because "false" reads as True there and a truthy value closes the gate: `strict`,
+  `require_derived_subject`, `require_canonical`, `require_signature_line` and `applicable`; `include_token` switches content,
   not a gate. Named, not changed: a falsy non-bool (0, None) reads as False at each of these, which
   is the lenient branch where the default is True (`to_eval_results_entry(require_verified=0)`
   built an entry from a receipt that does not verify; `require_signature_line` is a private
@@ -688,8 +735,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   under the legacy rules) and `bound` of `adapters._provenance.bind_reported_version` (the version
   written as `reported`), and it measured the falsy limit above at `applicable` of
   `assurance.classify_digest_evidence` and `strict` of `decision.emit_decision_receipt`. Its cases
-  for these, L22 to L25, are red here and green at the head of pull request 291 (76365006), which
-  fixes those flags.
+  for these, L22 to L25, were red at this round's head and are green at the head of pull request 291
+  (76365006), which fixes those flags and which the 6.2.0 chain carries.
 
 - **The trust-pack patterns hold the schema's ECMA-262 meaning** (round 11, lens run 10 at
   fa555f13, finding L8, P1, `src/proofbundle/trust_pack.py`). `_RFC3339_Z`, `_SHA256_HEX` and
@@ -774,7 +821,8 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
     `expected_origin` and dsse's `payload_type` (swept, see below).
   - O2: `evaluate_decision_policy` read `decision_receipt.allow_pending` by its truth when the policy
     skipped `load_policy`, so "false" and 1 let a pending anchor satisfy `require_external_anchor`. It
-    is True or False now (`canonical._flagge`); anything else is a fail-closed error naming it.
+    is True or False now; anything else is a fail-closed error naming it (with the loader's message
+    since the chain carries PR 291, `policy._check_bool_fields`).
   - The sweep's verdict-level cases: `signature.verify_ed25519_pinned` judged the key through one
     `bytes()` of the caller's object and verified under another, so a `bytes` subclass that answered a
     sound key to the rule and the identity point to the check verified the signature (identity, 0) with

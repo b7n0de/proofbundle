@@ -737,7 +737,8 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     # READ ONCE (lens run 8 at fddc00f4, the sweep of finding B): `dict(claim)` copied the top level
     # only, and the profile check then read nested values and numbers through their own methods while
     # the canonicaliser wrote their storage. The plain copy is what is checked and what is signed.
-    if isinstance(claim, dict):
+    # By the claim's own type, not `isinstance`, which reads a caller's `__class__`.
+    if issubclass(type(claim), dict):
         from ._plain_value import plain_json  # noqa: PLC0415
         claim = plain_json(claim, what="the claim", error=EvalClaimError)
     claim = _plain_for_jcs(claim, EvalClaimError)

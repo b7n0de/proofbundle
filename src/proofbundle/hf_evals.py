@@ -27,7 +27,7 @@ import math
 import zlib
 from typing import Optional, Tuple
 
-from ._membership import require_switch
+from ._membership import require_switch, type_name
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
@@ -222,6 +222,14 @@ def verify_eval_results_entry(entry: dict) -> dict:
         out["detail"] = "embedded receipt does not verify"
         return out
     _val = _feld_von(entry, "value")
+    _typ = type(_val)
+    if _typ is not bool and _typ is not int and _typ is not float and (issubclass(_typ, int)
+                                                                      or issubclass(_typ, float)):
+        # The one rule for a number (PR 293, as `to_eval_results_entry` builds it): a subclass of int or
+        # float is refused, never read through its own `__float__`.
+        out["detail"] = (f"entry value is of type {type_name(_val)}, a subclass of int or float — a published "
+                         "number must be an exact int or float (or a numeric string); fail-closed")
+        return out
     if _zahl_von(_val) is not None:
         _val = _zahl_von(_val)
     elif _zeichen_von(_val) is not None:
@@ -305,7 +313,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     require_switch(include_token, "include_token")
     from ._plain_value import plain_json  # noqa: PLC0415
     from .signature import plain_text  # noqa: PLC0415
-    if isinstance(bundle, dict):
+    if issubclass(type(bundle), dict):   # its own type: `isinstance` reads a caller's `__class__`
         bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
     dataset_text, task_text = plain_text(dataset_id), plain_text(task_id)
     if not dataset_text or not task_text:

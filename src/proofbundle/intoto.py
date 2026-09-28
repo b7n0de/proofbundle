@@ -17,7 +17,7 @@ import json
 from collections import Counter
 from typing import Any, Optional
 
-from ._membership import require_switch
+from ._membership import require_switch, type_name
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
 from .budget import render_safe
@@ -155,8 +155,9 @@ def _claim_once(claim: Any) -> Any:
     of an exporter and every field it writes read one value (lens run 8 at fddc00f4, the sweep of
     finding B). The exporters checked `claim.get(k)` and wrote `claim[k]`, asked `k in claim` and read
     the issuer through `get`; a dict subclass could answer each of those differently from what it
-    stores. A value that is not a dict is handed on unchanged, so the exporter's own refusal names it."""
-    if not isinstance(claim, dict):
+    stores. A value that is not a dict is handed on unchanged, so the exporter's own refusal names it.
+    The type is the object's own (`type`), not `isinstance`, which reads a caller's `__class__`."""
+    if not issubclass(type(claim), dict):
         return claim
     from ._plain_value import plain_json  # noqa: PLC0415
     return plain_json(claim, what="the claim", error=BundleFormatError)
@@ -174,7 +175,7 @@ def _text_once(value: Any, refusal: str) -> str:
 
 
 def _alg_once(content_root_alg: Any) -> str:
-    return _text_once(content_root_alg, f"unknown contentRootAlg of type {type(content_root_alg).__name__} "
+    return _text_once(content_root_alg, f"unknown contentRootAlg of type {type_name(content_root_alg)} "
                                         "(ADR 0002 §1; no silent default)")
 
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
@@ -903,7 +904,9 @@ def _refuse_to_vouch_for_a_key_nobody_holds(claim: Any, wo: str) -> None:
     here; whoever hands such a claim to an exporter is answering for it themselves."""
     from .evalclaim import _issuer_key_weakness  # noqa: PLC0415
     from .signature import TRUST_ANCHOR_REFUSAL  # noqa: PLC0415
-    grund = _issuer_key_weakness(claim.get("issuer")) if isinstance(claim, dict) else None
+    # By the claim's own type: `isinstance` reads a caller's `__class__`, and the `get` of an object that
+    # only claims to be a dict is its own code (the exporter's own reading refuses such a claim next).
+    grund = _issuer_key_weakness(claim.get("issuer")) if issubclass(type(claim), dict) else None
     if grund is not None:
         raise BundleFormatError(
             f"{wo}: the receipt's issuer key is a {grund} Ed25519 key, refused as a trusted key: "
@@ -949,7 +952,7 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
     """
     wo = "resolve_subject"
     claim = _claim_once(claim)
-    profile = _text_once(profile, f"unknown subject profile of type {type(profile).__name__} "
+    profile = _text_once(profile, f"unknown subject profile of type {type_name(profile)} "
                                   f"(one of {', '.join(SUBJECT_PROFILES)})")
     if subject_name is not None:
         subject_name = _text_once(subject_name, "subject_name must be text")
@@ -993,7 +996,7 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     wo = "to_eval_result_predicate"
     claim = _claim_once(claim)
     subject_profile = _text_once(subject_profile, f"unknown subject profile of type "
-                                                  f"{type(subject_profile).__name__}")
+                                                  f"{type_name(subject_profile)}")
     claim = _eigen(claim, wo)
     _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
@@ -1082,7 +1085,7 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     claim = _claim_once(claim)
     content_root_alg = _alg_once(content_root_alg)
     subject_profile = _text_once(subject_profile, f"unknown subject profile of type "
-                                                  f"{type(subject_profile).__name__}")
+                                                  f"{type_name(subject_profile)}")
     claim = _eigen(claim, wo)              # the one reading of the caller's claim (round 8)
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
@@ -1276,14 +1279,16 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     # taken from a third. A path is loaded once, a dict is copied from its storage, and every step
     # below reads that one value.
     content_root_alg = _alg_once(content_root_alg)
-    if isinstance(bundle, str):
+    # A path by its own type and as its characters: `isinstance` reads a caller's `__class__`, and a
+    # `str` subclass's own `__fspath__` would be the caller's code.
+    if issubclass(type(bundle), str):
         from .bundle import load_bundle  # noqa: PLC0415
         try:
-            bundle = load_bundle(bundle)
+            bundle = load_bundle(str.__str__(bundle))
         except (ProofBundleError, OSError, ValueError, TypeError) as exc:
             # the answer `decode_eval_claim` gives for a path it cannot load
             raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt") from exc
-    elif isinstance(bundle, dict):
+    elif issubclass(type(bundle), dict):   # its own type: `isinstance` reads a caller's `__class__`
         from ._plain_value import plain_json  # noqa: PLC0415
         bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
     try:

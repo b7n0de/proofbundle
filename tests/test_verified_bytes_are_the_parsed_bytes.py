@@ -430,9 +430,10 @@ class L13to19DsseReceiptVerifiersJudgeTheSignedStatement(unittest.TestCase):
 _NON_BOOL_TRUTHY = ("false", "no", 1, [0])
 
 
-# Only L20 and L21 of the lens's L20 to L25 are here. L22 to L25 are red at this round's head and
-# green at the head of pull request 291 (76365006), which fixes those flags; a falsy non-bool on a
-# flag whose default is True (L24, L25) is this round's named limit.
+# Only L20 and L21 of the lens's L20 to L25 are here. L22 to L25 were red at this round's head and
+# are green at the head of pull request 291 (76365006), which fixes those flags and which the 6.2.0
+# chain carries; a falsy non-bool on a flag whose default is True (L24, L25) was this round's named
+# limit.
 class L20to25AFlagCountsOnlyAsABool(unittest.TestCase):
     """PROPERTY (class B; round 10, `canonical._flagge`, R-B4; L7 holds it for allow_deprecated): a
     boolean keyword is True or False, and any other value is refused, never read by its truth.
@@ -741,7 +742,12 @@ class L7SiblingsAPermissiveFlagIsABool(unittest.TestCase):
             with self.subTest(value=wert):
                 res = renewal.verify_sequence(folge, daten, allow_unauthenticated_anchor=wert)
                 self.assertIs(res.ok, False)
-                self.assertTrue(any(c.name == "renewal:anchor_mode" and not c.ok for c in res.checks))
+                # PR 291's form since the 6.2.0 chain carries it: the flag keeps the anchor check, and the
+                # newest-anchor check says the flag is not a bool; at the D4 head 7cc8fa0b a failed
+                # `renewal:anchor_mode` check ended the verification first.
+                letzte = next(c for c in res.checks if c.name == "renewal:last_anchor")
+                self.assertIs(letzte.ok, False)
+                self.assertIn("allow_unauthenticated_anchor is not a bool", letzte.detail)
 
     def test_allow_value_mismatch(self) -> None:
         from proofbundle import hf_evals  # noqa: PLC0415
