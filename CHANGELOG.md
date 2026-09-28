@@ -10,6 +10,16 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A related map that says it is empty no longer hides an attached retraction** (`decision.py`,
+  `outcome.py`, new `relation._carries_attached_entries`). Both verifiers asked the caller's map whether it
+  held targets through its own `__bool__` (`if "relationships" in predicate or related`). Measured
+  2026-09-28 on main 86671552: a `dict` subclass whose `__len__` is 0, holding a verified retraction of the
+  subject, skipped the lineage block, so `reject_superseded` never saw the retraction and
+  `verify_decision_receipt` and `verify_outcome_receipt` answered `ok` True, where the plain dict with the
+  same entry answers `ok` False. Whether targets are attached is now read from what the map stores
+  (`dict.__len__` of the base type); the caller's `__len__` and `__bool__` never run. Found while reviewing
+  the neighbours of the Codex finding below; the same class as that finding, on the step before it.
+
 - **One unreadable attached entry no longer hides the entries beside it** (Codex review of PR 300,
   thread 4121924153, P1, `src/proofbundle/relation.py`). `verify_relationship_edges` read the whole
   `related` map as one plain copy and went on with an empty map when one entry was no JSON value.

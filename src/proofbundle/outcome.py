@@ -760,7 +760,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
         # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
-        if "relationships" in predicate or related:
+        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, as on the
+        # decision path (`_carries_attached_entries`).
+        from .relation import _carries_attached_entries  # noqa: PLC0415
+        if "relationships" in predicate or _carries_attached_entries(related):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
             from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:

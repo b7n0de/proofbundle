@@ -211,6 +211,19 @@ def _attached_targets(entries: list[tuple[str, Any, str | None]]) -> dict[str, A
     return targets
 
 
+def _carries_attached_entries(related: Any) -> bool:
+    """Whether ``related`` holds any attached entry, read from what the map stores (``dict.__len__`` of
+    the base type), never through the caller's own ``__len__`` or ``__bool__``. A value that is no dict
+    holds none.
+
+    The decision and outcome verifiers asked ``if "relationships" in predicate or related``: the
+    caller's map answered through its own ``__bool__``. Measured 2026-09-28 on main 86671552 and on
+    D4: a ``dict`` subclass whose ``__len__`` is 0, holding a verified retraction of the subject,
+    skipped the lineage block, so ``reject_superseded`` never saw the retraction and both verifiers
+    answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False."""
+    return issubclass(type(related), dict) and dict.__len__(related) > 0
+
+
 def _edge_target_hex(edge: dict) -> str | None:
     tgt = edge.get("targetReceiptDigest")
     if isinstance(tgt, dict) and isinstance(tgt.get("digest"), str):

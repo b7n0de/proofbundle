@@ -300,6 +300,98 @@ class ControlsThatStayAsTheyWere(unittest.TestCase):
         self.assertEqual(warning, lineage["supersededByAttached"])
 
 
+class _SaysItIsEmpty(dict):
+    """A map that stores entries and answers its own `__len__` and `__bool__` with empty."""
+
+    def __len__(self):
+        return 0
+
+    def __bool__(self):
+        return False
+
+
+class _MustNotBeAsked(dict):
+    """A map whose own `__len__` and `__bool__` must never run."""
+
+    def __len__(self):
+        raise AssertionError("the caller's __len__ ran")
+
+    def __bool__(self):
+        raise AssertionError("the caller's __bool__ ran")
+
+
+class AMapThatSaysItIsEmptyHidesNothing(unittest.TestCase):
+    """The decision and outcome verifiers asked the caller's map whether it held targets through its own
+    `__bool__` (`if "relationships" in predicate or related`). Measured 2026-09-28 on main 86671552 and on
+    D4 before this change: a `dict` subclass whose `__len__` is 0, holding a verified retraction of the
+    subject, skipped the lineage block, `reject_superseded` never saw the retraction, and both verifiers
+    answered `ok` True; the plain dict with the same entry answers `ok` False."""
+
+    def setUp(self):
+        self.sk = generate_signer()
+        self.pub = self.sk.public_key().public_bytes_raw()
+
+    @staticmethod
+    def _retraction_of(root: str) -> dict:
+        return {"verified": True, "relationships": [_edge(root, "retracts")]}
+
+    def _emit_decision(self):
+        env = emit_decision_receipt({**BASE, "decisionId": "d-says-empty"}, self.sk, strict=True)
+        return env, anchors.statement_content_root(dsse.load_payload(env)).hex()
+
+    def _emit_outcome(self):
+        pred = {"schemaVersion": "0.1.0", "outcomeId": "o-says-empty", "decisionRef": {"sha256": "d" * 64},
+                "executor": {"id": "ex"}, "requestedActionDigest": {"sha256": "e" * 64}, "status": "executed",
+                "performedAt": "2026-09-28T00:00:00Z"}
+        env = emit_outcome_receipt(pred, self.sk, strict=True)
+        return env, anchors.statement_content_root(dsse.load_payload(env)).hex()
+
+    def test_a_decision_retracted_by_an_attached_receipt_is_not_ok(self):
+        env, root = self._emit_decision()
+        for label, kind in (("plain dict", dict), ("says it is empty", _SaysItIsEmpty)):
+            with self.subTest(related=label):
+                r = verify_decision_receipt(env, self.pub, related=kind({NEIGHBOUR: self._retraction_of(root)}),
+                                            policy={"relations": {"reject_superseded": True}})
+                self.assertIn("retracted_by_attached", r["lineage"]["supersededByAttached"] or "")
+                self.assertIs(r["policy_ok"], False)
+                self.assertIs(r["ok"], False)
+
+    def test_an_outcome_retracted_by_an_attached_receipt_is_not_ok(self):
+        env, root = self._emit_outcome()
+        for label, kind in (("plain dict", dict), ("says it is empty", _SaysItIsEmpty)):
+            with self.subTest(related=label):
+                r = verify_outcome_receipt(env, self.pub, related=kind({NEIGHBOUR: self._retraction_of(root)}),
+                                           policy={"relations": {"reject_superseded": True}})
+                self.assertIs(r["policy_ok"], False)
+                self.assertIs(r["ok"], False)
+
+    def test_the_callers_len_and_bool_never_run(self):
+        env, root = self._emit_decision()
+        r = verify_decision_receipt(env, self.pub, related=_MustNotBeAsked({NEIGHBOUR: self._retraction_of(root)}),
+                                    policy={"relations": {"reject_superseded": True}})
+        self.assertIs(r["ok"], False)
+        env2, root2 = self._emit_outcome()
+        r2 = verify_outcome_receipt(env2, self.pub, related=_MustNotBeAsked({NEIGHBOUR: self._retraction_of(root2)}),
+                                    policy={"relations": {"reject_superseded": True}})
+        self.assertIs(r2["ok"], False)
+
+    def test_the_reader_counts_what_the_map_stores(self):
+        from proofbundle.relation import _carries_attached_entries
+        self.assertFalse(_carries_attached_entries({}))
+        self.assertTrue(_carries_attached_entries({NEIGHBOUR: {}}))
+        self.assertTrue(_carries_attached_entries(_SaysItIsEmpty({NEIGHBOUR: {}})))
+        self.assertFalse(_carries_attached_entries(_SaysItIsEmpty()))
+        self.assertTrue(_carries_attached_entries(_MustNotBeAsked({NEIGHBOUR: {}})))
+        for no_map in (None, [1], "x", 5, (NEIGHBOUR,)):
+            with self.subTest(related=type(no_map).__name__):
+                self.assertFalse(_carries_attached_entries(no_map))
+
+    def test_control_an_empty_plain_map_still_adds_no_lineage(self):
+        env, _root = self._emit_decision()
+        self.assertIsNone(verify_decision_receipt(env, self.pub, related={})["lineage"])
+        self.assertIsNotNone(verify_decision_receipt(env, self.pub, related={NEIGHBOUR: {"verified": False}})["lineage"])
+
+
 class TheRelationsSectionIsNotReadAsAbsent(unittest.TestCase):
     """The neighbour on the same verdict path: `evaluate_relations_policy` read a relations section that
     holds one value that is no JSON value as absent, which dropped every rule it sets."""

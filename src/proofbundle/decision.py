@@ -718,7 +718,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # caller-attached targets (`related`, offline — the CLI's --with-related). Computed ONLY over
         # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
         # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
-        if "relationships" in predicate or related:
+        # Whether targets are attached is read from what the map stores, never through the caller's own
+        # `__bool__` or `__len__` (`_carries_attached_entries`): a map that said it was empty skipped this
+        # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
+        from .relation import _carries_attached_entries  # noqa: PLC0415
+        if "relationships" in predicate or _carries_attached_entries(related):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
             from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
