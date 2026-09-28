@@ -1237,5 +1237,60 @@ class EverySurfaceReadsTheCallersObjectsByWhatTheyStore(unittest.TestCase):
                 self.assertEqual(_klar(gesehen), _klar(erwartet), f"{name} answered differently")
 
 
+class ALineageResultWithoutAPlainCopyIsReadByWhatItStores(unittest.TestCase):
+    """Review of the 6.2.0 chain (PR 300 carrying PR 291): `relation.evaluate_relations_policy` judges a
+    lineage result that holds a value that is no JSON value as it stands (PR 291's rule), and the
+    fallback that did so handed on the caller's object. The rules then read it through its own `get`,
+    and a stored field that is no JSON value reached `_keys_equal`, whose `isinstance` reads the
+    value's own `__class__`. RED at the adaptation of D4 to the heads before it, where both ran; GREEN
+    when the fallback reads what the result stores (`relation._lineage_as_stored`)."""
+
+    def _lauf(self, section, linie):
+        from proofbundle import relation  # noqa: PLC0415
+        return [x["code"] for x in relation.evaluate_relations_policy(section, linie,
+                                                                      successor_key_b64=_b64pub(_T))]
+
+    def test_the_callers_get_does_not_choose_the_edges(self) -> None:
+        gelaufen: list = []
+
+        class _KeinJsonWert:
+            pass
+
+        class _EigenesGet(dict):
+            def get(self, key, default=None):
+                gelaufen.append(f"get {key}")
+                return [] if key == "edges" else default
+
+        kante = {"relation": "supersedes", "resolution": "DECLARED_UNRESOLVED", "targetDigest": "a" * 64}
+        codes = self._lauf({"require_relation_resolution": ["supersedes"]},
+                           _EigenesGet(edges=[kante], extra=_KeinJsonWert()))
+        self.assertEqual(codes, ["LINEAGE_REQUIREMENT_FAILED"])
+        self.assertEqual(gelaufen, [], "the lineage result's own get ran")
+
+    def test_a_stored_field_that_is_no_json_value_runs_none_of_its_code(self) -> None:
+        gelaufen: list = []
+
+        class _BehauptetText:
+            @property
+            def __class__(self):
+                gelaufen.append("__class__")
+                return str
+
+        kante = {"relation": "supersedes", "resolution": "VERIFIED", "verified_under": _BehauptetText()}
+        codes = self._lauf({"relation_signer": {"supersedes": {"mode": "same-key"}}}, {"edges": [kante]})
+        self.assertEqual(codes, ["RELATION_SIGNER_UNAUTHORIZED"])
+        self.assertEqual(gelaufen, [], "the stored value's own __class__ ran")
+
+    def test_control_a_plain_lineage_result_is_judged_as_before(self) -> None:
+        verifiziert = {"relation": "supersedes", "resolution": "VERIFIED", "targetDigest": "b" * 64,
+                       "verified_under": _b64pub(_T)}
+        self.assertEqual(self._lauf({"require_relation_resolution": ["supersedes"]}, {"edges": [verifiziert]}),
+                         [])
+        self.assertEqual(self._lauf({"relation_signer": {"supersedes": {"mode": "same-key"}}},
+                                    {"edges": [verifiziert]}), [])
+        self.assertEqual(self._lauf({"reject_superseded": True}, {"edges": [], "supersededByAttached": "by X"}),
+                         ["LINEAGE_REQUIREMENT_FAILED"])
+
+
 if __name__ == "__main__":
     unittest.main()

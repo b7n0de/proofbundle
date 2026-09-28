@@ -241,7 +241,8 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
         raise BundleFormatError(f"opening exceeds the verification budget (fail-closed): {exc}") from exc
     # ONE READING (round 12): after the budget, the opening is read once into the plain copy of what it
     # stores, and the index, the disclosure and the proof below come from that copy; the committed size
-    # is read as the integer it stores. At cd5d39f4 each field was read through the opening's own `get`,
+    # counts only as an exact int (a subclass of int is refused below, the one rule for a number of PR
+    # 293; round 12 read the integer it stores). At cd5d39f4 each field was read through the opening's own `get`,
     # the proof cap counted its own `len()` and the loop read its own `__iter__`.
     opening = _plain_for_jcs(opening, lambda text: BundleFormatError(f"opening: {text}"))
     if _ganzzahl_von(n) is not None:

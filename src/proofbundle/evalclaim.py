@@ -1110,7 +1110,8 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     from datetime import datetime, timezone  # noqa: PLC0415
     from .canonical import _zahl_von  # noqa: PLC0415
     # One reading of each caller value, by what it holds (round 12): the claim as the plain copy of what
-    # it stores, the clock by its own type, the bound as the number it stores.
+    # it stores, the clock by its own type, the bound as an exact number (a subclass of int or float is
+    # refused below, PR 293's rule; round 12 read the number it stores).
     gelesen: Any = claim
     if issubclass(type(claim), dict):
         try:

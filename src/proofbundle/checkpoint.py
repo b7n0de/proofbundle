@@ -1099,8 +1099,9 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     unusable, rather than silently dropping the key-material prong)."""
     keys_ok = set()
     witnesses = {}
-    # By what each input holds (round 12): the threshold as the integer it stores (a subclass's own
-    # `__le__` decided `len(keys_ok) >= threshold` at cd5d39f4), the note as its characters, and
+    # By what each input holds (round 12): the threshold as an exact int (a subclass's own `__le__`
+    # decided `len(keys_ok) >= threshold` at cd5d39f4; a subclass is refused now, PR 293's rule for a
+    # number), the note as its characters, and
     # every roster entry that is a `str` as its characters, so a `str` subclass's own `split` cannot
     # make one witness key count as two. The log key material as the bytes it stores (a
     # `memoryview` as the bytes it views, as `==` compared it before); a supplied value that is no
@@ -1208,7 +1209,7 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     absence of one: ``is None`` is deliberate where ``not expected_origin`` would silently collapse
     "asked and empty" into "not asked".
     """
-    threshold = _ganzzahl_von(threshold)   # the integer it holds (round 12)
+    threshold = _ganzzahl_von(threshold)   # an exact int, or refused below (round 12; PR 293's rule)
     if threshold is None or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")
     # adversarial re-audit: ``witness_vkeys`` (the relying party's witness roster, a trust-config arg like

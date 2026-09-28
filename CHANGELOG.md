@@ -37,8 +37,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
     `issue_sd_jwt`'s holder key only as bytes or bytearray, a receiver key id only as a plain str,
     and the key of a digest object on the evidence ladder only when it is of type str itself. A
     lineage result holding a value that is no JSON value is judged by the rules of
-    `relation.evaluate_relations_policy` as it stands, where round 12 read it as absent, and a policy
-    whose boolean field is no JSON value is refused with the loader's message.
+    `relation.evaluate_relations_policy` as it stands, read from what it stores so that no `get` or
+    `__class__` of the caller runs (`relation._lineage_as_stored`), where round 12 read it as absent,
+    and a policy whose boolean field is no JSON value is refused with the loader's message.
   - Two reads of PR 293 still ran the caller's code, and they read as this branch reads now, which
     changes no answer for a legitimate value: `plain_json` names a type through
     `_membership.type_name` (a metaclass's `__name__` ran, and a name that cannot be read raised a raw

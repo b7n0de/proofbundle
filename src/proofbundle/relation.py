@@ -32,7 +32,7 @@ from typing import Any
 from .budget import render_keys_safe
 from .canonical import _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, stored_str_items
 from ._wire_b64 import decode_b64
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
@@ -662,6 +662,49 @@ def _keys_equal(a_b64: str | None, b_b64: str | None) -> bool:
     return len(ra) == 32 and ra == rb
 
 
+class _Unreadable:
+    """What a lineage result stores where it holds no JSON scalar. It is neither text nor None, so every
+    rule, which reads a field by its exact type, finds it meets nothing and grants nothing, and asking
+    its type runs only this class's code."""
+
+    __slots__ = ()
+
+
+_UNREADABLE = _Unreadable()
+
+
+def _stored_scalar(value: Any) -> Any:
+    """A field of a lineage result by what it stores: an exact JSON scalar as it is, a ``str`` subclass
+    as the text it holds (as the plain copy reads it), anything else `_UNREADABLE`."""
+    typ = type(value)
+    if value is None or typ is str or typ is bool or typ is int or typ is float:
+        return value
+    if issubclass(typ, str):
+        return str.__str__(value)
+    return _UNREADABLE
+
+
+def _lineage_as_stored(value: Any) -> dict:
+    """A lineage result that has no plain copy, read from what it stores and running no code of the
+    caller: its items under keys of type ``str`` itself (`_membership.stored_str_items`), each field by
+    `_stored_scalar`, and its ``edges``, when they are a list, through ``list.copy`` of the base type,
+    each edge that is a dict read the same way. A value that is not a dict is ``{}``, as the rules have
+    always read it.
+
+    Found in review of the 6.2.0 chain (PR 300 carrying PR 291): the fallback that judges such a
+    result as it stands handed on the caller's object, and the rules then read it through its own
+    ``get``, so a dict subclass holding one value that is no JSON value chose the edges the rules
+    judged, and a stored field that is no JSON value reached `_keys_equal`, whose ``isinstance`` reads
+    the value's own ``__class__``."""
+    gespeichert = stored_str_items(value)
+    oben = {k: _stored_scalar(v) for k, v in gespeichert.items() if k != "edges"}
+    kanten = gespeichert.get("edges")
+    if issubclass(type(kanten), list):
+        oben["edges"] = [{k: _stored_scalar(v) for k, v in stored_str_items(e).items()}
+                         for e in list.copy(kanten) if issubclass(type(e), dict)]
+    return oben
+
+
 def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                               successor_key_b64: str | None) -> list[dict]:
     """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed
@@ -689,7 +732,8 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # absent. A lineage result holding a value that is no JSON value is judged as it stands (PR 291,
     # which lands before this change): every rule below reads an edge's fields by their exact type, so
     # such a value fails a rule that is set and grants nothing, where reading the whole result as
-    # absent let the rule pass over it.
+    # absent let the rule pass over it. "As it stands" is what it stores (`_lineage_as_stored`), never
+    # the caller's object: its own `get` would decide which edges the rules see.
     try:
         relations_section = _pruefkopie(relations_section)
     except ValueError:
@@ -697,7 +741,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     try:
         lineage_result = _pruefkopie(lineage_result)
     except ValueError:
-        pass
+        lineage_result = _lineage_as_stored(lineage_result)
     successor_key_b64 = _zeichen_von(successor_key_b64)
     if not isinstance(relations_section, dict):
         return out

@@ -204,8 +204,9 @@ def evaluate_public_transparency(
     # matches (the status is FAIL, as before).
     wurzel_gepinnt = expected_root_b64 is not None
     expected_root_b64 = _zeichen_von(expected_root_b64)
-    # The expected size as the integer it stores; an exact bool or float is compared as before, and a
-    # value of any other type never matches (an object claiming int through `__class__` answered `==`).
+    # The expected size as an exact int; an exact bool or float is compared as before, and a value of
+    # any other type never matches (an object claiming int through `__class__` answered `==`), a
+    # subclass of int included (PR 293's rule for a number; round 12 read the integer it stores).
     erwartete_groesse: Any = expected_tree_size
     if expected_tree_size is not None and type(expected_tree_size) not in (bool, float):
         groesse = _ganzzahl_von(expected_tree_size)

@@ -137,8 +137,9 @@ def _subproof(m: int, leaves: List[bytes], b: bool) -> List[bytes]:
 def root_from_inclusion(
     leaf_index: int, tree_size: int, computed_leaf_hash: bytes, proof: List[bytes]
 ) -> bytes:
-    """Recompute the tree root from an inclusion proof (RFC 9162 2.1.3.2). An ``int`` subclass index or
-    size is read as the integer it stores (round 12); every hash goes through `_node_hash`."""
+    """Recompute the tree root from an inclusion proof (RFC 9162 2.1.3.2). The index and the size are
+    exact ints: a subclass of ``int`` is refused like any other value that is no int (the one rule for a
+    number, PR 293; round 12 read the integer it stores); every hash goes through `_node_hash`."""
     # A bool is the int it is, as before; any other value that is no int is TypeError here, before a
     # comparison could ask its own methods (an object claiming int through `__class__`).
     leaf_index = int(leaf_index) if type(leaf_index) is bool else _ganzzahl_von(leaf_index)

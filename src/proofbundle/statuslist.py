@@ -136,8 +136,9 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     # The floor sits at ENTRY, before any signature work: a malformed clock is a caller error, and the safe
     # direction is a fail-closed verdict that names it, never a silently unjudged freshness (fresh=None would
     # read as 'no bound to judge against', which is a different, honest state reserved for exp/ttl absence).
-    # The clock as the integer it stores, read before it is judged (round 12): the magnitude check
-    # below called its own `bit_length` and `isinstance` its `__class__` at cd5d39f4.
+    # The clock as an exact int, asked by its own type before it is judged (round 12): the magnitude
+    # check below called its own `bit_length` and `isinstance` its `__class__` at cd5d39f4. A subclass
+    # of int is refused here (the one rule for a number, PR 293; round 12 read the integer it stores).
     if now is not None and (_ganzzahl_von(now) is None or not int_magnitude_ok(_ganzzahl_von(now))):
         # The refusal renders what the clock holds, never through its own methods (round 12): an exact
         # built-in as it is, a JSON value as its plain copy, anything else by its type name.
@@ -150,9 +151,10 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = ("status list now (relying-party clock) must be a POSIX-seconds integer within the "
                             f"magnitude budget, got {render_safe(gezeigt)} (fail-closed)")
         return result
-    # One reading of each caller value, by what it holds (round 12): the clock and the index as the
-    # integers they store (an `int` subclass answered `iat <= now` and chose the slot through its own
-    # methods at cd5d39f4), the token as its characters, the expected uri as its characters.
+    # One reading of each caller value, by what it holds (round 12): the clock and the index as exact
+    # ints (an `int` subclass answered `iat <= now` and chose the slot through its own methods at
+    # cd5d39f4, and it is refused now, PR 293's rule), the token as its characters, the expected uri as
+    # its characters.
     if now is not None:
         now = _ganzzahl_von(now)
     if _zeichen_von(status_list_token) is not None:
