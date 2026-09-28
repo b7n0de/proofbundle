@@ -18,6 +18,7 @@ import re
 from typing import Any
 
 from ._strict_json import loads_strict
+from .canonical import _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -56,6 +57,10 @@ def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> li
     Beyond per-field shape this enforces the ledger INVARIANTS: seq starts at 1 and is strictly monotone with
     no gaps; the first run's prevDigest is null; every later run's prevDigest equals the previous run's
     resultDigest (the chain — a silently dropped run breaks it); and runs never exceed runBudget."""
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -204,6 +209,7 @@ def _rfc8785_available() -> bool:
 
 def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
+    predicate = _eine_kopie(predicate, RunLedgerError, "run-ledger predicate")   # one reading (round 12)
     errs = validate_run_ledger_predicate(predicate, strict=False)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
@@ -220,6 +226,7 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:
+    predicate = _eine_kopie(predicate, RunLedgerError, "run-ledger predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:

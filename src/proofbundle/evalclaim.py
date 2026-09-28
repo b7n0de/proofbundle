@@ -1035,7 +1035,19 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     {"parsed": bool, "age_seconds": int|None, "fresh": bool|None, "reason": str}. ``fresh`` is None when no
     ``max_age_seconds`` bound is given (age reported, not judged). ISO parsing (normalizes a trailing Z)."""
     from datetime import datetime, timezone  # noqa: PLC0415
-    if not isinstance(claim, dict):
+    from .canonical import _zahl_von  # noqa: PLC0415
+    # One reading of each caller value, by what it holds (round 12): the claim as the plain copy of what
+    # it stores, the clock by its own type, the bound as the number it stores.
+    gelesen: Any = claim
+    if issubclass(type(claim), dict):
+        try:
+            gelesen = _plain_for_jcs(claim, ValueError)
+        except ValueError:
+            gelesen = None
+    claim = gelesen
+    if max_age_seconds is not None and type(max_age_seconds) is not bool and _zahl_von(max_age_seconds) is not None:
+        max_age_seconds = _zahl_von(max_age_seconds)
+    if type(claim) is not dict:   # `type()`: after the copy a dict is a plain dict (round 12)
         # adversarial re-audit round 7: the natural RP pattern check_freshness(decode_eval_claim(bundle)) passes a
         # None (decode returns None on a non-eval bundle) straight into claim.get(...) — a raw AttributeError.
         # A non-dict claim is a fail-closed "not parsed" verdict, never a crash.
@@ -1044,10 +1056,9 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     # `now` reached `ref.tzinfo` (AttributeError) and a non-numeric `max_age_seconds` reached `0 <= age <= ...`
     # (TypeError) — both are natural RP/policy mis-values (policy.evaluate_policy forwards the untrusted
     # max_iat_age_seconds straight in). A malformed config arg is a fail-closed "not parsed" verdict, never a crash.
-    if now is not None and not isinstance(now, datetime):
+    if now is not None and not issubclass(type(now), datetime):
         return {"parsed": False, "age_seconds": None, "fresh": None, "reason": "invalid 'now' (not a datetime)"}
-    if max_age_seconds is not None and (isinstance(max_age_seconds, bool)
-                                        or not isinstance(max_age_seconds, (int, float))):
+    if max_age_seconds is not None and type(max_age_seconds) not in (int, float):   # exact (round 12)
         return {"parsed": False, "age_seconds": None, "fresh": None,
                 "reason": "invalid 'max_age_seconds' (not a number)"}
     ts = claim.get("timestamp")

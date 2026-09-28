@@ -26,6 +26,7 @@ import hashlib
 from typing import Any
 
 from ._strict_json import loads_strict
+from .canonical import _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64
 from ._membership import is_member
@@ -55,6 +56,10 @@ class SdjwtVcError(ProofBundleError):
 
 def validate_vc_policy(policy: Any) -> list[str]:
     """Fail-closed validation of an SD-JWT VC profile policy (empty = valid)."""
+    try:
+        policy = _pruefkopie(policy)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"policy is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]
@@ -87,6 +92,31 @@ def _issuer_header_payload(compact: str) -> tuple[dict, dict]:
     return header, payload
 
 
+def _plain_policy(policy: Any) -> Any:
+    """The policy as the plain copy of what it stores; a JSON value that is no dict is copied as well,
+    for the validator to refuse as before. A value that is no JSON value, or a policy holding one, is
+    SdjwtVcError, so an object that claims to be a dict through ``__class__`` is never read through
+    its own ``get`` (round 12)."""
+    try:
+        return _pruefkopie(policy)
+    except ValueError as exc:
+        raise SdjwtVcError(f"invalid SD-JWT VC policy: {exc}") from exc
+
+
+def _plain_metadata(offline_metadata: Any) -> Any:
+    """The offline metadata cache as the plain copy of what it stores. A cache that is no JSON object,
+    or holds a value that is no JSON value, is treated as no cache: a required integrity check then
+    fails closed, as for a missing entry."""
+    if offline_metadata is None:
+        return None
+    if not issubclass(type(offline_metadata), dict):
+        return {}
+    try:
+        return _plain_for_jcs(offline_metadata, ValueError)
+    except ValueError:
+        return {}
+
+
 def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | None = None) -> dict:
     """Check an SD-JWT VC against the profile policy. NO network I/O — SSRF-safe by construction.
 
@@ -96,13 +126,19 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
     resolved ONLY from ``offline_metadata`` (a caller dict {vct: {"bytes_b64": ..., "integrity": "sha256-..."}})
     and its sha256 must match the declared integrity — a missing offline entry is fail-closed FAIL, never a
     fetch. Read ``ok`` — never an individual field alone."""
+    # One reading of each input, by what it holds (round 12): the policy and the offline metadata as
+    # plain copies of what they store, the credential as its characters, so the checks below judge
+    # what the caller's objects hold and not what their own methods answer.
+    policy = _plain_policy(policy)
+    offline_metadata = _plain_metadata(offline_metadata)
     perrs = validate_vc_policy(policy)
     if perrs:
         raise SdjwtVcError("invalid SD-JWT VC policy: " + "; ".join(perrs))
 
     r: dict[str, Any] = {"ok": False, "typ_ok": None, "vct_ok": None,
                          "metadata_integrity_ok": None, "vct": None, "errors": []}
-    if not isinstance(compact, str):
+    compact = _zeichen_von(compact) if _zeichen_von(compact) is not None else compact
+    if type(compact) is not str:   # `type()`: a `__class__` claim is no str (round 12)
         # adversarial re-audit round 7: a direct caller of this public check_* peer must also fail closed on a
         # non-str compact (verify_sdjwt_vc guards it too) — never a raw AttributeError from compact.split('~').
         r["errors"].append("compact SD-JWT VC must be a string (malformed presentation, fail-closed)")
@@ -173,13 +209,22 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
     from ``cnf.jwk`` inside the issuer payload, so it is only trustworthy once the issuer signature above is
     verified). Returns ``{ok, profile, issuer, binding}``; read ``ok`` — never an individual field alone."""
     from . import kbjwt, sdjwt  # noqa: PLC0415
+    # ONE READING of the credential for all three checks (round 12): at cd5d39f4 the profile, the
+    # issuer signature and the key binding each split the caller's `compact` again, so a `str`
+    # subclass could show the profile one credential and the signature check another. The policy is
+    # read once as well.
+    try:
+        policy = _plain_policy(policy)
+    except SdjwtVcError as exc:
+        return {"ok": False, "profile": None, "issuer": None, "binding": None, "detail": str(exc)}
+    compact = _zeichen_von(compact) if _zeichen_von(compact) is not None else compact
     if not isinstance(policy, dict):
         # RE-GATE never-raise (policy type-confusion, mirror decision/outcome/relation_statement): a non-dict
         # policy must be a fail-closed verdict, not a raw AttributeError from policy.get(...). A requested-but-
         # malformed policy is never a silent pass.
         return {"ok": False, "profile": None, "issuer": None, "binding": None,
                 "detail": "policy must be a JSON object — malformed policy argument (fail-closed)"}
-    if not isinstance(compact, str):
+    if type(compact) is not str:   # `type()`: a `__class__` claim is no str (round 12)
         # adversarial re-audit round 7: the presented `compact` credential is untrusted holder input — a non-str
         # must be a fail-closed verdict, not a raw AttributeError from compact.split('~') in _issuer_header_
         # payload. The sibling verify_sd_jwt / verify_key_binding already guard this; sdjwt_vc was missed.

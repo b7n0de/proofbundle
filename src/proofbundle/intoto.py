@@ -1269,7 +1269,14 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
     so it belongs in the never-raise denominator — and the ``classify_`` family is how that denominator is
     built. Widening the allowlist by one bespoke name would have put it beside the property instead of
-    under it; the family test now fuzzes this function like every sibling."""
+    under it; the family test now fuzzes this function like every sibling.
+
+    The statement is read once, into the plain copy of what it stores (round 12)."""
+    from .canonical import _pruefkopie  # noqa: PLC0415
+    try:
+        statement = _pruefkopie(statement)
+    except ValueError as exc:
+        return False, f"statement is not a JSON object: {exc}"
     if not isinstance(statement, dict):
         return False, "statement is not a JSON object"
     predicate = statement.get("predicate")

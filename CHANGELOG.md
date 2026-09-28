@@ -723,6 +723,133 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   (measured: `payloadSignature` PASS for False then True, FAIL for True then False), and so do two
   readers in `cli.py` (read, not measured).
 
+- **Every public verify and emit surface reads the caller's objects once, by what they store**
+  (round 12, lens run 11 at cd5d39f4: F1 to F3 P0, F4 to F7 P1, and O1 and O2 outside its targets;
+  class A of round 11, "the bytes a check judges and the bytes a signature covers are two readings of
+  the caller's object", at the surfaces round 11 did not touch). The rule: a surface reads each value
+  the caller passes once, into a plain copy of exact built-in types, from what the object stores and
+  never through a method its type defines, and every check, parse, signature check and write uses only
+  that copy. A dict or list goes through `canonical._plain_for_jcs`, a string through
+  `_zeichen_von` (`str.__str__`), bytes through the new `_bytes_von` (the base type's own slice), an
+  integer through `_ganzzahl_von` (`int.__index__`), a single field of a dict through `_feld_von`
+  (the stored pairs, compared by characters: `dict.get` compares a stored `str` subclass key through
+  its own `__eq__`), and a list, tuple or set through `_folge_von` (the base type's own iteration). A
+  value that cannot be copied so is refused with the surface's documented typed error or fail-closed
+  verdict.
+
+  Measured at cd5d39f4, each red there and green here on Python 3.10 to 3.14
+  (`tests/test_one_reading_at_every_surface.py`):
+  - F1 `policy.evaluate_policy` read the signer pin and the stated root through the bundle's own
+    `get` while `verify_bundle` verified what it stores: a bundle signed by a key the policy does not
+    trust got policy_ok True when its own `get("signature")` named a trusted key, when its
+    `public_key_b64` was a `str` subclass claiming that key through `__eq__` and `__hash__`, and when
+    its own `get("merkle")` answered a trusted root. It reads the plain copy now, and so does
+    `load_policy` for a dict (`copy.deepcopy` rebuilt a dict subclass as itself).
+  - F2 `adapters.agt_receipt.verify_agt_receipt` covered `receipt[f]` with the signature and judged
+    the expiry at `receipt.get("timestamp")`: an authorization that expired at the signed timestamp gave
+    ok True. The receipt, the chain (`verify_agt_receipt_chain`), the trusted keys and `now` are read
+    once.
+  - F3 `checkpoint.verify_checkpoint` took the note text as the caller's own slice: a `str` subclass
+    gave ok True with tree size 999 for a note signed with tree size 5. `_split_signed_note` reads the
+    characters once, for every surface of the module and for tlogproof, rootcommit and
+    public_transparency; the vkey parsers, the witness roster (a `str` subclass's own `split` made one
+    witness count as two in `witness_quorum`) and the emitters read by characters and stored integers
+    and bytes as well.
+  - F4 and F5 `hf_evals.to_eval_results_entry` read `payload_b64` a third time for its "is this an
+    eval claim" rule, and `receipt_token` wrote the token through the bundle's own `items()`: an eval
+    claim that does not decode was published with a value the signed verdict contradicts, and the token
+    held another receipt than the one judged. The bundle is read once (`evalclaim._eine_lesung`), and
+    the token is the plain copy.
+  - F6 `agent_review.resolve_receipt_chain` took the digest from one reading of each envelope and the
+    supersession claims from another: the chain was ordered by a claim nobody signed. Each envelope's
+    stored payload is read once.
+  - F7 `hf_evals.verify_receipt_token` counted the caller's own `len()` for its pre-decode cap and
+    decoded the caller's own slice. It reads the characters once.
+  - O1: an expected value the caller supplies was compared through its own `__eq__` or `__ne__`, and a
+    `str` subclass answered a match for another value at `agent_review` (`expected_subject_digest`),
+    `decision` (`expected_nonce`, `expected_audience`), `outcome` (`expected_decision_ref`),
+    `statuslist` (`expected_uri`), `checkpoint` (`expected_origin`) and `public_transparency`
+    (`expected_root_b64`). Each is compared by its characters now, as round 10 did for
+    `expected_context`; the same holds for kbjwt's `expected_aud` and `expected_nonce`, tlogproof's
+    `expected_origin` and dsse's `payload_type` (swept, see below).
+  - O2: `evaluate_decision_policy` read `decision_receipt.allow_pending` by its truth when the policy
+    skipped `load_policy`, so "false" and 1 let a pending anchor satisfy `require_external_anchor`. It
+    is True or False now (`canonical._flagge`); anything else is a fail-closed error naming it.
+  - The sweep's verdict-level cases: `signature.verify_ed25519_pinned` judged the key through one
+    `bytes()` of the caller's object and verified under another, so a `bytes` subclass that answered a
+    sound key to the rule and the identity point to the check verified the signature (identity, 0) with
+    no private key; `witness_quorum` counted one witness twice (above); `evidence_pack.verify_evidence_pack`
+    bounded what the pack stores and decoded what its own `__getitem__` answered.
+  - A class claim is no type (found by this round's own sweep, outside the lens's targets): an object
+    that is no str, dict, list, bytes or number but claims one through `__class__` passes
+    `isinstance`, which reads that claim. The copies passed such a value on unread, and the guard
+    after them let it through to its own methods. Measured on this tree before the guards changed:
+    `verify_receipt_token` decoded 64 MiB behind a claimed length of 12 again (F7 through another
+    door), and 26 of the 86 sweep surfaces ran methods of such an object. `_pruefkopie` and
+    `_eine_kopie` copy every value now, so one that is no JSON value is refused, and every guard
+    after a copy asks `type()`.
+
+  THE SWEEP, measured: 86 public verify, classify, evaluate and emit surfaces fed every caller value
+  as a recording subclass that answers exactly what it stores. At cd5d39f4, 77 ran a method of the
+  caller's values and 9 ran none (the round-8 to round-11 surfaces: `decode_eval_claim`, `classify_eval_claim`,
+  `emit_eval_receipt`, `verify_commitment`, the three in-toto exporters, `svr_properties`,
+  `verify_trust_pack`); here none runs one and each returns what it returns for the plain values. The
+  second pass feeds every top-level value as an object that claims its type through `__class__`
+  (`AClassClaimIsNoType`): at cd5d39f4 56 surfaces run its methods (57 on Python 3.12 to 3.14,
+  where `emit_bundle` hashes claimed bytes through their own `__buffer__`), here none does, except one
+  iteration of an argument that is documented as any iterable, at the three surfaces that take one
+  (`resolve_receipt_chain`'s receipts, `emit_bundle`'s prior leaves, `evaluate_public_transparency`'s
+  witness roster), the only reading such a value has. The
+  chokepoints that closed most of them at once: `_wire_b64._as_bytes` (every base64 decode read a
+  `str` subclass through its own `encode`), the three signature primitives, `dsse.verify_envelope` and
+  `load_payload` (they read through `_read_once` now, which makes the `_verify_and_load` docstring true:
+  lens run 11 F8 measured the two answering differently), the Merkle verifiers (the step cap counted a
+  list subclass's own `len()` and the loop read its own `__iter__`), the note framing, and one copy at
+  the entry of each DSSE emitter and each predicate validator (a dict subclass's own `get` showed the
+  validator a valid predicate while the stored one was signed).
+
+  What a caller sees differently, measured at cd5d39f4 against this tree: an input holding a value
+  that is no JSON value is refused at these surfaces (`verify_envelope` answered True and `load_payload`
+  returned the payload for an envelope with a bytes field; `receipt_token` raised a raw TypeError); a
+  tuple is read as the array JSON writes it, so `verify_envelope` accepts a tuple of signatures and
+  `load_policy` a tuple of schema versions, where cd5d39f4 refused both; `to_eval_results_entry` loads a
+  path once and writes its token, where cd5d39f4 refused the token; `issue_status_list_token` refuses
+  `bits=True`, which it signed as `"bits": true`; `sign_envelope` refuses a key id that is no string.
+  A value that is no JSON value, or whose type is no built-in, is refused by its type where it was
+  read before: a validator returns "predicate is not a JSON value: a value of type bytes is not a JSON
+  value" for bytes or an object, where it returned "predicate must be a JSON object", and an emitter
+  raises its own error with that text; `explain_policy` and `lint_policy` raise PolicyError for such a
+  policy, where a raw AttributeError escaped; `verify_anchors` raises BundleFormatError for a
+  `require` of such a type, where it gave FAIL (a `require_target` or `anchors` of such a type was
+  refused before as well, and its refusal names the type now);
+  `verify_outcome_receipt` does not establish role separation for a `decision_maker_id` of such a
+  type (True at cd5d39f4; an exact int is compared as before); `root_from_inclusion` raises TypeError
+  with its own message for an index or size that is no integer (a TypeError from the arithmetic
+  before); `verify_dual_hash` refuses a non-contiguous `memoryview` as not bytes-like, where a raw
+  BufferError escaped; the status list refusal names a clock of such a type by its type;
+  `classify_receiver_corroboration` never binds an expected key that is no bytes-like value (a raw
+  TypeError for a str key at cd5d39f4). Nothing a surface took is narrowed: a `memoryview` and a
+  `bytearray` at 26 inputs of 21 bytes-taking surfaces answer as at cd5d39f4
+  (`canonical._puffer_von` reads a `memoryview` where the concatenation or `==` took it; the
+  `ABytesLikeValueIsReadWhereItWasReadBefore` cases pin that, green at both trees).
+  A parsed file holds only plain JSON values, so nothing changes for one: the conformance corpus with
+  `--require-anchors` (135 of 135 fully checked), the 439-file JSON differential (155 artefacts, 1833
+  verdict lines) and 17 artefact kinds emitted with real keys are byte-identical to cd5d39f4. One
+  existing case changed with it, as in round 11: `tests/test_ablehnungstext_rendert_beschraenkt.py`
+  pinned the finding of `validate_decision_predicate` for a predicate holding the key 5 beside the
+  unknown field "zzz" ("unknown top-level field(s)"); the copy refuses the non-string key first now
+  ("object keys must be strings", still a returned finding), and the case pins that text and, for
+  "zzz" alone, the finding it pinned before.
+
+  Named, not changed: a caller's own callbacks and result objects (the resolvers, `result` of
+  `evaluate_policy` and `svr_properties`, `consistency_result` of `evaluate_public_transparency`) are
+  the caller's code by design; a `Mapping` that is no dict can only be read through its own `items()`,
+  once, and a buffer that is no bytes, bytearray or memoryview is hashed once through its own buffer
+  (`compute_digest`, the resolvers' artifact bytes); `renewal`, `agent_review.apply_time_evidence`
+  and the renderers (a refusal text may still render a caller's value through `render_safe`), the
+  per-anchor verifiers (`anchors_ots`, `anchors_rfc3161`, `anchors_chia`, `anchors_markovian`), the
+  adapters other than AGT and the `experimental` package were not swept.
+
 - **The Rust verifier refuses a `relations` policy section that Python refuses** (`tools/pb_verify_rs`,
   `policy_huelle_pruefen`). Measured on the corpus case `relation-signer-cross-issuer-unauthorized`
   with `relation_signer.supersedes.mode` set to `"bogus"`: Python refused the policy (exit 2), the Rust

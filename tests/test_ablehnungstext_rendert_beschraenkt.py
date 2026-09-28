@@ -132,6 +132,12 @@ class DieAblehnungBleibtTypisiert(unittest.TestCase):
 
     def test_decision_validate_gemischte_schluessel(self):
         errs = decision.validate_decision_predicate({**_PREDICATE, 5: 1, "zzz": 1})
+        # Since round 12 the validator judges the plain copy of the predicate (one reading of the
+        # caller's object), and the copy refuses a key that is not a string before any field is judged:
+        # still a returned finding, never a raise, with a bounded text. The unknown string key alone is
+        # still named, as verify_bundle does since round 11.
+        self.assertTrue(any("object keys must be strings" in e for e in errs))
+        errs = decision.validate_decision_predicate({**_PREDICATE, "zzz": 1})
         self.assertTrue(any("unknown top-level field(s)" in e for e in errs))
 
 

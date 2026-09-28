@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from ._strict_json import loads_strict
 from .budget import render_keys_safe, render_safe
+from .canonical import _eine_kopie, _pruefkopie, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member
@@ -154,6 +155,10 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     strict=True enforces the strict-v0.1 requirements (notChecked / decisionChangeConditions / privacy present,
     policyBoundary.policyDigest present, and — when `validity` is present — audience+nonce).
     """
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -363,7 +368,18 @@ def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
     pinning, a DIFFERENT question from claim identity). Returns ``{content_root_ok, artifact_ok, detail}``;
     a check that was not requested is ``None``. WHO signed the evidence is a Trust-Policy question, not this."""
     from . import anchors as _anchors_mod  # noqa: PLC0415
+    from .canonical import _bytes_von  # noqa: PLC0415
     out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
+    # One reading of each input, by what it holds (round 12): the reference as its plain copy, the
+    # fetched blob as the bytes it stores.
+    gelesen: Any
+    try:
+        gelesen = _pruefkopie(ref)
+    except ValueError:
+        gelesen = None
+    ref = gelesen
+    if artifact_bytes is not None and _bytes_von(artifact_bytes) is not None:
+        artifact_bytes = _bytes_von(artifact_bytes)
     want = _as_dict(ref.get("digest")).get("sha256") if isinstance(ref, dict) else None
     if evidence_payload is not None:
         got = _anchors_mod.statement_content_root(evidence_payload).hex()
@@ -419,6 +435,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     is self-attesting what the statement applies to — a generic in-toto consumer that matches by
     `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
     the subject a true commitment to the signed predicate."""
+    predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
@@ -437,6 +454,7 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
                           strict: bool = True) -> dict:
     """Sign a Decision Receipt as a DSSE-signed in-toto Statement. EMISSION is RFC-8785 canonical (Addendum
     §2.2). Fail-closed: an invalid predicate raises before signing."""
+    predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
     errs = validate_decision_predicate(predicate, strict=strict)
     if errs:
@@ -708,14 +726,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # audience MUST be a real JSON array: with a STRING value Python's `in` degrades to
             # SUBSTRING matching ("rp.example" in "rp.example" is True) — a wrong-TYPE audience
             # would satisfy the binding (found by the 3.1.3 regression corpus, fail-closed now).
+            # The expectation is compared by its CHARACTERS (round 12, lens run 11 O1's siblings):
+            # at cd5d39f4 `in` asked a `str` subclass's own `__eq__` for every element, and it answered
+            # True for another audience. An expectation that is no string never matches.
             _aud = _validity.get("audience")
-            r["audience_ok"] = isinstance(_aud, list) and expected_audience in _aud
+            _erwartet = _zeichen_von(expected_audience)
+            r["audience_ok"] = isinstance(_aud, list) and _erwartet is not None and _erwartet in _aud
             if not r["audience_ok"]:
                 r["errors"].append(
                     "audience mismatch or absent validity.audience — requested audience binding cannot be "
                     "enforced (cross-audience replay?, fail-closed)")
         if expected_nonce is not None:
-            r["nonce_ok"] = _validity.get("nonce") == expected_nonce
+            # By its characters as well (round 12): a `str` subclass's own `__eq__` answered True for
+            # another nonce at cd5d39f4.
+            _erwartet = _zeichen_von(expected_nonce)
+            r["nonce_ok"] = _erwartet is not None and _validity.get("nonce") == _erwartet
             if not r["nonce_ok"]:
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "

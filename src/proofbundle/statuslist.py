@@ -29,6 +29,8 @@ from typing import Optional
 
 from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
+from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie,
+                        _type_name, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .signature import verify_ed25519_pinned
 from ._inflate import InflateCapExceeded, inflate_whole_stream
@@ -116,22 +118,38 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         # SYMMETRISCHER Typ-Guard: beide MUESSEN bytes/bytearray sein, sonst crasht bytes(str) mit TypeError
         # statt fail-closed (verify_status_snapshot deklariert 'never crashes'). Non-bytes receipt_issuer_pubkey
         # (str/int/list) → self_issued bleibt False (kein Crash, kein Fake-True).
-        result["self_issued"] = (isinstance(issuer_pubkey, (bytes, bytearray))
-                                 and isinstance(receipt_issuer_pubkey, (bytes, bytearray))
-                                 and len(issuer_pubkey) == len(receipt_issuer_pubkey)
-                                 and _hmac.compare_digest(bytes(issuer_pubkey),
-                                                          bytes(receipt_issuer_pubkey)))
+        # Both keys by the bytes they store (round 12): `len()` and `bytes()` of a subclass are its own.
+        _a, _b = _bytes_von(issuer_pubkey), _bytes_von(receipt_issuer_pubkey)
+        result["self_issued"] = (_a is not None and _b is not None and len(_a) == len(_b)
+                                 and _hmac.compare_digest(_a, _b))
     # deep gate 2026-09-05 (L3-600-04, RT-05 keyword_rp_expectation_arg_int_str_cap_dos): `now` is the relying
     # party's clock and was compared raw once the token carried exp/ttl — a str/list/bytes/float/huge-int `now`
     # raised a raw TypeError (or tripped the shift/render caps) out of a surface that declares 'never crashes'.
     # The floor sits at ENTRY, before any signature work: a malformed clock is a caller error, and the safe
     # direction is a fail-closed verdict that names it, never a silently unjudged freshness (fresh=None would
     # read as 'no bound to judge against', which is a different, honest state reserved for exp/ttl absence).
-    if now is not None and (isinstance(now, bool) or not isinstance(now, int) or not int_magnitude_ok(now)):
+    # The clock as the integer it stores, read before it is judged (round 12): the magnitude check
+    # below called its own `bit_length` and `isinstance` its `__class__` at cd5d39f4.
+    if now is not None and (_ganzzahl_von(now) is None or not int_magnitude_ok(_ganzzahl_von(now))):
+        # The refusal renders what the clock holds, never through its own methods (round 12): an exact
+        # built-in as it is, a JSON value as its plain copy, anything else by its type name.
+        gezeigt: object = now
+        if type(now) not in _EINGEBAUTE_SKALARE:
+            try:
+                gezeigt = _pruefkopie(now)
+            except ValueError:
+                gezeigt = f"<{_type_name(type(now))}>"
         result["detail"] = ("status list now (relying-party clock) must be a POSIX-seconds integer within the "
-                            f"magnitude budget, got {render_safe(now)} (fail-closed)")
+                            f"magnitude budget, got {render_safe(gezeigt)} (fail-closed)")
         return result
-    if not isinstance(status_list_token, str):
+    # One reading of each caller value, by what it holds (round 12): the clock and the index as the
+    # integers they store (an `int` subclass answered `iat <= now` and chose the slot through its own
+    # methods at cd5d39f4), the token as its characters, the expected uri as its characters.
+    if now is not None:
+        now = _ganzzahl_von(now)
+    if _zeichen_von(status_list_token) is not None:
+        status_list_token = _zeichen_von(status_list_token)
+    if type(status_list_token) is not str:   # `type()`: a `__class__` claim is no str (round 12)
         # RE-TCE-06 (RE-GATE never-raise): a non-str token (int / None / list) must be a fail-closed verdict,
         # not a raw AttributeError from `.count(...)`. A garbage STRING already returns ok=False (lone
         # surrogate / bad shape), so a wrong-TYPE token must too — this surface declares "never crashes".
@@ -175,7 +193,10 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = "status list token signature invalid"
         return result
 
-    if payload.get("sub") != expected_uri:
+    # The expected uri by its characters (round 12, O1's class). A supplied uri that is no string never
+    # matches, even a token without `sub` (comparing None with None would); None is compared as before.
+    _uri = _zeichen_von(expected_uri)
+    if (expected_uri is not None and _uri is None) or payload.get("sub") != _uri:
         result["detail"] = "status list token sub does not match the referenced uri"
         return result
     iat, exp, ttl = payload.get("iat"), payload.get("exp"), payload.get("ttl")
@@ -219,7 +240,8 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         # folgt dem Vertrag des Dekoders, nicht der Fehlerquelle von damals.
         result["detail"] = "status_list lst is not valid base64url(zlib(...))"
         return result
-    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+    index = _ganzzahl_von(index)
+    if index is None or index < 0:
         result["detail"] = "status index must be a non-negative integer"
         return result
     try:
@@ -253,10 +275,23 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     """Issue a Status List Token (emit side, for tests/self-hosted lists). ``statuses`` is a list
     of small ints (< 2**bits); ``signer`` an Ed25519 private key; ``iat`` explicit POSIX seconds
     (the library never samples wall clocks for signatures). zlib level 9 per the spec's example."""
+    # Each input by what it holds (round 12): the widths, the times, the uri and every status value
+    # that are checked are the ones written and signed. At cd5d39f4 `len(statuses)` and the loop were
+    # two readings of a list subclass, and an `int` subclass answered the range checks.
+    bits = _ganzzahl_von(bits)
     if bits not in _ALLOWED_BITS:
         raise BundleFormatError(f"bits must be one of {_ALLOWED_BITS}")
-    if isinstance(iat, bool) or not isinstance(iat, int):
+    iat = _ganzzahl_von(iat)
+    if iat is None:
         raise BundleFormatError("iat must be a POSIX timestamp integer")
+    if not (issubclass(type(statuses), list) or issubclass(type(statuses), tuple)):
+        raise BundleFormatError("statuses must be a list of small integers")
+    statuses = _plain_for_jcs(statuses, BundleFormatError)
+    uri = _zeichen_von(uri) if _zeichen_von(uri) is not None else uri
+    if exp is not None:
+        exp = _ganzzahl_von(exp) if _ganzzahl_von(exp) is not None else exp
+    if ttl is not None:
+        ttl = _ganzzahl_von(ttl) if _ganzzahl_von(ttl) is not None else ttl
     per_byte = 8 // bits
     arr = bytearray((len(statuses) + per_byte - 1) // per_byte)
     for i, s in enumerate(statuses):

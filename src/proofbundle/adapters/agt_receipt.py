@@ -52,6 +52,7 @@ import re
 from typing import Any, Dict, Optional, Sequence
 
 from .._membership import is_member
+from ..canonical import _folge_von, _plain_for_jcs, _zahl_von, _zeichen_von
 from ..errors import VerificationResult
 from ..signature import verify_ed25519, verify_ed25519_pinned
 
@@ -113,6 +114,22 @@ class AGTReceiptError(ValueError):
     """
 
 
+def _gelesen(receipt: Any) -> Dict[str, Any]:
+    """THE ONE READING of a caller's receipt: the plain copy of what it stores (round 12).
+
+    Lens run 11, F2 (P0): the signature covered ``receipt[f]`` while the expiry was judged at
+    ``receipt.get("timestamp")``, two readings of the caller's object, and a dict subclass whose own
+    ``get`` answered an earlier instant turned an authorization that expired at its signed timestamp
+    into ``ok`` True. The copy (`canonical._plain_for_jcs`) reads the stored contents through the base
+    types' methods and a ``str`` subclass as its characters, so no method of the caller runs, and
+    every check below (the payload, both signatures, the expiry, the completeness rule) reads that one
+    copy. A receipt that is no JSON object, or holds a value that is no JSON value, is unreadable:
+    AGTReceiptError, which the verify surfaces report as the named ``readable`` check."""
+    if not issubclass(type(receipt), dict):
+        raise AGTReceiptError(f"receipt is {type(receipt).__name__}, expected an object")
+    return _plain_for_jcs(receipt, lambda text: AGTReceiptError(f"receipt is not a JSON object: {text}"))
+
+
 def _text(receipt: Dict[str, Any], feld: str) -> str:
     wert = receipt.get(feld)
     if not isinstance(wert, str):
@@ -124,10 +141,11 @@ def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     """The bytes AGT signs. `sort_keys` JSON with compact separators and raw UTF-8.
 
     NOT RFC 8785, although AGT's docstring says so; see the module docstring for the measurement.
-    The signature fields are excluded because they cover this payload.
+    The signature fields are excluded because they cover this payload. The receipt is read once, by
+    what it stores (`_gelesen`, round 12), so the bytes are the stored values and not what a dict
+    subclass's own ``__getitem__`` answers.
     """
-    if not isinstance(receipt, dict):
-        raise AGTReceiptError(f"receipt is {type(receipt).__name__}, expected an object")
+    receipt = _gelesen(receipt)
     fehlend = [f for f in _PFLICHTFELDER if f not in receipt]
     if fehlend:
         raise AGTReceiptError(f"receipt lacks required field(s): {', '.join(sorted(fehlend))}")
@@ -144,7 +162,9 @@ def payload_hash(receipt: Dict[str, Any]) -> str:
 
 
 def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
-    """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce."""
+    """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce. Read from
+    the one plain copy of the receipt (`_gelesen`, round 12)."""
+    receipt = _gelesen(receipt)
     fehlend = [f for f in ("authorizer_id", "authorization_expires_at", "authorization_nonce")
                if receipt.get(f) is None]
     if fehlend:
@@ -234,10 +254,16 @@ def verify_agt_receipt(
     # all. Both properties are kept instead of traded — the unreadability becomes a NAMED check, and
     # `exit_code` maps that one name to 2 while every other failure maps to 1.
     try:
+        receipt = _gelesen(receipt)
         nutzlast = canonical_payload(receipt)
     except AGTReceiptError as fehler:
         ergebnis.add("readable", False, str(fehler))
         return ergebnis
+    # The caller's own values by what they hold as well (round 12): the instant as the number it
+    # stores, and the trusted keys as their characters, so neither a subclass's `__float__` nor a
+    # `str` subclass's own `__eq__` and `__hash__` decides the expiry or the trust.
+    if now is not None and _zahl_von(now) is not None:
+        now = _zahl_von(now)
 
     # THROUGH `is_member`, NOT THROUGH `in`. `cedar_decision` comes out of the receipt, so it is
     # attacker-controlled, and `_ENTSCHEIDUNGEN` hashes. An unhashable value would raise TypeError
@@ -312,10 +338,12 @@ def verify_agt_receipt(
                  _ed25519_gueltig(a_key, a_sig, a_nutzlast, anker=True),
                  f"Ed25519 over the authorization payload, type {AGT_AUTHORIZATION_TYPE}")
 
-    frist = receipt.get("authorization_expires_at")
-    zeitpunkt = receipt.get("timestamp") if now is None else now
+    frist: Any = receipt.get("authorization_expires_at")
+    zeitpunkt: Any = receipt.get("timestamp") if now is None else now
     quelle = "the receipt timestamp (offline reading)" if now is None else "the supplied instant"
-    if isinstance(frist, (int, float)) and isinstance(zeitpunkt, (int, float)):
+    # `type()` (round 12): both are exact after the readings above; an instant that claims a number
+    # through `__class__` would otherwise decide the expiry through its own `__float__`.
+    if type(frist) in (int, float, bool) and type(zeitpunkt) in (int, float, bool):
         ergebnis.add("external-authorization-unexpired", float(zeitpunkt) <= float(frist),
                      f"judged at {quelle}")
     else:
@@ -329,8 +357,9 @@ def verify_agt_receipt(
                      "no trusted authorizer keys supplied — the authorization was NOT evaluated "
                      "against a relying party's list, and this is not an acceptance")
     else:
-        ergebnis.add("external-authorization-trusted", a_key in set(trusted_authorizer_keys),
-                     f"authorizer key {a_key[:16]}… against {len(trusted_authorizer_keys)} "
+        vertraut = [_zeichen_von(k) for k in _folge_von(trusted_authorizer_keys)]
+        ergebnis.add("external-authorization-trusted", a_key in {k for k in vertraut if k is not None},
+                     f"authorizer key {a_key[:16]}… against {len(vertraut)} "
                      f"trusted key(s)")
     return ergebnis
 
@@ -350,29 +379,43 @@ def verify_agt_receipt_chain(
     # `-1` slipped past it and died on `enumerate` with a bare TypeError. Measured by the house
     # type-confusion gate on this very module: "TypeError on payload True: 'bool' object is not
     # iterable". A verifier that raises instead of judging is the defect this gate exists to catch.
-    if not isinstance(receipts, (list, tuple)):
+    if not (issubclass(type(receipts), list) or issubclass(type(receipts), tuple)):
         ergebnis.add("chain-readable", False,
                      f"receipts is {type(receipts).__name__}, expected a list or tuple")
         return ergebnis
-    if not receipts:
+    # ONE READING of the chain (round 12): the sequence through the base type's own iteration, and
+    # each receipt into its plain copy once. At cd5d39f4 the loop read the caller's own `__iter__`,
+    # the links its own `__getitem__` and `len()`, and every receipt was read three times (the
+    # verify, `payload_hash` for the next link, and `get("parent_receipt_hash")`), so the receipts
+    # verified and the receipts linked could differ.
+    folge: list = _folge_von(receipts)
+    if not folge:
         ergebnis.add("chain-non-empty", False, "no receipts supplied — nothing was examined")
         return ergebnis
+    kopien: list = []
+    for r in folge:
+        try:
+            kopien.append(_gelesen(r))
+        except AGTReceiptError as fehler:
+            kopien.append(fehler)
 
-    for i, r in enumerate(receipts):
-        teil = verify_agt_receipt(r, **kwargs)
+    for i, r in enumerate(kopien):
+        teil = verify_agt_receipt(folge[i] if isinstance(r, AGTReceiptError) else r, **kwargs)
         for c in teil.checks:
             ergebnis.add(f"[{i}] {c.name}", c.ok, c.detail)
 
-    for i in range(1, len(receipts)):
+    for i in range(1, len(kopien)):
         # Same never-raise rule as above: an unreadable link is a named finding, not a crash that
         # abandons the remaining receipts. A chain verdict that stops halfway is not a verdict.
         try:
-            erwartet = payload_hash(receipts[i - 1])
+            if isinstance(kopien[i - 1], AGTReceiptError):
+                raise kopien[i - 1]
+            erwartet = payload_hash(kopien[i - 1])
         except AGTReceiptError as fehler:
             ergebnis.add(f"[{i}] chain-link", False,
                          f"the previous receipt is not readable, so no link can be checked: {fehler}")
             continue
-        gefunden = receipts[i].get("parent_receipt_hash")
+        gefunden = kopien[i].get("parent_receipt_hash") if isinstance(kopien[i], dict) else None
         ergebnis.add(f"[{i}] chain-link", gefunden == erwartet,
                      f"parent_receipt_hash={str(gefunden)[:16]}… expected {erwartet[:16]}…")
     return ergebnis

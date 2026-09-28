@@ -29,7 +29,7 @@ from typing import Any, TypeGuard
 
 from ._strict_json import loads_strict
 from .budget import DEFAULT_BUDGET
-from .canonical import _flagge
+from .canonical import _eine_kopie, _flagge, _pruefkopie, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
@@ -122,6 +122,10 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
     ``strict`` currently adds no extra predicate-level required fields (the trust-pack predicate is small and
     fully required by default); it is kept for signature parity with the emit/verify entry points, where it
     additionally makes RFC-8785 canonicality fail-closed in ``verify_trust_pack`` (mirrors ``outcome.py``)."""
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -324,6 +328,7 @@ def _rfc8785_available() -> bool:
 
 def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
+    predicate = _eine_kopie(predicate, TrustPackError, "trust-pack predicate")   # one reading (round 12)
     errs = validate_trust_pack_predicate(predicate, strict=False)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
@@ -343,19 +348,27 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
     an unknown identity)."""
+    predicate = _eine_kopie(predicate, TrustPackError, "trust-pack predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
         raise TrustPackError("invalid trust-pack predicate: " + "; ".join(errs))
     known = set(_as_dict(predicate.get("keys")).keys())
-    for kid in signers:
-        if kid not in known:
+    # The signers are read ONCE, through the base type's own `items` (round 12): at cd5d39f4 the key ids
+    # were checked on the caller's own `__iter__` and the signatures made from its own `items()`, two
+    # readings, so a dict subclass could sign under a key id the pack does not declare. Each key id is
+    # its characters.
+    if not issubclass(type(signers), dict):
+        raise TrustPackError("signers must be a dict of keyId -> Ed25519 private key")
+    paare = [(_zeichen_von(kid), sk) for kid, sk in list(dict.items(signers))]
+    for kid, _sk in paare:
+        if kid is None or kid not in known:
             raise TrustPackError(f"signer keyId {kid!r} is not declared in the pack's keys")
     statement = build_trust_pack_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     signatures = [{"keyid": kid, "sig": base64.b64encode(sk.sign(msg)).decode("ascii")}
-                  for kid, sk in signers.items()]
+                  for kid, sk in paare]
     return {"payload": base64.b64encode(body).decode("ascii"),
             "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE, "signatures": signatures}
 

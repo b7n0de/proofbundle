@@ -26,6 +26,7 @@ import hashlib
 import re
 from typing import Any
 
+from .canonical import _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -59,6 +60,10 @@ def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     or anything other than EXACTLY ONE well-formed edge is an error."""
     from .relation import validate_relationships  # noqa: PLC0415
 
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -119,6 +124,7 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
     """Build a STANDARD in-toto Statement v1 whose predicate is the relation-statement. The subject
     is by DEFAULT a commitment to the predicate (sha256 over its RFC-8785 canonical form). A
     caller-supplied override is self-attested and NOT cross-checked (No-Overclaim)."""
+    predicate = _eine_kopie(predicate, RelationStatementError, "relation-statement predicate")   # one reading (round 12)
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
@@ -136,6 +142,7 @@ def emit_relation_statement(predicate: dict, signer, *, subject_name: str | None
                             subject_sha256: str | None = None, keyid: str | None = None) -> dict:
     """Sign a relation-statement as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical.
     Fail-closed: an invalid predicate raises before signing."""
+    predicate = _eine_kopie(predicate, RelationStatementError, "relation-statement predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
     errs = validate_relation_statement_predicate(predicate)
     if errs:

@@ -32,7 +32,7 @@ import gc
 import hashlib
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Union
 
 from .errors import ProofBundleError
 
@@ -244,7 +244,7 @@ _EINGEBAUT = {t.__name__: t for t in (bool, int, float, str, list, tuple, dict, 
                                       set, frozenset, type(None), object)}
 
 
-def _zeichen_von(wert: Any) -> Optional[str]:
+def _zeichen_von(wert: Any) -> Any:
     """The characters of a ``str`` as a plain ``str``, or None for a value that is no ``str``.
 
     For a caller's string that a check compares (round 10): the type is the object's own, asked
@@ -260,6 +260,150 @@ def _zeichen_von(wert: Any) -> Optional[str]:
     if issubclass(typ, str):
         return str.__str__(wert)
     return None
+
+
+def _bytes_von(wert: Any) -> Any:
+    """The bytes a ``bytes`` or ``bytearray`` holds, as plain ``bytes``, or None for any other value.
+
+    The sibling of `_zeichen_von` for byte strings (round 12). The type is the object's own, asked
+    with ``issubclass``, and the stored bytes are read through the base type's own slice, which
+    copies what the object stores. ``bytes(x)`` calls a subclass's ``__bytes__``, ``b"\\x00" + x``
+    calls its ``__radd__``, ``len(x)`` its ``__len__`` and a buffer read its ``__buffer__`` (3.12+),
+    so none of them decides what a signature check, a hash or a comparison reads. No code of the
+    caller runs."""
+    typ = type(wert)
+    if typ is bytes:
+        return wert
+    if issubclass(typ, bytes):
+        return bytes.__getitem__(wert, slice(None))
+    if issubclass(typ, bytearray):
+        return bytes(bytearray.__getitem__(wert, slice(None)))
+    return None
+
+
+def _puffer_von(wert: Any) -> Any:
+    """`_bytes_von`, and for a ``memoryview`` the bytes it views; None for any other value.
+
+    For the surfaces that took any bytes-like value before round 12 because they read it through
+    ``b"\\x00" + x`` or ``==`` (the Merkle leaf and node hashes, the DSSE body, the emitted payload,
+    an anchor's expected root, a relying party's expected receiver key, a witness quorum's log key
+    material). A plain copy must not narrow what they accept, so a ``memoryview`` stays a legitimate
+    input there. ``memoryview`` cannot be subclassed, and its bytes are read by ``bytes.__add__``
+    from the buffer it already holds, the operation those surfaces ran, so no code of the caller
+    runs. A view that cannot be read so (released, or not contiguous: the concatenation raised
+    TypeError for one) is None, refused like any other value. Surfaces that refused a ``memoryview``
+    before keep `_bytes_von`."""
+    roh = _bytes_von(wert)
+    if roh is None and type(wert) is memoryview:
+        try:
+            roh = b"" + wert
+        except (BufferError, TypeError, ValueError):
+            return None
+    return roh
+
+
+#: The exact built-in scalar types (round 12): a value of one of them runs only the interpreter's own
+#: comparison, so a check may compare it as it did. Any other type (a subclass, or an object whose
+#: ``__class__`` claims one of them) is read by the helpers above or refused; ``isinstance`` would
+#: read its ``__class__`` and accept a claim, so the guards after a copy ask ``type()``.
+_EINGEBAUTE_SKALARE = (type(None), bool, int, float, str, bytes)
+
+
+def _ganzzahl_von(wert: Any) -> Any:
+    """The integer an ``int`` holds, as a plain ``int``, or None for a bool or any other value.
+
+    For a caller's integer that a check compares or computes with (round 12). An ``int`` subclass
+    answers comparisons and arithmetic through its own methods, and Python asks a subclass's
+    reflected method first (``5 == x`` calls ``x.__eq__``), so the stored value is read with
+    ``int.__index__``. A bool is None here because every caller refuses it as a count, a size or an
+    index."""
+    typ = type(wert)
+    if typ is int:
+        return wert
+    if typ is bool or not issubclass(typ, int):
+        return None
+    return int.__index__(wert)
+
+
+def _zahl_von(wert: Any) -> Any:
+    """The number an ``int`` or ``float`` holds, as a plain one, or None for any other value. A bool
+    is kept as it is: it cannot be subclassed, so none of its methods is the caller's (round 12)."""
+    typ = type(wert)
+    if typ is int or typ is float or typ is bool:
+        return wert
+    if issubclass(typ, int):
+        return int.__index__(wert)
+    if issubclass(typ, float):
+        return float.__float__(wert)
+    return None
+
+
+#: What `_feld_von` answers for a field the dict does not store.
+_FEHLT = object()
+
+
+def _feld_von(wert: Any, name: str, fehlt: Any = None) -> Any:
+    """The value a dict STORES under the key whose characters are ``name`` (round 12), or ``fehlt``.
+
+    ``dict.get(d, name)`` is not enough: when a stored key is a ``str`` subclass, the dict's own lookup
+    compares it with ``name`` through that key's own ``__eq__`` (measured on Python 3.10.12 with a
+    recording subclass). So the stored pairs are read through ``dict.items``, which hashes and compares
+    nothing, and each key is compared by its characters. Two keys with the same characters are one
+    JSON key; the copy refuses such a dict, and this read answers ``fehlt`` for it, so a surface that
+    reads one field treats the field as absent rather than choosing one of two. A value that is no
+    dict answers ``fehlt`` too."""
+    if not issubclass(type(wert), dict):
+        return fehlt
+    gefunden = [v for k, v in list(dict.items(wert)) if _zeichen_von(k) == name]
+    return gefunden[0] if len(gefunden) == 1 else fehlt
+
+
+def _pruefkopie(wert: Any) -> Any:
+    """For a validator (round 12): a caller's value as the plain copy of what it stores, so the
+    judgment reads what the object holds and runs none of its methods. A dict or list is copied, a
+    ``str``, ``int`` or ``float`` subclass becomes the plain value it holds, and a tuple stays a
+    tuple of plain values, so a validator that refused a tuple refuses it as before (a tuple INSIDE
+    is read as the array JSON writes it, as the signer writes it). A value of any other type, and a
+    container holding one, raises ValueError, which the validator returns as its finding: such a
+    value is no JSON value, and an object whose ``__class__`` claims a JSON type would otherwise
+    pass the validator's own ``isinstance`` and be read through its methods (`_eine_kopie`)."""
+    kopie = _plain_for_jcs(wert, ValueError)
+    return tuple(kopie) if issubclass(type(wert), tuple) else kopie
+
+
+def _eine_kopie(wert: Any, fehler: Callable[[str], BaseException], was: str) -> Any:
+    """For an emitter (round 12): a caller's predicate as the plain copy of what it stores, read ONCE
+    before it is validated, hashed and signed, so the validator judges exactly what is signed. A
+    JSON value that is no dict is copied as `_pruefkopie` copies it, for the emitter's own validator
+    to refuse as it did. A value that is no JSON value, or a dict holding one, is the emitter's
+    error, ``invalid <was>``: that includes an object that is no dict but claims one through
+    ``__class__``, which the validator's ``isinstance`` would have accepted and read through its own
+    ``get`` (measured on this tree before the change).
+
+    THE CLASS AT THE EMITTERS. Every DSSE emitter validated the caller's dict through its own
+    ``get`` and ``in`` and then signed the canonical bytes of what it stores (``canonicalize_statement``
+    copies stored contents since round 8). Two readings: a dict subclass whose own ``get`` showed the
+    validator a valid predicate got an invalid stored one signed."""
+    kopie = _plain_for_jcs(wert, lambda text: fehler(f"invalid {was}: {text}"))
+    return tuple(kopie) if issubclass(type(wert), tuple) else kopie
+
+
+def _folge_von(wert: Any) -> list:
+    """The items of a caller's list, tuple, set or frozenset, read once through the base type's own
+    iteration (round 12), so a subclass's own ``__iter__``, ``__len__`` or ``__getitem__`` never
+    decides which items a check sees. Any other iterable (a generator, a view) is read once with
+    ``list()``, which is the only way to read it; a value that is not iterable raises what ``list()``
+    raises, as before."""
+    typ = type(wert)
+    if issubclass(typ, list):
+        return list(list.__iter__(wert))
+    if issubclass(typ, tuple):
+        return list(tuple.__iter__(wert))
+    if issubclass(typ, set):
+        return list(set.__iter__(wert))
+    if issubclass(typ, frozenset):
+        return list(frozenset.__iter__(wert))
+    return list(wert)
 
 
 def _flagge(wert: Any, wo: str, name: str) -> bool:

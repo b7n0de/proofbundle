@@ -28,7 +28,7 @@ import base64
 import binascii
 from typing import Any, Optional
 
-from .canonical import _plain_for_jcs
+from .canonical import _plain_for_jcs, _puffer_von, _zeichen_von
 from .errors import BundleFormatError
 from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
@@ -43,15 +43,36 @@ def _b64decode_any(s: str) -> bytes:
 
 
 def pae(payload_type: str, body: bytes) -> bytes:
-    """DSSEv1 Pre-Authentication Encoding. Signed/verified over the RAW body bytes, never base64."""
-    t = payload_type.encode("utf-8")
+    """DSSEv1 Pre-Authentication Encoding. Signed/verified over the RAW body bytes, never base64.
+
+    Both inputs are read by what they hold (round 12): the type as its characters
+    (`canonical._zeichen_von`), the body as its stored bytes (`canonical._puffer_von`: bytes, a
+    bytearray, or the bytes a ``memoryview`` views, the three the concatenation took before). At
+    cd5d39f4 a ``str`` subclass's own ``encode`` gave the signed PAE another type than the envelope
+    wrote, and a ``bytes`` subclass's own ``__len__`` and ``__radd__`` another length and body than it
+    stores. A value of another type is BundleFormatError."""
+    typ_text, body = _zeichen_von(payload_type), _puffer_von(body)
+    if typ_text is None or body is None:
+        raise BundleFormatError("DSSE PAE needs a str payload type and a bytes body")
+    t = typ_text.encode("utf-8")
     return (b"DSSEv1 " + str(len(t)).encode("ascii") + b" " + t + b" "
             + str(len(body)).encode("ascii") + b" " + body)
 
 
 def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str] = None) -> dict:
     """Sign the RAW `body` bytes into a DSSE envelope. `signer` is an Ed25519 private key (its `.sign`
-    signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}."""
+    signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}.
+
+    The type, the body and the key id are read once, by what they hold, and the envelope carries
+    exactly what was signed (round 12): at cd5d39f4 the envelope wrote the caller's own objects
+    beside a PAE built from their ``encode`` and ``__radd__``. The body is read as `pae` reads it."""
+    typ_text, body = _zeichen_von(payload_type), _puffer_von(body)
+    if typ_text is None or body is None:
+        raise BundleFormatError("DSSE sign_envelope needs a str payload type and a bytes body")
+    if keyid is not None and _zeichen_von(keyid) is None:
+        raise BundleFormatError("DSSE keyid must be a string or None")
+    keyid = _zeichen_von(keyid) if keyid is not None else None
+    payload_type = typ_text
     sig = signer.sign(pae(payload_type, body))
     entry = {"sig": base64.b64encode(sig).decode("ascii")}
     if keyid:
@@ -61,13 +82,6 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
         "payloadType": payload_type,
         "signatures": [entry],
     }
-
-
-def _payload_bytes(envelope: dict) -> bytes:
-    if not isinstance(envelope, dict):
-        raise BundleFormatError("DSSE envelope must be a JSON object")
-    _within_budget(envelope)
-    return _payload_of(envelope)
 
 
 def _within_budget(envelope: Any) -> None:
@@ -134,9 +148,17 @@ def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional
     with the identity point printed "CRYPTO: OK" and exited 0 for a receipt nobody signed, while the
     same key in a trust policy was refused. Every DSSE verify path (decision, outcome, relation
     statement, run ledger, verification summary, in-toto exports, agent review, the CLI's related
-    targets) funnels through this one judgment, `_verify_body`: through this call, or through
-    `_verify_and_load`, which gives it the one plain reading of the envelope (round 11)."""
-    return _verify_body(envelope, _payload_bytes(envelope), public_key, payload_type)
+    targets) funnels through this one judgment, `_verify_body`, over the one plain reading of the
+    envelope (`_read_once`).
+
+    THE ENVELOPE IS READ ONCE HERE TOO (round 12). Round 11 gave its own verify sites one reading
+    and left this call reading the caller's object through its own ``get``; lens run 11 (F8) measured
+    the two answering differently for the same input. Now both are the same judgment over the same
+    copy: an envelope holding a value that is no JSON value is BundleFormatError here as there, and a
+    tuple of signatures is read as the array JSON writes it. A parsed file holds only plain JSON
+    values, so nothing changes for one. ``payload_type`` is compared by its characters."""
+    umschlag = _read_once(envelope)
+    return _verify_body(umschlag, _payload_of(umschlag), public_key, payload_type)
 
 
 def _verify_body(envelope: dict, body: bytes, public_key: bytes, payload_type: Optional[str]) -> bool:
@@ -147,7 +169,9 @@ def _verify_body(envelope: dict, body: bytes, public_key: bytes, payload_type: O
     ptype = envelope.get("payloadType")
     if not isinstance(ptype, str) or not ptype:
         raise BundleFormatError("DSSE envelope.payloadType must be a non-empty string")
-    if payload_type is not None and ptype != payload_type:
+    # The pinned type is compared by its characters (round 12, O1's class): at cd5d39f4 a `str`
+    # subclass's own `__ne__` decided whether an envelope of another type was judged at all.
+    if payload_type is not None and ptype != _zeichen_von(payload_type):
         return False
     sigs = envelope.get("signatures")
     if not isinstance(sigs, list) or not sigs:
@@ -183,8 +207,11 @@ def _verify_body(envelope: dict, body: bytes, public_key: bytes, payload_type: O
 
 
 def load_payload(envelope: dict) -> bytes:
-    """Return the raw decoded payload bytes (the in-toto Statement JSON) — for a verified envelope."""
-    return _payload_bytes(envelope)
+    """Return the raw decoded payload bytes (the in-toto Statement JSON) — for a verified envelope.
+
+    From the one plain reading of the envelope (`_read_once`, round 12), as `verify_envelope` reads
+    it, so the two calls answer from what the envelope stores and not from its own methods."""
+    return _payload_of(_read_once(envelope))
 
 
 def _read_once(envelope: Any) -> dict:
@@ -208,8 +235,9 @@ def _read_once(envelope: Any) -> dict:
     key that is not a string) and two keys with the same characters. A tuple is read as the array
     JSON writes it, as the copy reads it everywhere.
 
-    `verify_envelope` and `load_payload` keep reading the caller's object as before. A caller that
-    pairs them reads it twice; `_verify_and_load` is the one-line replacement."""
+    Since round 12 `verify_envelope` and `load_payload` read through here as well, so a caller that
+    pairs them reads the envelope's stored contents twice and no method of it; `_verify_and_load` is
+    still the one call that returns the verdict with the bytes it judged."""
     if not issubclass(type(envelope), dict):
         raise BundleFormatError("DSSE envelope must be a JSON object")
     _within_budget(envelope)
@@ -221,9 +249,11 @@ def _verify_and_load(envelope: Any, public_key: bytes, *,
     """``(verdict, body)`` from ONE reading of ``envelope`` (`_read_once`): ``body`` is the payload the
     signature was checked over, and the caller parses exactly those bytes.
 
-    The verdict is `verify_envelope`'s, from the same judgment (`_verify_body`), with the same
-    refusals in the same order; the body is returned whatever the verdict, as `load_payload` did for
-    the callers that report the statement of an envelope that does not verify."""
+    The verdict is `verify_envelope`'s: the same reading and the same judgment (`_verify_body`), so
+    the same refusals in the same order (lens run 11, F8: at cd5d39f4 this sentence was false,
+    because `verify_envelope` still read the caller's object). The body is returned whatever the
+    verdict, as `load_payload` did for the callers that report the statement of an envelope that does
+    not verify."""
     umschlag = _read_once(envelope)
     body = _payload_of(umschlag)
     return _verify_body(umschlag, body, public_key, payload_type), body

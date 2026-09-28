@@ -26,10 +26,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Any, Optional
 
 from .budget import DEFAULT_BUDGET, render_safe
-from .canonical import _flagge
+from .canonical import _bytes_von, _flagge, _puffer_von, _zeichen_von
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -106,6 +106,9 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
     function.
     """
     allow_deprecated = _flagge(allow_deprecated, "resolve_hash_alg", "allow_deprecated")
+    # The id by its characters (round 12): a `str` subclass's own `__hash__` and `__eq__` never choose
+    # the registry entry. An id that is no string is missing, as before.
+    alg_id = _zeichen_von(alg_id)
     if not alg_id or not isinstance(alg_id, str):
         raise MissingHashAlgId(
             "a hash algorithm id is required — proofbundle never defaults a missing hash to SHA-256")
@@ -127,7 +130,9 @@ def compute_digest(data: bytes, alg_id: str, *, allow_deprecated: bool = False) 
     """Hex digest of ``data`` under ``alg_id`` (fail-closed on missing/unknown/deprecated)."""
     spec = resolve_hash_alg(alg_id, allow_deprecated=allow_deprecated)
     h = spec.new()
-    h.update(data)
+    # The bytes it stores (round 12): a `bytes` subclass's own buffer never chooses what is hashed. Any
+    # other buffer (a memoryview) is hashed as before.
+    h.update(_bytes_von(data) if _bytes_von(data) is not None else data)
     return h.hexdigest()
 
 
@@ -165,11 +170,29 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     receipt has lost its force and must be renewed, not silently accepted). A deprecated leg is checked
     (``allow_deprecated``) so its presence is visible, but it cannot by itself carry a PASS."""
     result = VerificationResult()
-    if not isinstance(digests, Mapping) or not digests:
+    # ONE READING of each input (round 12): the data as the bytes it stores, the digests as the pairs
+    # a dict stores (through the base type's own `items`, which hashes nothing), each id and each
+    # expected digest as its characters. At cd5d39f4 the map was read through its own `__len__` and
+    # `items()`, and each id and digest through its own `__hash__`, `__eq__` and `lower()`. A
+    # `Mapping` that is no dict can only be read through its own `items()`, once.
+    gespeichert: Any = digests
+    paare: list
+    if issubclass(type(gespeichert), dict):
+        paare = list(dict.items(gespeichert))
+    elif issubclass(type(digests), Mapping):   # by its own type, never its `__class__` (round 12)
+        paare = list(digests.items())
+    else:
+        paare = []
+    if not paare:
         result.checks.append(Check("hashalg:dual", False,
                                    "digests must be a non-empty mapping of alg -> hex"))
         return result
-    if not isinstance(data, (bytes, bytearray, memoryview)):
+    # The data as the bytes it holds, once (a `memoryview` as the bytes it views, as every leg read it
+    # before), and judged by its own type: an object that claims bytes through `__class__` passed
+    # `isinstance` and was read once per leg through its own buffer.
+    if _puffer_von(data) is not None:
+        data = _puffer_von(data)
+    if type(data) is not bytes:
         # 6-lens gate L3-02: compute_digest(data, ...) -> h.update(data) raised a raw TypeError on a non-bytes
         # `data` (the digests + each expected are guarded, but the primary data arg was not). This public
         # never-raise surface must return a fail-closed VerificationResult, not crash a relying party.
@@ -231,7 +254,9 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
         return result
 
     current_ok = 0
-    for alg_id, expected in digests.items():
+    for alg_id, expected in paare:
+        alg_id = _zeichen_von(alg_id) if _zeichen_von(alg_id) is not None else alg_id
+        expected = _zeichen_von(expected) if _zeichen_von(expected) is not None else expected
         try:
             spec = resolve_hash_alg(alg_id, allow_deprecated=True)
         except HashAlgError as exc:
@@ -254,9 +279,10 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
         # Ehrliche Einordnung: ein FALSCHER Digest wurde nie angenommen (gemessen), deshalb P3.
         # Eine abweichende Schreibweise bekommt ihren EIGENEN Grund, damit sie nicht als
         # inhaltlicher Fehlschlag missverstanden wird.
-        match = isinstance(expected, str) and actual == expected
+        # `type()`, not `isinstance` (round 12): a `__class__` claim of str answered `==` itself.
+        match = type(expected) is str and actual == expected
         detail = "digest matches" if match else "digest mismatch"
-        if (not match and isinstance(expected, str) and expected.lower() == actual):
+        if (not match and type(expected) is str and expected.lower() == actual):
             detail = ("digest matches the payload but is not in canonical lowercase hex — a digest "
                       "field has exactly one accepted wire form")
         if match and spec.status == "deprecated":

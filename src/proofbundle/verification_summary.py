@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from ._strict_json import loads_strict
+from .canonical import _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -53,6 +54,10 @@ def _is_digest(obj: Any) -> bool:
 
 def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``verification-summary/v0.1`` predicate (empty = valid)."""
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -155,6 +160,7 @@ def _rfc8785_available() -> bool:
 
 def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
+    predicate = _eine_kopie(predicate, VerificationSummaryError, "verification-summary predicate")   # one reading (round 12)
     errs = validate_summary_predicate(predicate, strict=False)
     if errs:
         raise VerificationSummaryError("invalid verification-summary predicate: " + "; ".join(errs))
@@ -171,6 +177,7 @@ def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
 def emit_verification_summary(predicate: dict, signer, *, subject_name: str | None = None,
                               subject_sha256: str | None = None, keyid: str | None = None,
                               strict: bool = True) -> dict:
+    predicate = _eine_kopie(predicate, VerificationSummaryError, "verification-summary predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
     errs = validate_summary_predicate(predicate, strict=strict)
     if errs:

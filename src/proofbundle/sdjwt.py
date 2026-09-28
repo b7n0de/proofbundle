@@ -48,6 +48,7 @@ from collections import deque
 from typing import Optional, Set
 
 from ._strict_json import loads_strict
+from .canonical import _zeichen_von
 from .errors import ProofBundleError
 from .signature import verify_ecdsa_p256, verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
@@ -124,7 +125,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         "alg": None,
         "detail": "",
     }
-    if not isinstance(compact, str):
+    # ONE READING, by its characters (round 12, the class of lens run 11): at cd5d39f4 a `str`
+    # subclass's own `split` handed out the segments, and the header and payload were decoded through
+    # their own `encode` while the signing input was their own `__format__`, so the claims parsed and
+    # the bytes the signature covered were two readings. The copy is a plain `str`, and every segment
+    # split from it is one.
+    compact = _zeichen_von(compact)
+    if compact is None:
         # RE-GATE never-raise (breadth sweep): a non-str compact presentation is malformed input — a
         # fail-closed verdict, never a raw AttributeError from `.split("~")`. This dict-returning verify
         # surface (untrusted SD-JWT from a holder) must always return a verdict.

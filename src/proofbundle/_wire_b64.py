@@ -67,23 +67,36 @@ from __future__ import annotations
 import base64
 import binascii
 
+from .canonical import _bytes_von, _type_name, _zeichen_von
+
 __all__ = ["decode_b64", "decode_b64url", "decode_b64_either", "decode_b64_c2sp"]
 
 
 def _as_bytes(s: "str | bytes") -> bytes:
     """Accept the str and bytes forms both call sites use, rejecting anything else with the same
     error type as a malformed body -- a caller handing us an int must not get a TypeError out of a
-    never-raise surface."""
-    if isinstance(s, bytes):
-        return s
-    if isinstance(s, str):
+    never-raise surface.
+
+    READ BY WHAT THE VALUE STORES (round 12, the class of lens run 11). The type is the value's own
+    and the content is its characters or its stored bytes (`canonical._zeichen_von`,
+    `canonical._bytes_von`): a ``str`` subclass's own ``encode`` and a ``bytes`` subclass's own
+    ``__bytes__`` or buffer never decide what is decoded. Measured at cd5d39f4: every decode site
+    called the field's own ``encode``, the reason a ``str`` subclass in ``payload_b64`` could hand
+    the signature check one payload and the parser another (round 11's L2), and the reason it still
+    could at sites round 11 did not touch (F4, F6). An object that merely claims ``str`` or
+    ``bytes`` through ``__class__`` is refused, as any other type."""
+    roh = _bytes_von(s)
+    if roh is not None and not issubclass(type(s), bytearray):
+        return roh
+    text = _zeichen_von(s)
+    if text is not None:
         try:
-            return s.encode("ascii")
+            return text.encode("ascii")
         except UnicodeEncodeError as e:
             # A non-ASCII character cannot be base64 of any alphabet; say so in the wire vocabulary
             # rather than leaking a unicode error out of a decode.
             raise binascii.Error("non-ASCII character in base64 field") from e
-    raise binascii.Error(f"base64 field must be str or bytes, got {type(s).__name__}")
+    raise binascii.Error(f"base64 field must be str or bytes, got {_type_name(type(s))}")
 
 
 def _canonical_std(raw: bytes) -> bytes:

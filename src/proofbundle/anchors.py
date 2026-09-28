@@ -43,7 +43,8 @@ import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
-from .canonical import _flagge
+from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _feld_von, _flagge, _folge_von, _plain_for_jcs,
+                        _puffer_von, _type_name, _zeichen_von)
 from .errors import BundleFormatError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -166,10 +167,13 @@ def statement_content_root(payload_bytes: bytes) -> bytes:
     entry point and decision.py resolve the content root from ONE definition; the type-check stays here to
     keep the anchor-layer ``BundleFormatError`` contract (a non-bytes target is a fail-closed schema error,
     not a producer-side canonicalization)."""
-    if not isinstance(payload_bytes, (bytes, bytearray)):
+    # The bytes it stores, by its own type (round 12): `bytes(x)` ran a `bytes` subclass's own
+    # `__bytes__` (Python 3.11 and later), so the caller's code chose the bytes the root was taken over.
+    roh = _bytes_von(payload_bytes)
+    if roh is None:
         raise BundleFormatError("statement content root needs the raw payload bytes")
     from . import canonical  # noqa: PLC0415
-    return canonical.statement_content_root(bytes(payload_bytes))
+    return canonical.statement_content_root(roh)
 
 
 def _call_verifier(fn: Callable, proof: bytes, canonical_root: bytes, *,
@@ -214,6 +218,11 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         enforce_structural_budget(anchor)
     except ProofBundleError as exc:
         raise BundleFormatError(f"anchor exceeds the verification budget (fail-closed): {exc}") from exc
+    # ONE READING (round 12): after the budget, the anchor is read once into the plain copy of what it
+    # stores, and every field below comes from the copy, so a dict subclass's own `get` cannot show
+    # the key check one field set and the verifier another. An anchor holding a value that is no JSON
+    # value is BundleFormatError, as a malformed structure is.
+    anchor = _plain_for_jcs(anchor, lambda text: BundleFormatError(f"anchor: {text}"))
     unknown = set(anchor) - _ANCHOR_KEYS
     if unknown:
         # deep gate 2026-09-05 (L3-600-03 class): name the keys rendered, never sort raw mixed-type keys
@@ -239,12 +248,16 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         out["detail"] = (f"no verifier registered for anchor type {render_safe(atype)} "
                          "(install proofbundle[anchors] or register the extension type)")
         return out
-    expected_root = _as_dict(target_roots).get(target)  # adversarial re-audit r5: target_roots kwarg (None/int) fail-closed
+    # The relying party's root by the bytes it stores, read through the base lookup (round 12): a dict
+    # subclass's own `get` and a `bytes` subclass's own `__ne__` never decide the binding. A
+    # `memoryview` root is compared by the bytes it views, as `!=` compared it before
+    # (`canonical._puffer_von`); any other value never matches.
+    expected_root = _feld_von(target_roots, target)  # adversarial re-audit r5: target_roots kwarg (None/int) fail-closed
     if expected_root is None:
         out["detail"] = f"the receipt has no {target} target to anchor against"
         return out
     canonical_root = _b64d(anchor.get("canonicalRoot"), "canonicalRoot")
-    if canonical_root != expected_root:
+    if canonical_root != _puffer_von(expected_root):
         # cross-target safety: a preRegistration anchor's root never equals the receipt root, and v.v.
         out["detail"] = f"canonicalRoot does not match the {target} root (cross-target or tampered)"
         return out
@@ -312,6 +325,26 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     read (round 11, class B of lens run 10, `canonical._flagge`). Measured at fa555f13: it was read by
     its truth, so ``allow_pending="false"`` let a pending anchor satisfy ``require``."""
     allow_pending = _flagge(allow_pending, "verify_anchors", "allow_pending")
+    # The requirements by their characters and the anchors through the list's own iteration, each
+    # read once (round 12): a `str` subclass's own `__eq__` never matches a type or a target, and a
+    # list subclass's own `__len__` and `__iter__` never decide which anchors are judged.
+    # A value of any type that is not an exact built-in is refused by that type, never asked through
+    # `==`, `bool()` or `__iter__`: an object claiming str or list through `__class__` answered those
+    # itself. Exact built-ins keep the handling they had.
+    eingebaut = _EINGEBAUTE_SKALARE + (dict, list, tuple, set, frozenset)
+    if _zeichen_von(require) is not None:
+        require = _zeichen_von(require)
+    elif type(require) not in eingebaut:
+        raise BundleFormatError(f"require must be an anchor type string, got {_type_name(type(require))}")
+    if _zeichen_von(require_target) is not None:
+        require_target = _zeichen_von(require_target)
+    elif type(require_target) not in eingebaut:
+        raise BundleFormatError(
+            f"require_target must be one of {ANCHOR_TARGETS}, got {_type_name(type(require_target))}")
+    if issubclass(type(anchors), list):
+        anchors = _folge_von(anchors)
+    elif type(anchors) not in eingebaut:
+        raise BundleFormatError("anchors must be a list")
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
             f"require_target must be one of {ANCHOR_TARGETS}, got {render_safe(require_target)}")

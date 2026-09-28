@@ -30,6 +30,7 @@ import re
 from typing import Any
 
 from .budget import render_keys_safe
+from .canonical import _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._membership import is_member
 from ._wire_b64 import decode_b64
@@ -108,6 +109,10 @@ def validate_relationships(value: Any) -> list[str]:
     ``try/except`` (a caller that treats "no exception" as "valid" reports a malformed
     block as valid). Use :func:`require_valid_relationships` for the raising form.
     """
+    try:
+        value = _pruefkopie(value)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"value is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(value, list):
         return ["relationships must be a JSON array of edge objects"]
@@ -251,12 +256,19 @@ def verify_relationship_edges(
     unresolved; else VERIFIED (>=1 edge verified); NOT_EVALUATED when no profile present.
     The aggregate NEVER upgrades any other verdict — wiring into cryptoValid is forbidden.
     """
-    related = related if isinstance(related, dict) else {}
+    # One reading of the attached targets, by what they store (round 12): the plain copy, so the
+    # targets judged below are not answered by a dict subclass's own `get` and `__contains__`. Targets
+    # that are no JSON value are no targets: every edge stays unresolved, never verified.
+    try:
+        related = _pruefkopie(related) if issubclass(type(related), dict) else {}
+    except ValueError:
+        related = {}
     # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
     # value ([1]/{1:2}/{1,2}/bytearray) crashed the ``{subject_hex}`` seed in the resolved-edge branch
     # (TypeError: unhashable type). A non-str hex can never legitimately equal a str target_hex, so
     # None is the correct fail-closed coercion (self-reference check + cycle seed both stay honest).
-    subject_hex = subject_hex if isinstance(subject_hex, str) else None
+    # A `str` subclass is read as its characters (round 12).
+    subject_hex = _zeichen_von(subject_hex)
     # DER SCHLUESSEL WIRD HIER GESETZT, NICHT BEIM AUFRUFER (deep gate Lauf 7, Fund L4-600-02, P1).
     #
     # WAS WAR: `supersededByAttached` fuellten die AUFRUFER — decision.py:682 und outcome.py:673 taten
@@ -307,6 +319,14 @@ def verify_relationship_edges(
                            f"(fail-closed): {exc}"],
                 "supersededByAttached": _sba}
 
+    # The edges are read once as well, into the plain copy of what they store (round 12); the
+    # validator and the loop below read that copy.
+    try:
+        relationships = _pruefkopie(relationships)
+    except ValueError as exc:
+        return {"lineage": LINEAGE_FAIL, "edges": [],
+                "errors": [f"relation:malformed:relationships are not a JSON value: {exc}"],
+                "supersededByAttached": _sba}
     structural = validate_relationships(relationships)
     if structural:
         return {"lineage": LINEAGE_FAIL, "edges": [],
@@ -327,7 +347,7 @@ def verify_relationship_edges(
         if subject_hex is not None and target_hex == subject_hex:
             entry["resolution"] = LINEAGE_FAIL
             entry["errors"].append("relation:cycle: edge targets the receipt itself")
-        elif target_hex in related:
+        elif target_hex is not None and target_hex in related:
             target = related[target_hex]
             if not isinstance(target, dict):
                 entry["resolution"] = LINEAGE_FAIL
@@ -663,6 +683,19 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     self-assertion) — same policy code, different subject. ``reject_retracted`` is the retracts sibling,
     standalone-only. Both extensions live in ``relation_statement`` and are NOT evaluated here."""
     out: list[dict] = []
+    # The three inputs are read once, by what they hold (round 12): the section and the lineage result
+    # as the plain copies of what they store (a `str` subclass `resolution` answered "VERIFIED" through
+    # its own `__ne__`), the successor key as its characters. An input that is no JSON value reads as
+    # absent, which requires nothing and grants nothing.
+    try:
+        relations_section = _pruefkopie(relations_section)
+    except ValueError:
+        relations_section = None
+    try:
+        lineage_result = _pruefkopie(lineage_result)
+    except ValueError:
+        lineage_result = {}
+    successor_key_b64 = _zeichen_von(successor_key_b64)
     if not isinstance(relations_section, dict):
         return out
     # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached

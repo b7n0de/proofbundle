@@ -22,6 +22,7 @@ import re
 from typing import Any, Callable
 
 from ._strict_json import loads_strict
+from .canonical import _EINGEBAUTE_SKALARE, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member
@@ -91,6 +92,10 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
 
     strict currently adds no extra required fields beyond _REQUIRED_ALWAYS (the outcome predicate is small and
     fully required by default); the flag is kept for signature parity with decision.py and future §-gates."""
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -249,10 +254,12 @@ def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool
     have signed an Ed25519 DSSE envelope, so it never binds. A keyId without key material in the pack
     cannot be bound and is False (the pack contract requires every role key id in ``keys``).
 
-    Never raises on malformed input."""
-    if not isinstance(trust_pack, dict) or not isinstance(key_id, str) or not key_id:
+    Never raises on malformed input. Every input is read once by what it holds (round 12): the pack
+    as its plain copy, the key id as its characters, the key as its bytes."""
+    trust_pack, key_id, public_key = _plain_pack(trust_pack), _zeichen_von(key_id), _bytes_von(public_key)
+    if trust_pack is None or key_id is None or not key_id:
         return False
-    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+    if public_key is None or len(public_key) != 32:
         return False
     keys = trust_pack.get("keys")
     kv = keys.get(key_id) if isinstance(keys, dict) else None
@@ -265,7 +272,20 @@ def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool
         raw = decode_b64(kv["publicKey"])
     except (ValueError, TypeError):
         return False
-    return len(raw) == 32 and raw == bytes(public_key)
+    return len(raw) == 32 and raw == public_key
+
+
+def _plain_pack(trust_pack: Any) -> Any:
+    """The trust-pack predicate as the plain copy of what it stores, or None when it is no JSON object
+    (round 12). The role checks below read it once: at cd5d39f4 `roles`, `revoked` and `keys` were
+    three reads of the caller's object through its own `get`, so the membership judged and the key
+    material bound could come from two different packs."""
+    if not issubclass(type(trust_pack), dict):
+        return None
+    try:
+        return _plain_for_jcs(trust_pack, ValueError)
+    except ValueError:
+        return None
 
 
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
@@ -282,8 +302,11 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
 
     Fail-closed: a missing/malformed role, a missing/malformed ``executor.keyId``, a revoked key, or a
     keyId whose pack key material is absent or differs from the signing key are all False — never a
-    silent pass. Never raises on malformed input."""
-    if not isinstance(executor, dict) or not isinstance(trust_pack, dict):
+    silent pass. Never raises on malformed input. The executor and the pack are read once, into the
+    plain copies of what they store (round 12)."""
+    trust_pack = _plain_pack(trust_pack)
+    executor = _plain_pack(executor)
+    if executor is None or trust_pack is None:
         return False
     key_id = executor.get("keyId")
     if not isinstance(key_id, str) or not key_id:
@@ -324,8 +347,10 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     trust in the pack itself.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
-    False — never a silent pass. Never raises on malformed input."""
-    if not isinstance(receiver_key_id, str) or not receiver_key_id or not isinstance(trust_pack, dict):
+    False — never a silent pass. Never raises on malformed input. Both inputs are read once by what
+    they hold (round 12)."""
+    receiver_key_id, trust_pack = _zeichen_von(receiver_key_id), _plain_pack(trust_pack)
+    if receiver_key_id is None or not receiver_key_id or trust_pack is None:
         return False
     roles = trust_pack.get("roles")
     role = roles.get(_OUTCOME_RECEIVER_ROLE) if isinstance(roles, dict) else None
@@ -353,6 +378,15 @@ def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
     function only resolves CONTENT, mirroring the same layering ``resolve_evidence_ref`` uses."""
     from . import anchors as _anchors_mod  # noqa: PLC0415
     out: dict[str, Any] = {"content_root_ok": None, "artifact_ok": None, "detail": ""}
+    # One reading of each input, by what it holds (round 12), as in decision.resolve_evidence_ref.
+    gelesen: Any
+    try:
+        gelesen = _pruefkopie(ref)
+    except ValueError:
+        gelesen = None
+    ref = gelesen
+    if artifact_bytes is not None and _bytes_von(artifact_bytes) is not None:
+        artifact_bytes = _bytes_von(artifact_bytes)
     want = _as_dict(ref.get("digest")).get("sha256") if isinstance(ref, dict) else None
     if receiver_payload is not None:
         got = _anchors_mod.statement_content_root(receiver_payload).hex()
@@ -438,6 +472,7 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
     """Build a STANDARD in-toto Statement v1 whose predicate is the Outcome Receipt. The subject is by DEFAULT
     a commitment to the predicate: sha256 over its RFC-8785 canonical form. A caller-supplied override is
     self-attested and NOT cross-checked (No-Overclaim, same discipline as build_decision_statement)."""
+    predicate = _eine_kopie(predicate, OutcomeReceiptError, "action-outcome predicate")   # one reading (round 12)
     errs = validate_outcome_predicate(predicate, strict=False)
     if errs:
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
@@ -456,6 +491,7 @@ def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = 
                          strict: bool = True) -> dict:
     """Sign an Outcome Receipt as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical. Fail-closed:
     an invalid predicate raises before signing."""
+    predicate = _eine_kopie(predicate, OutcomeReceiptError, "action-outcome predicate")   # one reading (round 12)
     from . import dsse  # noqa: PLC0415
     errs = validate_outcome_predicate(predicate, strict=strict)
     if errs:
@@ -585,6 +621,15 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     from . import dsse  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
+    # ONE READING OF THE TRUST PACK (round 12; lens run 11 named it read twice, not measured): the plain
+    # copy of what it stores, taken once, and both role checks and the receiver key lookup below read
+    # that copy. At cd5d39f4 `roles`, `revoked` and `keys` were separate reads through the caller's own
+    # `get`. A supplied pack that is no JSON object is an empty pack: no role, no key, nothing trusted,
+    # which is what the checks answered for it before.
+    if trust_pack is not None:
+        trust_pack = _plain_pack(trust_pack)
+        if trust_pack is None:
+            trust_pack = {}
 
     try:
         # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
@@ -647,7 +692,11 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # decisionRef binding (replay against another decision fails).
         _dref = _as_dict(predicate.get("decisionRef")).get("sha256") if isinstance(predicate.get("decisionRef"), dict) else None
         if expected_decision_ref is not None:
-            r["decision_bound"] = _dref == expected_decision_ref
+            # By its characters (round 12, lens run 11 O1's siblings): at cd5d39f4 a `str` subclass's
+            # own `__eq__` answered True for another decision. An expectation that is no string never
+            # binds.
+            _erwartet = _zeichen_von(expected_decision_ref)
+            r["decision_bound"] = _erwartet is not None and _dref == _erwartet
             if not r["decision_bound"]:
                 r["errors"].append(
                     "decisionRef mismatch — this outcome is bound to a DIFFERENT decision than expected "
@@ -656,7 +705,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # role separation (executor must differ from the decision maker).
         _exid = _as_dict(predicate.get("executor")).get("id") if isinstance(predicate.get("executor"), dict) else None
         if decision_maker_id is not None:
-            r["role_separation_ok"] = bool(_exid) and _exid != decision_maker_id
+            # By its characters, so a `str` subclass's own `__ne__` cannot declare two ids different
+            # (round 12). An id of an exact built-in scalar type is compared as before; one of any
+            # other type (an object that claims str through `__class__` answered `!=` itself) cannot
+            # show two parties differ, so separation is not established (fail-closed).
+            _dm = _zeichen_von(decision_maker_id)
+            if _dm is None and type(decision_maker_id) in _EINGEBAUTE_SKALARE:
+                _dm = decision_maker_id
+            r["role_separation_ok"] = bool(_exid) and _dm is not None and _exid != _dm
             if not r["role_separation_ok"]:
                 r["errors"].append(
                     "role separation violated — executor.id equals the decisionMaker id; whoever decides "
@@ -803,7 +859,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                         continue
                     _ans = _recv_answers.get(i)
                     if isinstance(_ans, (bytes, bytearray)):
-                        if pack_key_binds_signer(_kid, trust_pack, bytes(_ans)):
+                        if pack_key_binds_signer(_kid, trust_pack, _bytes_von(_ans)):
                             _trusted = True
                             _rbound = True
                         else:
@@ -849,14 +905,17 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _val = predicate.get("validity")
         _validity = _val if isinstance(_val, dict) else {}
         if expected_audience is not None:
+            # By its characters (round 12), as in decision.py.
             _aud = _validity.get("audience")
-            r["audience_ok"] = isinstance(_aud, list) and expected_audience in _aud
+            _erwartet = _zeichen_von(expected_audience)
+            r["audience_ok"] = isinstance(_aud, list) and _erwartet is not None and _erwartet in _aud
             if not r["audience_ok"]:
                 r["errors"].append(
                     "audience mismatch or absent validity.audience — requested audience binding cannot be "
                     "enforced (cross-audience replay?, fail-closed)")
         if expected_nonce is not None:
-            r["nonce_ok"] = _validity.get("nonce") == expected_nonce
+            _erwartet = _zeichen_von(expected_nonce)   # by its characters (round 12)
+            r["nonce_ok"] = _erwartet is not None and _validity.get("nonce") == _erwartet
             if not r["nonce_ok"]:
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "

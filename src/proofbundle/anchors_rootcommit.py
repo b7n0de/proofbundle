@@ -37,6 +37,7 @@ error at module load).
 from __future__ import annotations
 
 import hashlib
+from .canonical import _zeichen_von
 from .checkpoint import _split_signed_note
 from .errors import BundleFormatError
 from ._wire_b64 import decode_b64
@@ -146,6 +147,10 @@ def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
     root or wallet makes commitment differ → status 'unbound' → reject. Offline (no relying-party Bitcoin
     header) a genuine proof is honestly not-a-pass on temporal confirmation but the BINDING still holds."""
     frozen = frozen or {}
+    # One reading of the note, by its characters (round 12): the head and the anchor lines below
+    # come from the same text, and no method of a `str` subclass runs.
+    if _zeichen_von(checkpoint_text) is not None:
+        checkpoint_text = _zeichen_von(checkpoint_text)
     head = parse_checkpoint_head(checkpoint_text)
     if head is None:
         return {"known_anchors": 0, "binding": False, "reject": True, "status": "malformed_checkpoint",
@@ -249,6 +254,8 @@ def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = No
     binding is dep-free (OTS commit check); sig_ok needs a secp256k1+keccak backend and is None
     (status 'no_sig_lib') if none is installed — never a silent pass."""
     frozen = frozen or {}
+    if _zeichen_von(checkpoint_text) is not None:
+        checkpoint_text = _zeichen_von(checkpoint_text)   # one reading, as in verify_rootcommit_v1 (round 12)
     head = parse_checkpoint_head(checkpoint_text)
     if head is None:
         return {"known_anchors": 0, "binding": False, "sig_ok": None, "reject": True,

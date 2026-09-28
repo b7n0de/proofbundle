@@ -24,13 +24,14 @@ import base64
 import hashlib
 import json
 import os
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ._strict_json import loads_strict
 from .budget import render_safe
+from .canonical import _feld_von, _ganzzahl_von, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
@@ -298,9 +299,16 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     ``iat`` is the POSIX issuance time chosen by the holder (explicit, not sampled here, so
     presentations are reproducible in tests).
     """
+    # One reading of each input, by what it holds (round 12): the presentation hashed into sd_hash is
+    # the presentation written, and the time checked is the time signed. At cd5d39f4 a `str`
+    # subclass's own `encode` fed sd_hash and its own `__add__` wrote the result.
+    compact = _zeichen_von(compact)
+    if compact is None:
+        raise ValueError("compact SD-JWT must be a string")
     if not compact.endswith("~"):
         raise ValueError("compact SD-JWT already carries a key binding JWT (or is malformed)")
-    if isinstance(iat, bool) or not isinstance(iat, int):
+    iat = _ganzzahl_von(iat)
+    if iat is None:
         raise ValueError("iat must be a POSIX timestamp integer")
     # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
     # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).
@@ -325,7 +333,10 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
 def issuer_matches(claim: dict, signer: Ed25519PrivateKey) -> bool:
     """True iff the claim's issuer fingerprint equals the signer's public key (bundle↔SD-JWT same key)."""
     raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    return claim.get("issuer") == "ed25519:" + base64.b64encode(raw).decode("ascii")
+    # The stored issuer by its characters (round 12): neither a dict subclass's own `get` nor a `str`
+    # subclass's own `__eq__` decides the match.
+    issuer = _zeichen_von(_feld_von(claim, "issuer"))
+    return issuer == "ed25519:" + base64.b64encode(raw).decode("ascii")
 
 
 def _jwt_payload(compact: str) -> dict:
@@ -359,9 +370,17 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     SD-JWT carries as a string; a ``root_b64`` that is no string never binds. Measured at 493c2f86: a
     ``str`` subclass holding another root whose ``__eq__`` answers True, and an object of another type
     whose ``__eq__`` answers True, each bound an SD-JWT to a root it does not carry."""
-    from .canonical import _zeichen_von  # noqa: PLC0415
     wurzel = _zeichen_von(root_b64)
-    if not isinstance(compact, str) or wurzel is None:
+    # The presentation and the claim are read once, by what they store (round 12): the fields compared
+    # are the claim's stored values and the SD-JWT's own characters, and no `__ne__` of a `str`
+    # subclass value and no `get` of a dict subclass decides the binding.
+    compact = _zeichen_von(compact) if _zeichen_von(compact) is not None else compact
+    gelesen: Any
+    try:
+        gelesen = _plain_for_jcs(claim, ValueError) if issubclass(type(claim), dict) else None
+    except ValueError:
+        gelesen = None
+    if type(compact) is not str or wurzel is None or gelesen is None:   # `type()` (round 12)
         # adversarial re-audit round 7: a non-str presented `compact` is a fail-closed False, not a raw
         # AttributeError from compact.split('~') in _jwt_payload — the except tuple below omits AttributeError/
         # TypeError, and this verify-side check_* is the peer the flagship verify_bundle calls.
@@ -382,7 +401,7 @@ def check_binds_bundle(compact: str, claim: dict, root_b64: str) -> bool:
     # raw KeyError traceback out of the verify path. Guarding against `None == None` matching a genuinely
     # absent SD-JWT field would be a false bind, so a claim missing a required field can never bind.
     for field in ("passed", "threshold", "comparator", "suite", "issuer"):
-        if field not in claim or p.get(field) != claim.get(field):
+        if field not in gelesen or p.get(field) != gelesen.get(field):
             return False
     # as_dict, not `(x or {})`: a truthy non-dict `receipt` (str/list/int/True from attacker JSON) slips
     # through the falsy-only idiom and crashes the downstream .get with a raw AttributeError out of the

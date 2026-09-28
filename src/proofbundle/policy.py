@@ -18,7 +18,6 @@ Design invariants:
 
 from __future__ import annotations
 
-import copy
 import hmac
 import re
 from datetime import datetime, timezone
@@ -26,6 +25,7 @@ from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe
+from .canonical import _flagge, _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -345,7 +345,10 @@ def load_policy(source: Union[str, dict]) -> dict:
     Every section is checked for unknown fields (a typo that silently weakens a policy is impossible),
     the schema version is pinned, and ``policy_id`` is required. No network, no I/O beyond reading the
     file. Raises :class:`PolicyError` on anything malformed."""
-    if isinstance(source, str):
+    # The type is the object's own and a path its characters (round 12): `isinstance` read a caller's
+    # `__class__` for every source that is no str.
+    if issubclass(type(source), str):
+        source = str.__str__(source)
         try:
             import os  # noqa: PLC0415
             import stat as _stat  # noqa: PLC0415
@@ -386,7 +389,11 @@ def load_policy(source: Union[str, dict]) -> dict:
             raise PolicyError(f"trust policy structure exceeds the verification budget: {exc}") from exc
         # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object
         # before evaluate_policy must not be able to bypass these checks — evaluate the copy.
-        policy = copy.deepcopy(source)
+        # THE PLAIN COPY, not `copy.deepcopy` (round 12): deepcopy rebuilds a dict subclass as that
+        # subclass, so its own `get` kept answering every check after the load. `_plain_for_jcs` reads
+        # what the policy stores into exact built-in types and runs no code of the caller; a policy
+        # holding a value that is no JSON value is PolicyError, as a malformed file is.
+        policy = _plain_for_jcs(source, lambda text: PolicyError(f"trust policy is not a JSON object: {text}"))
     policy = _require_dict(policy, "trust policy")
 
     if policy.get("schema") not in _SUPPORTED_SCHEMAS:
@@ -610,9 +617,22 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # scalar/list) must not raise a raw AttributeError from policy.get(...) — the never-raise verify surfaces
     # reach here with attacker-influenceable input. Fail-closed: a malformed policy is a hard policy fail, not
     # a silent None (a requested-but-unparseable policy must never read as "no policy to check").
-    if not isinstance(policy, dict):
+    if not issubclass(type(policy), dict):
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": ["policy must be a JSON object — malformed policy (fail-closed)"]}
+    # ONE READING of the policy, the statement and the signer key (round 12): the plain copies of
+    # what they hold, so no method of a caller's dict subclass or `str` subclass decides a check (a
+    # trusted decision maker matched through the caller's own `__eq__`, a section read through its
+    # own `get`). A policy or statement holding a value that is no JSON value is a fail-closed
+    # verdict.
+    try:
+        policy = _plain_for_jcs(policy, PolicyError)
+        if issubclass(type(statement), dict):
+            statement = _plain_for_jcs(statement, PolicyError)
+    except PolicyError as exc:
+        return {"policy_ok": False, "signer_trusted": False,
+                "errors": [f"policy or statement is not a JSON object (fail-closed): {exc}"]}
+    signer_public_key_b64 = _zeichen_von(signer_public_key_b64)
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
@@ -663,7 +683,8 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if tdm:
         claimed_id = _as_dict(predicate.get("decisionMaker")).get("id")
         match = next((m for m in tdm
-                      if isinstance(m, dict) and m.get("public_key_b64") == signer_public_key_b64), None)
+                      if isinstance(m, dict) and signer_public_key_b64 is not None
+                      and m.get("public_key_b64") == signer_public_key_b64), None)
         signer_trusted = match is not None
         if match is None:
             errors.append("signer key is not in trusted_decision_makers")
@@ -728,7 +749,15 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
             errors.append("privacy.rawInputsIncluded=true but the policy does not allow raw inputs (allow_raw_inputs)")
 
     if section.get("require_external_anchor"):
-        allow_pending = bool(section.get("allow_pending"))
+        # O2 of lens run 11 (round 12, `canonical._flagge`): the switch is True or False. At cd5d39f4 it
+        # was read by its truth when the policy skipped `load_policy`, so "false" and 1 let a pending
+        # anchor satisfy the requirement. Absent is False, as the loader's default; any other value is
+        # a fail-closed error naming it.
+        try:
+            allow_pending = _flagge(section.get("allow_pending", False), "decision_receipt", "allow_pending")
+        except ProofBundleError as exc:
+            allow_pending = False
+            errors.append(str(exc))
         # Anchors are DETACHED (Fix 2): the real anchor verification ran in verify_decision_receipt and its
         # status is passed in as anchor_status. A PASS (a full verifying anchor) always satisfies; a
         # pending/inclusion-only anchor (WARN) satisfies ONLY when allow_pending is set (default false —
@@ -777,8 +806,21 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """
     # adversarial re-audit round 4: a non-dict `policy` (raw dict bypasses load_policy's validation) crashed the
     # `.get`/section walks below — a malformed policy is a fail-closed verdict, never a raw AttributeError.
-    if not isinstance(policy, dict):
+    if not issubclass(type(policy), dict):
         return {"policy_ok": False, "checks": [], "reason": "policy is not a dict"}
+    # ONE READING (round 12, lens run 11 F1, P0): the policy and the bundle are read once, into the
+    # plain copies of what they store, and every check below reads the copies. At cd5d39f4 the signer
+    # pin (:802, :850) and the stated root (:942) were read through the caller's own `get`, while
+    # `verify_bundle` verified what the bundle stores: a bundle signed by a key the policy does not
+    # trust got policy_ok True when its own `get("signature")` named a trusted key, when its
+    # `public_key_b64` was a `str` subclass claiming that key through `__eq__` and `__hash__`, and when
+    # its own `get("merkle")` answered a trusted root. `verify_bundle` reads the same stored contents
+    # since round 11, so the policy now judges the bundle that was verified. A bundle or policy that is
+    # no JSON object is a fail-closed verdict.
+    try:
+        policy = _plain_for_jcs(policy, PolicyError)
+    except PolicyError as exc:
+        return {"policy_ok": False, "checks": [], "reason": f"policy is not a JSON object: {exc}"}
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy (Klasse und Messung
     # bei _huelle_pruefen). Ein unbekannter Schluessel ist ein fail-closed Verdikt, kein Wurf —
     # diese Flaeche liefert Verdikte.
@@ -798,6 +840,14 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if not getattr(result, "ok", False):
         return {"policy_ok": None, "checks": [],
                 "reason": "crypto verification did not pass — policy not evaluated"}
+    try:
+        if not issubclass(type(bundle), dict):
+            raise PolicyError("the bundle must be a JSON object")
+        bundle = _plain_for_jcs(bundle, PolicyError)
+    except PolicyError as exc:
+        grund = f"the bundle is not a JSON object, so no policy can judge it (fail-closed): {exc}"
+        return {"policy_ok": False, "checks": [{"name": "policy:bundle", "ok": False, "detail": grund}],
+                "reason": grund}
 
     sig = _as_dict(bundle.get("signature"))
 
@@ -1102,7 +1152,8 @@ def explain_policy(policy: dict) -> list:
 
     One line per active constraint; an empty list means the policy pins nothing (see
     :func:`lint_policy` — such a policy is wirkungslos and `POLICY: OK` under it attributes the
-    bytes to nobody)."""
+    bytes to nobody). The policy is read once, into the plain copy of what it stores (round 12)."""
+    policy = _gelesene_richtlinie(policy)
     lines: list = []
     # A-P0-4/A-P0-2: purpose, lifecycle and the raw-template flag are ENFORCED by evaluate_policy (exit
     # 3), so explain MUST list them (explain⟺enforce parity — else lint calls a policy vacuous that
@@ -1233,6 +1284,23 @@ def policy_warnings(policy: dict) -> list:
     return warnings
 
 
+def _gelesene_richtlinie(policy):
+    """A policy dict as the plain copy of what it stores (round 12), so the readers below judge what it
+    holds and run none of its methods; a dict holding a value that is no JSON value is read as an
+    empty policy, which pins nothing and is reported so. Any other JSON value is its plain copy, for
+    the reader's own handling as before; a value of another type is PolicyError, so an object that
+    claims to be a dict through ``__class__`` is never read through its own ``get``."""
+    if not issubclass(type(policy), dict):
+        try:
+            return _pruefkopie(policy)
+        except ValueError as exc:
+            raise PolicyError(f"trust policy is not a JSON object: {exc}") from exc
+    try:
+        return _plain_for_jcs(policy, PolicyError)
+    except PolicyError:
+        return {}
+
+
 def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
     in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
@@ -1325,7 +1393,9 @@ def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     the policy makes NO effective pin at all — `evaluate_policy` would return ``policy_ok=True``
     with an EMPTY check list (``all([]) is True``), the exact vacuous-pass trap TP1 closes.
     ``strict`` additionally promotes the attributes-to-nobody warning to an error AND rejects a raw
-    template used productively (AP-2 §6.4). ``now`` is threaded into the expiry check for tests."""
+    template used productively (AP-2 §6.4). ``now`` is threaded into the expiry check for tests.
+    The policy is read once, into the plain copy of what it stores (round 12)."""
+    policy = _gelesene_richtlinie(policy)
     pins = explain_policy(policy)
     errors: list = []
     warnings = policy_warnings(policy)

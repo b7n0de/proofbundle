@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from .anchors_chia import ANCHOR_TYPE, verify_offline_merkle
+from .canonical import _bytes_von
 
 _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
 
@@ -109,6 +110,10 @@ def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receip
     the whole binding — see anchors_chia.verify_offline_merkle), so the key is derived here, never passed in
     independently. Returns the anchor dict (self-verifying offline before emit). Fail-closed.
     """
+    # The root as the bytes it stores, read once (round 12): `bytes(x)` ran a subclass's own
+    # `__bytes__` three times here, for the key, the self-check and the written canonicalRoot.
+    if _bytes_von(canonical_root) is not None:
+        canonical_root = _bytes_von(canonical_root)
     key = _hx(bytes(canonical_root))   # key == canonicalRoot: the binding the verifier enforces
     gp = _as_dict(_rpc("data_layer", "get_proof", {"store_id": store_id, "keys": [key]}))
     proof_blob = _as_dict(gp.get("proof"))   # 3.6.3: guard the nested RPC sub-object, not just falsy

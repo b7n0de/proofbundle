@@ -19,6 +19,8 @@ import enum
 import re
 from typing import Any, Callable, Optional
 
+from .canonical import _bytes_von, _pruefkopie, _puffer_von, _zeichen_von
+
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
     "classify_receiver_corroboration",
@@ -92,6 +94,12 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     """
     if not applicable:
         return {"level": None, "level_name": None, "detail": "not applicable"}
+    # One reading of the caller's digest object, by what it stores (round 12): the shape judged and the
+    # object handed to the resolver are the same plain copy. One that is no JSON value is no digest.
+    try:
+        digest_obj = _pruefkopie(digest_obj)
+    except ValueError:
+        digest_obj = None
     if not _is_digest(digest_obj):
         return {"level": EvidenceLevel.CLAIMED, "level_name": EvidenceLevel.CLAIMED.name,
                 "detail": "no well-formed sha256 digest object present"}
@@ -151,6 +159,20 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     (``outcome.receiver_trusted_by_role``: a curated list of trusted, genuinely-independent receiver keys).
     So key-id distinctness here is the STRUCTURAL floor; principal-level independence needs that out-of-band
     trust binding."""
+    # One reading of each caller value, by what it holds (round 12): the digest object as its plain copy
+    # (the same copy the base classifier and the attestation resolver see), the key ids as their
+    # characters, the keys as their bytes. WHETHER a key is expected is decided by the argument, not
+    # by whether it could be read: a supplied key that is no bytes-like value keeps the binding
+    # required and never matches (at cd5d39f4 `bytes()` raised a raw TypeError for a str, and a
+    # `memoryview` compared by the bytes it views, which `canonical._puffer_von` keeps).
+    try:
+        digest_obj = _pruefkopie(digest_obj)
+    except ValueError:
+        digest_obj = None
+    executor_key_id, receiver_key_id = _zeichen_von(executor_key_id), _zeichen_von(receiver_key_id)
+    schluessel_erwartet = expected_receiver_public_key is not None
+    if schluessel_erwartet:
+        expected_receiver_public_key = _puffer_von(expected_receiver_public_key)
     base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
     if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
         return base
@@ -175,16 +197,18 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
         res = False
     if isinstance(res, (bytes, bytearray)):
-        signer_key = bytes(res) if len(res) == 32 else None
+        res = _bytes_von(res)
+        signer_key = res if len(res) == 32 else None
         if signer_key is None:
             return {**base, "detail": base["detail"] + " (attestation resolver returned key material that is "
                     "not a 32-byte Ed25519 key — not attested)"}
-        if expected_receiver_public_key is not None and signer_key != bytes(expected_receiver_public_key):
+        if schluessel_erwartet and (expected_receiver_public_key is None
+                                    or signer_key != expected_receiver_public_key):
             return {**base, "detail": base["detail"] + " (KEY_ID_NOT_BOUND_TO_SIGNER: the referenced statement "
                     "is signed by a key that is not the trust pack's key for receiverKeyId — the label names "
                     "a party that did not sign)"}
         attested = True
-    elif expected_receiver_public_key is not None:
+    elif schluessel_erwartet:
         return {**base, "detail": base["detail"] + " (receiverKeyId has key material in the trust pack, but "
                 "the attestation resolver did not return the signing key, so the label cannot be bound to "
                 "the signer — no promotion; return the 32-byte signer key from the resolver to bind it)"}
