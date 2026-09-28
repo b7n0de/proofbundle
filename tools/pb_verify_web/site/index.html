@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none'">
+<title>pb_verify_rs in the browser</title>
+<style>
+  :root { --fg: #1b1f24; --bg: #ffffff; --muted: #57606a; --line: #d0d7de; --ok: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6edf3; --bg: #0d1117; --muted: #8d96a0; --line: #30363d; --ok: #3fb950; --bad: #f85149; }
+  }
+  body { font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 760px;
+         margin: 0 auto; padding: 16px; }
+  label { display: block; margin-top: 12px; font-weight: 600; }
+  input[type=text], select { width: 100%; box-sizing: border-box; padding: 6px; font: inherit; }
+  .hint, footer { color: var(--muted); font-size: 13px; }
+  button { margin-top: 16px; padding: 8px 16px; font: inherit; }
+  pre { white-space: pre-wrap; word-break: break-all; border: 1px solid var(--line); padding: 8px; }
+  #verdict.ok { color: var(--ok); } #verdict.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<h1>pb_verify_rs in the browser</h1>
+<p>This page runs the independent Rust verifier of proofbundle, compiled to WebAssembly. Files you
+pick are read in this tab and passed to the verifier in memory. The page sends nothing anywhere.</p>
+
+<form id="form">
+  <label for="command">Check</label>
+  <select id="command">
+    <option value="verify-dsse">verify-dsse: DSSE envelope signature under a public key</option>
+    <option value="verify-relation">verify-relation: decision or outcome receipt with its relations</option>
+    <option value="verify-relation-statement">verify-relation-statement: relation statement</option>
+    <option value="verify-bundle">verify-bundle: evidence bundle</option>
+    <option value="verify-trust-pack-threshold">verify-trust-pack-threshold: trust pack root threshold</option>
+    <option value="content-root">content-root: jcs-sha256-v1 content root of a statement</option>
+    <option value="strict-parse">strict-parse: strict JSON parse (duplicate keys refused)</option>
+  </select>
+
+  <label for="file">File</label>
+  <input id="file" type="file">
+
+  <label for="key">Public key (base64), where the check takes one</label>
+  <input id="key" type="text" autocomplete="off" spellcheck="false">
+
+  <label for="more">Further files (policy, related receipts)</label>
+  <input id="more" type="file" multiple>
+  <p class="hint">Refer to a further file in the options below by its file name.</p>
+
+  <label for="options">Options</label>
+  <input id="options" type="text" autocomplete="off" spellcheck="false"
+         placeholder="e.g. --with-related retraction.json --related-pub KEY --policy policy.json">
+
+  <button id="run" type="submit" disabled>Verify</button>
+</form>
+
+<h2>Result</h2>
+<p id="verdict">Loading the verifier… If this line stays, serve this directory over HTTP, for
+example with <code>python3 -m http.server</code>: browsers do not run module scripts from a page
+opened from disk.</p>
+<pre id="output" hidden></pre>
+
+<footer>
+  <p>Exit codes: 0 verified, 1 verification failed, 2 malformed input, 3 policy not met. A pass
+  proves who signed the recorded bytes and that they are unchanged. It does not prove that any
+  recorded value is true.</p>
+  <p id="build"></p>
+</footer>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>
