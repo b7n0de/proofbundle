@@ -15,7 +15,11 @@ import json
 import pathlib
 import subprocess
 
-import pytest
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 RS = REPO / "tools" / "pb_verify_rs"
@@ -40,12 +44,9 @@ def test_the_marker_rule_names_each_side_that_lacks_it():
 
 
 def _rust_bin() -> pathlib.Path:
-    for t in ("debug", "release"):
-        b = RS / "target" / t / "pb_verify_rs"
-        if b.exists():
-            return b
-    pytest.skip("pb_verify_rs is not built here: the Rust side of the marker is NOT measured "
-                "(CI builds it and runs crosscheck.py, which holds the same rule)")
+    """Through tests/_pb_verify_rs.py: pinned, or built once under a lock, or a skip naming why
+    (a failure where CI requires the binary)."""
+    return _pb_verify_rs.binary_or_skip()
 
 
 def _relation_faelle():

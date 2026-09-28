@@ -33,12 +33,16 @@ import ast
 import base64
 import binascii
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "proofbundle"
 RUST_DIR = Path(__file__).resolve().parent.parent / "tools" / "pb_verify_rs"
@@ -476,22 +480,11 @@ class TestRustAgreement(unittest.TestCase):
     arm reports itself NOT MEASURABLE loudly instead of a silent skip."""
 
     @classmethod
-    def _binary(cls) -> "Path | None":
-        if RUST_BIN.exists():
-            return RUST_BIN
-        if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-            return None
-        build = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                               capture_output=True, text=True, timeout=1800)
-        if build.returncode != 0 or not RUST_BIN.exists():
-            return None
-        return RUST_BIN
+    def _binary(cls) -> "Path":
+        return _pb_verify_rs.binary_or_skip()
 
     def test_python_and_rust_agree_on_every_wire_form(self):
         rust = self._binary()
-        if rust is None:
-            self.skipTest("NOT MEASURABLE: tools/pb_verify_rs is absent or cargo unavailable — the "
-                          "differential arm did not run (env_blocked, never green)")
         from proofbundle.dsse import sign_envelope, verify_envelope
         from proofbundle.emit import generate_signer
 

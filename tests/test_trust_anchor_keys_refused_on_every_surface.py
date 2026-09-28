@@ -61,6 +61,11 @@ from proofbundle.signature import (  # noqa: E402
     verify_ed25519_pinned,
 )
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 P = (1 << 255) - 19
 I1 = b"\x01" + b"\x00" * 31                  # identity, canonical
 I2 = b"\x01" + b"\x00" * 30 + b"\x80"        # identity, x-sign bit set
@@ -754,16 +759,9 @@ RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"
 
 
 def _rust_binary():
-    """Same lookup as tests/test_lauf11_l1_l4_rust_strukturbudget_und_kreuzvergleich.py: the built
-    binary, else a release build, else None (and the class says it did not run)."""
-    import shutil
-    if RUST_BIN.exists():
-        return RUST_BIN
-    if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-        return None
-    b = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                       capture_output=True, text=True, timeout=1800)
-    return RUST_BIN if b.returncode == 0 and RUST_BIN.exists() else None
+    """The binary through tests/_pb_verify_rs.py: pinned, or built once per process under a lock, or
+    a skip that names why (a failure where CI requires the binary)."""
+    return _pb_verify_rs.binary_or_skip()
 
 
 class RustParity(unittest.TestCase):
@@ -772,9 +770,6 @@ class RustParity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rust = _rust_binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs is missing or cargo is absent — "
-                                    "the parity cases did NOT run (env_blocked, never green)")
 
     def _run(self, *args):
         return subprocess.run([str(self.rust), *args], capture_output=True, text=True, timeout=120)
