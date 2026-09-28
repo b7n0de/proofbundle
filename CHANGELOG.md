@@ -1729,7 +1729,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   object twice is not changed here: `verify_ed25519_pinned` reads `bytes(key)` for the rule and again
   for the signature check, and a key object whose `__bytes__` answers a real key first and the
   identity point after verified a signature made by nobody, directly and through
-  `dsse.verify_envelope`, measured on 3.10 and 3.13. Still read through the caller's own methods, and
+  `dsse.verify_envelope`, measured on 3.10 and 3.13; the round-12 sweep of the commitment-pattern
+  branch closes it (the entry on reading a caller's objects once, above), and on that head the
+  key object's `__bytes__` is never called. Still read through the caller's own methods, and
   not measured: the name a vkey is written under, the `signers` map of `sign_trust_pack` (checked
   against the pack's keys, then signed with), and the body an `assemble` step checks the signature
   over and then copies.
