@@ -101,6 +101,20 @@ class TheSameValuesAsTheMerkleModule(unittest.TestCase):
         with self.assertRaises(ValueError):
             akku.consistency_proof_from(2)
 
+    def test_a_proof_index_is_an_int_not_a_number_that_compares_like_one(self) -> None:
+        """The range checks compare, and 0.5 and True compare like indices: inclusion_proof_at(0.5) gave the
+        proof of leaf 0, consistency_proof_from(1.5) recursed without end. Anything but an int is refused
+        with the ValueError the range check raises."""
+        akku = self.a.MerkleAccumulator.from_leaves(_LEAVES[:3], keep_leaf_hashes=True)
+        for name, aufruf in (("inclusion_proof_at(0.5)", lambda: akku.inclusion_proof_at(0.5)),
+                             ("inclusion_proof_at(True)", lambda: akku.inclusion_proof_at(True)),
+                             ("inclusion_proof_at('1')", lambda: akku.inclusion_proof_at("1")),
+                             ("consistency_proof_from(1.5)", lambda: akku.consistency_proof_from(1.5)),
+                             ("consistency_proof_from(True)", lambda: akku.consistency_proof_from(True))):
+            with self.subTest(call=name):
+                with self.assertRaises(ValueError):
+                    aufruf()
+
     def test_the_pinned_reading_of_merkle_tree_hash(self) -> None:
         # tests/test_merkle_zwei_lesarten_vektoren.py: the argument is leaf data; reading A is the one shipped.
         eintraege = (b"entry-0: the first eval run", b"entry-1: the second eval run", b"entry-2: a run that was aborted",
@@ -199,6 +213,47 @@ class TheRestartRule(unittest.TestCase):
             gemischt["signature"] = base64.b64encode(self.signer.sign(rfc8785.dumps(gemischt["state"]))).decode()
             with self.assertRaises(self.a.AccumulatorStateError):
                 self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
+
+    def test_a_signed_state_of_another_shape_or_spelling_is_refused_as_a_state_error(self) -> None:
+        """The signature check comes first, so everything after it reads values the pinned key signed, and
+        signed is not well formed: a signed [] reached `.get` and escaped as a raw AttributeError. And a
+        frontier field went through int() and bytes.fromhex, which read "1", true, upper case and spaces
+        as the value state() writes, so one state restored from several signed spellings. Each is refused
+        as an AccumulatorStateError, the form the restart rule names."""
+        import base64
+        import rfc8785
+
+        def signiert(inhalt):
+            return {"state": inhalt,
+                    "signature": base64.b64encode(self.signer.sign(rfc8785.dumps(inhalt))).decode()}
+
+        pub = _pub(self.signer)
+        _akku, zustand = self._state_at(3)
+        self.assertEqual([e["height"] for e in zustand["state"]["frontier"]], [1, 0])
+        self.a.MerkleAccumulator.restore(signiert(zustand["state"]), pub)   # re-signed as written: restored
+
+        def feld(index, **neu):
+            kopie = json.loads(json.dumps(zustand["state"]))
+            kopie["frontier"][index].update(neu)
+            return signiert(kopie)
+
+        wurzel0 = zustand["state"]["frontier"][0]["root"]
+        faelle = {
+            "a signed empty list": signiert([]),
+            "a signed string": signiert("a state"),
+            "a signed number": signiert(37),
+            "a signed null": signiert(None),
+            "a signed list holding the state": signiert([zustand["state"]]),
+            "a height as a string": feld(0, height="1"),
+            "a height as true": feld(0, height=True),
+            "a height as false": feld(1, height=False),
+            "a root in upper case": feld(0, root=wurzel0.upper()),
+            "a root with spaces": feld(0, root=" ".join(wurzel0[i:i + 2] for i in range(0, 64, 2))),
+        }
+        for name, kaputt in faelle.items():
+            with self.subTest(case=name):
+                with self.assertRaises(self.a.AccumulatorStateError):
+                    self.a.MerkleAccumulator.restore(kaputt, pub)
 
     def test_restored_leaf_hashes_are_32_bytes_each_not_pieces_of_one_joined_string(self) -> None:
         """The state commits to its leaf hashes by the SHA-256 of their concatenation, and the frontier check
