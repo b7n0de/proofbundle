@@ -29,10 +29,10 @@ PERSISTED STATE AND THE RESTART RULE
 RFC 8785 form of the state; the signed content says what it is (`what_is_signed`), so a state signature can
 never be read as a receipt of an event. `MerkleAccumulator.restore(state, public_key)` refuses (raises
 AccumulatorStateError) a state whose signature does not verify under the pinned key, whose format is
-another, whose frontier does not have one root per set bit of the size, whose root is not the fold of its
-frontier, or, when leaf hashes are given, whose leaf hashes are not 32 bytes each or do not reproduce the
-frontier and the size. It never rebuilds a refused state; rebuilding from the leaves is `from_leaves`, a separate and deliberate
-call.
+another or whose fields are not spelled the way `state` writes them, whose frontier does not have one root
+per set bit of the size, whose root is not the fold of its frontier, or, when leaf hashes are given, whose
+leaf hashes are not 32 bytes each or do not reproduce the frontier and the size. It never rebuilds a
+refused state; rebuilding from the leaves is `from_leaves`, a separate and deliberate call.
 
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
 not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
@@ -124,14 +124,14 @@ class MerkleAccumulator:
 
     def inclusion_proof_at(self, index: int) -> List[bytes]:
         blaetter = self._need_leaf_hashes()
-        if not 0 <= index < len(blaetter):
-            raise ValueError("index out of range")
+        if type(index) is not int or not 0 <= index < len(blaetter):   # 0.5 and True compare like an index
+            raise ValueError("index is not an int in range")
         return _inclusion(blaetter, index)
 
     def consistency_proof_from(self, first: int) -> List[bytes]:
         blaetter = self._need_leaf_hashes()
-        if not 0 < first <= len(blaetter):
-            raise ValueError("require 0 < first <= size")
+        if type(first) is not int or not 0 < first <= len(blaetter):   # 1.5 recursed without end
+            raise ValueError("require an int with 0 < first <= size")
         return _subproof(first, blaetter, True)
 
     # -- persisting ----------------------------------------------------------------------------------------
@@ -162,15 +162,23 @@ class MerkleAccumulator:
                                         f"({type(exc).__name__})") from exc
         if not verify_ed25519_pinned(public_key, signatur, nachricht):
             raise AccumulatorStateError("the state's signature does not verify under the pinned key")
-        if inhalt.get("format") != STATE_FORMAT or inhalt.get("what_is_signed") != WHAT_IS_SIGNED:
+        # Signed is not well formed: each field restore reads is checked for the shape and spelling state()
+        # writes, and anything else is refused as an AccumulatorStateError, never as a raw error.
+        if not isinstance(inhalt, dict) or inhalt.get("format") != STATE_FORMAT or inhalt.get(
+                "what_is_signed") != WHAT_IS_SIGNED:
             raise AccumulatorStateError("the state is not in the format this accumulator writes")
         groesse = inhalt.get("tree_size")
         if type(groesse) is not int or groesse < 0:
             raise AccumulatorStateError("the state's tree_size is not a size")
         try:
-            front = [(int(e["height"]), bytes.fromhex(e["root"])) for e in inhalt["frontier"]]
+            front = [(e["height"], bytes.fromhex(e["root"])) for e in inhalt["frontier"]]
+            wurzeln = [e["root"] for e in inhalt["frontier"]]
         except (KeyError, TypeError, ValueError) as exc:
             raise AccumulatorStateError("the state's frontier is not a list of height and root") from exc
+        # An int height, not "1" or true (int() read both), and a root in lowercase hex digits (bytes.fromhex
+        # also reads upper case and spaces): one state, one signed spelling.
+        if any(type(h) is not int for h, _ in front) or [r.hex() for _, r in front] != wurzeln:
+            raise AccumulatorStateError("the state's frontier is not written the way this accumulator writes it")
         hoehen = [h for h, _ in front]
         erwartet = [i for i in range(groesse.bit_length() - 1, -1, -1) if groesse >> i & 1]
         if hoehen != erwartet or any(len(r) != 32 for _, r in front):
