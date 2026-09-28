@@ -39,7 +39,11 @@ class EEEAdapterError(ValueError):
 
 def _load(source: Union[str, Path, dict]) -> dict:
     if isinstance(source, dict):
-        return source
+        # a record handed in as a dict is read once from its storage (lens run 8 at fddc00f4, the sweep
+        # of finding B): it was validated, picked from and digested through the caller's `get`,
+        # `__getitem__` and `items()`, which could each answer for another record
+        from .._plain_value import plain_json  # noqa: PLC0415
+        return plain_json(source, what="the EEE record", error=EEEAdapterError)
     try:
         return json.loads(Path(source).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -187,6 +191,9 @@ def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, thresho
         if chosen is None:
             raise EEEAdapterError(f"no evaluation_result with metric {metric_name!r}")
     else:
+        from .._plain_value import plain_int  # noqa: PLC0415
+        if plain_int(eval_index) is None:
+            raise EEEAdapterError(f"eval_index must be an int, got {type(eval_index).__name__}")
         if eval_index < 0 or eval_index >= len(results):
             raise EEEAdapterError(f"eval_index {eval_index} out of range (0..{len(results) - 1})")
         chosen = results[eval_index]

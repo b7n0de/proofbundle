@@ -153,8 +153,22 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the verification-summary predicate",
+                      error=lambda m: VerificationSummaryError(f"invalid verification-summary predicate: {m}"))
+
+
 def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_summary_predicate(predicate, strict=False)
     if errs:
         raise VerificationSummaryError("invalid verification-summary predicate: " + "; ".join(errs))
@@ -172,6 +186,7 @@ def emit_verification_summary(predicate: dict, signer, *, subject_name: str | No
                               subject_sha256: str | None = None, keyid: str | None = None,
                               strict: bool = True) -> dict:
     from . import dsse  # noqa: PLC0415
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_summary_predicate(predicate, strict=strict)
     if errs:
         raise VerificationSummaryError("invalid verification-summary predicate: " + "; ".join(errs))

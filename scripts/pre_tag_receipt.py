@@ -243,6 +243,16 @@ def assemble_receipt(context: dict, sig_b64: str, signer_pubkey_b64: str) -> dic
     from proofbundle.signature import (
         TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned)
     pub_feld, sig_feld = wire_value(signer_pubkey_b64), wire_value(sig_b64)
+    # THE CONTEXT IS READ ONCE TOO, from its storage (lens run 8 at fddc00f4, finding B): the signature
+    # check read it through `canonical_bytes`, which runs a dict subclass's `items()` or `__getitem__`,
+    # and the copy below read its storage, so a context storing B and answering A was written as B
+    # under a signature over A. The plain copy is what is verified and what is written.
+    from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    if not issubclass(type(context), dict):
+        raise SystemExit(f"assemble: the receipt context must be a JSON object, got "
+                         f"{type(context).__name__} — refusing")
+    context = plain_json(context, what="the receipt context",
+                          error=lambda m: SystemExit(f"assemble: {m} — refusing"))
     # LAUF11-L2: eine nicht-kanonische Schreibweise ist ein URTEIL (refusing), kein Absturz —
     # ein Werkzeug der Freigabekette darf nicht sterben, wo es abweisen kann.
     try:

@@ -10,6 +10,100 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **A producer reads each value it checks and writes once, not only the key** (lens run 8 at
+  fddc00f4, findings A, B and D; the class of the entry "A small-order key is refused at every
+  carrier" below, widened from keys to every value a producer both checks and writes). That entry
+  has a producer read a caller's key object once; the lens then found the same split on names, maps,
+  bodies, overlays, ids, status and numbers. A: `checkpoint.vkey` checked a name's stored text,
+  hashed `keyname.encode()` into the key ID and wrote `f"{keyname}+…"`, the caller's `__format__`,
+  so a `str` subclass name wrote a whole vkey line for the identity point in front of the real one;
+  the same split stood at `key_id`, `cosign_vkey`, `cosign_key_id`, the two ML-DSA forms,
+  `checkpoint_note` (origin), `sign_checkpoint` (key name) and `cosign_checkpoint` (witness name,
+  note and timestamp). B: `sign_trust_pack` checked `for kid in signers` and signed
+  `signers.items()`; the three `assemble` steps under `scripts/` checked a body through `items()` or
+  `__getitem__` and wrote its storage; `instantiate_template` checked an overlay through `__iter__`
+  and a policy_id through `__eq__`; `issue_sd_jwt` checked a status through `__contains__`. D:
+  `trust_pack._read_once` read numbers through `__float__` and `__int__`, so a float subclass
+  storing 1.5 whose `__float__` answers 1.0 was signed as version 1.
+
+  A producer now reads each such value once, and the check and the writer use only what that read
+  returned. Text is the stored text of a `str` (`signature.plain_text`), bytes the stored bytes of a
+  `bytes` or `bytearray` (`signature.plain_bytes`), a number an exact `int` (not `bool`) or an exact
+  `float`, and a JSON value a copy made by the new `_plain_value.plain_json`, which reads a `dict`
+  through `dict.items` (an `OrderedDict` through `OrderedDict.items`), a `list` through `list.copy`
+  and a `tuple` through `tuple.__iter__`, keeps the kind of each container, is bounded by the
+  structural budget, and refuses anything else with the producer's own typed error naming the
+  parameter and the path. A legitimate value is copied to an equal value, so every serialiser writes
+  the same bytes as before. The sweep names every public function under `src/` and `scripts/` whose
+  name marks it as forming, signing, hashing, linking, measuring or renewing something from its
+  arguments, 159 in all (133 under `src/`): 80 read once (79 held by a case of the contract, one
+  through the producer it calls), 58 not affected (they check nothing they write, take no caller
+  value, or are private helpers called with parsed values) and 21 not producers (verify side and
+  lookups). The first pattern of the scan missed 55 of them; a read of every public function it
+  missed widened it, and that read found the split in eight more producers, now fixed:
+  `beacon.beacon_nonce` and `beacon_audit_challenge` (a NUL check through `__contains__`, the nonce
+  over `encode()`, and the request writing the caller's objects), `persample.audit_challenge`
+  (length and range checks through `__len__` and comparisons, the seed over the buffer and
+  `to_bytes`), `persample.sample_opening` (the proof over one reading of the list, the disclosure
+  written from another), `anchors.prereg_canonical_root` (the length through `__len__`, the root
+  through the stored text), `run_ledger.link_runs` (the count through `__len__`, the runs through
+  `__iter__`, a status checked through `__eq__` and written as the object), `evalclaim.canonicalize`
+  (the profile check through `values()` and `__abs__`, the bytes through the canonicaliser's own
+  reads) and `hashalg.compute_dual_hash`, whose two digests each read the caller's buffer and could
+  bind two different byte strings from 3.12 on.
+
+  What changes for a caller, measured at fddc00f4 and at this change on 3.10: a subclass of `int` or
+  `float` (an `IntEnum`, `numpy.float64`) is refused where a producer checks and writes a number, as
+  the trust pack's `version`, a checkpoint's tree size, a renewal time, a beacon round or an audit's
+  `n` and `k`; before, each was accepted. A value a producer copies as JSON must be null, a boolean,
+  an exact int or float, text, a list, a tuple or a dict. `build_evidence_pack` refuses a proof and
+  `make_disclosure` a salt that is not `bytes` or `bytearray` (a `memoryview` was accepted before),
+  and `build_initial_sequence` refuses an `anchor_status` that is not text (`bytes` was accepted
+  before). Where a wrong type raised a raw error it now raises the documented one:
+  `present_with_key_binding` with a non-text compact (`ValueError`), `sample_opening` with a
+  non-text disclosure and `beacon_nonce` with a non-text beacon id (`BundleFormatError`),
+  `issue_status_list_token` with statuses that are not iterable (`BundleFormatError`). A list or
+  tuple is read from its storage and any other iterable once through its iterator, so
+  `issue_status_list_token`, `link_runs` and `sample_opening` accept a generator, which raised
+  `TypeError` before; `issue_status_list_token` reads `bytes` and `bytearray` statuses from their
+  storage, and a renewal sequence of other iterables (a `deque`) renews as before. The in-toto
+  exporters read a claim's `passed` from its storage: a `dict` subclass whose `get` answers `True`
+  while it stores `"false"` was exported by `to_eval_result_predicate` as `True` and is refused now;
+  the case of `tests/test_das_verdikt_muss_ein_bool_sein.py` that pinned `True` pins the refusal,
+  and a new case pins the reverse (a stored boolean is written whatever `get` answers).
+  `instantiate_template` names the type of a non-text template in its refusal, and the statements of
+  the `build_*` producers carry a plain copy of the predicate instead of the caller's object.
+
+  The residual findings of the lens, measured again at both trees on 3.10 and 3.14: E (`1e16` as a
+  trust-pack `version` raises `IntegerDomainError` from `build_trust_pack_statement`), F (the depth
+  wording for a `list` subclass on 3.10 and 3.11) and G (the statement's key order without
+  `sort_keys`) are unchanged. H changed: a `dict` subclass that stores the identity point and
+  answers a real key through `get` and `__iter__` is read from its storage and refused, 0 of 4966
+  text cells of the lens harness against 104 at fddc00f4; the `_read_once` docstring now says what
+  the canonicaliser read (`dict(obj)`).
+
+  Contract `tests/test_a_producer_reads_a_callers_value_once.py`, 13 tests and 209 subtests: every
+  covered producer handed its values as subclasses of `str`, `bytes`, `bytearray`, `dict`, `list`,
+  `tuple`, `int` and `float` whose every method records its call, 77 cases, with no method of the
+  caller's run, the output equal to the plain call's and holding none of the caller's objects; the
+  lens's own forms of A, B and D; 20 number sites; the three `assemble` steps in a process of their
+  own; and the scan and the sweep list compared in both directions. Green on 3.10.12, 3.11.15,
+  3.12.14, 3.13.15 and 3.14.7. Against the source of fddc00f4 it fails 134 times on 3.10 and 3.11
+  and 136 times on 3.12 to 3.14, with all 77 cases among them on 3.12 to 3.14 and 75 on 3.10 and
+  3.11: there the dual hash and the audit challenge over a base64 root and a `bytearray` nonce read
+  a buffer, which no Python class can steer before 3.12, so they have no second reading. With
+  deterministic keys, the 77 cases in three forms each (as built, every list a tuple, every dict an
+  `OrderedDict`) and the trust pack with `version` 1 and 1.0 give 233 outputs byte-identical to
+  fddc00f4 on all five interpreters, and the lens's D8-3 regression probe gives its 23 outputs
+  unchanged. Planted in a throwaway copy, each of eleven second readings turns the contract red: the
+  vkey writing the caller's name (3 failures), the trust pack skipping the copy (2), `plain_json`
+  keeping number subclasses (19), the status written as handed (1), the signers signed through
+  `items()` (2), the register body not copied (2), the audit request writing the caller's beacon id
+  (1), the opening writing the caller's item (1), `link_runs` writing the caller's status (1),
+  `canonicalize` checking the caller's claim (2), and the dual hash reading the data per digest (1,
+  on 3.12 and later only: on 3.10 and 3.11 no Python class can steer a buffer, so two reads of the
+  storage give the same bytes).
+
 - **A small-order key is refused at every carrier: the AGT signer, the register view and the
   `show-eval` issuer pin** (SPEC §4b, unchanged; register entry
   `SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01`, release scope line R-B2). The trust-anchor rule of the

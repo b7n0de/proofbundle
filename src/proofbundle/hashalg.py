@@ -140,7 +140,15 @@ def compute_dual_hash(data: bytes, alg_ids: Sequence[str]) -> dict[str, str]:
         raise HashAlgError(
             "a dual hash needs at least two distinct current algorithms "
             "(e.g. sha256 + sha512 or sha256 + sha3-256)")
-    return {alg_id: compute_digest(data, alg_id) for alg_id in seen}
+    # THE DATA IS READ ONCE (lens run 8 at fddc00f4, the sweep of finding B): each digest read the
+    # caller's buffer on its own, and from 3.12 on a class can answer `__buffer__` differently per call,
+    # so the two digests that promise to bind the same bytes could bind two different ones. A `bytes` or
+    # `bytearray` is read from its storage, anything else through one buffer read.
+    from .signature import plain_bytes  # noqa: PLC0415 - local import avoids an import cycle
+    once = plain_bytes(data)
+    if once is None:
+        once = bytes(memoryview(data))
+    return {alg_id: compute_digest(once, alg_id) for alg_id in seen}
 
 
 def _enforce_structural_budget(obj, *, budget=None):

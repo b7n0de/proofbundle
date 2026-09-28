@@ -114,11 +114,25 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the relation-statement predicate",
+                      error=lambda m: RelationStatementError(f"invalid relation-statement predicate: {m}"))
+
+
 def build_relation_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the relation-statement. The subject
     is by DEFAULT a commitment to the predicate (sha256 over its RFC-8785 canonical form). A
     caller-supplied override is self-attested and NOT cross-checked (No-Overclaim)."""
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
@@ -137,6 +151,7 @@ def emit_relation_statement(predicate: dict, signer, *, subject_name: str | None
     """Sign a relation-statement as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical.
     Fail-closed: an invalid predicate raises before signing."""
     from . import dsse  # noqa: PLC0415
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))

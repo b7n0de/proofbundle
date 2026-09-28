@@ -108,7 +108,21 @@ def export_anchor(store_id: str, *, canonical_root: bytes, target: str = "receip
     ``get_coin_record`` for height/timestamp). The DataLayer KEY IS the target's ``canonical_root`` (that is
     the whole binding — see anchors_chia.verify_offline_merkle), so the key is derived here, never passed in
     independently. Returns the anchor dict (self-verifying offline before emit). Fail-closed.
+
+    The root and the value are read once (lens run 8 at fddc00f4, the sweep of finding B): the root was
+    read three times through the caller's `__bytes__`, for the key, for the self-check and for the
+    written `canonicalRoot`, so the anchor could be checked for one root and written for another.
     """
+    from .signature import plain_bytes, plain_text  # noqa: PLC0415
+    root_bytes = plain_bytes(canonical_root)
+    if root_bytes is None:
+        raise ValueError(f"canonical_root must be bytes or bytearray, got {type(canonical_root).__name__}")
+    canonical_root = root_bytes
+    if value is not None:
+        value_text = plain_text(value)
+        if value_text is None:
+            raise ValueError(f"value must be a hex string, got {type(value).__name__}")
+        value = value_text
     key = _hx(bytes(canonical_root))   # key == canonicalRoot: the binding the verifier enforces
     gp = _as_dict(_rpc("data_layer", "get_proof", {"store_id": store_id, "keys": [key]}))
     proof_blob = _as_dict(gp.get("proof"))   # 3.6.3: guard the nested RPC sub-object, not just falsy
@@ -182,6 +196,17 @@ def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Opti
     ``lock_path`` (or the ``PROOFBUNDLE_ANCHOR_LOCK_PATH`` env) holds an advisory 'anchor in progress' marker
     file AUTOMATICALLY around the wallet-using batch_update + confirmation, so a separate wallet-switch guard
     never logs the wallet out mid-anchor. No path → unchanged behaviour."""
+    # read once (lens run 8, the sweep of finding B): the prefix test and the text written into the
+    # changelist were the caller's `startswith` and `__radd__`
+    from .signature import plain_text  # noqa: PLC0415
+    root_text = plain_text(canonical_root_hex)
+    if root_text is None:
+        raise ValueError("canonical_root must be a 32-byte hex digest")
+    canonical_root_hex = root_text
+    if value_digest_hex is not None:
+        value_digest_hex = plain_text(value_digest_hex)
+        if value_digest_hex is None:
+            raise ValueError("value_digest_hex must be a hex string")
     canonical_root_hex = canonical_root_hex if canonical_root_hex.startswith(("0x", "0X")) else "0x" + canonical_root_hex
     canonical_root = bytes.fromhex(canonical_root_hex[2:])
     if len(canonical_root) != 32:

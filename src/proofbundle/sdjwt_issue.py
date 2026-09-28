@@ -128,7 +128,16 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         "vct": vct,
     }
     if status is not None:
-        if not isinstance(status, dict) or "status_list" not in status:
+        # READ ONCE, from its storage (lens run 8 at fddc00f4, finding B): the check asked the caller's
+        # `__contains__`, the payload wrote the stored items, so a dict subclass answering True for
+        # `"status_list"` while holding none was signed without one. The plain copy is what is checked
+        # and what is signed.
+        if not isinstance(status, dict):
+            raise ValueError("status must be a dict with a status_list member "
+                             "(use proofbundle.statuslist.status_claim)")
+        from ._plain_value import plain_json  # noqa: PLC0415
+        status = plain_json(status, what="status", error=ValueError)
+        if "status_list" not in status:
             raise ValueError("status must be a dict with a status_list member "
                              "(use proofbundle.statuslist.status_claim)")
         always_open["status"] = status
@@ -208,9 +217,18 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     ES256 signature with a high s included (finding D1, owner decision 2026-09-26). The one
     signature this function makes is the holder's EdDSA signature over the KB-JWT.
     """
-    if not compact.endswith("~"):
+    # THE PRESENTED COMPACT AND THE TIME ARE READ ONCE (lens run 8, the sweep of finding B): the tilde
+    # check, the payload read and the `sd_hash` went through the caller's `endswith`, `split` and
+    # `encode`, and the presentation was built with its `__add__`, so what was hashed could differ from
+    # what was presented. Now one exact `str` is checked, hashed and extended, and `iat` is an exact
+    # `int` (a subclass of `int` is refused, like every number a producer both checks and writes).
+    from ._plain_value import plain_int  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    compact_text = plain_text(compact)
+    if compact_text is None or not compact_text.endswith("~"):
         raise ValueError("compact SD-JWT already carries a key binding JWT (or is malformed)")
-    if isinstance(iat, bool) or not isinstance(iat, int):
+    compact = compact_text
+    if plain_int(iat) is None:
         raise ValueError("iat must be a POSIX timestamp integer")
     # sd_hash MUST use the SD-JWT's OWN declared _sd_alg (read from the presented compact's issuer payload),
     # matching the kbjwt verifier — not a hardcoded module constant (release-review fix #9/#10).

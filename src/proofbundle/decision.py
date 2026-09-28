@@ -408,6 +408,19 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the decision predicate",
+                      error=lambda m: DecisionReceiptError(f"invalid decision predicate: {m}"))
+
+
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
@@ -419,6 +432,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     is self-attesting what the statement applies to — a generic in-toto consumer that matches by
     `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
     the subject a true commitment to the signed predicate."""
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_decision_predicate(predicate, strict=False)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))
@@ -438,6 +452,7 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
     """Sign a Decision Receipt as a DSSE-signed in-toto Statement. EMISSION is RFC-8785 canonical (Addendum
     §2.2). Fail-closed: an invalid predicate raises before signing."""
     from . import dsse  # noqa: PLC0415
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_decision_predicate(predicate, strict=strict)
     if errs:
         raise DecisionReceiptError("invalid decision predicate: " + "; ".join(errs))

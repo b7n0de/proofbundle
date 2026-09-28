@@ -433,11 +433,25 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not isinstance(predicate, dict):
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the action-outcome predicate",
+                      error=lambda m: OutcomeReceiptError(f"invalid action-outcome predicate: {m}"))
+
+
 def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Outcome Receipt. The subject is by DEFAULT
     a commitment to the predicate: sha256 over its RFC-8785 canonical form. A caller-supplied override is
     self-attested and NOT cross-checked (No-Overclaim, same discipline as build_decision_statement)."""
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_outcome_predicate(predicate, strict=False)
     if errs:
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
@@ -457,6 +471,7 @@ def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = 
     """Sign an Outcome Receipt as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical. Fail-closed:
     an invalid predicate raises before signing."""
     from . import dsse  # noqa: PLC0415
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     errs = validate_outcome_predicate(predicate, strict=strict)
     if errs:
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))

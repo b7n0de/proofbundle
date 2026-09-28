@@ -117,9 +117,17 @@ def salted_commit(identifier: str, salt: bytes) -> str:
     so the identifier cannot be recovered from the commitment — not even via a rainbow table
     over known model names like gpt-4o.
     """
-    if len(salt) < 16:
+    # Salt and identifier are read once (lens run 8, the sweep of finding B): the length check asked the
+    # caller's `__len__` while the hash read the salt through its `__add__`, so a salt could pass as 16
+    # bytes and commit as none. The stored bytes are checked and hashed.
+    from .signature import plain_bytes, plain_text  # noqa: PLC0415
+    salt_bytes = plain_bytes(salt)
+    if salt_bytes is None or len(salt_bytes) < 16:
         raise EvalClaimError("commitment salt must be at least 16 bytes")
-    return "sha256:" + hashlib.sha256(salt + identifier.encode("utf-8")).hexdigest()
+    ident = plain_text(identifier)
+    if ident is None:
+        raise EvalClaimError("the committed identifier must be a string")
+    return "sha256:" + hashlib.sha256(salt_bytes + ident.encode("utf-8")).hexdigest()
 
 
 def _reject_non_jcs(value) -> None:
@@ -156,7 +164,14 @@ def canonicalize(claim: dict) -> bytes:
     Duplicate keys cannot exist in a Python dict; when parsing claim JSON from text, use
     `load_claim_text` which rejects duplicate keys. Uses the rfc8785 library (lazy import)
     for the UTF-16 code-unit key sort + compact UTF-8 serialization.
+
+    The claim is read ONCE, from its storage (lens run 8 at fddc00f4, the sweep of findings B and D):
+    the profile check walked a dict subclass's `values()` and an int subclass's `__abs__`, and the
+    canonicaliser wrote what its own reads returned, so a claim could pass the check as one value and
+    be serialised as another. The plain copy is what is checked and what is written.
     """
+    from ._plain_value import plain_json  # noqa: PLC0415
+    claim = plain_json(claim, what="the claim", error=EvalClaimError)
     _reject_non_jcs(claim)
     try:
         import rfc8785  # noqa: PLC0415 — lazy: only the emit path pulls the JCS dependency
@@ -226,25 +241,46 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
 
     threshold/score are decimal STRINGS (never floats). Returns:
         (claim: dict, salts: {"model_salt": bytes, "dataset_salt": bytes})
+
+    EVERY VALUE THAT IS CHECKED HERE IS READ ONCE, and the claim is built from those reads and copied
+    from storage before its last check (lens run 8 at fddc00f4, the sweep of finding B). The comparator
+    and the assurance level were checked through the caller's `__eq__`/`__hash__`, `n` through its
+    comparisons, the samples through `__iter__`, `get` and `__getitem__`; what a caller's class answered
+    there could differ from what it stores and from what the receipt then signs.
     """
-    if not is_member(comparator, _COMPARATORS):
+    from ._plain_value import plain_int, plain_json, plain_list  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    comparator_text = plain_text(comparator)
+    if comparator_text is None or not is_member(comparator_text, _COMPARATORS):
         raise EvalClaimError(f"comparator must be one of {sorted(_COMPARATORS)}")
-    if assurance_level not in ASSURANCE_LEVELS:
+    comparator = comparator_text
+    level_text = plain_text(assurance_level)
+    if level_text is None or level_text not in ASSURANCE_LEVELS:
         raise EvalClaimError(f"assurance_level must be one of {list(ASSURANCE_LEVELS)}")
+    assurance_level = level_text
     # threshold/score must match the PUBLISHED schema's decimal pattern exactly — reject "1e2",
     # "Infinity", "+5", " 5 " etc. that Decimal() would accept but jsonschema rejects (schema-conformance).
+    gelesen = []
     for name, val in (("threshold", threshold), ("score", score)):
-        if not isinstance(val, str):
+        text = plain_text(val)
+        if text is None:
             raise EvalClaimError(f"{name} must be a decimal STRING, not {type(val).__name__}")
-        if not _DECIMAL_RE.match(val):
-            raise EvalClaimError(f"{name} must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), got {val!r}")
-    if not isinstance(n, int) or isinstance(n, bool) or n < 0 or n > _MAX_SAFE_INT:
+        if not _DECIMAL_RE.match(text):
+            raise EvalClaimError(f"{name} must be a plain decimal string (^-?[0-9]+(\\.[0-9]+)?$), got {text!r}")
+        gelesen.append(text)
+    threshold, score = gelesen
+    if plain_int(n) is None or n < 0 or n > _MAX_SAFE_INT:
         raise EvalClaimError(f"n must be a non-negative integer <= 2**53-1, got {n!r}")
     from decimal import Decimal  # noqa: PLC0415
     s, t = Decimal(score), Decimal(threshold)
     passed = {">=": s >= t, ">": s > t, "<=": s <= t, "<": s < t}[comparator]
-    m_salt = model_salt if model_salt is not None else os.urandom(16)
-    d_salt = dataset_salt if dataset_salt is not None else os.urandom(16)
+    # the salts are read once as their stored bytes: the commitment is taken over them, and they are
+    # what is handed back beside the claim (lens run 8, the sweep of finding B)
+    from .signature import plain_bytes  # noqa: PLC0415
+    m_salt = plain_bytes(model_salt) if model_salt is not None else os.urandom(16)
+    d_salt = plain_bytes(dataset_salt) if dataset_salt is not None else os.urandom(16)
+    if m_salt is None or d_salt is None:
+        raise EvalClaimError("commitment salt must be at least 16 bytes")
     claim = {
         "schema": EVAL_CLAIM_SCHEMA, "suite": suite, "suite_version": suite_version,
         "metric": metric, "comparator": comparator, "threshold": threshold, "passed": passed,
@@ -255,7 +291,11 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
     if context_binding is not None:
         claim["context_binding"] = context_binding
     if ci95 is not None:
-        claim["ci95"] = [str(x) for x in ci95]
+        # the list read once from storage, a text entry as the text it holds; any other entry is
+        # converted once with `str`, as before
+        stored_ci = plain_list(ci95)
+        claim["ci95"] = [plain_text(x) if plain_text(x) is not None else str(x)
+                         for x in (stored_ci if stored_ci is not None else ci95)]
     if multiple_testing is not None:
         claim["multiple_testing"] = multiple_testing
     if prereg_sha256 is not None:
@@ -264,6 +304,8 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
         claim["evaluation_card_sha256"] = evaluation_card_sha256
     if provenance is not None:
         claim["provenance"] = provenance
+    if samples is not None and isinstance(samples, dict):
+        samples = plain_json(samples, what="samples", error=EvalClaimError)
     if samples is not None:
         # v1.5 per-sample commitment: {"root_b64", "n", "leaf_alg"} from
         # proofbundle.persample.build_sample_tree — the samples root is SIGNED with the claim,
@@ -288,6 +330,9 @@ def build_eval_claim(*, suite: str, suite_version: str, metric: str, comparator:
             raise EvalClaimError("samples.leaf_alg must be 'sha256-rfc6962-sdjwt-v1'")
         claim["samples"] = {"root_b64": samples["root_b64"], "n": s_n,
                             "leaf_alg": samples["leaf_alg"]}
+    # the rest (issuer, timestamp, provenance, ci95…) is copied from storage once, and that copy is
+    # what the profile check judges and what is returned for signing
+    claim = plain_json(claim, what="the claim", error=EvalClaimError)
     _reject_non_jcs(claim)
     return claim, {"model_salt": m_salt, "dataset_salt": d_salt}
 
@@ -299,6 +344,12 @@ def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: S
     Sets `issuer` to the signer's fingerprint automatically (binding the receipt to the key),
     canonicalizes, and calls emit_bundle. The returned bundle is verified unchanged by verify_bundle.
     """
+    # READ ONCE (lens run 8 at fddc00f4, the sweep of finding B): `dict(claim)` copied the top level
+    # only, and the profile check then read nested values and numbers through their own methods while
+    # the canonicaliser wrote their storage. The plain copy is what is checked and what is signed.
+    if isinstance(claim, dict):
+        from ._plain_value import plain_json  # noqa: PLC0415
+        claim = plain_json(claim, what="the claim", error=EvalClaimError)
     claim = dict(claim)
     claim["issuer"] = issuer_fingerprint(signer)
     # A claim without an explicit assurance_level is self_attested — the weakest, safest default; never

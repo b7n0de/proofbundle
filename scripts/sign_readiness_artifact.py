@@ -268,6 +268,16 @@ def assemble(body: dict, sig_b64: str, signer_pubkey_b64: str) -> dict:
     from proofbundle.signature import (  # noqa: PLC0415
         TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned)
     pub_feld, sig_feld = wire_value(signer_pubkey_b64), wire_value(sig_b64)
+    # THE BODY IS READ ONCE TOO, from its storage (lens run 8 at fddc00f4, finding B): the signature
+    # check read it through `canonical_bytes`, which runs a dict subclass's `items()` or `__getitem__`,
+    # and the copy below read its storage, so a body storing B and answering A was written as B
+    # under a signature over A. The plain copy is what is verified and what is written.
+    from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    if not issubclass(type(body), dict):
+        raise SystemExit(f"assemble: the artifact body must be a JSON object, got "
+                         f"{type(body).__name__} — refusing")
+    body = plain_json(body, what="the artifact body",
+                       error=lambda m: SystemExit(f"assemble: {m} — refusing"))
     # LAUF11-L2: strikt und kanonisch, und eine unkanonische Schreibweise wird ABGEWIESEN statt
     # zu werfen — dieselbe Form wie der Signatur-Mismatch eine Zeile weiter.
     try:

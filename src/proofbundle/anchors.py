@@ -153,10 +153,15 @@ def receipt_canonical_root(bundle: dict) -> bytes:
 def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
     """The canonical root a ``preRegistration`` anchor stamps: the sha256 (raw bytes) of the eval
     protocol file, i.e. the receipt's ``prereg_sha256``."""
-    if not isinstance(prereg_sha256_hex, str) or len(prereg_sha256_hex) != 64:
+    # Read once (lens run 8 at fddc00f4, the sweep of finding A): the length check asked a `str`
+    # subclass's `__len__`, and `bytes.fromhex` read its stored text, so a root of another length could
+    # pass as a sha256.
+    from .signature import plain_text  # noqa: PLC0415
+    text = plain_text(prereg_sha256_hex)
+    if text is None or len(text) != 64:
         raise BundleFormatError("prereg canonical root needs a 64-char hex sha256")
     try:
-        return bytes.fromhex(prereg_sha256_hex)
+        return bytes.fromhex(text)
     except ValueError as exc:
         raise BundleFormatError("prereg_sha256 is not valid hex") from exc
 

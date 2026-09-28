@@ -180,21 +180,37 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
         overlay: optional dict of extra top-level policy fields merged last; unknown fields fail closed
             via the final load_policy re-validation.
     """
+    from ._plain_value import plain_json, plain_list  # noqa: PLC0415
     from .policy import PolicyError, _validate_pinned_ed25519_pubkey, load_policy  # noqa: PLC0415
     from .signature import plain_text  # noqa: PLC0415
 
-    canonical = canonical_profile_name(template)
-    if canonical is None:
-        raise PolicyError(f"no such template profile {template!r}; known profiles: {list_profiles()}")
-    base = load_policy(profile_path(template))   # emits a deprecation line for an alias name
+    # EVERY ARGUMENT THAT IS CHECKED AND WRITTEN IS READ ONCE, from its storage (lens run 8 at fddc00f4,
+    # finding B). The overlay's reserved-key check iterated the caller's dict (`set(overlay)`, its
+    # `__iter__`) while `inst.update(overlay)` copied its storage: a dict subclass whose `__iter__`
+    # yields nothing wrote `generatedFromTemplate`, `policyPurpose` and a derived `deploymentReady`
+    # the template fixes. The policy_id check compared through the caller's `__eq__` and wrote the
+    # text: a `str` subclass whose `__eq__` answers False wrote the template's own policy_id. The
+    # template name was resolved twice, once for the name written into `generatedFromTemplate` and once
+    # for the file loaded; the issuer-key list was measured through `__len__` and walked through
+    # `__iter__`. Each is now one plain value, and the checks and the instance use only that.
+    vorlage = plain_text(template)
+    canonical = canonical_profile_name(vorlage)
+    if vorlage is None or canonical is None:
+        genannt = vorlage if vorlage is not None else type(template).__name__
+        raise PolicyError(f"no such template profile {genannt!r}; known profiles: {list_profiles()}")
+    base = load_policy(profile_path(vorlage))   # emits a deprecation line for an alias name
     if base.get("requiresIdentityOverlay") is not True and base.get("deploymentReady") is not False:
         raise PolicyError(
             f"profile {canonical!r} is not a template (it carries no requiresIdentityOverlay:true / "
             "deploymentReady:false) — there is nothing to instantiate")
-    if not isinstance(issuer_keys, (list, tuple)) or not issuer_keys:
+    keys_stored = plain_list(issuer_keys)
+    if not keys_stored:
         raise PolicyError("instantiate requires at least one issuer public key to pin")
-    if not (isinstance(policy_id, str) and policy_id):
+    issuer_keys = keys_stored
+    policy_text = plain_text(policy_id)
+    if not policy_text:
         raise PolicyError("instantiate requires a non-empty policy_id")
+    policy_id = policy_text
     if policy_id == base.get("policy_id"):
         raise PolicyError(
             "policy_id must differ from the template's policy_id (use your own organisation namespace)")
@@ -226,7 +242,8 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
     # RESULTING inst below, not tracked here, so an overlay cannot desync a flag from the actual policy).
     require_auth_root = bool(_as_dict(base.get("merkle")).get("require_authenticated_root"))
     if expected_root is not None:
-        if not (isinstance(expected_root, str) and expected_root):
+        expected_root = plain_text(expected_root)
+        if not expected_root:
             raise PolicyError("expected_root must be a non-empty base64 string")
         mk = dict(_as_dict(inst.get("merkle")))
         mk["trusted_roots"] = [expected_root]
@@ -237,10 +254,15 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
     # A-P0-5 §9.2: the instance records its template provenance (display/audit; reserved below).
     inst["generatedFromTemplate"] = canonical
     if valid_until is not None:
-        inst["valid_until"] = valid_until
+        gueltig_bis = plain_text(valid_until)
+        if gueltig_bis is None:
+            # the refusal `load_policy` gives for the same value, given before any of its code reads it
+            raise PolicyError("valid_until must be an ISO-8601 timestamp string (e.g. 2027-01-01T00:00:00Z)")
+        inst["valid_until"] = gueltig_bis
     if overlay is not None:
         if not isinstance(overlay, dict):
             raise PolicyError("overlay must be a JSON object")
+        overlay = plain_json(overlay, what="overlay", error=PolicyError)
         # A-P0-5 §9.2: RESERVED metadata is never overlay-writable — an overlay that sets
         # deploymentReady would ASSERT readiness (it is derived, §9.3), one that clears
         # requiresIdentityOverlay would skip the identity step, one that changes
