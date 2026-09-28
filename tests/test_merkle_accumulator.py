@@ -10,7 +10,6 @@ rebuilt; and one append makes at most 2 * floor(log2(n)) + 2 hash calls, counted
 """
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import unittest
@@ -32,9 +31,20 @@ def _load():
     return modul
 
 
-def _key(label: str):
+#: Throwaway seeds written out here and read from nowhere: the keys of these tests and nothing else.
+#: tests/ ships in the sdist, whose guard refuses a key built from anything but a literal seed.
+_EMITTER_SEED = bytes(range(32))
+_OTHER_SEED = bytes(range(32, 64))
+
+
+def _emitter_key():
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    return Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"accumulator test: " + label.encode()).digest())
+    return Ed25519PrivateKey.from_private_bytes(_EMITTER_SEED)
+
+
+def _other_key():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.from_private_bytes(_OTHER_SEED)
 
 
 def _pub(key) -> bytes:
@@ -105,7 +115,7 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         from proofbundle.bundle import verify_bundle
         from proofbundle.emit import emit_bundle
         a = _load()
-        signer = _key("emitter")
+        signer = _emitter_key()
         akku = a.MerkleAccumulator()
         for groesse in range(0, 70):
             payload = f"event {groesse}".encode()
@@ -121,7 +131,7 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
 class TheRestartRule(unittest.TestCase):
     def setUp(self) -> None:
         self.a = _load()
-        self.signer = _key("emitter")
+        self.signer = _emitter_key()
 
     def _state_at(self, groesse: int, keep: bool = False):
         akku = self.a.MerkleAccumulator(keep_leaf_hashes=keep)
@@ -173,7 +183,7 @@ class TheRestartRule(unittest.TestCase):
                     self.a.MerkleAccumulator.restore(kaputt, pub)
         with self.subTest(case="signed by another key"):
             with self.assertRaises(self.a.AccumulatorStateError):
-                self.a.MerkleAccumulator.restore(akku.state(_key("someone else")), pub)
+                self.a.MerkleAccumulator.restore(akku.state(_other_key()), pub)
         with self.subTest(case="leaf hashes other than the state's"):
             andere = list(akku.leaf_hashes)
             andere[3] = b"\x00" * 32
@@ -241,7 +251,7 @@ class HashWorkPerAppendDoesNotRecomputeTheHistory(unittest.TestCase):
     def test_emit_bundle_rebuilds_the_history_the_accumulator_does_not(self) -> None:
         from proofbundle.emit import emit_bundle
         a = _load()
-        signer = _key("emitter")
+        signer = _emitter_key()
         for groesse in (64, 1024, 4096):
             vorher = _LEAVES[:groesse]
             akku = a.MerkleAccumulator.from_leaves(vorher)
