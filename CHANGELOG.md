@@ -375,6 +375,14 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `instantiate_template` names the type of a non-text template in its refusal, and the statements of
   the `build_*` producers carry a plain copy of the predicate instead of the caller's object.
 
+  Where this meets the entry "Code a caller hands in promotes a verdict only when it answers the
+  exact True" above: `build_test_result_statement` now reads its cases once before it judges them.
+  A case `ok` or `scope` that is no JSON value (an object whose `__class__` says bool or str) is
+  refused by that read, which names its position (`results[0].ok`), where that entry names the case
+  or counts such a `scope` as WARNED. A `scope` that is a `str` subclass is judged by the text it
+  stores: one storing `"full"` is a full run, one storing other text is WARNED whatever its own
+  `__eq__` answers, and none of its methods runs.
+
   The residual findings of the lens, measured again at both trees on 3.10 and 3.14: E (`1e16` as a
   trust-pack `version` raises `IntegerDomainError` from `build_trust_pack_statement`), F (the depth
   wording for a `list` subclass on 3.10 and 3.11) and G (the statement's key order without

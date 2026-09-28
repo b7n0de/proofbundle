@@ -7,7 +7,8 @@ blocks, so a value that is not a bool passed:
 
 - ``verifier_block.build_test_result_statement`` read a case's ``ok`` with ``not r.get("ok")``: ``"false"``,
   ``"FAIL"``, ``1`` and ``[0]`` made the case and the statement PASSED, and ``sign_test_result_statement``
-  signed it. Now a case ``ok`` that is not a bool is a ``VerifierBlockError`` naming the case and the field.
+  signed it. Now a case ``ok`` that is not a bool is a ``VerifierBlockError`` naming the case and the field
+  (or, for a value that is no JSON value at all, its position in ``results``).
 - ``policy.evaluate_policy`` gated on ``result.ok``, which folds the checks by their truth, and read
   ``Check.ok`` by its truth for ``require_authenticated_root``, ``require_key_binding_when_cnf_present``,
   ``require_nonce`` and ``expected_vct``: ``Check("root-authenticity", "false")`` gave ``policy_ok`` true.
@@ -201,8 +202,12 @@ class TestATestResultCaseOkMustBeABool(unittest.TestCase):
                 calls.clear()
                 with self.assertRaises(VerifierBlockError) as cm:
                     self._build(ok)
-                self.assertIn("'case-1'", str(cm.exception))
-                self.assertIn("ok is not a bool", str(cm.exception))
+                if type(ok) is _ClaimsBool:
+                    # No JSON value at all: the one read of the cases refuses it and names its position.
+                    self.assertIn("results[0].ok is of type _ClaimsBool", str(cm.exception))
+                else:
+                    self.assertIn("'case-1'", str(cm.exception))
+                    self.assertIn("ok is not a bool", str(cm.exception))
                 self.assertEqual(calls, [], "the value's own methods ran")
 
     def test_control_exact_bools_build_and_sign_as_before(self):
@@ -681,6 +686,18 @@ class _StrSubclass(str):
     __hash__ = str.__hash__
 
 
+class _StrSubclassClaimsFull(str):
+    """A real str subclass that stores other text; its own ``__eq__`` says it equals ``"full"``."""
+
+    calls: list = []
+
+    def __eq__(self, other):
+        _StrSubclassClaimsFull.calls.append("__eq__")
+        return other == "full" or str.__eq__(self, other)
+
+    __hash__ = str.__hash__
+
+
 def _flag_values(calls: list):
     """Flags that are not a bool, each of which relaxed a check at 67bb104e (all but the last are truthy)."""
     return [("str 'false'", "false"), ("int 1", 1), ("list [0]", [0]),
@@ -911,17 +928,27 @@ class TestAStrVerdictIsReadOnlyAsAPlainStr(unittest.TestCase):
         return build_test_result_statement(build=self._BUILD, vector_set=self._VS, version="6.1.0",
                                            results=[{"caseId": "c1", "ok": True, "scope": scope}])["predicate"]
 
-    def test_a_scope_that_only_claims_to_be_full_is_warned(self):
+    def test_a_scope_that_only_claims_to_be_full_is_not_a_full_run(self):
+        """The cases are read once from their storage before they are judged (the read-once change of
+        6.2.0): an object whose ``__class__`` says str is no JSON value and is refused by that read, and a
+        str subclass is judged by the text it stores, whatever its own ``__eq__`` answers."""
         calls: list = []
+        with self.assertRaises(VerifierBlockError) as cm:
+            self._scope(_ClaimsStr(calls, "full"))
+        self.assertIn("results[0].scope is of type _ClaimsStr", str(cm.exception))
+        self.assertEqual(calls, [], "the value's own methods ran")
+        _StrSubclassClaimsFull.calls = []
+        pred = self._scope(_StrSubclassClaimsFull("partial"))
+        self.assertEqual(pred["result"], "WARNED")
+        self.assertEqual(pred["warnedTests"], ["c1"])
+        self.assertEqual(_StrSubclassClaimsFull.calls, [], "the subclass's own __eq__ ran")
+
+    def test_a_str_subclass_scope_is_judged_by_what_it_stores(self):
         _StrSubclass.calls = []
-        for label, scope in (("__class__ says str, equals 'full'", _ClaimsStr(calls, "full")),
-                             ("str subclass 'full'", _StrSubclass("full"))):
-            with self.subTest(scope=label):
-                calls.clear()
-                pred = self._scope(scope)
-                self.assertEqual(pred["result"], "WARNED")
-                self.assertEqual(pred["warnedTests"], ["c1"])
-                self.assertEqual(calls, [], "the value's own methods ran")
+        pred = self._scope(_StrSubclass("full"))
+        self.assertEqual(pred["result"], "PASSED")
+        self.assertEqual(pred["passedTests"], ["c1"])
+        self.assertEqual(self._scope(_StrSubclass("partial"))["result"], "WARNED")
         self.assertEqual(_StrSubclass.calls, [], "the subclass's own __eq__ ran")
 
     def test_a_checkpoint_authenticity_that_only_claims_to_be_pass_is_not_evaluated(self):

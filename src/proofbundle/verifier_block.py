@@ -468,12 +468,16 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     full is listed under ``warnedTests`` by name, so the reduction of scope is in the statement,
     not only in a headline.
 
-    ``ok`` must be a bool. Anything else is refused with a :class:`VerifierBlockError` that names
-    the case and the field, before anything is built or signed: the case ``ok`` used to be read by
-    its truth, so ``"false"``, ``"FAIL"``, ``1`` and ``[0]`` each made a case PASSED and the whole
-    statement PASSED, which ``sign_test_result_statement`` then signed. The value's own methods
-    (``__bool__``, ``__class__``) never run. A case ran in full only when ``scope`` is the plain str
-    ``"full"``; any other value, one whose own ``__eq__`` says it equals ``"full"`` included, is WARNED.
+    ``ok`` must be a bool. Anything else is refused with a :class:`VerifierBlockError` before
+    anything is built or signed: the case ``ok`` used to be read by its truth, so ``"false"``,
+    ``"FAIL"``, ``1`` and ``[0]`` each made a case PASSED and the whole statement PASSED, which
+    ``sign_test_result_statement`` then signed. The cases are read once from their storage before
+    they are judged, so a value that is no JSON value at all (an object whose ``__class__`` says
+    bool) is refused by that read, which names its position (``results[0].ok``); every other value
+    that is not a bool is refused naming the case and the field. The value's own methods
+    (``__bool__``, ``__class__``) never run. A case ran in full only when the text ``scope`` stores
+    is ``"full"``: a ``str`` subclass is judged by what it stores, any other text is WARNED whatever
+    the value's own ``__eq__`` answers, and a ``scope`` that is no JSON value is refused by the read.
     """
     # Read once (lens run 8, the sweep of finding B): each case was checked through `get` and written
     # through `__getitem__`, and the version and the implementation name are checked by the block
@@ -495,8 +499,9 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
             raise VerifierBlockError(
                 f"case result {r['caseId']!r}: ok is not a bool (true/false); only the exact True "
                 "passes a case, and a value that is not a bool is refused rather than read by its truth")
-        # Only a plain str "full" is a full run: `r.get("scope") == "full"` ran the value's own
+        # Only the stored text "full" is a full run: `r.get("scope") == "full"` ran the value's own
         # __eq__, so an object answering True made the case PASSED instead of WARNED (measured).
+        # After the one read above a scope is plain text, None, or another JSON value.
         scope = r.get("scope")
         if ok is not True:
             failed.append(r["caseId"])
