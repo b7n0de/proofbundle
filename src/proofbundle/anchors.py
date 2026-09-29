@@ -44,7 +44,7 @@ import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
-from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _feld_von, _folge_von, _plain_for_jcs, _puffer_von,
+from .canonical import (_abbild_von, _bytes_von, _feld_von, _folge_von, _plain_for_jcs, _puffer_von,
                         _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from ._membership import is_member, require_switch, stored_str_items
@@ -99,9 +99,18 @@ def _read_verifier_result(res: dict) -> dict:
     code of the result: its keys only as exact ``str`` keys (:func:`_membership.stored_str_items`), each flag
     only as the exact ``True`` (``is``), ``status`` and ``detail`` only as exact ``str`` values, and
     ``trustedTime`` only as a dict whose exact-``str`` keys hold JSON scalars of their exact type, one of them a
-    non-empty ``source``, carried as a plain copy. Whatever is not read that way is named in the detail."""
+    non-empty ``source``, carried as a plain copy. Whatever is not read that way is named in the detail.
+
+    ``warn`` is the one flag a gate reads in both directions: beside ``ok`` True it RESTRICTS (a full anchor
+    becomes a pending one), beside ``ok`` not True it PROMOTES (a failed anchor becomes a pending one, which
+    ``allow_pending`` accepts). A ``warn`` that is no bool is read in the direction that grants nothing: as True
+    beside ``ok`` True, as False otherwise (deep gate at 7409b123, L3-620-T2-01). Reading it only as the exact True
+    made ``{"ok": True, "warn": "pending"}`` a full anchor; reading any other value as True would make
+    ``{"ok": False, "warn": "false"}`` a pending one, which PR 291 fixed."""
     stored = stored_str_items(res)
-    fields: dict = {flag: stored.get(flag) is True for flag in ("ok", "warn")}
+    fields: dict = {"ok": stored.get("ok") is True}
+    warn = stored.get("warn", False)
+    fields["warn"] = warn if type(warn) is bool else fields["ok"]
     status = stored.get("status")
     if type(status) is str and status:
         fields["status"] = status
@@ -113,10 +122,15 @@ def _read_verifier_result(res: dict) -> dict:
         if flag in stored:
             fields[flag] = stored[flag] is True
     notes = []
-    not_bool = [flag for flag in _RESULT_FLAGS if flag in stored and type(stored[flag]) is not bool]
+    zurueckhaltend = fields["ok"] and "warn" in stored and type(stored["warn"]) is not bool
+    not_bool = [flag for flag in _RESULT_FLAGS if flag in stored and type(stored[flag]) is not bool
+                and not (flag == "warn" and zurueckhaltend)]
     if not_bool:
         notes.append(f"(the anchor verifier answered something other than True or False for "
                      f"{', '.join(not_bool)}; only the exact True counts)")
+    if zurueckhaltend:
+        notes.append("(the anchor verifier answered something other than True or False for warn beside ok True; "
+                     "it is read as pending, never as a full anchor)")
     if status is not None and type(status) is not str:
         notes.append(f"(the anchor verifier's status was a value of type {_type_name(status)}, not a str, so the "
                      "status here is derived from ok and warn)")
@@ -152,9 +166,11 @@ def register_anchor_type(type_name: str, verifier: Callable) -> None:
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
     never raise for an ordinary bad proof. The result must be a ``dict``; a dict subclass (an
     ``OrderedDict``, a ``defaultdict``) is read by what it stores, never through its own methods. ``ok``,
-    ``warn``, ``rp_trusted``, ``needs_rp_trust`` and ``frozenEvidence`` count only as the exact ``True``:
+    ``rp_trusted``, ``needs_rp_trust`` and ``frozenEvidence`` count only as the exact ``True``:
     any other value, a truthy one included (``1``, ``"true"``, ``"false"``, a non-empty list), counts as
-    False and the detail says so; a result that is not a dict is a failed anchor whose detail names the
+    False and the detail says so. ``warn`` beside an ``ok`` that is not the exact ``True`` counts the same way;
+    beside ``ok`` True any ``warn`` but the exact ``False`` (or none) marks the anchor pending, never full, and the
+    detail says so. A result that is not a dict is a failed anchor whose detail names the
     type returned. A key counts only when it is exactly a ``str`` (a key of another type, a ``str``
     subclass included, is not read, so its own ``__eq__`` can neither raise nor stand in for ``"ok"``);
     ``status`` and ``detail`` are read only as exact ``str`` values, and ``trustedTime`` only as a dict of
@@ -310,6 +326,32 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     their own that raises while they are read (:func:`_refuse_unreadable_input`); a registered verifier
     that raises, or whose result cannot be read, is a failed anchor, never an exception."""
     _ensure_builtin_types()
+    return _eintrag_pruefen(_eintrag_lesen(anchor), wurzeln=_wurzeln_lesen(target_roots), now=now,
+                            rp_trust=rp_trust, pruefer=_VERIFIERS)
+
+
+#: The root a relying party supplied for a target when it is no bytes-like value: it equals no anchor's root.
+_KEIN_PUFFER = object()
+
+
+def _wurzeln_lesen(target_roots) -> dict:
+    """The relying party's root per target, read once as the bytes each stores, before any verifier runs (deep
+    gate at 7409b123, L1-620v2-T3-01). ``_feld_von`` reads what the dict stores and ``_puffer_von`` copies the bytes
+    a root holds, so a verifier run for one anchor cannot move the root the next anchor is compared with. A target
+    that is absent is absent here; a root that is no bytes-like value is `_KEIN_PUFFER`, which matches nothing, as
+    the comparison with ``None`` did before."""
+    wurzeln: dict = {}
+    for ziel in ANCHOR_TARGETS:
+        wert = _feld_von(target_roots, ziel)
+        if wert is not None:
+            roh = _puffer_von(wert)
+            wurzeln[ziel] = roh if roh is not None else _KEIN_PUFFER
+    return wurzeln
+
+
+def _eintrag_lesen(anchor) -> dict:
+    """One anchor entry as the plain copy of what it stores, after the structural budget, or
+    ``BundleFormatError``. `verify_anchors` reads every entry this way before the first verifier runs."""
     if not isinstance(anchor, dict):
         raise BundleFormatError("each anchor must be a JSON object")
     # Structural budget (deep gate wf_cfe249d0-ee8, finding L2-01, P1). A DIRECT-DICT surface — and a
@@ -332,7 +374,13 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     # stores, and every field below comes from the copy, so a dict subclass's own `get` cannot show
     # the key check one field set and the verifier another. An anchor holding a value that is no JSON
     # value is BundleFormatError, as a malformed structure is.
-    anchor = _plain_for_jcs(anchor, lambda text: BundleFormatError(f"anchor: {text}"))
+    return _plain_for_jcs(anchor, lambda text: BundleFormatError(f"anchor: {text}"))
+
+
+def _eintrag_pruefen(anchor: dict, *, wurzeln: dict, now: Optional[int], rp_trust: Optional[dict],
+                     pruefer: dict) -> dict:
+    """The verdict on one anchor entry that `_eintrag_lesen` read, against the roots `_wurzeln_lesen` read, with
+    the verifiers of ``pruefer``. It reads nothing of the caller's after the verifier call."""
     unknown = set(anchor) - _ANCHOR_KEYS
     if unknown:
         # deep gate 2026-09-05 (L3-600-03 class): name the keys rendered, never sort raw mixed-type keys
@@ -350,7 +398,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
         # JSON-schema layer in front of them).
         out["detail"] = "anchor anchoredAt must be an RFC 3339 string or null (informative only)"
         return out
-    if not isinstance(atype, str) or not is_member(atype, _VERIFIERS):
+    if not isinstance(atype, str) or not is_member(atype, pruefer):
         # Unknown type is a FAIL, not a SKIP — an anchor we cannot check must never pass silently.
         # deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01): `{atype!r}` rendered the untrusted value raw;
         # a huge int here tripped the int->str cap as a raw ValueError out of verify_anchor(s) and the public
@@ -361,13 +409,14 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     # The relying party's root by the bytes it stores, read through the base lookup (round 12): a dict
     # subclass's own `get` and a `bytes` subclass's own `__ne__` never decide the binding. A
     # `memoryview` root is compared by the bytes it views, as `!=` compared it before
-    # (`canonical._puffer_von`); any other value never matches.
-    expected_root = _feld_von(target_roots, target)  # adversarial re-audit r5: target_roots kwarg (None/int) fail-closed
+    # (`canonical._puffer_von`); any other value never matches. Read once, before any verifier ran
+    # (`_wurzeln_lesen`).
+    expected_root = wurzeln.get(target)  # adversarial re-audit r5: target_roots kwarg (None/int) fail-closed
     if expected_root is None:
         out["detail"] = f"the receipt has no {target} target to anchor against"
         return out
     canonical_root = _b64d(anchor.get("canonicalRoot"), "canonicalRoot")
-    if canonical_root != _puffer_von(expected_root):
+    if canonical_root != expected_root:
         # cross-target safety: a preRegistration anchor's root never equals the receipt root, and v.v.
         out["detail"] = f"canonicalRoot does not match the {target} root (cross-target or tampered)"
         return out
@@ -380,7 +429,7 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     if not isinstance(_frozen, dict):
         _frozen = {}
     try:
-        res = _call_verifier(_VERIFIERS[atype], proof, canonical_root,
+        res = _call_verifier(pruefer[atype], proof, canonical_root,
                              frozen=_frozen, now=now, rp_trust=rp_trust)
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
@@ -457,42 +506,90 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
     fa555f13 too, round 11, class B of lens run 10).
 
     Like :func:`verify_anchor`, it refuses input whose objects raise from their own code while they are read
-    with ``BundleFormatError`` (:func:`_refuse_unreadable_input`), never with the caller's exception."""
+    with ``BundleFormatError`` (:func:`_refuse_unreadable_input`), never with the caller's exception.
+
+    EVERYTHING IS READ BEFORE THE FIRST VERIFIER RUNS (deep gate at 7409b123, L1-620v2-T3-01): every anchor
+    entry into its plain copy (`_anker_lesen`), ``rp_trust`` into its plain copy, the relying party's roots and
+    the registry of verifiers. Each entry was copied only when its turn came, so a registered verifier run for one
+    anchor rewrote the next one, the root it was compared with or the header it was confirmed against. Each
+    verifier gets a copy of ``rp_trust`` of its own. ``anchors`` is None or a list, and ``require`` and
+    ``require_target`` are None or a string: a value of another type, a falsy one included (``0``, ``""``,
+    ``{}``, ``()``), is refused, never read as no anchors or no requirement (L4-620b-01, the neighbour
+    RESTRISIKO_620 named). An ``rp_trust`` that is no JSON object is refused once there is an anchor to judge."""
     require_switch(allow_pending, "allow_pending")
     # The requirements by their characters and the anchors through the list's own iteration, each
     # read once (round 12): a `str` subclass's own `__eq__` never matches a type or a target, and a
     # list subclass's own `__len__` and `__iter__` never decide which anchors are judged.
-    # A value of any type that is not an exact built-in is refused by that type, never asked through
-    # `==`, `bool()` or `__iter__`: an object claiming str or list through `__class__` answered those
-    # itself. Exact built-ins keep the handling they had.
-    eingebaut = _EINGEBAUTE_SKALARE + (dict, list, tuple, set, frozenset)
-    if _zeichen_von(require) is not None:
+    # A value that is no string and not None is refused by its type, never asked through `==`, `bool()` or
+    # `__iter__`: an object claiming str or list through `__class__` answered those itself.
+    if require is not None:
+        if _zeichen_von(require) is None:
+            raise BundleFormatError(f"require must be an anchor type string, got {_type_name(require)}")
         require = _zeichen_von(require)
-    elif type(require) not in eingebaut:
-        raise BundleFormatError(f"require must be an anchor type string, got {_type_name(require)}")
-    if _zeichen_von(require_target) is not None:
+    if require_target is not None:
+        if _zeichen_von(require_target) is None:
+            raise BundleFormatError(
+                f"require_target must be one of {ANCHOR_TARGETS}, got {_type_name(require_target)}")
         require_target = _zeichen_von(require_target)
-    elif type(require_target) not in eingebaut:
-        raise BundleFormatError(
-            f"require_target must be one of {ANCHOR_TARGETS}, got {_type_name(require_target)}")
-    if issubclass(type(anchors), list):
-        anchors = _folge_von(anchors)
-    elif type(anchors) not in eingebaut:
+    if anchors is not None and not issubclass(type(anchors), list):
         raise BundleFormatError("anchors must be a list")
     if require_target is not None and require_target not in ANCHOR_TARGETS:
         raise BundleFormatError(
             f"require_target must be one of {ANCHOR_TARGETS}, got {render_safe(require_target)}")
+    return _anker_urteil(_anker_lesen(anchors, rp_trust), target_roots=target_roots, require=require,
+                         require_target=require_target, allow_pending=allow_pending, now=now)
+
+
+def _anker_lesen(anchors, rp_trust) -> tuple:
+    """``anchors``, ``rp_trust`` and the registry of verifiers read once, before any caller code runs:
+    ``(entries, rp_copy, verifiers)``, each entry the plain copy `_eintrag_lesen` makes, ``rp_copy`` the plain copy
+    of ``rp_trust`` (`canonical._abbild_von`) or None, and ``verifiers`` a copy of the registry or None.
+    `verify_anchors` calls it at once; `decision.verify_decision_receipt` calls it at its entry, before the
+    evidence resolver runs, and keeps what it raises for the anchor step. None is no anchors; any other value that
+    is no list is ``BundleFormatError``. ``rp_trust`` and the registry are read only when there is an entry to
+    judge, so a call without anchors never refuses ``rp_trust``.
+
+    THE REGISTRY IS READ HERE TOO (verify lens on the cross-check fix at bc3d275f, 2026-09-29): it was copied in
+    `_anker_urteil`, which the decision verifier runs after the evidence resolver, so a resolver that called
+    `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one and ``ok`` and
+    ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran."""
+    if anchors is None:
+        return [], None, None
+    if not issubclass(type(anchors), list):
+        raise BundleFormatError("anchors must be a list")
+    eintraege = [_eintrag_lesen(a) for a in _folge_von(anchors)]
+    rp_kopie = None
+    if eintraege and rp_trust is not None:
+        rp_kopie = _abbild_von(rp_trust)
+        if rp_kopie is None:
+            raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type {_type_name(rp_trust)} "
+                                    "or one holding a value that is no JSON value (fail-closed)")
+    pruefer = None
+    if eintraege:
+        _ensure_builtin_types()
+        pruefer = dict(_VERIFIERS)
+    return eintraege, rp_kopie, pruefer
+
+
+def _anker_urteil(gelesen: tuple, *, target_roots, require: Optional[str] = None,
+                  require_target: Optional[str] = None, allow_pending: bool = False,
+                  now: Optional[int] = None) -> dict:
+    """The verdict of `verify_anchors` over what `_anker_lesen` read, the registry of verifiers included. The roots
+    are read here, before the first verifier runs, and each verifier gets a copy of the relying party's trust
+    material of its own, so nothing a verifier does reaches what the next one is judged by."""
+    eintraege, rp_kopie, pruefer = gelesen
     if require_target is not None and not require:
         require = "any"   # a target requirement IS an anchor requirement (mirrors --anchor-type)
-    if not anchors:
+    if not eintraege:
         if require:
             return {"status": "FAIL", "require_met": False,
                     "detail": f"--require-anchor {require} set but the receipt has no anchors",
                     "results": []}
         return {"status": "SKIP", "detail": "no external time anchors present", "results": []}
-    if not isinstance(anchors, list):
-        raise BundleFormatError("anchors must be a list")
-    results = [verify_anchor(a, target_roots=target_roots, now=now, rp_trust=rp_trust) for a in anchors]
+    wurzeln = _wurzeln_lesen(target_roots)
+    results = [_eintrag_pruefen(a, wurzeln=wurzeln, now=now, pruefer=pruefer,
+                                rp_trust=None if rp_kopie is None else _plain_for_jcs(rp_kopie, ValueError))
+               for a in eintraege]
     if require:   # a warn/pending/inclusion-only anchor never SATISFIES a requirement — only a full one
         want = None if require == "any" else require
         # WP-A1: matched = ok ∧ ¬warn ∧ type ∧ TARGET. Matching the type alone was a backdating

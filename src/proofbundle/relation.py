@@ -214,17 +214,37 @@ def _attached_targets(entries: list[tuple[str, Any, str | None]]) -> dict[str, A
     return targets
 
 
+def _related_abgelehnt(related: Any) -> str | None:
+    """The refusal of a ``related`` that is neither None nor a dict, or None (deep gate at 7409b123, L4-620b-01).
+
+    A ``related`` that is a Mapping but no dict (``collections.UserDict``, ``types.MappingProxyType``,
+    ``collections.ChainMap``), a list of pairs or any other value was read as a map with no entries: the lineage
+    block was skipped, an attached verified retraction was never seen, and ``reject_superseded`` passed. The
+    three verifiers and this module's engine refuse it now, fail-closed, as a ``policy`` that is no dict is
+    refused. The text is the lineage error and the ``supersededByAttached`` value, so ``reject_superseded`` names
+    it too. Only the relying party's own object can be such a value (the ``--with-related`` resolver builds a
+    dict), and nothing of it is read: only its type is named, by `_membership.type_name`."""
+    if related is None or issubclass(type(related), dict):
+        return None
+    return (f"relation:related_malformed: related must be a JSON object mapping a content root to its attached "
+            f"target, got a value of type {type_name(related)}; it is refused, never read as no attached "
+            "targets (fail-closed)")
+
+
 def _carries_attached_entries(related: Any) -> bool:
     """Whether ``related`` holds any attached entry, read from what the map stores (``dict.__len__`` of
-    the base type), never through the caller's own ``__len__`` or ``__bool__``. A value that is no dict
-    holds none.
+    the base type), never through the caller's own ``__len__`` or ``__bool__``. A value that is neither None
+    nor a dict counts as carrying entries, so the verifiers run the lineage step, which refuses it
+    (`_related_abgelehnt`).
 
     The decision and outcome verifiers asked ``if "relationships" in predicate or related``: the
     caller's map answered through its own ``__bool__``. Measured 2026-09-28 on main 86671552 and on
     D4: a ``dict`` subclass whose ``__len__`` is 0, holding a verified retraction of the subject,
     skipped the lineage block, so ``reject_superseded`` never saw the retraction and both verifiers
     answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False."""
-    return issubclass(type(related), dict) and dict.__len__(related) > 0
+    if related is None:
+        return False
+    return not issubclass(type(related), dict) or dict.__len__(related) > 0
 
 
 def _edge_target_hex(edge: dict) -> str | None:
@@ -320,8 +340,12 @@ def verify_relationship_edges(
     # targets judged below are not answered by a dict subclass's own `get` and `__contains__`. Each
     # entry is read on its own (`_read_attached_entries`, Codex review of PR 300, thread 4121924153):
     # an entry that cannot be read is kept as `_UNREADABLE`, an edge that names it FAILs, and
-    # `successor_warning` names it, but it never clears the entries beside it. A `related` that is no
-    # dict holds no targets: every edge stays unresolved, never verified.
+    # `successor_warning` names it, but it never clears the entries beside it. A `related` that is neither None
+    # nor a dict is refused (`_related_abgelehnt`, deep gate at 7409b123, L4-620b-01): it was read as no
+    # targets, and a verified retraction it held was never seen.
+    abgelehnt = _related_abgelehnt(related)
+    if abgelehnt is not None:
+        return {"lineage": LINEAGE_FAIL, "edges": [], "errors": [abgelehnt], "supersededByAttached": abgelehnt}
     attached_entries = _read_attached_entries(related)
     related = _attached_targets(attached_entries)
     # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
@@ -575,7 +599,11 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
 
     Each entry of ``related`` is read on its own (`_read_attached_entries`): an entry that cannot be
     read is named with ``relation:malformed_successor`` unless a readable entry declares such a
-    relation, and it never hides the entries beside it."""
+    relation, and it never hides the entries beside it. A ``related`` that is neither None nor a dict is
+    named with its refusal (`_related_abgelehnt`), never read as no attached receipts."""
+    abgelehnt = _related_abgelehnt(related)
+    if abgelehnt is not None:
+        return abgelehnt
     return _successor_warning_over(_read_attached_entries(related), subject_hex)
 
 
@@ -792,6 +820,27 @@ def _lineage_as_stored(value: Any) -> dict:
     return oben
 
 
+#: The violation for a relations section that is present and no JSON object, with the loader's message.
+_KEIN_OBJEKT = {"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                "message": "relations policy section rejected before evaluation (fail-closed): relations must be "
+                           "a JSON object"}
+
+
+def _abschnitt_urteil(abschnitt: Any, lineage_result: dict, *, successor_key_b64: str | None) -> list[dict]:
+    """The relations gate of the three receipt verifiers, over the section as the policy HOLDS it.
+
+    The verifiers call this only when the policy holds a ``relations`` key, so ``abschnitt`` None is a section
+    the policy holds as JSON null, not an absent one. :func:`evaluate_relations_policy` reads None as "no
+    section", because its callers pass ``policy.get("relations")``; the loader refuses ``"relations": null``
+    ("relations must be a JSON object"). Measured on main 52231c95 by the cross-check of 2026-09-29 and again
+    at 2a2d59b2: the outcome and relation statement verifiers judged an attached retraction under
+    ``{"relations": null}`` with no rule and gave ok True (the decision verifier refused the policy through
+    the loader's rule). A present null gets the loader's message here; every other value goes to the evaluator."""
+    if abschnitt is None:
+        return [dict(_KEIN_OBJEKT)]
+    return evaluate_relations_policy(abschnitt, lineage_result, successor_key_b64=successor_key_b64)
+
+
 def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                               successor_key_b64: str | None) -> list[dict]:
     """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed
@@ -840,19 +889,30 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                           f"the relations section is not a JSON value: {exc}")
             return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
                      "message": f"relations policy section rejected before evaluation (fail-closed): {reason}"}]
-        relations_section = None
+        relations_section = _UNREADABLE
     try:
         lineage_result = _pruefkopie(lineage_result)
     except ValueError:
         lineage_result = _lineage_as_stored(lineage_result)
     successor_key_b64 = _zeichen_von(successor_key_b64)
-    if not isinstance(relations_section, dict):
+    if relations_section is None:
         return out
+    if not isinstance(relations_section, dict):
+        # A section that is present and no JSON object was read as absent, and every rule it meant was dropped:
+        # the outcome and relation statement verifiers judged an attached retraction under `{"relations": [...]}`
+        # with no rule and gave ok True (deep gate at 7409b123, the sweep of L4-620b-01). The loader refuses it
+        # with this message; so does this evaluator now. None stays "no relations section".
+        return [dict(_KEIN_OBJEKT)]
     # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached
     # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
     # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein
     # unbekannter Schluessel ist hier eine Verletzung, kein Wurf (diese Funktion wirft nie).
-    from .policy import PolicyError, _huelle_relations, _require_bool  # noqa: PLC0415 - lokal, wie die Nachbarn
+    from .policy import (  # noqa: PLC0415 - lokal, wie die Nachbarn
+        PolicyError,
+        _huelle_relations,
+        _relations_felder_pruefen,
+        _require_bool,
+    )
     try:
         _huelle_relations(relations_section)
         # The loader's boolean rule and message for the two flags of this section (the two other
@@ -860,6 +920,10 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         # and 0 switched it off, where load_policy refuses both.
         for _flag in ("reject_superseded", "reject_retracted"):
             _require_bool(relations_section, _flag, "relations")
+        # Every other field of the section by the loader's rule too (deep gate at 7409b123): a
+        # require_relation_resolution that is no list, a relation_signer or require_relation_target that is
+        # no dict, and a relation name out of the registry were each read as no rule here.
+        _relations_felder_pruefen(relations_section)
     except PolicyError as exc:
         return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
                  "message": f"relations policy section rejected before evaluation (fail-closed): {exc}"}]

@@ -10,6 +10,164 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **No caller code changes what a later check reads, a restricting flag restricts, and a container of the
+  wrong type is refused** (deep gate of the 6.2.0 release preparation at 7409b123: five P1 findings beside
+  the one below, each confirmed by a majority of three blind jurors). Measured at 7409b123, each through the
+  Python API with a callback or a container the caller supplies; the CLI passes no callbacks and builds plain
+  values, and of these findings reaches only a falsy `anchors` from `--anchors <file>` (below):
+  - `verify_decision_receipt` read `anchors` (the list and each entry) and `rp_trust` after the evidence
+    resolver had run, and `verify_anchors` copied each entry only when its turn came. A resolver that
+    cleared the anchor list hid a failing anchor, one that wrote a Bitcoin header into `rp_trust` confirmed
+    a pending anchor under `require_external_anchor`, and a registered verifier for one anchor rewrote the
+    next one; each gave `ok` and `safeForAutomation` True. `verify_anchors` now reads every entry,
+    `rp_trust`, the relying party's roots and the verifier registry before the first verifier runs, and
+    hands each verifier a copy of `rp_trust` of its own; `verify_decision_receipt` reads the anchors and
+    `rp_trust` at its entry, before any caller code (`anchors._anker_lesen`). A verify lens on this change
+    found that the verifier registry was still copied after the evidence resolver: a resolver that called
+    `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one. The registry
+    is copied in `_anker_lesen` now, at the decision verifier's entry.
+  - `verify_sequence` handed its own copy of the newest ArchiveTimeStamp to the caller's `anchor_verifier`
+    and read `external_token_type`, `sig_alg` and `hash_alg` from that copy afterwards. A callback that
+    answered True and cleared `external_token_type` skipped a failing external token, and one that
+    relabelled a sha1 ArchiveTimeStamp as sha256 passed `require_current_hash`. The external token is judged
+    and both labels are read before the callback runs, and the callback gets a copy of its own. The same
+    verify lens found `HASH_REGISTRY` read after the callback: one that replaced the sha1 entry with a
+    `current` status passed `require_current_hash`. The registry's verdict on the newest hash is read before
+    the callback as well.
+  - `verify_outcome_receipt` kept the attestation resolver's answer object and read it again after the
+    resolver's next call: a `bytearray` that call rewrote bound a receiver label to a key the ladder had
+    refused (`receiver_key_bound` True). A `bytearray` answer is kept as the bytes it held when it was
+    given, and the ladder judges the same bytes. The sweep of this class found one neighbour:
+    `assurance.classify_receiver_corroboration` read `expected_receiver_public_key` after it had called the
+    attestation resolver, so a resolver that rewrote a `bytearray` expectation to the key it returned reached
+    INDEPENDENTLY_ATTESTED; the expectation is read before either resolver runs.
+  - A registered anchor verifier's `warn` counted only as the exact `True` (pull request 291), so
+    `{"ok": True, "warn": "pending"}` was a full anchor and met `--require-anchor`. `warn` is read in the
+    direction that grants nothing: beside `ok` True any value but `False` makes the anchor pending, and
+    beside any other `ok` only the exact `True` does, as before.
+  - A `related` that is a Mapping but no dict (`UserDict`, `MappingProxyType`, `ChainMap`), a list of pairs
+    or any other value was read as no attached entries by the decision and outcome verifiers, and replaced by
+    None in `verify_relation_statement`, so `reject_superseded` did not see a verified retraction (present at
+    v6.1.0 as well). All three refuse it now, as `relation.verify_relationship_edges` and `successor_warning`
+    do: `lineage` FAIL with `relation:related_malformed`, and `ok` False. The neighbour RESTRISIKO_620
+    named: an `anchors` that is not None and no list, a falsy one included (`0`, `""`, `{}`, `()`), was read
+    as no anchors, also from the CLI, which passes the content of `--anchors <file>` on (a file holding `{}`,
+    `0`, `false` or `""` gave `ok` True at 52231c95). `verify_anchors` refuses it with `BundleFormatError`,
+    `verify_decision_receipt` reports `anchors_ok` False, and `require` and `require_target` of
+    `verify_anchors` are None or a string. The sweep
+    of this class found one neighbour: a policy whose `relations` section is present and no dict (a list, a
+    text, a number) was read as no relations rule by the outcome and relation statement verifiers, which ran
+    the gate only for a dict, and by `relation.evaluate_relations_policy`; over an attached retraction both
+    verifiers gave `ok` True, where `load_policy` refuses the policy, and so does the decision verifier since
+    the loader rule below. Every present
+    section goes to the gate now, which refuses one that is no dict with `LINEAGE_REQUIREMENT_FAILED`.
+  What a caller sees differently: no verdict depends on what a callback does to the arguments. A `related`
+  that is no dict and an `anchors` that is no list fail the verdict instead of reading as absent, and
+  `verify_anchors` refuses an `rp_trust` that is no JSON object once there is an anchor to judge (the RFC 3161
+  and OpenTimestamps verifiers failed each anchor on it before, and the chia verifier, which takes no
+  `rp_trust`, ignored it).
+  Tests: `tests/test_no_caller_code_changes_what_a_later_check_reads.py`, with one property per surface:
+  callbacks that empty every argument they can reach change no verdict. Measured at 31cf5f7e: 87 failed
+  (subtests counted) and 8 passed over its first seventeen cases; the case of the assurance neighbour was red
+  at dd3f0666, the case of the relations section at 1a8a813c (24 failed) and the two registry cases at
+  4d572a47. Here: 21 passed, 117 subtests.
+  Four existing controls held the old reading of the container class as their expectation and now hold the
+  refusal (three in `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`, the never-raise guard
+  in `tests/test_relation_profile.py`, which still asserts that nothing raises).
+
+- **An evaluator refuses every policy field the loader refuses, with the loader's message** (deep gate of
+  the 6.2.0 release preparation at 7409b123: a P1 confirmed by three of three blind jurors, found while
+  re-measuring a foreign-family lens). A decision policy whose `decision_receipt.trusted_decision_makers`
+  is not a list (`5`, `"abc"`, `{}`, `null`, `true`, one entry object without a list) made
+  `verify_decision_receipt` report `ok` and `policy_ok` True for a receipt signed by a key the policy does
+  not trust: `evaluate_decision_policy` read the value with `_as_list`, a value of another type became
+  `[]`, and an empty list pins nobody. `load_policy` refuses that policy, so the CLI exits 2 on it and was
+  not affected; the Python API was, at v6.1.0 (dcac5aee) and on main 2074d814 alike.
+  It is the third instance of one class. The three evaluators (`evaluate_policy`,
+  `evaluate_decision_policy`, `relation.evaluate_relations_policy`) take a policy dict that may never have
+  passed `load_policy`, and each applied only part of the loader's rule: the hull (round 14, lens L4, F1)
+  and the boolean fields (pull request 291). Every other present field of another type was read as empty,
+  and empty is no constraint. Measured at 7409b123: an `allowed_issuers` that is an object or a string, an
+  `allowed_algs`, `trusted_roots` or `allowed_status_authorities` that is a string, a
+  `trusted_checkpoints` that is an object, and a `signature` or `merkle` section that is a list or a string
+  each gave `policy_ok` True with no check at all; so did a `require_relation_resolution` that is not a
+  list and a `relation_signer` or `require_relation_target` that is not an object.
+  The loader's field rule is now one function (`policy._felder_pruefen`, with
+  `policy._relations_felder_pruefen` for the relations section), and `load_policy` and the three
+  evaluators call it; `load_policy` checks in the same order as before. The evaluators keep accepting a
+  partial policy without `schema` or `policy_id`, and the v0.2-only sections are gated on the schema only in
+  `load_policy`, as before. `lint_policy` applies the same entry rule first and reads no pin from a policy
+  it refuses (a list of integers in `allowed_issuers` raised `AttributeError` there, a boolean in
+  `trusted_roots` `TypeError`), and `policy_warnings` counts only a list as a signer pin, so a string no
+  longer silences the attributes-to-nobody warning. The loader's messages that name a caller's value render
+  it with `budget.render_safe`: now that the evaluators apply the loader's rule, a `policyPurpose` of
+  `10**5000` would otherwise raise a raw `ValueError` there (the same value already did at
+  `evaluate_decision_policy`, measured by the same gate's re-measurement; the CLI refuses the literal).
+  What a caller sees differently: a policy dict that `load_policy` would refuse is refused by every
+  evaluator, as a fail-closed verdict with `policy rejected before evaluation (fail-closed, the same rule
+  load_policy applies)` and the loader's own message.
+  Tests: `tests/test_the_evaluators_judge_a_policy_by_the_loaders_rule.py` asks `load_policy` which values
+  it refuses, for every key of every section it knows and for every section as a whole, with ten JSON
+  probes, and holds each evaluator, `lint_policy` and the warning to it. Measured at 52231c95: 1009 failed
+  subtests, 512 passed (pytest counts a failed subtest as a failure and its parent case as passed). Here:
+  9 passed, 1521 subtests.
+  An independent cross-check of the class on main 52231c95 (a second session, read only, its own
+  reproducers) named 44 sites, 26 of them P1 candidates. Each was measured again by its verdict at the
+  surface a relying party calls, with a control that bites: at 52231c95 each candidate let a check pass
+  whose correctly typed control fails. Two were still open after the rule above and are closed here. A
+  relations section the policy holds as JSON null (`{"relations": null}`) was read as no section by the
+  outcome and relation statement verifiers, which judged an attached retraction with no rule and gave `ok`
+  True; the loader refuses it ("relations must be a JSON object"), and so do all three receipt verifiers
+  now (`relation._abschnitt_urteil`, with `canonical._FEHLT` telling an absent key from a null one).
+  `RenewalPolicy.from_dict` read a `deprecated_algs` of another type, a Python set included, as no
+  deprecated algorithm, so a sha256 ATS under `{"deprecated_algs": {"sha256"}, "strictness": "fail"}`
+  reported `renewal:policy` True; from_dict is the only loader of that policy and no CLI path takes it.
+  It now refuses a present `deprecated_algs` that is not a list, tuple, set or frozenset, JSON null
+  included, with `RenewalError`, and reads the four containers through their base type's iteration.
+  The verify lens on that change found two more of the class. An entry of `deprecated_algs` that is no text
+  (`[b"sha256"]`, a nested `[["sha256"]]`, `[5]`) was dropped, so it deprecated nothing; `from_dict` refuses
+  it now with `RenewalError`, and `evaluate_renewal_policy` reports `renewal:policy_malformed` for a policy
+  built directly with such an entry. The outcome and relation statement verifiers judged only the relations
+  section of a whole policy, so a typo in the top-level key (`"relationz"`), or any other field the loader
+  refuses beside a readable section, passed where the loader and the decision verifier refuse the policy;
+  both apply the loader's rule to the whole policy now (`policy._abgelehnt_vom_loader`, the one entry rule
+  of `evaluate_policy` and `evaluate_decision_policy` as well). Not changed in code:
+  `agent_review` reads `blocking` and `require_coverage_status` of null as no rule in its own loader as well,
+  so loader and evaluator agree there. The owner decided on 2026-09-29 that this reading stays for 6.2.0;
+  `docs/AGENT_REVIEW_PREDICATE.md` said the three list fields "must be lists of known names" and now says
+  what the loader accepts and says, a list of known names or null, where null means no rule. Whether null
+  is refused there later is decided after the tag.
+  The same verify lenses found the class beyond the policy dict, each with a reproduction, and each is closed
+  here. `anchors_rfc3161.verify_rfc3161` read an `rp_trust.trusted_tsa_policy_oids` of another type, and a
+  list whose first entry is falsy, as no TSA policy pin, so a token under another policy verified; it answers
+  `rp_trust_malformed` now, and an empty list stays no pin; a pin held by a `str` subclass is read by its characters. `outcome.executor_trusted_by_role` and
+  `receiver_trusted_by_role` read a trust pack `revoked` of another type as revoking nobody, so a revoked
+  executor was trusted with `ok` and `safeForAutomation` True; such a `revoked` revokes every key now. The
+  outcome verifier read a pack key entry for a receiver that is no usable 32-byte key as the pack naming no
+  key, so a bare True from the attestation resolver reached INDEPENDENTLY_ATTESTED; it binds nothing now. The same
+  holds for a well-formed `mldsa65` key: the pack names a key for the label, and no 32-byte signer key a
+  resolver can return equals it, so a bare True no longer promotes such a receiver either, the rule
+  `pack_key_binds_signer` applies to the executor (an mldsa65 key never binds an Ed25519 DSSE signer).
+  `automation_summary` read a `references` requirement of another shape, and entries that are no text, as
+  no references; they are unresolved now, and a name held by a `str` subclass is read by its characters. `verify_outcome_receipt` compared a `decision_maker_id` of an int,
+  bool, float or bytes with the string `executor.id`, which is always unequal, and reported role separation;
+  an id that is no text shows none now. `experimental.attested_inference.check_on_receipt` accepted an
+  answer when no planned route or one of another type was given, where its docstring says not measurable;
+  it says not measurable now; a planned route held by a `str` subclass or a `str` Enum is read by its
+  characters. `verify_anchors` keeps reading an empty `require` as the loader accepts it (no type named;
+  beside a target, any type): a regression lens measured that refusing it turned the CLI exit code of such
+  a policy from 0 to 3. `policy.policy_expected_aud` and `policy_anchor_trust` project a policy the
+  loader's rule accepts and raise `PolicyError` for one it refuses (an `sd_jwt` that is no object dropped the
+  audience binding for a policy that never passed `load_policy`), and `explain_policy` renders a huge
+  freshness bound bounded instead of raising from `lint_policy`.
+  Tests: `tests/test_every_site_of_the_cross_check_refuses_a_wrong_type.py` measures each candidate at
+  `verify_decision_receipt`, `verify_outcome_receipt`, `verify_relation_statement`, `evaluate_policy` and
+  `evaluate_renewal_policy`. Measured at 52231c95: 186 failed subtests, at 2a2d59b2 24, at bc3d275f 10
+  (the two neighbours the verify lens found), and its cases for the sites beyond the policy dict fail at
+  4d572a47 with 55 failures. Here: 13 passed, 333 subtests. One existing control in
+  `tests/test_renewal_field_magnitude_never_raise.py` held the dropping of an entry that is no text and now
+  holds the typed refusal.
+
 - **One reading reaches every argument a public verify surface judges, and the sweep measures its own
   reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,
   each confirmed by three of three blind jurors, one of them found twice; the class of the round-12 entry

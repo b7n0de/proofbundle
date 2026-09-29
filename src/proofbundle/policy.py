@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET, render_keys_safe
+from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
 from .canonical import KEIN_ZEITPUNKT, _plain_for_jcs, _pruefkopie, _zeichen_von, _zeitpunkt_von
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
@@ -53,6 +53,14 @@ def _as_dict(v):
 def _as_list(v):
     """Ein Config-Sub-Feld als Liste/Tupel, sonst [] (dito fuer ``or []``)."""
     return v if isinstance(v, (list, tuple)) else []
+
+
+def _nennen(value) -> str:
+    """A caller's value in a policy message: a ``str`` as its ``repr``, as the messages always named it (the Rust
+    policy reader words it the same way), and any other value bounded by :func:`budget.render_safe`, because
+    ``repr`` of an int beyond CPython's 4300-digit limit raises a raw ``ValueError`` where the message was meant
+    to explain a refusal."""
+    return repr(value) if type(value) is str else render_safe(value)
 
 
 class PolicyError(ProofBundleError):
@@ -202,8 +210,9 @@ def _require_dict(value, where: str) -> dict:
 def _huelle_relations(rel) -> None:
     """Die Huelle der ``relations``-Sektion — eigene Funktion, weil
     :func:`proofbundle.relation.evaluate_relations_policy` NUR diese Sektion bekommt und sie mit
-    derselben Regel pruefen muss wie ``load_policy``. Eine Nicht-dict-Sektion ist hier KEIN Fehler:
-    den Typ meldet ``load_policy`` an seiner Stelle, die Auswerter behandeln sie als leer."""
+    derselben Regel pruefen muss wie ``load_policy``. A section that is no dict is no error here:
+    ``load_policy`` reports its type where it reads it, and ``evaluate_relations_policy`` refuses it before
+    this call (deep gate at 7409b123: read as empty, every rule of the section was dropped)."""
     if not isinstance(rel, dict):
         return
     _reject_unknown(rel, _RELATIONS_KEYS, "relations")
@@ -459,13 +468,37 @@ def load_policy(source: Union[str, dict]) -> dict:
 
     if policy.get("schema") not in _SUPPORTED_SCHEMAS:
         raise PolicyError(
-            f"unsupported trust policy schema {policy.get('schema')!r}, expected one of {list(_SUPPORTED_SCHEMAS)}")
+            f"unsupported trust policy schema {_nennen(policy.get('schema'))}, expected one of "
+            f"{list(_SUPPORTED_SCHEMAS)}")
     _huelle_pruefen(policy)   # EINE Huelle fuer alle Ebenen — dieselbe Regel wie in den Auswertern
     # decision_receipt is a v0.2-only additive section; under v0.1 it is a fail-closed error.
     if "decision_receipt" in policy and policy.get("schema") != POLICY_SCHEMA_V0_2:
         raise PolicyError("decision_receipt section requires schema proofbundle/trust-policy/v0.2")
     if not (isinstance(policy.get("policy_id"), str) and policy["policy_id"]):
         raise PolicyError("trust policy requires a non-empty string policy_id")
+    _felder_pruefen(policy, schema_gate=True)   # the same field rule the evaluators apply
+    return policy
+
+
+def _felder_pruefen(policy: dict, *, schema_gate: bool) -> None:
+    """Every rule ``load_policy`` applies to a field that is PRESENT, as one function.
+
+    THE DEFECT (deep gate of the 6.2.0 release preparation at 7409b123, a P1 confirmed by three of three
+    blind jurors): ``evaluate_decision_policy`` read ``decision_receipt.trusted_decision_makers`` with
+    ``_as_list``, so a value of another type became ``[]``, which pins nobody, and ``verify_decision_receipt``
+    reported ``ok`` True for a receipt signed by a key the policy does not trust. ``load_policy`` refuses that
+    policy. The evaluators applied the hull (:func:`_huelle_pruefen`, round 14) and the boolean fields
+    (:func:`_check_bool_fields`, pull request 291) and left "required fields and types" to the loader, so every
+    other field of another type was read as empty, and empty is no constraint: the same held for
+    ``allowed_issuers``, ``allowed_algs``, ``trusted_roots``, ``trusted_checkpoints``, the relation rules and a
+    whole section of another type.
+
+    ONE RULE, TWO KINDS OF CALLER: ``load_policy`` calls this after its own checks of ``schema`` and
+    ``policy_id``, and the evaluators (``evaluate_policy``, ``evaluate_decision_policy``, ``lint_policy``) call it
+    at entry, so the library path judges a present field by the loader's rule and message. ``schema_gate``
+    keeps what only a loaded policy knows: the evaluators take a partial policy without ``schema`` since they
+    exist, so the v0.2-only sections are gated on the schema only in ``load_policy``. Raises
+    :class:`PolicyError`."""
     # AP-2 §6.2: template metadata. `deploymentReady`/`requiresIdentityOverlay` are optional additive
     # booleans (a hand-written production policy omits them); when present they MUST be real booleans.
     for _meta in ("deploymentReady", "requiresIdentityOverlay"):
@@ -497,7 +530,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         if policy["policyPurpose"] not in POLICY_PURPOSES:
             raise PolicyError(
                 f"policyPurpose must be one of {list(POLICY_PURPOSES)} or null, "
-                f"got {policy['policyPurpose']!r}")
+                f"got {_nennen(policy['policyPurpose'])}")
     # A-P0-5 §9.2: template provenance is a string (stamped by `policy instantiate`), display/audit only.
     _require_str_or_null(policy, "generatedFromTemplate", "trust policy")
 
@@ -561,7 +594,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         # WP-A1: the anchor requirement as a POLICY key (v0.2-gated like decision_receipt) — so a
         # relying party pins "must carry a verifying preRegistration anchor" in the policy file
         # instead of remembering CLI flags.
-        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+        if schema_gate and policy.get("schema") != POLICY_SCHEMA_V0_2:
             raise PolicyError("anchors section requires schema proofbundle/trust-policy/v0.2")
         anc = _require_dict(policy["anchors"], "anchors")
         _require_str_or_null(anc, "require_anchor", "anchors")
@@ -589,60 +622,9 @@ def load_policy(source: Union[str, dict]) -> dict:
                                   "64-char hex merkle root")
     if "relations" in policy:
         # relation/v0.1 lineage requirements (v0.2-gated like decision_receipt/anchors).
-        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+        if schema_gate and policy.get("schema") != POLICY_SCHEMA_V0_2:
             raise PolicyError("relations section requires schema proofbundle/trust-policy/v0.2")
-        rel = _require_dict(policy["relations"], "relations")
-        if "require_relation_resolution" in rel:
-            rr = rel["require_relation_resolution"]
-            if (not isinstance(rr, list) or not rr
-                    or not all(isinstance(x, str) and x in _RELATION_NAMES for x in rr)):
-                raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
-                                  f"relation names out of {list(_RELATION_NAMES)}")
-        _require_bool(rel, "reject_superseded", "relations")
-        _require_bool(rel, "reject_retracted", "relations")
-        # WP-A relation_signer (WHO may replace): map relation -> {mode:same-key} | {mode:pinned,keys:[b64…]}.
-        # Fail-closed: unknown relation, unknown mode, extra field, non-b64/low-order key, empty keys list.
-        if "relation_signer" in rel:
-            rs = _require_dict(rel["relation_signer"], "relations.relation_signer")
-            for relname, rule in rs.items():
-                if relname not in _RELATION_NAMES:
-                    raise PolicyError(f"relations.relation_signer key {relname!r} is not a relation "
-                                      f"name out of {list(_RELATION_NAMES)}")
-                rule = _require_dict(rule, f"relations.relation_signer[{relname}]")
-                mode = rule.get("mode")
-                if mode not in _RELATION_SIGNER_MODES:
-                    raise PolicyError(f"relations.relation_signer[{relname}].mode must be one of "
-                                      f"{list(_RELATION_SIGNER_MODES)} (fail-closed), got {mode!r}")
-                if mode == "same-key":
-                    if "keys" in rule:
-                        raise PolicyError(f"relations.relation_signer[{relname}] mode 'same-key' takes "
-                                          "no 'keys' (fail-closed)")
-                else:  # pinned
-                    keys = rule.get("keys")
-                    if not isinstance(keys, list) or not keys \
-                            or not all(isinstance(k, str) for k in keys):
-                        raise PolicyError(f"relations.relation_signer[{relname}] mode 'pinned' needs a "
-                                          "non-empty 'keys' list of base64 Ed25519 public keys "
-                                          "(empty = vacuous pin, fail-closed)")
-                    for k in keys:
-                        _validate_pinned_ed25519_pubkey(k, f"relations.relation_signer[{relname}]")
-        # WP-A2 require_relation_target (WHICH parent): map relation -> 64-hex content root | [roots…].
-        # Fail-closed: unknown relation, non-hex, empty list. Closes the decoy-parent gap.
-        if "require_relation_target" in rel:
-            rt = _require_dict(rel["require_relation_target"], "relations.require_relation_target")
-            for relname, roots in rt.items():
-                if relname not in _RELATION_NAMES:
-                    raise PolicyError(f"relations.require_relation_target key {relname!r} is not a "
-                                      f"relation name out of {list(_RELATION_NAMES)}")
-                items = roots if isinstance(roots, list) else [roots]
-                if isinstance(roots, list) and not roots:
-                    raise PolicyError(f"relations.require_relation_target[{relname}] must not be an "
-                                      "empty list (vacuous pin, fail-closed)")
-                for root in items:
-                    if not (isinstance(root, str) and _HEX64.match(root)):
-                        raise PolicyError(f"relations.require_relation_target[{relname}] must be a "
-                                          "64-char lowercase hex content root (jcs-sha256-v1), or a "
-                                          "non-empty list of them")
+        _relations_felder_pruefen(_require_dict(policy["relations"], "relations"))
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         if "trusted_decision_makers" in dr and not isinstance(dr["trusted_decision_makers"], list):
@@ -661,7 +643,83 @@ def load_policy(source: Union[str, dict]) -> dict:
         for key in _DECISION_BOOL_KEYS:
             if key in dr:
                 _require_bool(dr, key, "decision_receipt")
-    return policy
+
+
+def _abgelehnt_vom_loader(policy: dict) -> str | None:
+    """The loader's refusal of a policy that is a plain JSON object, as its message, or None when the loader's
+    rule for present fields passes (``schema`` and ``policy_id`` are the loader's own business).
+
+    The one entry rule of every surface that takes a whole policy: ``evaluate_policy`` and
+    ``evaluate_decision_policy``, and the outcome and relation statement verifiers, which judge only the
+    ``relations`` section of it. Those two read a typo in a top-level key (``"relationz"``) as no relations
+    section and judged an attached retraction with no rule, where ``load_policy`` and the decision verifier
+    refuse the policy (verify lens on the cross-check fix at bc3d275f, 2026-09-29)."""
+    try:
+        _huelle_pruefen(policy)
+        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
+        _felder_pruefen(policy, schema_gate=False)   # every other present field: the loader's rule too
+    except PolicyError as exc:
+        return str(exc)
+    return None
+
+
+def _relations_felder_pruefen(rel: dict) -> None:
+    """The loader's rule for the fields of a ``relations`` section that is a dict, the one rule for
+    ``load_policy`` (through :func:`_felder_pruefen`) and for :func:`proofbundle.relation.evaluate_relations_policy`,
+    which receives the section alone. A ``require_relation_resolution`` that is not a list, a ``relation_signer``
+    or ``require_relation_target`` that is not a dict, a relation name out of the registry: each was read as no
+    rule by the evaluator, and the loader refuses each. Raises :class:`PolicyError`."""
+    if "require_relation_resolution" in rel:
+        rr = rel["require_relation_resolution"]
+        if (not isinstance(rr, list) or not rr
+                or not all(isinstance(x, str) and x in _RELATION_NAMES for x in rr)):
+            raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
+                              f"relation names out of {list(_RELATION_NAMES)}")
+    _require_bool(rel, "reject_superseded", "relations")
+    _require_bool(rel, "reject_retracted", "relations")
+    # WP-A relation_signer (WHO may replace): map relation -> {mode:same-key} | {mode:pinned,keys:[b64…]}.
+    # Fail-closed: unknown relation, unknown mode, extra field, non-b64/low-order key, empty keys list.
+    if "relation_signer" in rel:
+        rs = _require_dict(rel["relation_signer"], "relations.relation_signer")
+        for relname, rule in rs.items():
+            if relname not in _RELATION_NAMES:
+                raise PolicyError(f"relations.relation_signer key {_nennen(relname)} is not a relation "
+                                  f"name out of {list(_RELATION_NAMES)}")
+            rule = _require_dict(rule, f"relations.relation_signer[{relname}]")
+            mode = rule.get("mode")
+            if mode not in _RELATION_SIGNER_MODES:
+                raise PolicyError(f"relations.relation_signer[{relname}].mode must be one of "
+                                  f"{list(_RELATION_SIGNER_MODES)} (fail-closed), got {_nennen(mode)}")
+            if mode == "same-key":
+                if "keys" in rule:
+                    raise PolicyError(f"relations.relation_signer[{relname}] mode 'same-key' takes "
+                                      "no 'keys' (fail-closed)")
+            else:  # pinned
+                keys = rule.get("keys")
+                if not isinstance(keys, list) or not keys \
+                        or not all(isinstance(k, str) for k in keys):
+                    raise PolicyError(f"relations.relation_signer[{relname}] mode 'pinned' needs a "
+                                      "non-empty 'keys' list of base64 Ed25519 public keys "
+                                      "(empty = vacuous pin, fail-closed)")
+                for k in keys:
+                    _validate_pinned_ed25519_pubkey(k, f"relations.relation_signer[{relname}]")
+    # WP-A2 require_relation_target (WHICH parent): map relation -> 64-hex content root | [roots…].
+    # Fail-closed: unknown relation, non-hex, empty list. Closes the decoy-parent gap.
+    if "require_relation_target" in rel:
+        rt = _require_dict(rel["require_relation_target"], "relations.require_relation_target")
+        for relname, roots in rt.items():
+            if relname not in _RELATION_NAMES:
+                raise PolicyError(f"relations.require_relation_target key {_nennen(relname)} is not a "
+                                  f"relation name out of {list(_RELATION_NAMES)}")
+            items = roots if isinstance(roots, list) else [roots]
+            if isinstance(roots, list) and not roots:
+                raise PolicyError(f"relations.require_relation_target[{relname}] must not be an "
+                                  "empty list (vacuous pin, fail-closed)")
+            for root in items:
+                if not (isinstance(root, str) and _HEX64.match(root)):
+                    raise PolicyError(f"relations.require_relation_target[{relname}] must be a "
+                                      "64-char lowercase hex content root (jcs-sha256-v1), or a "
+                                      "non-empty list of them")
 
 
 def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
@@ -703,13 +761,11 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
-    try:
-        _huelle_pruefen(policy)
-        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
-    except PolicyError as exc:
+    grund = _abgelehnt_vom_loader(policy)
+    if grund is not None:
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
-                           f"load_policy applies): {exc}"]}
+                           f"load_policy applies): {grund}"]}
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
@@ -737,7 +793,7 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # A-P0-4 §8.2: the decision verifier accepts only a decision-purpose policy. Absent = transitional
     # default (documented), matching the eval path's treatment of legacy policies without the field.
     if policy.get("policyPurpose") is not None and policy["policyPurpose"] != "decision":  # null == absent
-        errors.append(f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the "
+        errors.append(f"policyPurpose {_nennen(policy['policyPurpose'])} — this policy is not for the "
                       "decision verify path (wrong purpose, fail-closed)")
 
     # predicateType allow-list (confusion defense at the policy layer)
@@ -837,9 +893,31 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     return {"policy_ok": policy_ok, "signer_trusted": signer_trusted, "errors": errors}
 
 
+def _projizierbar(policy) -> dict:
+    """A policy a projection may read: the plain copy of a dict the loader's rule for present fields accepts,
+    or :class:`PolicyError` with the loader's message.
+
+    THE FINDING (verify lens on the cross-check fix at bc3d275f, 2026-09-29): the two projections below are
+    how the CLI turns a policy into ``verify_bundle(expected_aud=...)`` and ``rp_trust``, and they read a
+    section of another type as no section. For a policy that never passed ``load_policy`` an ``sd_jwt`` that
+    is no object dropped the audience binding, an ``anchors.trusted_tsa_policy_oids`` of another type dropped
+    the TSA policy pin, and a ``bitcoin_block_headers`` that is no object raised a raw ``AttributeError``. The
+    CLI loads every policy first, so it was not affected; the library path now refuses such a policy here."""
+    if not issubclass(type(policy), dict):
+        raise PolicyError("trust policy must be a JSON object")
+    kopie = _plain_for_jcs(policy, PolicyError)
+    grund = _abgelehnt_vom_loader(kopie)
+    if grund is not None:
+        raise PolicyError(f"policy rejected before projection (fail-closed, the same rule load_policy applies): "
+                          f"{grund}")
+    return kopie
+
+
 def policy_expected_aud(policy: dict):
     """The aud the policy wants bound (sd_jwt.expected_aud), or None. Used by the CLI to reconcile
-    with the --aud flag (a policy/flag conflict is an error, never a silent override)."""
+    with the --aud flag (a policy/flag conflict is an error, never a silent override). A policy the loader
+    refuses is :class:`PolicyError` (`_projizierbar`)."""
+    policy = _projizierbar(policy)
     return _as_dict(policy.get("sd_jwt")).get("expected_aud")
 
 
@@ -847,7 +925,9 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     """WP-A1: the relying-party anchor TRUST material carried in the policy's ``anchors`` section, as an
     ``rp_trust`` dict (``trusted_tsa_roots`` / ``bitcoin_block_headers`` / ``trusted_tsa_policy_oids``), or
     None when the policy declares none. Mirrors the CLI ``--trusted-tsa-root`` / ``--bitcoin-header``; the
-    CLI unions the two. Validated already in ``load_policy`` (fail-closed), so this is a pure projection."""
+    CLI unions the two. A pure projection of a policy the loader's rule accepts; a policy it refuses is
+    :class:`PolicyError` (`_projizierbar`)."""
+    policy = _projizierbar(policy)
     anc = _as_dict(policy.get("anchors"))
     rp: dict = {}
     if anc.get("trusted_tsa_roots"):
@@ -895,11 +975,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy (Klasse und Messung
     # bei _huelle_pruefen). Ein unbekannter Schluessel ist ein fail-closed Verdikt, kein Wurf —
     # diese Flaeche liefert Verdikte.
-    try:
-        _huelle_pruefen(policy)
-        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
-    except PolicyError as exc:
-        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {exc}"
+    grund = _abgelehnt_vom_loader(policy)
+    if grund is not None:
+        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {grund}"
         return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
                 "reason": grund}
     checks: list = []
@@ -946,8 +1024,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if policy.get("policyPurpose") is not None:   # null == absent (Lens-4 F1)
         purpose_ok = policy["policyPurpose"] == "eval"
         add("policy:purpose", purpose_ok,
-            f"policyPurpose {policy['policyPurpose']!r} accepted on the eval verify path" if purpose_ok
-            else f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the eval "
+            f"policyPurpose {_nennen(policy['policyPurpose'])} accepted on the eval verify path" if purpose_ok
+            else f"policyPurpose {_nennen(policy['policyPurpose'])} — this policy is not for the eval "
                  "verify path (wrong purpose, fail-closed)")
     if policy.get("requiresIdentityOverlay") is True:
         add("policy:not_template", False,
@@ -1287,7 +1365,8 @@ def explain_policy(policy: dict) -> list:
     if sdj.get("require_nonce"):
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
     if sdj.get("max_iat_age_seconds") is not None:
-        lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+        # Bounded (`_nennen`): a huge int passes the loader and raised a raw ValueError here (int->str cap).
+        lines.append(f"eval claim freshness <= {_nennen(sdj['max_iat_age_seconds'])}s")
     if sdj.get("expected_vct") is not None:
         lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (from a VERIFIED issuer signature)")
     st = _as_dict(policy.get("status"))
@@ -1356,10 +1435,12 @@ def _attributes_to_nobody(policy: dict) -> bool:
     require_expected_signer (eval side) AND no trusted_decision_makers (decision side). Crypto OK
     under such a policy proves integrity by an UNKNOWN party — 'attribution to nobody'
     (docs/TRUST_ANCHORS.md's first row)."""
-    has_issuers = bool(policy.get("allowed_issuers"))
+    # A list only: a value of another type pins nobody (the evaluators read it as empty and refuse it), and
+    # bool() of it counted a string or a single object as a signer pin and suppressed this warning.
+    has_issuers = bool(_as_list(policy.get("allowed_issuers")))
     # Exact True only: bool("false") counted a string as a signer pin and suppressed this warning.
     has_require = _as_dict(policy.get("signature")).get("require_expected_signer") is True
-    has_dm = bool(_as_dict(policy.get("decision_receipt")).get("trusted_decision_makers"))
+    has_dm = bool(_as_list(_as_dict(policy.get("decision_receipt")).get("trusted_decision_makers")))
     return not (has_issuers or has_require or has_dm)
 
 
@@ -1486,15 +1567,21 @@ def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     template used productively (AP-2 §6.4). ``now`` is threaded into the expiry check for tests.
     The policy is read once, into the plain copy of what it stores (round 12)."""
     policy = _gelesene_richtlinie(policy)
+    # The evaluators' entry rule first, the loader's rule and message (hull, boolean fields, every other present
+    # field): explain_policy reads the flags by their truth, so a string "false" counted as a pin, and it read a
+    # field of another type as empty or failed on it (a list of ints in allowed_issuers raised AttributeError, a
+    # bool in trusted_roots TypeError). A policy the rule refuses is a lint error, and no pin is read from it.
+    try:
+        _require_dict(policy, "trust policy")
+        _huelle_pruefen(policy)
+        _check_bool_fields(policy)
+        _felder_pruefen(policy, schema_gate=False)
+    except PolicyError as exc:
+        return {"ok": False, "errors": [str(exc)],
+                "warnings": policy_warnings(policy) if isinstance(policy, dict) else [], "pins": []}
     pins = explain_policy(policy)
     errors: list = []
     warnings = policy_warnings(policy)
-    # explain_policy reads the flags by their truth, so a string "false" counted as a pin and a policy whose
-    # only pin was {"require_nonce": "false"} linted ok. The loader's rule and message make that a lint error.
-    try:
-        _check_bool_fields(policy)
-    except PolicyError as exc:
-        errors.append(str(exc))
     if not pins:
         errors.append(
             "policy pins nothing (only schema/policy_id): every verify would report POLICY: OK "

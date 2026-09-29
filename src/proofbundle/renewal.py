@@ -72,10 +72,6 @@ def _as_dict(v):
     return v if isinstance(v, dict) else {}
 
 
-def _as_list(v):
-    return v if isinstance(v, (list, tuple)) else []
-
-
 def _refuse_giant_int(*values) -> None:
     """Signed-bytes guard (Deep-Gate iter9 Linse C, fix-the-CLASS not the instance): token()/_ats_content
     build the material a signature is computed over, so a shortened render is NOT an option — it would
@@ -1202,12 +1198,28 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
     #    structural fallback (API-safety audit: the PASS text must not conflate the two).
     newest = flat[-1]
+    # WHAT THE CHECKS BELOW READ OF THE NEWEST ATS IS READ BEFORE THE CALLBACK RUNS (deep gate at 7409b123,
+    # L3-620-T3-02). The caller's anchor_verifier was handed this verifier's own copy of the newest ATS, and
+    # external_token_type, sig_alg and hash_alg were read from it afterwards: a callback that answered True and
+    # cleared external_token_type with object.__setattr__ skipped a failing external token, and one that relabelled
+    # a sha1 ATS as sha256 passed require_current_hash. The external token is judged here, before the callback,
+    # against the relying party's material as it stands now; the two labels are kept in locals; and the callback
+    # gets a copy of its own (`_ats_wie_gespeichert`), so nothing it writes reaches this verifier's copy.
+    _ext_typ = _zeichen_von(newest.external_token_type)   # by its characters, not its own __bool__
+    _ext = _verify_ats_external_token(newest, rp_trust=rp_trust) if _ext_typ else None
+    _neuester_alg, _neuester_sig = newest.hash_alg, newest.sig_alg
+    # The registry's verdict on the newest hash is read here too (verify lens on the cross-check fix at bc3d275f,
+    # 2026-09-29): HASH_REGISTRY is module state a callback can rewrite, and a callback that replaced the sha1
+    # entry with one whose status is "current" passed require_current_hash.
+    newest_dep = _is_deprecated_hash(_neuester_alg)
+    _spec = HASH_REGISTRY.get(_neuester_alg) if isinstance(_neuester_alg, str) else None
+    newest_current = _spec is not None and _spec.status == "current"
     # Only the exact True anchors. In the "caller anchor_verifier" mode verify_anchor is the caller's
     # callback, and bool(answer) would anchor on 1, "true", "false", [0] or any object whose __bool__
     # says True (and run that __bool__). The house verifiers above return exact bools (_default_anchor
     # whenever anchor_status is a str). The answer is never rendered into the detail (rendering could run
     # caller code as well).
-    answer = verify_anchor(newest)
+    answer = verify_anchor(cast(ArchiveTimeStamp, _ats_wie_gespeichert(newest)))
     anchored = answer is True
     if anchored:
         anchor_detail = f"newest ATS anchored via {anchor_mode}"
@@ -1222,10 +1234,9 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # 4b) optional, ADDITIONAL corroboration of the newest ATS against a REAL external RFC-3161/OTS proof
     #     (Finding 14a-b, ADR 0006 B3 OPEN item, pure glue — never a replacement for the anchor modes above).
     #     Only surfaced when the newest ATS actually carries an external_token_type (fully backward
-    #     compatible with every existing sequence that does not use this additive field).
-    _ext_typ = _zeichen_von(newest.external_token_type)   # by its characters, not its own __bool__
-    if _ext_typ:
-        _ext = _verify_ats_external_token(newest, rp_trust=rp_trust)
+    #     compatible with every existing sequence that does not use this additive field). Judged above, before
+    #     the anchor callback ran.
+    if _ext is not None:
         _ext_ok = bool(_ext.get("ok"))
         if not require_external_token:
             # a legitimate non-final state (OTS pending / needs_rp_trust) is tolerated by default, mirroring
@@ -1257,41 +1268,42 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         # the ATS signature is never checked, so a PQ label on newest.sig_alg proves nothing — fail closed.
         # fix-the-CLASS: a non-str sig_alg (attacker-built ATS) crashed `"mldsa" in (int or "")` with a
         # raw TypeError; normalize for the membership test, render every field through _rs.
-        _sig_label = newest.sig_alg if isinstance(newest.sig_alg, str) else ""
+        _sig_label = _neuester_sig if isinstance(_neuester_sig, str) else ""
         pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
         if pq_verified:
-            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(newest.sig_alg)}, authority "
+            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(_neuester_sig)}, authority "
                          "signature)")
         elif anchor_mode != "authority signature":
             pq_detail = (f"require_pq needs authority_keys to verify a PQ signature; anchor mode is "
                          f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
         else:
-            pq_detail = f"newest ATS sig_alg {_rs(newest.sig_alg)} has no verified PQ leg (require_pq)"
+            pq_detail = f"newest ATS sig_alg {_rs(_neuester_sig)} has no verified PQ leg (require_pq)"
         result.checks.append(Check("renewal:pq_floor", pq_verified, pq_detail))
 
     # hash-strength floor: a DEPRECATED newest hash is tolerated by default (historical-chain survival) but
     # must never be hidden behind .ok — surface it as a check, and fail closed when require_current_hash.
     # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
     # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
-    newest_dep = _is_deprecated_hash(newest.hash_alg)
-    _spec = HASH_REGISTRY.get(newest.hash_alg) if isinstance(newest.hash_alg, str) else None
-    newest_current = _spec is not None and _spec.status == "current"
+    # newest_dep and newest_current were read before the anchor callback ran (above).
     if newest_dep or require_current_hash:
         hash_ok = newest_current if require_current_hash else True
         if newest_dep:
-            hash_detail = (f"newest ATS hash {_rs(newest.hash_alg)} is deprecated"
+            hash_detail = (f"newest ATS hash {_rs(_neuester_alg)} is deprecated"
                            + (" (require_current_hash, fail-closed)" if require_current_hash
                               else " — .ok reflects structure, not hash strength; call evaluate_renewal_policy "
                                    "or pass require_current_hash=True to reject"))
         elif newest_current:
-            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is current"
+            hash_detail = f"newest ATS hash {_rs(_neuester_alg)} is current"
         else:
-            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is not a known current hash (require_current_hash)"
+            hash_detail = f"newest ATS hash {_rs(_neuester_alg)} is not a known current hash (require_current_hash)"
         result.checks.append(Check("renewal:current_hash", hash_ok, hash_detail))
     return result
 
 
 # --- B4 renewal policy and triggers ------------------------------------------------------------
+
+#: What the entry scan of `RenewalPolicy.from_dict` answers when every entry is text.
+_KEIN_EINTRAG = object()
 
 
 @dataclass(frozen=True)
@@ -1321,9 +1333,30 @@ class RenewalPolicy:
         if _mage is not None and not (isinstance(_mage, int) and not isinstance(_mage, bool)):
             raise RenewalError(
                 f"renewal policy max_ats_age must be an int or None, got {type(_mage).__name__}")
+        # A PRESENT deprecated_algs OF ANOTHER TYPE IS REFUSED, never read as no deprecated algorithm (the
+        # cross-check of 2026-09-29 on main 52231c95, the class of the P1 at 7409b123). `_as_list` turned 5,
+        # "sha256", {}, None and True into [], and a Python set into [] as well, so `{"deprecated_algs":
+        # {"sha256"}, "strictness": "fail"}` reported renewal:policy True over a sha256 ATS. from_dict is the
+        # only loader of this policy and no CLI path takes it, so this is where the rule stands. The containers
+        # evaluate_renewal_policy accepts (list, tuple, set, frozenset) are read through the base type's own
+        # iteration (`_folge_von`). An entry that is no text is refused as well (the verify lens on this fix):
+        # it was dropped, so `[b"sha256"]` or a nested `[["sha256"]]` deprecated nothing; the loader of the trust
+        # policy refuses such an entry in every list of names.
+        _veraltet = obj.get("deprecated_algs", [])
+        _vtyp = type(_veraltet)
+        if not any(issubclass(_vtyp, t) for t in (list, tuple, set, frozenset)):
+            raise RenewalError(
+                f"renewal policy deprecated_algs must be a list of hash algorithm names, got {type_name(_veraltet)}; "
+                "a value of another type is refused, never read as no deprecated algorithm (fail-closed)")
+        _eintraege = _folge_von(_veraltet)
+        _fremd = next((x for x in _eintraege if not isinstance(x, str)), _KEIN_EINTRAG)
+        if _fremd is not _KEIN_EINTRAG:
+            raise RenewalError(
+                f"renewal policy deprecated_algs holds an entry of type {type_name(_fremd)}; every entry is a hash "
+                "algorithm name, and an entry of another type is refused, never read as no algorithm (fail-closed)")
         return cls(
-            deprecated_algs=frozenset(x for x in _as_list(obj.get("deprecated_algs", []))
-                                      if isinstance(x, str)),
+            # each name as the plain text it holds (`_zeichen_von`): no `__hash__` of a caller's str subclass runs
+            deprecated_algs=frozenset(_zeichen_von(x) for x in _eintraege),
             max_ats_age=_mage,
             strictness=strictness,
         )
@@ -1397,7 +1430,14 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         return result
     # The deprecated algorithms through the base type's own iteration, each by its characters, and the
     # newest algorithm by its characters: no `__hash__`, `__eq__` or `__iter__` of the caller decides it.
-    _veraltet = {_zeichen_von(x) for x in _folge_von(_veraltet_roh)} - {None}
+    # An entry that is no text is refused, never dropped (the verify lens on the cross-check fix at bc3d275f):
+    # `RenewalPolicy(deprecated_algs=[b"sha256"])` deprecated nothing and a sha256 ATS was within policy.
+    _veraltet = {_zeichen_von(x) for x in _folge_von(_veraltet_roh)}
+    if None in _veraltet:
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   "policy.deprecated_algs holds an entry that is no text; every entry is a hash "
+                                   "algorithm name (fail-closed)"))
+        return result
     _neuester_alg = _zeichen_von(newest.hash_alg)
 
     reasons = []

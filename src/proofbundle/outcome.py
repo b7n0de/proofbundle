@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_EINGEBAUTE_SKALARE, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
                         _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
@@ -293,6 +293,24 @@ def _plain_pack(trust_pack: Any) -> Any:
         return None
 
 
+def _widerrufen(trust_pack: dict, key_id: str) -> bool:
+    """True when the pack's ``revoked`` list names ``key_id``, and when the pack holds a ``revoked`` that is no
+    list of key id strings, which revokes every key (fail-closed). ``trust_pack`` is the plain copy.
+
+    THE FINDING (verify lens on the cross-check fix at bc3d275f, 2026-09-29): both role checks asked
+    ``isinstance(revoked, list) and key_id in revoked``, so a ``revoked`` of another type ("kid-exec",
+    ``{"kid-exec": true}``, 5, True, null) revoked nobody, and ``verify_outcome_receipt`` reported a revoked
+    executor as ``executor_role_trusted`` True with ``ok`` and ``safeForAutomation`` True.
+    ``trust_pack.validate_trust_pack_predicate`` refuses each of these values ("revoked must be a list of
+    keyId strings"); a pack handed in directly reached the check without that validator."""
+    if "revoked" not in trust_pack:
+        return False
+    revoked = trust_pack["revoked"]
+    if not (type(revoked) is list and all(type(k) is str for k in revoked)):
+        return True
+    return key_id in revoked
+
+
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
     """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
     revoked and — when ``public_key`` (the 32 raw Ed25519 bytes the receipt was verified under) is
@@ -323,8 +341,7 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
     key_ids = role.get("keyIds") if isinstance(role, dict) else None
     if not isinstance(key_ids, list) or key_id not in key_ids:
         return False
-    revoked = trust_pack.get("revoked")
-    if isinstance(revoked, list) and key_id in revoked:
+    if _widerrufen(trust_pack, key_id):   # a revoked list of another type revokes every key (fail-closed)
         return False
     if public_key is not None and not pack_key_binds_signer(key_id, trust_pack, public_key):
         return False
@@ -344,6 +361,10 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
 # stays honestly unreachable (see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver
 # receipt is a RECEIPT about the effect, never a live observation of the real-world effect itself.
 _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
+
+#: The expected receiver key for a pack entry that holds no usable key: plain bytes no 32-byte signer key equals,
+#: so `assurance.classify_receiver_corroboration` binds nothing to it and never promotes on a bare True.
+_KEIN_NUTZBARER_SCHLUESSEL = b""
 
 
 def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
@@ -365,8 +386,7 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     key_ids = role.get("keyIds") if isinstance(role, dict) else None
     if not isinstance(key_ids, list) or receiver_key_id not in key_ids:
         return False
-    revoked = trust_pack.get("revoked")
-    if isinstance(revoked, list) and receiver_key_id in revoked:
+    if _widerrufen(trust_pack, receiver_key_id):   # a revoked list of another type revokes every key
         return False
     return True
 
@@ -754,12 +774,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _exid = _as_dict(predicate.get("executor")).get("id") if isinstance(predicate.get("executor"), dict) else None
         if decision_maker_id is not None:
             # By its characters, so a `str` subclass's own `__ne__` cannot declare two ids different
-            # (round 12). An id of an exact built-in scalar type is compared as before; one of any
-            # other type (an object that claims str through `__class__` answered `!=` itself) cannot
-            # show two parties differ, so separation is not established (fail-closed).
+            # (round 12). An id that is no text cannot show two parties differ, so separation is not
+            # established (fail-closed): `executor.id` is a non-empty string by the validator, so an int,
+            # a bool, a float or bytes never equals it and `!=` was vacuously True (verify lens on the
+            # cross-check fix at bc3d275f: decision_maker_id=12345 beside executor.id "12345" gave
+            # role_separation_ok and ok True, where the sibling expectations refuse a value that is no text).
             _dm = _zeichen_von(decision_maker_id)
-            if _dm is None and type(decision_maker_id) in _EINGEBAUTE_SKALARE:
-                _dm = decision_maker_id
             r["role_separation_ok"] = bool(_exid) and _dm is not None and _exid != _dm
             if not r["role_separation_ok"]:
                 r["errors"].append(
@@ -857,7 +877,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # L1-600-02 (receiver half): when a trust pack names key material for a receiverKeyId, the
             # label is bound to the signer the resolver reports (32-byte key) — a bare True never binds.
             # The resolver's answers are remembered per entry so receiver_role_trusted below judges the
-            # same evidence the ladder did, without calling the caller's resolver twice.
+            # same evidence the ladder did, without calling the caller's resolver twice. A key in a
+            # `bytearray` is remembered as the bytes it held when it was answered, and the ladder gets those
+            # bytes too (deep gate at 7409b123, L3-620-T3-03): the answer object was kept and read again
+            # after the resolver's next call, which could rewrite it, so the role loop bound a receiver label
+            # to a key the ladder had refused. `bytes` is key material exactly as `bytearray` is
+            # (`assurance._is_key_material`), and reading a plain `bytearray` runs no code of the caller.
             _recv_answers: dict[int, Any] = {}
 
             def _remembering_resolver(idx: int):
@@ -866,24 +891,41 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
 
                 def _f(d):
                     res = receiver_attestation_resolver(d)
+                    if type(res) is bytearray:
+                        res = bytes(res)
                     _recv_answers[idx] = res
                     return res
                 return _f
 
             def _expected_key(x):
+                # None only when the pack names no key for the label: no pack, no `keys`, or no entry for the
+                # receiverKeyId. An entry the pack DOES hold that is no usable 32-byte key (a publicKey of
+                # another type, one that does not decode, 31 bytes, an entry that is no object) and a `keys`
+                # that is no object answer an expectation no signer key equals (verify lens on the cross-check
+                # fix at bc3d275f): answering None read the malformed entry as "the pack names no key", and a
+                # resolver's bare True then reached INDEPENDENTLY_ATTESTED, where the well-formed entry keeps
+                # CONTENT_RESOLVED. The pack validator refuses each such entry.
                 if trust_pack is None or not isinstance(x, dict):
                     return None
                 kid = x.get("receiverKeyId")
-                keys = trust_pack.get("keys") if isinstance(trust_pack, dict) else None
-                kv = keys.get(kid) if isinstance(keys, dict) and isinstance(kid, str) else None
-                if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
+                if type(kid) is not str:
                     return None
+                keys = trust_pack.get("keys") if isinstance(trust_pack, dict) else None
+                if keys is None:
+                    return None
+                if not isinstance(keys, dict):
+                    return _KEIN_NUTZBARER_SCHLUESSEL
+                if kid not in keys:
+                    return None
+                kv = keys[kid]
+                if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
+                    return _KEIN_NUTZBARER_SCHLUESSEL
                 from ._wire_b64 import decode_b64  # noqa: PLC0415
                 try:
                     raw = decode_b64(kv["publicKey"])
                 except (ValueError, TypeError):
-                    return None
-                return raw if len(raw) == 32 else None
+                    return _KEIN_NUTZBARER_SCHLUESSEL
+                return raw if len(raw) == 32 else _KEIN_NUTZBARER_SCHLUESSEL
 
             r["evidence_levels"]["receiverRefs"] = _assurance.evidence_ladder_best(*[
                 _assurance.classify_receiver_corroboration(
@@ -1034,11 +1076,15 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # The relations section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01):
         # from the one copy, or as stored when the policy holds a value that is no JSON value, so the gate
         # still refuses an unreadable section with its own code.
-        _rel = _abschnitt_von(policy, richtlinie, "relations")
-        if issubclass(type(_rel), dict) and r["crypto_ok"]:
+        _rel = _abschnitt_von(policy, richtlinie, "relations", _FEHLT)
+        # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate
+        # at 7409b123, the sweep of L4-620b-01): `{"relations": [...]}` judged an attached retraction with no rule
+        # and gave ok True, and so did `{"relations": null}` (the cross-check of 2026-09-29, on main 52231c95 and
+        # at 2a2d59b2). Only an absent section is no relations rule.
+        if _rel is not _FEHLT and r["crypto_ok"]:
             import base64 as _b64_rel  # noqa: PLC0415
-            from .relation import evaluate_relations_policy  # noqa: PLC0415
-            _viol = evaluate_relations_policy(
+            from .relation import _abschnitt_urteil  # noqa: PLC0415
+            _viol = _abschnitt_urteil(
                 _rel, _as_dict(r.get("lineage")),
                 successor_key_b64=_b64_rel.b64encode(schluessel).decode())
             r["policy_ok"] = not _viol
@@ -1055,6 +1101,17 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # that cannot be read is never a silent pass, whatever its relations section says.
             r["policy_ok"] = False
             r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
+        elif richtlinie is not None:
+            # The loader's rule over the whole policy (verify lens on the cross-check fix at bc3d275f): this
+            # verifier judges only the relations section, so a top-level typo such as "relationz" read as no
+            # relations rule and an attached retraction passed, where load_policy and the decision verifier
+            # refuse the policy. A policy the loader refuses is refused here with its message.
+            from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+            _grund = _abgelehnt_vom_loader(richtlinie)
+            if _grund is not None:
+                r["policy_ok"] = False
+                r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
+                                   f"load_policy applies): {_grund}")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

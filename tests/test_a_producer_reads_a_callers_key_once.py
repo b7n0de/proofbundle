@@ -698,7 +698,13 @@ _RULE_SITES = {
                                                                          "through wire_value"),
     ("src/proofbundle/policy.py", "_pinned_key_refusal"): (1, "the helper"),
     ("src/proofbundle/policy.py", "_pinned_key_forgeable"): (1, "the helper"),
-    ("src/proofbundle/policy.py", "load_policy"): (3, "loads a policy copy, and that copy is evaluated"),
+    # The loader's field rule moved out of load_policy into one function that load_policy and the three
+    # evaluators call (deep gate at 7409b123): the three calls of load_policy are these three.
+    ("src/proofbundle/policy.py", "_felder_pruefen"): (2, "the loader's field rule on a policy copy "
+                                                          "(allowed_issuers, trusted_decision_makers); refuses, "
+                                                          "keeps nothing of the key"),
+    ("src/proofbundle/policy.py", "_relations_felder_pruefen"): (1, "the same rule for the pinned "
+                                                                    "relation_signer keys"),
     ("src/proofbundle/policy.py", "evaluate_policy"): (1, "verifier: judges a pin and compares it; "
                                                          "writes nothing"),
     ("src/proofbundle/policy.py", "evaluate_decision_policy"): (1, "verifier: the same"),

@@ -26,7 +26,7 @@ import hashlib
 import re
 from typing import Any
 
-from .canonical import _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
+from .canonical import _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -218,12 +218,13 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         LINEAGE_FAIL,
         LINEAGE_VERIFIED,
         SUCCESSOR_RELATIONS,
-        evaluate_relations_policy,
+        _abschnitt_urteil,
         verify_relationship_edges,
     )
     r = _empty_result()
-    # The argument's own type decides (`issubclass`), never `isinstance`, which believes a `__class__` claim.
-    related = related if issubclass(type(related), dict) else None
+    # A `related` that is neither None nor a dict is handed on as it is: the shared engine refuses it
+    # (`relation._related_abgelehnt`, deep gate at 7409b123, L4-620b-01). It was replaced by None here, so a
+    # Mapping that is no dict holding a verified retraction read as nothing attached.
     # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L4-620-01), as in
     # decision.verify_decision_receipt: the policy was read through its own `get` and `__getitem__` at the
     # relations gate and the self-assertion gate, and a dict subclass hid a verified retraction.
@@ -367,14 +368,17 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif issubclass(type(_abschnitt_von(policy, richtlinie, "relations")), dict) and r["crypto_ok"]:
+    # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate at
+    # 7409b123, the sweep of L4-620b-01), JSON null included (the cross-check of 2026-09-29: `{"relations": null}`
+    # judged a verified retraction with no rule); only an absent section is no relations rule.
+    elif _abschnitt_von(policy, richtlinie, "relations", _FEHLT) is not _FEHLT and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
         # The section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01): the gate
         # refuses a section it cannot read with its own code, and the self-assertion gate below reads only
         # the plain copy of the section; a section with no plain copy has already failed the gate.
         _abschnitt = _abschnitt_von(policy, richtlinie, "relations")
         relations = _richtlinie_von(_abschnitt) or {}
-        _viol = evaluate_relations_policy(
+        _viol = _abschnitt_urteil(
             _abschnitt, _as_dict(r.get("lineage")),
             successor_key_b64=_b64.b64encode(schluessel).decode())
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a
@@ -409,6 +413,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # L4-620-01); a requested policy that cannot be read is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
+    elif richtlinie is not None:
+        # The loader's rule over the whole policy, as in outcome.verify_outcome_receipt (verify lens on the
+        # cross-check fix at bc3d275f): a top-level typo such as "relationz" read as no relations rule.
+        from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+        _grund = _abgelehnt_vom_loader(richtlinie)
+        if _grund is not None:
+            r["policy_ok"] = False
+            r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
+                               f"load_policy applies): {_grund}")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
