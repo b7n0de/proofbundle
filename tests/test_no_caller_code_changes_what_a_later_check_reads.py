@@ -554,6 +554,43 @@ class AWrongContainerIsRefusedNotReadAsEmpty(unittest.TestCase):
                     anchors.verify_anchors(falsch, target_roots={})
 
 
+class AnEntryThatRaisesWhenReadFailsTheAnchorStep(unittest.TestCase):
+    """verify_decision_receipt reads its anchors at entry, keeps what that reading raised, and raises it again at the
+    anchor step (`raise _anker_fehler`), where its two arms turn it into a failed anchor verdict. Codex round two on
+    PR 313 at 37fc3cac asked whether an entry whose type check raises escapes there. Measured, it does not, and no
+    case held the path; this one does (owner order of 2026-09-29): ok False, anchors_ok False, no exception, and an
+    exception of caller code is named by its type only, never rendered."""
+
+    def test_an_entry_whose_type_check_raises(self) -> None:
+        from proofbundle.decision import emit_decision_receipt, verify_decision_receipt  # noqa: PLC0415
+        umschlag = emit_decision_receipt(_beispiel("decision_receipt_deny.json"), _A, strict=True)
+        self.assertIs(verify_decision_receipt(umschlag, _raw(_A), strict=True, anchors=[])["ok"], True)   # control
+        gerendert = []
+
+        class _Fehler(Exception):
+            def __str__(self) -> str:
+                gerendert.append(1)
+                return "rendered"
+
+        def feindlich(ausnahme: BaseException):
+            class _Eintrag:
+                @property
+                def __class__(self):
+                    raise ausnahme
+            return _Eintrag()
+
+        for ausnahme, text in ((RuntimeError("x"), "failed on an error of type RuntimeError (fail-closed)"),
+                               (_Fehler(), "failed on an error of type _Fehler (fail-closed)"),
+                               (TypeError("x"), "refused malformed anchor input (fail-closed)")):
+            with self.subTest(error=type(ausnahme).__name__):
+                r = verify_decision_receipt(umschlag, _raw(_A), strict=True, anchors=[feindlich(ausnahme)])
+                self.assertIs(r["ok"], False)
+                self.assertIs(r["anchors_ok"], False)
+                self.assertIs(r["automation"]["safeForAutomation"], False)
+                self.assertIn(text, " ".join(r["errors"]))
+        self.assertEqual(gerendert, [], "the anchor step rendered an exception of caller code")
+
+
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 # THE PROPERTY, per surface: callbacks that empty every argument they can reach change no verdict.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────

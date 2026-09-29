@@ -632,8 +632,18 @@ those on a verify, emit or release path:
   that holds a value that is no JSON value after the resolvers ran, where `policy_ok` is False already;
   `agent_review` reads `blocking` and `require_coverage_status` of null as no rule, as its own loader does,
   kept for 6.2.0 by owner decision; and four mutation anchors of `scripts/mutation_check.py` for
-  `relation.py` match nothing, at main 52231c95 already. One stricter verdict it names too: a well-formed
-  `mldsa65` receiver key in a trust pack no longer lets a bare True reach INDEPENDENTLY_ATTESTED.
+  `relation.py` matched nothing, at main 52231c95 already (repaired in pull request 311, next line). One
+  stricter verdict it names too: a well-formed `mldsa65` receiver key in a trust pack no longer lets a bare
+  True reach INDEPENDENTLY_ATTESTED.
+- The mutation anchors, repaired in pull request 311 before its gate. At main 52231c95, 19 of the 106
+  operators of `scripts/mutation_check.py` named no site of the source (at v6.1.0 each of the then 100
+  named one): the round-12 reading had rewritten the guarded lines. Pull request 313 brought one back; the
+  18 others, four on `relation.py` among them, now name exactly one site, and
+  `tests/test_every_mutation_operator_names_one_site.py` holds every operator to that on each pull
+  request. Each of the 18 mutants was killed by its own test file in a local probe on 2026-09-29; two, the
+  R7-2b lookups on `relation.py`, survived until a case with an empty or absent rule was added to
+  `tests/test_never_raise_surface_family_property.py`. The limit: the probe ran named test files, not the
+  canonical mutation run, which is still to come.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 
