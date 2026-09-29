@@ -16,6 +16,8 @@ belongs to the next patch release. The lens rounds that closed the branches ran 
 families each, against targets fixed before each run, and every objection of the two foreign
 families was re-measured before it was filed. Each pull request's Codex review series was capped at five
 requests; an answer without P0 or P1 ended a series, and its P2 went into this file without a fix at the head.
+Pull request 312 is the exception to the three families: its verify lane ran with one family, and the deep gate
+at the new head of pull request 311, which carries this file, is its closing round.
 
 | Branch | Pull request | Head that landed | Last lens round | Codex series |
 |---|---|---|---|---|
@@ -24,7 +26,8 @@ requests; an answer without P0 or P1 ended a series, and its P2 went into this f
 | Pre-tag cleanliness gate | 249 | 68745704, main 8da7ce16; carries 296 and the cost-bound class fix | Claude lens run 4 at f5939ab0, WITHSTANDS | 5 requests, the last without a finding |
 | Rust dependency audit | 296 | 2cf9908f, landed inside 249 | run 4 at d30f236e, FIX_FIRST for C3, fixed at f97cb257 | 2 requests, the last without a finding |
 | Commitment patterns at the verify boundary | 300 | 373bf64b, main a1e9774e | Claude lens run 11 at cd5d39f4; its P0 and P1 closed in round 12 | 3 requests, the last with one P2 (thread 4124587746) |
-| Release-scope cut | 294 | the head that carries this file | Claude lens at 989b582c; its four P1 closed in 346fa924 | 5 requests; the fifth, at 76f260a2, reported one P1 (thread 4125291621), fixed without a further request as the owner's rule sets it after the budget, and one P2 (thread 4125291624) |
+| Release-scope cut | 294 | 903325f3, main 2074d814 | Claude lens at 989b582c; its four P1 closed in 346fa924 | 5 requests; the fifth, at 76f260a2, reported one P1 (thread 4125291621), fixed without a further request as the owner's rule sets it after the budget, and one P2 (thread 4125291624) |
+| One reading at every verify surface | 312 | b19d6ef3, main 52231c95 | verify lane of three Claude lenses at c2ba90db; its eight neighbours fixed in a9bfe2e2 and b19d6ef3 | 2 requests, both without a finding |
 
 ## Closed in 6.2.0 — the open items of the 6.1.0 record
 
@@ -121,10 +124,49 @@ timestamp; this package's own emitter signed it before the fix.
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
 
+## Open — the released 6.0.0 and 6.1.0 let a caller's own objects decide eight verify verdicts
+
+The deep gate of the release preparation (pull request 311 at 2348f0a7) confirmed eight P1 findings of one
+class, each by three of three blind jurors: a public verify surface read an argument of the caller a second
+time, or through a method of the caller's own type. Pull request 312 (main 52231c95) closes the class. The
+gate's reproducers were run on 2026-09-29 by executing them at the tagged trees of v6.0.0 (`4e32e83b`) and
+v6.1.0 (`dcac5aee`), at main `2074d814` and at `87090ef2`, the merge of the new main into this branch
+(Python 3.10.12). Unless a line says otherwise, every promotion below holds at both tags and at `2074d814`,
+with the plain control giving the refusal:
+- `verify_decision_receipt` judged the trust pin on a second reading of the caller's `public_key`, after the
+  evidence resolver ran: a `bytearray` key the resolver rewrote gave `ok`, `signer_trusted` and
+  `safeForAutomation` True for a receipt signed by an untrusted key. The reproducer drives the decision
+  verifier; the outcome verifier's same read is recorded at `2074d814` in the CHANGELOG entry of pull
+  request 312.
+- `verify_prereg` and `verify_evaluation_card` read the stored hash through the claim's own `get`,
+  `__class__` and `__eq__`: a claim that stores another document's hash gave `ok` True.
+- `verify_sequence` checked the authority signature over an `int` subclass's own rendering of an ATS
+  `time` while `evaluate_renewal_policy` judged the stored integer, so an overdue anchor was judged within
+  policy; `evaluate_renewal_policy` took an `int` subclass as `now` and turned an overdue FAIL into `ok`
+  True; and `known_newest_token_digest` was compared through the caller's `__eq__`, so a truncated sequence
+  passed `renewal:no_rollback` with `ok` True.
+- `verify_decision_receipt` asked a list subclass of anchors whether it is empty through its own
+  `__bool__`: a failing anchor was hidden and `ok` went from False to True.
+- The relations gate of the decision, outcome and relation-statement verifiers read the policy through its
+  own `get`: a lineage requirement the plain policy fails (`LINEAGE_REQUIREMENT_FAILED`) and a
+  `relation_signer` pin to another key (`RELATION_SIGNER_UNAUTHORIZED`) gave `ok` True. At the two tags the
+  same policy object also hid a `require_external_anchor` obligation from the decision verifier (`ok` True);
+  at `2074d814` that obligation already held.
+
+At `87090ef2` none of the eight promotes, and every control gives the verdict it gives at the tags. One
+named limit stays at every tree measured, `87090ef2` included: an `anchors` argument that is a falsy value
+of another type (`{}`, `""`, `0`, `False`) is read as no anchors, with `safeForAutomation` False, as the
+CHANGELOG entry of pull request 312 names it. The reach is the Python API: the CLI parses files into plain
+values and passes none of these objects.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
 ## Open — findings of the last rounds judged not to block
 
 One line per P2 and P3 of the closing lens and Codex rounds of the branches in this release (the small-order keys, the commitment patterns,
-the resolver fix, the pre-tag cleanliness gate, the Rust dependency audit, the release-scope cut), each
+the resolver fix, the pre-tag cleanliness gate, the Rust dependency audit, the release-scope cut) and of the
+deep gate of the release preparation at 2348f0a7, each
 with branch, head, file and line, and the sentence why it is not P0 or P1. 234, 236 and the tooling stack
 moved to 6.3.0 (owner word of 2026-09-27); their lines are not part of this file.
 
@@ -361,6 +403,79 @@ P1 (an unreadable candidate scope read as one that names nothing) is fixed on th
   6.2.0 has landed with this pull request. It ends when 6.3.0 names its first branch and its `## Out` section, which
   is work of 6.3.0.
 
+From the deep gate of the release preparation (pull request 311) at 2348f0a7, which ended FIX_FIRST for the eight P1
+in the section on the released 6.0.0 and 6.1.0 above. The owner's decision of 2026-09-29 made that a new iteration:
+the class fix in pull request 312, this branch on the new main, and the gate once at its new head. These lines
+entered with that iteration, before the gate at the new head, so they are not an edit after a closing round. Each
+was judged real by at least two of three blind jurors; lines are as at 2348f0a7, and a line the filer measured
+again at 87090ef2 says so, the others carry the jurors' measurement. Eight further lens claims were refuted by a
+majority of the jury and are not listed. One of them still reproduces at 87090ef2: `automation_summary` reads the
+caller's `result` through its own `get` and `__contains__`, so a dict subclass storing `ok` False reads as
+`safeForAutomation` True, against its docstring's "ALWAYS blocks". The lens claimed P1; three of three jurors
+refuted it as the caller's own claim with no fact of the package hidden, the shape of the
+`root_authenticity_summary` line above, and every call site in the package passes a plain dict.
+- **Merkle proof elements are copied before their count is capped** (P2): `verify_inclusion` and `verify_consistency`
+  copy every `bytearray` or `memoryview` proof element before the `merkle_path` cap of 256, so 5000 aliases of one
+  1 MB buffer raise a raw `MemoryError` out of a surface documented to return a bool. The direct Python API only:
+  the bundle and the CLI decode proofs to `bytes`.
+- **A witness roster is copied before its cap** (P2): `checkpoint.witness_quorum` materialises the whole roster and
+  copies each entry through `str.__str__` before the `witnesses` cap of 256; `verify_tlog_proof` lets a raw
+  `MemoryError` escape for aliased `str`-subclass entries or an unbounded iterator. The roster is relying-party
+  configuration.
+- **An OpenTimestamps height too large to render raises** (P2): `verify_evidence_pack` raises a raw `ValueError`
+  (CPython's limit of 4300 digits on `int` to `str`) for a proof whose Bitcoin height is a huge varuint. Measured by
+  the filer at 87090ef2: a 7226-byte proof with height 2^50000 raises at `anchors_ots.py:225` without and at `:253`
+  with a relying-party header (`:211` and `:239` at 2348f0a7), where the height 800000 gives `needs_rp_trust` and
+  `block_mismatch`. The CLI stays fail-closed with exit 2 (jurors' measurement).
+- **Renewal work counts entries, not digest bytes** (P2 by the jury; the lens said P3): `renewal_work` bounds counts
+  only. Measured by the filer at 87090ef2: `verify_sequence` over 10 000 single-ATS chains and one data digest of
+  10^6 hex characters takes 5.4 s of CPU, 0.14 s with a 64-character digest, at a `renewal_work` of 10 000 against
+  its 40 000 000; 2000 aliases of one ATS whose covered digest has 10^6 hex characters take 13.7 s, and 57.3 s
+  with 4 000 000. Every verdict stays `ok` False, and the cost-curve test uses 64-character digests only.
+- **The dual hash re-hashes the data once per key** (P3): `verify_dual_hash` hashes all of `data` once per
+  `str`-subclass key that reads as a registry id (entries times `len(data)`, about 100 s per MB at the `json_nodes`
+  cap). The direct dict path only, and the verdict stays correct; `compute_dual_hash` already deduplicates by
+  `spec.id`.
+- **A caller's own method escapes as a raw error at public surfaces** (P2): at 2348f0a7, `load_bundle`,
+  `verify_evaluation_card`, `verify_prereg`, `verify_sample_opening` and `verify_mldsa` ran a caller's `__class__`,
+  `get` or `__eq__` and let a planted `RuntimeError` escape. Measured by the filer at 87090ef2 with the jurors'
+  reproducer: `verify_evaluation_card`, `verify_prereg` and `verify_mldsa` return their result now (pull request
+  312); `load_bundle` (`bundle.py:256`) and `verify_sample_opening` (`persample.py:222`) still let it escape, and
+  so does `automation_summary(required_checks=)`, which is outside the verify naming. A neighbour of the class
+  named under "a caller's own Python objects can make a never-raise surface raise" below; JSON cannot reach it.
+- The rollback comparison of `verify_sequence` was also filed as a P2 of this gate (two jurors P2, one P1). It is
+  the site of the P1 on `known_newest_token_digest` above and closed with it.
+- **Python and Rust disagree on a null relationships list** (P2): `relationships: null` on an attached target gives
+  `VERIFIED` and exit 0 in `decision verify --with-related` and `FAIL` with exit 2 in the Rust `verify-relation`,
+  whose `walk_chain` lacks the null guard that `successor_warning` has. A parity divergence; the Rust verifier is
+  not shipped in the wheel, and no Python verdict is promoted.
+- **An attached target that fails its own schema resolves VERIFIED** (P2): a target that fails its predicate schema
+  standalone (exit 2) resolves `VERIFIED` in both verifiers, so the texts that say a target is `VERIFIED` only if it
+  verifies standalone claim more than the parse check holds. No retraction is hidden; the fix narrows the texts or
+  validates each type's schema.
+- **The findings-register CLI does not apply key expiry** (P2): `scripts/findings_register.py` authorises anchor keys
+  by role only and never applies `not_after`, so it exits 0 for an expired key where C12.2 fails. It is outside the
+  wheel and no workflow runs it; the fix routes it through `audit_candidate_matrix._autorisierte_schluessel`.
+- **C12.2 does not apply the self-registration check** (P2): C12.2 and the register CLI never apply the C3
+  self-registration check that C6.2, C6.3 and C8.2 apply for the same anchor role, so a key added in the candidate
+  commit turns C12.2 PASS. The jurors judged it P2; it is P1 only where C12.2's trust binding is read as claimed
+  closed.
+- **C11.2 decides the classifier by a pattern over the whole file** (P2): the release-deciding C11.2 decides that the
+  package stays `4 - Beta` by a regular expression over the whole `pyproject.toml` text, so a Mature, Inactive or
+  absent classifier passes when a comment or a description holds the Beta string. The fix parses the classifiers
+  list.
+- **Three readers of receipts and the register catch only decode errors** (P2 by two jurors; the third refuted it as
+  outside the scope): `pre_tag_audit_gate._receipt_candidates`, `findings_register.verify_and_count` and the C12.2
+  pre-read catch only `JSONDecodeError` and `ValueError`, so a deep array or a huge integer raises `RecursionError`
+  or `ValueError` instead of a rejection. Fail-closed everywhere (CLI exit 1, matrix FAIL).
+- **`render_release` binds `release_commit` by its length only** (P3): a 40-character revision expression (`HEAD~0`
+  or `@~0` followed by more characters) or upper-case hex renders with exit 0 in a depth-1 and in a full clone, so
+  the tree binding holds nothing for it. The fix requires `\A[0-9a-f]{40}\Z`, as `_HEX40` does.
+- **`render_release` does not bind the source's tags to `--version`** (P3 by two jurors): a 6.2.0 note renders with
+  exit 0 and a `v6.0.0...v6.1.0` comparison link.
+- **`render_release.pruefe` compares `release_commit` through a `str` subclass's `__ne__`** (P3 by two jurors): from
+  the Python API only, it then skips the ancestry and diff check; the CLI and JSON cannot reach it.
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -414,6 +529,13 @@ those on a verify, emit or release path:
   file that appears and is gone again between the two measurements is invisible to both; the verifier's
   `git status` takes the index's stat data on trust; a `PATH` that leads to a git wrapper is part of the
   trusted base, like the interpreter (the three pre-tag entries).
+- The class fix of pull request 312 names four limits, none a promoted verdict: an `anchors` argument that is
+  a falsy value of another type is read as no anchors; a policy holding two `relations` keys with the same
+  characters is refused with `policy_ok` False but without a relations code; a policy holding a float NaN is
+  copied as a value; `agent_review.validate_time_claim` and `derive_limitation_codes` still read a caller's
+  dict through its own `get` (read, not measured). Switches, and callbacks other than those of the receipt
+  verifiers, are outside the sweep, as `_NICHT_IM_SWEEP` in `tests/test_one_reading_at_every_surface.py`
+  states.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 
