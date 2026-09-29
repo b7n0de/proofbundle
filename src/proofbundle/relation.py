@@ -214,17 +214,37 @@ def _attached_targets(entries: list[tuple[str, Any, str | None]]) -> dict[str, A
     return targets
 
 
+def _related_abgelehnt(related: Any) -> str | None:
+    """The refusal of a ``related`` that is neither None nor a dict, or None (deep gate at 7409b123, L4-620b-01).
+
+    A ``related`` that is a Mapping but no dict (``collections.UserDict``, ``types.MappingProxyType``,
+    ``collections.ChainMap``), a list of pairs or any other value was read as a map with no entries: the lineage
+    block was skipped, an attached verified retraction was never seen, and ``reject_superseded`` passed. The
+    three verifiers and this module's engine refuse it now, fail-closed, as a ``policy`` that is no dict is
+    refused. The text is the lineage error and the ``supersededByAttached`` value, so ``reject_superseded`` names
+    it too. Only the relying party's own object can be such a value (the ``--with-related`` resolver builds a
+    dict), and nothing of it is read: only its type is named, by `_membership.type_name`."""
+    if related is None or issubclass(type(related), dict):
+        return None
+    return (f"relation:related_malformed: related must be a JSON object mapping a content root to its attached "
+            f"target, got a value of type {type_name(related)}; it is refused, never read as no attached "
+            "targets (fail-closed)")
+
+
 def _carries_attached_entries(related: Any) -> bool:
     """Whether ``related`` holds any attached entry, read from what the map stores (``dict.__len__`` of
-    the base type), never through the caller's own ``__len__`` or ``__bool__``. A value that is no dict
-    holds none.
+    the base type), never through the caller's own ``__len__`` or ``__bool__``. A value that is neither None
+    nor a dict counts as carrying entries, so the verifiers run the lineage step, which refuses it
+    (`_related_abgelehnt`).
 
     The decision and outcome verifiers asked ``if "relationships" in predicate or related``: the
     caller's map answered through its own ``__bool__``. Measured 2026-09-28 on main 86671552 and on
     D4: a ``dict`` subclass whose ``__len__`` is 0, holding a verified retraction of the subject,
     skipped the lineage block, so ``reject_superseded`` never saw the retraction and both verifiers
     answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False."""
-    return issubclass(type(related), dict) and dict.__len__(related) > 0
+    if related is None:
+        return False
+    return not issubclass(type(related), dict) or dict.__len__(related) > 0
 
 
 def _edge_target_hex(edge: dict) -> str | None:
@@ -320,8 +340,12 @@ def verify_relationship_edges(
     # targets judged below are not answered by a dict subclass's own `get` and `__contains__`. Each
     # entry is read on its own (`_read_attached_entries`, Codex review of PR 300, thread 4121924153):
     # an entry that cannot be read is kept as `_UNREADABLE`, an edge that names it FAILs, and
-    # `successor_warning` names it, but it never clears the entries beside it. A `related` that is no
-    # dict holds no targets: every edge stays unresolved, never verified.
+    # `successor_warning` names it, but it never clears the entries beside it. A `related` that is neither None
+    # nor a dict is refused (`_related_abgelehnt`, deep gate at 7409b123, L4-620b-01): it was read as no
+    # targets, and a verified retraction it held was never seen.
+    abgelehnt = _related_abgelehnt(related)
+    if abgelehnt is not None:
+        return {"lineage": LINEAGE_FAIL, "edges": [], "errors": [abgelehnt], "supersededByAttached": abgelehnt}
     attached_entries = _read_attached_entries(related)
     related = _attached_targets(attached_entries)
     # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
@@ -575,7 +599,11 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
 
     Each entry of ``related`` is read on its own (`_read_attached_entries`): an entry that cannot be
     read is named with ``relation:malformed_successor`` unless a readable entry declares such a
-    relation, and it never hides the entries beside it."""
+    relation, and it never hides the entries beside it. A ``related`` that is neither None nor a dict is
+    named with its refusal (`_related_abgelehnt`), never read as no attached receipts."""
+    abgelehnt = _related_abgelehnt(related)
+    if abgelehnt is not None:
+        return abgelehnt
     return _successor_warning_over(_read_attached_entries(related), subject_hex)
 
 

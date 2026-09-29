@@ -1202,12 +1202,22 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
     #    structural fallback (API-safety audit: the PASS text must not conflate the two).
     newest = flat[-1]
+    # WHAT THE CHECKS BELOW READ OF THE NEWEST ATS IS READ BEFORE THE CALLBACK RUNS (deep gate at 7409b123,
+    # L3-620-T3-02). The caller's anchor_verifier was handed this verifier's own copy of the newest ATS, and
+    # external_token_type, sig_alg and hash_alg were read from it afterwards: a callback that answered True and
+    # cleared external_token_type with object.__setattr__ skipped a failing external token, and one that relabelled
+    # a sha1 ATS as sha256 passed require_current_hash. The external token is judged here, before the callback,
+    # against the relying party's material as it stands now; the two labels are kept in locals; and the callback
+    # gets a copy of its own (`_ats_wie_gespeichert`), so nothing it writes reaches this verifier's copy.
+    _ext_typ = _zeichen_von(newest.external_token_type)   # by its characters, not its own __bool__
+    _ext = _verify_ats_external_token(newest, rp_trust=rp_trust) if _ext_typ else None
+    _neuester_alg, _neuester_sig = newest.hash_alg, newest.sig_alg
     # Only the exact True anchors. In the "caller anchor_verifier" mode verify_anchor is the caller's
     # callback, and bool(answer) would anchor on 1, "true", "false", [0] or any object whose __bool__
     # says True (and run that __bool__). The house verifiers above return exact bools (_default_anchor
     # whenever anchor_status is a str). The answer is never rendered into the detail (rendering could run
     # caller code as well).
-    answer = verify_anchor(newest)
+    answer = verify_anchor(cast(ArchiveTimeStamp, _ats_wie_gespeichert(newest)))
     anchored = answer is True
     if anchored:
         anchor_detail = f"newest ATS anchored via {anchor_mode}"
@@ -1222,10 +1232,9 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # 4b) optional, ADDITIONAL corroboration of the newest ATS against a REAL external RFC-3161/OTS proof
     #     (Finding 14a-b, ADR 0006 B3 OPEN item, pure glue — never a replacement for the anchor modes above).
     #     Only surfaced when the newest ATS actually carries an external_token_type (fully backward
-    #     compatible with every existing sequence that does not use this additive field).
-    _ext_typ = _zeichen_von(newest.external_token_type)   # by its characters, not its own __bool__
-    if _ext_typ:
-        _ext = _verify_ats_external_token(newest, rp_trust=rp_trust)
+    #     compatible with every existing sequence that does not use this additive field). Judged above, before
+    #     the anchor callback ran.
+    if _ext is not None:
         _ext_ok = bool(_ext.get("ok"))
         if not require_external_token:
             # a legitimate non-final state (OTS pending / needs_rp_trust) is tolerated by default, mirroring
@@ -1257,36 +1266,36 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         # the ATS signature is never checked, so a PQ label on newest.sig_alg proves nothing — fail closed.
         # fix-the-CLASS: a non-str sig_alg (attacker-built ATS) crashed `"mldsa" in (int or "")` with a
         # raw TypeError; normalize for the membership test, render every field through _rs.
-        _sig_label = newest.sig_alg if isinstance(newest.sig_alg, str) else ""
+        _sig_label = _neuester_sig if isinstance(_neuester_sig, str) else ""
         pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
         if pq_verified:
-            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(newest.sig_alg)}, authority "
+            pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(_neuester_sig)}, authority "
                          "signature)")
         elif anchor_mode != "authority signature":
             pq_detail = (f"require_pq needs authority_keys to verify a PQ signature; anchor mode is "
                          f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
         else:
-            pq_detail = f"newest ATS sig_alg {_rs(newest.sig_alg)} has no verified PQ leg (require_pq)"
+            pq_detail = f"newest ATS sig_alg {_rs(_neuester_sig)} has no verified PQ leg (require_pq)"
         result.checks.append(Check("renewal:pq_floor", pq_verified, pq_detail))
 
     # hash-strength floor: a DEPRECATED newest hash is tolerated by default (historical-chain survival) but
     # must never be hidden behind .ok — surface it as a check, and fail closed when require_current_hash.
     # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
     # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
-    newest_dep = _is_deprecated_hash(newest.hash_alg)
-    _spec = HASH_REGISTRY.get(newest.hash_alg) if isinstance(newest.hash_alg, str) else None
+    newest_dep = _is_deprecated_hash(_neuester_alg)
+    _spec = HASH_REGISTRY.get(_neuester_alg) if isinstance(_neuester_alg, str) else None
     newest_current = _spec is not None and _spec.status == "current"
     if newest_dep or require_current_hash:
         hash_ok = newest_current if require_current_hash else True
         if newest_dep:
-            hash_detail = (f"newest ATS hash {_rs(newest.hash_alg)} is deprecated"
+            hash_detail = (f"newest ATS hash {_rs(_neuester_alg)} is deprecated"
                            + (" (require_current_hash, fail-closed)" if require_current_hash
                               else " — .ok reflects structure, not hash strength; call evaluate_renewal_policy "
                                    "or pass require_current_hash=True to reject"))
         elif newest_current:
-            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is current"
+            hash_detail = f"newest ATS hash {_rs(_neuester_alg)} is current"
         else:
-            hash_detail = f"newest ATS hash {_rs(newest.hash_alg)} is not a known current hash (require_current_hash)"
+            hash_detail = f"newest ATS hash {_rs(_neuester_alg)} is not a known current hash (require_current_hash)"
         result.checks.append(Check("renewal:current_hash", hash_ok, hash_detail))
     return result
 

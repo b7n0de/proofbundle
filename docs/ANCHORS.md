@@ -298,7 +298,9 @@ The contract: a `type` that is REGISTERED, a fail-closed verify callable, and th
 canonicalRoot ↔ target binding enforced by the layer for you. The layer reads the returned dict only
 by exact types, and runs none of its objects' code while doing so: a key counts only as a plain `str`,
 `ok` and the other flags only as the exact `True`, `status` and `detail` only as a `str`, and a
-`trustedTime` only as a dict of `str` keys holding JSON scalars, with a non-empty `source`. The name is an identifier, not a
+`trustedTime` only as a dict of `str` keys holding JSON scalars, with a non-empty `source`. `warn` is read in
+the direction that grants nothing: beside `ok` True any `warn` but `False` (or none) makes the anchor pending,
+never full, and beside any other `ok` only the exact `True` makes it pending. The name is an identifier, not a
 grammar — `verify_anchor` asks whether the string is a key of the registry, and neither it nor the
 bundle schema checks its shape. `<org>/<name>/vN` is a RECOMMENDED form for a new name and nothing
 more. Not one of the type names this project itself ships has that shape, and the two built-ins

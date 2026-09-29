@@ -615,6 +615,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         if _ablehnung.get("policy_ok") is not False:
             _ablehnung = {"policy_ok": False, "signer_trusted": False, "errors": [
                 "trust policy holds a value that is no JSON value — not evaluated (fail-closed)"]}
+    # THE ANCHORS AND THE RELYING PARTY'S TRUST MATERIAL ARE READ HERE AS WELL (deep gate at 7409b123,
+    # L1-620v2-T3-01). They were read at the anchor step, after the evidence resolver had run: a resolver that
+    # cleared the caller's anchor list hid a failing anchor, and one that wrote a header into `rp_trust`
+    # confirmed a pending one, so ok and safeForAutomation came out True. Every entry and `rp_trust` are copied
+    # now, before any caller code runs (`anchors._anker_lesen`). What reading them raises is kept and reported at
+    # the anchor step, where a refusal of `verify_anchors` was reported before.
+    from . import anchors as _anchors_mod  # noqa: PLC0415
+    _dr_section = richtlinie.get("decision_receipt") if richtlinie is not None else None
+    _wants_anchor = isinstance(_dr_section, dict) and bool(_dr_section.get("require_external_anchor"))
+    _anker_gelesen: Any = None
+    _anker_fehler: Exception | None = None
+    if anchors is not None or _wants_anchor:
+        try:
+            _anker_gelesen = _anchors_mod._anker_lesen(anchors, rp_trust)
+        except Exception as exc:  # noqa: BLE001 - reported fail-closed at the anchor step
+            _anker_fehler = exc
 
     try:
         # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
@@ -855,8 +871,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
 
     # Detached anchors (Fix 2): verify anchor evidence for the statement's OWN content root — sha256 over the
     # EXACT signed payload bytes (never re-canonicalized), computed only once the bytes are authentic+canonical.
-    _dr_section = richtlinie.get("decision_receipt") if richtlinie is not None else None
-    _wants_anchor = isinstance(_dr_section, dict) and bool(_dr_section.get("require_external_anchor"))
+    # The anchors and `rp_trust` were read at entry (`_anker_gelesen`, `_anker_fehler`).
     anchor_status = None
     if anchors is not None or _wants_anchor:
         if not (r["crypto_ok"] and canonical_ok is not False):
@@ -865,7 +880,6 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             r["errors"].append(
                 "cannot verify anchors: payload is not authentic + RFC-8785 canonical (fail-closed)")
         else:
-            from . import anchors as _anchors_mod  # noqa: PLC0415
             content_root = _anchors_mod.statement_content_root(body)
             # WP-A1: thread the relying-party trust material so a real OTS/rfc3161 statement anchor can
             # confirm here (the bundle's frozen material is never trust). Without it a time anchor is
@@ -875,13 +889,14 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # BundleFormatError. On this never-raise surface that must be a fail-closed anchors verdict, not a
             # raw traceback out of verify() — verify_anchor already returns fail-closed dicts for bad
             # target/type/root, so a malformed entry is the SAME class of outcome (deny), just surfaced here.
-            # The list is handed on as it is and read by what it stores (`verify_anchors` reads it
-            # through the base type's iteration). `anchors or []` asked the caller's list whether it is
-            # empty, and one that stored an anchor over another root and said it was empty hid it
-            # (deep gate 6.2.0 at 2348f0a7, L3-620-02). A built-in value keeps the handling it had.
+            # The list was read at entry by what it stores (`anchors._anker_lesen` reads it through the base
+            # type's iteration). `anchors or []` asked the caller's list whether it is empty, and one that stored
+            # an anchor over another root and said it was empty hid it (deep gate 6.2.0 at 2348f0a7, L3-620-02).
+            # A value that is not None and no list is refused, a falsy one included (L4-620b-01).
             try:
-                ar = _anchors_mod.verify_anchors(anchors if anchors is not None else [],
-                                                 target_roots={"statement": content_root}, rp_trust=rp_trust)
+                if _anker_fehler is not None:
+                    raise _anker_fehler
+                ar = _anchors_mod._anker_urteil(_anker_gelesen, target_roots={"statement": content_root})
             except (ProofBundleError, ValueError, TypeError, OverflowError, RecursionError) as exc:
                 # deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01): this guard caught ProofBundleError
                 # only, so a render-class escape from the anchor layer (a huge int in `type`, a mixed-type

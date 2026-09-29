@@ -10,6 +10,48 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **No caller code changes what a later check reads, a restricting flag restricts, and a container of the
+  wrong type is refused** (deep gate of the 6.2.0 release preparation at 7409b123: five P1 findings beside
+  the one below, each confirmed by a majority of three blind jurors). Measured at 7409b123, each through the
+  Python API with a callback or a container the caller supplies; the CLI passes no callbacks and builds plain
+  values, and was not affected:
+  - `verify_decision_receipt` read `anchors` (the list and each entry) and `rp_trust` after the evidence
+    resolver had run, and `verify_anchors` copied each entry only when its turn came. A resolver that
+    cleared the anchor list hid a failing anchor, one that wrote a Bitcoin header into `rp_trust` confirmed
+    a pending anchor under `require_external_anchor`, and a registered verifier for one anchor rewrote the
+    next one; each gave `ok` and `safeForAutomation` True. `verify_anchors` now reads every entry,
+    `rp_trust`, the relying party's roots and the verifier registry before the first verifier runs, and
+    hands each verifier a copy of `rp_trust` of its own; `verify_decision_receipt` reads the anchors and
+    `rp_trust` at its entry, before any caller code (`anchors._anker_lesen`).
+  - `verify_sequence` handed its own copy of the newest ArchiveTimeStamp to the caller's `anchor_verifier`
+    and read `external_token_type`, `sig_alg` and `hash_alg` from that copy afterwards. A callback that
+    answered True and cleared `external_token_type` skipped a failing external token, and one that
+    relabelled a sha1 ArchiveTimeStamp as sha256 passed `require_current_hash`. The external token is judged
+    and both labels are read before the callback runs, and the callback gets a copy of its own.
+  - `verify_outcome_receipt` kept the attestation resolver's answer object and read it again after the
+    resolver's next call: a `bytearray` that call rewrote bound a receiver label to a key the ladder had
+    refused (`receiver_key_bound` True). A `bytearray` answer is kept as the bytes it held when it was
+    given, and the ladder judges the same bytes.
+  - A registered anchor verifier's `warn` counted only as the exact `True` (pull request 291), so
+    `{"ok": True, "warn": "pending"}` was a full anchor and met `--require-anchor`. `warn` is read in the
+    direction that grants nothing: beside `ok` True any value but `False` makes the anchor pending, and
+    beside any other `ok` only the exact `True` does, as before.
+  - A `related` that is a Mapping but no dict (`UserDict`, `MappingProxyType`, `ChainMap`), a list of pairs
+    or any other value was read as no attached entries by the decision and outcome verifiers, and replaced by
+    None in `verify_relation_statement`, so `reject_superseded` did not see a verified retraction (present at
+    v6.1.0 as well). All three refuse it now, as `relation.verify_relationship_edges` and `successor_warning`
+    do: `lineage` FAIL with `relation:related_malformed`, and `ok` False. The neighbour RESTRISIKO_620
+    named: an `anchors` that is not None and no list, a falsy one included (`0`, `""`, `{}`, `()`), was read
+    as no anchors. `verify_anchors` refuses it with `BundleFormatError`, `verify_decision_receipt` reports
+    `anchors_ok` False, and `require` and `require_target` of `verify_anchors` are None or a string.
+  What a caller sees differently: no verdict depends on what a callback does to the arguments. A `related`
+  that is no dict and an `anchors` that is no list fail the verdict instead of reading as absent, and
+  `verify_anchors` refuses an `rp_trust` that is no JSON object once there is an anchor to judge (the
+  built-in verifiers failed each anchor on it before).
+  Tests: `tests/test_no_caller_code_changes_what_a_later_check_reads.py`, with one property per surface:
+  callbacks that empty every argument they can reach change no verdict. Measured at 31cf5f7e: 87 failed
+  (subtests counted), 8 passed. Here: 17 passed, 90 subtests.
+
 - **An evaluator refuses every policy field the loader refuses, with the loader's message** (deep gate of
   the 6.2.0 release preparation at 7409b123: a P1 confirmed by three of three blind jurors, found while
   re-measuring a foreign-family lens). A decision policy whose `decision_receipt.trusted_decision_makers`

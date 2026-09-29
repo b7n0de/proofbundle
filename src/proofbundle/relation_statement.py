@@ -222,8 +222,9 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         verify_relationship_edges,
     )
     r = _empty_result()
-    # The argument's own type decides (`issubclass`), never `isinstance`, which believes a `__class__` claim.
-    related = related if issubclass(type(related), dict) else None
+    # A `related` that is neither None nor a dict is handed on as it is: the shared engine refuses it
+    # (`relation._related_abgelehnt`, deep gate at 7409b123, L4-620b-01). It was replaced by None here, so a
+    # Mapping that is no dict holding a verified retraction read as nothing attached.
     # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L4-620-01), as in
     # decision.verify_decision_receipt: the policy was read through its own `get` and `__getitem__` at the
     # relations gate and the self-assertion gate, and a dict subclass hid a verified retraction.

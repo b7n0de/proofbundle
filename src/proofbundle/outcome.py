@@ -857,7 +857,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # L1-600-02 (receiver half): when a trust pack names key material for a receiverKeyId, the
             # label is bound to the signer the resolver reports (32-byte key) — a bare True never binds.
             # The resolver's answers are remembered per entry so receiver_role_trusted below judges the
-            # same evidence the ladder did, without calling the caller's resolver twice.
+            # same evidence the ladder did, without calling the caller's resolver twice. A key in a
+            # `bytearray` is remembered as the bytes it held when it was answered, and the ladder gets those
+            # bytes too (deep gate at 7409b123, L3-620-T3-03): the answer object was kept and read again
+            # after the resolver's next call, which could rewrite it, so the role loop bound a receiver label
+            # to a key the ladder had refused. `bytes` is key material exactly as `bytearray` is
+            # (`assurance._is_key_material`), and reading a plain `bytearray` runs no code of the caller.
             _recv_answers: dict[int, Any] = {}
 
             def _remembering_resolver(idx: int):
@@ -866,6 +871,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
 
                 def _f(d):
                     res = receiver_attestation_resolver(d)
+                    if type(res) is bytearray:
+                        res = bytes(res)
                     _recv_answers[idx] = res
                     return res
                 return _f
