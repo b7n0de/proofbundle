@@ -22,8 +22,9 @@ Properties checked:
 - the Codex MCP entry, run from the plugin root, starts the server and tells it its host;
 - under Codex, verify_receipt says that it cannot see whether the gate ran, and the verify skill passes
   that on and never claims the gate ran (Codex runs plugin hooks only after the user trusts them);
-- the second matcher, for MCP tools that open a pull request or a release, is the same under both hosts,
-  and under Codex such a call without declared evidence is denied as NOT MEASURED;
+- the second matcher, for MCP tools that open a pull request or a release, push files, write a file or
+  merge a pull request, is the same under both hosts, and under Codex such a call without declared
+  evidence is denied as NOT MEASURED;
 - the emit skill runs only when invoked, under both hosts;
 - the runbook for the Mac run of a real Codex turn names every case with the answer it expects, and each
   case's scaffold mode exists.
@@ -68,6 +69,11 @@ CODEX_TOP_KEYS = {"continue", "stopReason", "suppressOutput", "systemMessage", "
                   "hookSpecificOutput"}
 CODEX_SPECIFIC_KEYS = {"hookEventName", "permissionDecision", "permissionDecisionReason", "updatedInput",
                        "additionalContext"}
+
+
+def _codex_hook_matcher() -> str:
+    """The MCP matcher exactly as the Codex manifest writes it, read from the file and not from the gate."""
+    return CODEX["hooks"]["hooks"]["PreToolUse"][1]["matcher"]
 
 
 def _codex_hook() -> dict:
@@ -244,7 +250,7 @@ def test_under_codex_a_tampered_bundle_is_denied_and_a_verified_one_passes(shim,
 
 def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path):
     assert _run(shim, tmp_path, "--host", "codex", command="ls -la") is None
-    assert _run(shim, tmp_path, "--host", "codex", tool="mcp__github__push_files") is None
+    assert _run(shim, tmp_path, "--host", "codex", tool="mcp__github__delete_file") is None
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -255,6 +261,18 @@ def test_under_codex_an_mcp_pull_request_is_gated_like_a_push(shim, tmp_path):
     assert undeclared["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
     declared = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool="mcp__gitlab__create_merge_request")
     assert _codex_valid(declared) == "pass"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.parametrize("tool", ["mcp__github__push_files", "mcp__github__create_or_update_file",
+                                  "mcp__github__merge_pull_request"])
+def test_under_codex_an_mcp_write_or_merge_is_gated_like_a_push(shim, tmp_path, tool):
+    import re  # noqa: PLC0415
+    assert re.search(_codex_hook_matcher(), tool)
+    undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex", tool=tool)
+    assert _codex_valid(undeclared) == "deny"
+    assert undeclared["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+    assert _codex_valid(_run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool=tool)) == "pass"
 
 
 @pytest.mark.parametrize("args", [["--host"], ["--host", "cursor"], ["--hots", "codex"], ["codex"]])
@@ -327,3 +345,4 @@ def test_the_mac_runbook_names_every_case_with_its_expected_answer():
     assert expected[:4] == ["deny, NOT MEASURED", "deny", "deny", "deny"]
     assert expected[4].startswith("no decision")
     assert "NOT MEASURED" in text and "gate did not run" in text
+    assert f"`{gate.MCP_MATCHER}`" in text, "the runbook names the matcher the manifests carry"

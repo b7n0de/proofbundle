@@ -8,8 +8,11 @@ replace only `uv` by a shim that starts the same server with this interpreter an
 Properties checked:
 - a gated call is found in the forms a shell accepts (chains, nesting, wrappers, directory changes),
   and a call the gate does not know is left alone;
-- an MCP tool that opens a pull request, a merge request or a release is gated by name, through a
-  second matcher, and an MCP tool the gate does not know gets no answer;
+- an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or
+  merges a pull request is gated by name, through a second matcher, and an MCP tool the gate does not
+  know gets no answer;
+- a gated MCP tool's answer says what the gate could not see: the branch it publishes, the pull request
+  it merges, or the bytes it writes, which come from its own arguments;
 - every declared item names the proofbundle-tree-sha256/v1 digest of the tree at HEAD, both in the
   declaration and inside the signed evidence; a missing, stale or unsigned subject is denied;
 - the gate never answers allow: a pass carries no permission decision;
@@ -518,16 +521,22 @@ def _mcp_event(repo: pathlib.Path | str, tool: str) -> str:
 
 
 GATED_MCP = ["mcp__github__create_pull_request", "mcp__plugin_x_github__create_pull_request",
-             "mcp__gitlab__create_merge_request", "mcp__gitea__create_release", "mcp__a__b__create_release"]
-UNGATED_MCP = ["mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__merge_pull_request",
-               "mcp__github__create_branch", "mcp__github__update_pull_request", "mcp__github__create_issue",
-               "mcp__github__create_pull_request_review", "mcp__github__create_pull_request_x",
-               "Bash_create_pull_request", "create_pull_request", "mcp__create_pull_request"]
+             "mcp__gitlab__create_merge_request", "mcp__gitea__create_release", "mcp__a__b__create_release",
+             "mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__merge_pull_request",
+             "mcp__plugin_x_github__merge_pull_request"]
+#: Owner decision of 2026-09-29 (DECISIONS.md, D8): these five write to a remote and stay ungated, open.
+OPEN_MCP = ["mcp__github__delete_file", "mcp__github__create_branch", "mcp__github__update_pull_request",
+            "mcp__github__update_pull_request_branch", "mcp__github__enable_pr_auto_merge"]
+UNGATED_MCP = OPEN_MCP + [
+    "mcp__github__create_issue", "mcp__github__create_pull_request_review", "mcp__github__create_pull_request_x",
+    "mcp__github__push_files_x", "mcp__github__merge_pull_request_review", "mcp__github__xpush_files",
+    "Bash_create_pull_request", "create_pull_request", "mcp__create_pull_request", "mcp__push_files"]
 
 
 def test_the_mcp_matcher_names_exactly_the_gated_tools():
     import re  # noqa: PLC0415
-    assert gate.MCP_GATED_TOOLS == ("create_pull_request", "create_merge_request", "create_release")
+    assert gate.MCP_GATED_TOOLS == ("create_pull_request", "create_merge_request", "create_release",
+                                    "push_files", "create_or_update_file", "merge_pull_request")
     for tool in GATED_MCP:
         assert re.search(gate.MCP_MATCHER, tool), tool
         assert gate.mcp_gated(tool)
@@ -537,7 +546,7 @@ def test_the_mcp_matcher_names_exactly_the_gated_tools():
 
 
 @pytest.mark.parametrize("tool", GATED_MCP)
-def test_an_mcp_tool_that_opens_a_pull_request_or_a_release_is_gated(shim, repo, tool):
+def test_a_gated_mcp_tool_is_judged_by_the_local_repository(shim, repo, tool):
     answer = run_gate(shim, repo, "", raw=_mcp_event(repo, tool))
     assert decision(answer) == "pass"
     assert "MCP" in reason(answer) and "the local repository" in reason(answer)
@@ -556,6 +565,30 @@ def test_an_mcp_pull_request_without_declared_evidence_is_not_measured(shim, tmp
     assert reason(answer).startswith("NOT MEASURED:")
 
 
+@pytest.mark.parametrize("tool, unseen", [
+    ("mcp__github__create_pull_request", "it cannot see the branch the tool publishes"),
+    ("mcp__gitea__create_release", "it cannot see the branch the tool publishes"),
+    ("mcp__github__merge_pull_request", "it cannot see the pull request the tool merges"),
+    ("mcp__github__push_files", "the bytes the tool writes come from its own arguments"),
+    ("mcp__github__create_or_update_file", "the bytes the tool writes come from its own arguments"),
+])
+def test_a_gated_mcp_tool_says_what_the_gate_could_not_see(shim, repo, tool, unseen):
+    answer = run_gate(shim, repo, "", raw=_mcp_event(repo, tool))
+    assert decision(answer) == "pass"
+    assert unseen in reason(answer)
+
+
+def test_an_mcp_write_without_declared_evidence_is_not_measured(shim, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _git(plain, "init", "-q", "-b", "main")
+    _commit(plain)
+    for tool in ("mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__merge_pull_request"):
+        answer = run_gate(shim, plain, "", raw=_mcp_event(plain, tool))
+        assert decision(answer) == "ask", tool
+        assert reason(answer).startswith("NOT MEASURED:"), tool
+
+
 @pytest.mark.parametrize("tool", [t for t in UNGATED_MCP if t.startswith("mcp__")])
 def test_an_mcp_tool_the_gate_does_not_know_gets_no_answer(shim, repo, tool):
     assert run_gate(shim, repo, "", raw=_mcp_event(repo, tool)) is None
@@ -570,6 +603,23 @@ def _hook_entries() -> list[dict]:
     assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER]
     assert groups[0]["hooks"] == groups[1]["hooks"], "both matchers run the same gate the same way"
     return groups[0]["hooks"]
+
+
+def test_the_hook_file_matcher_and_d8_name_the_same_tools():
+    import re  # noqa: PLC0415
+    matcher = json.loads(HOOKS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"][1]["matcher"]
+    for tool in GATED_MCP:
+        assert re.search(matcher, tool), tool
+    for tool in UNGATED_MCP:
+        assert not re.search(matcher, tool), tool
+    decisions = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
+    d8 = decisions.split("## D8.", 1)[1].split("\n## ", 1)[0]
+    assert f"`{gate.MCP_MATCHER}`" in d8
+    gated, _, rest = d8.partition("Ungated")
+    for name in gate.MCP_GATED_TOOLS:
+        assert f"`{name}`" in gated, name
+    for tool in OPEN_MCP:
+        assert f"`{tool.rsplit('__', 1)[1]}`" in rest, tool
 
 
 def test_the_hook_runs_the_gate_on_every_shell_call_with_room_for_its_deadline():
