@@ -54,7 +54,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
     as no anchors, also from the CLI, which passes the content of `--anchors <file>` on (a file holding `{}`,
     `0`, `false` or `""` gave `ok` True at 52231c95). `verify_anchors` refuses it with `BundleFormatError`,
     `verify_decision_receipt` reports `anchors_ok` False, and `require` and `require_target` of
-    `verify_anchors` are None or a string; an empty `require` is refused as well, it read as no requirement. The sweep
+    `verify_anchors` are None or a string. The sweep
     of this class found one neighbour: a policy whose `relations` section is present and no dict (a list, a
     text, a number) was read as no relations rule by the outcome and relation statement verifiers, which ran
     the gate only for a dict, and by `relation.evaluate_relations_policy`; over an attached retraction both
@@ -140,17 +140,23 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   The same verify lenses found the class beyond the policy dict, each with a reproduction, and each is closed
   here. `anchors_rfc3161.verify_rfc3161` read an `rp_trust.trusted_tsa_policy_oids` of another type, and a
   list whose first entry is falsy, as no TSA policy pin, so a token under another policy verified; it answers
-  `rp_trust_malformed` now, and an empty list stays no pin. `outcome.executor_trusted_by_role` and
+  `rp_trust_malformed` now, and an empty list stays no pin; a pin held by a `str` subclass is read by its characters. `outcome.executor_trusted_by_role` and
   `receiver_trusted_by_role` read a trust pack `revoked` of another type as revoking nobody, so a revoked
   executor was trusted with `ok` and `safeForAutomation` True; such a `revoked` revokes every key now. The
   outcome verifier read a pack key entry for a receiver that is no usable 32-byte key as the pack naming no
-  key, so a bare True from the attestation resolver reached INDEPENDENTLY_ATTESTED; it binds nothing now.
+  key, so a bare True from the attestation resolver reached INDEPENDENTLY_ATTESTED; it binds nothing now. The same
+  holds for a well-formed `mldsa65` key: the pack names a key for the label, and no 32-byte signer key a
+  resolver can return equals it, so a bare True no longer promotes such a receiver either, the rule
+  `pack_key_binds_signer` applies to the executor (an mldsa65 key never binds an Ed25519 DSSE signer).
   `automation_summary` read a `references` requirement of another shape, and entries that are no text, as
-  no references; they are unresolved now. `verify_outcome_receipt` compared a `decision_maker_id` of an int,
+  no references; they are unresolved now, and a name held by a `str` subclass is read by its characters. `verify_outcome_receipt` compared a `decision_maker_id` of an int,
   bool, float or bytes with the string `executor.id`, which is always unequal, and reported role separation;
   an id that is no text shows none now. `experimental.attested_inference.check_on_receipt` accepted an
   answer when no planned route or one of another type was given, where its docstring says not measurable;
-  it says not measurable now. `policy.policy_expected_aud` and `policy_anchor_trust` project a policy the
+  it says not measurable now; a planned route held by a `str` subclass or a `str` Enum is read by its
+  characters. `verify_anchors` keeps reading an empty `require` as the loader accepts it (no type named;
+  beside a target, any type): a regression lens measured that refusing it turned the CLI exit code of such
+  a policy from 0 to 3. `policy.policy_expected_aud` and `policy_anchor_trust` project a policy the
   loader's rule accepts and raise `PolicyError` for one it refuses (an `sd_jwt` that is no object dropped the
   audience binding for a policy that never passed `load_policy`), and `explain_policy` renders a huge
   freshness bound bounded instead of raising from `lint_policy`.

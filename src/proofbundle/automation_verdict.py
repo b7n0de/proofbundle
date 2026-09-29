@@ -122,11 +122,14 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     # 2026-09-29): a text, a set, a dict, 5 or True was read as no references, and an entry that is no text
     # (b"evidence_bound", ["evidence_bound"]) was skipped, so `evidence_bound` False gave safeForAutomation True,
     # where a wrong `crypto`, `structure` or `policy` key blocks. Only an absent (None) references means none.
-    from .canonical import _folge_von  # noqa: PLC0415
+    # Each name is read by its characters (`_zeichen_von`): a `str` subclass names the field it holds, as a list
+    # or tuple subclass is read through the base type's iteration.
+    from .canonical import _folge_von, _zeichen_von  # noqa: PLC0415
     _refs = required_checks.get("references")
     _refs_folge = _folge_von(_refs) if issubclass(type(_refs), (list, tuple)) else None
-    refs_fremd = _refs is not None and (_refs_folge is None or not all(type(n) is str for n in _refs_folge))
-    reference_keys: Sequence[str] = [n for n in (_refs_folge or ()) if type(n) is str]
+    _namen = [_zeichen_von(n) for n in (_refs_folge or ())]
+    refs_fremd = _refs is not None and (_refs_folge is None or any(n is None for n in _namen))
+    reference_keys: Sequence[str] = [n for n in _namen if n is not None]
 
     not_bool: list[str] = []
     crypto_ok = _tri(result, crypto_key, not_bool)

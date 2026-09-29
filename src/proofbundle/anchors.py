@@ -526,10 +526,6 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
         if _zeichen_von(require) is None:
             raise BundleFormatError(f"require must be an anchor type string, got {_type_name(require)}")
         require = _zeichen_von(require)
-        # An asked requirement that is empty is refused, never read as no requirement (verify lens on the
-        # cross-check fix at bc3d275f): `require=""` gave SKIP where `require="x"` gives FAIL on no anchors.
-        if not require:
-            raise BundleFormatError("require must be 'any' or an anchor type string, got an empty string")
     if require_target is not None:
         if _zeichen_von(require_target) is None:
             raise BundleFormatError(

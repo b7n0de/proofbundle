@@ -335,6 +335,10 @@ class TheSitesTheVerifyLensesFound(unittest.TestCase):
                                ("no base64", {"publicKey": "*"}), ("a text", "x"), ("a list", [])):
             with self.subTest(entry=label):
                 self.assertEqual(stufe(eintrag), kontrolle, "a malformed pack key read as the pack naming no key")
+        # A well-formed ML-DSA key for the label names a key too, and it cannot be the 32-byte signer key a
+        # resolver can return, so a bare True binds nothing there either (named in the change, the house rule of
+        # `pack_key_binds_signer`: an mldsa65 key never binds an Ed25519 DSSE signer).
+        self.assertEqual(stufe({"publicKey": base64.b64encode(bytes(1952)).decode(), "alg": "mldsa65"}), kontrolle)
 
     def test_references_of_another_shape_are_unresolved(self) -> None:
         from proofbundle.automation_verdict import automation_summary  # noqa: PLC0415
@@ -346,6 +350,13 @@ class TheSitesTheVerifyLensesFound(unittest.TestCase):
                                       )["safeForAutomation"]
 
         self.assertIs(sicher(["evidence_bound"]), False)   # control
+        # A str subclass names the field by its characters (regression lens): it blocks here as the text does,
+        # and a resolved reference named by one passes.
+        _name = type("_Name", (str,), {})
+        self.assertIs(sicher([_name("evidence_bound")]), False)
+        self.assertIs(automation_summary({**ergebnis, "evidence_bound": True}, required_checks={
+            "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
+            "references": [_name("evidence_bound")]})["safeForAutomation"], True)
         self.assertIs(sicher(None), True)                  # control: no references named
         self.assertIs(sicher([]), True)                    # control: an empty list names none
         for wert in ("evidence_bound", {"evidence_bound"}, frozenset({"evidence_bound"}), {"evidence_bound": True},
@@ -365,12 +376,14 @@ class TheSitesTheVerifyLensesFound(unittest.TestCase):
             with self.subTest(decision_maker_id=repr(wert)):
                 self.assertIs(getrennt(wert), False)
 
-    def test_an_empty_anchor_requirement_is_refused(self) -> None:
-        from proofbundle.errors import BundleFormatError  # noqa: PLC0415
+    def test_an_empty_anchor_requirement_stays_what_the_loader_accepts(self) -> None:
+        """Not a site: `load_policy` accepts `anchors.require_anchor: ""` (a string or null), and the CLI passes it
+        on; beside a target it means any type. A regression lens measured that refusing it changed the CLI exit
+        code of such a policy from 0 to 3, so it is read as before."""
         self.assertEqual(anchors.verify_anchors(None, target_roots={}, require="x")["status"], "FAIL")   # control
-        self.assertEqual(anchors.verify_anchors(None, target_roots={})["status"], "SKIP")                # control
-        with self.assertRaises(BundleFormatError):
-            anchors.verify_anchors(None, target_roots={}, require="")
+        self.assertEqual(anchors.verify_anchors(None, target_roots={}, require="")["status"], "SKIP")
+        r = anchors.verify_anchors(None, target_roots={}, require="", require_target="receipt")
+        self.assertEqual((r["status"], r["require_met"]), ("FAIL", False))   # a target is a requirement of any type
 
     def test_a_planned_route_that_is_no_text_is_not_measurable(self) -> None:
         import hashlib  # noqa: PLC0415
@@ -388,6 +401,16 @@ class TheSitesTheVerifyLensesFound(unittest.TestCase):
 
         self.assertEqual(ausgang("us-east-1"), ai.OUTCOME_ACCEPTED)             # control
         self.assertEqual(ausgang("eu-west-1"), ai.OUTCOME_ATTESTATION_FAILURE)  # control
+        # A str subclass or a str Enum is read by its characters, as a text is everywhere else (regression lens).
+        import enum  # noqa: PLC0415
+
+        class _Route(str, enum.Enum):
+            EINS = "us-east-1"
+            ZWEI = "eu-west-1"
+
+        self.assertEqual(ausgang(type("_Text", (str,), {})("us-east-1")), ai.OUTCOME_ACCEPTED)
+        self.assertEqual(ausgang(_Route.EINS), ai.OUTCOME_ACCEPTED)
+        self.assertEqual(ausgang(_Route.ZWEI), ai.OUTCOME_ATTESTATION_FAILURE)
         for wert in (None, "", 0, False, [], {}, (), 5, True, ["us-east-1"]):
             with self.subTest(planned_route=repr(wert)):
                 self.assertEqual(ausgang(wert), ai.OUTCOME_NOT_MEASURABLE)
