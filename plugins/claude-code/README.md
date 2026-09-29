@@ -33,6 +33,27 @@ Each result carries the command that ran, its exit code and its full output.
   the package pinned in the header of `server/proofbundle_mcp.py` into a cached environment.
 - Network access to PyPI on the first start, and a Python version uv can use (3.10 or later).
 
+## The pre-push gate
+
+A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call. It acts before
+`git push`, `gh pr create` and `gh release create`. At those calls it verifies the evidence that the
+repository declares in `.proofbundle/evidence.json` at HEAD. It uses the `verify_receipt` tool of the
+MCP server above.
+
+| What the gate finds | Answer |
+|---|---|
+| Every declared item verifies | No permission decision. The normal permission flow applies, and a message names what was verified. |
+| An item fails, is missing at HEAD, or pins no signer; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
+| No declaration at HEAD, an empty list, no repository, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
+
+The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
+It never answers allow. The declaration format and every open design choice are in
+[DECISIONS.md](DECISIONS.md).
+
+A pass proves what the declared evidence proves: who signed the recorded bytes, and that they are
+unchanged. It does not prove that the pushed code is what the evidence describes (D2 in
+DECISIONS.md).
+
 ## Try it from a checkout
 
 ```sh

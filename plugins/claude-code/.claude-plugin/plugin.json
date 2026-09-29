@@ -1,7 +1,7 @@
 {
   "name": "proofbundle",
-  "version": "0.1.0",
-  "description": "Emit, verify and review proofbundle receipts from a Claude Code session. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
+  "version": "0.2.0",
+  "description": "Emit, verify and review proofbundle receipts from a Claude Code session, and verify the evidence a repository declares before a push, a pull request or a release. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
   "author": {
     "name": "Konrad Gruszka"
   },
