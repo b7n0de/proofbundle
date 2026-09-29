@@ -1,8 +1,9 @@
 # Decisions of the pre-push gate
 
-The gate in `hooks/proofbundle_gate.py` runs before every Bash call. Where the design was open, it
-takes the smallest variant that fails closed. Each decision below names that choice and the options
-the owner can pick instead. Nothing here is final until the owner decides.
+The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before an MCP tool that opens a
+pull request, a merge request or a release. Where the design was open, it takes the smallest variant
+that fails closed. Each decision below names that choice and the options the owner can pick instead.
+The owner decided D2, D8, D13, D14 and D16 on 2026-09-29; the rest is open until the owner decides.
 
 ## The declaration
 
@@ -10,18 +11,23 @@ A repository declares its evidence in `.proofbundle/evidence.json`:
 
 ```json
 {
-  "schema": "proofbundle-plugin/evidence/v0.1",
+  "schema": "proofbundle-plugin/evidence/v0.2",
   "evidence": [
-    {"kind": "bundle", "path": "evidence/build.bundle.json", "policy": ".proofbundle/policy.json"},
-    {"kind": "decision", "path": "evidence/release.decision.json", "public_key": "<issuer Ed25519 key, base64>"}
+    {"kind": "bundle", "path": ".proofbundle/build.bundle.json", "policy": ".proofbundle/policy.json",
+     "subject": {"algorithm": "proofbundle-tree-sha256/v1", "digest": "<64 lowercase hex>"}},
+    {"kind": "decision", "path": ".proofbundle/release.decision.json", "public_key": "<issuer Ed25519 key, base64>",
+     "subject": {"algorithm": "proofbundle-tree-sha256/v1", "digest": "<64 lowercase hex>"}}
   ]
 }
 ```
 
-- `kind` is `bundle`, `decision` or `outcome`.
-- `path` and `policy` are normalised paths inside the repository.
-- A `decision` or `outcome` item names the issuer key it must verify under in `public_key`.
+- `kind` is `bundle` or `decision`. An `outcome` item is refused: an outcome receipt has no field that
+  can carry a tree subject.
+- `path` and `policy` are normalised paths under `.proofbundle/`, the folder the tree digest leaves out
+  (D2). Evidence anywhere else would be part of the tree it names.
+- A `decision` item names the issuer key it must verify under in `public_key`.
 - A `bundle` item names a trust policy in `policy`, and that policy must pin a signer (D7).
+- Every item names its `subject`: the tree digest of the commit it speaks for (D2).
 - Any other key, a repeated key, another schema, more than 32 items, or a file above its size limit
   makes the declaration malformed.
 
@@ -37,14 +43,34 @@ Options:
 
 ## D2. What "evidence for the current head" means
 
-Chosen: the declaration, every evidence file and every policy are read from the commit at HEAD with
-`git cat-file`, never from the working tree. An uncommitted change can neither satisfy the gate nor
-break it. The gate does not prove that the evidence is about the pushed content; it proves that the
-evidence the head declares verifies.
+Chosen (owner, 2026-09-29): B. The declaration, every evidence file and every policy are read from the
+commit at HEAD with `git cat-file`, never from the working tree, and each item is bound to the tree of
+that commit.
+
+- The subject is `proofbundle-tree-sha256/v1`: sha256 over the line `proofbundle-tree-sha256/v1`
+  followed, for every file of the commit's tree sorted by the path's bytes, by
+  `<mode> <sha256 of the file's bytes> <path>` and a NUL byte.
+- The covered set is every file of HEAD except the top-level `.proofbundle/` folder, where the
+  declaration and the evidence live. A folder of that name deeper in the tree is covered.
+- The digest is computed from the commit alone, offline, and deterministically: modes come from git
+  (100644, 100755, 120000) and bytes from the committed blobs, so checkout settings play no part. A tree
+  with a submodule has no digest, and the gate says so.
+- It is not the git tree id, which is SHA-1 and git's own object format. The README prints a recipe that
+  computes the digest with git and coreutils, and `hooks/proofbundle_gate.py tree-digest` prints it.
+- An item without a subject, or with a subject other than the digest of HEAD, is denied.
+- After the evidence verifies, the gate reads the subject the signed part names, from the same
+  committed bytes: a bundle's whole payload is `{"subject": {"algorithm": …, "digest": …}}`
+  (`tree-digest --statement` prints it), and a decision receipt names it as an `inputSnapshot` entry
+  with `uri` `urn:proofbundle-plugin:subject:proofbundle-tree-sha256/v1` and the digest under
+  `digest.sha256`. Evidence whose signed part names another digest or none is denied.
+
+What a pass then proves: the declared signer signed a statement that names the tree digest of the commit
+at HEAD. It does not prove that any recorded value is true, and it says nothing about commits before
+HEAD in the pushed range (D3).
 
 Options:
-- A. Bytes at HEAD, no subject binding (chosen).
-- B. Additionally require each item to name a subject digest that equals a digest of the pushed tree.
+- A. Bytes at HEAD, no subject binding.
+- B. Each item names a subject digest equal to a digest of the pushed tree (chosen).
 - C. Verify at every commit in the pushed range, not only at HEAD.
 
 ## D3. Which head
@@ -103,7 +129,7 @@ Options:
 ## D7. Trust anchors
 
 Chosen:
-- A `decision` or `outcome` item must carry `public_key`.
+- A `decision` item must carry `public_key`.
 - A `bundle` item must name a policy with a non-empty `allowed_issuers` and
   `signature.require_expected_signer: true`.
 - The rest of the policy is judged by the verifier.
@@ -118,28 +144,38 @@ Options:
 
 ## D8. Which calls are gated
 
-Chosen:
-- The calls: `git push` (and `git-push`), `gh pr create` or `gh pr new`, `gh release create` or
-  `gh release new`.
-- Where they are found:
+Chosen (owner, 2026-09-29): B.
+- Bash calls: `git push` (and `git-push`), `gh pr create` or `gh pr new`, `gh release create` or
+  `gh release new`, found:
   - anywhere in the Bash command, after `&&`, `;`, `|` and newlines;
   - behind environment assignments, `sudo`, `command` or `env`;
   - inside `$( )` and backticks;
   - inside any quoted argument, as in `bash -c "git push"`.
-- Over-matching is accepted: `echo "git push"` is gated too.
-- A command that cannot be tokenised is gated when a text search finds a gated call, with the directory
-  NOT MEASURED.
+  Over-matching is accepted: `echo "git push"` is gated too. A command that cannot be tokenised is gated
+  when a text search finds a gated call, with the directory NOT MEASURED.
+- MCP tools, through a second `PreToolUse` matcher, `^mcp__.+__(create_pull_request|create_merge_request|create_release)$`,
+  on any server. Both hosts name an MCP tool `mcp__<server>__<tool>` in the hook event, and both read a
+  matcher like this one as a regular expression (Codex at c248f6d4: `hooks/src/events/common.rs`,
+  `matches_matcher`). The repository is the hook's working directory; the tool's own arguments (owner,
+  repository, branch) are not read.
+  - Gated tool names: `create_pull_request` (the GitHub MCP server, seen in this session as
+    `mcp__github__create_pull_request`), `create_merge_request` and `create_release` (names other
+    servers use; which servers, not measured).
+  - Ungated, and listed as such: every other name. Among them the GitHub MCP server's tools that write
+    to a remote without opening a pull request: `push_files`, `create_or_update_file`, `delete_file`,
+    `create_branch`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`,
+    `enable_pr_auto_merge`, `fork_repository` and `create_repository`. A tool of another server with a
+    different name for the same act is not gated either.
 
 Not seen:
 - git aliases;
 - scripts and make targets that push;
 - `gh api`;
-- other tools such as `glab`;
-- MCP tools that open a pull request or a release.
+- other command-line tools such as `glab`.
 
 Options:
-- A. Bash calls only (chosen).
-- B. Also gate MCP tools whose names create pull requests or releases, with a second matcher.
+- A. Bash calls only.
+- B. Also gate MCP tools whose names create pull requests or releases, with a second matcher (chosen).
 
 ## D9. The hook runs on every Bash call
 
@@ -192,15 +228,22 @@ Options:
 
 Codex keeps a plugin's hooks inactive until the user reviews and trusts them: at the start-up review,
 in `/hooks`, or with `--dangerously-bypass-hook-trust`. Until then the gate does not run under Codex,
-and a push is not gated. The plugin cannot change this. The README says it.
+and a push is not gated. The plugin cannot change this.
+
+Chosen (owner, 2026-09-29): A, plus a note. The README says it, and under Codex every result of
+`verify_receipt` carries a `gate_note` saying that the gate runs only if the hooks are trusted and that
+the server cannot see whether they are or whether the gate ran. The verify skill passes the note on and
+never states that the gate ran. Nothing the MCP server can read tells whether the hooks are trusted, so
+the note is a stated limit, not a detection. The server learns that it runs under Codex from
+`PROOFBUNDLE_PLUGIN_HOST=codex` in the Codex manifest's server entry.
 
 Options:
-- A. Document it (chosen).
-- B. Also have the verify skill warn when the gate has not run in the session.
+- A. Document it (chosen, with the note).
+- B. Detect in the verify skill whether the gate ran in the session. Not possible from the server.
 
 ## D14. One folder, two manifests
 
-Chosen:
+Chosen (owner, 2026-09-29): A, in `plugins/proofbundle`.
 - `plugins/proofbundle` carries `.claude-plugin/plugin.json` for Claude Code and
   `.codex-plugin/plugin.json` for Codex.
 - Both manifests use the same `skills/`, `server/proofbundle_mcp.py` and
@@ -233,3 +276,18 @@ Options:
 - A. One file for both hosts (chosen).
 - B. A separate `.agents/plugins/marketplace.json`, for Codex-only fields such as `policy.installation`
   or `category`.
+
+## D16. Whether the gate runs inside a Codex turn
+
+Chosen (owner, 2026-09-29): C. Measured after the tag v6.2.0, at the owner's machine with the owner's
+account, never in the cloud. Until then the README marks it NOT MEASURED. RUNBOOK_CODEX.md holds the
+exact commands, the expected answer for each case and the pass criteria.
+
+What is measured without a Codex turn: the gate's answers under `--host codex` against Codex's hook
+output schema (tests/test_codex_plugin.py), and the manifest, server and skills Codex reads from this
+folder.
+
+Options:
+- A. Measure in a cloud session with a mock model.
+- B. Leave it unmeasured.
+- C. Measure at the owner's machine after the tag (chosen).

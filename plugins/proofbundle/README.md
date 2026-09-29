@@ -37,24 +37,73 @@ Each result carries the command that ran, its exit code and its full output.
 
 ## The pre-push gate
 
-A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call. It acts before
-`git push`, `gh pr create` and `gh release create`. At those calls it verifies the evidence that the
-repository declares in `.proofbundle/evidence.json` at HEAD. It uses the `verify_receipt` tool of the
-MCP server above.
+A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call and before an MCP tool whose
+name ends in `create_pull_request`, `create_merge_request` or `create_release` (`mcp__<server>__<tool>`).
+It acts before `git push`, `gh pr create`, `gh release create` and those MCP tools. At those calls it
+verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
+`verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
 | What the gate finds | Answer |
 |---|---|
-| Every declared item verifies | No permission decision. The normal permission flow applies, and a message names what was verified. |
-| An item fails, is missing at HEAD, or pins no signer; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
+| Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies, and a message names what was verified. |
+| An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
 | No declaration at HEAD, an empty list, no repository, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
-It never answers allow. The declaration format and every open design choice are in
-[DECISIONS.md](DECISIONS.md).
+It never answers allow. The declaration format and every design choice are in
+[DECISIONS.md](DECISIONS.md). MCP tools of other names are not gated; D8 lists the known ones.
 
-A pass proves what the declared evidence proves: who signed the recorded bytes, and that they are
-unchanged. It does not prove that the pushed code is what the evidence describes (D2 in
-DECISIONS.md).
+A pass proves what the declared evidence proves, for the tree at HEAD: the declared signer signed a
+statement that names this tree, and the signed bytes are unchanged. It does not prove that any recorded
+value is true (D2).
+
+### The tree digest
+
+The subject is `proofbundle-tree-sha256/v1`. It covers every file of the commit at HEAD except the
+top-level `.proofbundle/` folder, where the declaration and the evidence live, so the evidence never has
+to cover itself. It is sha256 over the line `proofbundle-tree-sha256/v1` and, for each covered file
+sorted by the path's bytes, `<mode> <sha256 of the file's bytes> <path>` and a NUL byte. It is computed
+from the commit alone, offline; it is not the git tree id. A tree with a submodule has no digest.
+
+The gate prints it, and the statement a bundle signs to name it:
+
+```sh
+python3 <plugin folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD
+python3 <plugin folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD --statement
+```
+
+The same digest with git and coreutils only, without the plugin:
+
+```sh
+# proofbundle-tree-sha256/v1 of a commit, with git and coreutils only; run it with bash in the repository.
+# Usage: bash tree-digest.sh [REV]   (default HEAD). Prints 64 hex characters, or fails for a submodule.
+set -euo pipefail
+export LC_ALL=C
+rev="${1:-HEAD}"
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+git ls-tree -r -z --full-tree "$rev" > "$tmp/listing"
+# One record per file: the path's bytes in hex (for sorting by the path's bytes), then
+# "<mode> <sha256 of the file's bytes> <path>". The top-level .proofbundle/ folder is left out.
+while IFS= read -r -d '' record; do
+  meta="${record%%$'\t'*}"; path="${record#*$'\t'}"
+  read -r mode kind oid <<< "$meta"
+  case "$path" in .proofbundle/*) continue ;; esac
+  if [ "$kind" != blob ]; then echo "tree-digest: $kind at $path (a submodule?); no digest" >&2; exit 1; fi
+  case "$mode" in 100644|100755|120000) ;; *) echo "tree-digest: mode $mode at $path; no digest" >&2; exit 1 ;; esac
+  sum="$(git cat-file blob "$oid" | sha256sum | cut -c1-64)"
+  key="$(printf '%s' "$path" | od -An -v -tx1 | tr -d ' \n')"
+  printf '%s %s %s %s\0' "$key" "$mode" "$sum" "$path"
+done < "$tmp/listing" > "$tmp/records"
+sort -z "$tmp/records" > "$tmp/sorted"
+{ printf 'proofbundle-tree-sha256/v1\n'
+  while IFS= read -r -d '' record; do printf '%s\0' "${record#* }"; done < "$tmp/sorted"; } | sha256sum | cut -c1-64
+```
+
+To bind evidence, commit the tree first, compute its digest, sign a statement that names it (a bundle
+whose payload is the `--statement` output, or a decision receipt with an `inputSnapshot` entry whose
+`uri` is `urn:proofbundle-plugin:subject:proofbundle-tree-sha256/v1` and whose `digest.sha256` is the
+digest), then commit the evidence and the declaration under `.proofbundle/`. That second commit does not
+change the digest.
 
 ## Install from this repository
 
@@ -88,7 +137,12 @@ The gate behaves differently under Codex in two ways:
 - Codex has no ask decision. Under Codex, a NOT MEASURED call is denied instead of asked (D12 in
   DECISIONS.md).
 - Codex runs a plugin's hooks only after you trust them, at the start-up review or in `/hooks`. Until
-  then the gate does not run, and a push is not gated (D13).
+  then the gate does not run, and a push is not gated (D13). Under Codex every result of
+  `verify_receipt` carries a `gate_note` that says so; the server cannot see whether the hooks are
+  trusted.
+
+Whether the gate runs inside a Codex turn is NOT MEASURED. It is measured after the tag v6.2.0 at the
+owner's machine, with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16).
 
 Codex starts an MCP server with only a short list of environment variables. The plugin data directory
 is not among them, so under Codex `emit_receipt` needs an explicit `key_path`. If `uv` needs proxy or
