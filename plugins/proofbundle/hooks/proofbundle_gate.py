@@ -8,14 +8,14 @@ head, with the plugin's own MCP server, and answers the host in its hook format:
   permission flow applies, and a message names what was verified; the gate never grants a call;
 - a declared item fails, is missing, or the declaration cannot be read: deny, with the reason;
 - the repository declares nothing, or the gate cannot tell which repository the call acts on:
-  NOT MEASURED, and the host asks the user.
+  NOT MEASURED, and the host asks the user; a host without an ask (Codex) gets deny instead.
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree, so
 an uncommitted file can neither satisfy nor break it. The declaration lives at DECLARATION and is
 described in DECISIONS.md next to this file's plugin.
 
-stdin: the host's PreToolUse event (JSON). stdout: one JSON answer, or nothing for a call the gate does
-not gate. The exit code is always 0; a failure inside the gate is answered as deny. Standard library
+Usage: proofbundle_gate.py [--host claude|codex]. stdin: the host's PreToolUse event (JSON). stdout:
+one JSON answer, or nothing for a call the gate does not gate. The exit code is always 0; a failure inside the gate is answered as deny. Standard library
 only, so the gate itself needs no package.
 """
 from __future__ import annotations
@@ -44,6 +44,11 @@ ITEM_KEYS = frozenset({"kind", "path", "public_key", "policy"})
 #: well before it, because a host that times a hook out may let the call run.
 DEADLINE_SECONDS = 90.0
 MAX_NESTING = 4
+#: The hosts the gate answers. Claude Code has an "ask" decision; Codex has none. Codex's PreToolUse
+#: parser marks an "ask" answer as a failed hook and lets the call run (openai/codex
+#: codex-rs/hooks/src/engine/output_parser.rs and events/pre_tool_use.rs), so for Codex the gate turns
+#: every NOT MEASURED ask into a deny.
+HOSTS = ("claude", "codex")
 
 SERVER = pathlib.Path(__file__).resolve().parent.parent / "server" / "proofbundle_mcp.py"
 
@@ -393,21 +398,34 @@ def _command_from_event(event: object) -> tuple[str, str]:
     return command, cwd if isinstance(cwd, str) and cwd else os.getcwd()
 
 
-def answer(decision: str, reason: str) -> dict:
+def answer(decision: str, reason: str, host: str = "claude") -> dict:
     """The PreToolUse answer. A pass carries no permission decision, only the message.
 
     The reason goes to the user (systemMessage) and to the model (additionalContext) as well as into
-    permissionDecisionReason, because a host shows the reason of an "ask" to the user only.
+    permissionDecisionReason, because a host shows the reason of an "ask" to the user only. Every field
+    used here is one both hosts accept; Codex rejects an answer with any other field.
     """
+    if decision == "ask" and host == "codex":
+        decision, reason = "deny", reason + " Codex cannot ask, so the gate denies the call."
     specific = {"hookEventName": "PreToolUse", "additionalContext": reason}
     if decision != "pass":
         specific.update(permissionDecision=decision, permissionDecisionReason=reason)
     return {"systemMessage": reason, "hookSpecificOutput": specific}
 
 
-def main() -> int:
+def _host(argv: list[str]) -> str:
+    if not argv:
+        return "claude"
+    if len(argv) == 2 and argv[0] == "--host" and argv[1] in HOSTS:
+        return argv[1]
+    raise GateError(f"unknown arguments {argv!r}; the gate takes --host claude or --host codex")
+
+
+def main(argv: list[str] | None = None) -> int:
     deadline = time.monotonic() + DEADLINE_SECONDS
+    host = "claude"
     try:
+        host = _host(sys.argv[1:] if argv is None else argv)
         try:
             event = json.loads(sys.stdin.read())
         except ValueError as exc:
@@ -420,7 +438,7 @@ def main() -> int:
         verdict = ("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. "
                            "The call is denied because the gate reached no verdict.")
     if verdict is not None:
-        sys.stdout.write(json.dumps(answer(*verdict)) + "\n")
+        sys.stdout.write(json.dumps(answer(*verdict, host=host)) + "\n")
     return 0
 
 

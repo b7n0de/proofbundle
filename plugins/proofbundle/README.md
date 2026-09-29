@@ -1,7 +1,9 @@
-# proofbundle plugin for Claude Code
+# proofbundle plugin for Claude Code and Codex
 
-This plugin lets a Claude Code session create, verify and review proofbundle receipts. It calls the
-`proofbundle` package from PyPI, so every verdict is the package's own verdict and exit code.
+This plugin lets a Claude Code or Codex session create, verify and review proofbundle receipts. It
+calls the `proofbundle` package from PyPI, so every verdict is the package's own verdict and exit code.
+One folder serves both hosts: `.claude-plugin/plugin.json` for Claude Code, `.codex-plugin/plugin.json`
+for Codex, over the same skills, MCP server and gate.
 
 A passing verification proves that the holder of the given key signed exactly these bytes and that
 they have not changed since. It does not prove that any recorded value is true.
@@ -73,6 +75,34 @@ claude --plugin-dir plugins/proofbundle
 ```
 
 In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verify skill.
+
+## Codex
+
+Codex reads `.codex-plugin/plugin.json` before the Claude Code manifest. That manifest declares the
+same MCP server (started with `uv` from the plugin folder) and the same gate, run with `--host codex`.
+Codex reads the skills from `skills/`. A skill's name is prefixed with the plugin's name, as in
+`proofbundle:verify`.
+
+The gate behaves differently under Codex in two ways:
+
+- Codex has no ask decision. Under Codex, a NOT MEASURED call is denied instead of asked (D12 in
+  DECISIONS.md).
+- Codex runs a plugin's hooks only after you trust them, at the start-up review or in `/hooks`. Until
+  then the gate does not run, and a push is not gated (D13).
+
+Codex starts an MCP server with only a short list of environment variables. The plugin data directory
+is not among them, so under Codex `emit_receipt` needs an explicit `key_path`. If `uv` needs proxy or
+certificate settings to reach PyPI, add their names to the server's `env_vars` in your Codex
+configuration.
+
+Install from this repository, after the plugin lands on the default branch:
+
+```sh
+codex plugin marketplace add b7n0de/proofbundle
+codex plugin add proofbundle@proofbundle
+```
+
+Codex reads the same `.claude-plugin/marketplace.json` (D15).
 
 ## Evals
 

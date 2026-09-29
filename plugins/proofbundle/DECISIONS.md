@@ -173,3 +173,59 @@ verifier does not start and the gate denies (D6).
 Options:
 - A. The plugin's MCP server (chosen).
 - B. A `proofbundle` command on `PATH`, which would verify with whatever version is installed.
+
+## D12. Codex has no ask
+
+Chosen: under Codex, the gate runs with `--host codex` and answers every NOT MEASURED case with deny.
+The reason still starts with `NOT MEASURED:`.
+
+Measured in the Codex source (openai/codex at c248f6d4):
+- `codex-rs/hooks/src/engine/output_parser.rs` rejects `permissionDecision: "ask"` as unsupported;
+- `codex-rs/hooks/src/events/pre_tool_use.rs` then marks the hook as failed without blocking;
+- an ask would therefore let the call run.
+
+Options:
+- A. Deny under Codex (chosen).
+- B. Let the call run under Codex when nothing is declared, and report NOT MEASURED in a message.
+
+## D13. Codex runs plugin hooks only after the user trusts them
+
+Codex keeps a plugin's hooks inactive until the user reviews and trusts them: at the start-up review,
+in `/hooks`, or with `--dangerously-bypass-hook-trust`. Until then the gate does not run under Codex,
+and a push is not gated. The plugin cannot change this. The README says it.
+
+Options:
+- A. Document it (chosen).
+- B. Also have the verify skill warn when the gate has not run in the session.
+
+## D14. One folder, two manifests
+
+Chosen:
+- `plugins/proofbundle` carries `.claude-plugin/plugin.json` for Claude Code and
+  `.codex-plugin/plugin.json` for Codex.
+- Both manifests use the same `skills/`, `server/proofbundle_mcp.py` and
+  `hooks/proofbundle_gate.py`. No file is copied.
+- Codex reads `.codex-plugin/plugin.json` before `.claude-plugin/plugin.json`. Its manifest declares
+  its MCP server and its hook inline, so Codex never reads `.mcp.json` or `hooks/hooks.json`. Codex does
+  not expand `${CLAUDE_PLUGIN_ROOT}` in an MCP entry.
+- Symlinks were ruled out: Codex drops them when it copies a plugin into its cache, and Claude Code
+  copies them as links.
+- The emit skill's rule "only when the user invokes it" is written twice, once per host:
+  `disable-model-invocation` in SKILL.md for Claude Code, and `agents/openai.yaml` for Codex. It is the
+  same rule in each host's own format, not a copy of one file.
+
+Options:
+- A. One folder (chosen).
+- B. Two folders with byte-identical copies, held equal by a test.
+
+## D15. One marketplace file
+
+Chosen: no `.agents/plugins/marketplace.json`. Codex 0.159.0 reads `.claude-plugin/marketplace.json`
+when no `.agents/plugins/marketplace.json` exists. Measured: `codex plugin marketplace add` on the
+repository, then `codex plugin add proofbundle@proofbundle`, installed version 0.3.0 from
+`.codex-plugin/plugin.json`.
+
+Options:
+- A. One file for both hosts (chosen).
+- B. A separate `.agents/plugins/marketplace.json`, for Codex-only fields such as `policy.installation`
+  or `category`.
