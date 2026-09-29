@@ -46,6 +46,9 @@ CODEX = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
 
+#: The marketplace files Codex looks for, first match wins (core-plugins/src/marketplace.rs:20-25).
+CODEX_MARKETPLACE_CANDIDATES = (".agents/plugins/marketplace.json", ".agents/plugins/api_marketplace.json",
+                                ".claude-plugin/marketplace.json", ".cursor-plugin/marketplace.json")
 CODEX_TOP_KEYS = {"continue", "stopReason", "suppressOutput", "systemMessage", "decision", "reason",
                   "hookSpecificOutput"}
 CODEX_SPECIFIC_KEYS = {"hookEventName", "permissionDecision", "permissionDecisionReason", "updatedInput",
@@ -122,7 +125,8 @@ def test_the_marketplace_entry_matches_both_manifests():
     (entry,) = market["plugins"]
     assert entry["source"] == "./plugins/proofbundle"
     assert entry["name"] == CODEX["name"] == CLAUDE["name"]
-    assert not (ROOT / ".agents" / "plugins" / "marketplace.json").exists(), "one marketplace file (D15)"
+    present = [path for path in CODEX_MARKETPLACE_CANDIDATES if (ROOT / path).is_file()]
+    assert present == [".claude-plugin/marketplace.json"], "one marketplace file for both hosts (D15)"
 
 
 # --- the gate's Codex answers ------------------------------------------------------------------------
