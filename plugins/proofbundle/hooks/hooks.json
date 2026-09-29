@@ -1,9 +1,19 @@
 {
-  "description": "Before git push, gh pr create or gh release create, verify the evidence the repository declares at HEAD. A failed check denies the call; nothing declared asks, marked NOT MEASURED.",
+  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, verify the evidence the repository declares at HEAD. A failed check denies the call; nothing declared asks, marked NOT MEASURED.",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release)$",
         "hooks": [
           {
             "type": "command",

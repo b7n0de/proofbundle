@@ -2,12 +2,24 @@
   "name": "proofbundle",
   "version": "0.3.0",
   "description": "Emit, verify and review proofbundle receipts from a Codex session, and verify the evidence a repository declares before a push, a pull request or a release. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
-  "keywords": ["proofbundle", "receipts", "dsse", "ed25519", "verification", "supply-chain"],
+  "keywords": [
+    "proofbundle",
+    "receipts",
+    "dsse",
+    "ed25519",
+    "verification",
+    "supply-chain"
+  ],
   "skills": "./skills",
   "mcpServers": {
     "proofbundle": {
       "command": "uv",
-      "args": ["run", "--quiet", "--script", "server/proofbundle_mcp.py"],
+      "args": [
+        "run",
+        "--quiet",
+        "--script",
+        "server/proofbundle_mcp.py"
+      ],
       "cwd": "."
     }
   },
@@ -16,6 +28,16 @@
       "PreToolUse": [
         {
           "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+              "timeout": 120
+            }
+          ]
+        },
+        {
+          "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release)$",
           "hooks": [
             {
               "type": "command",
