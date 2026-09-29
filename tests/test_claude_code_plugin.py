@@ -1,4 +1,4 @@
-"""The Claude Code plugin under plugins/claude-code: its manifest, its skills and its MCP server.
+"""The Claude Code plugin under plugins/proofbundle: its manifest, its skills and its MCP server.
 
 The server is started the way the plugin's .mcp.json would start it, minus uv: the same script, run by
 this interpreter, so it calls the proofbundle package of this checkout. Each verdict it returns is the
@@ -27,7 +27,7 @@ import pytest
 import proofbundle
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "claude-code"
+PLUGIN = ROOT / "plugins" / "proofbundle"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
 SKILLS = ("verify", "emit", "review-receipt")
 TOOL_PREFIX = "mcp__plugin_proofbundle_proofbundle__"

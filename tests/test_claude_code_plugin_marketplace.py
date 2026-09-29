@@ -19,6 +19,6 @@ def test_the_marketplace_lists_this_plugin_and_publishes_nothing():
     assert set(market) == {"name", "owner", "description", "plugins"}
     assert market["owner"]["name"]
     (entry,) = market["plugins"]
-    assert entry["source"] == "./plugins/claude-code"
+    assert entry["source"] == "./plugins/proofbundle"
     manifest = json.loads((ROOT / entry["source"] / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert entry["name"] == manifest["name"] == "proofbundle"

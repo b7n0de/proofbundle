@@ -1,4 +1,4 @@
-"""The pre-tool gate of the proofbundle plugin (plugins/claude-code/hooks).
+"""The pre-tool gate of the proofbundle plugin (plugins/proofbundle/hooks).
 
 The gate runs before every shell call. For git push, gh pr create and gh release create it verifies
 the evidence the repository declares at HEAD, through the plugin's MCP server, and answers deny, ask or
@@ -34,7 +34,7 @@ from proofbundle.decision import emit_decision_receipt
 from proofbundle.emit import emit_bundle, generate_signer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "claude-code"
+PLUGIN = ROOT / "plugins" / "proofbundle"
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 HOOKS = PLUGIN / "hooks" / "hooks.json"
 

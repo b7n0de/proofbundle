@@ -67,9 +67,9 @@ claude plugin install proofbundle@proofbundle
 ## Try it from a checkout
 
 ```sh
-claude plugin validate --strict plugins/claude-code
+claude plugin validate --strict plugins/proofbundle
 claude plugin validate --strict .
-claude --plugin-dir plugins/claude-code
+claude --plugin-dir plugins/proofbundle
 ```
 
 In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verify skill.
@@ -80,7 +80,7 @@ In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verif
 seed a git repository with a scaffold script and need Bash, so they run with:
 
 ```sh
-claude plugin eval plugins/claude-code --scaffold --mocks off --no-publish \
+claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \
   --allow-tools Bash "mcp__plugin_proofbundle_proofbundle__*"
 ```
 

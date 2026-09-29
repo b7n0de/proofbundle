@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "proofbundle",
-      "source": "./plugins/claude-code",
+      "source": "./plugins/proofbundle",
       "description": "Emit, verify and review proofbundle receipts, and verify declared evidence before a push, a pull request or a release."
     }
   ]
