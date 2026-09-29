@@ -20,7 +20,10 @@
         "--script",
         "server/proofbundle_mcp.py"
       ],
-      "cwd": "."
+      "cwd": ".",
+      "env": {
+        "PROOFBUNDLE_PLUGIN_HOST": "codex"
+      }
     }
   },
   "hooks": {

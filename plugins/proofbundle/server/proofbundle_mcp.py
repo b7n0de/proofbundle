@@ -42,6 +42,14 @@ SCOPE = ("A pass proves that the holder of the given key signed exactly these by
          "were not changed since. It does not prove that any recorded value is true, and a verified "
          "ALLOW decision is a record of a decision, not an authorization.")
 
+#: Under Codex, plugin hooks run only after the user has trusted them, and nothing this server can read
+#: says whether they were trusted or whether the pre-push gate ran (DECISIONS.md, D13). So every verify
+#: result under Codex carries this note, and the verify skill passes it on. Under Claude Code the hooks of an
+#: enabled plugin run without a separate trust step, and the note is absent.
+CODEX_GATE_NOTE = ("Under Codex the pre-push gate of this plugin runs only if the user has trusted the plugin's "
+                   "hooks. This server cannot see whether they are trusted or whether the gate ran, so this "
+                   "result says nothing about any push, pull request or release that already went through.")
+
 INSTRUCTIONS = ("Tools over the proofbundle package. verify_receipt checks a receipt against an issuer "
                 "public key that the user supplies from a trusted source, never against a key taken "
                 "from the receipt itself. inspect_receipt shows content without any verification.")
@@ -192,6 +200,8 @@ def tool_verify_receipt(args: dict) -> tuple[dict, bool]:
     result["meaning"] = EXIT_MEANING.get(result["exit_code"], "unknown exit code: treat as not verified")
     result["verified"] = result["exit_code"] == 0
     result["scope"] = SCOPE
+    if os.environ.get("PROOFBUNDLE_PLUGIN_HOST") == "codex":
+        result["gate_note"] = CODEX_GATE_NOTE
     return result, False
 
 
