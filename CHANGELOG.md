@@ -58,7 +58,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   built-in verifiers failed each anchor on it before).
   Tests: `tests/test_no_caller_code_changes_what_a_later_check_reads.py`, with one property per surface:
   callbacks that empty every argument they can reach change no verdict. Measured at 31cf5f7e: 87 failed
-  (subtests counted), 8 passed. Here: 17 passed, 90 subtests.
+  (subtests counted) and 8 passed over its first seventeen cases; the case of the assurance neighbour was red
+  at dd3f0666 and the case of the relations section at 1a8a813c (24 failed). Here: 19 passed, 117 subtests.
+  Four existing controls held the old reading of the container class as their expectation and now hold the
+  refusal (three in `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`, the never-raise guard
+  in `tests/test_relation_profile.py`, which still asserts that nothing raises).
 
 - **An evaluator refuses every policy field the loader refuses, with the loader's message** (deep gate of
   the 6.2.0 release preparation at 7409b123: a P1 confirmed by three of three blind jurors, found while
