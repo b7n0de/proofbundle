@@ -21,10 +21,11 @@ list:
 
 THE PROPERTY, unchanged: a public verify surface runs no method of the caller's objects to decide a
 verdict, and it judges exactly the value it checked. Every case below was RED at 2074d814 (main, the
-base of PR 311) and is GREEN at the head that adds it, with one exception named where it stands: the
+base of PR 311) and is GREEN at the head that adds it, with two exceptions named where they stand: the
 anchor obligation of `test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision` is GREEN at
-both, because `evaluate_decision_policy` judges that obligation by what the policy stores. The controls
-hold at both.
+both, because `evaluate_decision_policy` judges that obligation by what the policy stores; and
+`test_a_value_that_is_no_json_value_hides_no_relations_code` is GREEN at both, because it holds what
+2074d814 already did and the first form of this change lost. The controls hold at both.
 """
 from __future__ import annotations
 
@@ -397,7 +398,7 @@ class ThePolicyIsReadByWhatItStores(unittest.TestCase):
         praedikat.update(extra)
         return emit_decision_receipt(praedikat, _A, strict=True)
 
-    def test_an_attached_retraction_at_all_three_verifiers(self) -> None:
+    def _drei_flaechen(self):
         from proofbundle.decision import verify_decision_receipt  # noqa: PLC0415
         from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt  # noqa: PLC0415
         from proofbundle.relation_statement import emit_relation_statement, verify_relation_statement  # noqa: PLC0415
@@ -409,9 +410,11 @@ class ThePolicyIsReadByWhatItStores(unittest.TestCase):
                                   "requestedActionDigest": {"sha256": "1" * 64}, "effectDigest": {"sha256": "1" * 64},
                                   "status": "executed", "performedAt": "2026-07-17T00:00:00Z",
                                   "policyPurpose": "outcome"}, _A, strict=False)
-        faelle = (("decision", d, verify_decision_receipt), ("relation statement", s, verify_relation_statement),
-                  ("outcome", o, verify_outcome_receipt))
-        for name, umschlag, pruefe in faelle:
+        return (("decision", d, verify_decision_receipt), ("relation statement", s, verify_relation_statement),
+                ("outcome", o, verify_outcome_receipt))
+
+    def test_an_attached_retraction_at_all_three_verifiers(self) -> None:
+        for name, umschlag, pruefe in self._drei_flaechen():
             ziel = self._ziel(_wurzel_von(umschlag))
             with self.subTest(surface=name):
                 self.assertIs(pruefe(umschlag, _raw(_A), policy=dict(self.policy), related=ziel)["ok"], False)
@@ -420,6 +423,29 @@ class ThePolicyIsReadByWhatItStores(unittest.TestCase):
                         r = pruefe(umschlag, _raw(_A), policy=traeger(self.policy), related=ziel)
                         self.assertIs(r["ok"], False, "a policy read through its own methods hid a retraction")
                         self.assertIs(r["policy_ok"], False)
+
+    def test_a_value_that_is_no_json_value_hides_no_relations_code(self) -> None:
+        """The neighbour the full suite found in the first form of this change: a policy that cannot be
+        copied as a whole (it holds a value that is no JSON value) skipped the relations gate, so the gate's
+        own code LINEAGE_REQUIREMENT_FAILED was missing beside the generic refusal
+        (tests/test_an_unreadable_attached_entry_silences_no_sibling.py, outcome). The section is read as
+        the policy stores it then (`canonical._abschnitt_von`), at all three verifiers, whether the value
+        sits beside the section or inside it. GREEN at 2074d814, where the gate read `policy["relations"]`."""
+
+        class _KeinJsonWert:
+            """A value no JSON document can hold."""
+
+        abschnitt = dict(self.policy["relations"])
+        for name, umschlag, pruefe in self._drei_flaechen():
+            ziel = self._ziel(_wurzel_von(umschlag))
+            for ort, policy in (("beside the section", {**self.policy, "x": _KeinJsonWert()}),
+                                ("inside the section", {**self.policy,
+                                                        "relations": {**abschnitt, "x": _KeinJsonWert()}})):
+                with self.subTest(surface=name, value=ort):
+                    r = pruefe(umschlag, _raw(_A), policy=policy, related=ziel)
+                    self.assertIs(r["ok"], False)
+                    self.assertIs(r["policy_ok"], False)
+                    self.assertIn("LINEAGE_REQUIREMENT_FAILED", r.get("relations_policy_codes") or [])
 
     def test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision(self) -> None:
         from proofbundle.decision import verify_decision_receipt  # noqa: PLC0415

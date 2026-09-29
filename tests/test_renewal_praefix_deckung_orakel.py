@@ -247,22 +247,49 @@ class TestErgebnisOrakel:
 
 
 class TestArbeitszaehlung:
-    """B2, zweite Haelfte: der Beweis der Linearitaet ist eine ZAEHLUNG, keine Uhrzeit."""
+    """B2, second half: the proof of linearity is a COUNT, not a clock time.
 
-    class _ZaehlATS(ArchiveTimeStamp):
-        """``isinstance(x, ArchiveTimeStamp)`` bleibt wahr, der Shape-Guard laesst sie also durch."""
-        zaehler = 0
-
-        def token(self) -> str:
-            type(self).zaehler += 1
-            return super().token()
+    THE INSTRUMENT CHANGED with the class fix of the 6.2.0 deep gate (2348f0a7). It counted through an
+    ``ArchiveTimeStamp`` subclass with its own ``token()``, which the shape guard let through. The
+    verifier refuses such a subclass now (``renewal._ketten_einmal``), because its own ``token()`` would
+    decide the material the covering check recomputes; the count through it fell to 0, and the linearity
+    case below passed as 0 == 8 * 0. The count is taken on the class itself now, over plain ATS, which is
+    the object the verifier judges; ``test_eine_unterklasse_wird_abgewiesen`` holds the refusal."""
 
     def _zaehle(self, n: int) -> int:
-        typ = TestArbeitszaehlung._ZaehlATS
-        typ.zaehler = 0
-        seq = [[typ("sha256", NULL, i + 1)] for i in range(n)]
-        verify_sequence(seq, [NULL], allow_unauthenticated_anchor=True)
-        return typ.zaehler
+        original = ArchiveTimeStamp.token
+        zaehler = [0]
+
+        def zaehlend(ats) -> str:
+            zaehler[0] += 1
+            return original(ats)
+
+        seq = [[ArchiveTimeStamp("sha256", NULL, i + 1)] for i in range(n)]
+        ArchiveTimeStamp.token = zaehlend
+        try:
+            # The chains do not cover one another (the covering fails), as in the count before: the
+            # work is the covering walk over every chain start, whatever it concludes.
+            ergebnis = verify_sequence(seq, [NULL], allow_unauthenticated_anchor=True)
+        finally:
+            ArchiveTimeStamp.token = original
+        assert not any(c.name == "renewal:shape" for c in ergebnis.checks), "the walk did not run"
+        return zaehler[0]
+
+    def test_eine_unterklasse_wird_abgewiesen(self):
+        """A subclass whose own ``token()`` answers is refused as a shape, and its ``token()`` never runs."""
+        gelaufen = []
+
+        class _EigenesToken(ArchiveTimeStamp):
+            def token(self) -> str:
+                gelaufen.append(1)
+                return super().token()
+
+        res = verify_sequence([[_EigenesToken("sha256", NULL, 1)]], [NULL],
+                              allow_unauthenticated_anchor=True)
+        assert res.ok is False
+        assert any(c.name == "renewal:shape" and c.ok is False for c in res.checks), \
+            [str(c) for c in res.checks]
+        assert gelaufen == []
 
     @pytest.mark.parametrize("n", [50, 100, 200, 400])
     def test_genau_ein_token_je_ats(self, n):

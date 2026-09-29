@@ -16,7 +16,7 @@ from typing import Any, Callable, cast
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
-from .canonical import _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
+from .canonical import _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
@@ -950,11 +950,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
     # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
     # verified); an absent relation is no violation.
-    if richtlinie is not None and isinstance(richtlinie.get("relations"), dict) and r["crypto_ok"]:
+    # The section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01): from the one
+    # copy, or as stored when the policy holds a value that is no JSON value, so the gate still refuses an
+    # unreadable section with its own code.
+    _rel = _abschnitt_von(policy, richtlinie, "relations") if issubclass(type(policy), dict) else None
+    if issubclass(type(_rel), dict) and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(
-            richtlinie["relations"], _as_dict(r.get("lineage")),
+            _rel, _as_dict(r.get("lineage")),
             successor_key_b64=_b64_rel.b64encode(schluessel).decode())
         if _viol:
             r["policy_ok"] = False

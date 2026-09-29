@@ -389,6 +389,20 @@ def _richtlinie_von(policy: Any) -> Any:
         return None
 
 
+def _abschnitt_von(policy: Any, richtlinie: Any, name: str) -> Any:
+    """One section of a verifier's ``policy``: from its plain copy (`_richtlinie_von`), or, when the policy
+    as a whole holds a value that is no JSON value, the section as the dict stores it (`_feld_von`).
+
+    The second reading is the one PR 300 relies on: a relations section that holds such a value is judged
+    by the relations gate, which refuses it with its own code (``LINEAGE_REQUIREMENT_FAILED``). Without it,
+    one unreadable value anywhere in the policy would hide the gate's named refusal behind a generic one
+    (found by the full suite on the class fix, deep gate 6.2.0 at 2348f0a7). Neither reading runs a method
+    of the caller's dict."""
+    if richtlinie is not None:
+        return _feld_von(richtlinie, name)
+    return _feld_von(policy, name)
+
+
 def _eine_kopie(wert: Any, fehler: Callable[[str], BaseException], was: str) -> Any:
     """For an emitter (round 12): a caller's predicate as the plain copy of what it stores, read ONCE
     before it is validated, hashed and signed, so the validator judges exactly what is signed. A

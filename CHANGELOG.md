@@ -42,7 +42,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
     True. The policy is copied once at entry (the new `canonical._richtlinie_von`), and every consumer
     in the call judges that copy. A policy holding a value that is no JSON value fails `policy_ok` at the
     outcome and relation-statement verifiers, and the decision verifier hands it to
-    `evaluate_decision_policy`, which refuses it with the loader's message.
+    `evaluate_decision_policy`, which refuses it with the loader's message. In all three the relations
+    section of such a policy is still judged as the policy stores it (the new `canonical._abschnitt_von`),
+    so the gate's own code `LINEAGE_REQUIREMENT_FAILED` stands beside that refusal, as it did at 2074d814.
 
   The earlier entry of this section that named `known_newest_token_digest` and `prev_version_digest` as
   not closed ("a neighbouring class in which the caller decides against itself") stands as the record of
@@ -64,12 +66,27 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   `verify_rootcommit_v1` and `verify_rootcommit_v2sig` asked `frozen or {}` through the map's own
   `__len__`; and `verify_sequence` asked `authority_keys or {}` the same way.
 
+  What a caller sees differently: `verify_sequence` and `evaluate_renewal_policy` refuse an
+  `ArchiveTimeStamp` subclass as `renewal:shape`, because its own `token()` would decide the material the
+  covering check recomputes, and a signed field or time that is a `str` or `int` subclass is refused the
+  same way. Two existing cases changed with it. `tests/test_renewal_praefix_deckung_orakel.py` counted the
+  `token()` calls of the covering walk through such a subclass; with the refusal the count fell to 0, and
+  its linearity case passed as 0 == 8 * 0. The count is taken on the class itself now, and a new case holds
+  the refusal. `tests/test_policy_nicht_auswertbar_hat_einen_code.py` triggered POLICY_NOT_EVALUABLE through
+  a policy whose own `get` raises, which the verifier no longer calls; the trigger is a policy holding a
+  value that is no JSON value now, which gives the code at 2074d814 and here, and a new case holds that the
+  raising `get` never runs and the verdict is that of the plain dict the policy stores.
+
   Tests: `tests/test_one_reading_reaches_every_argument.py` (new) carries a case for each finding, and
   the sweep file gains the new surfaces, the arguments the sweep did not pass and the two generator
-  classes. Measured at 2074d814 with both files of this change: 44 failed, 38 passed. Here: 47 passed,
-  321 subtests, on Python 3.10. One case is green at both: the anchor obligation of
-  `test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision`, because `evaluate_decision_policy`
-  judges that obligation by what the policy stores; its docstring says so. Named, not changed:
+  classes. Measured at 2074d814 with both files of this change: 44 failed, 39 passed. Here: 48 passed,
+  327 subtests, on Python 3.10.12. Two cases are green at both, and their docstrings say why: the anchor
+  obligation of `test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision`, because
+  `evaluate_decision_policy` judges that obligation by what the policy stores; and
+  `test_a_value_that_is_no_json_value_hides_no_relations_code`, which holds the relations code at all three
+  verifiers for a policy that cannot be copied as a whole. The first form of this change lost that code
+  (red there in all six subtests; the full suite found it in
+  `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`). Named, not changed:
   `anchors_ots` and `anchors_rfc3161` read `rp_trust` and `frozen` through `Mapping.get`, and the
   sweep's inputs do not reach those branches; switches, and callbacks other than those of the receipt
   verifiers, are not measured by the sweep, as `_NICHT_IM_SWEEP` states.

@@ -26,7 +26,7 @@ import hashlib
 import re
 from typing import Any
 
-from .canonical import _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
+from .canonical import _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -367,16 +367,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif richtlinie is None and policy is not None:
-        # A dict holding a value that is no JSON value cannot be read by what it stores (deep gate 6.2.0,
-        # L4-620-01); a requested policy that cannot be read is never a silent pass.
-        r["policy_ok"] = False
-        r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
-    elif richtlinie is not None and isinstance(richtlinie.get("relations"), dict) and r["crypto_ok"]:
+    elif issubclass(type(_abschnitt_von(policy, richtlinie, "relations")), dict) and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
-        relations = richtlinie["relations"]
+        # The section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01): the gate
+        # refuses a section it cannot read with its own code, and the self-assertion gate below reads only
+        # the plain copy of the section; a section with no plain copy has already failed the gate.
+        _abschnitt = _abschnitt_von(policy, richtlinie, "relations")
+        relations = _richtlinie_von(_abschnitt) or {}
         _viol = evaluate_relations_policy(
-            relations, _as_dict(r.get("lineage")),
+            _abschnitt, _as_dict(r.get("lineage")),
             successor_key_b64=_b64.b64encode(schluessel).decode())
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a
         # (pinned/authorized) signer is a LIVE blocker for a relying party who asks "is my target still
@@ -405,6 +404,11 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
             for v in _viol:
                 r["errors"].append(f"{v['code']}: {v['message']}")
             r["relations_policy_codes"] = sorted({v["code"] for v in _viol})
+    if richtlinie is None and policy is not None and issubclass(type(policy), dict):
+        # A dict holding a value that is no JSON value cannot be read as a whole (deep gate 6.2.0,
+        # L4-620-01); a requested policy that cannot be read is never a silent pass.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

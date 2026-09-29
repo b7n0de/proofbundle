@@ -23,8 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie, _richtlinie_von,
-                        _zeichen_von)
+from .canonical import (_EINGEBAUTE_SKALARE, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
+                        _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -1030,26 +1030,31 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # argument's own type decides: an object that claims to be a dict through `__class__` is no policy.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif richtlinie is None and policy is not None:
-        # A dict that holds a value that is no JSON value cannot be read by what it stores, so no gate can
-        # judge it; a requested policy that cannot be read is never a silent pass (deep gate 6.2.0, L4-620-01).
-        r["policy_ok"] = False
-        r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
-    elif richtlinie is not None and isinstance(richtlinie.get("relations"), dict) and r["crypto_ok"]:
-        import base64 as _b64_rel  # noqa: PLC0415
-        from .relation import evaluate_relations_policy  # noqa: PLC0415
-        _viol = evaluate_relations_policy(
-            richtlinie["relations"], _as_dict(r.get("lineage")),
-            successor_key_b64=_b64_rel.b64encode(schluessel).decode())
-        r["policy_ok"] = not _viol
-        if _viol:
-            r["relations_policy_failed"] = True
-            _codes = {v["code"] for v in _viol}
-            if "LINEAGE_REQUIREMENT_FAILED" in _codes:
-                r["lineage_requirement_failed"] = True
-            for v in _viol:
-                r["errors"].append(f"{v['code']}: {v['message']}")
-            r["relations_policy_codes"] = sorted(_codes)
+    else:
+        # The relations section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01):
+        # from the one copy, or as stored when the policy holds a value that is no JSON value, so the gate
+        # still refuses an unreadable section with its own code.
+        _rel = _abschnitt_von(policy, richtlinie, "relations")
+        if issubclass(type(_rel), dict) and r["crypto_ok"]:
+            import base64 as _b64_rel  # noqa: PLC0415
+            from .relation import evaluate_relations_policy  # noqa: PLC0415
+            _viol = evaluate_relations_policy(
+                _rel, _as_dict(r.get("lineage")),
+                successor_key_b64=_b64_rel.b64encode(schluessel).decode())
+            r["policy_ok"] = not _viol
+            if _viol:
+                r["relations_policy_failed"] = True
+                _codes = {v["code"] for v in _viol}
+                if "LINEAGE_REQUIREMENT_FAILED" in _codes:
+                    r["lineage_requirement_failed"] = True
+                for v in _viol:
+                    r["errors"].append(f"{v['code']}: {v['message']}")
+                r["relations_policy_codes"] = sorted(_codes)
+        if richtlinie is None and policy is not None:
+            # A dict that holds a value that is no JSON value cannot be read as a whole; a requested policy
+            # that cannot be read is never a silent pass, whatever its relations section says.
+            r["policy_ok"] = False
+            r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
