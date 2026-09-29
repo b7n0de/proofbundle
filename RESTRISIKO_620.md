@@ -536,6 +536,14 @@ those on a verify, emit or release path:
   dict through its own `get` (read, not measured). Switches, and callbacks other than those of the receipt
   verifiers, are outside the sweep, as `_NICHT_IM_SWEEP` in `tests/test_one_reading_at_every_surface.py`
   states.
+- The same fix makes `verify_sequence` build a fresh `ArchiveTimeStamp` from every stored entry, and that
+  costs CPU time the CHANGELOG entry of pull request 312 does not name. Measured on 2026-09-29 at the
+  `renewal_ats_chain` limit of 10 000 single-ATS chains, seven calls per run, three alternating rounds under a
+  load near 12: a median of 0.072 to 0.074 s at 2074d814 against 0.123 to 0.141 s at 52231c95, about 1.8
+  times. The cost stays linear and no verdict changes; the coverage job passed at the head of pull request 312.
+  The wall-clock case of this axis in `tests/test_budget_kostenkurve.py` failed one run in three on each tree
+  under a load between 17 and 22 (time exponent 1.23 at 2074d814, 1.33 at 52231c95), the class named under
+  "wall-clock cases of the cost curve under load" below.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 
