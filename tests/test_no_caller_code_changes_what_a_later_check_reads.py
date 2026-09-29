@@ -311,6 +311,31 @@ class AResolverAnswerIsJudgedAsItWasGiven(unittest.TestCase):
         self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", " ".join(r["errors"]))
         self.assertEqual(r["receiver_role_trusted"], kontrolle["receiver_role_trusted"])
 
+    def test_the_expected_key_is_read_before_the_resolver(self) -> None:
+        """The neighbour the sweep found: `assurance.classify_receiver_corroboration` (exported) read the caller's
+        `expected_receiver_public_key` after it had called the caller's attestation resolver, so a resolver that
+        rewrote a `bytearray` expectation to the key it returned reached INDEPENDENTLY_ATTESTED."""
+        from proofbundle.assurance import EvidenceLevel, classify_receiver_corroboration  # noqa: PLC0415
+
+        def lauf(umschreiben: bool) -> dict:
+            erwartet = bytearray(_raw(_P))
+
+            def bezeugen(_d):
+                if umschreiben:
+                    erwartet[:] = _raw(_W)
+                return _raw(_W)
+
+            return classify_receiver_corroboration({"sha256": "d" * 64}, evidence_resolver=lambda d: True,
+                                                   independent_attestation_resolver=bezeugen,
+                                                   executor_key_id="kid-exec", receiver_key_id="kid-recv",
+                                                   expected_receiver_public_key=erwartet)
+
+        self.assertIsNot(lauf(False)["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)   # control
+        r = lauf(True)
+        self.assertIsNot(r["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED,
+                         "an expectation the resolver rewrote bound the receiver label")
+        self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", r["detail"])
+
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 # B. L3-620-T2-01: a restricting flag restricts on any value but False.

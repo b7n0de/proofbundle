@@ -31,7 +31,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   - `verify_outcome_receipt` kept the attestation resolver's answer object and read it again after the
     resolver's next call: a `bytearray` that call rewrote bound a receiver label to a key the ladder had
     refused (`receiver_key_bound` True). A `bytearray` answer is kept as the bytes it held when it was
-    given, and the ladder judges the same bytes.
+    given, and the ladder judges the same bytes. The sweep of this class found one neighbour:
+    `assurance.classify_receiver_corroboration` read `expected_receiver_public_key` after it had called the
+    attestation resolver, so a resolver that rewrote a `bytearray` expectation to the key it returned reached
+    INDEPENDENTLY_ATTESTED; the expectation is read before either resolver runs.
   - A registered anchor verifier's `warn` counted only as the exact `True` (pull request 291), so
     `{"ok": True, "warn": "pending"}` was a full anchor and met `--require-anchor`. `warn` is read in the
     direction that grants nothing: beside `ok` True any value but `False` makes the anchor pending, and

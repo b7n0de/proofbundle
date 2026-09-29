@@ -236,6 +236,11 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     except ValueError:
         digest_obj = None
     schluessel_erwartet = expected_receiver_public_key is not None
+    # The expectation is read HERE, before either resolver runs (deep gate at 7409b123, the sweep of
+    # L3-620-T3-03): it was read after the attestation resolver had answered, so a resolver that rewrote a
+    # `bytearray` expectation to the key it returned reached INDEPENDENTLY_ATTESTED. `bytes()` of a plain
+    # `bytes` or `bytearray` runs no code of the caller.
+    erwartet_roh = bytes(expected_receiver_public_key) if _is_key_material(expected_receiver_public_key) else None
     base = classify_digest_evidence(digest_obj, applicable=applicable, evidence_resolver=evidence_resolver)
     if base["level"] is None or base["level"] < EvidenceLevel.CONTENT_RESOLVED or independent_attestation_resolver is None:
         return base
@@ -271,12 +276,12 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
         if signer_key is None:
             return {**base, "detail": base["detail"] + " (attestation resolver returned key material that is "
                     "not a 32-byte Ed25519 key — not attested)"}
-        if expected_receiver_public_key is not None and not _is_key_material(expected_receiver_public_key):
+        if schluessel_erwartet and erwartet_roh is None:
             # The expectation is the caller's too: bytes() on it ran its __bytes__ and raised a raw TypeError
             # for a str (measured), out of a function that never raises.
             return {**base, "detail": base["detail"] + " (expected_receiver_public_key is not a bytes or "
                     "bytearray object, so the signer key cannot be compared with it — not attested)"}
-        if expected_receiver_public_key is not None and signer_key != bytes(expected_receiver_public_key):
+        if erwartet_roh is not None and signer_key != erwartet_roh:
             return {**base, "detail": base["detail"] + " (KEY_ID_NOT_BOUND_TO_SIGNER: the referenced statement "
                     "is signed by a key that is not the trust pack's key for receiverKeyId — the label names "
                     "a party that did not sign)"}
