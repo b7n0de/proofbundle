@@ -1,8 +1,9 @@
 """Pre-tool gate of the proofbundle plugin.
 
 Before a shell call that pushes (`git push`), opens a pull request (`gh pr create`) or creates a
-release (`gh release create`), the gate verifies the evidence the repository declares for its current
-head, with the plugin's own MCP server, and answers the host in its hook format:
+release (`gh release create`), and before an MCP tool that opens a pull request, a merge request or a
+release, the gate verifies the evidence the repository declares for its current head, with the plugin's
+own MCP server, and answers the host in its hook format:
 
 - every declared item verifies: the gate makes no permission decision, so the host's normal
   permission flow applies, and a message names what was verified; the gate never grants a call;
@@ -14,14 +15,22 @@ The gate reads the declaration and the evidence from the commit at HEAD, not fro
 an uncommitted file can neither satisfy nor break it. The declaration lives at DECLARATION and is
 described in DECISIONS.md next to this file's plugin.
 
-Usage: proofbundle_gate.py [--host claude|codex]. stdin: the host's PreToolUse event (JSON). stdout:
-one JSON answer, or nothing for a call the gate does not gate. The exit code is always 0; a failure inside the gate is answered as deny. Standard library
+Every declared item names its subject: the proofbundle-tree-sha256/v1 digest of the tree at HEAD without
+the .proofbundle/ folder (see tree_manifest). The subject must stand in the declaration and inside the
+signed evidence, and both must equal the digest the gate computes; otherwise the call is denied.
+
+Usage as a hook: proofbundle_gate.py [--host claude|codex]. stdin: the host's PreToolUse event (JSON).
+stdout: one JSON answer, or nothing for a call the gate does not gate.
+
+Usage for a producer: proofbundle_gate.py tree-digest [--repo DIR] [--rev REV] [--statement] prints the
+tree digest of REV (default HEAD), or with --statement the JSON a bundle signs to name it. The exit code is always 0; a failure inside the gate is answered as deny. Standard library
 only, so the gate itself needs no package.
 """
 from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 import os
 import pathlib
@@ -31,15 +40,31 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
-DECLARATION = ".proofbundle/evidence.json"
-DECLARATION_SCHEMA = "proofbundle-plugin/evidence/v0.1"
+EVIDENCE_DIR = ".proofbundle/"
+DECLARATION = EVIDENCE_DIR + "evidence.json"
+DECLARATION_SCHEMA = "proofbundle-plugin/evidence/v0.2"
 MAX_DECLARATION_BYTES = 64 * 1024
 MAX_ITEMS = 32
 MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
-KINDS = ("bundle", "decision", "outcome")
-ITEM_KEYS = frozenset({"kind", "path", "public_key", "policy"})
+#: Evidence kinds a declaration may name. An outcome receipt is not among them: it has no field that
+#: can carry a tree subject (DECISIONS.md, D16).
+KINDS = ("bundle", "decision")
+ITEM_KEYS = frozenset({"kind", "path", "public_key", "policy", "subject"})
+SUBJECT_KEYS = frozenset({"algorithm", "digest"})
+#: The tree digest every item is bound to (DECISIONS.md, D2).
+TREE_ALGORITHM = "proofbundle-tree-sha256/v1"
+TREE_HEADER = (TREE_ALGORITHM + "\n").encode()
+TREE_MODES = frozenset({b"100644", b"100755", b"120000"})
+#: The inputSnapshot uri under which a decision receipt names its tree subject.
+TREE_SUBJECT_URI = "urn:proofbundle-plugin:subject:" + TREE_ALGORITHM
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+#: MCP tools, by the last segment of their name, that open a pull request, a merge request or a release
+#: (DECISIONS.md, D8). Any other MCP tool gets no answer from the gate.
+MCP_GATED_TOOLS = ("create_pull_request", "create_merge_request", "create_release")
+MCP_MATCHER = "^mcp__.+__(" + "|".join(MCP_GATED_TOOLS) + ")$"
 #: Seconds for the whole gate. The hook timeout in the plugin manifests is 120 s; the gate answers deny
 #: well before it, because a host that times a hook out may let the call run.
 DEADLINE_SECONDS = 90.0
@@ -187,6 +212,133 @@ def _blob(repo: str, head: str, path: str, deadline: float, limit: int) -> bytes
     return content.stdout
 
 
+# --- the tree the evidence speaks for ----------------------------------------------------------------
+
+def _feed(stream, data: bytes) -> None:
+    try:
+        stream.write(data)
+        stream.close()
+    except (BrokenPipeError, OSError):
+        pass
+
+
+def _blob_sha256s(repo: str, oids: list[bytes], deadline: float) -> list[str]:
+    """sha256 of each object's bytes, read through one `git cat-file --batch`, in order."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise GateError("the gate ran out of time")
+    try:
+        proc = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except FileNotFoundError as exc:
+        raise GateError("git is not on PATH") from exc
+    timer = threading.Timer(left, proc.kill)
+    timer.start()
+    writer = threading.Thread(target=_feed, args=(proc.stdin, b"".join(o + b"\n" for o in oids)))
+    writer.start()
+    digests = []
+    try:
+        for oid in oids:
+            header = proc.stdout.readline().split()
+            if len(header) != 3 or header[0] != oid or header[1] != b"blob":
+                raise GateError(f"git could not read object {oid.decode(errors='replace')} of the tree")
+            remaining, hasher = int(header[2]), hashlib.sha256()
+            while remaining:
+                chunk = proc.stdout.read(min(remaining, 1 << 20))
+                if not chunk:
+                    raise GateError("git stopped while the gate read the tree")
+                hasher.update(chunk)
+                remaining -= len(chunk)
+            if proc.stdout.read(1) != b"\n":
+                raise GateError("git gave an object the gate cannot read")
+            digests.append(hasher.hexdigest())
+    finally:
+        timer.cancel()
+        if proc.poll() is None:
+            proc.kill()
+        writer.join()
+        proc.stdout.close()
+        proc.wait()
+    if time.monotonic() >= deadline:
+        raise GateError("the gate ran out of time while it read the tree")
+    return digests
+
+
+def tree_manifest(repo: str, rev: str = "HEAD", deadline: float | None = None) -> bytes:
+    """The bytes the proofbundle-tree-sha256/v1 digest is taken over.
+
+    Covered: every file of the commit's tree except the top-level .proofbundle/ folder, where the
+    declaration and the evidence live, so the evidence never covers itself. One record per file, sorted
+    by the path's bytes: `<mode> <sha256 of the file's bytes> <path>` and a NUL byte, after the line
+    `proofbundle-tree-sha256/v1`. The mode is git's (100644, 100755 or 120000); the bytes are the
+    committed blob, so checkout settings play no part. A submodule has no bytes in the commit, so a
+    tree with one has no digest.
+    """
+    if deadline is None:
+        deadline = time.monotonic() + DEADLINE_SECONDS
+    if not rev or rev.startswith("-"):
+        raise GateError(f"not a revision: {rev!r}")
+    listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", rev, deadline=deadline)
+    if listing.returncode != 0:
+        raise GateError(f"git could not list the tree of {rev}")
+    entries = []
+    for record in listing.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, tab, path = record.partition(b"\t")
+        fields = meta.split(b" ")
+        if not tab or len(fields) != 3:
+            raise GateError("git ls-tree gave a line the gate cannot read")
+        mode, kind, oid = fields
+        if path.startswith(EVIDENCE_DIR.encode()):
+            continue
+        if kind != b"blob" or mode not in TREE_MODES:
+            raise GateError(f"the tree holds a {kind.decode(errors='replace')} at {path.decode(errors='replace')} "
+                            f"(a submodule?); {TREE_ALGORITHM} covers files only, so the tree has no digest")
+        entries.append((path, mode, oid))
+    entries.sort(key=lambda entry: entry[0])
+    digests = _blob_sha256s(repo, [oid for _, _, oid in entries], deadline)
+    return TREE_HEADER + b"".join(mode + b" " + digest.encode() + b" " + path + b"\0"
+                                  for (path, mode, _), digest in zip(entries, digests))
+
+
+def tree_digest(repo: str, rev: str = "HEAD", deadline: float | None = None) -> str:
+    """The proofbundle-tree-sha256/v1 digest of the commit's tree: sha256 of tree_manifest."""
+    return hashlib.sha256(tree_manifest(repo, rev, deadline)).hexdigest()
+
+
+def subject_statement(digest: str) -> bytes:
+    """The payload a bundle signs to name its tree subject."""
+    return json.dumps({"subject": {"algorithm": TREE_ALGORITHM, "digest": digest}}).encode()
+
+
+def signed_subjects(kind: str, content: bytes) -> list[str]:
+    """The tree digests the signed part of the evidence names; empty when it names none.
+
+    Read only after the evidence verified, from the same committed bytes the verifier read. A bundle
+    names its subject as its whole payload, the JSON of subject_statement. A decision receipt names it
+    as an inputSnapshot entry with uri TREE_SUBJECT_URI and its digest in sha256.
+    """
+    try:
+        document = json.loads(content.decode("utf-8"))
+        if kind == "bundle":
+            statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
+            subject = statement["subject"] if isinstance(statement, dict) and set(statement) == {"subject"} else None
+            if (isinstance(subject, dict) and set(subject) == SUBJECT_KEYS
+                    and subject["algorithm"] == TREE_ALGORITHM and isinstance(subject["digest"], str)):
+                return [subject["digest"]]
+            return []
+        statement = json.loads(base64.b64decode(document["payload"], validate=True).decode("utf-8"))
+        snapshot = statement["predicate"]["inputSnapshot"]
+        return [entry["digest"]["sha256"] for entry in snapshot
+                if isinstance(entry, dict) and entry.get("uri") == TREE_SUBJECT_URI
+                and isinstance(entry.get("digest"), dict) and isinstance(entry["digest"].get("sha256"), str)]
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):
+        return []
+
+
+# --- the declaration ---------------------------------------------------------------------------------
+
 def _no_duplicates(pairs: list[tuple[str, object]]) -> dict:
     keys = [k for k, _ in pairs]
     if len(keys) != len(set(keys)):
@@ -195,12 +347,23 @@ def _no_duplicates(pairs: list[tuple[str, object]]) -> dict:
 
 
 def _relative(value: object, where: str) -> str:
+    """A normalised path under .proofbundle/, the folder the tree digest leaves out."""
     if not isinstance(value, str) or not value or len(value) > 4096:
         raise GateError(f"{where} must be a non-empty path string")
     parts = value.split("/")
     if value.startswith("/") or "\\" in value or any(p in ("", ".", "..") for p in parts):
         raise GateError(f"{where} must be a normalised path inside the repository: {value!r}")
+    if not value.startswith(EVIDENCE_DIR) or value == EVIDENCE_DIR:
+        raise GateError(f"{where} must lie under {EVIDENCE_DIR}, which the tree digest leaves out; evidence "
+                        f"elsewhere would be part of the tree it names: {value!r}")
     return value
+
+
+def _subject(value: object, where: str) -> dict:
+    if not (isinstance(value, dict) and set(value) == SUBJECT_KEYS and value["algorithm"] == TREE_ALGORITHM
+            and isinstance(value["digest"], str) and _HEX64.fullmatch(value["digest"])):
+        raise GateError(f"{where} must be {{\"algorithm\": \"{TREE_ALGORITHM}\", \"digest\": <64 lowercase hex>}}")
+    return {"algorithm": value["algorithm"], "digest": value["digest"]}
 
 
 def parse_declaration(raw: bytes) -> list[dict]:
@@ -221,6 +384,9 @@ def parse_declaration(raw: bytes) -> list[dict]:
         where = f"evidence[{n}]"
         if not isinstance(item, dict) or not set(item) <= ITEM_KEYS:
             raise GateError(f"{where} must be an object with keys from {sorted(ITEM_KEYS)}")
+        if item.get("kind") == "outcome":
+            raise GateError(f"{where}: an outcome receipt has no field that can carry a tree subject; "
+                            "declare a decision receipt or a bundle")
         if item.get("kind") not in KINDS:
             raise GateError(f"{where}.kind must be one of {', '.join(KINDS)}")
         checked = {"kind": item["kind"], "path": _relative(item.get("path"), f"{where}.path")}
@@ -240,6 +406,7 @@ def parse_declaration(raw: bytes) -> list[dict]:
             if len(raw_key) != 32:
                 raise GateError(f"{where}.public_key must be a base64 Ed25519 public key (32 bytes)")
             checked["public_key"] = key
+        checked["subject"] = _subject(item.get("subject"), f"{where}.subject")
         items.append(checked)
     return items
 
@@ -326,7 +493,14 @@ def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
     if not items:
         return "ask", (f"NOT MEASURED: {DECLARATION} at HEAD {commit[:12]} declares an empty evidence "
                        "list. Nothing was verified.")
-    requests = []
+    tree = tree_digest(repo, commit, deadline)
+    stale = [f"evidence[{n}] {item['path']} names {item['subject']['digest']}" for n, item in enumerate(items)
+             if item["subject"]["digest"] != tree]
+    if stale:
+        return "deny", (f"proofbundle gate: the declared subject does not match the tree at HEAD "
+                        f"{commit[:12]}, which is {TREE_ALGORITHM} {tree}. " + " | ".join(stale)
+                        + ". The evidence speaks for another tree.")
+    requests, contents = [], []
     with tempfile.TemporaryDirectory(prefix="proofbundle-gate-") as scratch:
         for n, item in enumerate(items):
             arguments = {"kind": item["kind"]}
@@ -340,6 +514,8 @@ def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
                                     f"is missing at HEAD {commit[:12]}. Nothing may be published without it.")
                 if field == "policy" and item["kind"] == "bundle":
                     require_pinned_signer(content, f"the policy {item[field]} of evidence[{n}]")
+                if field == "path":
+                    contents.append(content)
                 target = os.path.join(scratch, f"{n}-{field}.json")
                 with open(target, "wb") as handle:
                     handle.write(content)
@@ -357,9 +533,21 @@ def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
     if failed:
         return "deny", (f"proofbundle gate: verification failed at HEAD {commit[:12]} "
                         f"(proofbundle {version}). " + " | ".join(failed))
+    unbound = []
+    for n, (item, content) in enumerate(zip(items, contents)):
+        named = signed_subjects(item["kind"], content)
+        if not named:
+            unbound.append(f"evidence[{n}] {item['path']}: the signed evidence names no tree subject")
+        elif item["subject"]["digest"] not in named:
+            unbound.append(f"evidence[{n}] {item['path']}: the signed evidence names {', '.join(named)}, "
+                           f"not the declared subject {item['subject']['digest']}")
+    if unbound:
+        return "deny", (f"proofbundle gate: the evidence verified but is not bound to the tree at HEAD "
+                        f"{commit[:12]}. " + " | ".join(unbound))
     return "pass", (f"proofbundle gate: {len(items)} of {len(items)} declared items verified at HEAD "
-                    f"{commit[:12]} with proofbundle {version}. This proves who signed the recorded bytes, "
-                    "not that the recorded values are true.")
+                    f"{commit[:12]} for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves "
+                    "who signed the recorded bytes and which tree they name, not that the recorded values "
+                    "are true.")
 
 
 def decide(command: str, cwd: str, deadline: float) -> tuple[str, str] | None:
@@ -367,6 +555,27 @@ def decide(command: str, cwd: str, deadline: float) -> tuple[str, str] | None:
     calls = gated_calls(command)
     if not calls:
         return None
+    return _judge(calls, cwd, deadline)
+
+
+def mcp_gated(tool: str) -> bool:
+    return re.fullmatch(MCP_MATCHER, tool) is not None
+
+
+def decide_mcp(tool: str, cwd: str, deadline: float) -> tuple[str, str] | None:
+    """None for an MCP tool the gate does not know; else the verdict for the local repository at cwd.
+
+    An MCP tool acts on a remote repository the gate cannot read. The gate judges the repository the
+    session works in, at its HEAD, and says so in every answer.
+    """
+    if not mcp_gated(tool):
+        return None
+    decision, reason = _judge([(f"MCP {tool}", ".")], cwd, deadline)
+    return decision, (reason + f" (MCP tool {tool}: the gate checked the local repository at {cwd}, "
+                               "at its HEAD; it cannot see the branch the tool publishes.)")
+
+
+def _judge(calls: list[tuple[str, str | None]], cwd: str, deadline: float) -> tuple[str, str]:
     verdicts = []
     for directory in dict.fromkeys(d if d is UNKNOWN else os.path.normpath(os.path.join(cwd, d))
                                    for _, d in calls):
@@ -413,6 +622,26 @@ def answer(decision: str, reason: str, host: str = "claude") -> dict:
     return {"systemMessage": reason, "hookSpecificOutput": specific}
 
 
+def tree_digest_command(argv: list[str]) -> int:
+    """`tree-digest [--repo DIR] [--rev REV] [--statement]`: the producer's side of the binding."""
+    options, statement, i = {"--repo": ".", "--rev": "HEAD"}, False, 0
+    while i < len(argv):
+        if argv[i] == "--statement":
+            statement, i = True, i + 1
+        elif argv[i] in options and i + 1 < len(argv):
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"usage: tree-digest [--repo DIR] [--rev REV] [--statement]; unknown {argv[i]!r}", file=sys.stderr)
+            return 2
+    try:
+        digest = tree_digest(options["--repo"], options["--rev"])
+    except GateError as exc:
+        print(f"tree-digest: {exc}", file=sys.stderr)
+        return 1
+    sys.stdout.write((subject_statement(digest).decode() if statement else digest) + "\n")
+    return 0
+
+
 def _host(argv: list[str]) -> str:
     if not argv:
         return "claude"
@@ -422,16 +651,24 @@ def _host(argv: list[str]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["tree-digest"]:
+        return tree_digest_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host = "claude"
     try:
-        host = _host(sys.argv[1:] if argv is None else argv)
+        host = _host(argv)
         try:
             event = json.loads(sys.stdin.read())
         except ValueError as exc:
             raise GateError("the hook input is not JSON") from exc
-        command, cwd = _command_from_event(event)
-        verdict = decide(command, cwd, deadline)
+        tool = event.get("tool_name") if isinstance(event, dict) else None
+        if isinstance(tool, str) and tool.startswith("mcp__"):
+            cwd = event.get("cwd")
+            verdict = decide_mcp(tool, cwd if isinstance(cwd, str) and cwd else os.getcwd(), deadline)
+        else:
+            command, cwd = _command_from_event(event)
+            verdict = decide(command, cwd, deadline)
     except GateError as exc:
         verdict = ("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.")
     except Exception as exc:  # noqa: BLE001 - any failure inside the gate denies, it never allows
