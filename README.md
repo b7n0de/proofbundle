@@ -1,9 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-hase-logo-dark.png">
-  <img alt="b7n0de, Verified AI Work, pink rabbit mascot over the B7N0DE wordmark" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-hase-logo.png" width="200">
-</picture>
+<img alt="b7n0de, Verified AI Work, flat rabbit head with a pink ear tip" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-hase-flach-frei-512.png" width="180">
 
 <h1>proofbundle</h1>
 
