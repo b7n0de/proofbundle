@@ -56,7 +56,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   exports is a surface of the sweep, and every argument of every verify or evaluate surface of the sweep
   is passed by it, read from the calls it makes, or named with a reason. Planted gaps make it red: with
   `anchors=` taken out of the decision call it names `decision.verify_decision_receipt(anchors)`, and
-  with the `verify_prereg` entry taken out it names `verify_prereg`. The number axis is a property of its
+  with the `verify_prereg` entry taken out it names `verify_prereg`. Without the `[anchors]` extra the two
+  surfaces whose input needs OpenTimestamps are not in the sweep, and the case names them as not measured
+  instead of reading their absence as covered; every other gap stays red there too (measured with the
+  import blocked, as the hermetic cleanroom job installs no extras). The number axis is a property of its
   own (`EveryNumberIsReadByTheOneRule`): no surface runs a method of a caller's number. The extended
   sweep found neighbours of the same class and they are fixed here: `verify_mldsa` compared `level`
   through a `str` subclass's own `__eq__` and read its three inputs through their own methods;

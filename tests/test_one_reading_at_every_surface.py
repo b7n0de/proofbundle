@@ -1233,12 +1233,24 @@ def _flaechen_zwei(ev_bundle, dec_pred, out_pred, policy, tp_pred):
     ] + _flaechen_mit_ots()
 
 
-def _flaechen_mit_ots():
-    """The two surfaces whose legitimate input needs OpenTimestamps (proofbundle[anchors]); absent that
-    extra they are not in the sweep, which the case then does not claim to cover."""
+#: The surfaces `_flaechen_mit_ots` adds, by name. Without OpenTimestamps they are not in the sweep, and
+#: `EveryArgumentOfAVerifySurfaceIsInTheSweep` names them as not measured instead of reading their absence
+#: as a gap (the hermetic cleanroom job installs no extras).
+_OTS_FLAECHEN = ("evidence_pack.verify_evidence_pack", "anchors_rootcommit.verify_rootcommit_v1")
+
+
+def _ots_vorhanden() -> bool:
     try:
         import opentimestamps  # noqa: F401, PLC0415
     except ImportError:
+        return False
+    return True
+
+
+def _flaechen_mit_ots():
+    """The two surfaces whose legitimate input needs OpenTimestamps (proofbundle[anchors]); absent that
+    extra they are not in the sweep, which the case then does not claim to cover."""
+    if not _ots_vorhanden():
         return []
     import hashlib  # noqa: PLC0415
 
@@ -1258,12 +1270,14 @@ def _flaechen_mit_ots():
     pack = ep.build_evidence_pack(wurzel, ctx.getbytes())
     vektor = (_WURZEL / "tests" / "fixtures" / "anchors" / "tlog_bitcoin_anchor" / "rootcommit" / "vectors"
               / "rootcommit-01-valid.txt").read_text()
-    return [
+    flaechen = [
         ("evidence_pack.verify_evidence_pack", lambda w: ep.verify_evidence_pack(
             w(pack), rp_trust=w({}), now=w(1_780_000_000))),
         ("anchors_rootcommit.verify_rootcommit_v1", lambda w: rc.verify_rootcommit_v1(
             w(vektor), frozen=w({}), rp_trust=w({}))),
     ]
+    assert tuple(name for name, _ in flaechen) == _OTS_FLAECHEN, "_OTS_FLAECHEN names another list"
+    return flaechen
 
 
 def _baue_signer(w, signers: dict):
@@ -1382,8 +1396,14 @@ class EveryArgumentOfAVerifySurfaceIsInTheSweep(unittest.TestCase):
             objekt = getattr(proofbundle, export)
             name = f"{objekt.__module__.removeprefix('proofbundle.')}.{objekt.__name__}"
             if name not in namen:
-                fehlt.append(f"{export} ({name})")
-        self.assertEqual(fehlt, [], "exported verify surfaces that the sweep does not call")
+                fehlt.append((f"{export} ({name})", name))
+        # Without the [anchors] extra the OpenTimestamps surfaces are not in the sweep by design: they are
+        # named as not measured here, never read as covered, and every other gap stays red.
+        ungemessen = [text for text, name in fehlt if name in _OTS_FLAECHEN and not _ots_vorhanden()]
+        self.assertEqual([text for text, name in fehlt if text not in ungemessen], [],
+                         "exported verify surfaces that the sweep does not call")
+        if ungemessen:
+            self.skipTest(f"NOT MEASURED without OpenTimestamps (proofbundle[anchors]): {ungemessen}")
 
     def test_every_argument_of_a_verify_surface_is_passed(self) -> None:
         import importlib  # noqa: PLC0415
