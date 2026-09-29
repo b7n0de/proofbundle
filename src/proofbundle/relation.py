@@ -852,7 +852,12 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
     # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein
     # unbekannter Schluessel ist hier eine Verletzung, kein Wurf (diese Funktion wirft nie).
-    from .policy import PolicyError, _huelle_relations, _require_bool  # noqa: PLC0415 - lokal, wie die Nachbarn
+    from .policy import (  # noqa: PLC0415 - lokal, wie die Nachbarn
+        PolicyError,
+        _huelle_relations,
+        _relations_felder_pruefen,
+        _require_bool,
+    )
     try:
         _huelle_relations(relations_section)
         # The loader's boolean rule and message for the two flags of this section (the two other
@@ -860,6 +865,10 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         # and 0 switched it off, where load_policy refuses both.
         for _flag in ("reject_superseded", "reject_retracted"):
             _require_bool(relations_section, _flag, "relations")
+        # Every other field of the section by the loader's rule too (deep gate at 7409b123): a
+        # require_relation_resolution that is no list, a relation_signer or require_relation_target that is
+        # no dict, and a relation name out of the registry were each read as no rule here.
+        _relations_felder_pruefen(relations_section)
     except PolicyError as exc:
         return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
                  "message": f"relations policy section rejected before evaluation (fail-closed): {exc}"}]

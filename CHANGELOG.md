@@ -10,6 +10,43 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **An evaluator refuses every policy field the loader refuses, with the loader's message** (deep gate of
+  the 6.2.0 release preparation at 7409b123: a P1 confirmed by three of three blind jurors, found while
+  re-measuring a foreign-family lens). A decision policy whose `decision_receipt.trusted_decision_makers`
+  is not a list (`5`, `"abc"`, `{}`, `null`, `true`, one entry object without a list) made
+  `verify_decision_receipt` report `ok` and `policy_ok` True for a receipt signed by a key the policy does
+  not trust: `evaluate_decision_policy` read the value with `_as_list`, a value of another type became
+  `[]`, and an empty list pins nobody. `load_policy` refuses that policy, so the CLI exits 2 on it and was
+  not affected; the Python API was, at v6.1.0 (dcac5aee) and on main 2074d814 alike.
+  It is the third instance of one class. The three evaluators (`evaluate_policy`,
+  `evaluate_decision_policy`, `relation.evaluate_relations_policy`) take a policy dict that may never have
+  passed `load_policy`, and each applied only part of the loader's rule: the hull (round 14, lens L4, F1)
+  and the boolean fields (pull request 291). Every other present field of another type was read as empty,
+  and empty is no constraint. Measured at 7409b123: an `allowed_issuers` that is an object or a string, an
+  `allowed_algs`, `trusted_roots` or `allowed_status_authorities` that is a string, a
+  `trusted_checkpoints` that is an object, and a `signature` or `merkle` section that is a list or a string
+  each gave `policy_ok` True with no check at all; so did a `require_relation_resolution` that is not a
+  list and a `relation_signer` or `require_relation_target` that is not an object.
+  The loader's field rule is now one function (`policy._felder_pruefen`, with
+  `policy._relations_felder_pruefen` for the relations section), and `load_policy` and the three
+  evaluators call it; `load_policy` checks in the same order as before. The evaluators keep accepting a
+  partial policy without `schema` or `policy_id`, and the v0.2-only sections are gated on the schema only in
+  `load_policy`, as before. `lint_policy` applies the same entry rule first and reads no pin from a policy
+  it refuses (a list of integers in `allowed_issuers` raised `AttributeError` there, a boolean in
+  `trusted_roots` `TypeError`), and `policy_warnings` counts only a list as a signer pin, so a string no
+  longer silences the attributes-to-nobody warning. The loader's messages that name a caller's value render
+  it with `budget.render_safe`: now that the evaluators apply the loader's rule, a `policyPurpose` of
+  `10**5000` would otherwise raise a raw `ValueError` there (the same value already did at
+  `evaluate_decision_policy`, measured by the same gate's re-measurement; the CLI refuses the literal).
+  What a caller sees differently: a policy dict that `load_policy` would refuse is refused by every
+  evaluator, as a fail-closed verdict with `policy rejected before evaluation (fail-closed, the same rule
+  load_policy applies)` and the loader's own message.
+  Tests: `tests/test_the_evaluators_judge_a_policy_by_the_loaders_rule.py` asks `load_policy` which values
+  it refuses, for every key of every section it knows and for every section as a whole, with ten JSON
+  probes, and holds each evaluator, `lint_policy` and the warning to it. Measured at 52231c95: 1009 failed
+  subtests, 512 passed (pytest counts a failed subtest as a failure and its parent case as passed). Here:
+  9 passed, 1521 subtests.
+
 - **One reading reaches every argument a public verify surface judges, and the sweep measures its own
   reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,
   each confirmed by three of three blind jurors, one of them found twice; the class of the round-12 entry
