@@ -1,9 +1,10 @@
 # Decisions of the pre-push gate
 
 The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before an MCP tool that opens a
-pull request, a merge request or a release. Where the design was open, it takes the smallest variant
-that fails closed. Each decision below names that choice and the options the owner can pick instead.
-The owner decided D2, D8, D13, D14 and D16 on 2026-09-29; the rest is open until the owner decides.
+pull request, a merge request or a release, pushes files, writes a file or merges a pull request. Where
+the design was open, it takes the smallest variant that fails closed. Each decision below names that
+choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14 and D16 on
+2026-09-29; the rest is open until the owner decides.
 
 ## The declaration
 
@@ -144,7 +145,8 @@ Options:
 
 ## D8. Which calls are gated
 
-Chosen (owner, 2026-09-29): B.
+Chosen (owner, 2026-09-29): B, and the three GitHub MCP tools that write without opening a pull
+request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated as well.
 - Bash calls: `git push` (and `git-push`), `gh pr create` or `gh pr new`, `gh release create` or
   `gh release new`, found:
   - anywhere in the Bash command, after `&&`, `;`, `|` and newlines;
@@ -153,19 +155,25 @@ Chosen (owner, 2026-09-29): B.
   - inside any quoted argument, as in `bash -c "git push"`.
   Over-matching is accepted: `echo "git push"` is gated too. A command that cannot be tokenised is gated
   when a text search finds a gated call, with the directory NOT MEASURED.
-- MCP tools, through a second `PreToolUse` matcher, `^mcp__.+__(create_pull_request|create_merge_request|create_release)$`,
+- MCP tools, through a second `PreToolUse` matcher,
+  `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`,
   on any server. Both hosts name an MCP tool `mcp__<server>__<tool>` in the hook event, and both read a
   matcher like this one as a regular expression (Codex at c248f6d4: `hooks/src/events/common.rs`,
   `matches_matcher`). The repository is the hook's working directory; the tool's own arguments (owner,
   repository, branch) are not read.
-  - Gated tool names: `create_pull_request` (the GitHub MCP server, seen in this session as
-    `mcp__github__create_pull_request`), `create_merge_request` and `create_release` (names other
-    servers use; which servers, not measured).
-  - Ungated, and listed as such: every other name. Among them the GitHub MCP server's tools that write
-    to a remote without opening a pull request: `push_files`, `create_or_update_file`, `delete_file`,
-    `create_branch`, `merge_pull_request`, `update_pull_request`, `update_pull_request_branch`,
-    `enable_pr_auto_merge`, `fork_repository` and `create_repository`. A tool of another server with a
-    different name for the same act is not gated either.
+  - Gated tool names: `create_pull_request` (the GitHub MCP server, as `mcp__github__create_pull_request`),
+    `create_merge_request` and `create_release` (names other servers use; which servers, not measured),
+    and the GitHub MCP server's `push_files`, `create_or_update_file` and `merge_pull_request`.
+  - What the gate cannot see, and says in every answer to an MCP tool: it judges the local repository at
+    HEAD, not the remote. It cannot see the branch a tool publishes or the pull request `merge_pull_request`
+    merges. The bytes `push_files` and `create_or_update_file` write come from the tool's own arguments,
+    and the gate does not compare them with the tree it judged, so a pass says the local evidence holds,
+    not that the pushed bytes are the ones it covers.
+  - Ungated, and listed as such: every other name. Open, the owner kept them out of the gate on
+    2026-09-29: `delete_file`, `create_branch`, `update_pull_request`, `update_pull_request_branch` and
+    `enable_pr_auto_merge`, which write to a remote without opening a pull request. Also ungated:
+    `fork_repository` and `create_repository`. A tool of another server with a different name for the
+    same act is not gated either.
 
 Not seen:
 - git aliases;
@@ -175,7 +183,9 @@ Not seen:
 
 Options:
 - A. Bash calls only.
-- B. Also gate MCP tools whose names create pull requests or releases, with a second matcher (chosen).
+- B. Also gate MCP tools whose names create pull requests or releases, with a second matcher (chosen),
+  plus `push_files`, `create_or_update_file` and `merge_pull_request` (chosen).
+- C. B plus the five open tools above.
 
 ## D9. The hook runs on every Bash call
 

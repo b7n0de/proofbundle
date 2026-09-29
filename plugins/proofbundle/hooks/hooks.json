@@ -1,5 +1,5 @@
 {
-  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, verify the evidence the repository declares at HEAD. A failed check denies the call; nothing declared asks, marked NOT MEASURED.",
+  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or merges a pull request, verify the evidence the repository declares at HEAD. A failed check denies the call; nothing declared asks, marked NOT MEASURED.",
   "hooks": {
     "PreToolUse": [
       {
@@ -13,7 +13,7 @@
         ]
       },
       {
-        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release)$",
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
         "hooks": [
           {
             "type": "command",

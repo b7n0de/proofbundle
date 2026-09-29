@@ -2,7 +2,7 @@
 
 Before a shell call that pushes (`git push`), opens a pull request (`gh pr create`) or creates a
 release (`gh release create`), and before an MCP tool that opens a pull request, a merge request or a
-release, the gate verifies the evidence the repository declares for its current head, with the plugin's
+release, pushes files, writes a file or merges a pull request, the gate verifies the evidence the repository declares for its current head, with the plugin's
 own MCP server, and answers the host in its hook format:
 
 - every declared item verifies: the gate makes no permission decision, so the host's normal
@@ -61,9 +61,20 @@ TREE_MODES = frozenset({b"100644", b"100755", b"120000"})
 #: The inputSnapshot uri under which a decision receipt names its tree subject.
 TREE_SUBJECT_URI = "urn:proofbundle-plugin:subject:" + TREE_ALGORITHM
 _HEX64 = re.compile(r"[0-9a-f]{64}")
-#: MCP tools, by the last segment of their name, that open a pull request, a merge request or a release
-#: (DECISIONS.md, D8). Any other MCP tool gets no answer from the gate.
-MCP_GATED_TOOLS = ("create_pull_request", "create_merge_request", "create_release")
+#: MCP tools, by the last segment of their name, that open a pull request, a merge request or a release,
+#: push files, write a file or merge a pull request (DECISIONS.md, D8). Any other MCP tool gets no answer
+#: from the gate.
+MCP_GATED_TOOLS = ("create_pull_request", "create_merge_request", "create_release",
+                   "push_files", "create_or_update_file", "merge_pull_request")
+#: What the gate cannot see for each gated MCP tool. It judges the local repository at HEAD, and the tool
+#: acts on a remote: the branch it publishes, the pull request it merges, or bytes from its own arguments.
+_MCP_UNSEEN = {
+    "push_files": "the bytes the tool writes come from its own arguments, and the gate does not compare "
+                  "them with that tree",
+    "create_or_update_file": "the bytes the tool writes come from its own arguments, and the gate does not "
+                             "compare them with that tree",
+    "merge_pull_request": "it cannot see the pull request the tool merges",
+}
 MCP_MATCHER = "^mcp__.+__(" + "|".join(MCP_GATED_TOOLS) + ")$"
 #: Seconds for the whole gate. The hook timeout in the plugin manifests is 120 s; the gate answers deny
 #: well before it, because a host that times a hook out may let the call run.
@@ -571,8 +582,9 @@ def decide_mcp(tool: str, cwd: str, deadline: float) -> tuple[str, str] | None:
     if not mcp_gated(tool):
         return None
     decision, reason = _judge([(f"MCP {tool}", ".")], cwd, deadline)
+    unseen = _MCP_UNSEEN.get(tool.rsplit("__", 1)[-1], "it cannot see the branch the tool publishes")
     return decision, (reason + f" (MCP tool {tool}: the gate checked the local repository at {cwd}, "
-                               "at its HEAD; it cannot see the branch the tool publishes.)")
+                               f"at its HEAD; {unseen}.)")
 
 
 def _judge(calls: list[tuple[str, str | None]], cwd: str, deadline: float) -> tuple[str, str]:

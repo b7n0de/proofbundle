@@ -38,8 +38,12 @@ Each result carries the command that ran, its exit code and its full output.
 ## The pre-push gate
 
 A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call and before an MCP tool whose
-name ends in `create_pull_request`, `create_merge_request` or `create_release` (`mcp__<server>__<tool>`).
-It acts before `git push`, `gh pr create`, `gh release create` and those MCP tools. At those calls it
+name ends in `create_pull_request`, `create_merge_request`, `create_release`, `push_files`,
+`create_or_update_file` or `merge_pull_request` (`mcp__<server>__<tool>`). It acts before `git push`,
+`gh pr create`, `gh release create` and those MCP tools. For an MCP tool it judges the local repository
+at HEAD: it cannot see the branch a tool publishes or the pull request it merges, and the bytes
+`push_files` and `create_or_update_file` write come from the tool's own arguments, which the gate does
+not compare with that tree. At those calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 

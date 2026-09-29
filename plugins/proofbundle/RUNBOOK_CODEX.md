@@ -27,7 +27,7 @@ cloud session.
    `codex plugin marketplace add <proofbundle checkout>`.
 
 3. Start `codex` once in any directory, open `/hooks`, and trust the two `PreToolUse` hooks of
-   `proofbundle`: the matcher `Bash` and the matcher `^mcp__.+__(create_pull_request|create_merge_request|create_release)$`.
+   `proofbundle`: the matcher `Bash` and the matcher `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`.
    Leave Codex again.
 
 ## The cases
