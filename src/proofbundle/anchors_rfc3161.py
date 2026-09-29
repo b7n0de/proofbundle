@@ -116,7 +116,15 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
                 "detail": "RFC 3161 token needs a relying-party-supplied TSA root certificate "
                           "(--trusted-tsa-root / policy anchors.trusted_tsa_roots). The bundle's own frozen "
                           "root is producer-controlled evidence, not trust; not claiming a pass"}
-    rp_policy_oids = rp.get("trusted_tsa_policy_oids") or []
+    # A PRESENT POLICY OID PIN OF ANOTHER SHAPE IS REFUSED, never read as no pin (verify lens on the cross-check
+    # fix at bc3d275f, 2026-09-29). `... or []` read 0, False, "", {} and None as no pin, and a list whose FIRST
+    # entry is falsy ("", None, 0, []) pinned nothing either, so a token under another TSA policy verified; the
+    # loader refuses each of these values in `anchors.trusted_tsa_policy_oids`. An empty list stays "no pin".
+    rp_policy_oids = rp.get("trusted_tsa_policy_oids", [])
+    if not (type(rp_policy_oids) is list and all(type(o) is str and o for o in rp_policy_oids)):
+        return {"ok": False, "status": "rp_trust_malformed",
+                "detail": "rp_trust.trusted_tsa_policy_oids must be a list of dotted-decimal strings; a pin of "
+                          "another shape is refused, never read as no pin (fail-closed)"}
     try:
         from cryptography.x509 import ObjectIdentifier  # noqa: PLC0415
         response = tsp.decode_timestamp_response(proof)

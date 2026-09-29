@@ -893,9 +893,31 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     return {"policy_ok": policy_ok, "signer_trusted": signer_trusted, "errors": errors}
 
 
+def _projizierbar(policy) -> dict:
+    """A policy a projection may read: the plain copy of a dict the loader's rule for present fields accepts,
+    or :class:`PolicyError` with the loader's message.
+
+    THE FINDING (verify lens on the cross-check fix at bc3d275f, 2026-09-29): the two projections below are
+    how the CLI turns a policy into ``verify_bundle(expected_aud=...)`` and ``rp_trust``, and they read a
+    section of another type as no section. For a policy that never passed ``load_policy`` an ``sd_jwt`` that
+    is no object dropped the audience binding, an ``anchors.trusted_tsa_policy_oids`` of another type dropped
+    the TSA policy pin, and a ``bitcoin_block_headers`` that is no object raised a raw ``AttributeError``. The
+    CLI loads every policy first, so it was not affected; the library path now refuses such a policy here."""
+    if not issubclass(type(policy), dict):
+        raise PolicyError("trust policy must be a JSON object")
+    kopie = _plain_for_jcs(policy, PolicyError)
+    grund = _abgelehnt_vom_loader(kopie)
+    if grund is not None:
+        raise PolicyError(f"policy rejected before projection (fail-closed, the same rule load_policy applies): "
+                          f"{grund}")
+    return kopie
+
+
 def policy_expected_aud(policy: dict):
     """The aud the policy wants bound (sd_jwt.expected_aud), or None. Used by the CLI to reconcile
-    with the --aud flag (a policy/flag conflict is an error, never a silent override)."""
+    with the --aud flag (a policy/flag conflict is an error, never a silent override). A policy the loader
+    refuses is :class:`PolicyError` (`_projizierbar`)."""
+    policy = _projizierbar(policy)
     return _as_dict(policy.get("sd_jwt")).get("expected_aud")
 
 
@@ -903,7 +925,9 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     """WP-A1: the relying-party anchor TRUST material carried in the policy's ``anchors`` section, as an
     ``rp_trust`` dict (``trusted_tsa_roots`` / ``bitcoin_block_headers`` / ``trusted_tsa_policy_oids``), or
     None when the policy declares none. Mirrors the CLI ``--trusted-tsa-root`` / ``--bitcoin-header``; the
-    CLI unions the two. Validated already in ``load_policy`` (fail-closed), so this is a pure projection."""
+    CLI unions the two. A pure projection of a policy the loader's rule accepts; a policy it refuses is
+    :class:`PolicyError` (`_projizierbar`)."""
+    policy = _projizierbar(policy)
     anc = _as_dict(policy.get("anchors"))
     rp: dict = {}
     if anc.get("trusted_tsa_roots"):
@@ -1341,7 +1365,8 @@ def explain_policy(policy: dict) -> list:
     if sdj.get("require_nonce"):
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
     if sdj.get("max_iat_age_seconds") is not None:
-        lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+        # Bounded (`_nennen`): a huge int passes the loader and raised a raw ValueError here (int->str cap).
+        lines.append(f"eval claim freshness <= {_nennen(sdj['max_iat_age_seconds'])}s")
     if sdj.get("expected_vct") is not None:
         lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (from a VERIFIED issuer signature)")
     st = _as_dict(policy.get("status"))

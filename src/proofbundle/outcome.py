@@ -23,8 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_EINGEBAUTE_SKALARE, _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs,
-                        _pruefkopie, _richtlinie_von, _zeichen_von)
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
+                        _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -293,6 +293,24 @@ def _plain_pack(trust_pack: Any) -> Any:
         return None
 
 
+def _widerrufen(trust_pack: dict, key_id: str) -> bool:
+    """True when the pack's ``revoked`` list names ``key_id``, and when the pack holds a ``revoked`` that is no
+    list of key id strings, which revokes every key (fail-closed). ``trust_pack`` is the plain copy.
+
+    THE FINDING (verify lens on the cross-check fix at bc3d275f, 2026-09-29): both role checks asked
+    ``isinstance(revoked, list) and key_id in revoked``, so a ``revoked`` of another type ("kid-exec",
+    ``{"kid-exec": true}``, 5, True, null) revoked nobody, and ``verify_outcome_receipt`` reported a revoked
+    executor as ``executor_role_trusted`` True with ``ok`` and ``safeForAutomation`` True.
+    ``trust_pack.validate_trust_pack_predicate`` refuses each of these values ("revoked must be a list of
+    keyId strings"); a pack handed in directly reached the check without that validator."""
+    if "revoked" not in trust_pack:
+        return False
+    revoked = trust_pack["revoked"]
+    if not (type(revoked) is list and all(type(k) is str for k in revoked)):
+        return True
+    return key_id in revoked
+
+
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
     """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
     revoked and — when ``public_key`` (the 32 raw Ed25519 bytes the receipt was verified under) is
@@ -323,8 +341,7 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
     key_ids = role.get("keyIds") if isinstance(role, dict) else None
     if not isinstance(key_ids, list) or key_id not in key_ids:
         return False
-    revoked = trust_pack.get("revoked")
-    if isinstance(revoked, list) and key_id in revoked:
+    if _widerrufen(trust_pack, key_id):   # a revoked list of another type revokes every key (fail-closed)
         return False
     if public_key is not None and not pack_key_binds_signer(key_id, trust_pack, public_key):
         return False
@@ -344,6 +361,10 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
 # stays honestly unreachable (see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver
 # receipt is a RECEIPT about the effect, never a live observation of the real-world effect itself.
 _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
+
+#: The expected receiver key for a pack entry that holds no usable key: plain bytes no 32-byte signer key equals,
+#: so `assurance.classify_receiver_corroboration` binds nothing to it and never promotes on a bare True.
+_KEIN_NUTZBARER_SCHLUESSEL = b""
 
 
 def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
@@ -365,8 +386,7 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     key_ids = role.get("keyIds") if isinstance(role, dict) else None
     if not isinstance(key_ids, list) or receiver_key_id not in key_ids:
         return False
-    revoked = trust_pack.get("revoked")
-    if isinstance(revoked, list) and receiver_key_id in revoked:
+    if _widerrufen(trust_pack, receiver_key_id):   # a revoked list of another type revokes every key
         return False
     return True
 
@@ -754,12 +774,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _exid = _as_dict(predicate.get("executor")).get("id") if isinstance(predicate.get("executor"), dict) else None
         if decision_maker_id is not None:
             # By its characters, so a `str` subclass's own `__ne__` cannot declare two ids different
-            # (round 12). An id of an exact built-in scalar type is compared as before; one of any
-            # other type (an object that claims str through `__class__` answered `!=` itself) cannot
-            # show two parties differ, so separation is not established (fail-closed).
+            # (round 12). An id that is no text cannot show two parties differ, so separation is not
+            # established (fail-closed): `executor.id` is a non-empty string by the validator, so an int,
+            # a bool, a float or bytes never equals it and `!=` was vacuously True (verify lens on the
+            # cross-check fix at bc3d275f: decision_maker_id=12345 beside executor.id "12345" gave
+            # role_separation_ok and ok True, where the sibling expectations refuse a value that is no text).
             _dm = _zeichen_von(decision_maker_id)
-            if _dm is None and type(decision_maker_id) in _EINGEBAUTE_SKALARE:
-                _dm = decision_maker_id
             r["role_separation_ok"] = bool(_exid) and _dm is not None and _exid != _dm
             if not r["role_separation_ok"]:
                 r["errors"].append(
@@ -878,19 +898,34 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 return _f
 
             def _expected_key(x):
+                # None only when the pack names no key for the label: no pack, no `keys`, or no entry for the
+                # receiverKeyId. An entry the pack DOES hold that is no usable 32-byte key (a publicKey of
+                # another type, one that does not decode, 31 bytes, an entry that is no object) and a `keys`
+                # that is no object answer an expectation no signer key equals (verify lens on the cross-check
+                # fix at bc3d275f): answering None read the malformed entry as "the pack names no key", and a
+                # resolver's bare True then reached INDEPENDENTLY_ATTESTED, where the well-formed entry keeps
+                # CONTENT_RESOLVED. The pack validator refuses each such entry.
                 if trust_pack is None or not isinstance(x, dict):
                     return None
                 kid = x.get("receiverKeyId")
-                keys = trust_pack.get("keys") if isinstance(trust_pack, dict) else None
-                kv = keys.get(kid) if isinstance(keys, dict) and isinstance(kid, str) else None
-                if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
+                if type(kid) is not str:
                     return None
+                keys = trust_pack.get("keys") if isinstance(trust_pack, dict) else None
+                if keys is None:
+                    return None
+                if not isinstance(keys, dict):
+                    return _KEIN_NUTZBARER_SCHLUESSEL
+                if kid not in keys:
+                    return None
+                kv = keys[kid]
+                if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
+                    return _KEIN_NUTZBARER_SCHLUESSEL
                 from ._wire_b64 import decode_b64  # noqa: PLC0415
                 try:
                     raw = decode_b64(kv["publicKey"])
                 except (ValueError, TypeError):
-                    return None
-                return raw if len(raw) == 32 else None
+                    return _KEIN_NUTZBARER_SCHLUESSEL
+                return raw if len(raw) == 32 else _KEIN_NUTZBARER_SCHLUESSEL
 
             r["evidence_levels"]["receiverRefs"] = _assurance.evidence_ladder_best(*[
                 _assurance.classify_receiver_corroboration(

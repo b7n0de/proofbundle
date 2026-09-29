@@ -299,10 +299,18 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     # 4. Did the route silently move? A change of backend is an attestation failure, not a detail:
     #    the evidence describes a machine that did not serve this answer.
+    #    A planned route counts only as a non-empty text. The docstring's rule (a caller that supplies no
+    #    planned route has shown that the question cannot be answered here, never an acceptance) was not what
+    #    the code did: `if planned_route and ...` read None, "", 0, False, [], {} and () as no question and
+    #    ACCEPTED the answer (verify lens on the cross-check fix at bc3d275f, 2026-09-29). Now each is not
+    #    measurable, as a route the provider does not report is.
     reported_route = evidence.get("route") or evidence.get("upstream") or evidence.get("backend")
-    if planned_route and reported_route and str(reported_route) != str(planned_route):
+    _geplant = planned_route if type(planned_route) is str and planned_route else None
+    if _geplant is None:
+        unmeasurable.append(REASON_ROUTE_DRIFT)
+    elif reported_route and str(reported_route) != _geplant:
         reasons.append(REASON_ROUTE_DRIFT)
-    elif planned_route and not reported_route:
+    elif not reported_route:
         unmeasurable.append(REASON_ROUTE_DRIFT)
 
     normalised = normalise_provider_evidence(

@@ -1208,6 +1208,12 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     _ext_typ = _zeichen_von(newest.external_token_type)   # by its characters, not its own __bool__
     _ext = _verify_ats_external_token(newest, rp_trust=rp_trust) if _ext_typ else None
     _neuester_alg, _neuester_sig = newest.hash_alg, newest.sig_alg
+    # The registry's verdict on the newest hash is read here too (verify lens on the cross-check fix at bc3d275f,
+    # 2026-09-29): HASH_REGISTRY is module state a callback can rewrite, and a callback that replaced the sha1
+    # entry with one whose status is "current" passed require_current_hash.
+    newest_dep = _is_deprecated_hash(_neuester_alg)
+    _spec = HASH_REGISTRY.get(_neuester_alg) if isinstance(_neuester_alg, str) else None
+    newest_current = _spec is not None and _spec.status == "current"
     # Only the exact True anchors. In the "caller anchor_verifier" mode verify_anchor is the caller's
     # callback, and bool(answer) would anchor on 1, "true", "false", [0] or any object whose __bool__
     # says True (and run that __bool__). The house verifiers above return exact bools (_default_anchor
@@ -1278,9 +1284,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     # must never be hidden behind .ok — surface it as a check, and fail closed when require_current_hash.
     # require_current_hash demands a KNOWN CURRENT hash: a deprecated OR unknown newest hash fails closed
     # (an unknown hash also fails the resolvable-hash check above; here it is never mislabeled "current").
-    newest_dep = _is_deprecated_hash(_neuester_alg)
-    _spec = HASH_REGISTRY.get(_neuester_alg) if isinstance(_neuester_alg, str) else None
-    newest_current = _spec is not None and _spec.status == "current"
+    # newest_dep and newest_current were read before the anchor callback ran (above).
     if newest_dep or require_current_hash:
         hash_ok = newest_current if require_current_hash else True
         if newest_dep:

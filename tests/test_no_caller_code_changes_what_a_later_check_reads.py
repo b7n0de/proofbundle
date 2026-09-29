@@ -273,6 +273,52 @@ class TheNewestArchiveTimeStampIsReadBeforeTheCallback(unittest.TestCase):
         self.assertEqual(gesehen[0], folge[0][0])
 
 
+class TheRegistriesAreReadBeforeTheCallback(_Registriert):
+    """A verify lens on the cross-check fix at bc3d275f: module state that a verdict reads is a value it judges too.
+    The registry of anchor verifiers was copied after the evidence resolver of the decision verifier had run, and
+    ``HASH_REGISTRY`` was read after the anchor callback of ``verify_sequence``."""
+
+    def test_a_resolver_that_registers_a_verifier_for_the_anchor(self) -> None:
+        from proofbundle.decision import verify_decision_receipt  # noqa: PLC0415
+        _, umschlag = self._entscheidung("decision_receipt_deny.json")
+        anker = [_anker(_wurzel(umschlag), typ="probe-late/v1")]
+
+        def lauf(registrieren: bool) -> dict:
+            anchors._VERIFIERS.pop("probe-late/v1", None)
+
+            def aufloeser(_digest) -> bool:
+                if registrieren:
+                    anchors.register_anchor_type(
+                        "probe-late/v1", lambda proof, root, *, frozen, now: {"ok": True, "warn": False, "detail": "x"})
+                return True
+
+            return verify_decision_receipt(umschlag, _raw(_A), anchors=anker, evidence_resolver=aufloeser)
+
+        self.assertIs(lauf(False)["anchors_ok"], False)   # control: an unknown anchor type fails
+        r = lauf(True)
+        self.assertIs(r["anchors_ok"], False, "a verifier the resolver registered judged the anchor")
+        self.assertIs(r["ok"], False)
+
+    def test_a_callback_that_rewrites_the_hash_registry(self) -> None:
+        from proofbundle.hashalg import HASH_REGISTRY  # noqa: PLC0415
+        from proofbundle.renewal import ArchiveTimeStamp, verify_sequence  # noqa: PLC0415
+        gedeckt = hashlib.sha1("\n".join(_DATEN).encode()).hexdigest()
+        folge = [[ArchiveTimeStamp("sha1", gedeckt, 1)]]
+        echt = HASH_REGISTRY["sha1"]
+        self.addCleanup(HASH_REGISTRY.__setitem__, "sha1", echt)
+
+        def umschreiben(_a) -> bool:
+            HASH_REGISTRY["sha1"] = dataclasses.replace(echt, status="current")
+            return True
+
+        kontrolle = verify_sequence(folge, _DATEN, anchor_verifier=lambda a: True, require_current_hash=True)
+        self.assertIs(kontrolle.ok, False)
+        r = verify_sequence(folge, _DATEN, anchor_verifier=umschreiben, require_current_hash=True)
+        HASH_REGISTRY["sha1"] = echt
+        self.assertIs(r.ok, False, "a callback that relabelled sha1 as current passed require_current_hash")
+        self.assertIn(("renewal:current_hash", False), [(c.name, c.ok) for c in r.checks])
+
+
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 # A. L3-620-T3-03: an answer of caller code is judged as it was when it was given.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────

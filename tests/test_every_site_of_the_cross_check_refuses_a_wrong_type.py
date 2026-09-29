@@ -259,5 +259,156 @@ class TheRenewalPolicyLoader(_Stellen):
         self.assertEqual(rn.RenewalPolicy.from_dict(beispiel).deprecated_algs, frozenset({"sha1", "md5"}))
 
 
+class TheSitesTheVerifyLensesFound(unittest.TestCase):
+    """The same class beyond the policy dict, found by two verify lenses on bc3d275f with a reproduction each: a
+    restriction the caller hands in (a relying-party pin, a trust pack field, an automation requirement, an expected
+    id or route) of another type or shape was read as no restriction. Each case has its control beside it."""
+
+    def test_a_tsa_policy_oid_pin_of_another_shape_is_refused(self) -> None:
+        try:
+            import rfc3161_client as tsp  # noqa: PLC0415
+        except ImportError:
+            self.skipTest("needs proofbundle[anchors] (rfc3161-client)")
+        from proofbundle.anchors_rfc3161 import verify_rfc3161  # noqa: PLC0415
+        anker = json.loads((_WURZEL / "tests" / "fixtures" / "anchors" / "freetsa_receipt_anchor.json").read_text())
+        wurzel, beweis = base64.b64decode(anker["canonicalRoot"]), base64.b64decode(anker["proof"])
+        echt = tsp.decode_timestamp_response(beweis).tst_info.policy.dotted_string
+        eingefroren = {k: v for k, v in anker["frozen"].items() if k != "policyOid"}
+
+        def lauf(oids) -> dict:
+            return verify_rfc3161(beweis, wurzel, frozen=eingefroren, rp_trust={
+                "trusted_tsa_roots": list(anker["frozen"]["rootCertsDerB64"]), "trusted_tsa_policy_oids": oids})
+
+        self.assertIs(lauf([echt])["ok"], True)             # control: the token's own policy
+        self.assertIs(lauf([])["ok"], True)                 # control: an empty list is no pin
+        self.assertIs(lauf([echt + ".999"])["ok"], False)   # control: another policy fails
+        for wert in (0, False, "", {}, None, 5, True, echt, [""], [None], [0], [[]], ["", echt + ".999"]):
+            with self.subTest(trusted_tsa_policy_oids=repr(wert)):
+                r = lauf(wert)
+                self.assertIs(r["ok"], False, "a pin of another shape was read as no pin")
+                self.assertEqual(r["status"], "rp_trust_malformed")
+
+    @staticmethod
+    def _outcome_umschlag(**extra):
+        praedikat = {**_OUTCOME, "outcomeId": "o-lens", "executor": {"id": "executor:x", "keyId": "kid-exec"},
+                     "effectDigest": {"sha256": "c" * 64}, **extra}
+        return emit_outcome_receipt(praedikat, _A, strict=True), praedikat
+
+    def test_a_revoked_list_of_another_type_revokes_every_key(self) -> None:
+        from proofbundle.outcome import executor_trusted_by_role, receiver_trusted_by_role  # noqa: PLC0415
+        umschlag, praedikat = self._outcome_umschlag()
+
+        def pack(**revoked) -> dict:
+            return {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-exec"]}},
+                    "keys": {"kid-exec": {"publicKey": _b64(_A)}}, **revoked}
+
+        def vertraut(p) -> tuple:
+            r = verify_outcome_receipt(umschlag, _roh(_A), trust_pack=p)
+            return r["executor_role_trusted"], r["ok"], r["automation"]["safeForAutomation"]
+
+        self.assertEqual(vertraut(pack())[:2], (True, True))                 # base: not revoked
+        self.assertEqual(vertraut(pack(revoked=[])), vertraut(pack()))       # base: an empty list revokes nobody
+        self.assertEqual(vertraut(pack(revoked=["kid-exec"])), (False, False, False))   # control
+        for wert in ("kid-exec", {"kid-exec": True}, 5, True, None, [5], [["kid-exec"]]):
+            with self.subTest(revoked=repr(wert)):
+                self.assertEqual(vertraut(pack(revoked=wert)), (False, False, False))
+                self.assertIs(executor_trusted_by_role(praedikat["executor"], pack(revoked=wert), public_key=_roh(_A)),
+                              False)
+                self.assertIs(receiver_trusted_by_role("kid-exec", pack(revoked=wert)), False)
+
+    def test_a_malformed_pack_key_for_a_receiver_promotes_nothing(self) -> None:
+        from proofbundle.assurance import EvidenceLevel  # noqa: PLC0415
+        empfaenger = _roh(_F)
+        umschlag, _ = self._outcome_umschlag(receiverRefs=[{"relation": "acknowledges", "digest": {"sha256": "d" * 64},
+                                                   "receiverKeyId": "kid-recv"}])
+
+        def stufe(eintrag) -> str:
+            p = {"roles": {"outcomeReceivers": {"keyIds": ["kid-recv"]}}, "keys": {"kid-recv": eintrag}}
+            r = verify_outcome_receipt(umschlag, _roh(_A), trust_pack=p, evidence_resolver=lambda d: True,
+                                       receiver_attestation_resolver=lambda d: True)
+            return EvidenceLevel(r["evidence_levels"]["receiverRefs"]["level"]).name
+
+        kontrolle = stufe({"publicKey": base64.b64encode(empfaenger).decode()})
+        self.assertEqual(kontrolle, "CONTENT_RESOLVED")   # control: a bare True binds no key to the label
+        for label, eintrag in (("publicKey 5", {"publicKey": 5}), ("publicKey null", {"publicKey": None}),
+                               ("31 bytes", {"publicKey": base64.b64encode(empfaenger[:31]).decode()}),
+                               ("no base64", {"publicKey": "*"}), ("a text", "x"), ("a list", [])):
+            with self.subTest(entry=label):
+                self.assertEqual(stufe(eintrag), kontrolle, "a malformed pack key read as the pack naming no key")
+
+    def test_references_of_another_shape_are_unresolved(self) -> None:
+        from proofbundle.automation_verdict import automation_summary  # noqa: PLC0415
+        ergebnis = {"crypto_ok": True, "structure_ok": True, "policy_ok": True, "evidence_bound": False}
+
+        def sicher(refs) -> bool:
+            return automation_summary(ergebnis, required_checks={"crypto": "crypto_ok", "structure": "structure_ok",
+                                                                 "policy": "policy_ok", "references": refs}
+                                      )["safeForAutomation"]
+
+        self.assertIs(sicher(["evidence_bound"]), False)   # control
+        self.assertIs(sicher(None), True)                  # control: no references named
+        self.assertIs(sicher([]), True)                    # control: an empty list names none
+        for wert in ("evidence_bound", {"evidence_bound"}, frozenset({"evidence_bound"}), {"evidence_bound": True},
+                     5, True, [b"evidence_bound"], [["evidence_bound"]]):
+            with self.subTest(references=repr(wert)):
+                self.assertIs(sicher(wert), False)
+
+    def test_a_decision_maker_id_that_is_no_text_shows_no_separation(self) -> None:
+        umschlag, _ = self._outcome_umschlag(executor={"id": "12345", "keyId": "kid-exec"})
+
+        def getrennt(dm) -> bool:
+            return verify_outcome_receipt(umschlag, _roh(_A), decision_maker_id=dm)["role_separation_ok"]
+
+        self.assertIs(getrennt("other"), True)    # control: another id
+        self.assertIs(getrennt("12345"), False)   # control: the same id
+        for wert in (12345, True, 1.5, b"12345", ["12345"]):
+            with self.subTest(decision_maker_id=repr(wert)):
+                self.assertIs(getrennt(wert), False)
+
+    def test_an_empty_anchor_requirement_is_refused(self) -> None:
+        from proofbundle.errors import BundleFormatError  # noqa: PLC0415
+        self.assertEqual(anchors.verify_anchors(None, target_roots={}, require="x")["status"], "FAIL")   # control
+        self.assertEqual(anchors.verify_anchors(None, target_roots={})["status"], "SKIP")                # control
+        with self.assertRaises(BundleFormatError):
+            anchors.verify_anchors(None, target_roots={}, require="")
+
+    def test_a_planned_route_that_is_no_text_is_not_measurable(self) -> None:
+        import hashlib  # noqa: PLC0415
+        import warnings  # noqa: PLC0415
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from proofbundle.experimental import attested_inference as ai  # noqa: PLC0415
+        anfrage, antwort, nonce = b"req", b"res", "n" * 16
+        beleg = {"signed": {"nonce": nonce, "request_hash": hashlib.sha256(anfrage).hexdigest(),
+                            "response_hash": hashlib.sha256(antwort).hexdigest()}, "route": "us-east-1"}
+
+        def ausgang(route) -> str:
+            return ai.check_on_receipt(beleg, provider="p", nonce=nonce, request_bytes=anfrage, response_bytes=antwort,
+                                       planned_route=route)["outcome"]
+
+        self.assertEqual(ausgang("us-east-1"), ai.OUTCOME_ACCEPTED)             # control
+        self.assertEqual(ausgang("eu-west-1"), ai.OUTCOME_ATTESTATION_FAILURE)  # control
+        for wert in (None, "", 0, False, [], {}, (), 5, True, ["us-east-1"]):
+            with self.subTest(planned_route=repr(wert)):
+                self.assertEqual(ausgang(wert), ai.OUTCOME_NOT_MEASURABLE)
+
+    def test_the_policy_projections_refuse_what_the_loader_refuses(self) -> None:
+        from proofbundle.policy import PolicyError, lint_policy, policy_anchor_trust, policy_expected_aud  # noqa: PLC0415
+        self.assertEqual(policy_expected_aud({"sd_jwt": {"expected_aud": "a"}}), "a")   # control
+        self.assertEqual(policy_anchor_trust({"anchors": {"trusted_tsa_policy_oids": ["1.2.3"]}}),
+                         {"trusted_tsa_policy_oids": ["1.2.3"]})                         # control
+        for politik in ({"sd_jwt": 5}, {"anchors": {"trusted_tsa_policy_oids": 0}}, {"anchors": {"bitcoin_block_headers": 5}},
+                        {"anchors": "x"}, {"relationz": {}}):
+            with self.subTest(policy=repr(politik)):
+                with self.assertRaises(PolicyError):
+                    policy_expected_aud(copy.deepcopy(politik))
+                with self.assertRaises(PolicyError):
+                    policy_anchor_trust(copy.deepcopy(politik))
+        # A huge freshness bound passes the loader; explaining it raised a raw ValueError (int->str cap).
+        r = lint_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
+                         "sd_jwt": {"max_iat_age_seconds": 10 ** 5000}})
+        self.assertIsInstance(r, dict)
+
+
 if __name__ == "__main__":
     unittest.main()

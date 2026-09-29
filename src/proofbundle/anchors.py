@@ -526,6 +526,10 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
         if _zeichen_von(require) is None:
             raise BundleFormatError(f"require must be an anchor type string, got {_type_name(require)}")
         require = _zeichen_von(require)
+        # An asked requirement that is empty is refused, never read as no requirement (verify lens on the
+        # cross-check fix at bc3d275f): `require=""` gave SKIP where `require="x"` gives FAIL on no anchors.
+        if not require:
+            raise BundleFormatError("require must be 'any' or an anchor type string, got an empty string")
     if require_target is not None:
         if _zeichen_von(require_target) is None:
             raise BundleFormatError(
@@ -541,14 +545,20 @@ def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None
 
 
 def _anker_lesen(anchors, rp_trust) -> tuple:
-    """``anchors`` and ``rp_trust`` read once, before any caller code runs: ``(entries, rp_copy)``, each entry the
-    plain copy `_eintrag_lesen` makes and ``rp_copy`` the plain copy of ``rp_trust`` (`canonical._abbild_von`), or
-    None. `verify_anchors` calls it at once; `decision.verify_decision_receipt` calls it at its entry, before the
+    """``anchors``, ``rp_trust`` and the registry of verifiers read once, before any caller code runs:
+    ``(entries, rp_copy, verifiers)``, each entry the plain copy `_eintrag_lesen` makes, ``rp_copy`` the plain copy
+    of ``rp_trust`` (`canonical._abbild_von`) or None, and ``verifiers`` a copy of the registry or None.
+    `verify_anchors` calls it at once; `decision.verify_decision_receipt` calls it at its entry, before the
     evidence resolver runs, and keeps what it raises for the anchor step. None is no anchors; any other value that
-    is no list is ``BundleFormatError``. ``rp_trust`` is read only when there is an entry to judge, so a call
-    without anchors never refuses it."""
+    is no list is ``BundleFormatError``. ``rp_trust`` and the registry are read only when there is an entry to
+    judge, so a call without anchors never refuses ``rp_trust``.
+
+    THE REGISTRY IS READ HERE TOO (verify lens on the cross-check fix at bc3d275f, 2026-09-29): it was copied in
+    `_anker_urteil`, which the decision verifier runs after the evidence resolver, so a resolver that called
+    `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one and ``ok`` and
+    ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran."""
     if anchors is None:
-        return [], None
+        return [], None, None
     if not issubclass(type(anchors), list):
         raise BundleFormatError("anchors must be a list")
     eintraege = [_eintrag_lesen(a) for a in _folge_von(anchors)]
@@ -558,16 +568,20 @@ def _anker_lesen(anchors, rp_trust) -> tuple:
         if rp_kopie is None:
             raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type {_type_name(rp_trust)} "
                                     "or one holding a value that is no JSON value (fail-closed)")
-    return eintraege, rp_kopie
+    pruefer = None
+    if eintraege:
+        _ensure_builtin_types()
+        pruefer = dict(_VERIFIERS)
+    return eintraege, rp_kopie, pruefer
 
 
 def _anker_urteil(gelesen: tuple, *, target_roots, require: Optional[str] = None,
                   require_target: Optional[str] = None, allow_pending: bool = False,
                   now: Optional[int] = None) -> dict:
-    """The verdict of `verify_anchors` over what `_anker_lesen` read. The roots and the registry are read here,
-    before the first verifier runs, and each verifier gets a copy of the relying party's trust material of its
-    own, so nothing a verifier does reaches what the next one is judged by."""
-    eintraege, rp_kopie = gelesen
+    """The verdict of `verify_anchors` over what `_anker_lesen` read, the registry of verifiers included. The roots
+    are read here, before the first verifier runs, and each verifier gets a copy of the relying party's trust
+    material of its own, so nothing a verifier does reaches what the next one is judged by."""
+    eintraege, rp_kopie, pruefer = gelesen
     if require_target is not None and not require:
         require = "any"   # a target requirement IS an anchor requirement (mirrors --anchor-type)
     if not eintraege:
@@ -576,8 +590,6 @@ def _anker_urteil(gelesen: tuple, *, target_roots, require: Optional[str] = None
                     "detail": f"--require-anchor {require} set but the receipt has no anchors",
                     "results": []}
         return {"status": "SKIP", "detail": "no external time anchors present", "results": []}
-    _ensure_builtin_types()
-    pruefer = dict(_VERIFIERS)
     wurzeln = _wurzeln_lesen(target_roots)
     results = [_eintrag_pruefen(a, wurzeln=wurzeln, now=now, pruefer=pruefer,
                                 rp_trust=None if rp_kopie is None else _plain_for_jcs(rp_kopie, ValueError))
