@@ -113,9 +113,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   reported `renewal:policy` True; from_dict is the only loader of that policy and no CLI path takes it.
   It now refuses a present `deprecated_algs` that is not a list, tuple, set or frozenset, JSON null
   included, with `RenewalError`, and reads the four containers through their base type's iteration. An
-  entry that is no text still names no algorithm and is dropped, as before. Not changed here: `agent_review`
-  reads `blocking` and `require_coverage_status` of null as no rule in its own loader as well, so loader and
-  evaluator agree there, and whether null should mean absent is an owner decision.
+  entry that is no text still names no algorithm and is dropped, as before. Not changed in code:
+  `agent_review` reads `blocking` and `require_coverage_status` of null as no rule in its own loader as well,
+  so loader and evaluator agree there. The owner decided on 2026-09-29 that this reading stays for 6.2.0;
+  `docs/AGENT_REVIEW_PREDICATE.md` said the three list fields "must be lists of known names" and now says
+  what the loader accepts and says, a list of known names or null, where null means no rule. Whether null
+  is refused there later is decided after the tag.
   Tests: `tests/test_every_site_of_the_cross_check_refuses_a_wrong_type.py` measures each candidate at
   `verify_decision_receipt`, `verify_outcome_receipt`, `verify_relation_statement`, `evaluate_policy` and
   `evaluate_renewal_policy`. Measured at 52231c95: 175 failed subtests. Here: 5 passed, 266 subtests.
