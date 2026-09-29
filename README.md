@@ -104,6 +104,7 @@ The demo checks an honest receipt, tampered variants and a sample swap. It exits
 | Verify a receipt | [Quick start](#quick-start) |
 | Create evaluation evidence | [Evaluation walkthrough](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/DEMO.md) |
 | Add receipts to Inspect AI | [Inspect integration](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/INSPECT_HAPPY_PATH.md) |
+| Gate a push or pull request from an AI coding agent | [Plugin catalog](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md) |
 | Assess proofbundle for adoption | [Adversarial review guide](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/REVIEWERS.md) |
 
 <details>
@@ -127,7 +128,7 @@ Shipped features do not all have the same maturity. Agent review disclosures are
 | Your question | Reference |
 |---|---|
 | How do I implement the format? | [Specification](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/SPEC.md) · [Conformance](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CONFORMANCE.md) |
-| How do I integrate my workflow? | [Integrations](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/GLOSSARY.md) |
+| How do I integrate my workflow? | [Integrations](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/INTEGRATIONS.md) · [Glossary](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/GLOSSARY.md) · [Plugins](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md) |
 | Which keys and claims should I accept? | [Policies](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/POLICY_PROFILES.md) · [Trust anchors](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/TRUST_ANCHORS.md) |
 | How is security assessed? | [Threat model](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/THREAT_MODEL.md) · [Security policy](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/SECURITY.md) |
 | How was this release prepared? | [Release process](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RELEASE.md) · [Pre tag audit](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/PRE_TAG_AUDIT.md) |
