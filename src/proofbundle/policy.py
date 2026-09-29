@@ -211,7 +211,8 @@ def _huelle_relations(rel) -> None:
     """Die Huelle der ``relations``-Sektion — eigene Funktion, weil
     :func:`proofbundle.relation.evaluate_relations_policy` NUR diese Sektion bekommt und sie mit
     derselben Regel pruefen muss wie ``load_policy``. Eine Nicht-dict-Sektion ist hier KEIN Fehler:
-    den Typ meldet ``load_policy`` an seiner Stelle, die Auswerter behandeln sie als leer."""
+    den Typ meldet ``load_policy`` an seiner Stelle, und ``evaluate_relations_policy`` weist sie vor diesem
+    Aufruf ab (Deep-Gate an 7409b123: als leer gelesen fiel jede Regel der Sektion weg)."""
     if not isinstance(rel, dict):
         return
     _reject_unknown(rel, _RELATIONS_KEYS, "relations")

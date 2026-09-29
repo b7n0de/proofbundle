@@ -82,6 +82,10 @@ def _kante(hexd: str, relation: str = "supersedes") -> dict:
     return {"relation": relation, "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": hexd}}
 
 
+class _KeinJsonWert:
+    """A value no JSON document can hold."""
+
+
 class _Registriert(unittest.TestCase):
     """Restores the anchor verifier registry after each case."""
 
@@ -460,6 +464,31 @@ class AWrongContainerIsRefusedNotReadAsEmpty(unittest.TestCase):
             with self.subTest(related=leer):
                 r = verify_relationship_edges([_kante("c" * 64, "amends")], leer, subject_hex="a" * 64)
                 self.assertEqual(r["lineage"], "DECLARED_UNRESOLVED")   # control: absent stays absent
+
+    def test_a_relations_section_that_is_no_dict(self) -> None:
+        """The neighbour the sweep of this class found: the outcome and relation statement verifiers ran the
+        relations gate only for a section that is a dict, and `relation.evaluate_relations_policy` read any other
+        section as absent, so a policy whose `relations` is a list, a text or a number judged an attached
+        retraction with no rule and gave ok True. The decision verifier refused the same policy through the
+        loader's rule. `load_policy` refuses it ("relations must be a JSON object")."""
+        from proofbundle.relation import CODE_LINEAGE_REQUIREMENT_FAILED, evaluate_relations_policy  # noqa: PLC0415
+        for name, umschlag, pruefe in self._flaechen():
+            eintrag = self._eintrag(umschlag)
+            with self.subTest(surface=name):
+                self.assertIs(pruefe(umschlag, _raw(_A), policy=self._POLITIK, related=eintrag)["ok"],
+                              False)                                                                  # control
+            for abschnitt in ([["reject_superseded", True]], "reject_superseded", 5, True, [], 0):
+                with self.subTest(surface=name, relations=repr(abschnitt)):
+                    r = pruefe(umschlag, _raw(_A), policy={"relations": abschnitt}, related=eintrag)
+                    self.assertIs(r["ok"], False, "a relations section that is no dict was read as no rule")
+                    self.assertIs(r["policy_ok"], False)
+                    self.assertIn(CODE_LINEAGE_REQUIREMENT_FAILED, r.get("relations_policy_codes") or [])
+        lineage = {"edges": [], "supersededByAttached": None}
+        self.assertEqual(evaluate_relations_policy(None, lineage, successor_key_b64=None), [])   # control: absent
+        for abschnitt in ([1], "x", 5, 0, [], _KeinJsonWert()):
+            with self.subTest(section=type(abschnitt).__name__):
+                codes = [v["code"] for v in evaluate_relations_policy(abschnitt, lineage, successor_key_b64=None)]
+                self.assertEqual(codes, [CODE_LINEAGE_REQUIREMENT_FAILED])
 
     def test_anchors_that_are_falsy_and_no_list(self) -> None:
         from proofbundle.decision import emit_decision_receipt, verify_decision_receipt  # noqa: PLC0415

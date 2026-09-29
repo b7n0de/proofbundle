@@ -368,7 +368,9 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif issubclass(type(_abschnitt_von(policy, richtlinie, "relations")), dict) and r["crypto_ok"]:
+    # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate at
+    # 7409b123, the sweep of L4-620b-01); only an absent section is no relations rule.
+    elif _abschnitt_von(policy, richtlinie, "relations") is not None and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
         # The section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01): the gate
         # refuses a section it cannot read with its own code, and the self-assertion gate below reads only

@@ -46,7 +46,12 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
     do: `lineage` FAIL with `relation:related_malformed`, and `ok` False. The neighbour RESTRISIKO_620
     named: an `anchors` that is not None and no list, a falsy one included (`0`, `""`, `{}`, `()`), was read
     as no anchors. `verify_anchors` refuses it with `BundleFormatError`, `verify_decision_receipt` reports
-    `anchors_ok` False, and `require` and `require_target` of `verify_anchors` are None or a string.
+    `anchors_ok` False, and `require` and `require_target` of `verify_anchors` are None or a string. The sweep
+    of this class found one neighbour: a policy whose `relations` section is present and no dict (a list, a
+    text, a number) was read as no relations rule by the outcome and relation statement verifiers, which ran
+    the gate only for a dict, and by `relation.evaluate_relations_policy`; over an attached retraction both
+    verifiers gave `ok` True, where the decision verifier and `load_policy` refuse the policy. Every present
+    section goes to the gate now, which refuses one that is no dict with `LINEAGE_REQUIREMENT_FAILED`.
   What a caller sees differently: no verdict depends on what a callback does to the arguments. A `related`
   that is no dict and an `anchors` that is no list fail the verdict instead of reading as absent, and
   `verify_anchors` refuses an `rp_trust` that is no JSON object once there is an anchor to judge (the

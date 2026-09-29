@@ -868,14 +868,22 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                           f"the relations section is not a JSON value: {exc}")
             return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
                      "message": f"relations policy section rejected before evaluation (fail-closed): {reason}"}]
-        relations_section = None
+        relations_section = _UNREADABLE
     try:
         lineage_result = _pruefkopie(lineage_result)
     except ValueError:
         lineage_result = _lineage_as_stored(lineage_result)
     successor_key_b64 = _zeichen_von(successor_key_b64)
-    if not isinstance(relations_section, dict):
+    if relations_section is None:
         return out
+    if not isinstance(relations_section, dict):
+        # A section that is present and no JSON object was read as absent, and every rule it meant was dropped:
+        # the outcome and relation statement verifiers judged an attached retraction under `{"relations": [...]}`
+        # with no rule and gave ok True (deep gate at 7409b123, the sweep of L4-620b-01). The loader refuses it
+        # with this message; so does this evaluator now. None stays "no relations section".
+        return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                 "message": "relations policy section rejected before evaluation (fail-closed): relations must be "
+                            "a JSON object"}]
     # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached
     # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
     # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein

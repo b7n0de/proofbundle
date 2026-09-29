@@ -986,7 +986,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # copy, or as stored when the policy holds a value that is no JSON value, so the gate still refuses an
     # unreadable section with its own code.
     _rel = _abschnitt_von(policy, richtlinie, "relations") if issubclass(type(policy), dict) else None
-    if issubclass(type(_rel), dict) and r["crypto_ok"]:
+    # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate at
+    # 7409b123, the sweep of L4-620b-01); only an absent section is no relations rule.
+    if _rel is not None and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(

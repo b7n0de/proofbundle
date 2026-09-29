@@ -1053,9 +1053,11 @@ def _flaechen():
         ("tlogproof.parse_tlog_proof", lambda w: tlogproof.parse_tlog_proof(w(tlog_text))),
         ("tlogproof.verify_tlog_proof", lambda w: tlogproof.verify_tlog_proof(
             w(tlog_text), w(b"leaf-1"), w(log_vkey), w([zeuge]), threshold=w(1), expected_origin=w(origin))),
+        # `rp_trust` is passed here: the decision verifier reached it through verify_anchors before the anchors
+        # were read at its entry (deep gate at 7409b123, L1-620v2-T3-01), and now calls the judging step itself.
         ("anchors.verify_anchors", lambda w: anchors.verify_anchors(
             w(anker), target_roots=w({"receipt": b"\xaa" * 32}), require=w("any"), require_target=w("receipt"),
-            now=w(1_780_000_000))),
+            now=w(1_780_000_000), rp_trust=w({"bitcoin_block_headers": {}}))),
         ("sdjwt.verify_sd_jwt", lambda w: sdjwt.verify_sd_jwt(w(praesentiert), w(pub))),
         ("kbjwt.verify_key_binding", lambda w: kbjwt.verify_key_binding(
             w(praesentiert), expected_aud=w("v"), expected_nonce=w("n"))),
