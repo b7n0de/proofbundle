@@ -264,13 +264,18 @@ class ControlsThatStayAsTheyWere(unittest.TestCase):
         self.assertIsNone(successor_warning(
             None, {NEIGHBOUR: {"verified": False, "relationships": [_edge(SUBJ, "retracts")]}}, subject_hex=SUBJ))
 
-    def test_a_related_container_that_is_no_dict_still_holds_nothing(self):
+    def test_a_related_container_that_is_no_dict_is_refused(self):
+        """Changed by the deep gate at 7409b123 (L4-620b-01): such a container held nothing here, and a Mapping
+        that is no dict holding a verified retraction then hid it from reject_superseded. It is refused now:
+        lineage FAIL, and a named warning that reject_superseded turns into its violation."""
         for bad in ([1, 2], "string", 5, {1, 2}, (1,), True, _NotAJsonValue()):
             with self.subTest(related=type(bad).__name__):
-                self.assertIsNone(successor_warning(None, bad, subject_hex=SUBJ))
+                self.assertIn("relation:related_malformed", successor_warning(None, bad, subject_hex=SUBJ) or "")
                 res = verify_relationship_edges([_edge(TARGET)], bad, subject_hex=SUBJ)
-                self.assertEqual(res["lineage"], LINEAGE_DECLARED_UNRESOLVED)
-                self.assertIsNone(res["supersededByAttached"])
+                self.assertEqual(res["lineage"], LINEAGE_FAIL)
+                self.assertIn("relation:related_malformed", res["supersededByAttached"] or "")
+        self.assertEqual(verify_relationship_edges([_edge(TARGET)], None, subject_hex=SUBJ)["lineage"],
+                         LINEAGE_DECLARED_UNRESOLVED)   # control: absent stays absent
 
     def test_no_method_of_the_callers_map_or_entry_runs(self):
         calls: list = []
@@ -382,9 +387,12 @@ class AMapThatSaysItIsEmptyHidesNothing(unittest.TestCase):
         self.assertTrue(_carries_attached_entries(_SaysItIsEmpty({NEIGHBOUR: {}})))
         self.assertFalse(_carries_attached_entries(_SaysItIsEmpty()))
         self.assertTrue(_carries_attached_entries(_MustNotBeAsked({NEIGHBOUR: {}})))
-        for no_map in (None, [1], "x", 5, (NEIGHBOUR,)):
+        self.assertFalse(_carries_attached_entries(None))
+        # A value that is neither None nor a dict counts as carrying, so the verifiers run the lineage step,
+        # which refuses it (deep gate at 7409b123, L4-620b-01); it used to count as holding nothing.
+        for no_map in ([1], "x", 5, (NEIGHBOUR,), []):
             with self.subTest(related=type(no_map).__name__):
-                self.assertFalse(_carries_attached_entries(no_map))
+                self.assertTrue(_carries_attached_entries(no_map))
 
     def test_control_an_empty_plain_map_still_adds_no_lineage(self):
         env, _root = self._emit_decision()
@@ -431,10 +439,14 @@ class TheRelationsSectionIsNotReadAsAbsent(unittest.TestCase):
         self.assertIs(r["policy_ok"], False)
         self.assertIn(CODE_LINEAGE_REQUIREMENT_FAILED, r["relations_policy_codes"] or [])
 
-    def test_control_a_section_that_is_no_dict_still_reads_as_absent(self):
-        for section in (None, 5, "x", [1], _NotAJsonValue()):
+    def test_a_section_that_is_no_dict_is_refused_and_none_is_absent(self):
+        """Changed by the deep gate at 7409b123 (the sweep of L4-620b-01): a present section that is no dict read
+        as absent here, and the outcome and relation statement verifiers then judged an attached retraction
+        with no rule. None stays "no relations section"."""
+        self.assertEqual(self._codes(None), [])
+        for section in (5, "x", [1], _NotAJsonValue()):
             with self.subTest(section=type(section).__name__):
-                self.assertEqual(self._codes(section), [])
+                self.assertEqual(self._codes(section), [CODE_LINEAGE_REQUIREMENT_FAILED])
 
     def test_control_a_readable_section_is_judged_as_before(self):
         self.assertEqual(self._codes({"reject_superseded": True}), [CODE_LINEAGE_REQUIREMENT_FAILED])

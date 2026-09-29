@@ -431,9 +431,11 @@ def _richtlinie_von(policy: Any) -> Any:
         return None
 
 
-def _abschnitt_von(policy: Any, richtlinie: Any, name: str) -> Any:
+def _abschnitt_von(policy: Any, richtlinie: Any, name: str, fehlt: Any = None) -> Any:
     """One section of a verifier's ``policy``: from its plain copy (`_richtlinie_von`), or, when the policy
     as a whole holds a value that is no JSON value, the section as the dict stores it (`_feld_von`).
+    ``fehlt`` is the answer for a section the policy does not hold; `_FEHLT` tells it apart from a section the
+    policy holds as JSON null, which the loader refuses (the cross-check of 2026-09-29 on main 52231c95).
 
     The second reading is the one PR 300 relies on: a relations section that holds such a value is judged
     by the relations gate, which refuses it with its own code (``LINEAGE_REQUIREMENT_FAILED``). Without it,
@@ -441,8 +443,8 @@ def _abschnitt_von(policy: Any, richtlinie: Any, name: str) -> Any:
     (found by the full suite on the class fix, deep gate 6.2.0 at 2348f0a7). Neither reading runs a method
     of the caller's dict."""
     if richtlinie is not None:
-        return _feld_von(richtlinie, name)
-    return _feld_von(policy, name)
+        return _feld_von(richtlinie, name, fehlt)
+    return _feld_von(policy, name, fehlt)
 
 
 def _eine_kopie(wert: Any, fehler: Callable[[str], BaseException], was: str) -> Any:

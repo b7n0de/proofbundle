@@ -118,8 +118,18 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
     policy_key = required_checks.get("policy")
     # adversarial re-audit round 4: the top-level Mapping args were guarded, but a truthy non-iterable
     # required_checks['references'] (int/bool/object) survived `... or ()` and crashed the iteration below.
+    # A PRESENT references OF ANOTHER SHAPE IS ITSELF UNRESOLVED (verify lens on the cross-check fix at bc3d275f,
+    # 2026-09-29): a text, a set, a dict, 5 or True was read as no references, and an entry that is no text
+    # (b"evidence_bound", ["evidence_bound"]) was skipped, so `evidence_bound` False gave safeForAutomation True,
+    # where a wrong `crypto`, `structure` or `policy` key blocks. Only an absent (None) references means none.
+    # Each name is read by its characters (`_zeichen_von`): a `str` subclass names the field it holds, as a list
+    # or tuple subclass is read through the base type's iteration.
+    from .canonical import _folge_von, _zeichen_von  # noqa: PLC0415
     _refs = required_checks.get("references")
-    reference_keys: Sequence[str] = _refs if isinstance(_refs, (list, tuple)) else ()
+    _refs_folge = _folge_von(_refs) if issubclass(type(_refs), (list, tuple)) else None
+    _namen = [_zeichen_von(n) for n in (_refs_folge or ())]
+    refs_fremd = _refs is not None and (_refs_folge is None or any(n is None for n in _namen))
+    reference_keys: Sequence[str] = [n for n in _namen if n is not None]
 
     not_bool: list[str] = []
     crypto_ok = _tri(result, crypto_key, not_bool)
@@ -150,7 +160,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
             blockers.append("POLICY_NOT_EVALUATED")
         elif policy_val is not True:
             blockers.append("POLICY_FAILED")
-    if unresolved:
+    if unresolved or refs_fremd:
         blockers.append("REFERENCES_NOT_RESOLVED")
 
     # DIE ZUSAMMENFASSUNG DARF NIE NACHSICHTIGER SEIN ALS DAS URTEIL, DAS SIE ZUSAMMENFASST.
@@ -183,7 +193,7 @@ def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[st
         "cryptoValid": crypto_ok,
         "structureValid": structure_ok,
         "policyAuthorized": None if policy_key is None else (policy_val is True),
-        "referencesResolved": None if not reference_keys else not unresolved,
+        "referencesResolved": (False if refs_fremd else None if not reference_keys else not unresolved),
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,
         **extra,

@@ -17,7 +17,9 @@ families each, against targets fixed before each run, and every objection of the
 families was re-measured before it was filed. Each pull request's Codex review series was capped at five
 requests; an answer without P0 or P1 ended a series, and its P2 went into this file without a fix at the head.
 Pull request 312 is the exception to the three families: its verify lane ran with one family, and the deep gate
-at the new head of pull request 311, which carries this file, is its closing round.
+at the new head of pull request 311, which carries this file, is its closing round. Pull request 313 closes
+the six P1 findings of that gate at 7409b123, whose panel ran with three families; the gate at the next head of
+pull request 311 is its closing round.
 
 | Branch | Pull request | Head that landed | Last lens round | Codex series |
 |---|---|---|---|---|
@@ -28,6 +30,7 @@ at the new head of pull request 311, which carries this file, is its closing rou
 | Commitment patterns at the verify boundary | 300 | 373bf64b, main a1e9774e | Claude lens run 11 at cd5d39f4; its P0 and P1 closed in round 12 | 3 requests, the last with one P2 (thread 4124587746) |
 | Release-scope cut | 294 | 903325f3, main 2074d814 | Claude lens at 989b582c; its four P1 closed in 346fa924 | 5 requests; the fifth, at 76f260a2, reported one P1 (thread 4125291621), fixed without a further request as the owner's rule sets it after the budget, and one P2 (thread 4125291624) |
 | One reading at every verify surface | 312 | b19d6ef3, main 52231c95 | verify lane of three Claude lenses at c2ba90db; its eight neighbours fixed in a9bfe2e2 and b19d6ef3 | 2 requests, both without a finding |
+| The loader's rule at every evaluator, one reading before caller code | 313 | 37fc3cac, main f237ff1a | deep gate at 7409b123 (pull request 311), FIX_FIRST; its six P1, 24 of the 26 candidates of an independent cross-check and the sites of four verify lenses closed here | 2 requests, the first without a major finding, the second one P2 that does not reproduce at the head |
 
 ## Closed in 6.2.0 — the open items of the 6.1.0 record
 
@@ -154,10 +157,57 @@ with the plain control giving the refusal:
   at `2074d814` that obligation already held.
 
 At `87090ef2` none of the eight promotes, and every control gives the verdict it gives at the tags. One
-named limit stays at every tree measured, `87090ef2` included: an `anchors` argument that is a falsy value
-of another type (`{}`, `""`, `0`, `False`) is read as no anchors, with `safeForAutomation` False, as the
-CHANGELOG entry of pull request 312 names it. The reach is the Python API: the CLI parses files into plain
+named limit stood at every tree measured, `87090ef2` included: an `anchors` argument that is a falsy value
+of another type (`{}`, `""`, `0`, `False`) was read as no anchors, with `safeForAutomation` False, as the
+CHANGELOG entry of pull request 312 names it. Pull request 313 refuses it (the section below). The reach is the Python API: the CLI parses files into plain
 values and passes none of these objects.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 let a wrong-typed policy field, a callback or a wrong container decide a verdict
+
+The deep gate of the release preparation at the new head of pull request 311 (7409b123, after pull request 312)
+ended FIX_FIRST for six P1 findings, each confirmed by a majority of three blind jurors: one from the re-measurement
+of a foreign-family lens, five from the panel. An independent cross-check of the first class on main 52231c95 named 26
+candidate sites. Pull request 313 (main f237ff1a) closes the six findings and 24 of the 26 candidates; the other two,
+`agent_review` reading `blocking` and `require_coverage_status` of null as no rule, the owner kept for 6.2.0 (limits
+below). The three new test
+files of that pull request were run on 2026-09-29 against the source of the tagged trees v6.0.0 (`4e32e83b`) and
+v6.1.0 (`dcac5aee`) (Python 3.10.12). The loader-rule file failed 1505 subtests at each tag, the cross-check file 242
+at each tag (241 assertions and the raw `ValueError` of `lint_policy` below), and each promotion below failed its case
+there with an assertion, not with a missing name:
+- `evaluate_policy`, `evaluate_decision_policy` and `relation.evaluate_relations_policy` read a present policy field
+  of another type as no constraint where `load_policy` refuses it: `policy_ok` True with no check, and
+  `verify_decision_receipt` `ok` True for a receipt signed by a key the policy does not trust when
+  `trusted_decision_makers` is not a list.
+- `verify_decision_receipt` read `anchors` and `rp_trust` after the evidence resolver, and `verify_anchors` read
+  each entry, the roots and `rp_trust` after the verifier of the entry before: a failing anchor was hidden, a pending
+  one confirmed, and a later anchor rewritten.
+- `verify_sequence` read the newest ArchiveTimeStamp after the caller's `anchor_verifier` had been handed it: a
+  failing external token was skipped and a sha1 entry passed `require_current_hash`.
+- `verify_outcome_receipt` read the attestation resolver's answer again after the next call, and
+  `assurance.classify_receiver_corroboration` read its expected key after the resolver: a receiver label was bound to
+  a key it is not.
+- A `related` that is no dict was read as no attached entries at the decision, outcome and relation statement
+  verifiers, so `reject_superseded` did not see a verified retraction; a falsy `anchors` that is no list was read as
+  no anchors. A relations section held as JSON null, or present and no dict, was read as no rule at the outcome and
+  relation statement verifiers.
+- `RenewalPolicy.from_dict` read a `deprecated_algs` of another type, a Python set included, and an entry that is no
+  text, as no deprecated algorithm, so `evaluate_renewal_policy` reported `renewal:policy` True over a hash the policy
+  meant to deprecate.
+- Beyond the policy dict, found by the verify lenses of that pull request: an `rp_trust.trusted_tsa_policy_oids` of
+  another shape was no TSA policy pin; a trust pack `revoked` of another type revoked nobody, so the outcome verifier
+  trusted a revoked executor; a malformed pack key for a receiver let a bare True reach INDEPENDENTLY_ATTESTED; an
+  `automation_summary` references requirement of another shape was no requirement; a `decision_maker_id` that is no
+  text showed role separation; `check_on_receipt` accepted an answer without a planned route; and the decision verifier and `verify_sequence` read the anchor verifier registry
+  and `HASH_REGISTRY` after caller code had run. `lint_policy` raised a raw `ValueError` for a huge freshness bound.
+
+The warn polarity finding is a regression of pull request 291 and not in the tags: there `bool()` read a truthy
+`warn` as pending and a falsy one (`0`, `""`, None, `{}`) as a full anchor. The reach of every line is the Python API
+with a policy dict, a callback or a container the caller supplies; the CLI loads policies with `load_policy` and passes
+no callbacks. The one line the CLI reaches is the falsy `anchors`: it passes the content of `--anchors <file>` on, and a
+file holding `{}`, `0`, `false` or `""` read as no anchors.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -476,6 +526,36 @@ refuted it as the caller's own claim with no fact of the package hidden, the sha
 - **`render_release.pruefe` compares `release_commit` through a `str` subclass's `__ne__`** (P3 by two jurors): from
   the Python API only, it then skips the ancestry and diff check; the CLI and JSON cannot reach it.
 
+From the deep gate of the release preparation at the next head of pull request 311, 7409b123, after pull request 312
+landed, which ended FIX_FIRST for the six P1 in the section on the released 6.0.0 and 6.1.0 above. These lines enter
+with the iteration that fixes those P1, before the gate at the head after it. Each was judged real by at least two
+of three blind jurors; lines are as at 7409b123 and carry the jurors' measurement. Six claims were refuted by a majority
+of their jury and are not listed: five of the panel and one of the foreign-family re-measurement.
+- **The renewal policy copies every entry before it reads the newest** (P2): `evaluate_renewal_policy` never had a
+  `renewal_ats_chain` cap, and since pull request 312 it builds a fresh ArchiveTimeStamp for every entry. Three million
+  aliases of one entry take 10 to 19 s and about 596 MB, about 120 times the CPU of the earlier reading; the verdict is
+  unchanged, and only a caller's own Python list reaches it.
+- **The renewal verifier caps its chain after the copy** (P2): `verify_sequence` applies `renewal_ats_chain` (10 000)
+  only after it has built one fresh ArchiveTimeStamp for every entry, against its own comment; three million entries
+  took 597 to 872 MB before the refusal `renewal:budget` False.
+- **The FIFO guard checks a path and then opens it** (P2, CWE-367): `prereg`, `evalcard`, `load_bundle` and the CLI's
+  input opener stat a path and then open it, so a path swapped in between, or a PathLike whose `__fspath__` answers
+  twice, hangs the library and the CLI with no verdict. The fix opens once with O_NONBLOCK, stats the descriptor and
+  calls `fspath` once.
+- **The path argument of two verifiers still lets a caller's exception escape** (P2): the path of `verify_prereg` and
+  `verify_evaluation_card` lets a caller's `__class__` or `__fspath__` raise a RuntimeError raw; the line above that
+  says these surfaces return their result holds for the claim argument only.
+- **The null relationships row, measured again** (P2): the row on `relationships: null` (Python VERIFIED, Rust FAIL)
+  holds unchanged at 7409b123. Python itself refuses the same target standalone, and `walk_chain` treats null as
+  absent, so the fix belongs on the Python side.
+- **The small-order count of the carrier row** (P3): the row and the register note say that at 31816e08 the zero key
+  verified 2 of 16; no committed carrier reproduces it (610 gives 7 of 16, 600 gives 1 of 16). The body set is to be
+  named or the number corrected.
+- **The row on three readers and a huge integer** (P3): it holds for `pre_tag_audit_gate._receipt_candidates` only;
+  `verify_and_count` and the C12.2 pre-read refuse a huge integer cleanly, and the deep-array half holds at all three.
+- The outcome verifier's second reading of a `bytearray` answer was filed once as P2 by its own jury; it is the P1
+  above and closed with it.
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -530,7 +610,7 @@ those on a verify, emit or release path:
   `git status` takes the index's stat data on trust; a `PATH` that leads to a git wrapper is part of the
   trusted base, like the interpreter (the three pre-tag entries).
 - The class fix of pull request 312 names four limits, none a promoted verdict: an `anchors` argument that is
-  a falsy value of another type is read as no anchors; a policy holding two `relations` keys with the same
+  a falsy value of another type is read as no anchors (refused since pull request 313); a policy holding two `relations` keys with the same
   characters is refused with `policy_ok` False but without a relations code; a policy holding a float NaN is
   copied as a value; `agent_review.validate_time_claim` and `derive_limitation_codes` still read a caller's
   dict through its own `get` (read, not measured). Switches, and callbacks other than those of the receipt
@@ -544,6 +624,16 @@ those on a verify, emit or release path:
   The wall-clock case of this axis in `tests/test_budget_kostenkurve.py` failed one run in three on each tree
   under a load between 17 and 22 (time exponent 1.23 at 2074d814, 1.33 at 52231c95), the class named under
   "wall-clock cases of the cost curve under load" below.
+- Pull request 313 names these limits, none a promoted verdict: `statuslist.verify_status_snapshot`
+  reports `self_issued` False when `receipt_issuer_pubkey` is no bytes value, a reported field no verdict
+  reads; `verify_decision_receipt` reads `strict` and `require_derived_subject`, and `verify_sequence` reads
+  `require_pq`, `require_current_hash` and `require_external_token`, by their truth, where a falsy value of
+  another type means the default; the decision and outcome verifiers read the relations section of a policy
+  that holds a value that is no JSON value after the resolvers ran, where `policy_ok` is False already;
+  `agent_review` reads `blocking` and `require_coverage_status` of null as no rule, as its own loader does,
+  kept for 6.2.0 by owner decision; and four mutation anchors of `scripts/mutation_check.py` for
+  `relation.py` match nothing, at main 52231c95 already. One stricter verdict it names too: a well-formed
+  `mldsa65` receiver key in a trust pack no longer lets a bare True reach INDEPENDENTLY_ATTESTED.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 
