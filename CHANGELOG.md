@@ -100,6 +100,25 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   probes, and holds each evaluator, `lint_policy` and the warning to it. Measured at 52231c95: 1009 failed
   subtests, 512 passed (pytest counts a failed subtest as a failure and its parent case as passed). Here:
   9 passed, 1521 subtests.
+  An independent cross-check of the class on main 52231c95 (a second session, read only, its own
+  reproducers) named 44 sites, 26 of them P1 candidates. Each was measured again by its verdict at the
+  surface a relying party calls, with a control that bites: at 52231c95 each candidate let a check pass
+  whose correctly typed control fails. Two were still open after the rule above and are closed here. A
+  relations section the policy holds as JSON null (`{"relations": null}`) was read as no section by the
+  outcome and relation statement verifiers, which judged an attached retraction with no rule and gave `ok`
+  True; the loader refuses it ("relations must be a JSON object"), and so do all three receipt verifiers
+  now (`relation._abschnitt_urteil`, with `canonical._FEHLT` telling an absent key from a null one).
+  `RenewalPolicy.from_dict` read a `deprecated_algs` of another type, a Python set included, as no
+  deprecated algorithm, so a sha256 ATS under `{"deprecated_algs": {"sha256"}, "strictness": "fail"}`
+  reported `renewal:policy` True; from_dict is the only loader of that policy and no CLI path takes it.
+  It now refuses a present `deprecated_algs` that is not a list, tuple, set or frozenset, JSON null
+  included, with `RenewalError`, and reads the four containers through their base type's iteration. An
+  entry that is no text still names no algorithm and is dropped, as before. Not changed here: `agent_review`
+  reads `blocking` and `require_coverage_status` of null as no rule in its own loader as well, so loader and
+  evaluator agree there, and whether null should mean absent is an owner decision.
+  Tests: `tests/test_every_site_of_the_cross_check_refuses_a_wrong_type.py` measures each candidate at
+  `verify_decision_receipt`, `verify_outcome_receipt`, `verify_relation_statement`, `evaluate_policy` and
+  `evaluate_renewal_policy`. Measured at 52231c95: 175 failed subtests. Here: 5 passed, 266 subtests.
 
 - **One reading reaches every argument a public verify surface judges, and the sweep measures its own
   reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,

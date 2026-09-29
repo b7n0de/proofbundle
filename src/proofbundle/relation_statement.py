@@ -26,7 +26,7 @@ import hashlib
 import re
 from typing import Any
 
-from .canonical import _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
+from .canonical import _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -218,7 +218,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         LINEAGE_FAIL,
         LINEAGE_VERIFIED,
         SUCCESSOR_RELATIONS,
-        evaluate_relations_policy,
+        _abschnitt_urteil,
         verify_relationship_edges,
     )
     r = _empty_result()
@@ -369,15 +369,16 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
     # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate at
-    # 7409b123, the sweep of L4-620b-01); only an absent section is no relations rule.
-    elif _abschnitt_von(policy, richtlinie, "relations") is not None and r["crypto_ok"]:
+    # 7409b123, the sweep of L4-620b-01), JSON null included (the cross-check of 2026-09-29: `{"relations": null}`
+    # judged a verified retraction with no rule); only an absent section is no relations rule.
+    elif _abschnitt_von(policy, richtlinie, "relations", _FEHLT) is not _FEHLT and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
         # The section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01): the gate
         # refuses a section it cannot read with its own code, and the self-assertion gate below reads only
         # the plain copy of the section; a section with no plain copy has already failed the gate.
         _abschnitt = _abschnitt_von(policy, richtlinie, "relations")
         relations = _richtlinie_von(_abschnitt) or {}
-        _viol = evaluate_relations_policy(
+        _viol = _abschnitt_urteil(
             _abschnitt, _as_dict(r.get("lineage")),
             successor_key_b64=_b64.b64encode(schluessel).decode())
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a

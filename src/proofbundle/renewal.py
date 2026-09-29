@@ -72,10 +72,6 @@ def _as_dict(v):
     return v if isinstance(v, dict) else {}
 
 
-def _as_list(v):
-    return v if isinstance(v, (list, tuple)) else []
-
-
 def _refuse_giant_int(*values) -> None:
     """Signed-bytes guard (Deep-Gate iter9 Linse C, fix-the-CLASS not the instance): token()/_ats_content
     build the material a signature is computed over, so a shortened render is NOT an option — it would
@@ -1330,9 +1326,21 @@ class RenewalPolicy:
         if _mage is not None and not (isinstance(_mage, int) and not isinstance(_mage, bool)):
             raise RenewalError(
                 f"renewal policy max_ats_age must be an int or None, got {type(_mage).__name__}")
+        # A PRESENT deprecated_algs OF ANOTHER TYPE IS REFUSED, never read as no deprecated algorithm (the
+        # cross-check of 2026-09-29 on main 52231c95, the class of the P1 at 7409b123). `_as_list` turned 5,
+        # "sha256", {}, None and True into [], and a Python set into [] as well, so `{"deprecated_algs":
+        # {"sha256"}, "strictness": "fail"}` reported renewal:policy True over a sha256 ATS. from_dict is the
+        # only loader of this policy and no CLI path takes it, so this is where the rule stands. The containers
+        # evaluate_renewal_policy accepts (list, tuple, set, frozenset) are read through the base type's own
+        # iteration (`_folge_von`); an entry that is no text still names no algorithm and is dropped, as before.
+        _veraltet = obj.get("deprecated_algs", [])
+        _vtyp = type(_veraltet)
+        if not any(issubclass(_vtyp, t) for t in (list, tuple, set, frozenset)):
+            raise RenewalError(
+                f"renewal policy deprecated_algs must be a list of hash algorithm names, got {type_name(_veraltet)}; "
+                "a value of another type is refused, never read as no deprecated algorithm (fail-closed)")
         return cls(
-            deprecated_algs=frozenset(x for x in _as_list(obj.get("deprecated_algs", []))
-                                      if isinstance(x, str)),
+            deprecated_algs=frozenset(x for x in _folge_von(_veraltet) if isinstance(x, str)),
             max_ats_age=_mage,
             strictness=strictness,
         )

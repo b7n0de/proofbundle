@@ -820,6 +820,27 @@ def _lineage_as_stored(value: Any) -> dict:
     return oben
 
 
+#: The violation for a relations section that is present and no JSON object, with the loader's message.
+_KEIN_OBJEKT = {"code": CODE_LINEAGE_REQUIREMENT_FAILED,
+                "message": "relations policy section rejected before evaluation (fail-closed): relations must be "
+                           "a JSON object"}
+
+
+def _abschnitt_urteil(abschnitt: Any, lineage_result: dict, *, successor_key_b64: str | None) -> list[dict]:
+    """The relations gate of the three receipt verifiers, over the section as the policy HOLDS it.
+
+    The verifiers call this only when the policy holds a ``relations`` key, so ``abschnitt`` None is a section
+    the policy holds as JSON null, not an absent one. :func:`evaluate_relations_policy` reads None as "no
+    section", because its callers pass ``policy.get("relations")``; the loader refuses ``"relations": null``
+    ("relations must be a JSON object"). Measured on main 52231c95 by the cross-check of 2026-09-29 and again
+    at 2a2d59b2: the outcome and relation statement verifiers judged an attached retraction under
+    ``{"relations": null}`` with no rule and gave ok True (the decision verifier refused the policy through
+    the loader's rule). A present null gets the loader's message here; every other value goes to the evaluator."""
+    if abschnitt is None:
+        return [dict(_KEIN_OBJEKT)]
+    return evaluate_relations_policy(abschnitt, lineage_result, successor_key_b64=successor_key_b64)
+
+
 def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                               successor_key_b64: str | None) -> list[dict]:
     """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed
@@ -881,9 +902,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         # the outcome and relation statement verifiers judged an attached retraction under `{"relations": [...]}`
         # with no rule and gave ok True (deep gate at 7409b123, the sweep of L4-620b-01). The loader refuses it
         # with this message; so does this evaluator now. None stays "no relations section".
-        return [{"code": CODE_LINEAGE_REQUIREMENT_FAILED,
-                 "message": "relations policy section rejected before evaluation (fail-closed): relations must be "
-                            "a JSON object"}]
+        return [dict(_KEIN_OBJEKT)]
     # LAUF 14 L4 F1 (11.09.2026): `{"reject_superseeded": true}` (ein e zu viel) liess eine attached
     # Supersession unbeanstandet — die beabsichtigte Sperre war lautlos abgeschaltet. Dieselbe
     # Huellenregel wie in load_policy, aus derselben Quelle (policy._huelle_relations); ein

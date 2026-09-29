@@ -23,8 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_EINGEBAUTE_SKALARE, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
-                        _richtlinie_von, _zeichen_von)
+from .canonical import (_EINGEBAUTE_SKALARE, _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs,
+                        _pruefkopie, _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -1041,14 +1041,15 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # The relations section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01):
         # from the one copy, or as stored when the policy holds a value that is no JSON value, so the gate
         # still refuses an unreadable section with its own code.
-        _rel = _abschnitt_von(policy, richtlinie, "relations")
+        _rel = _abschnitt_von(policy, richtlinie, "relations", _FEHLT)
         # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate
         # at 7409b123, the sweep of L4-620b-01): `{"relations": [...]}` judged an attached retraction with no rule
-        # and gave ok True. Only an absent section is no relations rule.
-        if _rel is not None and r["crypto_ok"]:
+        # and gave ok True, and so did `{"relations": null}` (the cross-check of 2026-09-29, on main 52231c95 and
+        # at 2a2d59b2). Only an absent section is no relations rule.
+        if _rel is not _FEHLT and r["crypto_ok"]:
             import base64 as _b64_rel  # noqa: PLC0415
-            from .relation import evaluate_relations_policy  # noqa: PLC0415
-            _viol = evaluate_relations_policy(
+            from .relation import _abschnitt_urteil  # noqa: PLC0415
+            _viol = _abschnitt_urteil(
                 _rel, _as_dict(r.get("lineage")),
                 successor_key_b64=_b64_rel.b64encode(schluessel).decode())
             r["policy_ok"] = not _viol
