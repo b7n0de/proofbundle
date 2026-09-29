@@ -210,9 +210,9 @@ def _require_dict(value, where: str) -> dict:
 def _huelle_relations(rel) -> None:
     """Die Huelle der ``relations``-Sektion — eigene Funktion, weil
     :func:`proofbundle.relation.evaluate_relations_policy` NUR diese Sektion bekommt und sie mit
-    derselben Regel pruefen muss wie ``load_policy``. Eine Nicht-dict-Sektion ist hier KEIN Fehler:
-    den Typ meldet ``load_policy`` an seiner Stelle, und ``evaluate_relations_policy`` weist sie vor diesem
-    Aufruf ab (Deep-Gate an 7409b123: als leer gelesen fiel jede Regel der Sektion weg)."""
+    derselben Regel pruefen muss wie ``load_policy``. A section that is no dict is no error here:
+    ``load_policy`` reports its type where it reads it, and ``evaluate_relations_policy`` refuses it before
+    this call (deep gate at 7409b123: read as empty, every rule of the section was dropped)."""
     if not isinstance(rel, dict):
         return
     _reject_unknown(rel, _RELATIONS_KEYS, "relations")
