@@ -1,16 +1,16 @@
 {
   "schema": "proofbundle/v0.1",
-  "payload_b64": "cmVsZWFzZSBgcnRlZmFjdA==",
+  "payload_b64": "eyJzdWJqZWN0IjogeyJhbGdvcml0aG0iOiAicHJvb2ZidW5kbGUtdHJlZS1zaGEyNTYvdjEiLCAiZGlnZXN0IjogImJlOTdlNDUwNzY2MDIwM2Q2NDdiNjBiMzA0ZjM1MWVhNjY4MDI3NmEyNjAxNGIxMTdjYmM0ZThkZWE0MDJmMzEifX0=",
   "signature": {
     "alg": "ed25519",
-    "public_key_b64": "ZZW46uazcdz9V6WXOzxkeXTCmkHOi7oi/eaRNAcs7pM=",
-    "sig_b64": "tBpjbPu8u4fsghZLm/klpiW10PFG+JlOeVUlLmWjTSc92SE+ZpgPPFDVTSk1wcanqU6aOljE03Sxsv2Y/GM7AA=="
+    "public_key_b64": "CnMB5Lh/OfBVMAAVCh5Lx2h5+LTMp5O8iZD7HGP671s=",
+    "sig_b64": "nuDiWLU1oWCpbFf47X4+TT7bNPShXYxBLcYmezXySh8zZacM8glHWBheioZA2GbkP9fejjbU/AqohW70gJ16Dw=="
   },
   "merkle": {
     "hash_alg": "sha256-rfc6962",
     "leaf_index": 0,
     "tree_size": 1,
     "inclusion_proof_b64": [],
-    "root_b64": "gIsTrHrvTm8u9dKiD3s7wGskKTi4NXrJoUVdx+WZMVo="
+    "root_b64": "XCUKpvNUO7XlbxgdIIffuc6tgY8WbWP6qcGeEnxqh3Q="
   }
 }

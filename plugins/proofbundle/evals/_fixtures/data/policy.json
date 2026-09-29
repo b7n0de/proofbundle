@@ -3,7 +3,7 @@
   "policy_id": "release-evidence",
   "allowed_issuers": [
     {
-      "public_key_b64": "ZZW46uazcdz9V6WXOzxkeXTCmkHOi7oi/eaRNAcs7pM="
+      "public_key_b64": "CnMB5Lh/OfBVMAAVCh5Lx2h5+LTMp5O8iZD7HGP671s="
     }
   ],
   "signature": {
