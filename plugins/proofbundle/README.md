@@ -8,6 +8,8 @@ for Codex, over the same skills, MCP server and gate.
 A passing verification proves that the holder of the given key signed exactly these bytes and that
 they have not changed since. It does not prove that any recorded value is true.
 
+**Status** · Claude Code: Experimental · Codex: Experimental, hook run not yet measured
+
 ## What it adds
 
 Skills:
