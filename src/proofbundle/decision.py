@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
@@ -604,6 +604,17 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     if schluessel is None:
         schluessel = public_key
     richtlinie = _richtlinie_von(policy)
+    # A dict holding a value that is no JSON value has no plain copy. Its refusal, with the loader's own
+    # message, is taken HERE, before any caller code runs (verify lane on pull request 312): handing the
+    # live dict to evaluate_decision_policy after the evidence resolver or a registered anchor verifier had
+    # run let a callback rewrite it into a policy that trusts the signer, and ok came out True.
+    _ablehnung = None
+    if richtlinie is None and issubclass(type(policy), dict):
+        from .policy import evaluate_decision_policy as _pruefe_richtlinie  # noqa: PLC0415
+        _ablehnung = _pruefe_richtlinie({}, {}, policy if policy is not None else {}, signer_public_key_b64="")
+        if _ablehnung.get("policy_ok") is not False:
+            _ablehnung = {"policy_ok": False, "signer_trusted": False, "errors": [
+                "trust policy holds a value that is no JSON value — not evaluated (fail-closed)"]}
 
     try:
         # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
@@ -679,6 +690,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # None, so a consumer can never read e.g. audience_ok=True or action_outcome_proven=True on bytes
     # nobody signed (fix-review: action_outcome_proven was computed pre-auth before).
     if isinstance(predicate, dict) and r["crypto_ok"]:
+        # `related` IS READ BEFORE ANY CALLER CODE RUNS (verify lane on pull request 312): the lineage below
+        # read the caller's map after the evidence resolver had run, and a resolver that cleared the map
+        # hid an attached retraction, so ok went from False to True. Each attached entry is read here, once
+        # (`relation._read_attached_entries` inside the two calls), and the result is recorded further down.
+        from .relation import _carries_attached_entries  # noqa: PLC0415
+        _linie = None
+        if "relationships" in predicate or _carries_attached_entries(related):
+            from . import anchors as _anchors_for_rel  # noqa: PLC0415
+            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
+            try:
+                _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
+            except Exception:
+                _subject_hex = None
+            _linie = (verify_relationship_edges(predicate.get("relationships"), related, subject_hex=_subject_hex),
+                      successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex))
         r["action_outcome_proven"] = action_outcome_proven(predicate)
         if r["action_outcome_proven"] is False:
             r["warnings"].append("actionOutcome.status=executed is self-asserted (no signed outcomeRef)")
@@ -734,18 +760,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # Whether targets are attached is read from what the map stores, never through the caller's own
         # `__bool__` or `__len__` (`_carries_attached_entries`): a map that said it was empty skipped this
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
-        from .relation import _carries_attached_entries  # noqa: PLC0415
-        if "relationships" in predicate or _carries_attached_entries(related):
-            from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
-            try:
-                _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
-            except Exception:
-                _subject_hex = None
-            r["lineage"] = verify_relationship_edges(
-                predicate.get("relationships"), related, subject_hex=_subject_hex)
+        # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
+        # where it always stood, so the order of the warnings is unchanged.
+        if _linie is not None:
+            r["lineage"], _sw = _linie
             # Advisory by default; the policy's reject_superseded turns it into a blocker below.
-            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
             r["lineage"]["supersededByAttached"] = _sw
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
@@ -922,12 +941,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         else:
             import base64  # noqa: PLC0415
             from .policy import evaluate_decision_policy  # noqa: PLC0415
-            # The plain copy when there is one; a dict holding a value that is no JSON value is handed on
-            # as it is, and evaluate_decision_policy refuses it with the loader's own message.
-            pe = evaluate_decision_policy(statement, r,
-                                          richtlinie if richtlinie is not None else cast(dict, policy),
-                                          signer_public_key_b64=base64.b64encode(schluessel).decode(),
-                                          anchor_status=anchor_status)
+            # The plain copy when there is one; otherwise the refusal taken at entry (`_ablehnung`).
+            pe = _ablehnung if _ablehnung is not None else evaluate_decision_policy(
+                statement, r, richtlinie, signer_public_key_b64=base64.b64encode(schluessel).decode(),
+                anchor_status=anchor_status)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])

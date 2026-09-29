@@ -1337,8 +1337,12 @@ _NICHT_IM_SWEEP = {
         "consistency_confirmed": "a bool or None the relying party computed; a bool cannot be subclassed",
         "consistency_result": "an object of this package's own ConsistencyVerificationResult type, no JSON value",
     },
-    "policy.evaluate_policy": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON values"},
-    "trust_pack.verify_trust_pack": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON values"},
+    "policy.evaluate_policy": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON values. "
+                               "Read once (canonical._zeitpunkt_von); a datetime subclass is held by "
+                               "tests/test_one_reading_reaches_every_argument.py"},
+    "trust_pack.verify_trust_pack": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON "
+                                     "values. Read once (canonical._zeitpunkt_von); a datetime subclass is held "
+                                     "by tests/test_one_reading_reaches_every_argument.py"},
 }
 
 

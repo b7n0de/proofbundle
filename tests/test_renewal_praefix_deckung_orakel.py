@@ -299,6 +299,9 @@ class TestArbeitszaehlung:
 
     def test_die_zaehlung_waechst_linear_nicht_quadratisch(self):
         klein, gross = self._zaehle(100), self._zaehle(800)
+        # A count of 0 would make the ratio hold as 0 == 8 * 0 (found by the verify lane on pull request
+        # 312 with a planted walk that never tokenizes); the walk has to have counted something.
+        assert klein > 0, "the covering walk counted no token() call, so the ratio would measure nothing"
         assert gross == 8 * klein, (
             f"achtfache Eingabe, {gross / klein:.1f}-fache Arbeit — bei quadratischem Verhalten "
             "waeren es 64")

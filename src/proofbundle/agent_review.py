@@ -2335,10 +2335,15 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     `verified` MUSS ausdruecklich True sein. Eine mitgelieferte, ungepruefte Evidenz hebt nichts
     an; sonst waere die Anhebung eine Behauptung der Gegenseite.
     """
-    aus = dict(axes)
-    if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+    # ONE READING (verify lane on pull request 312): `verified` and `kind` were read through the evidence's
+    # own `get` and `isinstance`, and `kind` compared through the caller's `__eq__`, so a dict subclass that
+    # stored nothing lifted both axes. The evidence is read once, as the plain copy of what it stores, and
+    # the axes as the pairs the caller's map stores; no method of either runs.
+    aus = dict(dict.items(axes)) if issubclass(type(axes), dict) else dict(axes)
+    beleg = _richtlinie_von(evidence)
+    if beleg is None or beleg.get("verified") is not True:
         return aus
-    art = evidence.get("kind")
+    art = _zeichen_von(beleg.get("kind"))
     if art == "rfc3161":
         aus["signature_time_status"] = "PLATFORM_ATTESTED"
         aus["external_time_status"] = "EXTERNALLY_ANCHORED"

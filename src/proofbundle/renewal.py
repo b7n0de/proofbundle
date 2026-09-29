@@ -27,7 +27,7 @@ import base64
 import functools
 import re
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional, cast
 
 from .budget import int_magnitude_ok
@@ -693,7 +693,14 @@ def _ketten_einmal(sequence) -> "list | None":
     of the caller's list through its own ``__iter__`` and ``__getitem__``, so a list that answered each
     iteration with another sequence judged the order, the covering and the anchor over different
     sequences. An ``ArchiveTimeStamp`` subclass is refused: its own ``token()`` would decide the covered
-    material the covering check recomputes."""
+    material the covering check recomputes.
+
+    EACH ENTRY IS A FRESH ``ArchiveTimeStamp`` BUILT FROM WHAT THE CALLER'S ONE STORES (`_ats_wie_gespeichert`),
+    found by the verify lane on pull request 312: an exact ``ArchiveTimeStamp`` can still carry a ``token``
+    of its own in its instance dict, and a field can hold a ``str`` subclass whose own ``__ne__`` passed the
+    covering compare or whose own ``__eq__`` and ``__hash__`` met ``require_current_hash``. A field whose
+    value is a subclass of a built-in type is refused with the sequence; a plain value of the wrong type
+    passes on as before and is refused, typed, where it is read."""
     from ._plain_value import plain_list  # noqa: PLC0415
     aussen = plain_list(sequence)
     if aussen is None:
@@ -703,8 +710,31 @@ def _ketten_einmal(sequence) -> "list | None":
         innen = plain_list(kette)
         if innen is None or not all(type(a) is ArchiveTimeStamp for a in innen):
             return None
-        ketten.append(innen)
+        frisch = [_ats_wie_gespeichert(a) for a in innen]
+        if any(a is None for a in frisch):
+            return None
+        ketten.append(frisch)
     return ketten
+
+
+#: The built-in types an ATS field may hold as they are. A value of a SUBCLASS of one of them runs methods
+#: its author wrote (`__eq__`, `__ne__`, `__hash__`, `__format__`), so it is refused (`_ats_wie_gespeichert`).
+_EINGEBAUTE_FELDTYPEN = (str, int, float, bool, bytes, bytearray, list, tuple, dict, set, frozenset, type(None))
+
+
+def _ats_wie_gespeichert(a: "ArchiveTimeStamp") -> "ArchiveTimeStamp | None":
+    """A fresh ``ArchiveTimeStamp`` with the field values ``a`` stores, or None when one of them is an
+    instance of a subclass of a built-in type. ``type(a) is ArchiveTimeStamp`` holds already, so reading a
+    field runs no method of the caller; the fresh instance carries nothing the caller put into the instance
+    dict beside the fields (such as a ``token`` of its own)."""
+    werte = {}
+    for feld in fields(ArchiveTimeStamp):
+        wert = getattr(a, feld.name)
+        typ = type(wert)
+        if typ not in _EINGEBAUTE_FELDTYPEN and any(issubclass(typ, b) for b in _EINGEBAUTE_FELDTYPEN[:-1]):
+            return None
+        werte[feld.name] = wert
+    return ArchiveTimeStamp(**werte)
 
 
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
@@ -1322,6 +1352,14 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     if not sequence or not sequence[-1]:
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
         return result
+    # THE POLICY IS READ ONCE (verify lane on pull request 312): a `RenewalPolicy` subclass whose own
+    # `max_ats_age` property answered a plain int to the type check and another value to the comparison made
+    # an overdue anchor pass. Only the exact type is a policy, and each field is read once into a local.
+    if type(policy) is not RenewalPolicy:
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   f"policy must be a RenewalPolicy, got {type_name(policy)} (fail-closed)"))
+        return result
+    _max_alter, _veraltet_roh, _strenge = policy.max_ats_age, policy.deprecated_algs, policy.strictness
     newest = _newest(sequence)
     # ONE RULE FOR A NUMBER, ONE READING OF A TEXT (deep gate 6.2.0 at 2348f0a7, L2-620-RENEWAL-POLICY-NOW-INTSUB
     # and -TIME-SIGNED-VS-JUDGED). The three numbers below were checked with `isinstance`, so an int subclass
@@ -1346,20 +1384,20 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     # `(now - newest.time) > policy.max_ats_age` comparison below; the earlier round guarded `now` but left
     # its sibling. A non-int max_ats_age (untrusted policy JSON) crashed here with a raw TypeError.
     # deprecated_algs is the `in` operand a few lines down — guard both, same fail-closed direction.
-    if policy.max_ats_age is not None and type(policy.max_ats_age) is not int:
+    if _max_alter is not None and type(_max_alter) is not int:
         result.checks.append(Check("renewal:policy_malformed", False,
                                    f"policy.max_ats_age must be a plain int or None, got "
-                                   f"{type_name(policy.max_ats_age)} (fail-closed)"))
+                                   f"{type_name(_max_alter)} (fail-closed)"))
         return result
-    _veraltet_typ = type(policy.deprecated_algs)
+    _veraltet_typ = type(_veraltet_roh)
     if not (issubclass(_veraltet_typ, (set, frozenset)) or issubclass(_veraltet_typ, (list, tuple))):
         result.checks.append(Check("renewal:policy_malformed", False,
                                    f"policy.deprecated_algs must be a set/list, got "
-                                   f"{type_name(policy.deprecated_algs)} (fail-closed)"))
+                                   f"{type_name(_veraltet_roh)} (fail-closed)"))
         return result
     # The deprecated algorithms through the base type's own iteration, each by its characters, and the
     # newest algorithm by its characters: no `__hash__`, `__eq__` or `__iter__` of the caller decides it.
-    _veraltet = {_zeichen_von(x) for x in _folge_von(policy.deprecated_algs)} - {None}
+    _veraltet = {_zeichen_von(x) for x in _folge_von(_veraltet_roh)} - {None}
     _neuester_alg = _zeichen_von(newest.hash_alg)
 
     reasons = []
@@ -1371,8 +1409,8 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     _ints = all(type(v) is int for v in (newest.time, now))
     if _ints and newest.time > now:
         reasons.append(f"newest ATS time {_rs(newest.time)} is in the future (now={_rs(now)}) — anomalous, not fresh")
-    if policy.max_ats_age is not None and (now - newest.time) > policy.max_ats_age:
-        reasons.append(f"newest ATS age {_rs(now - newest.time)} exceeds max {_rs(policy.max_ats_age)}")
+    if _max_alter is not None and (now - newest.time) > _max_alter:
+        reasons.append(f"newest ATS age {_rs(now - newest.time)} exceeds max {_rs(_max_alter)}")
 
     if not reasons:
         result.checks.append(Check("renewal:policy", True,
@@ -1382,7 +1420,7 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
 
     # By its characters (deep gate 6.2.0 at 2348f0a7): a `str` subclass that stores "fail" and whose own
     # `__eq__` claims "warn" turned a FAIL into ok=True. Anything that is not the text "warn" is FAIL.
-    overdue_ok = _zeichen_von(policy.strictness) == "warn"  # WARN → not a hard fail; FAIL → ok=False
+    overdue_ok = _zeichen_von(_strenge) == "warn"  # WARN → not a hard fail; FAIL → ok=False
     label = "WARN" if overdue_ok else "FAIL"
     detail = f"renewal overdue ({label}): " + "; ".join(reasons)
     result.checks.append(Check("renewal:policy", overdue_ok, detail))

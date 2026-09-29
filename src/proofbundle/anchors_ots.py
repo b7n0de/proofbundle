@@ -197,6 +197,20 @@ def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
     if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         return {"ok": False, "warn": False, "status": "malformed",
                 "detail": f"rp_trust must be a usable mapping, got {type(rp_trust).__name__} (fail-closed)"}
+    # ONE READING of both mappings (`canonical._abbild_von`, verify lane on pull request 312): a header map
+    # whose own `get` answered a header it does not store confirmed the proof. Every read below is of the
+    # plain copy; a mapping that holds a value that is no JSON value is malformed.
+    from .canonical import _abbild_von  # noqa: PLC0415
+    _frozen_name, _rp_name = type(frozen).__name__, type(rp_trust).__name__
+    frozen = _abbild_von(frozen)
+    if frozen is None:
+        return {"ok": False, "warn": False, "status": "malformed",
+                "detail": f"frozen ({_frozen_name}) holds a value that is no JSON value (fail-closed)"}
+    if rp_trust is not None:
+        rp_trust = _abbild_von(rp_trust)
+        if rp_trust is None:
+            return {"ok": False, "warn": False, "status": "malformed",
+                    "detail": f"rp_trust ({_rp_name}) holds a value that is no JSON value (fail-closed)"}
     rp_headers = (rp_trust or {}).get("bitcoin_block_headers") or {}
     if not _nutzbares_mapping(rp_headers):
         return {"ok": False, "warn": False, "status": "malformed",

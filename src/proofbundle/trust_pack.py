@@ -31,7 +31,7 @@ from typing import Any, TypeGuard
 from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
-from .canonical import _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
+from .canonical import KEIN_ZEITPUNKT, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von, _zeitpunkt_von
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
@@ -657,15 +657,21 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             f"root signature threshold not met: {len(valid_root)} valid non-revoked root signature(s), "
             f"need {threshold}")
 
-    # Expiry.
-    _now = now or datetime.now(timezone.utc)
-    try:
-        exp = _parse_rfc3339_z(predicate["expires"])
-        r["not_expired"] = exp > _now
-    except (ValueError, KeyError, TypeError):
+    # Expiry. The clock is read once (`canonical._zeitpunkt_von`, verify lane on pull request 312): a datetime
+    # subclass whose own reflected comparison answered made an expired pack unexpired.
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
         r["not_expired"] = False
-    if r["not_expired"] is False:
-        r["errors"].append("trust pack is expired (expires <= now, fail-closed)")
+        r["errors"].append(f"now must be a datetime, got {type(now).__name__} — expiry not evaluated (fail-closed)")
+    else:
+        _now = _uhr if _uhr is not None else datetime.now(timezone.utc)
+        try:
+            exp = _parse_rfc3339_z(predicate["expires"])
+            r["not_expired"] = exp > _now
+        except (ValueError, KeyError, TypeError):
+            r["not_expired"] = False
+        if r["not_expired"] is False:
+            r["errors"].append("trust pack is expired (expires <= now, fail-closed)")
 
     # Version monotonicity + chain to previous pack.
     if prev_version is not None:

@@ -485,5 +485,283 @@ class ThePolicyIsReadByWhatItStores(unittest.TestCase):
         self.assertIs(r["ok"], False, "a section read through its own get hid reject_retracted")
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# The verify lane on pull request 312 (three Sonnet lenses at c2ba90db): neighbours of the class the
+# first form of this change left open, each with an executed counterexample.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+_DATEN = ["ab" * 32]
+
+
+class _KeinJsonWert:
+    """A value no JSON document can hold."""
+
+
+class TheNeighboursTheVerifyLaneFound(unittest.TestCase):
+    """PROPERTY, as for the cases above: a verdict is that of the values the caller's objects store, and no
+    method of the caller's objects decides it. Each case was RED at c2ba90db (the head the lane measured)
+    and is GREEN at the head that adds it; each has its plain control beside it."""
+
+    def test_a_covered_digest_whose_own_ne_lies(self) -> None:
+        from proofbundle.renewal import ArchiveTimeStamp, verify_sequence  # noqa: PLC0415
+        falsch = "ee" * 32
+        self.assertIs(verify_sequence([[ArchiveTimeStamp("sha256", falsch, 1)]], _DATEN,
+                                      allow_unauthenticated_anchor=True).ok, False)   # control
+        r = verify_sequence([[ArchiveTimeStamp("sha256", _GleichAllem(falsch), 1)]], _DATEN,
+                            allow_unauthenticated_anchor=True)
+        self.assertIs(r.ok, False, [(c.name, c.ok) for c in r.checks])
+
+    def test_a_hash_algorithm_whose_own_eq_and_hash_lie(self) -> None:
+        import hashlib  # noqa: PLC0415
+
+        from proofbundle.renewal import ArchiveTimeStamp, verify_sequence  # noqa: PLC0415
+
+        class _Luege(str):
+            def __hash__(self):
+                return hash("sha256")
+
+            def __eq__(self, other):
+                return other == "sha256" or str.__eq__(self, other)
+
+            def __ne__(self, other):
+                return not self.__eq__(other)
+
+        gedeckt = hashlib.sha1("\n".join(_DATEN).encode()).hexdigest()
+        for alg in ("sha1", _Luege("sha1")):
+            with self.subTest(alg=type(alg).__name__):
+                r = verify_sequence([[ArchiveTimeStamp(alg, gedeckt, 1)]], _DATEN,
+                                    allow_unauthenticated_anchor=True, require_current_hash=True)
+                self.assertIs(r.ok, False, [(c.name, c.ok) for c in r.checks])
+
+    def test_a_token_in_the_instance_dict(self) -> None:
+        import dataclasses  # noqa: PLC0415
+
+        from proofbundle.renewal import build_initial_sequence, renew_timestamp, verify_sequence  # noqa: PLC0415
+        echt = renew_timestamp(build_initial_sequence(_DATEN, hash_alg="sha256", time=10), time=20)
+        a0, a1 = echt[0]
+        self.assertIs(verify_sequence(echt, _DATEN, allow_unauthenticated_anchor=True).ok, True)   # control
+        rueckdatiert = dataclasses.replace(a0, time=5)
+        self.assertIs(verify_sequence([[rueckdatiert, a1]], _DATEN, allow_unauthenticated_anchor=True).ok, False)
+        altes_token = a0.token()
+        object.__setattr__(rueckdatiert, "token", lambda: altes_token)
+        r = verify_sequence([[rueckdatiert, a1]], _DATEN, allow_unauthenticated_anchor=True)
+        self.assertIs(r.ok, False, [(c.name, c.ok) for c in r.checks])
+
+    def test_a_renewal_policy_whose_field_answers_twice(self) -> None:
+        from proofbundle.renewal import RenewalPolicy, build_initial_sequence, evaluate_renewal_policy  # noqa: PLC0415
+
+        class _Uhr(int):
+            def __lt__(self, other):
+                return False
+
+            def __gt__(self, other):
+                return False
+
+            def __le__(self, other):
+                return False
+
+            def __ge__(self, other):
+                return False
+
+        gelesen = [0]
+
+        class _Fluechtig(RenewalPolicy):
+            @property
+            def max_ats_age(self):
+                gelesen[0] += 1
+                return 100 if gelesen[0] <= 3 else _Uhr(100)
+
+            @property
+            def strictness(self):
+                return "fail"
+
+            @property
+            def deprecated_algs(self):
+                return frozenset()
+
+        folge = build_initial_sequence(_DATEN, hash_alg="sha256", time=1)
+        self.assertIs(evaluate_renewal_policy(folge, policy=RenewalPolicy(max_ats_age=100, strictness="fail"),
+                                              now=1_000_000).ok, False)   # control
+        r = evaluate_renewal_policy(folge, policy=_Fluechtig.__new__(_Fluechtig), now=1_000_000)
+        self.assertIs(r.ok, False, [(c.name, c.ok) for c in r.checks])
+        self.assertEqual(gelesen[0], 0, "a field of a policy that is no RenewalPolicy was read")
+
+    def _abgelaufener_pack(self):
+        from proofbundle.trust_pack import sign_trust_pack  # noqa: PLC0415
+        schluessel = {"root-0": {"publicKey": _b64(_A), "scheme": "ed25519"},
+                      "root-1": {"publicKey": _b64(_T), "scheme": "ed25519"}}
+        praedikat = {"schemaVersion": "0.1.0", "trustPackId": "tp-one-reading", "version": 1,
+                     "expires": "2026-01-01T00:00:00Z", "prevVersionDigest": None,
+                     "roles": {"root": {"keyIds": list(schluessel), "threshold": 2}},
+                     "keys": schluessel, "nonClaims": ["x"]}
+        return sign_trust_pack(praedikat, {"root-0": _A, "root-1": _T})
+
+    def test_a_clock_that_answers_its_own_comparison(self) -> None:
+        from datetime import datetime, timezone  # noqa: PLC0415
+
+        from proofbundle.trust_pack import verify_trust_pack  # noqa: PLC0415
+
+        class _LuegendeUhr(datetime):
+            def __lt__(self, other):
+                return True
+
+            def __gt__(self, other):
+                return False
+
+            def __le__(self, other):
+                return True
+
+            def __ge__(self, other):
+                return False
+
+        umschlag = self._abgelaufener_pack()
+        jetzt = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+        self.assertIs(verify_trust_pack(umschlag, strict=True, now=jetzt)["not_expired"], False)   # control
+        r = verify_trust_pack(umschlag, strict=True, now=_LuegendeUhr(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc))
+        self.assertIs(r["not_expired"], False, r["errors"])
+        self.assertIs(r["ok"], False)
+
+    def test_the_policy_clock_is_read_once(self) -> None:
+        from datetime import datetime, timezone  # noqa: PLC0415
+
+        from proofbundle import bundle as bm  # noqa: PLC0415
+        from proofbundle.policy import evaluate_policy, load_policy  # noqa: PLC0415
+
+        class _LuegendeUhr(datetime):
+            def __lt__(self, other):
+                return True
+
+            def __gt__(self, other):
+                return False
+
+        buendel = _beispiel("example_bundle.json")
+        ergebnis = bm.verify_bundle(buendel)
+        richtlinie = load_policy(_beispiel("trust_policy_strict.json"))
+        jetzt = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+        kontrolle = evaluate_policy(buendel, ergebnis, richtlinie, now=jetzt)
+        self.assertNotIn("policy:clock", [c["name"] for c in kontrolle["checks"]])   # control
+        r = evaluate_policy(buendel, ergebnis, richtlinie, now=_LuegendeUhr(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc))
+        self.assertIs(r["policy_ok"], False, r)
+        self.assertEqual([c["name"] for c in r["checks"]], ["policy:clock"])
+
+    def test_time_evidence_is_read_by_what_it_stores(self) -> None:
+        from proofbundle import agent_review as ar  # noqa: PLC0415
+        selbst = {"event_time_status": "SELF_DECLARED", "observation_time_status": "SELF_DECLARED",
+                  "signature_time_status": "SELF_DECLARED", "external_time_status": "NOT_EVALUATED"}
+
+        class _LuegendeEvidenz(dict):
+            def get(self, key, default=None):
+                return {"verified": True, "kind": "rfc3161"}.get(key, default)
+
+        class _Anspruch:
+            __class__ = dict
+
+            def get(self, key, default=None):
+                return {"verified": True, "kind": "opentimestamps"}.get(key, default)
+
+        self.assertNotEqual(ar.apply_time_evidence(selbst, {"kind": "rfc3161", "verified": True}), selbst)   # control
+        for name, beleg in (("own get", _LuegendeEvidenz()), ("claims dict", _Anspruch()),
+                            ("kind claims rfc3161", {"verified": True, "kind": _GleichAllem("bogus")})):
+            with self.subTest(evidence=name):
+                self.assertEqual(ar.apply_time_evidence(selbst, beleg), selbst)
+
+    def test_a_relying_party_header_map_whose_own_get_answers(self) -> None:
+        try:
+            import opentimestamps  # noqa: F401, PLC0415
+        except ImportError:
+            self.skipTest("NOT MEASURED without OpenTimestamps (proofbundle[anchors])")
+        import hashlib  # noqa: PLC0415
+
+        from opentimestamps.core.notary import BitcoinBlockHeaderAttestation  # noqa: PLC0415
+        from opentimestamps.core.op import OpAppend, OpSHA256  # noqa: PLC0415
+        from opentimestamps.core.serialize import BytesSerializationContext  # noqa: PLC0415
+        from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp  # noqa: PLC0415
+
+        from proofbundle import anchors_rootcommit as rc  # noqa: PLC0415
+        vektor = (_WURZEL / "tests" / "fixtures" / "anchors" / "tlog_bitcoin_anchor" / "rootcommit" / "vectors"
+                  / "rootcommit-01-valid.txt").read_text()
+        origin, size, root = rc.parse_checkpoint_head(vektor)
+        wallet = "0xdaE76a3C848CafD453dB5EBF8cEb0DbBA7610273"
+        zusage = hashlib.sha256(rc.build_preimage(origin, size, root, wallet)).digest()
+        ts = Timestamp(zusage)
+        t3 = ts.ops.add(OpAppend(b"\x01")).ops.add(OpSHA256())
+        t3.attestations.add(BitcoinBlockHeaderAttestation(700000))
+        kopf = {"700000": t3.msg.hex()}
+        ctx = BytesSerializationContext()
+        DetachedTimestampFile(OpSHA256(), ts).serialize(ctx)
+        kennung = rc.ID_V1.encode()
+        nutzlast = (rc.expected_key_id(kennung) + bytes([rc.SIG_TYPE, len(kennung)]) + kennung
+                    + bytes([0x01, len(wallet)]) + wallet.encode("ascii") + ctx.getbytes())
+        text = ("\n".join(vektor.split("\n")[:3]) + "\n\n" + rc._ANCHOR_PREFIX
+                + base64.b64encode(nutzlast).decode("ascii") + "\n")
+
+        class _LuegendeVertrauensbasis(dict):
+            def get(self, key, default=None):
+                return kopf if key == "bitcoin_block_headers" else default
+
+        echt = rc.verify_rootcommit_v1(text, frozen={}, rp_trust={"bitcoin_block_headers": kopf})
+        self.assertIs(echt.get("ots_ok"), True, echt)   # control: the header the relying party stores
+        self.assertIsNot(rc.verify_rootcommit_v1(text, frozen={}, rp_trust={"decoy": 1}).get("ots_ok"), True)
+        r = rc.verify_rootcommit_v1(text, frozen={}, rp_trust=_LuegendeVertrauensbasis({"decoy": 1}))
+        self.assertIsNot(r.get("ots_ok"), True, r)
+
+    def _entscheidung_mit_belegen(self):
+        from proofbundle.decision import emit_decision_receipt  # noqa: PLC0415
+        praedikat = _beispiel("decision_receipt_allow.json")
+        return praedikat, emit_decision_receipt(praedikat, _A)
+
+    def test_an_unreadable_policy_is_refused_before_a_callback_can_rewrite_it(self) -> None:
+        from proofbundle.decision import verify_decision_receipt  # noqa: PLC0415
+        praedikat, umschlag = self._entscheidung_mit_belegen()
+        macher = praedikat["decisionMaker"]["id"]
+
+        def lauf(unlesbar: bool, umschreiben: bool) -> dict:
+            policy = _beispiel("trust_policy_decision_strict.json")
+            policy["decision_receipt"]["trusted_decision_makers"] = [{"id": macher, "public_key_b64": _b64(_T)}]
+            if unlesbar:
+                policy["x"] = _KeinJsonWert()
+
+            def aufloeser(_digest) -> bool:
+                if umschreiben:
+                    policy.pop("x", None)
+                    policy["decision_receipt"]["trusted_decision_makers"] = [
+                        {"id": macher, "public_key_b64": _b64(_A)}]
+                return True
+
+            return verify_decision_receipt(umschlag, _raw(_A), policy=policy, evidence_resolver=aufloeser)
+
+        self.assertIs(lauf(False, True)["ok"], False)   # control: a readable policy, rewritten, stays refused
+        self.assertIs(lauf(True, False)["ok"], False)   # control: an unreadable policy, not rewritten
+        r = lauf(True, True)
+        self.assertIs(r["ok"], False, r["errors"])
+        self.assertIs(r["policy_ok"], False)
+
+    def test_related_is_read_before_a_callback_can_clear_it(self) -> None:
+        from proofbundle.decision import verify_decision_receipt  # noqa: PLC0415
+        praedikat, umschlag = self._entscheidung_mit_belegen()
+        policy = {"decision_receipt": {"trusted_decision_makers": [
+            {"id": praedikat["decisionMaker"]["id"], "public_key_b64": _b64(_A)}]},
+            "relations": {"reject_superseded": True}}
+
+        def lauf(leeren: bool) -> dict:
+            verwandt = {"e" * 64: {"verified": True, "relationships": [_kante(_wurzel_von(umschlag), "retracts")],
+                                   "verified_under": _b64(_A), "subject_digest": None,
+                                   "subject_digest_state": "absent"}}
+
+            def aufloeser(_digest) -> bool:
+                if leeren:
+                    verwandt.clear()
+                return True
+
+            return verify_decision_receipt(umschlag, _raw(_A), policy=policy, related=verwandt,
+                                           evidence_resolver=aufloeser)
+
+        self.assertIs(lauf(False)["ok"], False)   # control: the retraction is seen
+        r = lauf(True)
+        self.assertIs(r["ok"], False, r["errors"])
+        self.assertIn("LINEAGE_REQUIREMENT_FAILED", r.get("relations_policy_codes") or [])
+
+
 if __name__ == "__main__":
     unittest.main()

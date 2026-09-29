@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import gc
 import hashlib
+from datetime import datetime, timezone
 from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Callable, Union
@@ -368,6 +369,47 @@ def _pruefkopie(wert: Any) -> Any:
     pass the validator's own ``isinstance`` and be read through its methods (`_eine_kopie`)."""
     kopie = _plain_for_jcs(wert, ValueError)
     return tuple(kopie) if issubclass(type(wert), tuple) else kopie
+
+
+#: What `_zeitpunkt_von` answers for a clock that is no datetime: distinct from None, which means "no clock
+#: given, take the current time".
+KEIN_ZEITPUNKT = object()
+
+
+def _zeitpunkt_von(wert: Any) -> Any:
+    """A caller's clock read once (verify lane on pull request 312): None stays None, an aware ``datetime``
+    of exactly that type becomes the plain UTC instant it names (its ``tzinfo`` is asked once, here), a naive
+    one stays as it is, and anything else is ``KEIN_ZEITPUNKT``. A ``datetime`` subclass whose own reflected
+    comparison answered made an expired trust pack unexpired; a comparison between plain datetimes runs no
+    method of the caller."""
+    if wert is None:
+        return None
+    if type(wert) is not datetime:
+        return KEIN_ZEITPUNKT
+    if wert.tzinfo is None:
+        return wert
+    try:
+        utc = wert.astimezone(timezone.utc)
+    except Exception:  # noqa: BLE001 - a tzinfo that cannot say its offset is no clock
+        return KEIN_ZEITPUNKT
+    return utc if type(utc) is datetime else KEIN_ZEITPUNKT
+
+
+def _abbild_von(wert: Any) -> Any:
+    """A mapping argument of an anchor verifier (``rp_trust``, ``frozen``) as the plain copy of what it
+    stores, read once, or None when that is no JSON object (verify lane on pull request 312). A dict is
+    copied by what it stores (`_plain_for_jcs`); a registered ``Mapping`` that is no dict is read through
+    its own ``items()`` once, its only reading, and that is copied. A relying party's header map whose own
+    ``get`` answered a header it does not store confirmed an OpenTimestamps proof."""
+    if not issubclass(type(wert), dict):
+        try:
+            wert = dict(wert.items())
+        except Exception:  # noqa: BLE001 - a mapping that cannot list its pairs is no mapping to read
+            return None
+    try:
+        return _plain_for_jcs(wert, ValueError)
+    except ValueError:
+        return None
 
 
 def _richtlinie_von(policy: Any) -> Any:
