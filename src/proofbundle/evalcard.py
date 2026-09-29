@@ -84,12 +84,22 @@ def verify_evaluation_card(card_path, claim: dict) -> dict:
     is acceptable; ``ok`` is only True on a present-and-matching hash (fail-closed). Mirrors
     ``prereg.verify_prereg`` exactly; callers that need crypto-authenticated claim data (not a
     hand-edited dict) should decode the receipt with ``evalclaim.decode_eval_claim`` first, the
-    same discipline ``prereg``'s CLI ``--check`` uses."""
-    expected = claim.get("evaluation_card_sha256") if isinstance(claim, dict) else None
-    result = {"ok": False, "present": expected is not None, "expected": expected,
-              "actual": None, "detail": ""}
-    if expected is None:
+    same discipline ``prereg``'s CLI ``--check`` uses.
+
+    The claim is read by what it stores and the digest compared by its characters, exactly as in
+    ``prereg.verify_prereg`` (deep gate 6.2.0 at 2348f0a7, L1-620-T3-02): a dict subclass's own ``get``, an
+    object that claims to be a dict through ``__class__`` and a ``str`` subclass's own ``__eq__`` never decide
+    the verdict. A stored value that is no text never matches."""
+    from .canonical import _feld_von, _zeichen_von  # noqa: PLC0415
+    gespeichert = _feld_von(claim, "evaluation_card_sha256")
+    expected = _zeichen_von(gespeichert)
+    result = {"ok": False, "present": gespeichert is not None,
+              "expected": expected if expected is not None else gespeichert, "actual": None, "detail": ""}
+    if gespeichert is None:
         result["detail"] = "claim carries no evaluation_card_sha256 (no eval card referenced)"
+        return result
+    if expected is None:
+        result["detail"] = "evaluation_card_sha256 is not a text value (fail-closed)"
         return result
     try:
         actual = evaluation_card_hash(card_path)

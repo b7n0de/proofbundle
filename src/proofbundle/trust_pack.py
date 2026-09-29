@@ -31,7 +31,7 @@ from typing import Any, TypeGuard
 from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
-from .canonical import _eine_kopie, _pruefkopie
+from .canonical import KEIN_ZEITPUNKT, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von, _zeitpunkt_von
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
@@ -90,6 +90,12 @@ class TrustPackError(ProofBundleError):
 
 def _is_digest(obj: Any) -> TypeGuard[dict]:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
+
+
+def _zahl_text(v: Any) -> str:
+    """A relying party's number for a message: an exact int as its digits, any other value by its type only,
+    so rendering it runs none of the caller's methods (deep gate 6.2.0 at 2348f0a7, the number axis)."""
+    return int.__repr__(v) if type(v) is int else f"a value of type {type_name(v)}"
 
 
 def _is_int(v: Any) -> TypeGuard[int]:
@@ -651,29 +657,41 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             f"root signature threshold not met: {len(valid_root)} valid non-revoked root signature(s), "
             f"need {threshold}")
 
-    # Expiry.
-    _now = now or datetime.now(timezone.utc)
-    try:
-        exp = _parse_rfc3339_z(predicate["expires"])
-        r["not_expired"] = exp > _now
-    except (ValueError, KeyError, TypeError):
+    # Expiry. The clock is read once (`canonical._zeitpunkt_von`, verify lane on pull request 312): a datetime
+    # subclass whose own reflected comparison answered made an expired pack unexpired.
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
         r["not_expired"] = False
-    if r["not_expired"] is False:
-        r["errors"].append("trust pack is expired (expires <= now, fail-closed)")
+        r["errors"].append(f"now must be a datetime, got {type(now).__name__} — expiry not evaluated (fail-closed)")
+    else:
+        _now = _uhr if _uhr is not None else datetime.now(timezone.utc)
+        try:
+            exp = _parse_rfc3339_z(predicate["expires"])
+            r["not_expired"] = exp > _now
+        except (ValueError, KeyError, TypeError):
+            r["not_expired"] = False
+        if r["not_expired"] is False:
+            r["errors"].append("trust pack is expired (expires <= now, fail-closed)")
 
     # Version monotonicity + chain to previous pack.
     if prev_version is not None:
         # adversarial re-audit r6: prev_version kwarg (dok. 'int | None') non-int -> nicht-monoton (fail-closed), kein int>str-Crash
-        r["version_monotone"] = (_is_int(predicate.get("version")) and _is_int(prev_version)
+        # The relying party's previous version is a plain int (deep gate 6.2.0 at 2348f0a7, found by the
+        # extended sweep): an int subclass passed `_is_int` and answered `version > prev_version` through its own
+        # reflected comparison, so a rolled-back pack read as monotone.
+        r["version_monotone"] = (_is_int(predicate.get("version")) and type(prev_version) is int
                                  and predicate["version"] > prev_version)
         if not r["version_monotone"]:
             r["errors"].append(
                 f"version {predicate.get('version')!r} is not greater than the previous version "
-                f"{prev_version} (rollback/freeze, fail-closed)")
+                f"{_zahl_text(prev_version)} (rollback/freeze, fail-closed)")
     if prev_version_digest is not None:
         pvd = predicate.get("prevVersionDigest")
         pvd_hex = pvd.get("sha256") if _is_digest(pvd) else None
-        if pvd_hex != prev_version_digest:
+        # By its characters: `!=` asked a `str` subclass's reflected `__ne__` first (found by the extended
+        # sweep). An expectation that is no text never chains.
+        _erwartet = _zeichen_von(prev_version_digest)
+        if _erwartet is None or pvd_hex != _erwartet:
             r["version_monotone"] = False
             r["errors"].append("prevVersionDigest does not chain to the supplied previous pack (fail-closed)")
 
@@ -682,7 +700,12 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # signing keyIds belong to the old pack, not necessarily this pack's `keys`). Only enforced when the caller
     # supplies the previous root role — a first pack / non-rotation verify is unaffected (field stays None).
     if prev_root_keys is not None or prev_root_threshold is not None:
-        old_keys = _as_dict(prev_root_keys)  # adversarial re-audit r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash
+        # adversarial re-audit r6: bare kwarg, truthy non-dict -> {} statt 'in'-Crash. ONE READING (deep gate
+        # 6.2.0 at 2348f0a7, found by the extended sweep): the previous root keys are the plain copy of what the
+        # caller's map stores (`canonical._richtlinie_von`), so its own `__class__`, `__contains__`,
+        # `__getitem__` and `get` never decide which old key vouched. A map that holds a value that is no JSON
+        # value vouches for nothing (fail-closed), as a non-dict did.
+        old_keys = _richtlinie_von(prev_root_keys) or {}
         old_valid: dict[bytes, str] = {}
         for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):
@@ -717,12 +740,14 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # prev_root_threshold MUST be a positive int: 0/None/negative would "authorize" a rotation with zero
         # old-root vouches (self-review fix, fail-closed defense-in-depth — a correct caller passes the old
         # pack's root threshold, which the validator already guarantees >= 1).
-        r["rotation_authorized"] = (_is_int(prev_root_threshold) and prev_root_threshold >= 1
+        # A plain int (the one rule for a number, `_plain_value.plain_int`): `_is_int` asks `isinstance`, and an
+        # int subclass decided `len(old_valid) >= prev_root_threshold` through its own reflected comparison.
+        r["rotation_authorized"] = (type(prev_root_threshold) is int and prev_root_threshold >= 1
                                     and len(old_valid) >= prev_root_threshold)
         if not r["rotation_authorized"]:
             r["errors"].append(
                 f"rotation not authorized by old root: {len(old_valid)} distinct old-root signature(s), "
-                f"need {prev_root_threshold} (old root must vouch for the new pack, fail-closed)")
+                f"need {_zahl_text(prev_root_threshold)} (old root must vouch for the new pack, fail-closed)")
     elif _is_digest(predicate.get("prevVersionDigest")):
         # The pack CLAIMS to be a rotation (non-null prevVersionDigest) but the caller did not supply the
         # previous root role, so two-stage rotation authorization cannot be checked. FAIL CLOSED by default:

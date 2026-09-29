@@ -27,11 +27,12 @@ import base64
 import functools
 import re
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass, field, fields
+from typing import Optional, cast
 
 from .budget import int_magnitude_ok
 from .budget import render_safe as _rs
+from .canonical import _bytes_von, _feld_von, _folge_von, _zeichen_von
 from ._membership import type_name
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
@@ -94,14 +95,22 @@ def _refuse_malformed_signed_fields(hash_alg, covered_digest, sig_alg, time) -> 
     token()/_ats_content interpolate them RAW into the signed material, so a CONTAINER field (e.g.
     sig_alg=[1<<100000]) renders a nested giant int and re-raises the int->str cap — a raw crash out of
     the never-raise verify callers. _refuse_giant_int caught only a SCALAR giant int; a malformed field
-    TYPE cannot be signed bytes at all. Refuse it typed; the never-raise surfaces catch it fail-closed."""
+    TYPE cannot be signed bytes at all. Refuse it typed; the never-raise surfaces catch it fail-closed.
+
+    EXACT TYPES, NOT `isinstance` (deep gate 6.2.0 at 2348f0a7, L2-620-RENEWAL-TIME-SIGNED-VS-JUDGED). The
+    signed bytes interpolate each field with an f-string, which calls the value's own ``__format__``. An
+    ``int`` subclass that stores 999 and formats as 5 passed ``isinstance``: the signature was checked over
+    the time 5, and the ordering and the renewal policy judged 999, so an overdue anchor read as fresh. A
+    field is a plain ``str`` or a plain ``int`` here, the one rule for a number (`_plain_value.plain_int`),
+    so the bytes signed and the value judged are one reading. Every producer of this module writes plain
+    values already (`_text_param`, `_time_param`)."""
     for name, v in (("hash_alg", hash_alg), ("covered_digest", covered_digest), ("sig_alg", sig_alg)):
-        if not isinstance(v, str):
+        if type(v) is not str:
             raise ProofBundleError(
-                f"ATS {name} must be a str for signed bytes, got {type(v).__name__} (fail-closed)")
-    if not isinstance(time, int) or isinstance(time, bool):
+                f"ATS {name} must be a plain str for signed bytes, got {type_name(v)} (fail-closed)")
+    if type(time) is not int:
         raise ProofBundleError(
-            f"ATS time must be an int for signed bytes, got {type(time).__name__} (fail-closed)")
+            f"ATS time must be a plain int for signed bytes, got {type_name(time)} (fail-closed)")
     _refuse_giant_int(time)
 
 
@@ -198,15 +207,37 @@ class ArchiveTimeStamp:
         # cannot be well-formed signed bytes — refuse it typed here, rather than let `sorted(...)` raise a
         # raw TypeError out of the covering check (which catches ProofBundleError, NOT TypeError). This is
         # token()'s OWN iteration; _verify_ats_signature guards a SEPARATE one, so both need the guard.
-        if not isinstance(self.signatures, (list, tuple)) or not all(
-                isinstance(it, tuple) and len(it) == 2
-                and isinstance(it[0], str) and isinstance(it[1], str)
-                for it in self.signatures):
+        # Read once, by what it stores, and each pair as plain texts (deep gate 6.2.0 at 2348f0a7): the check
+        # and the sort iterated the caller's container twice, and each text was written through its own
+        # `__format__` and ordered through its own `__lt__`.
+        paare = _signaturpaare(self.signatures)
+        if paare is None:
             raise ProofBundleError(
                 "ATS signatures must be a sequence of (alg, base64) string pairs — refused before "
                 "rendering the covered token (a malformed signatures field cannot be signed bytes)")
-        sig_part = ";".join(f"{a}={s}" for a, s in sorted(self.signatures))
+        sig_part = ";".join(f"{a}={s}" for a, s in sorted(paare))
         return f"{base}:{self.sig_alg}:{sig_part}"
+
+
+def _signaturpaare(signatures) -> "list | None":
+    """The (alg, base64) pairs an ATS's ``signatures`` field stores, as plain ``(str, str)`` tuples, read once
+    (`_plain_value.plain_list`, which runs no method of the caller), or None when the field is no list or
+    tuple of 2-tuples of texts. A pair is read by the base tuple's own iteration and each text by its
+    characters, so no ``__iter__``, ``__format__`` or ``__lt__`` of the caller runs."""
+    from ._plain_value import plain_list  # noqa: PLC0415
+    folge = plain_list(signatures)
+    if folge is None:
+        return None
+    paare = []
+    for eintrag in folge:
+        teile = plain_list(eintrag) if issubclass(type(eintrag), tuple) else None
+        if teile is None or len(teile) != 2:
+            return None
+        alg, sig = _zeichen_von(teile[0]), _zeichen_von(teile[1])
+        if alg is None or sig is None:
+            return None
+        paare.append((alg, sig))
+    return paare
 
 
 @dataclass(frozen=True)
@@ -284,8 +315,15 @@ def _sign_ats_content(content: bytes, sig_alg: str, signers: dict) -> tuple:
 def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     """True iff the ATS carries a valid time-authority signature under ``authority_keys`` (a dict of raw
     public keys ``{"ed25519": bytes, "mldsa65": bytes}``). Fail-closed: an unsigned ATS, a missing key for
-    the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid."""
-    authority_keys = _as_dict(authority_keys)  # adversarial re-audit r6: non-dict kwarg fail-closed
+    the declared algorithm, or a bad/absent signature is False. A hybrid ATS requires BOTH legs valid.
+
+    The keys are read by what ``authority_keys`` stores and as the bytes each key stores (deep gate 6.2.0
+    at 2348f0a7, the neighbour of L2-620-RENEWAL-*): the dict's own ``get`` and a ``bytes`` subclass's own
+    ``__bytes__`` ran here, and a key that stored the trusted key T anchored a signature of another key
+    through ``bytes(pub)``. A value that is no dict holds no key (fail-closed, as `_as_dict` answered)."""
+    def _schluessel(teil: str):
+        return _bytes_von(_feld_von(authority_keys, teil))
+
     if not ats.sig_alg:
         return False
     try:
@@ -300,12 +338,10 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     # Deep-Gate iter9 Linse 3c: eine non-iterable .signatures (int/bool/float/object) crasht die
     # for-Schleife roh ('object is not iterable'); der bestehende Kommentar deckte nur None/non-2-tuple
     # EINTRAEGE, nicht einen non-iterable CONTAINER.
-    _sigs = ats.signatures if isinstance(ats.signatures, (list, tuple)) else ()
-    for item in _sigs:
-        if isinstance(item, tuple) and len(item) == 2:
-            a, s = item
-            if isinstance(a, str) and isinstance(s, str):
-                sigmap[a] = s
+    # One reading of the pairs, the one `token()` reads (`_signaturpaare`, deep gate 6.2.0 at 2348f0a7): a
+    # malformed field holds no pair here, as a non-list field held none before.
+    for a, s in (_signaturpaare(ats.signatures) or []):
+        sigmap[a] = s
 
     def _dec(part: str) -> bytes:
         try:
@@ -314,22 +350,21 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
             return b""
 
     if ats.sig_alg == "ed25519":
-        pub = authority_keys.get("ed25519")
+        pub = _schluessel("ed25519")
         # authority_keys come from the relying party (WP-A1): the trust-anchor rule applies (Z195).
-        return isinstance(pub, (bytes, bytearray)) and verify_ed25519_pinned(bytes(pub), _dec("ed25519"),
-                                                                               content)
+        return pub is not None and verify_ed25519_pinned(pub, _dec("ed25519"), content)
     # adversarial re-audit round 5: an attacker-presented ATS merely LABELS sig_alg='mldsa65'/'hybrid'; on a build
     # without FIPS-204 ML-DSA (the common case) verify_mldsa/verify_hybrid raise PQUnavailable (a
     # ProofBundleError sibling) which escaped verify_sequence raw. A verdict-returning verify surface must fail
     # closed on attacker-influenceable PQ input, never raise — parity with trust_pack._verify_signature_for_alg.
     if ats.sig_alg == "mldsa65":
-        pub = authority_keys.get("mldsa65")
+        pub = _schluessel("mldsa65")
         try:
             return pub is not None and verify_mldsa(pub, _dec("mldsa65"), content)
         except PQUnavailable:
             return False
     if ats.sig_alg == "hybrid-ed25519-mldsa65":
-        edp, mp = authority_keys.get("ed25519"), authority_keys.get("mldsa65")
+        edp, mp = _schluessel("ed25519"), _schluessel("mldsa65")
         if edp is None or mp is None:
             return False
         try:
@@ -356,7 +391,10 @@ def _verify_ats_external_token(ats: ArchiveTimeStamp, *, rp_trust: Optional[dict
     ``_verify_ats_signature``'s never-raise, fail-closed contract): an absent/unknown token type, a
     non-hex ``covered_digest``, a missing optional-extra import, or a raising verifier all come back as
     ``{"ok": False, ...}``, never propagate an exception to the caller."""
-    if ats.external_token_type not in ("rfc3161-tsa", "opentimestamps") or not ats.external_token:
+    # The token type by its characters (deep gate 6.2.0 at 2348f0a7): `not in` and `==` asked a `str`
+    # subclass's reflected `__eq__` first, so the caller's method chose which verifier ran.
+    typ = _zeichen_von(ats.external_token_type)
+    if typ not in ("rfc3161-tsa", "opentimestamps") or not ats.external_token:
         return {"ok": False, "warn": False, "status": "absent", "detail": "no external token on this ATS"}
     try:
         canonical_root = bytes.fromhex(ats.covered_digest)
@@ -365,7 +403,7 @@ def _verify_ats_external_token(ats: ArchiveTimeStamp, *, rp_trust: Optional[dict
                 "detail": "covered_digest is not valid hex — cannot bind the external token"}
     frozen = ats.external_token_frozen if isinstance(ats.external_token_frozen, dict) else {}
     try:
-        if ats.external_token_type == "rfc3161-tsa":
+        if typ == "rfc3161-tsa":
             from . import anchors_rfc3161  # noqa: PLC0415
             return anchors_rfc3161.verify_rfc3161(ats.external_token, canonical_root, frozen=frozen,
                                                   now=now, rp_trust=rp_trust)
@@ -645,6 +683,60 @@ def _sequence_once(sequence) -> list:
     return [_liste(chain) for chain in _liste(sequence)]
 
 
+def _ketten_einmal(sequence) -> "list | None":
+    """The sequence a verifier judges, read ONCE by what it stores (deep gate 6.2.0 at 2348f0a7, the
+    neighbour of L2-620-RENEWAL-*): a list of lists, each level copied with `_plain_value.plain_list`, which
+    runs no method of the caller, and every entry a plain ``ArchiveTimeStamp``. None for any other shape,
+    which the verifier reports as ``renewal:shape``.
+
+    Before, the shape guard, the flat list of ATS, the covering walk and the newest ATS were four readings
+    of the caller's list through its own ``__iter__`` and ``__getitem__``, so a list that answered each
+    iteration with another sequence judged the order, the covering and the anchor over different
+    sequences. An ``ArchiveTimeStamp`` subclass is refused: its own ``token()`` would decide the covered
+    material the covering check recomputes.
+
+    EACH ENTRY IS A FRESH ``ArchiveTimeStamp`` BUILT FROM WHAT THE CALLER'S ONE STORES (`_ats_wie_gespeichert`),
+    found by the verify lane on pull request 312: an exact ``ArchiveTimeStamp`` can still carry a ``token``
+    of its own in its instance dict, and a field can hold a ``str`` subclass whose own ``__ne__`` passed the
+    covering compare or whose own ``__eq__`` and ``__hash__`` met ``require_current_hash``. A field whose
+    value is a subclass of a built-in type is refused with the sequence; a plain value of the wrong type
+    passes on as before and is refused, typed, where it is read."""
+    from ._plain_value import plain_list  # noqa: PLC0415
+    aussen = plain_list(sequence)
+    if aussen is None:
+        return None
+    ketten = []
+    for kette in aussen:
+        innen = plain_list(kette)
+        if innen is None or not all(type(a) is ArchiveTimeStamp for a in innen):
+            return None
+        frisch = [_ats_wie_gespeichert(a) for a in innen]
+        if any(a is None for a in frisch):
+            return None
+        ketten.append(frisch)
+    return ketten
+
+
+#: The built-in types an ATS field may hold as they are. A value of a SUBCLASS of one of them runs methods
+#: its author wrote (`__eq__`, `__ne__`, `__hash__`, `__format__`), so it is refused (`_ats_wie_gespeichert`).
+_EINGEBAUTE_FELDTYPEN = (str, int, float, bool, bytes, bytearray, list, tuple, dict, set, frozenset, type(None))
+
+
+def _ats_wie_gespeichert(a: "ArchiveTimeStamp") -> "ArchiveTimeStamp | None":
+    """A fresh ``ArchiveTimeStamp`` with the field values ``a`` stores, or None when one of them is an
+    instance of a subclass of a built-in type. ``type(a) is ArchiveTimeStamp`` holds already, so reading a
+    field runs no method of the caller; the fresh instance carries nothing the caller put into the instance
+    dict beside the fields (such as a ``token`` of its own)."""
+    werte = {}
+    for feld in fields(ArchiveTimeStamp):
+        wert = getattr(a, feld.name)
+        typ = type(wert)
+        if typ not in _EINGEBAUTE_FELDTYPEN and any(issubclass(typ, b) for b in _EINGEBAUTE_FELDTYPEN[:-1]):
+            return None
+        werte[feld.name] = wert
+    return ArchiveTimeStamp(**werte)
+
+
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
                            anchor_status: str = _CONFIRMED, sig_alg: str = "",
                            signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
@@ -882,28 +974,47 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     result = VerificationResult()
 
     # shape guard: an untrusted/deserialized sequence must be a list of chains (lists) of ArchiveTimeStamp
-    # — a malformed shape fails closed, never an uncaught crash (the never-raise contract).
-    if not isinstance(sequence, (list, tuple)) or not all(
-            isinstance(chain, (list, tuple)) and all(isinstance(a, ArchiveTimeStamp) for a in chain)
-            for chain in sequence):
+    # — a malformed shape fails closed, never an uncaught crash (the never-raise contract). The sequence is
+    # read once, by what it stores, and everything below reads that copy (`_ketten_einmal`).
+    ketten = _ketten_einmal(sequence)
+    if ketten is None:
         result.checks.append(Check(
             "renewal:shape", False,
             "sequence must be a list of chains (lists) of ArchiveTimeStamp"))
         return result
+    sequence = ketten
 
     # fix-the-CLASS: data_digests is iterated (_cover_data/_validate_digests); a non-sequence (int/None)
-    # crashed this never-raise surface with a raw TypeError. Guard it like the sequence shape.
-    if not isinstance(data_digests, (list, tuple)):
+    # crashed this never-raise surface with a raw TypeError. Guard it like the sequence shape. Read once,
+    # as the texts it stores (`_digests_once`): it was iterated twice and sorted through each digest's own
+    # `__lt__` (deep gate 6.2.0 at 2348f0a7).
+    if not (issubclass(type(data_digests), list) or issubclass(type(data_digests), tuple)):
         result.checks.append(Check(
             "renewal:data_digests_shape", False,
             "data_digests must be a list/tuple of lowercase-hex strings (fail-closed)"))
         return result
+    # The budget BEFORE the copy, on the stored length (the base type's own `__len__`, which runs no method
+    # of the caller): a cap that is applied after copying bounds nothing (the class of L2-620-MERKLE-CAP-
+    # AFTER-COPY). The check further down stays; it reads the copy and gives the same verdict.
+    from .budget import DEFAULT_BUDGET as _BUDGET  # noqa: PLC0415
+    _gespeichert = (list.__len__(cast(list, data_digests)) if issubclass(type(data_digests), list)
+                    else tuple.__len__(cast(tuple, data_digests)))
+    if not _BUDGET.within("data_digests", _gespeichert):
+        result.checks.append(Check(
+            "renewal:budget:data_digests", False,
+            f"data_digests has {_gespeichert} entries (> budget.data_digests={_BUDGET.data_digests}) — "
+            "refusing before it is read (DoS guard, data_digests axis)"))
+        return result
+    data_digests = _digests_once(data_digests)
 
     def _default_anchor(a: ArchiveTimeStamp) -> bool:
-        return a.anchor_status == _CONFIRMED
+        # By its characters (deep gate 6.2.0 at 2348f0a7): a `str` subclass's own `__eq__` never anchors.
+        return _zeichen_von(a.anchor_status) == _CONFIRMED
 
     def _signature_anchor(a: ArchiveTimeStamp) -> bool:
-        return _verify_ats_signature(a, authority_keys or {})
+        # Handed on as it is: `_verify_ats_signature` reads what it stores (`_feld_von`). `or {}` asked the
+        # caller's dict whether it is empty through its own `__len__` (found by the extended sweep).
+        return _verify_ats_signature(a, authority_keys if authority_keys is not None else {})
 
     def _no_anchor(_a: ArchiveTimeStamp) -> bool:
         return False
@@ -980,8 +1091,10 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
 
     # 1) strictly ascending time across the whole sequence. Guard non-int times (fail-closed, never raise
     #    a TypeError on a hand-built/deserialized sequence with a str time — the "malformed → False" contract).
+    # A time is a plain int (the one rule for a number, `_plain_value.plain_int`): an int subclass passed
+    # `isinstance` here and ordered through its own `__lt__` (deep gate 6.2.0 at 2348f0a7).
     times = [a.time for a in flat]
-    if not all(isinstance(t, int) and not isinstance(t, bool) for t in times):
+    if not all(type(t) is int for t in times):
         result.checks.append(Check("renewal:ordered", False, f"ATS times must be integers: [{', '.join(_rs(t) for t in times)}]"))
         ordered = False
     elif not all(int_magnitude_ok(t) for t in times):
@@ -1073,7 +1186,11 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #     check above says nothing about whether LATER renewals were dropped. Only evaluated when the caller
     #     supplies known_newest_token_digest (its own persisted last-observed state); absent -> not surfaced.
     if known_newest_token_digest is not None:
-        _known_present = any(anchor_proof_digest(a) == known_newest_token_digest for a in flat)
+        # By its characters (deep gate 6.2.0 at 2348f0a7, L2-620-RENEWAL-ROLLBACK-EQ): `==` asked a `str`
+        # subclass's reflected `__eq__` first, and a truncated sequence passed. A value that is no text is
+        # present nowhere (fail-closed).
+        _bekannt = _zeichen_von(known_newest_token_digest)
+        _known_present = _bekannt is not None and any(anchor_proof_digest(a) == _bekannt for a in flat)
         result.checks.append(Check(
             "renewal:no_rollback", _known_present,
             "the relying party's previously-known newest ArchiveTimeStamp is still present in this "
@@ -1106,7 +1223,8 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     #     (Finding 14a-b, ADR 0006 B3 OPEN item, pure glue — never a replacement for the anchor modes above).
     #     Only surfaced when the newest ATS actually carries an external_token_type (fully backward
     #     compatible with every existing sequence that does not use this additive field).
-    if newest.external_token_type:
+    _ext_typ = _zeichen_von(newest.external_token_type)   # by its characters, not its own __bool__
+    if _ext_typ:
         _ext = _verify_ats_external_token(newest, rp_trust=rp_trust)
         _ext_ok = bool(_ext.get("ok"))
         if not require_external_token:
@@ -1116,7 +1234,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             _ext_ok = _ext_ok or bool(_ext.get("warn"))
         result.checks.append(Check(
             "renewal:external_token", _ext_ok,
-            f"newest ATS external token ({_rs(newest.external_token_type)}): {_ext.get('detail', '')}"))
+            f"newest ATS external token ({_rs(_ext_typ)}): {_ext.get('detail', '')}"))
     elif require_external_token:
         # Fail-closed (crypto-review, 2026-07-15): external_token_type/external_token are DELIBERATELY
         # excluded from the signed ATS bytes (token()/_ats_content()), so an attacker or MITM can strip them
@@ -1224,56 +1342,75 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
     # _newest(sequence).hash_alg as a raw AttributeError/TypeError, and an empty sequence raised RenewalError,
     # out of this exported never-raise surface. Fail closed with the SAME renewal:shape / renewal:nonempty
     # checks the sibling verify_sequence already carries (a shared shape contract), never an uncaught crash.
-    if not isinstance(sequence, (list, tuple)) or not all(
-            isinstance(chain, (list, tuple)) and all(isinstance(a, ArchiveTimeStamp) for a in chain)
-            for chain in sequence):
+    # Read once, by what it stores (`_ketten_einmal`, deep gate 6.2.0 at 2348f0a7).
+    ketten = _ketten_einmal(sequence)
+    if ketten is None:
         result.checks.append(Check("renewal:shape", False,
                                    "sequence must be a list of chains (lists) of ArchiveTimeStamp"))
         return result
+    sequence = ketten
     if not sequence or not sequence[-1]:
         result.checks.append(Check("renewal:nonempty", False, "sequence has no ArchiveTimeStamp"))
         return result
+    # THE POLICY IS READ ONCE (verify lane on pull request 312): a `RenewalPolicy` subclass whose own
+    # `max_ats_age` property answered a plain int to the type check and another value to the comparison made
+    # an overdue anchor pass. Only the exact type is a policy, and each field is read once into a local.
+    if type(policy) is not RenewalPolicy:
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   f"policy must be a RenewalPolicy, got {type_name(policy)} (fail-closed)"))
+        return result
+    _max_alter, _veraltet_roh, _strenge = policy.max_ats_age, policy.deprecated_algs, policy.strictness
     newest = _newest(sequence)
+    # ONE RULE FOR A NUMBER, ONE READING OF A TEXT (deep gate 6.2.0 at 2348f0a7, L2-620-RENEWAL-POLICY-NOW-INTSUB
+    # and -TIME-SIGNED-VS-JUDGED). The three numbers below were checked with `isinstance`, so an int subclass
+    # passed and `now - newest.time` and `newest.time > now` ran its own `__sub__` and `__gt__`: a clock that
+    # answered 0 made an overdue anchor fresh, where statuslist.verify_status_snapshot refuses the same
+    # relying-party clock since round 12. They are plain ints now (`_plain_value.plain_int`), and the
+    # strictness and the hash algorithm are compared by their characters.
     # Deep-Gate iter9 L2: eine non-int newest.time erreichte `now - newest.time` als rohen TypeError
     # aus dieser never-raise-Flaeche. Fail-closed mit typisiertem Check, gleiche Richtung wie der Shape-Guard.
-    if not isinstance(newest.time, int) or isinstance(newest.time, bool):
+    if type(newest.time) is not int:
         result.checks.append(Check("renewal:time_malformed", False,
                                    f"newest ATS time must be an int, got {type(newest.time).__name__} (fail-closed)"))
         return result
     # fix-the-CLASS (Deep-Gate iter9 Linse C): `now` is the OTHER operand of `now - newest.time` below; an
     # earlier round guarded newest.time but left the caller's `now` unchecked, so a non-int `now` still
     # crashed this never-raise surface with a raw TypeError. Same guard, same fail-closed direction.
-    if not isinstance(now, int) or isinstance(now, bool):
+    if type(now) is not int:
         result.checks.append(Check("renewal:now_malformed", False,
-                                   f"now must be an int, got {type(now).__name__} (fail-closed)"))
+                                   f"now must be a plain int, got {type_name(now)} (fail-closed)"))
         return result
     # fix-the-CLASS (Deep-Gate Produkt-Linse Runde 2, DEFECT 1): max_ats_age is the OTHER operand of the
     # `(now - newest.time) > policy.max_ats_age` comparison below; the earlier round guarded `now` but left
     # its sibling. A non-int max_ats_age (untrusted policy JSON) crashed here with a raw TypeError.
     # deprecated_algs is the `in` operand a few lines down — guard both, same fail-closed direction.
-    if policy.max_ats_age is not None and not (isinstance(policy.max_ats_age, int)
-                                               and not isinstance(policy.max_ats_age, bool)):
+    if _max_alter is not None and type(_max_alter) is not int:
         result.checks.append(Check("renewal:policy_malformed", False,
-                                   f"policy.max_ats_age must be an int or None, got "
-                                   f"{type(policy.max_ats_age).__name__} (fail-closed)"))
+                                   f"policy.max_ats_age must be a plain int or None, got "
+                                   f"{type_name(_max_alter)} (fail-closed)"))
         return result
-    if not isinstance(policy.deprecated_algs, (set, frozenset, list, tuple)):
+    _veraltet_typ = type(_veraltet_roh)
+    if not (issubclass(_veraltet_typ, (set, frozenset)) or issubclass(_veraltet_typ, (list, tuple))):
         result.checks.append(Check("renewal:policy_malformed", False,
                                    f"policy.deprecated_algs must be a set/list, got "
-                                   f"{type(policy.deprecated_algs).__name__} (fail-closed)"))
+                                   f"{type_name(_veraltet_roh)} (fail-closed)"))
         return result
+    # The deprecated algorithms through the base type's own iteration, each by its characters, and the
+    # newest algorithm by its characters: no `__hash__`, `__eq__` or `__iter__` of the caller decides it.
+    _veraltet = {_zeichen_von(x) for x in _folge_von(_veraltet_roh)} - {None}
+    _neuester_alg = _zeichen_von(newest.hash_alg)
 
     reasons = []
-    if isinstance(newest.hash_alg, str) and newest.hash_alg in policy.deprecated_algs:
-        reasons.append(f"newest ATS uses policy-deprecated hash {newest.hash_alg!r}")
+    if _neuester_alg is not None and _neuester_alg in _veraltet:
+        reasons.append(f"newest ATS uses policy-deprecated hash {_rs(_neuester_alg)}")
     # Future-dated guard (No-Fake): a newest.time AFTER `now` is anomalous — the freshness/age test below
     # ((now - newest.time) > max_ats_age) goes NEGATIVE for a future time and would report it as perpetually
     # fresh, so a future date could otherwise permanently evade the renewal-due signal. Flag it as overdue.
-    _ints = all(isinstance(v, int) and not isinstance(v, bool) for v in (newest.time, now))
+    _ints = all(type(v) is int for v in (newest.time, now))
     if _ints and newest.time > now:
         reasons.append(f"newest ATS time {_rs(newest.time)} is in the future (now={_rs(now)}) — anomalous, not fresh")
-    if policy.max_ats_age is not None and (now - newest.time) > policy.max_ats_age:
-        reasons.append(f"newest ATS age {_rs(now - newest.time)} exceeds max {_rs(policy.max_ats_age)}")
+    if _max_alter is not None and (now - newest.time) > _max_alter:
+        reasons.append(f"newest ATS age {_rs(now - newest.time)} exceeds max {_rs(_max_alter)}")
 
     if not reasons:
         result.checks.append(Check("renewal:policy", True,
@@ -1281,7 +1418,9 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
                                    "policy — no renewal due"))
         return result
 
-    overdue_ok = policy.strictness == "warn"  # WARN → not a hard fail; FAIL → ok=False
+    # By its characters (deep gate 6.2.0 at 2348f0a7): a `str` subclass that stores "fail" and whose own
+    # `__eq__` claims "warn" turned a FAIL into ok=True. Anything that is not the text "warn" is FAIL.
+    overdue_ok = _zeichen_von(_strenge) == "warn"  # WARN → not a hard fail; FAIL → ok=False
     label = "WARN" if overdue_ok else "FAIL"
     detail = f"renewal overdue ({label}): " + "; ".join(reasons)
     result.checks.append(Check("renewal:policy", overdue_ok, detail))

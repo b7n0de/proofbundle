@@ -23,7 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import _EINGEBAUTE_SKALARE, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie, _zeichen_von
+from .canonical import (_EINGEBAUTE_SKALARE, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
+                        _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -665,6 +666,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         trust_pack = _plain_pack(trust_pack)
         if trust_pack is None:
             trust_pack = {}
+    # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L1-620-T3-01 and L4-620-01), as in
+    # decision.verify_decision_receipt: the key the signature was checked under was read again for the
+    # executor key binding and the relation-signer pin, after the caller's resolvers ran, and the policy
+    # was read through its own `get` and `__getitem__` at the relations gate. Both are read once here.
+    schluessel = _bytes_von(public_key)
+    if schluessel is None:
+        schluessel = public_key
+    richtlinie = _richtlinie_von(policy)
 
     try:
         # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
@@ -677,7 +686,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
         # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
         # the second read with another statement got ok=True for a statement the key never signed.
-        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        crypto_ok, body = dsse._verify_and_load(envelope, schluessel, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
@@ -799,7 +808,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # verified under (crypto_ok above). Otherwise: not trusted, and a NAMED blocker so a consumer
             # can tell "wrong signer for this keyId" from "keyId not in the role".
             _bound = _member and pack_key_binds_signer(
-                _ex.get("keyId") if isinstance(_ex, dict) else None, trust_pack, public_key)
+                _ex.get("keyId") if isinstance(_ex, dict) else None, trust_pack, schluessel)
             r["executor_role_trusted"] = bool(_member and _bound)
             if not _member:
                 r["errors"].append(
@@ -1013,28 +1022,39 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # SAME shared evaluator. NEVER touches crypto (lattice monotonicity); a violation lands only in
     # policy_ok (exit-3 class at the CLI). trust_pack role auth (executor_role_trusted) is unchanged and
     # SEPARATE — this comes DAZU, it replaces nothing.
-    if policy is not None and not isinstance(policy, dict):
+    if policy is not None and not issubclass(type(policy), dict):
         # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
         # or list) must be a fail-closed policy verdict, not a raw AttributeError from policy.get('relations')
         # — the crash fired even on an unauthenticated envelope (the `.get` runs before the crypto_ok term in
-        # the old `and` chain). A requested-but-malformed policy is NEVER a silent pass (fail-open).
+        # the old `and` chain). A requested-but-malformed policy is NEVER a silent pass (fail-open). The
+        # argument's own type decides: an object that claims to be a dict through `__class__` is no policy.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
-        import base64 as _b64_rel  # noqa: PLC0415
-        from .relation import evaluate_relations_policy  # noqa: PLC0415
-        _viol = evaluate_relations_policy(
-            policy["relations"], _as_dict(r.get("lineage")),
-            successor_key_b64=_b64_rel.b64encode(public_key).decode())
-        r["policy_ok"] = not _viol
-        if _viol:
-            r["relations_policy_failed"] = True
-            _codes = {v["code"] for v in _viol}
-            if "LINEAGE_REQUIREMENT_FAILED" in _codes:
-                r["lineage_requirement_failed"] = True
-            for v in _viol:
-                r["errors"].append(f"{v['code']}: {v['message']}")
-            r["relations_policy_codes"] = sorted(_codes)
+    else:
+        # The relations section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01):
+        # from the one copy, or as stored when the policy holds a value that is no JSON value, so the gate
+        # still refuses an unreadable section with its own code.
+        _rel = _abschnitt_von(policy, richtlinie, "relations")
+        if issubclass(type(_rel), dict) and r["crypto_ok"]:
+            import base64 as _b64_rel  # noqa: PLC0415
+            from .relation import evaluate_relations_policy  # noqa: PLC0415
+            _viol = evaluate_relations_policy(
+                _rel, _as_dict(r.get("lineage")),
+                successor_key_b64=_b64_rel.b64encode(schluessel).decode())
+            r["policy_ok"] = not _viol
+            if _viol:
+                r["relations_policy_failed"] = True
+                _codes = {v["code"] for v in _viol}
+                if "LINEAGE_REQUIREMENT_FAILED" in _codes:
+                    r["lineage_requirement_failed"] = True
+                for v in _viol:
+                    r["errors"].append(f"{v['code']}: {v['message']}")
+                r["relations_policy_codes"] = sorted(_codes)
+        if richtlinie is None and policy is not None:
+            # A dict that holds a value that is no JSON value cannot be read as a whole; a requested policy
+            # that cannot be read is never a silent pass, whatever its relations section says.
+            r["policy_ok"] = False
+            r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

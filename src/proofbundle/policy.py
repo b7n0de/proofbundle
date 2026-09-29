@@ -25,7 +25,7 @@ from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe
-from .canonical import _plain_for_jcs, _pruefkopie, _zeichen_von
+from .canonical import KEIN_ZEITPUNKT, _plain_for_jcs, _pruefkopie, _zeichen_von, _zeitpunkt_von
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -921,6 +921,14 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             reason += (f" (not a bool: {', '.join(not_bool)}; a crypto verdict counts only as the exact "
                        "True)")
         return {"policy_ok": None, "checks": [], "reason": reason}
+    # The clock is read once (`canonical._zeitpunkt_von`, verify lane on pull request 312): every lifecycle
+    # and freshness check below compares against the plain instant, and no method of a datetime subclass runs.
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        grund = f"now must be a datetime, got {type(now).__name__} (fail-closed)"
+        return {"policy_ok": False, "checks": [{"name": "policy:clock", "ok": False, "detail": grund}],
+                "reason": grund}
+    now = _uhr
     try:
         if not issubclass(type(bundle), dict):
             raise PolicyError("the bundle must be a JSON object")

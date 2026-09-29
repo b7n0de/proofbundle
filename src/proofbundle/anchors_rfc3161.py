@@ -93,6 +93,16 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"rp_trust must be a usable mapping (with .get), got {type(rp_trust).__name__} (fail-closed)")
+    # ONE READING of both mappings (`canonical._abbild_von`, verify lane on pull request 312), as in
+    # anchors_ots: every read below is of the plain copy, and a mapping holding a value that is no JSON
+    # value is refused the way a mapping without `.get` is.
+    from .canonical import _abbild_von  # noqa: PLC0415
+    _frozen_kopie = _abbild_von(frozen)
+    _rp_kopie = _abbild_von(rp_trust) if rp_trust is not None else None
+    if _frozen_kopie is None or (rp_trust is not None and _rp_kopie is None):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE("frozen and rp_trust must hold only JSON values (fail-closed)")
+    frozen, rp_trust = _frozen_kopie, _rp_kopie
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:
