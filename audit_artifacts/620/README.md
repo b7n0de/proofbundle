@@ -31,6 +31,21 @@ The tag chain of 6.2.0 files these records, each in its own commit, in this orde
    `gate_zeile`, with the head the round checked and its verdict, and the audit-candidate matrix
    refuses a gate line whose head is not the commit the record binds.
 
+## The signed register of this cut
+
+The structured, signed carrier the release gate reads is `audit_artifacts/findings_register_361.json`,
+scoped to `6.2.0` since 2026-09-29 — 26 entries, 17 closed, 9 open, **0 open P0/P1** (counted, not
+quoted): the population of the 6.1.0 register, of which `COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01`,
+`SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01` and `DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01`
+move to closed on the measurement `RESTRISIKO_620.md` records under "Closed in 6.2.0", each with the
+severity assigned for 6.1.0. `C12.2` reads and counts that register, not any prose here, and
+`tests/test_die_zahlen_neben_dem_register_werden_nachgerechnet.py` recomputes the three figures in
+this paragraph from the register on every run.
+
+| check | state on this cut |
+|---|---|
+| findings register, 0 open P0/P1 | NOT MEASURED via C12.2 — 26 findings in the signed, version-bound register (`6.2.0`); the pre-tag round that runs the audit matrix on the frozen head has not run yet, so the gate's own verdict is not quoted here |
+
 ## The limits of this document, named rather than left out
 
 - Everything above describes the chain as ordered, not as completed. Whether each record exists,
