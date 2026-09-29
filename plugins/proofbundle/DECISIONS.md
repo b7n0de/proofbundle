@@ -208,8 +208,12 @@ Chosen:
 - Codex reads `.codex-plugin/plugin.json` before `.claude-plugin/plugin.json`. Its manifest declares
   its MCP server and its hook inline, so Codex never reads `.mcp.json` or `hooks/hooks.json`. Codex does
   not expand `${CLAUDE_PLUGIN_ROOT}` in an MCP entry.
-- Symlinks were ruled out: Codex drops them when it copies a plugin into its cache, and Claude Code
-  copies them as links.
+- Symlinks were ruled out:
+  - Codex drops a symlink when it copies a plugin into its cache (openai/codex
+    `core-plugins/src/store.rs`).
+  - Claude Code 2.1.284, measured on install, keeps a link that stays inside the plugin, and replaces
+    a link pointing outside with a copy of its target.
+  - A shared folder reached by symlinks would therefore work under Claude Code and vanish under Codex.
 - The emit skill's rule "only when the user invokes it" is written twice, once per host:
   `disable-model-invocation` in SKILL.md for Claude Code, and `agents/openai.yaml` for Codex. It is the
   same rule in each host's own format, not a copy of one file.
