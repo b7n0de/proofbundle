@@ -3,7 +3,7 @@
 The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before an MCP tool that opens a
 pull request, a merge request or a release, pushes files, writes a file or merges a pull request. Where
 the design was open, it takes the smallest variant that fails closed. Each decision below names that
-choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14 and D16 on
+choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14, D16 and D17 on
 2026-09-29; the rest is open until the owner decides.
 
 ## The declaration
@@ -301,3 +301,18 @@ Options:
 - A. Measure in a cloud session with a mock model.
 - B. Leave it unmeasured.
 - C. Measure at the owner's machine after the tag (chosen).
+
+## D17. The declaration format changed inside the unreleased 0.3.0
+
+Chosen (owner, 2026-09-29): A.
+- Version 0.2.0 reads `proofbundle-plugin/evidence/v0.1`. Version 0.3.0 reads only
+  `proofbundle-plugin/evidence/v0.2`, whose items name a tree subject (D2), and refuses a v0.1 declaration
+  with "schema must be 'proofbundle-plugin/evidence/v0.2'". There is no migration.
+- Both versions go to the repository after the tag v6.2.0, as planned.
+- The first marketplace entry comes only with 0.3.0. Adding it is the owner's act and part of no change
+  here.
+
+Options:
+- A. Both versions to the repository after the tag, the first marketplace entry with 0.3.0 (chosen).
+- B. Only 0.3.0.
+- C. A reader for v0.1 in 0.3.0.
