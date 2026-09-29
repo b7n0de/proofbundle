@@ -74,6 +74,22 @@ claude --plugin-dir plugins/claude-code
 
 In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verify skill.
 
+## Evals
+
+`evals/` holds cases for the three skills and the gate, for `claude plugin eval`. The gate cases
+seed a git repository with a scaffold script and need Bash, so they run with:
+
+```sh
+claude plugin eval plugins/claude-code --scaffold --mocks off --no-publish \
+  --allow-tools Bash "mcp__plugin_proofbundle_proofbundle__*"
+```
+
+The scaffold scripts run offline. They copy the signed fixtures in `evals/_fixtures/data/`. Those
+fixtures were made once by `evals/_fixtures/make.py` with the pinned package, and they carry public
+keys only.
+
+Every eval run is a model call on your account.
+
 ## Keys
 
 `emit_receipt` signs with the key file you name in `key_path`. Without one it uses

@@ -1,0 +1,12 @@
+{
+  "schema": "proofbundle/trust-policy/v0.1",
+  "policy_id": "release-evidence",
+  "allowed_issuers": [
+    {
+      "public_key_b64": "ZZW46uazcdz9V6WXOzxkeXTCmkHOi7oi/eaRNAcs7pM="
+    }
+  ],
+  "signature": {
+    "require_expected_signer": true
+  }
+}
