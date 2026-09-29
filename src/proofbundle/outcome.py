@@ -1066,6 +1066,17 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # that cannot be read is never a silent pass, whatever its relations section says.
             r["policy_ok"] = False
             r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
+        elif richtlinie is not None:
+            # The loader's rule over the whole policy (verify lens on the cross-check fix at bc3d275f): this
+            # verifier judges only the relations section, so a top-level typo such as "relationz" read as no
+            # relations rule and an attached retraction passed, where load_policy and the decision verifier
+            # refuse the policy. A policy the loader refuses is refused here with its message.
+            from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+            _grund = _abgelehnt_vom_loader(richtlinie)
+            if _grund is not None:
+                r["policy_ok"] = False
+                r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
+                                   f"load_policy applies): {_grund}")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

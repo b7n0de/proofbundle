@@ -645,6 +645,24 @@ def _felder_pruefen(policy: dict, *, schema_gate: bool) -> None:
                 _require_bool(dr, key, "decision_receipt")
 
 
+def _abgelehnt_vom_loader(policy: dict) -> str | None:
+    """The loader's refusal of a policy that is a plain JSON object, as its message, or None when the loader's
+    rule for present fields passes (``schema`` and ``policy_id`` are the loader's own business).
+
+    The one entry rule of every surface that takes a whole policy: ``evaluate_policy`` and
+    ``evaluate_decision_policy``, and the outcome and relation statement verifiers, which judge only the
+    ``relations`` section of it. Those two read a typo in a top-level key (``"relationz"``) as no relations
+    section and judged an attached retraction with no rule, where ``load_policy`` and the decision verifier
+    refuse the policy (verify lens on the cross-check fix at bc3d275f, 2026-09-29)."""
+    try:
+        _huelle_pruefen(policy)
+        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
+        _felder_pruefen(policy, schema_gate=False)   # every other present field: the loader's rule too
+    except PolicyError as exc:
+        return str(exc)
+    return None
+
+
 def _relations_felder_pruefen(rel: dict) -> None:
     """The loader's rule for the fields of a ``relations`` section that is a dict, the one rule for
     ``load_policy`` (through :func:`_felder_pruefen`) and for :func:`proofbundle.relation.evaluate_relations_policy`,
@@ -743,14 +761,11 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
-    try:
-        _huelle_pruefen(policy)
-        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
-        _felder_pruefen(policy, schema_gate=False)   # every other present field: the loader's rule too
-    except PolicyError as exc:
+    grund = _abgelehnt_vom_loader(policy)
+    if grund is not None:
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
-                           f"load_policy applies): {exc}"]}
+                           f"load_policy applies): {grund}"]}
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
@@ -936,12 +951,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy (Klasse und Messung
     # bei _huelle_pruefen). Ein unbekannter Schluessel ist ein fail-closed Verdikt, kein Wurf —
     # diese Flaeche liefert Verdikte.
-    try:
-        _huelle_pruefen(policy)
-        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
-        _felder_pruefen(policy, schema_gate=False)   # every other present field: the loader's rule too
-    except PolicyError as exc:
-        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {exc}"
+    grund = _abgelehnt_vom_loader(policy)
+    if grund is not None:
+        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {grund}"
         return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
                 "reason": grund}
     checks: list = []

@@ -1298,6 +1298,9 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
 
 # --- B4 renewal policy and triggers ------------------------------------------------------------
 
+#: What the entry scan of `RenewalPolicy.from_dict` answers when every entry is text.
+_KEIN_EINTRAG = object()
+
 
 @dataclass(frozen=True)
 class RenewalPolicy:
@@ -1332,15 +1335,24 @@ class RenewalPolicy:
         # {"sha256"}, "strictness": "fail"}` reported renewal:policy True over a sha256 ATS. from_dict is the
         # only loader of this policy and no CLI path takes it, so this is where the rule stands. The containers
         # evaluate_renewal_policy accepts (list, tuple, set, frozenset) are read through the base type's own
-        # iteration (`_folge_von`); an entry that is no text still names no algorithm and is dropped, as before.
+        # iteration (`_folge_von`). An entry that is no text is refused as well (the verify lens on this fix):
+        # it was dropped, so `[b"sha256"]` or a nested `[["sha256"]]` deprecated nothing; the loader of the trust
+        # policy refuses such an entry in every list of names.
         _veraltet = obj.get("deprecated_algs", [])
         _vtyp = type(_veraltet)
         if not any(issubclass(_vtyp, t) for t in (list, tuple, set, frozenset)):
             raise RenewalError(
                 f"renewal policy deprecated_algs must be a list of hash algorithm names, got {type_name(_veraltet)}; "
                 "a value of another type is refused, never read as no deprecated algorithm (fail-closed)")
+        _eintraege = _folge_von(_veraltet)
+        _fremd = next((x for x in _eintraege if not isinstance(x, str)), _KEIN_EINTRAG)
+        if _fremd is not _KEIN_EINTRAG:
+            raise RenewalError(
+                f"renewal policy deprecated_algs holds an entry of type {type_name(_fremd)}; every entry is a hash "
+                "algorithm name, and an entry of another type is refused, never read as no algorithm (fail-closed)")
         return cls(
-            deprecated_algs=frozenset(x for x in _folge_von(_veraltet) if isinstance(x, str)),
+            # each name as the plain text it holds (`_zeichen_von`): no `__hash__` of a caller's str subclass runs
+            deprecated_algs=frozenset(_zeichen_von(x) for x in _eintraege),
             max_ats_age=_mage,
             strictness=strictness,
         )
@@ -1414,7 +1426,14 @@ def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: R
         return result
     # The deprecated algorithms through the base type's own iteration, each by its characters, and the
     # newest algorithm by its characters: no `__hash__`, `__eq__` or `__iter__` of the caller decides it.
-    _veraltet = {_zeichen_von(x) for x in _folge_von(_veraltet_roh)} - {None}
+    # An entry that is no text is refused, never dropped (the verify lens on the cross-check fix at bc3d275f):
+    # `RenewalPolicy(deprecated_algs=[b"sha256"])` deprecated nothing and a sha256 ATS was within policy.
+    _veraltet = {_zeichen_von(x) for x in _folge_von(_veraltet_roh)}
+    if None in _veraltet:
+        result.checks.append(Check("renewal:policy_malformed", False,
+                                   "policy.deprecated_algs holds an entry that is no text; every entry is a hash "
+                                   "algorithm name (fail-closed)"))
+        return result
     _neuester_alg = _zeichen_von(newest.hash_alg)
 
     reasons = []

@@ -112,8 +112,15 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   deprecated algorithm, so a sha256 ATS under `{"deprecated_algs": {"sha256"}, "strictness": "fail"}`
   reported `renewal:policy` True; from_dict is the only loader of that policy and no CLI path takes it.
   It now refuses a present `deprecated_algs` that is not a list, tuple, set or frozenset, JSON null
-  included, with `RenewalError`, and reads the four containers through their base type's iteration. An
-  entry that is no text still names no algorithm and is dropped, as before. Not changed in code:
+  included, with `RenewalError`, and reads the four containers through their base type's iteration.
+  The verify lens on that change found two more of the class. An entry of `deprecated_algs` that is no text
+  (`[b"sha256"]`, a nested `[["sha256"]]`, `[5]`) was dropped, so it deprecated nothing; `from_dict` refuses
+  it now with `RenewalError`, and `evaluate_renewal_policy` reports `renewal:policy_malformed` for a policy
+  built directly with such an entry. The outcome and relation statement verifiers judged only the relations
+  section of a whole policy, so a typo in the top-level key (`"relationz"`), or any other field the loader
+  refuses beside a readable section, passed where the loader and the decision verifier refuse the policy;
+  both apply the loader's rule to the whole policy now (`policy._abgelehnt_vom_loader`, the one entry rule
+  of `evaluate_policy` and `evaluate_decision_policy` as well). Not changed in code:
   `agent_review` reads `blocking` and `require_coverage_status` of null as no rule in its own loader as well,
   so loader and evaluator agree there. The owner decided on 2026-09-29 that this reading stays for 6.2.0;
   `docs/AGENT_REVIEW_PREDICATE.md` said the three list fields "must be lists of known names" and now says
@@ -121,7 +128,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
   is refused there later is decided after the tag.
   Tests: `tests/test_every_site_of_the_cross_check_refuses_a_wrong_type.py` measures each candidate at
   `verify_decision_receipt`, `verify_outcome_receipt`, `verify_relation_statement`, `evaluate_policy` and
-  `evaluate_renewal_policy`. Measured at 52231c95: 175 failed subtests. Here: 5 passed, 266 subtests.
+  `evaluate_renewal_policy`. Measured at 52231c95: 186 failed subtests, at 2a2d59b2 24, at bc3d275f 10
+  (the two neighbours the verify lens found). Here: 5 passed, 279 subtests. One existing control in
+  `tests/test_renewal_field_magnitude_never_raise.py` held the dropping of an entry that is no text and now
+  holds the typed refusal.
 
 - **One reading reaches every argument a public verify surface judges, and the sweep measures its own
   reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,

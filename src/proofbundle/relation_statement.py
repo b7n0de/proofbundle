@@ -413,6 +413,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # L4-620-01); a requested policy that cannot be read is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
+    elif richtlinie is not None:
+        # The loader's rule over the whole policy, as in outcome.verify_outcome_receipt (verify lens on the
+        # cross-check fix at bc3d275f): a top-level typo such as "relationz" read as no relations rule.
+        from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+        _grund = _abgelehnt_vom_loader(richtlinie)
+        if _grund is not None:
+            r["policy_ok"] = False
+            r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
+                               f"load_policy applies): {_grund}")
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

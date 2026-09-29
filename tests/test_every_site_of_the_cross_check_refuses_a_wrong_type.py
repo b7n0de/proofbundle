@@ -12,7 +12,9 @@ wrong value delta probed fails as well (a list field: 5, "abc", {}, None, True; 
 ``require_relation_target[relation]``, where only None passed and the other values already failed; at the head that
 adds this file every one fails. Two sites were still open at 2a2d59b2 and close here: a relations section the policy holds as
 JSON null at the outcome and relation statement verifiers, and ``RenewalPolicy.from_dict`` with a
-``deprecated_algs`` of another type, a Python set included.
+``deprecated_algs`` of another type, a Python set included. The verify lens on that step (bc3d275f) found two more:
+an entry of ``deprecated_algs`` that is no text, and a whole policy the loader refuses (a top-level typo such as
+``"relationz"``) at the outcome and relation statement verifiers, which judged only its relations section.
 
 Not in this file: ``agent_review`` reads ``blocking`` and ``require_coverage_status`` of null as no rule in its own
 loader too, so loader and evaluator agree there; whether null should mean absent is an owner decision (card
@@ -137,6 +139,15 @@ class TheRelationsSectionAtAllThreeVerifiers(_Stellen):
                          lambda w: {"relations": w}, _OBJEKT)
             with self.subTest(site=f"relations @ {name}", case="absent"):
                 self.assertIs(pruefe({}), True, "a policy without a relations key is no relations rule")
+            # The verify lens on bc3d275f: a typo in the top-level key read as no relations section at the outcome
+            # and relation statement verifiers, which judge only that section; the loader refuses the policy, and
+            # so does every verifier, as does a whole policy with any other field the loader refuses.
+            for label, politik in (("a typo in the key", {"relationz": regel}),
+                                   ("a wrong field beside a readable section",
+                                    {"relations": {}, "allowed_issuers": 5}),
+                                   ("an unknown top-level key beside no rule", {"relations": {}, "x": 1})):
+                with self.subTest(site=f"whole policy @ {name}", case=label):
+                    self.assertIsNot(pruefe(politik), True, f"{label} was read as a policy the loader accepts")
 
     def test_every_rule_of_the_section(self) -> None:
         ziel = "c" * 64
@@ -233,6 +244,15 @@ class TheRenewalPolicyLoader(_Stellen):
                 with self.assertRaises(rn.RenewalError) as ctx:
                     rn.RenewalPolicy.from_dict({"deprecated_algs": wert})
                 self.assertIn("deprecated_algs must be a list of hash algorithm names", str(ctx.exception))
+        # An entry that is no text was dropped, so it deprecated nothing (the verify lens on bc3d275f); it is refused
+        # by the loader and by the evaluator for a policy built directly.
+        for label, eintrag in (("nested list", ["sha256"]), ("bytes", b"sha256"), ("int", 5), ("object", {})):
+            with self.subTest(entry=label):
+                self.assertIs(ok({"strictness": "fail", "deprecated_algs": [eintrag]}), False)
+                with self.assertRaises(rn.RenewalError):
+                    rn.RenewalPolicy.from_dict({"deprecated_algs": ["sha1", eintrag]})
+                r = rn.evaluate_renewal_policy(folge, policy=rn.RenewalPolicy(deprecated_algs=[eintrag]), now=1001)
+                self.assertEqual([(c.name, c.ok) for c in r.checks], [("renewal:policy_malformed", False)])
         # control: an absent key is no deprecated algorithm, and the shipped example loads as before
         self.assertEqual(rn.RenewalPolicy.from_dict({}).deprecated_algs, frozenset())
         beispiel = json.loads((_WURZEL / "docs" / "adr" / "renewal_policy.example.json").read_text(encoding="utf-8"))
