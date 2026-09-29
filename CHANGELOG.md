@@ -10,6 +10,70 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Fixed
 
+- **One reading reaches every argument a public verify surface judges, and the sweep measures its own
+  reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,
+  each confirmed by three of three blind jurors, one of them found twice; the class of the round-12 entry
+  "Every public verify and emit surface reads the caller's objects once, by what they store", in
+  arguments its sweep did not pass and in exported surfaces it did not list). Measured at main 2074d814,
+  each through the Python API; the CLI parses files into plain values and is not affected:
+  - `verify_decision_receipt` and `verify_outcome_receipt` checked the signature under one copy of
+    `public_key` and read the caller's buffer again for the trust pin, the `relation_signer` pin and the
+    pack binding, after caller code (an evidence resolver, a registered anchor verifier) could rewrite a
+    `bytearray`: a receipt signed by an untrusted key reported `signer_trusted`, `policy_ok` and `ok`
+    True. The key is read once at entry (`_bytes_von`), and every later check uses that copy; so does
+    `verify_relation_statement`.
+  - `verify_prereg` and `verify_evaluation_card` read the stored hash through the claim's own `get` and
+    compared it through the caller's `__eq__`: a claim that stores another document's hash gave ok True.
+    The field is read from what the claim stores (`_feld_von`) and compared by its characters; a stored
+    value that is no text is a failed check that says so.
+  - `verify_sequence` checked the authority signature over an int subclass's own rendering of an ATS
+    `time` while `evaluate_renewal_policy` judged the stored integer, so a stale anchor was judged fresh;
+    `evaluate_renewal_policy` subtracted an int-subclass `now` through its own `__sub__` and `__gt__`,
+    which turned an overdue FAIL into ok True; and `known_newest_token_digest` was compared through the
+    caller's `__eq__`, so a truncated sequence passed `renewal:no_rollback`. A signed field is an exact
+    `str` or `int` now, `now`, `max_ats_age` and every stored time are exact ints, the sequence and the
+    signature pairs are read once (`_ketten_einmal`, `_signaturpaare`), the authority keys by the bytes
+    they store, and the digest and the strictness by their characters.
+  - `verify_decision_receipt` evaluated `anchors or []` through the list's own `__bool__`: a list that
+    says it is empty hid a failing anchor, and ok went from False to True. Only an absent list is empty.
+  - The relations gate of the decision, outcome and relation-statement verifiers read the policy through
+    its own `get` and `__getitem__`, while `evaluate_decision_policy` read what it stores in the same
+    call: a verified retraction or a `relation_signer` violation became ok True and `safeForAutomation`
+    True. The policy is copied once at entry (the new `canonical._richtlinie_von`), and every consumer
+    in the call judges that copy. A policy holding a value that is no JSON value fails `policy_ok` at the
+    outcome and relation-statement verifiers, and the decision verifier hands it to
+    `evaluate_decision_policy`, which refuses it with the loader's message.
+
+  The earlier entry of this section that named `known_newest_token_digest` and `prev_version_digest` as
+  not closed ("a neighbouring class in which the caller decides against itself") stands as the record of
+  its day; both are compared by their characters now.
+
+  The sweep missed these because it measured the arguments it passes and the surfaces it lists. It now
+  measures its own reach (`EveryArgumentOfAVerifySurfaceIsInTheSweep` in
+  `tests/test_one_reading_at_every_surface.py`): every `verify_*` and `evaluate_*` name that `proofbundle`
+  exports is a surface of the sweep, and every argument of every verify or evaluate surface of the sweep
+  is passed by it, read from the calls it makes, or named with a reason. Planted gaps make it red: with
+  `anchors=` taken out of the decision call it names `decision.verify_decision_receipt(anchors)`, and
+  with the `verify_prereg` entry taken out it names `verify_prereg`. The number axis is a property of its
+  own (`EveryNumberIsReadByTheOneRule`): no surface runs a method of a caller's number. The extended
+  sweep found neighbours of the same class and they are fixed here: `verify_mldsa` compared `level`
+  through a `str` subclass's own `__eq__` and read its three inputs through their own methods;
+  `verify_trust_pack` compared `prev_version` and `prev_root_threshold` through their own reflected
+  comparisons, `prev_version_digest` through the caller's `__eq__`, and read `prev_root_keys` through its
+  own methods; the v0.2 agent review read `policy.get("time")` through the caller's `get`;
+  `verify_rootcommit_v1` and `verify_rootcommit_v2sig` asked `frozen or {}` through the map's own
+  `__len__`; and `verify_sequence` asked `authority_keys or {}` the same way.
+
+  Tests: `tests/test_one_reading_reaches_every_argument.py` (new) carries a case for each finding, and
+  the sweep file gains the new surfaces, the arguments the sweep did not pass and the two generator
+  classes. Measured at 2074d814 with both files of this change: 44 failed, 38 passed. Here: 47 passed,
+  321 subtests, on Python 3.10. One case is green at both: the anchor obligation of
+  `test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision`, because `evaluate_decision_policy`
+  judges that obligation by what the policy stores; its docstring says so. Named, not changed:
+  `anchors_ots` and `anchors_rfc3161` read `rp_trust` and `frozen` through `Mapping.get`, and the
+  sweep's inputs do not reach those branches; switches, and callbacks other than those of the receipt
+  verifiers, are not measured by the sweep, as `_NICHT_IM_SWEEP` states.
+
 - **An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does** (`relation._RFC3339_Z`).
   The pattern read the timestamp with `\d`, which in a Python str pattern is every Unicode decimal digit.
   Measured 2026-09-28 on main 86671552: an Arabic-Indic year, a fullwidth year and Devanagari seconds

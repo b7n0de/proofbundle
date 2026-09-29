@@ -26,7 +26,7 @@ import hashlib
 import re
 from typing import Any
 
-from .canonical import _eine_kopie, _pruefkopie
+from .canonical import _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -222,7 +222,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         verify_relationship_edges,
     )
     r = _empty_result()
-    related = related if isinstance(related, dict) else None
+    # The argument's own type decides (`issubclass`), never `isinstance`, which believes a `__class__` claim.
+    related = related if issubclass(type(related), dict) else None
+    # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L4-620-01), as in
+    # decision.verify_decision_receipt: the policy was read through its own `get` and `__getitem__` at the
+    # relations gate and the self-assertion gate, and a dict subclass hid a verified retraction.
+    schluessel = _bytes_von(public_key)
+    if schluessel is None:
+        schluessel = public_key
+    richtlinie = _richtlinie_von(policy)
 
     try:
         # RE-GATE never-raise (REGATE-BUDGET-01 / RE-TCE-01): crypto verify + body load + input_bytes budget
@@ -234,7 +242,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
         # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
         # the second read with another statement got ok=True for a statement the key never signed.
-        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+        crypto_ok, body = dsse._verify_and_load(envelope, schluessel,
                                                 payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
@@ -353,18 +361,23 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     # (require_relation_resolution / relation_signer / require_relation_target). The successor issuer
     # key is the STATEMENT's own signing key (--pub). Plus the ONE standalone extension:
     # reject_retracted / reject_superseded fire on the statement's OWN verified assertion.
-    if policy is not None and not isinstance(policy, dict):
+    if policy is not None and not issubclass(type(policy), dict):
         # RE-GATE never-raise (REGATE-CRYPTO-RELSTMT-POLICY / mirror decision.py + outcome.py): a caller-
         # supplied non-dict `policy` (a JSON scalar or list) must be a fail-closed policy verdict, not a raw
         # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    elif richtlinie is None and policy is not None:
+        # A dict holding a value that is no JSON value cannot be read by what it stores (deep gate 6.2.0,
+        # L4-620-01); a requested policy that cannot be read is never a silent pass.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
+    elif richtlinie is not None and isinstance(richtlinie.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
-        relations = policy["relations"]
+        relations = richtlinie["relations"]
         _viol = evaluate_relations_policy(
             relations, _as_dict(r.get("lineage")),
-            successor_key_b64=_b64.b64encode(public_key).decode())
+            successor_key_b64=_b64.b64encode(schluessel).decode())
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a
         # (pinned/authorized) signer is a LIVE blocker for a relying party who asks "is my target still
         # safe for automation?". reject_retracted covers `retracts`; reject_superseded covers the

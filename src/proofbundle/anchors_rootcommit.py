@@ -151,7 +151,9 @@ def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
     OTS verifier confirms the proof commits our independently rebuilt SHA-256(preimage); any tamper of
     root or wallet makes commitment differ → status 'unbound' → reject. Offline (no relying-party Bitcoin
     header) a genuine proof is honestly not-a-pass on temporal confirmation but the BINDING still holds."""
-    frozen = frozen or {}
+    # `or {}` asked the caller's map whether it is empty through its own `__len__` (deep gate 6.2.0 at
+    # 2348f0a7, found by the extended sweep); only an absent map is the empty one.
+    frozen = frozen if frozen is not None else {}
     # One reading of the note, by its characters (round 12): the head and the anchor lines below
     # come from the same text, and no method of a `str` subclass runs.
     if _zeichen_von(checkpoint_text) is not None:
@@ -329,7 +331,9 @@ def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = No
     checkpoints whose anchor lines differ only in ``v = 0`` against ``v = 27`` (or ``1`` against
     ``28``) get the same result; a dedup, replay or log key over the signature itself is computed
     over :func:`eip191_signature_identity`, never over the text (finding D1, addendum 11)."""
-    frozen = frozen or {}
+    # `or {}` asked the caller's map whether it is empty through its own `__len__` (deep gate 6.2.0 at
+    # 2348f0a7, found by the extended sweep); only an absent map is the empty one.
+    frozen = frozen if frozen is not None else {}
     if _zeichen_von(checkpoint_text) is not None:
         checkpoint_text = _zeichen_von(checkpoint_text)   # one reading, as in verify_rootcommit_v1 (round 12)
     head = parse_checkpoint_head(checkpoint_text)

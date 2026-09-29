@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
-from .canonical import _eine_kopie, _pruefkopie, _zeichen_von
+from .canonical import _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
@@ -591,6 +591,19 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     from . import dsse  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
+    # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L1-620-T3-01 and L4-620-01).
+    # The signature was checked over a plain copy of `public_key`, and the trust pin and the relation-signer
+    # pin read the caller's object a second time with `base64.b64encode`, after the caller's evidence
+    # resolver and registered anchor verifiers had run: a `bytearray` key a callback rewrote from the signer
+    # to a trusted key gave signer_trusted and ok True for a receipt the trusted key never signed. The
+    # policy was read through its own `get` and `__getitem__` at the anchor obligation and the relations
+    # gate, while `evaluate_decision_policy` read what it stores. Both are read here once, before any
+    # caller code runs, and every check below uses these copies. A key that is no bytes-like value is
+    # handed on unchanged, so the signature check refuses it as before.
+    schluessel = _bytes_von(public_key)
+    if schluessel is None:
+        schluessel = public_key
+    richtlinie = _richtlinie_von(policy)
 
     try:
         # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
@@ -604,7 +617,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
         # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
         # the second read with another statement got ok=True for a statement the key never signed.
-        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        crypto_ok, body = dsse._verify_and_load(envelope, schluessel, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             # errors[] must never be empty on a forged envelope — a consumer scanning errors[] for problems
@@ -823,7 +836,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
 
     # Detached anchors (Fix 2): verify anchor evidence for the statement's OWN content root — sha256 over the
     # EXACT signed payload bytes (never re-canonicalized), computed only once the bytes are authentic+canonical.
-    _dr_section = policy.get("decision_receipt") if isinstance(policy, dict) else None
+    _dr_section = richtlinie.get("decision_receipt") if richtlinie is not None else None
     _wants_anchor = isinstance(_dr_section, dict) and bool(_dr_section.get("require_external_anchor"))
     anchor_status = None
     if anchors is not None or _wants_anchor:
@@ -843,9 +856,13 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # BundleFormatError. On this never-raise surface that must be a fail-closed anchors verdict, not a
             # raw traceback out of verify() — verify_anchor already returns fail-closed dicts for bad
             # target/type/root, so a malformed entry is the SAME class of outcome (deny), just surfaced here.
+            # The list is handed on as it is and read by what it stores (`verify_anchors` reads it
+            # through the base type's iteration). `anchors or []` asked the caller's list whether it is
+            # empty, and one that stored an anchor over another root and said it was empty hid it
+            # (deep gate 6.2.0 at 2348f0a7, L3-620-02). A built-in value keeps the handling it had.
             try:
-                ar = _anchors_mod.verify_anchors(anchors or [], target_roots={"statement": content_root},
-                                                 rp_trust=rp_trust)
+                ar = _anchors_mod.verify_anchors(anchors if anchors is not None else [],
+                                                 target_roots={"statement": content_root}, rp_trust=rp_trust)
             except (ProofBundleError, ValueError, TypeError, OverflowError, RecursionError) as exc:
                 # deep gate 2026-09-05 (L2-BDOS-RENDER-NEIGHBOURS-01): this guard caught ProofBundleError
                 # only, so a render-class escape from the anchor layer (a huge int in `type`, a mixed-type
@@ -890,21 +907,26 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # Trust policy (v0.2 decision_receipt section) over the CRYPTO-VERIFIED statement. WP5. A policy is NEVER
     # evaluated on unverified bytes (fail-open fix, mirrors the eval path): if crypto did not pass, policy_ok
     # and signer_trusted stay None — a policy is never a reason to trust bytes whose signature failed.
-    if policy is not None and not isinstance(policy, dict):
+    # The argument's own type decides (`issubclass`), not `isinstance`, which believes a `__class__` claim:
+    # an object that claims to be a dict is no policy, and it is refused like any other non-dict.
+    if policy is not None and not issubclass(type(policy), dict):
         # RE-GATE never-raise (F2 / REGATE-CRYPTO-02): a caller-supplied non-dict `policy` (a JSON scalar
         # or list) must be a fail-closed policy verdict, not a raw AttributeError out of policy.get(...) —
         # evaluate_decision_policy is defended too (layer a), this is the call-site layer (b). A
         # requested-but-malformed policy is NEVER a silent pass (fail-open): it fails policy_ok.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif isinstance(policy, dict) and isinstance(predicate, dict):
+    elif issubclass(type(policy), dict) and isinstance(predicate, dict):
         if not r["crypto_ok"]:
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
             import base64  # noqa: PLC0415
             from .policy import evaluate_decision_policy  # noqa: PLC0415
-            pe = evaluate_decision_policy(statement, r, policy,
-                                          signer_public_key_b64=base64.b64encode(public_key).decode(),
+            # The plain copy when there is one; a dict holding a value that is no JSON value is handed on
+            # as it is, and evaluate_decision_policy refuses it with the loader's own message.
+            pe = evaluate_decision_policy(statement, r,
+                                          richtlinie if richtlinie is not None else cast(dict, policy),
+                                          signer_public_key_b64=base64.b64encode(schluessel).decode(),
                                           anchor_status=anchor_status)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
@@ -916,7 +938,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             # are EVAL-bundle concepts that evaluate_decision_policy never reads, so an orthogonal
             # allowed_issuers block in a v0.2 policy would wrongly suppress this warning for a decision
             # receipt signed by anyone. Gate solely on decision_receipt.trusted_decision_makers here.
-            _dr = policy.get("decision_receipt")
+            _dr = richtlinie.get("decision_receipt") if richtlinie is not None else None
             if isinstance(_dr, dict) and not _dr.get("trusted_decision_makers"):
                 r["warnings"].append(
                     "attributes to nobody: the policy pins no decision maker (no "
@@ -928,12 +950,12 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # the crypto verdict (lattice monotonicity). require_relation_resolution is conditional on
     # presence: a named relation that appears as an edge MUST be VERIFIED (attached + standalone-
     # verified); an absent relation is no violation.
-    if isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    if richtlinie is not None and isinstance(richtlinie.get("relations"), dict) and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
         from .relation import evaluate_relations_policy  # noqa: PLC0415
         _viol = evaluate_relations_policy(
-            policy["relations"], _as_dict(r.get("lineage")),
-            successor_key_b64=_b64_rel.b64encode(public_key).decode())
+            richtlinie["relations"], _as_dict(r.get("lineage")),
+            successor_key_b64=_b64_rel.b64encode(schluessel).decode())
         if _viol:
             r["policy_ok"] = False
             # WP-A3 / F5 driver: any relations violation means a REQUESTED relation surface did not

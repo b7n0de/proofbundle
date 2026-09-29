@@ -84,12 +84,24 @@ def verify_prereg(protocol_path, claim: dict) -> dict:
 
     Returns ``{ok, present, expected, actual, detail}``. ``present`` is False when the claim
     carries no ``prereg_sha256`` (not pre-registered) — the caller decides whether that is
-    acceptable; ``ok`` is only True on a present-and-matching hash (fail-closed)."""
-    expected = claim.get("prereg_sha256") if isinstance(claim, dict) else None
-    result = {"ok": False, "present": expected is not None, "expected": expected,
-              "actual": None, "detail": ""}
-    if expected is None:
+    acceptable; ``ok`` is only True on a present-and-matching hash (fail-closed).
+
+    The claim is read by what it stores (deep gate 6.2.0 at 2348f0a7, L1-620-T3-02): the field is the value
+    the dict stores under the key ``prereg_sha256`` (`canonical._feld_von`, which runs no method of the
+    caller), and it is compared by its characters (`canonical._zeichen_von`). The claim was read through its
+    own ``get`` after ``isinstance``, which believes a ``__class__`` claim, and compared with ``==``, which
+    asks a ``str`` subclass's reflected ``__eq__`` first: ok True for a claim that stores the hash of
+    another document. A stored value that is no text never matches."""
+    from .canonical import _feld_von, _zeichen_von  # noqa: PLC0415
+    gespeichert = _feld_von(claim, "prereg_sha256")
+    expected = _zeichen_von(gespeichert)
+    result = {"ok": False, "present": gespeichert is not None,
+              "expected": expected if expected is not None else gespeichert, "actual": None, "detail": ""}
+    if gespeichert is None:
         result["detail"] = "claim carries no prereg_sha256 (not pre-registered)"
+        return result
+    if expected is None:
+        result["detail"] = "prereg_sha256 is not a text value (fail-closed)"
         return result
     try:
         actual = prereg_hash(protocol_path)

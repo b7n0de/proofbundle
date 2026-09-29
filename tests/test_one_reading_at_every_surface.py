@@ -874,6 +874,11 @@ def _klar(wert):
     return wert
 
 
+def _praedikattyp(umschlag) -> str:
+    """The predicateType a DSSE in-toto envelope of this package carries (the legitimate expectation)."""
+    return json.loads(base64.b64decode(umschlag["payload"]))["predicateType"]
+
+
 def _flaechen():
     """(name, call): each call takes `w`, the reader of the caller's values (a deep copy, or the
     recording rebuild), and runs one public surface on a LEGITIMATE input built from this package's
@@ -978,39 +983,57 @@ def _flaechen():
         "ok": True, "warn": False, "status": "confirmed", "detail": "sweep"})
     anker = [{"type": "sweep-anchor/v1", "target": "receipt", "canonicalRoot": base64.b64encode(b"\xaa" * 32).decode(),
               "proof": base64.b64encode(b"p").decode(), "anchoredAt": "2026-07-05T12:00:00Z"}]
+    # The arguments the sweep did not pass before the deep gate of 6.2.0 at 2348f0a7 (L4-620-01, L3-620-02):
+    # a policy with a relations section, an attached target map and detached anchors over the statement.
+    dec_wurzel = anchors.statement_content_root(dsse.load_payload(dec_env))
+    dec_anker = [{"type": "sweep-anchor/v1", "target": "statement",
+                  "canonicalRoot": base64.b64encode(dec_wurzel).decode(), "proof": base64.b64encode(b"p").decode()}]
+    relationen = {"reject_superseded": True, "require_relation_resolution": ["retracts"]}
+    dec_policy_relationen = dict(dec_policy, relations=relationen)
+    verwandt = {"e" * 64: {"verified": True, "relationships": [], "verified_under": _b64pub(_T),
+                           "subject_digest": None, "subject_digest_state": "absent"}}
 
     f = [
         # verify surfaces
         ("bundle.verify_bundle", lambda w: bm.verify_bundle(
             w(sd_bundle), expected_aud=w("v"), expected_nonce=w("n"),
             expected_root_b64=w(sd_bundle["merkle"]["root_b64"]), expected_tree_size=w(1))),
-        ("evalclaim.decode_eval_claim", lambda w: ec.decode_eval_claim(w(ev_bundle))),
-        ("evalclaim.classify_eval_claim", lambda w: ec.classify_eval_claim(w(ev_bundle))),
+        ("evalclaim.decode_eval_claim", lambda w: ec.decode_eval_claim(w(ev_bundle), expected_context=w("sweep"))),
+        ("evalclaim.classify_eval_claim", lambda w: ec.classify_eval_claim(w(ev_bundle), expected_context=w("sweep"))),
         ("dsse.verify_envelope", lambda w: dsse.verify_envelope(w(dec_env), w(pub), payload_type=w(
             "application/vnd.in-toto+json"))),
         ("dsse.load_payload", lambda w: dsse.load_payload(w(dec_env))),
-        ("intoto.verify_intoto_dsse", lambda w: intoto.verify_intoto_dsse(w(intoto_env), w(pub))),
-        ("intoto.verify_eval_result_dsse", lambda w: intoto.verify_eval_result_dsse(w(eval_env), w(pub))),
-        ("intoto.verify_svr_dsse", lambda w: intoto.verify_svr_dsse(w(svr_env), w(pub))),
+        ("intoto.verify_intoto_dsse", lambda w: intoto.verify_intoto_dsse(
+            w(intoto_env), w(pub), expected_predicate_type=w(_praedikattyp(intoto_env)))),
+        ("intoto.verify_eval_result_dsse", lambda w: intoto.verify_eval_result_dsse(
+            w(eval_env), w(pub), expected_predicate_type=w(_praedikattyp(eval_env)))),
+        ("intoto.verify_svr_dsse", lambda w: intoto.verify_svr_dsse(
+            w(svr_env), w(pub), expected_predicate_type=w(_praedikattyp(svr_env)))),
         ("decision.verify_decision_receipt", lambda w: decision.verify_decision_receipt(
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),
-            expected_nonce=w(dec_validity.get("nonce") or "n"))),
+            expected_nonce=w(dec_validity.get("nonce") or "n"), policy=w(dec_policy_relationen),
+            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w("a" * 64), trust_pack=w(tp_pred),
-            decision_maker_id=w("maker:x"))),
+            decision_maker_id=w("maker:x"), expected_audience=w("rp"), expected_nonce=w("n"),
+            policy=w({"relations": relationen}), related=w(verwandt))),
         ("run_ledger.verify_run_ledger", lambda w: rl.verify_run_ledger(w(rl.emit_run_ledger(rl_pred, _T)), w(pub))),
         ("verification_summary.verify_verification_summary", lambda w: vs.verify_verification_summary(
             w(vs.emit_verification_summary(vs_pred, _T)), w(pub))),
         ("relation_statement.verify_relation_statement", lambda w: rs.verify_relation_statement(
-            w(rs.emit_relation_statement(rs_pred, _T)), w(pub))),
+            w(rs.emit_relation_statement(rs_pred, _T)), w(pub),
+            policy=w({"relations": dict(relationen, reject_retracted=True)}), related=w(verwandt))),
         ("agent_review.verify_agent_review_v02", lambda w: ar.verify_agent_review_v02(
-            w(ar_env), w(pub), expected_subject_digest=w(ar_subjekt))),
+            w(ar_env), w(pub), expected_subject_digest=w(ar_subjekt), observed_body=w("the observed body"),
+            policy=w(dict(ar.load_policy())))),
         ("agent_review.verify_agent_review_any", lambda w: ar.verify_agent_review_any(
             w(ar_env), w(pub), expected_subject_digest=w(ar_subjekt))),
         ("agent_review.resolve_receipt_chain", lambda w: ar.resolve_receipt_chain(
             w(kette), verified=w([ar.receipt_digest(e) for e in kette]))),
         ("agent_review.receipt_digest", lambda w: ar.receipt_digest(w(ar_env))),
-        ("trust_pack.verify_trust_pack", lambda w: tp.verify_trust_pack(w(tp_env), now=jetzt)),
+        ("trust_pack.verify_trust_pack", lambda w: tp.verify_trust_pack(
+            w(tp_env), now=jetzt, prev_version_digest=w("a" * 64), prev_root_keys=w(dict(tp_keys)),
+            prev_version=w(1), prev_root_threshold=w(2))),
         ("policy.evaluate_policy", lambda w: pol.evaluate_policy(
             w(ev_bundle), bm.verify_bundle(ev_bundle), w(policy))),
         ("policy.evaluate_decision_policy", lambda w: pol.evaluate_decision_policy(
@@ -1031,7 +1054,8 @@ def _flaechen():
         ("tlogproof.verify_tlog_proof", lambda w: tlogproof.verify_tlog_proof(
             w(tlog_text), w(b"leaf-1"), w(log_vkey), w([zeuge]), threshold=w(1), expected_origin=w(origin))),
         ("anchors.verify_anchors", lambda w: anchors.verify_anchors(
-            w(anker), target_roots=w({"receipt": b"\xaa" * 32}), require=w("any"), require_target=w("receipt"))),
+            w(anker), target_roots=w({"receipt": b"\xaa" * 32}), require=w("any"), require_target=w("receipt"),
+            now=w(1_780_000_000))),
         ("sdjwt.verify_sd_jwt", lambda w: sdjwt.verify_sd_jwt(w(praesentiert), w(pub))),
         ("kbjwt.verify_key_binding", lambda w: kbjwt.verify_key_binding(
             w(praesentiert), expected_aud=w("v"), expected_nonce=w("n"))),
@@ -1042,9 +1066,10 @@ def _flaechen():
             w(token), expected_uri=w("https://example.org/list/1"), index=w(1), issuer_pubkey=w(pub),
             now=w(2000), receipt_issuer_pubkey=w(pub))),
         ("sdjwt_vc.verify_sdjwt_vc", lambda w: sdjwt_vc.verify_sdjwt_vc(
-            w(praesentiert), w(vc_policy), issuer_pubkey=w(pub), expected_aud=w("v"), expected_nonce=w("n"))),
+            w(praesentiert), w(vc_policy), issuer_pubkey=w(pub), expected_aud=w("v"), expected_nonce=w("n"),
+            holder_pubkey=w(_raw(halter)), offline_metadata=w({}))),
         ("adapters.agt_receipt.verify_agt_receipt", lambda w: agt.verify_agt_receipt(
-            w(agt_r), trusted_authorizer_keys=w([_raw(_A).hex()]))),
+            w(agt_r), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("adapters.agt_receipt.verify_agt_receipt_chain", lambda w: agt.verify_agt_receipt_chain(
             w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]))),
         ("public_transparency.evaluate_public_transparency", lambda w: pt.evaluate_public_transparency(
@@ -1089,7 +1114,54 @@ def _flaechen():
             w(kompakt), halter, aud="v", nonce="n", iat=w(1_780_000_000))),
     ]
     f += _flaechen_zwei(ev_bundle, dec_pred, out_pred, policy, tp_pred)
-    return f, (lambda: (anchors._VERIFIERS.clear(), anchors._VERIFIERS.update(saved)))
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    ablage = tempfile.mkdtemp(prefix="one-reading-sweep-")
+    f += _flaechen_drei(pathlib.Path(ablage))
+    return f, (lambda: (anchors._VERIFIERS.clear(), anchors._VERIFIERS.update(saved),
+                        shutil.rmtree(ablage, ignore_errors=True)))
+
+
+def _flaechen_drei(ablage):
+    """The third part of the sweep: the exported verify and evaluate surfaces the first two parts did not
+    list (deep gate 6.2.0 at 2348f0a7, L1-620-T3-02 and L2-620-RENEWAL-*). A document path is an operating
+    system path, not a value a check compares, and is passed unwrapped like the keys above; the claim, the
+    sequence, the data digests, the authority keys and the remembered digest are the caller's values."""
+    import hashlib  # noqa: PLC0415
+
+    from proofbundle import evalcard, pqsig, prereg, renewal  # noqa: PLC0415
+    from proofbundle import RenewalPolicy, build_initial_sequence, renew_timestamp  # noqa: PLC0415
+    from proofbundle.renewal import anchor_proof_digest  # noqa: PLC0415
+
+    dokument = ablage / "protocol.txt"
+    dokument.write_bytes(b"the protocol of the sweep\n")
+    wert = hashlib.sha256(b"the protocol of the sweep\n").hexdigest()
+    daten = ["ab" * 32, "cd" * 32]
+    folge = renew_timestamp(build_initial_sequence(daten, hash_alg="sha256", time=5, sig_alg="ed25519",
+                                                   signers={"ed25519": _T}),
+                            time=7, signers={"ed25519": _T})
+    zuletzt = anchor_proof_digest(folge[-1][-1])
+    return [
+        ("prereg.verify_prereg", lambda w: prereg.verify_prereg(str(dokument), w({"prereg_sha256": wert}))),
+        ("evalcard.verify_evaluation_card", lambda w: evalcard.verify_evaluation_card(
+            str(dokument), w({"evaluation_card_sha256": wert}))),
+        ("renewal.verify_sequence", lambda w: renewal.verify_sequence(
+            w(folge), w(daten), authority_keys=w({"ed25519": _raw(_T)}), known_newest_token_digest=w(zuletzt),
+            rp_trust=w({}))),
+        ("renewal.evaluate_renewal_policy", lambda w: renewal.evaluate_renewal_policy(
+            w(folge), policy=RenewalPolicy(deprecated_algs=frozenset({"sha1"}), max_ats_age=10, strictness="fail"),
+            now=w(12))),
+        # The three post-quantum verifiers: the sweep measures that they read the caller's bytes by what
+        # they store whether the optional backend is installed or not (without it both runs raise the same
+        # PQUnavailable, which the sweep compares like any other outcome).
+        ("pqsig.verify_mldsa", lambda w: pqsig.verify_mldsa(w(b"\x01" * 1952), w(b"\x02" * 3309), w(b"message"),
+                                                      level=w("mldsa65"))),
+        ("pqsig.verify_slhdsa", lambda w: pqsig.verify_slhdsa(w(b"\x01" * 32), w(b"\x02" * 7856), w(b"message"),
+                                                        level=w("slhdsa-sha2-128s"))),
+        ("pqsig.verify_hybrid", lambda w: pqsig.verify_hybrid(
+            classical_pub=w(_raw(_T)), classical_sig=w(_T.sign(b"message")), pq_pub=w(b"\x01" * 1952),
+            pq_sig=w(b"\x02" * 3309), message=w(b"message"), pq_level=w("mldsa65"))),
+    ]
 
 
 def _flaechen_zwei(ev_bundle, dec_pred, out_pred, policy, tp_pred):
@@ -1136,7 +1208,7 @@ def _flaechen_zwei(ev_bundle, dec_pred, out_pred, policy, tp_pred):
         ("relation.verify_relationship_edges", lambda w: relation.verify_relationship_edges(
             w([{"relation": "retracts", "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1",
                                                                  "digest": "a" * 64}}]), None,
-            subject_hex=w("b" * 64))),
+            subject_hex=w("b" * 64), max_depth=w(8))),
         ("assurance.classify_digest_evidence", lambda w: assurance.classify_digest_evidence(
             _klare_schluessel(w({"sha256": "a" * 64})))),
         ("subject_binding.classify_subject", lambda w: subject_binding.classify_subject(w(statement))),
@@ -1176,19 +1248,21 @@ def _flaechen_mit_ots():
     from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp  # noqa: PLC0415
 
     from proofbundle import anchors_rootcommit as rc  # noqa: PLC0415
-    from proofbundle.evidence_pack import build_evidence_pack, verify_evidence_pack  # noqa: PLC0415
+    from proofbundle import evidence_pack as ep  # noqa: PLC0415
 
     wurzel = hashlib.sha256(b"one-reading-pack-root").digest()
     ts = Timestamp(wurzel)
     ts.attestations.add(PendingAttestation("https://alice.btc.calendar.opentimestamps.org"))
     ctx = BytesSerializationContext()
     DetachedTimestampFile(OpSHA256(), ts).serialize(ctx)
-    pack = build_evidence_pack(wurzel, ctx.getbytes())
+    pack = ep.build_evidence_pack(wurzel, ctx.getbytes())
     vektor = (_WURZEL / "tests" / "fixtures" / "anchors" / "tlog_bitcoin_anchor" / "rootcommit" / "vectors"
               / "rootcommit-01-valid.txt").read_text()
     return [
-        ("evidence_pack.verify_evidence_pack", lambda w: verify_evidence_pack(w(pack))),
-        ("anchors_rootcommit.verify_rootcommit_v1", lambda w: rc.verify_rootcommit_v1(w(vektor))),
+        ("evidence_pack.verify_evidence_pack", lambda w: ep.verify_evidence_pack(
+            w(pack), rp_trust=w({}), now=w(1_780_000_000))),
+        ("anchors_rootcommit.verify_rootcommit_v1", lambda w: rc.verify_rootcommit_v1(
+            w(vektor), frozen=w({}), rp_trust=w({}))),
     ]
 
 
@@ -1235,6 +1309,148 @@ class EverySurfaceReadsTheCallersObjectsByWhatTheyStore(unittest.TestCase):
                 _AUFRUFE.clear()
                 self.assertEqual(aufrufe, [], f"{name} ran methods of the caller's values")
                 self.assertEqual(_klar(gesehen), _klar(erwartet), f"{name} answered differently")
+
+
+#: The arguments of a verify or evaluate surface that the sweep does NOT pass, each with its reason. Every
+#: other argument of such a surface must be passed by the sweep, measured, so an argument added later is red
+#: here until it is passed or named. Two rule-based groups are not listed one by one and are NOT measured
+#: by this sweep: a switch (an argument whose default is a bool; judged by `_membership.require_switch` or
+#: by the exact True where a switch widens a verdict) and a callback (its name holds `resolver` or
+#: `verifier`; the rewrite-during-a-callback property is measured for the receipt verifiers in
+#: tests/test_one_reading_reaches_every_argument.py, and not for the other callbacks).
+_NICHT_IM_SWEEP = {
+    "public_transparency.evaluate_public_transparency": {
+        "consistency_confirmed": "a bool or None the relying party computed; a bool cannot be subclassed",
+        "consistency_result": "an object of this package's own ConsistencyVerificationResult type, no JSON value",
+    },
+    "policy.evaluate_policy": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON values"},
+    "trust_pack.verify_trust_pack": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON values"},
+}
+
+
+class EveryArgumentOfAVerifySurfaceIsInTheSweep(unittest.TestCase):
+    """GENERATOR for the sweep itself (deep gate 6.2.0 at 2348f0a7). The eight P1 findings of that gate sat
+    in arguments the sweep never passed (`policy`, `related` and `anchors` of the receipt verifiers) and in
+    exported surfaces it never listed (`verify_prereg`, `verify_evaluation_card`, `verify_sequence`,
+    `evaluate_renewal_policy`). A list of cases cannot see what it does not list, so this measures the
+    list: every name that `proofbundle` exports as `verify_*` or `evaluate_*` is a surface of the sweep,
+    and every argument of every verify or evaluate surface of the sweep is passed by it, read from the
+    calls the sweep actually makes, or named in `_NICHT_IM_SWEEP`, or a switch or a callback (see there).
+
+    GREEN at 2074d814 and at the head that adds it: it measures this file, not the package. It is RED for a
+    planted gap, measured when it was added: with `anchors=` taken out of the decision call it names
+    `decision.verify_decision_receipt(anchors)`, and with the `verify_prereg` entry taken out it names
+    `verify_prereg (prereg.verify_prereg)`."""
+
+    def _gerufen(self):
+        import importlib  # noqa: PLC0415
+        import inspect  # noqa: PLC0415
+        flaechen, aufraeumen = _flaechen()
+        self.addCleanup(aufraeumen)
+        gesehen: dict = {}
+        original = []
+        for name, _ in flaechen:
+            modul = importlib.import_module("proofbundle." + name.rsplit(".", 1)[0])
+            attr = name.rsplit(".", 1)[1]
+            fn = getattr(modul, attr)
+
+            def huelle(*a, _fn=fn, _name=name, _sig=inspect.signature(fn), **k):
+                gesehen.setdefault(_name, set()).update(_sig.bind(*a, **k).arguments)
+                return _fn(*a, **k)
+
+            original.append((modul, attr, fn))
+            setattr(modul, attr, huelle)
+        try:
+            for _name, aufruf in flaechen:
+                try:
+                    aufruf(copy.deepcopy)
+                except Exception:  # noqa: BLE001, S110 - the outcome is measured elsewhere; here only the arguments
+                    pass
+        finally:
+            for modul, attr, fn in original:
+                setattr(modul, attr, fn)
+        return flaechen, gesehen
+
+    def test_every_exported_verify_surface_is_in_the_sweep(self) -> None:
+        import proofbundle  # noqa: PLC0415
+        flaechen, _ = self._gerufen()
+        namen = {name for name, _ in flaechen}
+        fehlt = []
+        for export in sorted(dir(proofbundle)):
+            if not export.startswith(("verify_", "evaluate_")):
+                continue
+            objekt = getattr(proofbundle, export)
+            name = f"{objekt.__module__.removeprefix('proofbundle.')}.{objekt.__name__}"
+            if name not in namen:
+                fehlt.append(f"{export} ({name})")
+        self.assertEqual(fehlt, [], "exported verify surfaces that the sweep does not call")
+
+    def test_every_argument_of_a_verify_surface_is_passed(self) -> None:
+        import importlib  # noqa: PLC0415
+        import inspect  # noqa: PLC0415
+        flaechen, gesehen = self._gerufen()
+        offen = []
+        for name, _ in flaechen:
+            attr = name.rsplit(".", 1)[1]
+            if not attr.startswith(("verify_", "evaluate_")):
+                continue
+            fn = getattr(importlib.import_module("proofbundle." + name.rsplit(".", 1)[0]), attr)
+            for argument, parameter in inspect.signature(fn).parameters.items():
+                if (argument.startswith("_") or argument in gesehen.get(name, set())
+                        or argument in _NICHT_IM_SWEEP.get(name, {})
+                        or type(parameter.default) is bool
+                        or "resolver" in argument or "verifier" in argument):
+                    continue
+                offen.append(f"{name}({argument})")
+        self.assertEqual(offen, [], "arguments of verify surfaces the sweep does not pass and that are not named")
+
+
+def _zahlen_aufgezeichnet(wert):
+    """`wert` with every int (not bool) and float rebuilt as a recording subclass, and everything else as
+    it is. The sweep above keeps numbers plain on the premise that every surface reads a number by the one
+    rule (`_plain_value.plain_int`) and refuses a subclass; this reading tests that premise."""
+    _PAUSE.append(1)
+    try:
+        return _zahlen(wert)
+    finally:
+        _PAUSE.pop()
+
+
+def _zahlen(wert):
+    typ = type(wert)
+    if typ is int:
+        return _RInt(wert)
+    if typ is float:
+        return _RFloat(wert)
+    if typ is dict:
+        return {k: _zahlen(v) for k, v in wert.items()}
+    if typ is list or typ is tuple:
+        return typ(_zahlen(v) for v in wert)
+    return wert
+
+
+class EveryNumberIsReadByTheOneRule(unittest.TestCase):
+    """PROPERTY (the number axis of the class, deep gate 6.2.0 at 2348f0a7): a surface reads a number the
+    caller hands it as an exact int or float, and refuses a subclass, or runs none of its methods. The
+    premise of the sweep above did not hold everywhere: `evaluate_renewal_policy` subtracted a `now` through
+    its own `__sub__` (L2-620-RENEWAL-POLICY-NOW-INTSUB), and `verify_trust_pack` compared `prev_version` and
+    `prev_root_threshold` through their own reflected comparisons. A refusal is a correct answer here; a
+    method of the caller's number that runs is not. RED at 2074d814 for `trust_pack.verify_trust_pack` and
+    `renewal.evaluate_renewal_policy`, GREEN at the head that adds it."""
+
+    def test_no_surface_runs_a_method_of_a_callers_number(self) -> None:
+        flaechen, aufraeumen = _flaechen()
+        self.addCleanup(aufraeumen)
+        for name, aufruf in flaechen:
+            with self.subTest(surface=name):
+                _AUFRUFE.clear()
+                try:
+                    aufruf(_zahlen_aufgezeichnet)
+                except Exception:  # noqa: BLE001, S110 - a refusal is a correct answer here
+                    pass
+                gelaufen = sorted(set(_AUFRUFE))
+                _AUFRUFE.clear()
+                self.assertEqual(gelaufen, [], f"{name} ran methods of a caller's number")
 
 
 class ALineageResultWithoutAPlainCopyIsReadByWhatItStores(unittest.TestCase):

@@ -370,6 +370,25 @@ def _pruefkopie(wert: Any) -> Any:
     return tuple(kopie) if issubclass(type(wert), tuple) else kopie
 
 
+def _richtlinie_von(policy: Any) -> Any:
+    """A verifier's ``policy`` argument as the plain copy of what it stores, or None when it is absent,
+    no dict, or holds a value that is no JSON value (deep gate 6.2.0 at 2348f0a7, L4-620-01).
+
+    The relations gate, the anchor obligation and the self-assertion gate of the three receipt
+    verifiers read the caller's policy through its own ``get`` and ``__getitem__``, while
+    `policy.evaluate_decision_policy` read the same policy by what it stores: a dict subclass whose own
+    ``get`` answered the default hid a verified attached retraction and a relation-signer pin, and ok
+    came out True. Every gate of a verifier now reads this one copy. The caller tells the three None
+    cases apart by the argument's own type (``issubclass(type(policy), dict)``), never by ``isinstance``,
+    which believes a ``__class__`` claim."""
+    if policy is None or not issubclass(type(policy), dict):
+        return None
+    try:
+        return _plain_for_jcs(policy, ValueError)
+    except ValueError:
+        return None
+
+
 def _eine_kopie(wert: Any, fehler: Callable[[str], BaseException], was: str) -> Any:
     """For an emitter (round 12): a caller's predicate as the plain copy of what it stores, read ONCE
     before it is validated, hashed and signed, so the validator judges exactly what is signed. A
