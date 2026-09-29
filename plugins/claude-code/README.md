@@ -54,10 +54,21 @@ A pass proves what the declared evidence proves: who signed the recorded bytes, 
 unchanged. It does not prove that the pushed code is what the evidence describes (D2 in
 DECISIONS.md).
 
+## Install from this repository
+
+The repository root carries `.claude-plugin/marketplace.json`, a marketplace with this one plugin. It
+publishes nothing. After the plugin lands on the default branch:
+
+```sh
+claude plugin marketplace add b7n0de/proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
 ## Try it from a checkout
 
 ```sh
 claude plugin validate --strict plugins/claude-code
+claude plugin validate --strict .
 claude --plugin-dir plugins/claude-code
 ```
 
