@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Any, TypeGuard
 
 from ._membership import is_member, require_switch
-from .canonical import _eine_kopie, _feld_von, _folge_von, _pruefkopie, _zeichen_von
+from .canonical import _eine_kopie, _feld_von, _folge_von, _pruefkopie, _richtlinie_von, _zeichen_von
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -2335,10 +2335,15 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     `verified` MUSS ausdruecklich True sein. Eine mitgelieferte, ungepruefte Evidenz hebt nichts
     an; sonst waere die Anhebung eine Behauptung der Gegenseite.
     """
-    aus = dict(axes)
-    if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+    # ONE READING (verify lane on pull request 312): `verified` and `kind` were read through the evidence's
+    # own `get` and `isinstance`, and `kind` compared through the caller's `__eq__`, so a dict subclass that
+    # stored nothing lifted both axes. The evidence is read once, as the plain copy of what it stores, and
+    # the axes as the pairs the caller's map stores; no method of either runs.
+    aus = dict(dict.items(axes)) if issubclass(type(axes), dict) else dict(axes)
+    beleg = _richtlinie_von(evidence)
+    if beleg is None or beleg.get("verified") is not True:
         return aus
-    art = evidence.get("kind")
+    art = _zeichen_von(beleg.get("kind"))
     if art == "rfc3161":
         aus["signature_time_status"] = "PLATFORM_ATTESTED"
         aus["external_time_status"] = "EXTERNALLY_ANCHORED"
@@ -2967,7 +2972,14 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # der eine Pfad.
             _st = locals().get("statement")
             _praed = _st.get("predicate") if isinstance(_st, dict) else None
-            _pe = evaluate_limitation_policy(_praed or {}, policy)
+            # ONE READING OF THE POLICY (deep gate 6.2.0 at 2348f0a7, found by the extended sweep): the plain
+            # copy of what it stores, for the limitation rule and the time rule alike. `policy.get("time")`
+            # read the caller's dict through its own `get`. A policy that is no JSON object is refused here and
+            # lands in the except below as insufficient_evidence (fail-closed).
+            _pol = _richtlinie_von(policy)
+            if _pol is None:
+                raise ValueError("the policy is not a JSON object that can be read by what it stores")
+            _pe = evaluate_limitation_policy(_praed or {}, _pol)
             r["policy_decision"] = _pe["decision"]
             r["policy_name"] = _pe.get("policy_name")
             r["policy_digest"] = _pe.get("policy_digest")
@@ -2978,7 +2990,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # reject > insufficient_evidence > accept. Ohne `time` bleibt die Achse ungefahren
             # (`time_policy_decision: None`) — die Standard-Policy fuehrt keine, und das steht
             # im Ergebnis. Ein Mechanismus ohne Aufrufer war die Luecke, nicht die Mechanik.
-            _zp = policy.get("time")
+            _zp = _pol.get("time")
             if _zp is not None:
                 _achsen = {k: r.get(k) for k in ("event_time_status", "observation_time_status",
                                                  "signature_time_status", "external_time_status")}

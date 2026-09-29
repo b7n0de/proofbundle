@@ -68,7 +68,17 @@ def verify_mldsa(public_key: bytes, signature: bytes, message: bytes, *, level: 
     # adversarial re-audit round 6: an UNKNOWN `level` is malformed input, not a wiring problem — return False per
     # the contract above (it otherwise raised PQUnavailable from _mldsa_classes, contradicting "never raises").
     # A MISSING FIPS-204 build still raises PQUnavailable below (an honest "cannot check", never a false False).
+    # ONE READING (deep gate 6.2.0 at 2348f0a7, found by the extended sweep): the level is compared by its
+    # characters and the three inputs are read as the bytes they store (`canonical._bytes_von`, as
+    # `signature.verify_ed25519` reads them), so a `str` subclass's own `__eq__` and `__hash__` never choose
+    # the level and a `bytes` subclass's own methods never decide what is verified. A value that is no
+    # bytes or bytearray is malformed input: False.
+    from .canonical import _bytes_von, _zeichen_von  # noqa: PLC0415
+    level = _zeichen_von(level)
     if level not in ("mldsa44", "mldsa65", "mldsa87"):
+        return False
+    public_key, signature, message = _bytes_von(public_key), _bytes_von(signature), _bytes_von(message)
+    if public_key is None or signature is None or message is None:
         return False
     _priv_cls, pub_cls = _mldsa_classes(level)
     from cryptography.exceptions import InvalidSignature  # noqa: PLC0415

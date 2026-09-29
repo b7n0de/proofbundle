@@ -26,6 +26,117 @@ open and why is in `RESTRISIKO_620.md`, which lands before the closing round, no
 
 ### Fixed
 
+- **One reading reaches every argument a public verify surface judges, and the sweep measures its own
+  reach** (deep gate of the 6.2.0 release preparation, pull request 311 at 2348f0a7: eight P1 findings,
+  each confirmed by three of three blind jurors, one of them found twice; the class of the round-12 entry
+  "Every public verify and emit surface reads the caller's objects once, by what they store", in
+  arguments its sweep did not pass and in exported surfaces it did not list). Measured at main 2074d814,
+  each through the Python API; the CLI parses files into plain values and is not affected:
+  - `verify_decision_receipt` and `verify_outcome_receipt` checked the signature under one copy of
+    `public_key` and read the caller's buffer again for the trust pin, the `relation_signer` pin and the
+    pack binding, after caller code (an evidence resolver, a registered anchor verifier) could rewrite a
+    `bytearray`: a receipt signed by an untrusted key reported `signer_trusted`, `policy_ok` and `ok`
+    True. The key is read once at entry (`_bytes_von`), and every later check uses that copy; so does
+    `verify_relation_statement`.
+  - `verify_prereg` and `verify_evaluation_card` read the stored hash through the claim's own `get` and
+    compared it through the caller's `__eq__`: a claim that stores another document's hash gave ok True.
+    The field is read from what the claim stores (`_feld_von`) and compared by its characters; a stored
+    value that is no text is a failed check that says so.
+  - `verify_sequence` checked the authority signature over an int subclass's own rendering of an ATS
+    `time` while `evaluate_renewal_policy` judged the stored integer, so a stale anchor was judged fresh;
+    `evaluate_renewal_policy` subtracted an int-subclass `now` through its own `__sub__` and `__gt__`,
+    which turned an overdue FAIL into ok True; and `known_newest_token_digest` was compared through the
+    caller's `__eq__`, so a truncated sequence passed `renewal:no_rollback`. A signed field is an exact
+    `str` or `int` now, `now`, `max_ats_age` and every stored time are exact ints, the sequence and the
+    signature pairs are read once (`_ketten_einmal`, `_signaturpaare`), the authority keys by the bytes
+    they store, and the digest and the strictness by their characters.
+  - `verify_decision_receipt` evaluated `anchors or []` through the list's own `__bool__`: a list that
+    says it is empty hid a failing anchor, and ok went from False to True. Only an absent list is empty.
+  - The relations gate of the decision, outcome and relation-statement verifiers read the policy through
+    its own `get` and `__getitem__`, while `evaluate_decision_policy` read what it stores in the same
+    call: a verified retraction or a `relation_signer` violation became ok True and `safeForAutomation`
+    True. The policy is copied once at entry (the new `canonical._richtlinie_von`), and every consumer
+    in the call judges that copy. A policy holding a value that is no JSON value fails `policy_ok` at the
+    outcome and relation-statement verifiers, and the decision verifier hands it to
+    `evaluate_decision_policy`, which refuses it with the loader's message. In all three the relations
+    section of such a policy is still judged as the policy stores it (the new `canonical._abschnitt_von`),
+    so the gate's own code `LINEAGE_REQUIREMENT_FAILED` stands beside that refusal, as it did at 2074d814.
+
+  The earlier entry of this section that named `known_newest_token_digest` and `prev_version_digest` as
+  not closed ("a neighbouring class in which the caller decides against itself") stands as the record of
+  its day; both are compared by their characters now.
+
+  The sweep missed these because it measured the arguments it passes and the surfaces it lists. It now
+  measures its own reach (`EveryArgumentOfAVerifySurfaceIsInTheSweep` in
+  `tests/test_one_reading_at_every_surface.py`): every `verify_*` and `evaluate_*` name that `proofbundle`
+  exports is a surface of the sweep, and every argument of every verify or evaluate surface of the sweep
+  is passed by it, read from the calls it makes, or named with a reason. Planted gaps make it red: with
+  `anchors=` taken out of the decision call it names `decision.verify_decision_receipt(anchors)`, and
+  with the `verify_prereg` entry taken out it names `verify_prereg`. Without the `[anchors]` extra the two
+  surfaces whose input needs OpenTimestamps are not in the sweep, and the case names them as not measured
+  instead of reading their absence as covered; every other gap stays red there too (measured with the
+  import blocked, as the hermetic cleanroom job installs no extras). The number axis is a property of its
+  own (`EveryNumberIsReadByTheOneRule`): no surface runs a method of a caller's number. The extended
+  sweep found neighbours of the same class and they are fixed here: `verify_mldsa` compared `level`
+  through a `str` subclass's own `__eq__` and read its three inputs through their own methods;
+  `verify_trust_pack` compared `prev_version` and `prev_root_threshold` through their own reflected
+  comparisons, `prev_version_digest` through the caller's `__eq__`, and read `prev_root_keys` through its
+  own methods; the v0.2 agent review read `policy.get("time")` through the caller's `get`;
+  `verify_rootcommit_v1` and `verify_rootcommit_v2sig` asked `frozen or {}` through the map's own
+  `__len__`; and `verify_sequence` asked `authority_keys or {}` the same way.
+
+  A verify lane of three lenses over the first pushed head of this change (c2ba90db) confirmed the claims
+  above with executed probes and found eight more neighbours, each a verdict promoted at c2ba90db and fixed
+  here: in `verify_sequence`, a `covered_digest` that is a `str` subclass with its own `__ne__` passed the
+  covering check, a `hash_alg` whose own `__eq__` and `__hash__` claimed `sha256` passed
+  `require_current_hash`, and a `token` placed in the instance dict of an exact `ArchiveTimeStamp` hid a
+  backdated entry (every entry is now a fresh `ArchiveTimeStamp` built from the values it stores, and a field
+  that holds a subclass of a built-in type is refused with the sequence); `evaluate_renewal_policy` read a
+  `RenewalPolicy` subclass's property more than once (only the exact type is a policy, each field is read
+  once); `verify_trust_pack` compared its expiry through a `datetime` subclass's own reflected comparison, and
+  `evaluate_policy` took the same clock (both read the clock once now, `canonical._zeitpunkt_von`);
+  `agent_review.apply_time_evidence` lifted both time axes for a dict subclass whose own `get` answered
+  verified evidence it does not store; `anchors_ots` and `anchors_rfc3161` read `rp_trust` and `frozen`
+  through their own `get`, so a relying-party header map that stored nothing confirmed an OpenTimestamps
+  proof through `verify_rootcommit_v1` (both are read once as plain copies now, `canonical._abbild_von`);
+  `verify_decision_receipt` handed an unreadable policy to `evaluate_decision_policy` after the evidence
+  resolver had run, so a resolver that rewrote it made ok True (the refusal is taken at entry now); and it
+  read `related` after the resolver, so a resolver that cleared it hid an attached retraction (the lineage
+  is computed before any caller code runs now). The same lane found the linearity case of
+  `tests/test_renewal_praefix_deckung_orakel.py` able to pass on a count of zero; it requires a count now.
+
+  What a caller sees differently: `verify_sequence` and `evaluate_renewal_policy` refuse an
+  `ArchiveTimeStamp` subclass as `renewal:shape`, because its own `token()` would decide the material the
+  covering check recomputes, and a signed field or time that is a `str` or `int` subclass is refused the
+  same way; `evaluate_renewal_policy` refuses a policy that is no `RenewalPolicy` of exactly that type;
+  `verify_trust_pack` and `evaluate_policy` refuse a clock that is no `datetime` of exactly that type (an
+  aware one is read as its UTC instant); `anchors_ots` and `anchors_rfc3161` refuse an `rp_trust` or
+  `frozen` that holds a value that is no JSON value. Two existing cases changed with it. `tests/test_renewal_praefix_deckung_orakel.py` counted the
+  `token()` calls of the covering walk through such a subclass; with the refusal the count fell to 0, and
+  its linearity case passed as 0 == 8 * 0. The count is taken on the class itself now, and a new case holds
+  the refusal. `tests/test_policy_nicht_auswertbar_hat_einen_code.py` triggered POLICY_NOT_EVALUABLE through
+  a policy whose own `get` raises, which the verifier no longer calls; the trigger is a policy holding a
+  value that is no JSON value now, which gives the code at 2074d814 and here, and a new case holds that the
+  raising `get` never runs and the verdict is that of the plain dict the policy stores.
+
+  Tests: `tests/test_one_reading_reaches_every_argument.py` (new) carries a case for each finding, and
+  the sweep file gains the new surfaces, the arguments the sweep did not pass and the two generator
+  classes. Measured at 2074d814 with both files of this change: 56 failed, 41 passed (pytest counts a failed
+  subtest as a failure and its parent case as passed). Here: 58 passed, 332 subtests, on Python 3.10.12. Two cases are green at both, and their docstrings say why: the anchor
+  obligation of `test_a_relation_signer_pin_and_an_anchor_obligation_at_a_decision`, because
+  `evaluate_decision_policy` judges that obligation by what the policy stores; and
+  `test_a_value_that_is_no_json_value_hides_no_relations_code`, which holds the relations code at all three
+  verifiers for a policy that cannot be copied as a whole. The first form of this change lost that code
+  (red there in all six subtests; the full suite found it in
+  `tests/test_an_unreadable_attached_entry_silences_no_sibling.py`). Named, not changed, each measured by
+  the verify lane and none a promoted verdict: `verify_decision_receipt` reads an `anchors` argument that
+  is a falsy value of another type (`{}`, `""`, `0`, `False`) as no anchors, as before; a policy holding two
+  `relations` keys with the same characters is refused with `policy_ok` False but without a relations code;
+  a policy holding a float NaN is copied as a value; `agent_review.validate_time_claim` and
+  `derive_limitation_codes` still read a caller's dict through its own `get` (read, not measured).
+  Switches, and callbacks other than those of the receipt verifiers, are not measured by the sweep, as
+  `_NICHT_IM_SWEEP` states.
+
 - **An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does** (`relation._RFC3339_Z`).
   The pattern read the timestamp with `\d`, which in a Python str pattern is every Unicode decimal digit.
   Measured 2026-09-28 on main 86671552: an Arabic-Indic year, a fullwidth year and Devanagari seconds

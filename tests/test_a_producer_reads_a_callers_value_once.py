@@ -1126,8 +1126,9 @@ _SWEEP = {
         "finding once and hashes it",
     ("src/proofbundle/agent_review.py", "receipt_digest"): "not a producer: digests a received envelope "
         "(verify side)",
-    ("src/proofbundle/agent_review.py", "apply_time_evidence"): "not affected: writes constants, never a "
-        "value it checked",
+    ("src/proofbundle/agent_review.py", "apply_time_evidence"): "not a producer: it checks `verified` and "
+        "`kind` and writes constants; it reads the evidence once, as the plain copy of what it stores "
+        "(pull request 312, where its own `get` had lifted both axes)",
     ("src/proofbundle/anchors.py", "receipt_canonical_root"): "not affected: checks only the structural "
         "budget, a bound on its own work, and writes only a hash",
     ("src/proofbundle/anchors.py", "prereg_canonical_root"): _c("anchors.prereg_canonical_root"),
