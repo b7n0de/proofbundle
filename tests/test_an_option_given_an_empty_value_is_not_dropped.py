@@ -16,6 +16,13 @@ in these forms: `if`, `while`, a conditional expression, `and` and `or`, `not`, 
 filter and `bool()`. Each such place must be named below with its reason, so an option added later, or a
 truth read of these forms added to an old one, fails here until someone decides what an empty value means
 for it. A read in another form (a truth test inside a called helper, say) is outside what it reads.
+
+EMPTY IS JUDGED AFTER NORMALISATION (deep gate at 99f76ceb, L3-620v4-T11-NONCE-WS-01, P1). The first fix
+refused `audit-challenge --nonce ''` by comparing the spelling with "", while the command used
+`bytes.fromhex(value)`, which skips ASCII whitespace: `--nonce ' '` decoded to the empty nonce, gave the
+grindable self-challenge indices under the label "auditor-nonce" and exited 0. So every measured site is run
+with whitespace spellings of the empty value as well, the audit challenge is checked as a property of the
+bytes it uses, and the class guard also refuses any comparison of a one-value option's spelling with "".
 """
 from __future__ import annotations
 
@@ -39,6 +46,10 @@ from proofbundle.relation_statement import emit_relation_statement
 
 REPO = Path(__file__).resolve().parents[1]
 CLI = REPO / "src" / "proofbundle" / "cli.py"
+
+#: The empty value and the whitespace a command may strip or skip before it uses the value: `str.strip`
+#: and `bytes.fromhex` both drop these six ASCII characters. Alone and mixed.
+_LEERRAUM = ("", " ", "\t", "\n", "\r", "\x0b", "\x0c", "  \t\n ", "\r\n")
 
 
 def _run(argv: list[str]) -> int:
@@ -117,6 +128,46 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
             with self.subTest(case=label):
                 self.assertIn(_run(basis + option), erwartet,
                               f"{label} '' was read like an absent option")
+
+    def test_a_value_that_normalises_to_empty_is_refused_like_the_empty_value(self) -> None:
+        # The generator of the class, not one more spelling: every site, every whitespace form a command may
+        # strip or skip (str.strip, bytes.fromhex), alone and mixed.
+        for label, basis, option, erwartet in self._faelle():
+            for wert in _LEERRAUM:
+                with self.subTest(case=label, value=repr(wert)):
+                    self.assertIn(_run(basis + [option[0], wert]), erwartet,
+                                  f"{label} {wert!r} was read like an absent option")
+
+    def test_an_auditor_nonce_is_never_the_empty_nonce(self) -> None:
+        # The property behind the audit-challenge case: exit 0 with mode "auditor-nonce" means the challenge
+        # used nonce bytes, and its indices are not the self-challenge indices a producer can grind.
+        from proofbundle.persample import audit_challenge
+        root = base64.b64encode(bytes(range(32))).decode()
+        selbst = audit_challenge(root, 1000, 20, b"")
+
+        def aufruf(extra: list[str]) -> tuple[int, dict | None]:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                rc = main(["audit-challenge", root, "1000", "20", "--json"] + extra)
+            return rc, (json.loads(out.getvalue()) if rc == 0 else None)
+
+        rc, ohne = aufruf([])   # control: no --nonce is the labelled self-challenge
+        self.assertEqual((rc, ohne["mode"], ohne["indices"]), (0, "self-challenge", selbst))
+        werte = list(_LEERRAUM) + ["ab" * 16, " ab" * 16, "\tab\n", "00", "zz", "a"]
+        for wert in werte:
+            with self.subTest(value=repr(wert)):
+                rc, aus = aufruf(["--nonce", wert])
+                if rc == 0:
+                    self.assertEqual(aus["mode"], "auditor-nonce")
+                    self.assertGreater(len(bytes.fromhex(wert)), 0, f"{wert!r} ran as a nonce with no bytes")
+                    self.assertNotEqual(aus["indices"], selbst, f"{wert!r} gave the self-challenge indices")
+                else:
+                    self.assertEqual(rc, 2)
+        # controls: a real nonce runs, and each whitespace form is refused
+        self.assertEqual(aufruf(["--nonce", "ab" * 16])[0], 0)
+        for wert in _LEERRAUM:
+            with self.subTest(refused=repr(wert)):
+                self.assertEqual(aufruf(["--nonce", wert])[0], 2)
 
     def test_an_empty_decision_maker_id_is_evaluated_not_dropped(self) -> None:
         # Classified, as the jury asked: the library reads the value with `is not None` (outcome.py, role
@@ -226,7 +277,51 @@ def _wahrheitslesungen(quelle: str, optionen: set[str]) -> set[tuple[str, str]]:
     return gefunden
 
 
+def _leervergleiche(quelle: str, optionen: set[str]) -> set[tuple[str, str]]:
+    """(function, dest) for every `== ""` or `!= ""` on a one-value option, direct or through a local alias.
+
+    Such a comparison judges emptiness by the spelling, and a command that strips or decodes the value
+    afterwards uses something else: `--nonce ' '` passed `== ""` and decoded to no bytes (deep gate at
+    99f76ceb). Emptiness is judged on the value the command uses, so this form is refused, not named."""
+    gefunden: set[tuple[str, str]] = set()
+    for funktion in ast.walk(ast.parse(quelle)):
+        if not isinstance(funktion, ast.FunctionDef):
+            continue
+        alias: dict[str, str] = {}
+        for knoten in ast.walk(funktion):
+            if (isinstance(knoten, ast.Assign) and len(knoten.targets) == 1
+                    and isinstance(knoten.targets[0], ast.Name)):
+                ziel = _optionsziel(knoten.value)
+                if ziel in optionen:
+                    alias[knoten.targets[0].id] = ziel
+        for knoten in ast.walk(funktion):
+            if not (isinstance(knoten, ast.Compare) and all(isinstance(o, (ast.Eq, ast.NotEq)) for o in knoten.ops)):
+                continue
+            seiten = [knoten.left, *knoten.comparators]
+            if not any(isinstance(s, ast.Constant) and s.value == "" for s in seiten):
+                continue
+            for seite in seiten:
+                ziel = alias.get(seite.id) if isinstance(seite, ast.Name) else _optionsziel(seite)
+                if ziel in optionen:
+                    gefunden.add((funktion.name, ziel))
+    return gefunden
+
+
 class EveryTruthReadOfAnOptionIsNamed(unittest.TestCase):
+
+    def test_no_option_is_judged_empty_by_its_spelling(self) -> None:
+        gefunden = _leervergleiche(CLI.read_text(encoding="utf-8"), _einwertige_optionen(build_parser()))
+        self.assertEqual(sorted(gefunden), [], "a one-value option is compared with \"\"; judge emptiness on the "
+                                               "value the command uses (after strip or decode), not its spelling")
+
+    def test_control_the_spelling_guard_finds_a_planted_comparison(self) -> None:
+        gepflanzt = ("def _x(args):\n"
+                     "    if args.nonce is not None and args.nonce == \"\":\n        pass\n"
+                     "    p = getattr(args, 'policy', None)\n"
+                     "    if \"\" != p:\n        pass\n"
+                     "    if args.aud == 'x':\n        pass\n")
+        self.assertEqual(_leervergleiche(gepflanzt, {"nonce", "policy", "aud"}), {("_x", "nonce"), ("_x", "policy")})
+
 
     def test_the_truth_reads_are_exactly_the_named_ones(self) -> None:
         gefunden = _wahrheitslesungen(CLI.read_text(encoding="utf-8"), _einwertige_optionen(build_parser()))

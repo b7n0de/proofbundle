@@ -32,6 +32,9 @@ version carries; the release notes name the affected versions, the effect and th
 gate at d97de8e5 found two more in the released 6.0.0 and 6.1.0, closed by pull request 311. An
 attached target's subject state outside the four words of its resolver bound a pin to the first
 subject of an ambiguous target, and a restricting CLI option given an empty value was read as absent.
+The deep gate at 99f76ceb found the first fix of that option incomplete at `audit-challenge --nonce`,
+which it had judged by its spelling: a nonce of only whitespace decoded to no bytes and ran as the
+self-challenge under the label of an auditor nonce, in both released versions as well; it is refused now.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
@@ -60,6 +63,14 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `audit-challenge --nonce ''`, which fell back to the grindable self-challenge mode. These options are read with
     `is not None` now, the rule the neighbour `--expected-origin` already followed: an empty path is refused with
     exit 2, an empty anchor type is a requirement no anchor meets (exit 3), and an empty nonce is refused with exit 2.
+    The deep gate at 99f76ceb (one P1, seen by two lenses and confirmed by three of three jurors for each) found the
+    nonce judged by its spelling, `== ""`: `bytes.fromhex` skips ASCII whitespace, so `--nonce ' '`, a tab or a
+    newline decoded to no bytes and gave the self-challenge indices under the mode `auditor-nonce` with exit 0, at
+    v6.0.0, v6.1.0 and 5c65e536 alike. The nonce is decoded once, before a mode is chosen; a nonce that decodes to
+    no bytes is refused with exit 2, and the mode follows the decoded bytes. Two sweeps with the empty value and
+    whitespace, over 24 option and `--pub` sites at 99f76ceb and over the 16 inputs the CLI itself normalises
+    (`bytes.fromhex`, `strip`, base64, a file's content) at this commit, found no other site that reads
+    whitespace like an absent option.
     Eleven truth reads of an option stay in `cli.py`, each refusing an empty value itself (`--pub`, `--key`,
     `--new-key`) or on an emit or output path (`--out`, `--output`, `--policy-uri`, `--policy-sha256`).
     `outcome verify --decision-maker-id ''` is unchanged: the library reads it with `is not None`, and an empty maker
@@ -70,7 +81,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   directly or through a local name, in `if`, `while`, conditional expressions, `and` and `or`, `not`, `assert`,
   comprehension filters and `bool()`, and each such read must stand in a named list with its reason). Measured at
   d97de8e5 before the fixes: 96 failed in the first file and 10 in the second, as pytest counts them, each failing
-  subtest once.
+  subtest once. Since 99f76ceb the second file also runs every site with whitespace spellings of the empty value,
+  checks the audit challenge as a property of the nonce bytes it uses, and refuses any comparison of a one-value
+  option's spelling with `""`; measured at 99f76ceb before this fix, 25 failed there.
 
 - **The build epoch no longer moves with a commit confined to release notes or audit artefacts** (release tooling,
   owner decision of 2026-09-29). `scripts/build_reproducible.head_commit_epoch` took the commit time of HEAD, and

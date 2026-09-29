@@ -1237,12 +1237,23 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
         print("ERROR: beacon mode needs --beacon-randomness, --beacon and --round together "
               "(partial flags would silently downgrade to the grindable self-challenge mode)", file=sys.stderr)
         return 2
-    if args.nonce is not None and args.nonce == "":
-        # An empty nonce is a nonce that was asked for and not given. Read by its truth it fell back to the
-        # grindable self-challenge mode (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01, the class).
-        print("ERROR: --nonce is empty; give the auditor's fresh nonce, or leave the flag out for the "
-              "self-challenge sanity check", file=sys.stderr)
-        return 2
+    # THE NONCE IS JUDGED BY THE BYTES THE CHALLENGE USES, not by its spelling. An empty nonce is a nonce that
+    # was asked for and not given (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01), and the first fix
+    # refused only the spelling "". `bytes.fromhex` skips ASCII whitespace, so " ", "\t" or "\n" decoded to
+    # b"", the command derived exactly the grindable self-challenge indices and called them "auditor-nonce"
+    # with exit 0 (deep gate at 99f76ceb, L3-620v4-T11-NONCE-WS-01). Decoded here, once, before any mode is
+    # chosen; a nonce that decodes to no bytes is refused, whatever its spelling.
+    nonce = b""
+    if args.nonce is not None:
+        try:
+            nonce = bytes.fromhex(args.nonce)
+        except ValueError as exc:
+            _err(exc)
+            return 2
+        if not nonce:
+            print("ERROR: --nonce decodes to no bytes (empty, or only whitespace); give the auditor's fresh "
+                  "nonce, or leave the flag out for the self-challenge sanity check", file=sys.stderr)
+            return 2
     if args.beacon_randomness is not None and args.nonce is not None:
         print("ERROR: --nonce and --beacon-randomness are mutually exclusive — pick one challenge mode",
               file=sys.stderr)
@@ -1256,9 +1267,9 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
                 beacon=args.beacon, round_=args.round)
             indices, mode = req.indices, "beacon"
         else:
-            nonce = bytes.fromhex(args.nonce) if args.nonce is not None else b""
             indices = audit_challenge(args.root, args.n, args.k, nonce)
-            mode = "auditor-nonce" if args.nonce is not None else "self-challenge"
+            # The label follows the decoded nonce: "auditor-nonce" only when the challenge used a nonce.
+            mode = "auditor-nonce" if len(nonce) > 0 else "self-challenge"
     except (ProofBundleError, ValueError) as exc:
         _err(exc)
         return 2

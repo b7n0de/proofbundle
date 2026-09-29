@@ -21,7 +21,9 @@ at the new head of pull request 311, which carries this file, is its closing rou
 the six P1 findings of that gate at 7409b123, whose panel ran with three families. The gate at the next head of
 pull request 311, d97de8e5, ended FIX_FIRST for two P1 findings; the commit of pull request 311 that the release
 notes name as their release commit closes both (the section on them below), and the gate at the head that carries
-the pre-tag receipt is the closing round.
+the pre-tag receipt is the closing round. That gate, at 99f76ceb, ended FIX_FIRST for one P1, seen by two lenses:
+the fix of the empty option judged `audit-challenge --nonce` by its spelling (the section below). The commit that
+closes it is the new release commit, and the gate at the next head that carries a pre-tag receipt is the closing round.
 
 | Branch | Pull request | Head that landed | Last lens round | Codex series |
 |---|---|---|---|---|
@@ -242,6 +244,20 @@ Their test files were run on 2026-09-29 against the source of the tagged trees v
   (eleven, each refusing an empty value itself or on an emit or output path).
   `outcome verify --decision-maker-id ''` is unchanged on purpose: the library reads it with `is not None`, an
   empty maker id cannot equal an executor id, and `role_separation_ok` reports the check as run.
+- The fix of that option was incomplete at `audit-challenge --nonce` (deep gate at 99f76ceb, L3-620v4-T11-NONCE-WS-01
+  and L5-620v4-NONCE-WHITESPACE-01, one defect, each confirmed P1 by three of three blind jurors). It refused the
+  spelling `""`, while the command used `bytes.fromhex(value)`, which skips ASCII whitespace: `--nonce ' '`, a tab,
+  a newline, a carriage return, a vertical tab, a form feed or a mix decoded to no bytes and gave exactly the
+  self-challenge indices a producer can grind, under the mode `auditor-nonce`, with no warning and exit 0. Measured
+  by the filer on 2026-09-29, seven spellings each: the same at 99f76ceb and at the source of v6.0.0 and v6.1.0,
+  where `--nonce ''` itself also ran as the self-challenge. The nonce is decoded once now, before a mode is chosen; a
+  nonce that decodes to no bytes is refused with exit 2, and the mode follows the decoded bytes. The test file above
+  runs every site with whitespace spellings of the empty value, checks the audit challenge as a property of the bytes
+  it uses, and refuses any comparison of an option's spelling with `""`; at 99f76ceb it fails 25 times, as pytest
+  counts them. Two sweeps with the empty value and whitespace, over 24 option and `--pub` sites at 99f76ceb and over
+  the 16 inputs the CLI itself normalises (`bytes.fromhex`, `strip`, base64, a file's content) at the commit of the
+  fix, found no other site that reads whitespace like an absent option; `--related-pub ''` still means the same
+  key, as documented.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -636,6 +652,40 @@ all three jurors and are not listed.
   (P3, votes refuted, P3 and P3): a dict subclass holding a receipt signed for another tree verifies for this one.
   Both shipped callers pass plain dicts from `json.loads`; the tool is not in the wheel.
 - The row above on `render_release` binding `release_commit` by its length still reproduces at d97de8e5.
+
+From the deep gate at 99f76ceb, the head of pull request 311 that carried the pre-tag receipt, which ended FIX_FIRST
+for the one P1 on the whitespace nonce in the section above. These lines enter with the iteration that fixes it,
+before the next closing round. Each was judged real by at least two of three blind jurors; lines are as at 99f76ceb
+and carry the jurors' measurement. Four claims of the panel and one of the foreign-family re-measurement were refuted
+by all three jurors and are not listed. The packaging lens of that gate ran no reproducer, so its targets were not
+attacked there; that is a limit of the gate, not a line of this file.
+- **A shared container is copied once per path** (P2): `canonical._plain_for_jcs` and `_plain_value` copy a container
+  that appears on many paths once per path, with no node bound. Arguments that no budget walks,
+  `verify_status_snapshot(now=)` and `verify_evidence_pack(rp_trust=)`, take four times the CPU for every two further
+  levels of such a graph, and at a depth of 40 a raw `MemoryError` escapes. The Python API only, and no verdict is
+  promoted. The fix routes these copies through the node and path bound of `plain_json`, or walks every copied
+  argument through the budget.
+- The row above on the sum of strings holds at 99f76ceb: the dict path accepts nine anchors of 999,999 characters
+  each with `ok` True, which the file path refuses by `input_bytes`. No running total has landed.
+- **The anchors container is budgeted per entry, not as a whole, and `rp_trust` is copied per entry** (P3, two of
+  three jurors; the third read `verify_decision_receipt` as outside the scope, since it is not in `dir(proofbundle)`):
+  the cost is the number of anchors times the nodes of `rp_trust`, on the CLI too with a large relying-party policy.
+  The verdicts are right; only the cost grows.
+- **`_strict_json` measures a `memoryview` by `len()`** (P3): a two-dimensional view or one cast to `Q` counts its
+  first dimension, not its bytes, so 13 MB pass `string_len`; `verify_dual_hash` then skips its budget refusal and
+  still answers `ok` False. The fix counts `nbytes`, as `anchors_ots` already does.
+- **A multi-dimensional `memoryview` as the witness roster raises** (P2, three of three jurors; the lens said P3):
+  `witness_vkeys` as such a view, even of one byte, lets a raw `NotImplementedError` escape `verify_tlog_proof`, a
+  never-raise surface, and `verify_witnessed_checkpoint`; a zero-dimensional view raises a raw `TypeError` at the
+  latter. The roster guard admits a `memoryview`, `_folge_von` calls `list()` on it, and `tlogproof` catches only
+  `ProofBundleError`, `ValueError`, `TypeError` and `KeyError`. Relying-party configuration through the Python API
+  only; not the row above on a roster copied before its cap.
+- The null relationships row above holds at 99f76ceb: Python gives lineage VERIFIED and exit 0, Rust
+  `malformed_ancestor` and exit 2, and both refuse the same target standalone.
+- **`scripts/verify_pre_tag_receipt.py` catches only decode errors in `_measure`** (P2): a committed receipt holding
+  a deep array raises `RecursionError` with a traceback and exit 1, which reads NOT_VERIFIED, against its docstring's
+  "never raises". A fifth reader of the row above on readers that catch only decode errors; the tool is in the sdist
+  only, and nothing is promoted.
 
 ## Open — named limits carried by the fixes themselves
 
