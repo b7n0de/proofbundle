@@ -19,8 +19,14 @@ Properties checked:
   install;
 - under --host codex the gate never answers ask or allow, turns NOT MEASURED into deny, and uses only
   fields Codex accepts;
-- the Codex MCP entry, run from the plugin root, starts the server;
-- the emit skill runs only when invoked, under both hosts.
+- the Codex MCP entry, run from the plugin root, starts the server and tells it its host;
+- under Codex, verify_receipt says that it cannot see whether the gate ran, and the verify skill passes
+  that on and never claims the gate ran (Codex runs plugin hooks only after the user trusts them);
+- the second matcher, for MCP tools that open a pull request or a release, is the same under both hosts,
+  and under Codex such a call without declared evidence is denied as NOT MEASURED;
+- the emit skill runs only when invoked, under both hosts;
+- the runbook for the Mac run of a real Codex turn names every case with the answer it expects, and each
+  case's scaffold mode exists.
 """
 from __future__ import annotations
 
@@ -43,8 +49,17 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 CLAUDE = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
 CODEX = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+CLAUDE_HOOKS = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
+RUNBOOK = PLUGIN / "RUNBOOK_CODEX.md"
+
+_bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+sys.path.insert(0, str(GATE.parent))
+import proofbundle_gate as gate  # noqa: E402
+
+sys.path.pop(0)
+sys.dont_write_bytecode = _bytecode
 
 #: The marketplace files Codex looks for, first match wins (core-plugins/src/marketplace.rs:20-25).
 CODEX_MARKETPLACE_CANDIDATES = (".agents/plugins/marketplace.json", ".agents/plugins/api_marketplace.json",
@@ -58,7 +73,9 @@ CODEX_SPECIFIC_KEYS = {"hookEventName", "permissionDecision", "permissionDecisio
 def _codex_hook() -> dict:
     groups = CODEX["hooks"]["hooks"]["PreToolUse"]
     assert set(CODEX["hooks"]["hooks"]) == {"PreToolUse"}
-    assert [g["matcher"] for g in groups] == ["Bash"]
+    assert [g["matcher"] for g in groups] == [g["matcher"] for g in CLAUDE_HOOKS["hooks"]["PreToolUse"]]
+    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER]
+    assert groups[0]["hooks"] == groups[1]["hooks"]
     (entry,) = groups[0]["hooks"]
     return entry
 
@@ -81,9 +98,10 @@ def test_the_codex_manifest_uses_the_shared_skills_server_and_gate():
     assert (PLUGIN / server["cwd"] / server["args"][-1]).resolve() == SERVER
     assert claude_server["args"][-1] == "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"
     assert "${" not in json.dumps(server), "Codex does not expand placeholders in an MCP entry"
+    assert server["env"] == {"PROOFBUNDLE_PLUGIN_HOST": "codex"}
+    assert "env" not in claude_server
     entry = _codex_hook()
-    claude_hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-    (claude_entry,) = claude_hooks["hooks"]["PreToolUse"][0]["hooks"]
+    (claude_entry,) = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"]
     assert entry["command"] == claude_entry["command"].replace(
         '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"', '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex')
     assert entry["timeout"] == claude_entry["timeout"]
@@ -154,32 +172,36 @@ def _repo(tmp_path: pathlib.Path, *, declare: bool, tamper: bool = False) -> pat
     repo.mkdir(parents=True)
     _git(repo, "init", "-q", "-b", "main")
     (repo / "README.md").write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "c")
     if declare:
+        subject = {"algorithm": gate.TREE_ALGORITHM, "digest": gate.tree_digest(str(repo), "HEAD")}
         signer = generate_signer()
-        bundle = emit_bundle(b"release bytes", signer)
+        bundle = emit_bundle(json.dumps({"subject": subject}).encode(), signer)
         if tamper:
             raw = bytearray(base64.b64decode(bundle["payload_b64"]))
             raw[0] ^= 1
             bundle["payload_b64"] = base64.b64encode(bytes(raw)).decode()
-        (repo / "evidence").mkdir()
-        (repo / "evidence" / "b.json").write_text(json.dumps(bundle), encoding="utf-8")
         (repo / ".proofbundle").mkdir()
+        (repo / ".proofbundle" / "b.json").write_text(json.dumps(bundle), encoding="utf-8")
         key = base64.b64encode(signer.public_key().public_bytes_raw()).decode()
         (repo / ".proofbundle" / "policy.json").write_text(json.dumps({
             "schema": "proofbundle/trust-policy/v0.1", "policy_id": "p", "allowed_issuers": [{"public_key_b64": key}],
             "signature": {"require_expected_signer": True}}), encoding="utf-8")
         (repo / ".proofbundle" / "evidence.json").write_text(json.dumps({
-            "schema": "proofbundle-plugin/evidence/v0.1",
-            "evidence": [{"kind": "bundle", "path": "evidence/b.json", "policy": ".proofbundle/policy.json"}]}),
-            encoding="utf-8")
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", "c")
+            "schema": gate.DECLARATION_SCHEMA,
+            "evidence": [{"kind": "bundle", "path": ".proofbundle/b.json", "policy": ".proofbundle/policy.json",
+                          "subject": subject}]}), encoding="utf-8")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "evidence")
     return repo
 
 
-def _run(env: dict, repo: pathlib.Path, *args: str, command: str = "git push origin main") -> dict | None:
-    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
-                        "tool_input": {"command": command}})
+def _run(env: dict, repo: pathlib.Path, *args: str, command: str = "git push origin main",
+         tool: str = "Bash") -> dict | None:
+    tool_input = {"command": command} if tool == "Bash" else {"owner": "o", "repo": "r", "title": "t"}
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(repo),
+                        "tool_input": tool_input})
     proc = subprocess.run([sys.executable, str(GATE), *args], input=event, capture_output=True, text=True,
                           env=env, timeout=120, check=False)
     assert proc.returncode == 0, proc.stderr
@@ -222,6 +244,17 @@ def test_under_codex_a_tampered_bundle_is_denied_and_a_verified_one_passes(shim,
 
 def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path):
     assert _run(shim, tmp_path, "--host", "codex", command="ls -la") is None
+    assert _run(shim, tmp_path, "--host", "codex", tool="mcp__github__push_files") is None
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_an_mcp_pull_request_is_gated_like_a_push(shim, tmp_path):
+    undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex",
+                      tool="mcp__github__create_pull_request")
+    assert _codex_valid(undeclared) == "deny"
+    assert undeclared["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+    declared = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool="mcp__gitlab__create_merge_request")
+    assert _codex_valid(declared) == "pass"
 
 
 @pytest.mark.parametrize("args", [["--host"], ["--host", "cursor"], ["--hots", "codex"], ["codex"]])
@@ -249,6 +282,48 @@ def test_the_codex_mcp_entry_run_from_the_plugin_root_starts_the_server(shim):
     (server,) = CODEX["mcpServers"].values()
     request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n"
     proc = subprocess.run([server["command"], *server["args"]], input=request, capture_output=True, text=True,
-                          cwd=PLUGIN / server["cwd"], env=shim, timeout=60, check=False)
+                          cwd=PLUGIN / server["cwd"], env=dict(shim, **server["env"]), timeout=60, check=False)
     reply = json.loads(proc.stdout.splitlines()[0])
     assert reply["result"]["serverInfo"]["name"] == "proofbundle"
+
+
+def _verify_result(env: dict, bundle_path: pathlib.Path) -> dict:
+    lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+             {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+              "params": {"name": "verify_receipt", "arguments": {"kind": "bundle", "path": str(bundle_path)}}}]
+    proc = subprocess.run([sys.executable, str(SERVER)], input="".join(json.dumps(m) + "\n" for m in lines),
+                          capture_output=True, text=True, env=env, timeout=60, check=False)
+    reply = [json.loads(line) for line in proc.stdout.splitlines()][1]
+    return json.loads(reply["result"]["content"][0]["text"])
+
+
+def test_under_codex_verify_says_it_cannot_see_whether_the_gate_ran(shim, tmp_path):
+    bundle = tmp_path / "b.json"
+    bundle.write_text(json.dumps(emit_bundle(b"x", generate_signer())), encoding="utf-8")
+    under_codex = _verify_result(dict(shim, PROOFBUNDLE_PLUGIN_HOST="codex"), bundle)
+    note = under_codex["gate_note"]
+    assert "trust" in note and "cannot see" in note and "ran" in note
+    under_claude = _verify_result({k: v for k, v in shim.items() if k != "PROOFBUNDLE_PLUGIN_HOST"}, bundle)
+    assert "gate_note" not in under_claude
+
+
+def test_the_verify_skill_passes_the_note_on_and_never_claims_the_gate_ran():
+    text = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
+    assert "`gate_note`" in text
+    assert "Never state that the pre-push gate ran" in text
+
+
+# --- the runbook for the Mac run ---------------------------------------------------------------------
+
+def test_the_mac_runbook_names_every_case_with_its_expected_answer():
+    text = RUNBOOK.read_text(encoding="utf-8")
+    scaffold = (PLUGIN / "evals" / "_fixtures" / "scaffold.sh").read_text(encoding="utf-8")
+    rows = [line for line in text.split("\n") if line.startswith("| ") and "repo-" in line]
+    modes = [row.split("|")[2].strip().strip("`") for row in rows]
+    assert modes == ["repo-nodecl", "repo-tampered", "repo-missing", "repo-stale", "repo-valid", "repo-valid"]
+    for mode in set(modes):
+        assert mode in scaffold, mode
+    expected = [row.split("|")[4].strip() for row in rows]
+    assert expected[:4] == ["deny, NOT MEASURED", "deny", "deny", "deny"]
+    assert expected[4].startswith("no decision")
+    assert "NOT MEASURED" in text and "gate did not run" in text

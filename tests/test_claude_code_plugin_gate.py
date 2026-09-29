@@ -8,6 +8,10 @@ replace only `uv` by a shim that starts the same server with this interpreter an
 Properties checked:
 - a gated call is found in the forms a shell accepts (chains, nesting, wrappers, directory changes),
   and a call the gate does not know is left alone;
+- an MCP tool that opens a pull request, a merge request or a release is gated by name, through a
+  second matcher, and an MCP tool the gate does not know gets no answer;
+- every declared item names the proofbundle-tree-sha256/v1 digest of the tree at HEAD, both in the
+  declaration and inside the signed evidence; a missing, stale or unsigned subject is denied;
 - the gate never answers allow: a pass carries no permission decision;
 - a repository that declares nothing, or a call whose repository the gate cannot resolve, is answered
   ask and NOT MEASURED, never a pass;
@@ -77,6 +81,19 @@ def _declare(repo: pathlib.Path, *items: dict) -> None:
     _write(repo / gate.DECLARATION, {"schema": gate.DECLARATION_SCHEMA, "evidence": list(items)})
 
 
+def _subject(digest: str) -> dict:
+    return {"algorithm": gate.TREE_ALGORITHM, "digest": digest}
+
+
+def _statement(digest: str) -> bytes:
+    """The payload a bundle signs to name its tree subject."""
+    return json.dumps({"subject": _subject(digest)}).encode()
+
+
+def _head_digest(repo: pathlib.Path) -> str:
+    return gate.tree_digest(str(repo), "HEAD")
+
+
 def _tamper_bundle(path: pathlib.Path) -> None:
     bundle = json.loads(path.read_text())
     raw = bytearray(base64.b64decode(bundle["payload_b64"]))
@@ -85,17 +102,30 @@ def _tamper_bundle(path: pathlib.Path) -> None:
     path.write_text(json.dumps(bundle))
 
 
+BUNDLE = ".proofbundle/build.bundle.json"
+POLICY = ".proofbundle/policy.json"
+
+
 @pytest.fixture
 def repo(tmp_path: pathlib.Path) -> pathlib.Path:
-    """A repository whose HEAD declares one bundle, signed by the key its policy pins."""
+    """A repository whose HEAD declares one bundle over its own tree, signed by the key its policy pins.
+
+    The code is committed first, its tree digest computed, and the evidence committed on top under
+    .proofbundle/, which the digest leaves out, so the second commit has the digest the evidence names.
+    """
     path = tmp_path / "repo"
     path.mkdir()
     _git(path, "init", "-q", "-b", "main")
-    signer = generate_signer()
-    _write(path / "evidence" / "build.bundle.json", emit_bundle(b"release bytes", signer))
-    _write(path / ".proofbundle" / "policy.json", _pinned_policy(signer))
-    _declare(path, {"kind": "bundle", "path": "evidence/build.bundle.json", "policy": ".proofbundle/policy.json"})
+    _write(path / "README.md", "release\n")
+    _write(path / "src" / "app.py", "print('hi')\n")
     _commit(path)
+    digest = _head_digest(path)
+    signer = generate_signer()
+    _write(path / BUNDLE, emit_bundle(_statement(digest), signer))
+    _write(path / POLICY, _pinned_policy(signer))
+    _declare(path, {"kind": "bundle", "path": BUNDLE, "policy": POLICY, "subject": _subject(digest)})
+    _commit(path)
+    assert _head_digest(path) == digest
     return path
 
 
@@ -184,8 +214,9 @@ def test_a_call_the_gate_does_not_know_is_left_alone(command):
 # --- the declaration ---------------------------------------------------------------------------------
 
 KEY = base64.b64encode(bytes(range(32))).decode()
-GOOD_BUNDLE = {"kind": "bundle", "path": "e/b.json", "policy": "p.json"}
-GOOD_DECISION = {"kind": "decision", "path": "e/d.json", "public_key": KEY}
+SUBJ = {"algorithm": "proofbundle-tree-sha256/v1", "digest": "ab" * 32}
+GOOD_BUNDLE = {"kind": "bundle", "path": ".proofbundle/b.json", "policy": ".proofbundle/p.json", "subject": SUBJ}
+GOOD_DECISION = {"kind": "decision", "path": ".proofbundle/d.json", "public_key": KEY, "subject": SUBJ}
 
 
 def _declaration(evidence, **extra) -> bytes:
@@ -193,24 +224,45 @@ def _declaration(evidence, **extra) -> bytes:
 
 
 def test_a_well_formed_declaration_is_read_exactly():
-    items = gate.parse_declaration(_declaration([GOOD_BUNDLE, GOOD_DECISION, dict(GOOD_DECISION, kind="outcome")]))
-    assert items == [GOOD_BUNDLE, GOOD_DECISION, dict(GOOD_DECISION, kind="outcome")]
+    items = gate.parse_declaration(_declaration([GOOD_BUNDLE, GOOD_DECISION]))
+    assert items == [GOOD_BUNDLE, GOOD_DECISION]
     assert gate.parse_declaration(_declaration([])) == []
+    assert gate.DECLARATION_SCHEMA == "proofbundle-plugin/evidence/v0.2"
 
 
 @pytest.mark.parametrize("raw", [
     b"not json", b"[]", b'{"schema": "x", "evidence": []}',
     _declaration([], extra=1),
-    b'{"schema": "proofbundle-plugin/evidence/v0.1", "schema": "proofbundle-plugin/evidence/v0.1", "evidence": []}',
+    b'{"schema": "proofbundle-plugin/evidence/v0.2", "schema": "proofbundle-plugin/evidence/v0.2", "evidence": []}',
+    b'{"schema": "proofbundle-plugin/evidence/v0.1", "evidence": []}',
     _declaration({}), _declaration([GOOD_BUNDLE] * (gate.MAX_ITEMS + 1)),
     _declaration([dict(GOOD_BUNDLE, note="x")]), _declaration([dict(GOOD_BUNDLE, kind="statement")]),
     _declaration([dict(GOOD_BUNDLE, path="/etc/passwd")]), _declaration([dict(GOOD_BUNDLE, path="../x.json")]),
-    _declaration([dict(GOOD_BUNDLE, path="./e/b.json")]), _declaration([dict(GOOD_BUNDLE, path="e//b.json")]),
-    _declaration([dict(GOOD_BUNDLE, path="e\\b.json")]), _declaration([dict(GOOD_BUNDLE, path="")]),
-    _declaration([dict(GOOD_BUNDLE, path=5)]), _declaration([{"kind": "bundle", "path": "e/b.json"}]),
-    _declaration([dict(GOOD_BUNDLE, public_key=KEY)]), _declaration([{"kind": "decision", "path": "d.json"}]),
+    _declaration([dict(GOOD_BUNDLE, path="./.proofbundle/b.json")]),
+    _declaration([dict(GOOD_BUNDLE, path=".proofbundle//b.json")]),
+    _declaration([dict(GOOD_BUNDLE, path=".proofbundle\\b.json")]), _declaration([dict(GOOD_BUNDLE, path="")]),
+    _declaration([dict(GOOD_BUNDLE, path=5)]),
+    _declaration([{"kind": "bundle", "path": ".proofbundle/b.json", "subject": SUBJ}]),
+    _declaration([dict(GOOD_BUNDLE, public_key=KEY)]),
+    _declaration([{"kind": "decision", "path": ".proofbundle/d.json", "subject": SUBJ}]),
     _declaration([dict(GOOD_DECISION, public_key=base64.b64encode(b"short").decode())]),
-    _declaration([dict(GOOD_DECISION, public_key="not base64!")]), _declaration([dict(GOOD_DECISION, policy="../p")]),
+    _declaration([dict(GOOD_DECISION, public_key="not base64!")]),
+    _declaration([dict(GOOD_DECISION, policy="../p")]),
+    # the evidence and its policy live under .proofbundle/, which the tree digest leaves out
+    _declaration([dict(GOOD_BUNDLE, path="evidence/b.json")]),
+    _declaration([dict(GOOD_BUNDLE, policy="policy.json")]),
+    _declaration([dict(GOOD_BUNDLE, path=".proofbundle")]),
+    # every item names its tree subject, exactly
+    _declaration([{k: v for k, v in GOOD_BUNDLE.items() if k != "subject"}]),
+    _declaration([dict(GOOD_BUNDLE, subject=None)]),
+    _declaration([dict(GOOD_BUNDLE, subject="ab" * 32)]),
+    _declaration([dict(GOOD_BUNDLE, subject=dict(SUBJ, algorithm="sha256"))]),
+    _declaration([dict(GOOD_BUNDLE, subject=dict(SUBJ, algorithm="git-tree"))]),
+    _declaration([dict(GOOD_BUNDLE, subject=dict(SUBJ, digest="AB" * 32))]),
+    _declaration([dict(GOOD_BUNDLE, subject=dict(SUBJ, digest="ab" * 20))]),
+    _declaration([dict(GOOD_BUNDLE, subject=dict(SUBJ, note="x"))]),
+    # an outcome receipt has no field that can carry a tree subject
+    _declaration([dict(GOOD_DECISION, kind="outcome")]),
 ])
 def test_a_malformed_declaration_is_refused(raw):
     with pytest.raises(gate.GateError):
@@ -230,24 +282,101 @@ def test_declared_evidence_that_verifies_gets_no_permission_decision(shim, repo)
     assert "not that the recorded values are true" in reason(answer)
 
 
-def test_a_decision_receipt_under_its_pinned_key_passes_and_under_another_key_is_denied(shim, repo, tmp_path):
-    signer = generate_signer()
+def _decision(shim: dict, signer, *snapshot: dict) -> dict:
     template = json.loads(subprocess.run([sys.executable, "-m", "proofbundle.cli", "decision", "init"],
                                          capture_output=True, text=True, check=True, env=shim).stdout)
-    _write(repo / "evidence" / "release.decision.json", emit_decision_receipt(template, signer))
-    _declare(repo, {"kind": "decision", "path": "evidence/release.decision.json", "public_key": _b64(signer)})
+    template["inputSnapshot"] = list(template["inputSnapshot"]) + list(snapshot)
+    return emit_decision_receipt(template, signer)
+
+
+def _tree_input(digest: str) -> dict:
+    return {"name": "tree", "uri": gate.TREE_SUBJECT_URI, "digest": {"sha256": digest}}
+
+
+def test_a_decision_receipt_under_its_pinned_key_passes_and_under_another_key_is_denied(shim, repo, tmp_path):
+    signer = generate_signer()
+    digest = _head_digest(repo)
+    _write(repo / ".proofbundle" / "release.decision.json", _decision(shim, signer, _tree_input(digest)))
+    item = {"kind": "decision", "path": ".proofbundle/release.decision.json", "public_key": _b64(signer),
+            "subject": _subject(digest)}
+    _declare(repo, item)
     _commit(repo)
     assert decision(run_gate(shim, repo, "gh release create v1")) == "pass"
-    _declare(repo, {"kind": "decision", "path": "evidence/release.decision.json",
-                    "public_key": _b64(generate_signer())})
+    _declare(repo, dict(item, public_key=_b64(generate_signer())))
     _commit(repo)
     answer = run_gate(shim, repo, "gh release create v1")
     assert decision(answer) == "deny"
     assert "verification failed" in reason(answer)
 
 
+def test_a_decision_receipt_that_does_not_name_the_tree_in_its_signed_inputs_is_denied(shim, repo):
+    signer = generate_signer()
+    digest = _head_digest(repo)
+    item = {"kind": "decision", "path": ".proofbundle/release.decision.json", "public_key": _b64(signer),
+            "subject": _subject(digest)}
+    _write(repo / ".proofbundle" / "release.decision.json", _decision(shim, signer))
+    _declare(repo, item)
+    _commit(repo)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "deny"
+    assert "names no tree subject" in reason(answer)
+    _write(repo / ".proofbundle" / "release.decision.json", _decision(shim, signer, _tree_input("cd" * 32)))
+    _commit(repo)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "deny"
+    assert "signed evidence names" in reason(answer)
+
+
+# --- the tree subject --------------------------------------------------------------------------------
+
+def test_evidence_signed_for_an_older_tree_is_denied(shim, repo):
+    _write(repo / "src" / "app.py", "print('changed after signing')\n")
+    _commit(repo)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "deny"
+    assert "does not match the tree at HEAD" in reason(answer)
+    assert _head_digest(repo) in reason(answer)
+
+
+def test_a_declared_subject_the_signature_does_not_cover_is_denied(shim, repo):
+    """Updating the declaration to the new digest does not help: the signed payload still names the old one."""
+    _write(repo / "src" / "app.py", "print('changed after signing')\n")
+    _commit(repo)
+    declaration = json.loads((repo / gate.DECLARATION).read_text())
+    declaration["evidence"][0]["subject"] = _subject(_head_digest(repo))
+    _write(repo / gate.DECLARATION, declaration)
+    _commit(repo)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "deny"
+    assert "signed evidence names" in reason(answer)
+
+
+@pytest.mark.parametrize("payload", [b"release bytes", b"{}", b'{"subject": "x"}',
+                                     b'{"subject": {"algorithm": "proofbundle-tree-sha256/v1"}}'])
+def test_a_bundle_whose_payload_is_not_a_subject_statement_is_denied(shim, repo, payload):
+    signer = generate_signer()
+    _write(repo / BUNDLE, emit_bundle(payload, signer))
+    _write(repo / POLICY, _pinned_policy(signer))
+    _commit(repo)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "deny"
+    assert "names no tree subject" in reason(answer)
+
+
+def test_a_change_inside_the_evidence_folder_keeps_the_pass(shim, repo):
+    _write(repo / ".proofbundle" / "notes.md", "an added note\n")
+    _commit(repo)
+    assert decision(run_gate(shim, repo, "git push")) == "pass"
+
+
+def test_the_pass_names_the_tree_it_verified(shim, repo):
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "pass"
+    assert f"{gate.TREE_ALGORITHM} {_head_digest(repo)}" in reason(answer)
+
+
 def test_a_tampered_bundle_at_head_is_denied(shim, repo):
-    _tamper_bundle(repo / "evidence" / "build.bundle.json")
+    _tamper_bundle(repo / BUNDLE)
     _commit(repo)
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "deny"
@@ -255,14 +384,15 @@ def test_a_tampered_bundle_at_head_is_denied(shim, repo):
 
 
 def test_the_gate_reads_head_not_the_working_tree(shim, repo):
-    _tamper_bundle(repo / "evidence" / "build.bundle.json")
+    _tamper_bundle(repo / BUNDLE)
+    _write(repo / "src" / "app.py", "print('uncommitted')\n")
     assert decision(run_gate(shim, repo, "git push")) == "pass"
     (repo / gate.DECLARATION).unlink()
     assert decision(run_gate(shim, repo, "git push")) == "pass"
 
 
 def test_a_declared_bundle_missing_at_head_is_denied(shim, repo):
-    _git(repo, "rm", "-q", "evidence/build.bundle.json")
+    _git(repo, "rm", "-q", BUNDLE)
     _commit(repo)
     answer = run_gate(shim, repo, "gh pr create --fill")
     assert decision(answer) == "deny"
@@ -270,7 +400,7 @@ def test_a_declared_bundle_missing_at_head_is_denied(shim, repo):
 
 
 def test_a_bundle_signed_by_a_key_the_policy_does_not_pin_is_denied(shim, repo):
-    _write(repo / ".proofbundle" / "policy.json", _pinned_policy(generate_signer()))
+    _write(repo / POLICY, _pinned_policy(generate_signer()))
     _commit(repo)
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "deny"
@@ -287,7 +417,7 @@ def test_a_bundle_signed_by_a_key_the_policy_does_not_pin_is_denied(shim, repo):
     "not json",
 ])
 def test_a_bundle_policy_that_pins_no_signer_is_denied(shim, repo, policy):
-    _write(repo / ".proofbundle" / "policy.json", policy)
+    _write(repo / POLICY, policy)
     _commit(repo)
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "deny"
@@ -351,7 +481,7 @@ def test_the_repository_a_directory_change_names_is_the_one_checked(shim, repo, 
 def test_one_failing_repository_denies_the_whole_call(shim, repo, tmp_path):
     other = tmp_path / "other"
     shutil.copytree(repo, other)
-    _tamper_bundle(other / "evidence" / "build.bundle.json")
+    _tamper_bundle(other / BUNDLE)
     _commit(other)
     assert decision(run_gate(shim, repo, f"git push && git -C {other} push")) == "deny"
 
@@ -380,13 +510,65 @@ def test_a_codex_style_argument_vector_is_read_as_a_command(shim, repo):
     assert decision(run_gate(shim, repo, "", raw=event)) == "pass"
 
 
+# --- MCP tools ---------------------------------------------------------------------------------------
+
+def _mcp_event(repo: pathlib.Path | str, tool: str) -> str:
+    return json.dumps({"hook_event_name": "PreToolUse", "tool_name": tool, "cwd": str(repo),
+                       "tool_input": {"owner": "o", "repo": "r", "title": "t", "head": "main", "base": "main"}})
+
+
+GATED_MCP = ["mcp__github__create_pull_request", "mcp__plugin_x_github__create_pull_request",
+             "mcp__gitlab__create_merge_request", "mcp__gitea__create_release", "mcp__a__b__create_release"]
+UNGATED_MCP = ["mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__merge_pull_request",
+               "mcp__github__create_branch", "mcp__github__update_pull_request", "mcp__github__create_issue",
+               "mcp__github__create_pull_request_review", "mcp__github__create_pull_request_x",
+               "Bash_create_pull_request", "create_pull_request", "mcp__create_pull_request"]
+
+
+def test_the_mcp_matcher_names_exactly_the_gated_tools():
+    import re  # noqa: PLC0415
+    assert gate.MCP_GATED_TOOLS == ("create_pull_request", "create_merge_request", "create_release")
+    for tool in GATED_MCP:
+        assert re.search(gate.MCP_MATCHER, tool), tool
+        assert gate.mcp_gated(tool)
+    for tool in UNGATED_MCP:
+        assert not re.search(gate.MCP_MATCHER, tool), tool
+        assert not gate.mcp_gated(tool)
+
+
+@pytest.mark.parametrize("tool", GATED_MCP)
+def test_an_mcp_tool_that_opens_a_pull_request_or_a_release_is_gated(shim, repo, tool):
+    answer = run_gate(shim, repo, "", raw=_mcp_event(repo, tool))
+    assert decision(answer) == "pass"
+    assert "MCP" in reason(answer) and "the local repository" in reason(answer)
+    _write(repo / "src" / "app.py", "print('changed after signing')\n")
+    _commit(repo)
+    assert decision(run_gate(shim, repo, "", raw=_mcp_event(repo, tool))) == "deny"
+
+
+def test_an_mcp_pull_request_without_declared_evidence_is_not_measured(shim, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _git(plain, "init", "-q", "-b", "main")
+    _commit(plain)
+    answer = run_gate(shim, plain, "", raw=_mcp_event(plain, "mcp__github__create_pull_request"))
+    assert decision(answer) == "ask"
+    assert reason(answer).startswith("NOT MEASURED:")
+
+
+@pytest.mark.parametrize("tool", [t for t in UNGATED_MCP if t.startswith("mcp__")])
+def test_an_mcp_tool_the_gate_does_not_know_gets_no_answer(shim, repo, tool):
+    assert run_gate(shim, repo, "", raw=_mcp_event(repo, tool)) is None
+
+
 # --- the hook entry ----------------------------------------------------------------------------------
 
 def _hook_entries() -> list[dict]:
     config = json.loads(HOOKS.read_text(encoding="utf-8"))
     assert set(config) <= {"description", "hooks"}
     groups = config["hooks"]["PreToolUse"]
-    assert [g["matcher"] for g in groups] == ["Bash"]
+    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER]
+    assert groups[0]["hooks"] == groups[1]["hooks"], "both matchers run the same gate the same way"
     return groups[0]["hooks"]
 
 
