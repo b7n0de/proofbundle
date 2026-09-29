@@ -26,18 +26,18 @@
 
 **[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit result in the release notes**
 
-[Known limitations](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/docs/release_scope/6.2.0.md)
+[Known limitations](https://github.com/b7n0de/proofbundle/blob/v6.2.0/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.2.0/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.2.0/docs/release_scope/6.2.0.md)
 
 <details>
 <summary>What was checked, and what remains open</summary>
 
-6.2.0 closes five findings in the released 6.0.0 and 6.1.0 at the verify boundary: a related map that says it is empty no longer hides a retraction, an edge's `declaredAt` takes ASCII digits only as the Rust verifier does, a low-order Ed25519 key is refused both as a trusted key and as the holder key of a key binding, and a caller's resolver promotes a verdict only on the exact `True`. The release notes name the affected versions, the effect and the upgrade.
+6.2.0 closes five findings in the released 6.0.0 and 6.1.0 at the verify boundary, and one class of eight more: a related map that says it is empty no longer hides a retraction, an edge's `declaredAt` takes ASCII digits only as the Rust verifier does, a low-order Ed25519 key is refused both as a trusted key and as the holder key of a key binding, a caller's resolver promotes a verdict only on the exact `True`, and a public verify surface reads each argument of its caller once, by what it stores, so the caller's own methods no longer decide a verdict. The release notes name the affected versions, the effect and the upgrade.
 
 The closing round runs on the frozen tree that carries this file, so this file cannot state its result. The release notes of v6.2.0 state it, with the families that ran and the checks that did not.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
-[Residual risks](https://github.com/b7n0de/proofbundle/blob/2074d814d9ab185f5daa062731086500d840a221/RESTRISIKO_620.md)
+[Residual risks](https://github.com/b7n0de/proofbundle/blob/v6.2.0/RESTRISIKO_620.md)
 
 </details>
 

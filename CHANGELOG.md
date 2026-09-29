@@ -13,7 +13,10 @@ option A: 6.2.0 is what is on `main` plus the frozen fixes of this release, the 
 the verify boundary (pull request 300), small-order keys refused at every carrier (pull request 293,
 which carries the resolver fix of pull request 291) and the pre-tag cleanliness gate (pull request 249,
 which carries the Rust dependency audit of pull request 296). Every other scope line moved to 6.3.0
-with a ledger row, and `docs/release_scope/6.3.0.md` carries them.
+with a ledger row, and `docs/release_scope/6.3.0.md` carries them. Owner decision of 2026-09-29,
+option A: the class fix of pull request 312, for the eight P1 findings the deep gate of this release
+preparation confirmed at 2348f0a7, lands before 6.2.0; `docs/release_scope/6.2.0.md` records the cut
+of 2026-09-27 and does not list it.
 
 This section was `## [Unreleased]` until the cut. **Semantics change at the verify boundary**, and
 each change refuses what 6.1.0 accepted rather than the other way round: values that 6.1.0 read by
@@ -21,7 +24,8 @@ their truth or through a caller's own methods are refused or read by what they s
 non-canonical Ed25519 key is refused where 6.1.0 verified under it; a resolver, a registered anchor
 verifier or a permissive flag promotes a verdict only on the exact `True`; and an edge's `declaredAt`
 takes ASCII digits only, as the Rust verifier does. Five of these close findings in the released
-6.0.0 and 6.1.0; the release notes name the affected versions, the effect and the upgrade. What is
+6.0.0 and 6.1.0, and the class fix of pull request 312 closes eight more of one class there; the
+release notes name the affected versions, the effect and the upgrade. What is
 open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
