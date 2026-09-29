@@ -579,9 +579,15 @@ MUTATIONS = [
      "    edges = list(edges)",
      "relation: R7-2 non-dict edges-element filter disabled (e.get crash on all three sinks)", True),
     # R7-3 — _authenticate_trusted_checkpoint non-dict entry guard (entry.get before its own try/except).
+    # 2026-09-29: drawn onto the live guard. Since pull request 313, evaluate_policy applies the loader's
+    # rule before it evaluates (policy.py, `_abgelehnt_vom_loader`), so a non-dict entry is refused in
+    # `_validate_checkpoint_entry` and never reaches the guard in `_authenticate_trusted_checkpoint`; the
+    # operator on that guard survived the whole suite. The label stays, since the shard weights are keyed
+    # by it. Measured on d97de8e5: this mutant goes red on the test files that reach policy.py (a non-dict
+    # entry reaches the key check and raises TypeError), and the old guard does not catch it.
     ("src/proofbundle/policy.py",
-     "    if not isinstance(entry, dict):\n        return False, \"trusted checkpoint entry not an object\"",
-     "    if False:\n        return False, \"trusted checkpoint entry not an object\"",
+     "    entry = _require_dict(entry, where)\n    _reject_unknown(entry, _CHECKPOINT_KEYS, where)",
+     "    _reject_unknown(entry, _CHECKPOINT_KEYS, where)",
      "policy: R7-3 non-dict trusted_checkpoint entry guard disabled (entry.get crash)", True),
     # R7-2b (adversarial re-audit siblings, iter 1 -> 2) — three more evaluate_relations_policy sinks.
     ("src/proofbundle/relation.py",
@@ -640,9 +646,16 @@ MUTATIONS = [
      "    _arbeit = len(flat) * max(1, len(data_digests)) * max(1, len(_start_algs))",
      "    _arbeit = len(flat) * max(1, len(data_digests))",
      "renewal: Faktor fuer Kettenanfangsalgorithmen aus dem Produkt entfernt", True),
+    # 2026-09-29: both sites, as for the two cycle checks of relation.py. Pull request 312 put the same
+    # budget check before the copy of data_digests, so the later one can no longer decide, and the
+    # operator on the later site alone survived the whole suite. Disabling only the earlier site leaves the
+    # later one deciding and survives too (measured on d97de8e5). With both disabled,
+    # tests/test_budget.py::TestBudgetLimitsUntrustedCollections::test_data_digests_count_capped goes red.
     ("src/proofbundle/renewal.py",
-     '    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
-     '    if False and not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
+     ('    if not _BUDGET.within("data_digests", _gespeichert):',
+      '    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):'),
+     ('    if False and not _BUDGET.within("data_digests", _gespeichert):',
+      '    if False and not DEFAULT_BUDGET.within("data_digests", len(data_digests)):'),
      "renewal: data_digests-Pruefung VOR der Deckungsarbeit abgeschaltet", True),
 
     # D2-3 · die Evidenzcommit-Relation. Ohne die Pfadeinschraenkung genuegt ein beliebiger Nachfahr.

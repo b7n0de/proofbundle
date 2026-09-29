@@ -66,6 +66,8 @@ LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 # (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
 _RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
+#: The words a resolver writes into `subject_digest_state` (`cli._load_related`); any other value is malformed.
+_SUBJECT_DIGEST_STATES = frozenset({"present", "absent", "ambiguous", "malformed"})
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")
 _EDGE_ALLOWED = ("relation", "targetReceiptDigest", "targetSubjectDigest",
@@ -291,6 +293,14 @@ def _target_subject_pin_error(edge: dict, target: dict) -> str | None:
             state = "present"
         else:
             state = "malformed"
+    elif type(state) is not str or not is_member(state, _SUBJECT_DIGEST_STATES):
+        # A CLOSED vocabulary, read closed-world (deep gate of the 6.2.0 release preparation at d97de8e5,
+        # lens L4, RT-01). Only the three refusing words were named, so every other explicit state took
+        # the path of "present": a target labelled "AMBIGUOUS", "multiple" or ["ambiguous"] with its
+        # first subject in subject_digest bound the declared pin to subject[0], lineage VERIFIED and ok
+        # True. A state no resolver writes is malformed; the Rust verifier derives the state from the
+        # payload itself and never reads one from a caller.
+        state = "malformed"
     # An explicit resolver state wins over the None-inference; only a well-formed, present, EQUAL
     # actual subject verifies. The order matters: a "malformed" target carries subject_digest=None
     # too, so classify on the state first, never on the None-ness of the value.

@@ -19,18 +19,82 @@ preparation confirmed at 2348f0a7, lands before 6.2.0; `docs/release_scope/6.2.0
 of 2026-09-27 and does not list it. Owner decision of 2026-09-29 on the next gate round, option A:
 pull request 313, for the six P1 findings that round confirmed at 7409b123, lands before 6.2.0 as well.
 
-This section was `## [Unreleased]` until the cut. **Semantics change at the verify boundary**, and
-each change refuses what 6.1.0 accepted rather than the other way round: values that 6.1.0 read by
-their truth or through a caller's own methods are refused or read by what they store; a low-order or
-non-canonical Ed25519 key is refused where 6.1.0 verified under it; a resolver, a registered anchor
-verifier or a permissive flag promotes a verdict only on the exact `True`; and an edge's `declaredAt`
-takes ASCII digits only, as the Rust verifier does. Five of these close findings in the released
-6.0.0 and 6.1.0, the class fix of pull request 312 closes eight more of one class there, and pull
-request 313 closes six more of four classes; the release notes name the affected versions, the effect
-and the upgrade. What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round,
-not after it.
+This section was `## [Unreleased]` until the cut. **Stricter input checks at verification
+boundaries**: some inputs accepted by 6.1.0 are now refused. Values that 6.1.0 read by their truth or
+through a caller's own methods are refused or read by what they store; Ed25519 trust-anchor paths
+refuse a low-order or non-canonical key, while the core verifier keeps the SPEC §4a profile; a
+resolver, a registered anchor verifier or a permissive flag promotes a verdict only on the exact
+`True`, and a resolver asked for a key still attests with 32 bytes of key material; and an edge's
+`declaredAt` takes ASCII digits only, as the Rust verifier does. Five of these close findings in the released 6.0.0 and 6.1.0,
+the class fix of pull request 312 closes eight more of one class there, and pull request 313 closes
+six release-preparation findings, one of them a regression of pull request 291 that neither released
+version carries; the release notes name the affected versions, the effect and the upgrade. The deep
+gate at d97de8e5 found two more in the released 6.0.0 and 6.1.0, closed by pull request 311. An
+attached target's subject state outside the four words of its resolver bound a pin to the first
+subject of an ambiguous target, and a restricting CLI option given an empty value was read as absent.
+What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
+
+- **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
+  value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each
+  confirmed by two of three blind jurors). Both are present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured
+  on 2026-09-29 against the source of both tags: the subject state with the first test file below, the CLI with the
+  lens's sweep against the same command without the option and again by a verify lens of this commit:
+  - `relation._target_subject_pin_error` failed only the lowercase words "ambiguous", "absent" and "malformed" of an
+    attached target's `subject_digest_state` and read every other explicit state as "present". A target labelled
+    "AMBIGUOUS", "multiple" or `["ambiguous"]`, whose `subject_digest` holds its first subject, bound a declared
+    `targetSubjectDigest` to that subject: lineage VERIFIED and `ok` True at the decision, outcome and relation
+    statement verifiers, at the receipt's own edge and at every hop (the gate's lens measured `safeForAutomation`
+    True as well at the decision verifier under a policy that pins the signer). Every explicit state but the four
+    words is malformed now, a `str` subclass is read by what it stores, and a missing state is still inferred from
+    the digest. The Python API only: `cli._load_related` writes only the four words, and the Rust verifier derives the
+    state from the payload itself and reads none from a caller. The sweep of this class measured the neighbouring
+    reads of a closed vocabulary (outcome and decision status, the assurance level of the policy and of `show-eval`,
+    the CAP-1 disposition, the agent-review disposition and coverage status, the status of a verification summary):
+    each is closed by a validator before its verdict.
+  - A restricting CLI option given the empty string was read by its truth and dropped: `verify --policy ''` and
+    `--anchor-type ''`, `decision verify --policy ''` and `--anchors ''`, and `outcome verify --policy ''` and
+    `relation-statement verify --policy ''` exited 0, where a policy the receipt does not satisfy gives 3 and a path
+    that does not exist gives 2. So did `show-eval --eat ''`, `policy instantiate --expected-root-file ''` and
+    `audit-challenge --nonce ''`, which fell back to the grindable self-challenge mode. These options are read with
+    `is not None` now, the rule the neighbour `--expected-origin` already followed: an empty path is refused with
+    exit 2, an empty anchor type is a requirement no anchor meets (exit 3), and an empty nonce is refused with exit 2.
+    Eleven truth reads of an option stay in `cli.py`, each refusing an empty value itself (`--pub`, `--key`,
+    `--new-key`) or on an emit or output path (`--out`, `--output`, `--policy-uri`, `--policy-sha256`).
+    `outcome verify --decision-maker-id ''` is unchanged: the library reads it with `is not None`, and an empty maker
+    id cannot equal an executor id, so role separation is checked and holds.
+  Tests: `tests/test_a_subject_state_is_read_closed_world.py` (the state corpus at the engine's edge and hop and at the
+  three receipt verifiers) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py` (each site against the
+  same command without the option, and a class guard: it reads `cli.py` for a one-value option tested by its truth,
+  directly or through a local name, in `if`, `while`, conditional expressions, `and` and `or`, `not`, `assert`,
+  comprehension filters and `bool()`, and each such read must stand in a named list with its reason). Measured at
+  d97de8e5 before the fixes: 96 failed in the first file and 10 in the second, as pytest counts them, each failing
+  subtest once.
+
+- **The build epoch no longer moves with a commit confined to release notes or audit artefacts** (release tooling,
+  owner decision of 2026-09-29). `scripts/build_reproducible.head_commit_epoch` took the commit time of HEAD, and
+  `release.yml` exported a `SOURCE_DATE_EPOCH` of its own that the script never read, so the sdist and the wheel
+  changed with every commit of the tag chain although their content did not, and the tagged commit, made after the
+  signing, never built the bytes that the signed soak and differential bind. Measured on 2026-09-29 in a local copy of
+  the chain: the receipt commit, the evidence commit and the merge, which change only `audit_artifacts/`, built three
+  different sdists; with one epoch the three were byte-identical. The signed evidence of 6.1.0 binds sdist `62a00fb7…`
+  and wheel `20bf3210…`, and PyPI carries `d6355491…` and `f4316416…`. The epoch is the time of the last commit that
+  touches a path outside `release_notes/` and `audit_artifacts/`, the two prefixes `render_release` already allows
+  between the tree the notes describe and the tagged tree and the only two the tag chain writes; a contract test holds
+  the two copies equal, because `render_release.py` is not in the sdist and cannot be imported from it. A commit that
+  touches another unshipped path (`tools/`, `.github/`) still moves the epoch, which costs no binding. `release.yml`
+  no longer exports an epoch. The limit: a shallow clone answers with the time of its boundary commit; the release
+  workflow checks out the full history. Tests: `tests/test_the_build_epoch_ignores_notes_and_evidence_commits.py`
+  (two cases red under the HEAD rule, a merge over the evidence commit among them).
+
+- **Two mutation operators named guards that no input reaches any more** (operators 90 and 99 of
+  `scripts/mutation_check.py`). Pull request 313 refuses a non-dict `trusted_checkpoints` entry in the loader rule
+  before `evaluate_policy` reads it, and pull request 312 put the `data_digests` budget before the copy, so the later
+  check never decides. Each mutant survived the test files that reach its module. Operator 90 now disables the live
+  guard, `_require_dict` in `_validate_checkpoint_entry`; operator 99 disables both budget sites, since either one
+  alone is caught by the other. Both are killed by their test files; the labels stay, since the shard weights are keyed
+  by them.
 
 - **No caller code changes what a later check reads, a restricting flag restricts, and a container of the
   wrong type is refused** (deep gate of the 6.2.0 release preparation at 7409b123: five P1 findings beside

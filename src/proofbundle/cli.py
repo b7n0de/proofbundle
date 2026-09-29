@@ -419,11 +419,11 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         # (see enclave_assurance_proven). Parsed here so a bad --eat/--verifier-key gets the SAME clean
         # ERROR+exit-2 handling as the receipt itself, never a raw traceback.
         eat_jws = None
-        if getattr(args, "eat", None):
+        if getattr(args, "eat", None) is not None:
             with _open_input(args.eat) as handle:
                 eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
-        if getattr(args, "verifier_key", None):
+        if getattr(args, "verifier_key", None) is not None:
             verifier_pubkey = decode_b64(args.verifier_key)
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
         _err(exc)
@@ -593,8 +593,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # requirement) | "any" | a specific type string. --anchor-type narrows and implies --require-anchor.
     anchor_type = getattr(args, "anchor_type", None)
     anchor_target = getattr(args, "anchor_target", None)   # WP-A1: implies --require-anchor
-    require_anchor = anchor_type if anchor_type else (
-        "any" if (getattr(args, "require_anchor", False) or anchor_target) else None)
+    # AN OPTION THE CALLER GAVE IS READ BY `is not None` (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01):
+    # `--anchor-type ''` read by its truth dropped the requirement it implies and exited 0.
+    require_anchor = anchor_type if anchor_type is not None else (
+        "any" if (getattr(args, "require_anchor", False) or anchor_target is not None) else None)
     allow_pending = bool(getattr(args, "allow_pending", False))
     policy = None
     try:
@@ -610,7 +612,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         verification_time = None
         if getattr(args, "verification_time", None) is not None:
             from .policy import _parse_iso_utc  # noqa: PLC0415
-            if not getattr(args, "policy", None):
+            if getattr(args, "policy", None) is None:
                 raise ValueError("--verification-time only applies together with --policy (it sets "
                                  "the instant the policy lifecycle is evaluated at)")
             verification_time = _parse_iso_utc(args.verification_time)
@@ -707,7 +709,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (fail-closed) before verifying, and reconcile the aud VALUE: if BOTH --aud and the policy's
         # expected_aud are set and DIFFER, that is ambiguous → exit 2 (never a silent override).
         effective_aud = flag_aud
-        if getattr(args, "policy", None):
+        if getattr(args, "policy", None) is not None:   # `--policy ''` is a policy that cannot be read
             policy = load_policy(resolve_policy_source(args.policy))
             pol_aud = policy_expected_aud(policy)
             if pol_aud is not None and flag_aud is not None and pol_aud != flag_aud:
@@ -733,7 +735,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                         f"anchors.require_anchor_target is {p_tgt!r} — ambiguous; align them")
                 require_anchor = require_anchor if require_anchor is not None else p_req
                 anchor_target = anchor_target if anchor_target is not None else p_tgt
-                if anchor_target and require_anchor is None:
+                if anchor_target is not None and require_anchor is None:
                     require_anchor = "any"
                 if pol_anc.get("allow_pending"):
                     allow_pending = True
@@ -1235,6 +1237,12 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
         print("ERROR: beacon mode needs --beacon-randomness, --beacon and --round together "
               "(partial flags would silently downgrade to the grindable self-challenge mode)", file=sys.stderr)
         return 2
+    if args.nonce is not None and args.nonce == "":
+        # An empty nonce is a nonce that was asked for and not given. Read by its truth it fell back to the
+        # grindable self-challenge mode (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01, the class).
+        print("ERROR: --nonce is empty; give the auditor's fresh nonce, or leave the flag out for the "
+              "self-challenge sanity check", file=sys.stderr)
+        return 2
     if args.beacon_randomness is not None and args.nonce is not None:
         print("ERROR: --nonce and --beacon-randomness are mutually exclusive — pick one challenge mode",
               file=sys.stderr)
@@ -1248,9 +1256,9 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
                 beacon=args.beacon, round_=args.round)
             indices, mode = req.indices, "beacon"
         else:
-            nonce = bytes.fromhex(args.nonce) if args.nonce else b""
+            nonce = bytes.fromhex(args.nonce) if args.nonce is not None else b""
             indices = audit_challenge(args.root, args.n, args.k, nonce)
-            mode = "auditor-nonce" if args.nonce else "self-challenge"
+            mode = "auditor-nonce" if args.nonce is not None else "self-challenge"
     except (ProofBundleError, ValueError) as exc:
         _err(exc)
         return 2
@@ -1373,9 +1381,9 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
     import hashlib  # noqa: PLC0415
     tf = getattr(args, "target_file", None)
     rh = getattr(args, "canonical_root_hex", None)
-    if tf and rh:
+    if tf is not None and rh is not None:
         raise ValueError("give either --target-file or --canonical-root-hex, not both")
-    if tf:
+    if tf is not None:
         # --target-file is the user's OWN artifact to anchor and MAY legitimately exceed the input_bytes
         # verify budget, so it is not capped — but hash it in 1 MiB chunks so a large file bounds memory
         # instead of read()-ing the whole file in at once (bug-hunt adversarial re-audit, 3.6.2).
@@ -1384,7 +1392,7 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
             for _chunk in iter(lambda: handle.read(1 << 20), b""):
                 h.update(_chunk)
         return h.digest()
-    if rh:
+    if rh is not None:
         root = bytes.fromhex(rh.strip().lower())
         if len(root) != 32:
             raise ValueError("--canonical-root-hex must be a 32-byte (64 hex char) SHA-256")
@@ -2011,7 +2019,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if args.policy:
+    if args.policy is not None:   # `--policy ''` names a policy that cannot be read, never no policy
         from .policy import PolicyError, load_policy  # noqa: PLC0415
         from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
@@ -2022,7 +2030,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err(exc)
             return 2
     anchors = None
-    if getattr(args, "anchors", None):
+    if getattr(args, "anchors", None) is not None:   # `--anchors ''` is a file that cannot be read
         try:
             with _open_input(args.anchors) as handle:
                 anchors = loads_strict(_read_capped(handle))   # WP-C1
@@ -2233,7 +2241,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if getattr(args, "policy", None):
+    if getattr(args, "policy", None) is not None:
         # WP-B (3.4.0): the outcome path enforces the trust-policy `relations` section identically to
         # the decision path (require_relation_resolution / reject_superseded / relation_signer /
         # require_relation_target). trust_pack role auth is separate and unchanged.
@@ -2400,7 +2408,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if getattr(args, "policy", None):
+    if getattr(args, "policy", None) is not None:
         from .policy import PolicyError, load_policy  # noqa: PLC0415
         from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
@@ -2604,7 +2612,7 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
                 raise PolicyError(f"issuer key file {kf!r} carries no public key")
             keys.append(key)
         expected_root = None
-        if args.expected_root_file:
+        if args.expected_root_file is not None:   # an empty path is refused, never a policy without the root
             with open(args.expected_root_file, encoding="utf-8") as fh:
                 expected_root = fh.read().strip()
         inst = instantiate_template(args.template, issuer_keys=keys, policy_id=args.policy_id,

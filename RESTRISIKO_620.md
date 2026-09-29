@@ -18,8 +18,10 @@ families was re-measured before it was filed. Each pull request's Codex review s
 requests; an answer without P0 or P1 ended a series, and its P2 went into this file without a fix at the head.
 Pull request 312 is the exception to the three families: its verify lane ran with one family, and the deep gate
 at the new head of pull request 311, which carries this file, is its closing round. Pull request 313 closes
-the six P1 findings of that gate at 7409b123, whose panel ran with three families; the gate at the next head of
-pull request 311 is its closing round.
+the six P1 findings of that gate at 7409b123, whose panel ran with three families. The gate at the next head of
+pull request 311, d97de8e5, ended FIX_FIRST for two P1 findings; the commit of pull request 311 that the release
+notes name as their release commit closes both (the section on them below), and the gate at the head that carries
+the pre-tag receipt is the closing round.
 
 | Branch | Pull request | Head that landed | Last lens round | Codex series |
 |---|---|---|---|---|
@@ -174,9 +176,10 @@ candidate sites. Pull request 313 (main f237ff1a) closes the six findings and 24
 `agent_review` reading `blocking` and `require_coverage_status` of null as no rule, the owner kept for 6.2.0 (limits
 below). The three new test
 files of that pull request were run on 2026-09-29 against the source of the tagged trees v6.0.0 (`4e32e83b`) and
-v6.1.0 (`dcac5aee`) (Python 3.10.12). The loader-rule file failed 1505 subtests at each tag, the cross-check file 242
-at each tag (241 assertions and the raw `ValueError` of `lint_policy` below), and each promotion below failed its case
-there with an assertion, not with a missing name:
+v6.1.0 (`dcac5aee`) (Python 3.10.12). The loader-rule file failed 1505 subtests at each tag, the cross-check file 233
+at each tag (232 assertions and the raw `ValueError` of `lint_policy` below; an earlier version of this line gave 242,
+the count of an intermediate version of the file, measured again on 2026-09-29 with the file that landed), and each
+promotion below failed its case there with an assertion, not with a missing name:
 - `evaluate_policy`, `evaluate_decision_policy` and `relation.evaluate_relations_policy` read a present policy field
   of another type as no constraint where `load_policy` refuses it: `policy_ok` True with no check, and
   `verify_decision_receipt` `ok` True for a receipt signed by a key the policy does not trust when
@@ -208,6 +211,37 @@ The warn polarity finding is a regression of pull request 291 and not in the tag
 with a policy dict, a callback or a container the caller supplies; the CLI loads policies with `load_policy` and passes
 no callbacks. The one line the CLI reaches is the falsy `anchors`: it passes the content of `--anchors <file>` on, and a
 file holding `{}`, `0`, `false` or `""` read as no anchors.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 read a subject state open-world, and the CLI dropped a restriction given an empty value
+
+The deep gate of the release preparation at d97de8e5 (pull request 311, after pull request 313) ended FIX_FIRST for
+two P1 findings, each confirmed by two of three blind jurors. Pull request 311 closes both before the closing round.
+Their test files were run on 2026-09-29 against the source of the tagged trees v6.0.0 (`4e32e83b`) and v6.1.0
+(`dcac5aee`) (Python 3.10.12):
+- `relation._target_subject_pin_error` failed only the lowercase words "ambiguous", "absent" and "malformed" of an
+  attached target's `subject_digest_state` and read every other explicit state as "present". An attached target
+  labelled "AMBIGUOUS", "multiple" or `["ambiguous"]`, whose `subject_digest` holds its first subject, bound a
+  declared `targetSubjectDigest` to that subject: lineage VERIFIED and `ok` True at the decision, outcome and
+  relation statement verifiers, at the receipt's own edge and at every hop (the gate's lens measured
+  `safeForAutomation` True as well at the decision verifier under a policy that pins the signer).
+  `tests/test_a_subject_state_is_read_closed_world.py` fails 50 cases at each tag over the engine at the edge and at
+  a hop and over the decision verifier. 6.2.0 reads the state closed-world: every explicit state but the four words
+  is malformed, a missing one is still inferred from the digest, and a `str` subclass is read by what it stores. The
+  reach is the Python API: `cli._load_related` writes only the four words, and the Rust verifier derives the state
+  from the payload and reads none from a caller.
+- A restricting CLI option given the empty string was read by its truth and dropped: `verify --policy ''`,
+  `verify --anchor-type ''`, `decision verify --policy ''` and `--anchors ''`, and `outcome verify --policy ''`
+  exited 0 at each tag, where a policy the receipt does not satisfy gives 3 and a path that does not exist gives 2;
+  so did `relation-statement verify --policy ''`, `show-eval --eat ''`, `policy instantiate --expected-root-file ''`
+  and `audit-challenge --nonce ''` (measured at both tags by a verify lens of pull request 311). 6.2.0 reads these
+  options with `is not None`; `tests/test_an_option_given_an_empty_value_is_not_dropped.py` checks each site and
+  holds every truth read of a one-value option in `cli.py`, in the forms it reads, to a named list with its reason
+  (eleven, each refusing an empty value itself or on an emit or output path).
+  `outcome verify --decision-maker-id ''` is unchanged on purpose: the library reads it with `is not None`, an
+  empty maker id cannot equal an executor id, and `role_separation_ok` reports the check as run.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -556,6 +590,53 @@ of their jury and are not listed: five of the panel and one of the foreign-famil
 - The outcome verifier's second reading of a `bytearray` answer was filed once as P2 by its own jury; it is the P1
   above and closed with it.
 
+From the deep gate of the release preparation at d97de8e5, the next head of pull request 311, which ended FIX_FIRST
+for the two P1 in the section on the subject state and the empty CLI option above. These lines enter with the
+iteration that fixes those P1, before the closing round. Each was judged real by at least two of three blind jurors;
+lines are as at d97de8e5 and carry the jurors' measurement unless a line says otherwise. Three claims were refuted by
+all three jurors and are not listed.
+- The FIFO row above (CWE-367) holds at d97de8e5 and has more sites than it names: a PathLike that answers a regular
+  file and then a FIFO passes the guard of `verify_evaluation_card`, `verify_prereg` and `load_bundle`, and the CLI's
+  verify blocks in `openat` on a FIFO a symlink race swaps in (1 to 6 of 40 runs per juror); the same window stands
+  at `policy.py:428`, `evalcard.py:63` and `prereg.py:63`, found by search. The fix is one shared opener with
+  O_NONBLOCK and an fstat of the descriptor.
+- **The structural walk bounds each string and not their sum** (P2): on the direct-dict path of `verify_bundle`,
+  `verify_evidence_pack`, `verify_sample_opening` and `recompute_merkle_root_b64`, N aliases of one string of 999,999
+  characters cost about 2.85 ms each (20,000 aliases about 60 s of CPU), where the file path refuses the same content
+  by `input_bytes` at once. The fix is a running total of string and bytes lengths, keys included, capped at
+  `input_bytes`.
+- **Aliased `str`-subclass values are copied once per alias** (P2): after the walk, `canonical._plain_value` copies
+  each alias, and a raw `MemoryError` escapes `verify_bundle`, `verify_evidence_pack` and `verify_sample_opening`
+  under a 2 GB address-space limit. The Python API only; a new site of the class under "a caller's own Python objects
+  can make a never-raise surface raise" below, closed by the same total cap.
+- The row above on a caller's `__class__` at `load_bundle` and `verify_sample_opening` holds at d97de8e5.
+- **The Rust relation statement verifier accepts seven statements the Python CLI refuses** (P2): `pb_verify_rs
+  verify-relation-statement` exits 0 on a `schemaVersion` of 1.0.0, an integer or absent, on a `statementId` empty,
+  an integer or absent, and on a non-canonical payload, where `relation-statement verify` exits 2. The row on six
+  more modules above names only the non-ASCII `schemaVersion`, and the COVERED wording of the Rust parity registry
+  for this pair claims more than holds. Rust is outside the wheel and the sdist.
+- The null relationships row above holds at d97de8e5. The gate's lens read its sentence on `walk_chain` as wrong; a
+  verify lens of pull request 311 measured it right for Python, whose `relation._walk_chain` reads null as absent,
+  while the Rust `walk_chain` sends null to `malformed_ancestor`, which is the divergence the row names.
+- **`render_release.lade` catches only `JSONDecodeError`** (P2): a very deep array, a 5000-digit integer or bytes
+  that are no UTF-8 give a raw traceback with exit 1 instead of a refusal with exit 2. Fail-closed: no notes are
+  written and the release step fails. A fourth neighbour of the row on three readers that catch only decode errors.
+- **`pre_tag_receipt.py --assemble` reads `--context-in` and `--sig-file` without a guard** (P2, votes P2, P2 and
+  refuted): a missing, invalid, non-UTF-8 or directory input gives a raw traceback with exit 1. Fail-closed, no
+  receipt is written, and the tool is not shipped.
+- **The docstring of `anchors.verify_anchors` says `require=''` is refused; the code reads it as no requirement**
+  (P3): the result is SKIP without `require_met`, and a test pins that. The CLI fails closed on it
+  (`verify --anchor-type ''` exits 3 since pull request 311). The fix corrects the docstring or refuses the empty
+  string as `require_target` is refused.
+- The count of the cross-check file in the section on pull request 313 above was wrong and is corrected there (P3;
+  the filer measured 233 at both tags on 2026-09-29, as the jurors did).
+- The README's current-release block named five and eight findings in the released versions; pull request 311 brings
+  it in line with this file (P3).
+- **`pre_tag_receipt_lib.verify_receipt` judges a receipt through its `get` and reads the signed items by index**
+  (P3, votes refuted, P3 and P3): a dict subclass holding a receipt signed for another tree verifies for this one.
+  Both shipped callers pass plain dicts from `json.loads`; the tool is not in the wheel.
+- The row above on `render_release` binding `release_commit` by its length still reproduces at d97de8e5.
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -642,8 +723,19 @@ those on a verify, emit or release path:
   `tests/test_every_mutation_operator_names_one_site.py` holds every operator to that on each pull
   request. Each of the 18 mutants was killed by its own test file in a local probe on 2026-09-29; two, the
   R7-2b lookups on `relation.py`, survived until a case with an empty or absent rule was added to
-  `tests/test_never_raise_surface_family_property.py`. The limit: the probe ran named test files, not the
+  `tests/test_never_raise_surface_family_property.py`. Operators 90 and 99 named guards no input reaches any
+  more (pull request 313 refuses a non-dict checkpoint entry in the loader rule first, pull request 312 put the
+  `data_digests` budget before the copy); each survived the test files that reach its module, and pull request 311
+  draws them onto the live guards, where each is killed. The limit: the probe ran named test files, not the
   canonical mutation run, which is still to come.
+- The build epoch was the commit time of HEAD, so the sdist and the wheel changed with every commit of the tag chain
+  although their content did not, and the tagged commit, made after the signing, never built the bytes the signed
+  soak and differential bind. Measured on 2026-09-29 in a local copy of the chain: the receipt commit, the evidence
+  commit and the merge built three different sdists; with one epoch the three were byte-identical. The signed evidence of 6.1.0 binds sdist `62a00fb7…` and wheel `20bf3210…`, and PyPI
+  carries `d6355491…` and `f4316416…`. Since pull request 311 the epoch is the time of the last commit that touches
+  a path outside `release_notes/` and `audit_artifacts/`, the only two the tag chain writes (owner decision of
+  2026-09-29). Whether the sdist and the wheel of 6.2.0 on PyPI equal the digests
+  bound at the receipt head is measured after the release and recorded then.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 

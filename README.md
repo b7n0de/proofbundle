@@ -24,16 +24,20 @@
 
 ## Current release
 
-**[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit result in the release notes**
+**[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit record named in the release notes**
 
 [Known limitations](https://github.com/b7n0de/proofbundle/blob/v6.2.0/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.2.0/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.2.0/docs/release_scope/6.2.0.md)
 
 <details>
 <summary>What was checked, and what remains open</summary>
 
-6.2.0 closes five findings in the released 6.0.0 and 6.1.0 at the verify boundary, and one class of eight more: a related map that says it is empty no longer hides a retraction, an edge's `declaredAt` takes ASCII digits only as the Rust verifier does, a low-order Ed25519 key is refused both as a trusted key and as the holder key of a key binding, a caller's resolver promotes a verdict only on the exact `True`, and a public verify surface reads each argument of its caller once, by what it stores, so the caller's own methods no longer decide a verdict. The release notes name the affected versions, the effect and the upgrade.
+6.2.0 closes five findings in the released 6.0.0 and 6.1.0 at the verify boundary, and one class of eight more: a related map that says it is empty no longer hides a retraction, an edge's `declaredAt` takes ASCII digits only as the Rust verifier does, a low-order Ed25519 key is refused both as a trusted key and as the holder key of a key binding, a caller's resolver promotes a verdict only on the exact `True`, and a public verify surface reads each argument of its caller once, by what it stores, so the caller's own methods no longer decide a verdict.
 
-The closing round runs on the frozen tree that carries this file, so this file cannot state its result. The release notes of v6.2.0 state it, with the families that ran and the checks that did not.
+It closes six more findings in four classes, five of them in the released 6.0.0 and 6.1.0: every evaluator applies the rule of `load_policy`, so a policy field of another type is refused instead of read as no constraint; no value a check judges is read after caller code could change it, the anchors, the relying party's trust material and the answers of a resolver included; a restricting `warn` of a registered anchor verifier marks the anchor pending; and a container of the wrong type is refused instead of read as empty. The sixth, the `warn` reading, is a regression of this release cycle and not in the released versions.
+
+The last gate round before the closing one found two more, both in the released 6.0.0 and 6.1.0: an attached target's subject state is read against the four words its resolver writes, so a state it never writes no longer binds a declared subject pin to the first subject of an ambiguous target; and a restricting command-line option given an empty value, such as `--policy ''`, is refused or applied instead of being read as absent. The release notes name the affected versions, the effect and the upgrade.
+
+The closing round runs at a later head than the one this file describes, so this file cannot state its result. In the tagged tree its verdict is the gate line of `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`, and the pre-tag receipt `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result; the release notes name the same places.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
