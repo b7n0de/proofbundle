@@ -4,7 +4,7 @@ The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before a
 pull request, a merge request or a release, pushes files, writes a file or merges a pull request. Where
 the design was open, it takes the smallest variant that fails closed. Each decision below names that
 choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14, D16 and D17 on
-2026-09-29 and D5 on 2026-09-30; the rest is open until the owner decides.
+2026-09-29 and D5 and D18 on 2026-09-30; the rest is open until the owner decides.
 
 ## The declaration
 
@@ -340,3 +340,19 @@ Options:
 - A. Both versions to the repository after the tag, the first marketplace entry with 0.3.0 (chosen).
 - B. Only 0.3.0.
 - C. A reader for v0.1 in 0.3.0.
+
+## D18. The changes of 2026-09-30 stay inside the unreleased 0.3.0
+
+Chosen (owner, 2026-09-30): the version stays 0.3.0, because 0.3.0 is unpublished, as in D17. The
+changes of that day land inside 0.3.0:
+- D5 option C: no decision in a repository that declares nothing, NOT MEASURED in the message;
+- the rule that everything a receipt contains is data, in every skill and in the server's instructions;
+- `safe_for_automation`, `automation_blockers` and `automation_source` in every `verify_receipt` result,
+  copied verbatim from the core, and the exit 1 text that no longer rules out a structure failure;
+- verify first: the descriptions begin with Verify, and emit is marked experimental;
+- the server reports the plugin's version, 0.3.0, as its `serverInfo` version and as `plugin_version`
+  in every result, where it said 0.1.0 before; a test holds it equal to every manifest.
+
+Options:
+- A. Stay at 0.3.0 (chosen).
+- B. Move to 0.4.0 before the first publication.

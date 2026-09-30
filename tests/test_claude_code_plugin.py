@@ -16,6 +16,10 @@ Properties checked:
   (automation for decision and outcome, root_authenticity for a bundle), names where it took them, and
   gives null with "not reported by the core" where the report has no such field; it derives nothing;
 - the text for exit 1 does not rule out a structure failure, which is what a broken envelope gives;
+- the server's version is the version of every manifest in the plugin folder, and every result carries
+  it as plugin_version next to proofbundle_version;
+- verify first: every description of the plugin (both manifests, the marketplace, the catalog, the
+  README) begins with Verify, and each marks emit as experimental;
 - the plugin directory is not part of the Python distribution.
 """
 from __future__ import annotations
@@ -320,6 +324,63 @@ def test_the_exit_1_text_names_structure_and_a_broken_envelope_gets_it(server, t
     result, _ = server.tool("verify_receipt", kind="decision", path=str(broken), public_key=key)
     assert (result["exit_code"], result["verified"], result["meaning"]) == (1, False, EXIT_1)
     assert (result["output"]["structure_ok"], result["output"]["crypto_ok"]) == (False, None)
+
+
+def _manifest_versions() -> dict[str, str]:
+    found = {}
+    for manifest in sorted(PLUGIN.rglob("plugin.json")):
+        if "evals" in manifest.relative_to(PLUGIN).parts:
+            continue
+        found[str(manifest.relative_to(PLUGIN))] = json.loads(manifest.read_text(encoding="utf-8"))["version"]
+    return found
+
+
+def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
+    declared = re.search(r'^SERVER_VERSION = "([^"]+)"$', SERVER.read_text(encoding="utf-8"), re.M).group(1)
+    versions = _manifest_versions()
+    assert {".claude-plugin/plugin.json", ".codex-plugin/plugin.json"} <= set(versions)
+    assert set(versions.values()) == {declared}, versions
+    reply = server.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                          "clientInfo": {"name": "test", "version": "0"}})
+    assert reply["result"]["serverInfo"] == {"name": "proofbundle", "version": declared}
+    key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
+    result, _ = server.tool("verify_receipt", kind="decision", path=str(FIXTURES / "receipt-valid.json"), public_key=key)
+    keys = list(result)
+    assert result["plugin_version"] == declared
+    assert keys.index("plugin_version") == keys.index("proofbundle_version") + 1, "next to proofbundle_version"
+    template, _ = server.tool("receipt_template", kind="decision")
+    assert template["plugin_version"] == declared
+
+
+def _descriptions() -> dict[str, str]:
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    found = {"marketplace": market["description"], "marketplace entry": market["plugins"][0]["description"]}
+    for folder in (".claude-plugin", ".codex-plugin"):
+        found[folder] = json.loads((PLUGIN / folder / "plugin.json").read_text(encoding="utf-8"))["description"]
+    catalog = (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").split("\n")
+    for line in catalog:
+        if line.startswith("| Claude Code | ") or line.startswith("| Codex | "):
+            host, what = [c.strip() for c in line.strip("|").split(" | ")][:2]
+            found[f"catalog {host}"] = what
+    readme = (PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")
+    found["README"] = " ".join(readme[1].split())
+    return found
+
+
+def test_every_description_begins_with_verify_and_marks_emit_experimental():
+    found = _descriptions()
+    assert len(found) == 7, sorted(found)
+    for where, text in found.items():
+        if where == "marketplace":
+            assert text.startswith("Verify "), where
+            continue
+        assert text.startswith("Verify"), (where, text[:40])
+        assert "experimental" in text.lower(), where
+        assert "emit" in text.lower(), where
+    table = (PLUGIN / "README.md").read_text(encoding="utf-8")
+    assert "| emit (experimental) | `/proofbundle:emit" in table
+    emit = _frontmatter((PLUGIN / "skills" / "emit" / "SKILL.md").read_text(encoding="utf-8"))
+    assert emit["description"].startswith("Experimental.")
 
 
 def test_the_plugin_is_not_part_of_the_python_distribution():

@@ -1,7 +1,7 @@
 {
   "name": "proofbundle",
   "version": "0.3.0",
-  "description": "Emit, verify and review proofbundle receipts from a Codex session, and verify the evidence a repository declares before a push, a pull request or a release. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
+  "description": "Verify proofbundle receipts and evidence bundles from a Codex session, review what a verified receipt records, and verify the evidence a repository declares before a push, a pull request or a release. Emitting a signed receipt is experimental. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
   "keywords": [
     "proofbundle",
     "receipts",

@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["proofbundle==6.1.0"]
 # ///
-"""MCP server of the proofbundle Claude Code plugin.
+"""MCP server of the proofbundle plugin for Claude Code and Codex.
 
 A stdio JSON-RPC 2.0 server with four tools. Each tool runs the proofbundle command line of the
 package installed next to this interpreter (`python -m proofbundle.cli`), so a verdict and its
@@ -22,7 +22,8 @@ import tempfile
 import uuid
 
 SERVER_NAME = "proofbundle"
-SERVER_VERSION = "0.1.0"
+#: The plugin's version, the one in every manifest of this folder; a test holds them equal.
+SERVER_VERSION = "0.3.0"
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 CLI_TIMEOUT_SECONDS = 120
 KINDS_SIGNED = ("decision", "outcome")
@@ -127,8 +128,8 @@ def _run_cli(argv: list[str]) -> dict:
                               text=True, timeout=CLI_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired as exc:
         raise ToolInputError(f"proofbundle did not finish within {CLI_TIMEOUT_SECONDS} s") from exc
-    result: dict = {"proofbundle_version": _package_version(), "command": ["proofbundle", *argv],
-                    "exit_code": proc.returncode}
+    result: dict = {"proofbundle_version": _package_version(), "plugin_version": SERVER_VERSION,
+                    "command": ["proofbundle", *argv], "exit_code": proc.returncode}
     try:
         result["output"] = json.loads(proc.stdout)
     except ValueError:

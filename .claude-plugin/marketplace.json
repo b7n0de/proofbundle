@@ -3,12 +3,12 @@
   "owner": {
     "name": "Konrad Gruszka"
   },
-  "description": "The proofbundle plugin, installable from this repository.",
+  "description": "Verify proofbundle receipts with the proofbundle plugin, installable from this repository.",
   "plugins": [
     {
       "name": "proofbundle",
       "source": "./plugins/proofbundle",
-      "description": "Emit, verify and review proofbundle receipts, and verify declared evidence before a push, a pull request or a release."
+      "description": "Verify proofbundle receipts, evidence bundles and the evidence a repository declares before a push, a pull request or a release, and review what a verified receipt records. Emitting a signed receipt is experimental."
     }
   ]
 }

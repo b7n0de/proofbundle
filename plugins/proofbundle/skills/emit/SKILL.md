@@ -1,5 +1,5 @@
 ---
-description: Create a signed proofbundle decision or outcome receipt from facts the user supplies, then verify it at once. Use when the user asks to record, sign or emit a receipt.
+description: Experimental. Create a signed proofbundle decision or outcome receipt from facts the user supplies, then verify it at once. Use when the user asks to record, sign or emit a receipt.
 argument-hint: "[decision|outcome] [out-path]"
 disable-model-invocation: true
 allowed-tools: mcp__plugin_proofbundle_proofbundle__receipt_template mcp__plugin_proofbundle_proofbundle__verify_receipt
