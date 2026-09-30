@@ -32,7 +32,12 @@ tree digest of REV (default HEAD), or with --statement the JSON a bundle signs t
 
 Usage in CI: proofbundle_gate.py ci-check --repo DIR --require-declaration true|false prints one JSON
 report and exits 0 (verified, or nothing declared where none is required), 1 (everything else) or 2 (a
-wrong call); see DECISIONS.md, D22. Standard library only, so the gate itself needs no package.
+wrong call); see DECISIONS.md, D22.
+
+Usage for a test run: proofbundle_gate.py run-evidence --repo DIR --out FILE [--timeout SECONDS] -- COMMAND...
+runs a pytest command on the clean working tree of HEAD and writes the unsigned statement of a green run
+that left the tree as it was; see DECISIONS.md, D23. Standard library only, so the gate itself needs no
+package.
 """
 from __future__ import annotations
 
@@ -45,6 +50,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -345,16 +351,20 @@ def signed_subjects(kind: str, content: bytes) -> list[str]:
     """The tree digests the signed part of the evidence names; empty when it names none.
 
     Read only after the evidence verified, from the same committed bytes the verifier read. A bundle
-    names its subject as its whole payload, the JSON of subject_statement. A decision receipt names it
-    as an inputSnapshot entry with uri TREE_SUBJECT_URI and its digest in sha256.
+    names its subject as its whole payload, the JSON of subject_statement, or beside a run record that
+    shows a green run on that tree (D23). A decision receipt names it as an inputSnapshot entry with uri
+    TREE_SUBJECT_URI and its digest in sha256.
     """
     try:
         document = json.loads(content.decode("utf-8"))
         if kind == "bundle":
             statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
-            subject = statement["subject"] if isinstance(statement, dict) and set(statement) == {"subject"} else None
+            keys = set(statement) if isinstance(statement, dict) else set()
+            subject = statement["subject"] if keys in ({"subject"}, {"subject", "run"}) else None
             if (isinstance(subject, dict) and set(subject) == SUBJECT_KEYS
                     and subject["algorithm"] == TREE_ALGORITHM and isinstance(subject["digest"], str)):
+                if "run" in keys and run_record_problem(statement["run"], subject["digest"]) is not None:
+                    return []
                 return [subject["digest"]]
             return []
         statement = json.loads(base64.b64decode(document["payload"], validate=True).decode("utf-8"))
@@ -759,8 +769,11 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Tru
                        digests=digests, repo=repo, head=commit)
     unbound = []
     for n, (item, content) in enumerate(zip(items, contents)):
+        problem = signed_run_problem(item["kind"], content)
         named = signed_subjects(item["kind"], content)
-        if not named:
+        if problem is not None:
+            unbound.append((n, item, problem))
+        elif not named:
             unbound.append((n, item, "the signed evidence names no tree subject"))
         elif item["subject"]["digest"] not in named:
             unbound.append((n, item, f"the signed evidence names {', '.join(named)}, not the declared subject "
@@ -1012,6 +1025,255 @@ def ci_check_command(argv: list[str]) -> int:
     return code
 
 
+# --- a test run as evidence (DECISIONS.md, D23) ------------------------------------------------------
+
+RUN_SCHEMA = "proofbundle-plugin/test-run/v1"
+RUN_KEYS = frozenset({"schema", "commit", "tree_before", "tree_after", "command", "program", "exit_code", "counts",
+                      "report_sha256", "started_at", "finished_at", "platform", "gate_version"})
+COUNT_KEYS = frozenset({"tests", "passed", "failed", "errors", "skipped"})
+RUN_TIMEOUT_SECONDS = 600.0
+MAX_REPORT_BYTES = 16 * 1024 * 1024
+RUN_USAGE = "usage: run-evidence --repo DIR --out FILE [--timeout SECONDS] -- COMMAND..."
+
+
+def _count(value) -> bool:
+    return type(value) is int and value >= 0
+
+
+def run_record_problem(run, digest) -> str | None:
+    """What a run record shows that is not a green run on the tree digest, or None for a green one.
+
+    Green: the record has the keys of RUN_SCHEMA, ran on the digest before and after, exited 0, and its
+    counts add up with no failure, no error and at least one passed test. The gate asks this of every
+    signed run record, whoever made it, so a signed record of a red run never binds.
+    """
+    if not isinstance(run, dict) or set(run) != RUN_KEYS or run["schema"] != RUN_SCHEMA:
+        return f"the signed run record is not a {RUN_SCHEMA} record"
+    if not isinstance(digest, str) or run["tree_before"] != digest or run["tree_after"] != digest:
+        return "the signed run record ran on another tree than its subject names"
+    if type(run["exit_code"]) is not int or run["exit_code"] != 0:
+        return f"the signed run record shows exit code {run['exit_code']!r}"
+    counts = run["counts"]
+    if not isinstance(counts, dict) or set(counts) != COUNT_KEYS or not all(_count(v) for v in counts.values()):
+        return "the signed run record has no readable counts"
+    if (counts["failed"] or counts["errors"] or counts["passed"] < 1
+            or counts["tests"] != counts["passed"] + counts["failed"] + counts["errors"] + counts["skipped"]):
+        return (f"the signed run record shows {counts['passed']} passed, {counts['failed']} failed and "
+                f"{counts['errors']} errors of {counts['tests']} tests")
+    command = run["command"]
+    if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
+        return "the signed run record names no command"
+    return None
+
+
+def signed_run_problem(kind: str, content: bytes) -> str | None:
+    """For a bundle whose signed payload carries a run record: what the record shows that is not a green
+    run on the tree its subject names. None for every other evidence."""
+    if kind != "bundle":
+        return None
+    try:
+        document = json.loads(content.decode("utf-8"))
+        statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):
+        return None
+    if not isinstance(statement, dict) or "run" not in statement:
+        return None
+    subject = statement.get("subject")
+    return run_record_problem(statement["run"], subject.get("digest") if isinstance(subject, dict) else None)
+
+
+def _working_tree_digest(repo: str, deadline: float) -> str:
+    """The v1 digest of the working tree as `git add -A` would stage it on top of HEAD. It goes through a
+    temporary index, so the repository's own index is left alone. Files git ignores are not in it."""
+    with tempfile.TemporaryDirectory(prefix="proofbundle-index-") as scratch:
+        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(scratch, "index"))
+        output = b""
+        for args in (("read-tree", "HEAD"), ("add", "-A"), ("write-tree",)):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise GateError("the gate ran out of time")
+            try:
+                proc = subprocess.run(["git", "-C", repo, *args], env=env, capture_output=True, timeout=left,
+                                      check=False)
+            except FileNotFoundError as exc:
+                raise GateError("git is not on PATH") from exc
+            except subprocess.TimeoutExpired as exc:
+                raise GateError("git did not answer in time") from exc
+            if proc.returncode != 0:
+                raise GateError(f"git {args[0]} failed on the working tree")
+            output = proc.stdout
+        return tree_digest(repo, output.decode().strip(), deadline)
+
+
+def _junit_counts(path: str) -> tuple[dict, str]:
+    """Counts from the JUnit XML report the run wrote, and the report's sha256."""
+    import xml.etree.ElementTree as ElementTree  # only this subcommand reads XML
+
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(MAX_REPORT_BYTES + 1)
+    except OSError as exc:
+        raise GateError("the command wrote no JUnit XML report") from exc
+    if len(data) > MAX_REPORT_BYTES:
+        raise GateError(f"the report is larger than {MAX_REPORT_BYTES} bytes")
+    if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
+        raise GateError("the report declares a DOCTYPE or an entity")
+    try:
+        root = ElementTree.fromstring(data)
+    except ElementTree.ParseError as exc:
+        raise GateError(f"the report is not XML ({exc})") from exc
+    suites = [root] if root.tag == "testsuite" else root.findall("testsuite") if root.tag == "testsuites" else []
+    if not suites:
+        raise GateError("the report has no testsuite")
+    totals = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
+    for suite in suites:
+        for name in totals:
+            value = suite.get(name, "0")
+            if not re.fullmatch(r"[0-9]{1,15}", value):
+                raise GateError(f"the report's {name} is not a count: {value!r}")
+            totals[name] += int(value)
+    counts = {"tests": totals["tests"], "failed": totals["failures"], "errors": totals["errors"],
+              "skipped": totals["skipped"]}
+    counts["passed"] = counts["tests"] - counts["failed"] - counts["errors"] - counts["skipped"]
+    if counts["passed"] < 0:
+        raise GateError("the report's counts do not add up")
+    return counts, hashlib.sha256(data).hexdigest()
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def run_evidence(directory: str, out: str, command: list[str],
+                 timeout: float = RUN_TIMEOUT_SECONDS) -> tuple[int, dict]:
+    """Run a pytest command on the clean working tree of HEAD and, for a green run that left the tree as it
+    was, write the statement a bundle signs: the subject and the run record (DECISIONS.md, D23).
+
+    There is no evidence when the working tree differs from HEAD before the run, when the run moves HEAD or
+    changes the working tree, when it times out or writes no readable report, or when it is not green. The
+    record holds no environment value. Nothing is signed here.
+    """
+    report = {"outcome": "no_evidence", "reason_id": None, "message": "", "statement": None, "run": None,
+              "gate_version": GATE_VERSION}
+
+    def refuse(reason_id: str, message: str, run: dict | None = None) -> tuple[int, dict]:
+        report.update(reason_id=reason_id, run=run,
+                      message=f"NO EVIDENCE: {message}. Nothing was written, and nothing may be signed as this run.")
+        return 1, report
+
+    try:
+        deadline = time.monotonic() + DEADLINE_SECONDS
+        top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
+        if top.returncode != 0:
+            return refuse("not_a_work_tree", f"{directory} is not inside a git work tree")
+        repo = top.stdout.decode().strip()
+        head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+        if head.returncode != 0:
+            return refuse("no_commit", f"{repo} has no commit at HEAD")
+        commit = head.stdout.decode().strip()
+        digest = tree_digest(repo, commit, deadline)
+        if _working_tree_digest(repo, deadline) != digest:
+            return refuse("tree_not_clean", f"the working tree of {repo} differs from HEAD {commit[:12]}; commit "
+                                            "or remove the changes, then run again (files git ignores are not "
+                                            "compared)")
+        program = shutil.which(command[0])
+        if program is None:
+            return refuse("no_program", f"{command[0]!r} is not an executable file on PATH")
+        program = os.path.abspath(program)
+        with tempfile.TemporaryDirectory(prefix="proofbundle-run-") as scratch:
+            junit = os.path.join(scratch, "report.xml")
+            argv = [program, *command[1:], "-p", "no:cacheprovider", f"--junitxml={junit}"]
+            started = _now()
+            try:
+                proc = subprocess.Popen(argv, cwd=repo, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                                        stdin=subprocess.DEVNULL, stdout=2, stderr=2, start_new_session=True)
+            except OSError as exc:
+                return refuse("not_started", f"the command could not start ({exc})")
+            try:
+                exit_code = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+                return refuse("timeout", f"the command did not finish within {timeout:g} s")
+            finished = _now()
+            deadline = time.monotonic() + DEADLINE_SECONDS
+            after = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+            if after.returncode != 0 or after.stdout.decode().strip() != commit:
+                return refuse("head_moved", f"the run moved HEAD away from {commit[:12]}")
+            tree_after = _working_tree_digest(repo, deadline)
+            if tree_after != digest:
+                return refuse("tree_changed", f"the run changed the working tree of {repo}, so it did not run on "
+                                              f"the tree it would name")
+            try:
+                counts, report_sha256 = _junit_counts(junit)
+            except GateError as exc:
+                return refuse("no_report", str(exc))
+        import platform  # only this subcommand names the platform
+
+        run = {"schema": RUN_SCHEMA, "commit": commit, "tree_before": digest, "tree_after": tree_after,
+               "command": argv, "program": {"path": program, "sha256": _file_sha256(program)},
+               "exit_code": exit_code, "counts": counts, "report_sha256": report_sha256, "started_at": started,
+               "finished_at": finished, "gate_version": GATE_VERSION,
+               "platform": {"system": platform.system(), "release": platform.release(), "machine": platform.machine()}}
+        problem = run_record_problem(run, digest)
+        if problem is not None:
+            return refuse("run_failed", problem.replace("the signed run record", "the run"), run)
+        statement = json.dumps({"subject": {"algorithm": TREE_ALGORITHM, "digest": digest}, "run": run},
+                               indent=1, sort_keys=True) + "\n"
+        try:
+            with open(out, "x", encoding="utf-8") as handle:
+                handle.write(statement)
+        except OSError as exc:
+            return refuse("not_written", f"the statement could not be written to {out} ({exc})", run)
+    except GateError as exc:
+        return refuse("gate_error", str(exc))
+    report.update(outcome="evidence", reason_id="green_run", run=run, statement=os.path.abspath(out),
+                  message=f"proofbundle run: {counts['passed']} of {counts['tests']} tests passed, exit 0, on "
+                          f"{TREE_ALGORITHM} {digest} at HEAD {commit[:12]}, and the run left the tree as it "
+                          f"was. The statement is unsigned; sign it only if you mean to vouch for this run. "
+                          "It records what the run reported, not that the tests test anything.")
+    return 0, report
+
+
+def run_evidence_command(argv: list[str]) -> int:
+    if "--" not in argv:
+        print(RUN_USAGE, file=sys.stderr)
+        return 2
+    split = argv.index("--")
+    options, command, i = {"--repo": None, "--out": None, "--timeout": None}, argv[split + 1:], 0
+    head = argv[:split]
+    while i < len(head):
+        if head[i] in options and i + 1 < len(head):
+            options[head[i]], i = head[i + 1], i + 2
+        else:
+            print(f"{RUN_USAGE}; unknown {head[i]!r}", file=sys.stderr)
+            return 2
+    timeout = RUN_TIMEOUT_SECONDS
+    if options["--timeout"] is not None:
+        if not re.fullmatch(r"[0-9]{1,5}", options["--timeout"]) or int(options["--timeout"]) == 0:
+            print(f"{RUN_USAGE}; the timeout is a whole number of seconds from 1 to 99999", file=sys.stderr)
+            return 2
+        timeout = float(options["--timeout"])
+    if options["--repo"] is None or options["--out"] is None or not command:
+        print(RUN_USAGE, file=sys.stderr)
+        return 2
+    code, report = run_evidence(options["--repo"], options["--out"], command, timeout)
+    sys.stdout.write(json.dumps(report, indent=1) + "\n")
+    print(report["message"], file=sys.stderr)
+    return code
+
+
 def _host(argv: list[str]) -> str:
     if not argv:
         return "claude"
@@ -1026,6 +1288,8 @@ def main(argv: list[str] | None = None) -> int:
         return tree_digest_command(argv[1:])
     if argv[:1] == ["ci-check"]:
         return ci_check_command(argv[1:])
+    if argv[:1] == ["run-evidence"]:
+        return run_evidence_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions = "claude", None, []
     try:

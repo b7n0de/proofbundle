@@ -488,3 +488,48 @@ Options:
 - C. The requirement as a field of the declaration or a file under `.proofbundle/`. Deleting the file
   would switch the check off.
 - D. A `--rev` option. Rejected, see the third point.
+
+## D23. Evidence from the test run itself
+
+Measured first (2026-09-30, PyPI 6.1.0, pytest 9.1.1, inspect_ai 0.3.266): the package's pytest receipt
+names no commit, no tree and no command, and signs passed true for a run that exited 1 when the pass rate
+meets the threshold. The Inspect receipt names Inspect's 7-character short commit and drops the dirty
+state its own log records. Neither names the tree digest the gate checks.
+
+Chosen (smallest variant, 2026-09-30, for the owner's review):
+- `proofbundle_gate.py run-evidence --repo DIR --out FILE [--timeout S] -- COMMAND...` runs a named
+  pytest command in the repository, without a shell, with `-p no:cacheprovider --junitxml=<a file outside
+  the repository>` added and PYTHONDONTWRITEBYTECODE=1 set.
+- Before the run the working tree, as `git add -A` would stage it on top of HEAD through a temporary index,
+  must have the tree digest of HEAD. After the run HEAD must be the same commit and the working tree must
+  still have that digest. Files git ignores are not compared, and they can influence the run.
+- Exit code and counts come from the run: the process exit code, and tests, failures, errors and skipped
+  from the JUnit report it wrote. There is a statement only for exit 0, no failure, no error, at least one
+  passed test and counts that add up. A timeout, a missing or unreadable report, or an existing output file
+  gives none.
+- The statement is `{"subject": <the tree digest of HEAD>, "run": <the record>}`. The record names the
+  commit, the digests before and after, the command as run, the program's path and sha256, the exit code,
+  the counts, the report's sha256, the start and end time, the platform and the gate version. It holds no
+  environment value.
+- Nothing is signed by the tool. Signing stays experimental and runs only on the user's explicit request,
+  with the pinned package: `proofbundle emit --payload-file FILE --out .proofbundle/<name>.bundle.json
+  --key KEY`. The declaration is unchanged, kind `bundle`.
+- The gate accepts a bundle payload with the keys `subject` and `run` beside the plain subject statement,
+  and asks every run record the same questions, whoever made it: the schema and its exact keys, both digests
+  equal to the subject, exit code 0, no failure, no error, at least one passed, counts that add up, and a
+  command. Otherwise it answers deny `not_bound` and names what the record shows. A signed record of a red
+  run never binds.
+- What the record proves is what the gate proves: who signed it and which tree it names. The counts are
+  what the run reported; the record does not show that the tests test anything, and a test can edit a file
+  and restore it before the run ends.
+
+Options:
+- A. The tool above and the gate's check of a run record (chosen).
+- B. Record the tree digest and the dirty state in the package's pytest plugin and Inspect hook. That is
+  production code under `src/`; it ships only after 6.2.0, and the plugin pins 6.1.0.
+- C. A new evidence kind in the declaration that requires a run record, so a plain subject statement no
+  longer suffices. Larger: the declaration schema, the rules of D20 and the CI mode.
+- D. Run the command in a fresh clone of HEAD. It keeps ignored files out, but not an editable install
+  that imports the working tree; more code for a partial gain.
+- E. An MCP tool that runs the command. A new execution surface over MCP; Bash already runs commands.
+- F. Inspect evals. Not in this variant; they need their own runner and log reading.
