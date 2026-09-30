@@ -820,8 +820,9 @@ From the verify lanes V7 and V8 on 085869313, the third fix of the gate at d388e
 P1 findings F1 and F3 of V8 and the P2 findings of both lanes are closed by the fix and named in its CHANGELOG entry;
 these lines are what the lanes found that the fix does not change.
 - **A memoryview whose format no view of private bytes can take stays the caller's view** (P1, V8-F2, the same at
-  8f2fa980 and d388ed3d): a view of a ctypes array (`<H`, `>I`, `T{...}`), of an `array('u')`, or a view with
-  strides is read by both collects and handed on, and the body reads the caller's view when it reads it.
+  8f2fa980 and d388ed3d): a view of a ctypes array (`<H`, `>I`, `T{...}`) or of an `array('u')` is read by both
+  collects and handed on, and a view with strides is not read at all and handed on (its bytes are no one buffer, the
+  lane V12 on d1c39ae3); the body reads the caller's view when it reads it.
   `merkle.verify_inclusion` read the proof first and the leaf later from two such views and gave True in 8 of 533
   runs where each state gives False. `memoryview.cast` takes none of these formats, and a view of the same bytes in
   format `B` would be another value to a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`
@@ -837,8 +838,8 @@ these lines are what the lanes found that the fix does not change.
   cost of the third fix (measured by the lane V9 after the full suite).
 
 From the verify lanes V10 and V11 on d58be0b8, the fourth form of that fix, before it was pushed. Their P2 findings
-are closed by the fix and named in its CHANGELOG entry; these lines are what the lanes found that the fix does not
-change.
+are closed by the fix and its fifth form and named in its CHANGELOG entry, up to the values the block of the lane V12
+below names; these lines are what the lanes found that the fix does not change.
 - **An iterator or a generator handed in as an argument is read by the body, after the other arguments were copied**
   (P1, V10-F1, the same at 085869313, 8f2fa980 and d388ed3d): an iterator over the caller's list, a generator
   expression, `map`, `itertools.chain` or `reversed` is no container the reading can copy, and it cannot be read
@@ -850,6 +851,24 @@ change.
   iterator where the body refused before reading it and would not close the window; refusing it would change what a
   caller with a generator gets. Pass a list or a tuple instead, not an iterator, a generator, `map`, `chain` or
   `reversed`: with a list the same sweeps give 0 mixed verdicts. A fix comes after 6.2.0 as an item of its own.
+
+From the verify lane V12 on d1c39ae3, the fifth form of that fix, before it was pushed. Its findings F2 to F4 are
+closed by the fix and named in its CHANGELOG entry; these lines are what the lane found that the fix does not change.
+- **A value the comparison does not read, built anew on each read by a Mapping that never changes, is refused as
+  changed** (P2, V12-F1; 8f2fa980 and d388ed3d give a verdict, 085869313 and d58be0b8 refuse these and more): a
+  `Fraction`, a `UUID`, a path, an `ipaddress` value, a `slice`, a `timezone`, a `str` or `bytes` subclass as a
+  value, a datetime or time with a tzinfo, a memoryview with strides or a released one, a view of an OrderedDict, and
+  an object of the caller's class. `automation_summary` raises `_StandGestoert`, a `ProofBundleError`, where it gave a
+  verdict; no verdict is promoted. Comparing such values would run code that is not the interpreter's own types' (a
+  tzinfo's `utcoffset`, a caller's `__eq__`), or the copy hands them on as the caller's objects. `verify_rfc3161`
+  refuses such an `rp_trust` in its body at 8f2fa980 already. A Mapping that returns the same objects on each read, or
+  a dict, is read as before.
+- **A plain dict in another order is one value, and the body writes the first answer's order** (P3, V12-F3): a
+  result object whose `validate` lists the same pairs of a plain dict in another order on each call gives
+  `evaluate_public_transparency` an error text in either order; the copy keeps the first answer's order, and the
+  verdict is FAIL both ways (the rule of the lane V11: a dict that is no OrderedDict has no order in its value).
+- **What the lane did not run:** the cost on a Mapping of 100 000 pairs, other Python versions, `-bb`, real threads, a
+  reader that raises a RecursionError only on its second run, and plants of the second test file's own code.
 
 ## Open — named limits carried by the fixes themselves
 
@@ -958,7 +977,7 @@ those on a verify, emit or release path:
   (`rp_trust`, `frozen`, the result of `automation_summary`, the consistency result of
   `evaluate_public_transparency`), before the first collect and after the second, and the two answers must be the
   same value; it is otherwise handed on as the caller's object. The items of a frozenset, a keys, values or items
-  view of an OrderedDict, an iterator and a generator are handed on as they are (the last two: the first line of the block of the lanes V10
+  view of an OrderedDict (also `dict.keys(od)`), an iterator and a generator are handed on as they are (the last two: the first line of the block of the lanes V10
   and V11 below). The public instance methods of the package's classes do not take the reading. A dict with a key
   that is no exact str, int, float, bool, bytes or None, no `str` or `bytes` subclass and no tuple or frozenset of exact
   str, int, float, bool, bytes or None values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
@@ -968,11 +987,13 @@ those on a verify, emit or release path:
   undone between the two reads of one container is not seen (the ABA case of the double collect), and a change
   another thread makes in several steps is read in one of the states it passes through. After three readings in each
   of which the value changed, the function raises `_StandGestoert`, a `ProofBundleError`, also where a never-raise
-  surface would otherwise answer. Only two readings that differ cause it: code that changes the value while it is
-  read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
-  values that differ, an object of the caller's class built anew on each read among them (two answers whose copies
-  would hold the same are the same value; a new object of the caller's class, a datetime with a tzinfo and a set
-  holding a float or a caller's object are not). A RecursionError raised while the arguments are read is raised as it is, before
+  surface would otherwise answer. Two readings that are no one value cause it: code that changes the value while it
+  is read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
+  values that are no one value. Two answers are one value when the copies made from them would hold the same
+  (`canonical._derselbe`): equal contents, in any order for a set, a frozenset and a dict that is no OrderedDict, a
+  caller's object only as itself, and an exact str, bytes, int, bool, a float of the same bits, a complex, range or
+  Decimal, a date, a timedelta or a naive time or datetime of equal value and fold. Any other value built anew on
+  each read is a change even when it is equal: the first line of the block of the lane V12 above. A RecursionError raised while the arguments are read is raised as it is, before
   the body runs, also at a never-raise surface. The reading costs two reads and one copy of the arguments per call
   from outside the package, linear in their size, and two runs of a named reader (the line on its cost above). A public function that the package's own code calls from inside the body of another
   reads nothing again, because what it is passed is that reading or was made from it, and a value the package hands

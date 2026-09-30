@@ -33,10 +33,12 @@ import functools
 import gc
 import hashlib
 import inspect
+import struct
 import sys
 import threading
 import types
 from datetime import date, datetime, time as dt_time, timedelta, timezone
+from decimal import Decimal
 from collections import OrderedDict, deque
 from collections.abc import Mapping
 from typing import Any, Callable, Union
@@ -203,6 +205,10 @@ def _lies(wert: Any) -> Any:
         # a mapping that is no dict stays the caller's object.
         bezug = gc.get_referents(wert)
         if len(bezug) != 1 or not issubclass(type(bezug[0]), dict):
+            return None
+        if typ is not _ABBILDSICHT and issubclass(type(bezug[0]), OrderedDict):
+            # `dict.keys(od)` lists the storage order, the copy of the OrderedDict its own order: handed on (verify lane
+            # V12 on d1c39ae3, F4). A MappingProxyType reads the OrderedDict through its own order, as the copy does.
             return None
         return ("sicht", typ, bezug, None)
     if typ is memoryview:
@@ -475,24 +481,32 @@ def _stand(wurzel: Any, leser: Any = None) -> Any:
 def _derselbe(alt: Any, neu: Any) -> bool:
     """Whether two answers of a reader (`_stand`) are the same value, judged by what the copy made from each would hold.
 
-    A container the reading copies (`_lies`: a dict, list, tuple, set, bytearray, deque or array or a subclass of one, a
-    memoryview, a view of a dict, a dataclass of this package) is the same when both answers are of the same type and
-    `_lies` reads the same thing from each: the same bytes, the same ``maxlen``, type code, format and shape, and the
-    same values place by place, a dict or a dataclass pair by pair. A plain dict whose keys are all exact ``str``,
-    ``bytes``, ``int``, ``bool`` or None may list its pairs in another order, and a set holds the same items when every
-    item on both sides is such a value (their hash and comparison are the interpreter's own); any other set is the same
-    only as the same object. A leaf is the same when it is the same object, an exact ``str``, ``bytes``, ``int`` or
-    ``bool`` of equal value, an exact ``float`` of the same bits (a NaN is itself, -0.0 is not 0.0), an exact ``date``,
-    ``time``, ``datetime`` or ``timedelta`` of equal value without a ``tzinfo``, or one of the empty mappings a reader
-    leaves for a mapping it could not read (`_Unlesbar`). Any other value is the same only when it is the same object:
-    an object of the caller's class built anew on each read, a datetime with a ``tzinfo``.
+    A container the reading reads (`_lies`: a dict, list, tuple, set, bytearray, deque or array or a subclass of one, a
+    memoryview, a view of a dict that is no OrderedDict, a dataclass of this package) is the same when both answers are
+    of the same type, `_lies` reads both the same way (an OrderedDict whose own order it reads is not one it leaves
+    live) and reads the same thing from each: the same bytes, the same ``maxlen``, type code, format and shape, and the
+    same values place by place, an OrderedDict or a dataclass pair by pair in its order. A set, a frozenset and a dict
+    that is no OrderedDict are matched item by item, or key by key (`_paarweise`): a key whose hash and comparison are
+    the interpreter's own by its value, any other key by its identity, and each pair is compared again by these rules,
+    so their order is no part of the value and ``1`` meets no ``True``. A leaf is the same when it is the same object,
+    an exact ``str``, ``bytes``, ``int`` or ``bool`` of equal value, an exact ``float`` of the same bits (a NaN of the
+    same sign and payload is itself, -0.0 is not 0.0), an exact ``complex`` of the same bits, an exact ``range`` of
+    equal value, an exact ``Decimal`` of the same sign, digits and exponent (``Decimal("1.0")`` is no
+    ``Decimal("1.00")``), an exact ``date`` or ``timedelta`` of equal value, an exact ``time`` or ``datetime`` without a
+    ``tzinfo`` of equal value and ``fold``, or one of the empty mappings a reader leaves for a mapping it could not
+    read (`_Unlesbar`). Any other value is the same only when it is the same object: an object of the caller's class
+    built anew on each read, a ``str`` or ``bytes`` subclass, a datetime with a ``tzinfo``, a ``Fraction``, a
+    ``UUID``, a path, a keys, values or items view of an OrderedDict, a memoryview `_lies` cannot read.
 
     WHY BY THE READING (verify lanes V7, V8, V10 and V11 on 085869313 and d58be0b8). A Mapping may build its values anew
     on each read, as ``os.environ`` builds its text and a configuration that parses JSON builds an OrderedDict, and such
     a Mapping, never changed, was refused as changed at `verify_anchors`, `verify_rfc3161` and `automation_summary`,
     where 8f2fa980 and d388ed3d gave a verdict. A list of types grew with each lane; the copy is what the body reads, so
     two answers whose copies would be equal are one value. Read without recursion, by the base types' own methods; the
-    objects compared are the reader's answers, and none of the caller's methods runs."""
+    objects compared are the reader's answers, and none of the caller's methods runs. Verify lane V12 on d1c39ae3 found
+    answers called the same whose copies differ (``{1}`` and ``{True}``, the sign of a NaN, the ``fold``) and a
+    frozenset, a set of floats, a complex, a range and a Decimal built anew called a change; the matching by key and
+    the rules above answer both."""
     stapel = [(alt, neu)]
     gesehen: set = set()
     while stapel:
@@ -507,14 +521,30 @@ def _derselbe(alt: Any, neu: Any) -> bool:
                 return False
             continue
         if typ is float:
-            if float.hex(a) != float.hex(b):
+            if _bits(a) != _bits(b):
+                return False
+            continue
+        if typ is complex:
+            if _bits(a.real) != _bits(b.real) or _bits(a.imag) != _bits(b.imag):
+                return False
+            continue
+        if typ is range:
+            if a != b:
+                return False
+            continue
+        if typ is Decimal:
+            if Decimal.as_tuple(a) != Decimal.as_tuple(b):
                 return False
             continue
         if typ is _Unlesbar:
             continue
         if typ is date or typ is timedelta or ((typ is datetime or typ is dt_time) and a.tzinfo is None
                                                and b.tzinfo is None):
-            if a != b:
+            if a != b or ((typ is datetime or typ is dt_time) and a.fold != b.fold):
+                return False
+            continue
+        if typ is frozenset:
+            if not _paarweise(list(frozenset.__iter__(a)), list(frozenset.__iter__(b)), stapel):
                 return False
             continue
         paar = (id(a), id(b))
@@ -536,9 +566,7 @@ def _derselbe(alt: Any, neu: Any) -> bool:
                     or array.array.tobytes(inhalt_a) != array.array.tobytes(inhalt_b)):
                 return False
         elif art == "set":
-            if not all(_skalar_mit_eigenem_hash(x) for x in inhalt_a + inhalt_b):
-                return False
-            if len(inhalt_a) != len(inhalt_b) or set(inhalt_a) != set(inhalt_b):
+            if not _paarweise(inhalt_a, inhalt_b, stapel):
                 return False
         elif art == "list" or art == "tuple" or art == "deque" or art == "sicht":
             if len(inhalt_a) != len(inhalt_b):
@@ -547,12 +575,10 @@ def _derselbe(alt: Any, neu: Any) -> bool:
         else:   # "dict", "lebend", "daten": the stored pairs
             if len(inhalt_a) != len(inhalt_b):
                 return False
-            if (typ is dict and all(_skalar_mit_eigenem_hash(k) for k, _ in inhalt_a)
-                    and all(_skalar_mit_eigenem_hash(k) for k, _ in inhalt_b)):
-                nach_b = dict(inhalt_b)
-                if len(nach_b) != len(inhalt_b) or set(nach_b) != {k for k, _ in inhalt_a}:
+            if art == "dict" and not issubclass(typ, OrderedDict):
+                # Its own order is no part of a plain dict's value, and the copy keeps the first answer's order.
+                if not _paarweise(inhalt_a, inhalt_b, stapel, paare=True):
                     return False
-                stapel.extend((wert, nach_b[k]) for k, wert in inhalt_a)
             else:
                 for (ka, va), (kb, vb) in zip(inhalt_a, inhalt_b):
                     stapel.append((ka, kb))
@@ -560,11 +586,42 @@ def _derselbe(alt: Any, neu: Any) -> bool:
     return True
 
 
-def _skalar_mit_eigenem_hash(wert: Any) -> bool:
-    """Whether hashing and comparing ``wert`` is the interpreter's own code: an exact ``str``, ``bytes``, ``int`` or
-    ``bool``, or None (a float is left out, a NaN is no key of its own)."""
-    typ = type(wert)
-    return typ is str or typ is bytes or typ is int or typ is bool or wert is None
+def _bits(zahl: float) -> bytes:
+    """The eight bytes of a float: a NaN's sign and payload count, and -0.0 is not 0.0 (verify lane V12 on d1c39ae3, F3:
+    ``float.hex`` spells every NaN ``nan``)."""
+    return struct.pack("<d", zahl)
+
+
+def _paarweise(teile_a: list, teile_b: list, stapel: list, paare: bool = False) -> bool:
+    """Set items (or dict pairs, with ``paare``: each a (key, value) pair) of two answers matched by their key and
+    handed to `_derselbe`'s stack pair by pair, so each pair is compared type-exactly (``1`` is no ``True``, ``0.0`` no
+    ``-0.0``; verify lane V12 on d1c39ae3, F3). A key whose hash and comparison are the interpreter's own
+    (`_schluessel_von` keeps it as it is: an exact scalar, or a tuple or frozenset of such) is looked up by its value;
+    any other key only by its identity, so no method of it runs, and it meets only itself. The keys of a dict and the
+    items of a set are distinct by the interpreter's own comparison or by identity, so each key of one answer meets at
+    most one of the other, and with equal lengths each is met once."""
+    if len(teile_a) != len(teile_b):
+        return False
+    nach_wert: dict = {}
+    nach_kennung: dict = {}
+    for teil in teile_b:
+        k = teil[0] if paare else teil
+        if _schluessel_von(k) is k:
+            nach_wert[k] = teil
+        else:
+            nach_kennung[id(k)] = teil
+    for teil in teile_a:
+        k = teil[0] if paare else teil
+        gegenueber = (nach_wert.get(k, _FEHLT) if _schluessel_von(k) is k
+                      else nach_kennung.get(id(k), _FEHLT))
+        if gegenueber is _FEHLT:
+            return False
+        if not paare:
+            stapel.append((teil, gegenueber))
+        else:
+            stapel.append((teil[0], gegenueber[0]))
+            stapel.append((teil[1], gegenueber[1]))
+    return True
 
 
 #: What a reader leaves for a mapping it could not read: its own ``items`` raises, like the mapping's did.

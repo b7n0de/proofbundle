@@ -41,9 +41,11 @@ dataclasses and a key of a `str` subclass, in linear time, and a sweep over the 
 is taken away. Section 6 holds the second collect: a change between the two collects is seen and the value read again,
 three readings before a refusal, and nothing of the process is touched. Section 7 holds what the verify lanes V7 and V8
 on 085869313 found: the reader of a Mapping is part of both collects, a deque, an array and a view of a dict are copied,
-a RecursionError is no change, a Mapping that builds its values anew is read, and each edge a planted defect of the
-lanes V7 and V10 showed untested (the second collect of each kind, the depth after an exception, the warning's frame,
-the prefix of a module name, each rule of the same value) has a test that falls on that plant.
+a RecursionError is no change, a Mapping that builds or parses its values anew is read, and each edge a planted
+defect of the lanes V7 and V10 showed untested (the second collect of each kind, the depth after an exception, the
+warning's frame, the prefix of a module name) has a test that falls on that plant; the lane V12 on d1c39ae3 found 24
+rules of the same value that no test held, and each rule of it has a case now that falls without it (the guard
+against a circle by a hang of the ring case).
 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
@@ -54,7 +56,9 @@ str, int, float, bool, bytes or None, no subclass of str or bytes and no tuple o
 the caller's object (its hash can be the caller's code), and so do a dict whose keys meet as one in the copy, an
 OrderedDict whose own order cannot be read without hashing, a keys, values or items view of an OrderedDict, the items of a frozenset, an iterator or a generator
 (it cannot be read twice, and the body reads it when it reads it), and a memoryview whose format a view of private bytes
-cannot take (read by both collects, then read by the body as the caller's view). A change that
+cannot take (read by both collects, then read by the body as the caller's view) or that has strides (not read at
+all). A value of a type the comparison of a reader's two answers does not read (`canonical._derselbe` names them),
+built anew on each read, is a change, and the call is refused. A change that
 is made and undone between the two reads of one container is not seen. And the sweep reaches a window only where a
 tracked object is allocated in it.
 """
@@ -2110,6 +2114,55 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         v = verify_rfc3161(b"proof", b"root", frozen={}, rp_trust=_NeuGebaut({"trusted_tsa_roots": ["QUJD"]}))
         self.assertIn("status", v)
 
+    def test_a_mapping_that_parses_its_values_anew_gives_a_verdict(self):
+        """V12 F1: a Mapping that is never changed but parses its values anew on each read, as a configuration read with
+        ``json.loads(..., parse_float=Decimal, object_pairs_hook=OrderedDict)`` does, was refused as changed at
+        `automation_summary` for a frozenset, a set of floats or tuples, a complex, a range, a Decimal, a Counter or a
+        dict with float or tuple keys in another order, where 8f2fa980 gave a verdict. Each read here builds every
+        value anew and lists every pair in the other order."""
+        import json
+        from collections import Counter, OrderedDict, defaultdict
+        from decimal import Decimal
+        from proofbundle.automation_verdict import automation_summary
+        geteilt = _Spur()
+        gelesen = [0]
+
+        def bauen():
+            gelesen[0] += 1
+            umgekehrt = gelesen[0] % 2 == 0
+
+            def reihe(liste):
+                return liste[::-1] if umgekehrt else liste
+            paare = [("x", 1.5), ("y", 2.5)]
+            text = json.dumps(dict(reihe(paare)))
+            werte = {
+                "json": json.loads(text, parse_float=Decimal, object_pairs_hook=OrderedDict),
+                "fs": frozenset({"".join(["a", "b"]), float("1.5"), (1, "".join(["x"]))}),
+                "menge": {float("0.5"), (2, "".join(["y", "z"]))},
+                "c": complex(1.5, -2.5),
+                "r": range(0, 7, 2),
+                "d": Decimal("12.50"),
+                "zaehler": Counter(dict(reihe(paare))),
+                "dd": defaultdict(list, dict(reihe(paare))),
+                "fk": {float(k): v for k, v in reihe([(1.5, "a"), (2.5, "b")])},
+                "tk": {tuple(k): v for k, v in reihe([((1,), "a"), ((2, 3), "b")])},
+                "geteilt": {geteilt},
+            }
+            return {"crypto_ok": True, "structure_ok": True, "policy_ok": True, "extra": werte}
+
+        class Parsend(Mapping):
+            def __getitem__(self, k):
+                return bauen()[k]
+
+            def __iter__(self):
+                return iter(list(bauen()))
+
+            def __len__(self):
+                return len(bauen())
+        r = automation_summary(Parsend(), required_checks={"crypto": "crypto_ok"})
+        self.assertIs(r["cryptoValid"], True)
+        self.assertGreater(gelesen[0], 4, "the Mapping was not read before the first collect and after the second")
+
     def test_same_value_tells_types_and_the_bits_of_a_float_apart(self):
         """Each rule of `canonical._derselbe` on values built anew (verify lane V10 on d58be0b8, F4: without the rule
         for bytes, for int, for the length or the keys of a dict, or for `_Unlesbar`, no test fell)."""
@@ -2132,7 +2185,8 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         self.assertFalse(_derselbe(bytearray(b"ab"), bytearray(b"ac")))
         self.assertTrue(_derselbe({1, "a", b"b", None}, {1, "a", b"b", None}))
         self.assertFalse(_derselbe({1}, {2}))
-        self.assertFalse(_derselbe(frozenset({1.0}), frozenset({1.0})), "a float in a set is not compared by value")
+        self.assertTrue(_derselbe(frozenset({float("1.5")}), frozenset({float("1.5")})),
+                        "a float in a set is met by its value and compared by its bits (V12 F3)")
         self.assertTrue(_derselbe(deque([1, [2]], 3), deque([1, [2]], 3)))
         self.assertFalse(_derselbe(deque([1], 3), deque([1], 4)))
         # V11 F1: judged by the reading the copy is built from, so these count too.
@@ -2174,6 +2228,176 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         class Eigen:
             pass
         self.assertFalse(_derselbe(Eigen(), Eigen()), "an object of the caller is the same only as itself")
+
+    def test_each_rule_of_same_value_has_a_case_that_falls_without_it(self):
+        """Verify lane V12 on d1c39ae3, F2: with one of 24 rules of `canonical._derselbe` planted away (a length, a key
+        check, the bytes of an array or a memoryview, the date rule for a datetime or a time, the check of a tzinfo,
+        the art or the extra of a reading, the recursion into a deque), no test fell. Each case here is built before
+        the comparison, the answer is judged, and no method of the caller's objects may run while it is judged."""
+        import array
+        import datetime
+        import struct
+        import types
+        from collections import OrderedDict, deque
+        from decimal import Decimal
+        from proofbundle.canonical import _derselbe
+        from proofbundle.errors import Check
+
+        class Merkend:
+            def __hash__(self):
+                _Aufgezeichnet.aufrufe.append("Merkend.__hash__")
+                return 1
+
+            def __eq__(self, other):
+                _Aufgezeichnet.aufrufe.append("Merkend.__eq__")
+                return self is other
+
+        class Zone(datetime.tzinfo):
+            def utcoffset(self, dt):
+                _Aufgezeichnet.aufrufe.append("Zone.utcoffset")
+                return datetime.timedelta(0)
+
+            def dst(self, dt):
+                _Aufgezeichnet.aufrufe.append("Zone.dst")
+                return datetime.timedelta(0)
+
+            def tzname(self, dt):
+                _Aufgezeichnet.aufrufe.append("Zone.tzname")
+                return "Z"
+
+        class Geschlitzt(OrderedDict):
+            __slots__ = ("x",)
+
+        class Zehntel(Decimal):
+            pass
+
+        def bits(muster):
+            return struct.unpack("<d", struct.pack("<Q", muster))[0]
+        Text = _aufzeichnend(str)
+        geteilt = Merkend()
+        lebend = Geschlitzt(a=1)
+        lebend.x = object()
+        frei = memoryview(bytearray(b"ab"))
+        frei.release()
+        od_a, od_b = OrderedDict(a=1), OrderedDict(a=1)
+        abbild = _Sicht({"a": 1})
+        dt = datetime.datetime
+        faelle = [
+            ("str built anew", True, "".join(["ab", "c"]), "".join(["a", "bc"])),
+            ("str", False, "abc", "abd"),
+            ("bool", False, True, False),
+            ("the sign of a NaN", False, bits(0x7FF8000000000000), bits(0xFFF8000000000000)),
+            ("the payload of a NaN", False, bits(0x7FF8000000000000), bits(0x7FF8000000000001)),
+            ("complex built anew", True, complex(1.5, 2.5), complex("1.5+2.5j")),
+            ("complex, the sign of a zero", False, complex(0.0, 0.0), complex(0.0, -0.0)),
+            ("complex, the real part", False, complex(-0.0, 1.0), complex(0.0, 1.0)),
+            ("range built anew", True, range(3), range(0, 3)),
+            ("range", False, range(0, 3), range(0, 3, 2)),
+            ("Decimal built anew", True, Decimal("1.0"), Decimal("1.0")),
+            ("Decimal, its exponent", False, Decimal("1.0"), Decimal("1.00")),
+            ("Decimal, the sign of a zero", False, Decimal("0"), Decimal("-0")),
+            ("Decimal, the payload of a NaN", False, Decimal("NaN1"), Decimal("NaN2")),
+            ("a Decimal subclass", False, Zehntel("1.0"), Zehntel("1.0")),
+            ("date built anew", True, datetime.date(2026, 9, 30), datetime.date.fromisoformat("2026-09-30")),
+            ("date", False, datetime.date(2026, 9, 30), datetime.date(2026, 10, 1)),
+            ("timedelta built anew", True, datetime.timedelta(1), datetime.timedelta(hours=24)),
+            ("timedelta", False, datetime.timedelta(1), datetime.timedelta(2)),
+            ("datetime built anew", True, dt(2026, 9, 30, 12), dt.fromisoformat("2026-09-30T12:00")),
+            ("datetime", False, dt(2026, 9, 30, 12), dt(2026, 9, 30, 12, 0, 1)),
+            ("datetime, fold", False, dt(2026, 10, 25, 2, 30), dt(2026, 10, 25, 2, 30, fold=1)),
+            ("time built anew", True, datetime.time(12, 30), datetime.time.fromisoformat("12:30")),
+            ("time", False, datetime.time(12, 30), datetime.time(12, 31)),
+            ("time, fold", False, datetime.time(2, 30), datetime.time(2, 30, fold=1)),
+            ("two datetimes with a tzinfo", False, dt(2026, 9, 30, tzinfo=Zone()), dt(2026, 9, 30, tzinfo=Zone())),
+            ("a naive and an aware datetime", False, dt(2026, 9, 30), dt(2026, 9, 30, tzinfo=Zone())),
+            ("an aware and a naive datetime", False, dt(2026, 9, 30, tzinfo=Zone()), dt(2026, 9, 30)),
+            ("a naive and an aware time", False, datetime.time(1), datetime.time(1, tzinfo=Zone())),
+            ("an aware and a naive time", False, datetime.time(1, tzinfo=Zone()), datetime.time(1)),
+            ("frozenset built anew", True, frozenset({"".join(["a", "b"]), float("1.5"), (1, "x")}),
+             frozenset({"".join(["ab"]), float("1.5"), (1, "x")})),
+            ("frozenset, 1 and True", False, frozenset({1}), frozenset({True})),
+            ("frozenset, 0.0 and -0.0", False, frozenset({0.0}), frozenset({-0.0})),
+            ("frozenset, its length", False, frozenset({1}), frozenset({1, 2})),
+            ("frozenset of one caller object", True, frozenset({geteilt}), frozenset({geteilt})),
+            ("frozenset of two caller objects", False, frozenset({Merkend()}), frozenset({Merkend()})),
+            ("dict, a value", False, {"a": 1}, {"a": 2}),
+            ("dict, 1 and True", False, {1: "x"}, {True: "x"}),
+            ("dict, 0.0 and -0.0", False, {0.0: "x"}, {-0.0: "x"}),
+            ("dict, float keys in another order", True, {float("1.5"): "x", float("2.5"): "y"},
+             {float("2.5"): "y", float("1.5"): "x"}),
+            ("dict, tuple keys in another order", True, {(1, "a"): 1, (2,): 2}, {(2,): 2, (1, "a"): 1}),
+            ("dict, a caller key and another order", True, {geteilt: 1, "a": 2}, {"a": 2, geteilt: 1}),
+            ("dict, two caller keys", False, {Merkend(): 1}, {Merkend(): 1}),
+            ("dict, a caller key on one side", False, {"a": 1}, {Merkend(): 1}),
+            ("dict, a caller key on the other side", False, {Merkend(): 1}, {"a": 1}),
+            ("dict, a str subclass key", False, {Text("a"): 1}, {Text("a"): 1}),
+            ("OrderedDict built anew", True, OrderedDict(a=1, b=[2]), OrderedDict(a=1, b=[2])),
+            ("OrderedDict, its length", False, OrderedDict(a=1), OrderedDict(a=1, b=2)),
+            ("OrderedDict, a key", False, OrderedDict(a=1), OrderedDict(b=1)),
+            ("OrderedDict, read and left live", False, lebend, Geschlitzt(a=1)),
+            ("set built anew", True, {"".join(["a", "b"]), 10 ** 30, True, None},
+             {"".join(["ab"]), int("1" + "0" * 30), True, None}),
+            ("set, 1 and True", False, {1}, {True}),
+            ("set, 0.0 and -0.0", False, {0.0}, {-0.0}),
+            ("set, a longer one", False, {1}, {1, 2}),
+            ("set, a shorter one", False, {1, 2}, {1}),
+            ("set of one caller object", True, {geteilt, 1}, {1, geteilt}),
+            ("set of two caller objects", False, {Merkend()}, {Merkend()}),
+            ("set of a str subclass", False, {Text("a")}, {Text("a")}),
+            ("deque, an item", False, deque([1]), deque([2])),
+            ("deque, its length", False, deque([1]), deque([1, 2])),
+            ("tuple, an item", False, (1,), (2,)),
+            ("tuple, its length", False, (1,), (1, 2)),
+            ("tuple built anew", True, (1, [2]), (1, [2])),
+            ("list, an item", False, [1], [2]),
+            ("list, its length", False, [1], [1, 2]),
+            ("array, its bytes", False, array.array("b", [1]), array.array("b", [2])),
+            ("memoryview built anew", True, memoryview(bytes(4)), memoryview(bytearray(4))),
+            ("memoryview, its bytes", False, memoryview(b"ab"), memoryview(b"ac")),
+            ("memoryview, its format", False, memoryview(b"abcd").cast("H"), memoryview(b"abcd")),
+            ("memoryview, its shape", False, memoryview(bytes(6)).cast("B", (2, 3)),
+             memoryview(bytes(6)).cast("B", (3, 2))),
+            ("a live and a released memoryview", False, memoryview(b"ab"), frei),
+            ("a released and a live memoryview", False, frei, memoryview(b"ab")),
+            ("a view of a dict and of an OrderedDict", False, {"a": 1}.keys(), dict.keys(od_a)),
+            ("two views of OrderedDicts", False, dict.keys(od_a), dict.keys(od_b)),
+            ("a proxy of a dict and of a Mapping", False, types.MappingProxyType({"a": 1}),
+             types.MappingProxyType(_Sicht({"a": 1}))),
+            ("two proxies of one Mapping", False, types.MappingProxyType(abbild), types.MappingProxyType(abbild)),
+            ("dataclass of this package built anew", True, Check("a", True), Check("a", True)),
+            ("dataclass of this package", False, Check("a", True), Check("a", False)),
+        ]
+        for name, erwartet, a, b in faelle:
+            with self.subTest(case=name):
+                self.assertIsNot(a, b)
+                _Aufgezeichnet.aufrufe.clear()
+                try:
+                    antwort = _derselbe(a, b)
+                finally:
+                    gerufen = list(_Aufgezeichnet.aufrufe)
+                self.assertIs(antwort, erwartet)
+                self.assertEqual(gerufen, [], "a method of the caller's object ran while it was judged")
+
+    def test_the_reading_hands_on_what_its_copy_cannot_hold_as_it_is(self):
+        """Verify lane V12 on d1c39ae3, F4 and the plant of the memoryview shape: `dict.keys(od)` lists the storage
+        order and was copied as a view of the OrderedDict's copy, which lists its own order; a memoryview of two
+        dimensions must keep them."""
+        import types
+        from collections import OrderedDict
+        from proofbundle.canonical import _stand
+        od = OrderedDict([("b", 1), ("a", 2)])
+        od.move_to_end("b")
+        sicht = dict.keys(od)
+        self.assertEqual(list(sicht), ["b", "a"])
+        self.assertIs(_stand([sicht])[0], sicht)
+        proxy = types.MappingProxyType(od)
+        kopie_proxy = _stand([proxy])[0]
+        self.assertIsNot(kopie_proxy, proxy, "a proxy reads the OrderedDict through its own order, as its copy does")
+        self.assertEqual(list(kopie_proxy), ["a", "b"])
+        flaeche = memoryview(bytearray(range(6))).cast("B", (2, 3))
+        kopie = _stand([flaeche])[0]
+        self.assertIsNot(kopie, flaeche)
+        self.assertEqual((kopie.format, kopie.shape, kopie.tobytes()), ("B", (2, 3), bytes(range(6))))
 
     def test_a_recursion_error_in_a_reader_is_raised(self):
         """V10 F3: the readers caught a RecursionError as a Mapping that cannot list its pairs, and `automation_summary`
