@@ -2,10 +2,10 @@
 
 tools/scitt_ccf_external/section4_vectors/ holds one file per vector. Each records the result under
 reading A (Figure 9 of 4.2, as written) and under reading B (every sentence of 4, 4.1 and 5 the
-receipt carries enough to check). This test runs the directory's own checker, which imports nothing
-from proofbundle, runs proofbundle's reader over the same vectors, and flips one byte in the
-signature, a tag, the anchor and the path of each vector: the result must then change or be a
-rejection.
+receipt carries enough to check), from the receipt alone and with the vector's tree sizes. This test
+runs the directory's own checker, which imports nothing from proofbundle, runs proofbundle's reader
+over the same vectors without and with the sizes, and flips one byte in the signature, a tag, the
+anchor and the path of each vector: the result must then change or be a rejection.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ pytestmark = pytest.mark.skipif(importlib.util.find_spec("cbor2") is None,
 REPO = Path(__file__).resolve().parents[1]
 DIR = REPO / "tools" / "scitt_ccf_external" / "section4_vectors"
 IDS = [f"S4-{i:02d}" for i in range(1, 16)]
+SUCCESS = ("confirmed", "confirmed_without_tree_sizes")
 
 
 def _checker():
@@ -38,13 +39,14 @@ def _vectors() -> list:
     return [json.loads((DIR / f"{i}.json").read_text(encoding="utf-8")) for i in IDS]
 
 
-def _reader_status(v: dict, receipt: bytes) -> str:
+def _reader_status(v: dict, receipt: bytes, sizes: bool = False) -> str:
     from proofbundle import scitt_ccf
     key = v["public_key"]
     trust = {"scitt_ccf_services": {key["issuer"]: [{"spki": bytes.fromhex(key["spki_der_hex"]),
                                                       "kid": key["kid"].encode("ascii")}]}}
+    kw = dict(older_size=v["older_size"], newer_size=v["newer_size"]) if sizes else {}
     return scitt_ccf.verify_consistency_receipt(receipt, older_root=bytes.fromhex(v["older_root_hex"]),
-                                                older_issuer=key["issuer"], rp_trust=trust).status
+                                                older_issuer=key["issuer"], rp_trust=trust, **kw).status
 
 
 def test_the_directory_holds_exactly_the_fifteen_vectors_and_its_manifest_matches():
@@ -70,9 +72,25 @@ def test_the_checker_imports_nothing_from_proofbundle():
                      "cryptography"}, names
 
 
-def test_the_reader_gives_the_status_each_vector_records():
-    got = {v["id"]: _reader_status(v, bytes.fromhex(v["receipt_hex"])) for v in _vectors()}
-    assert got == {v["id"]: v["proofbundle_reader"]["status"] for v in _vectors()}
+def test_the_reader_gives_the_status_each_vector_records_without_and_with_the_sizes():
+    for sizes, key in ((False, "status_without_sizes"), (True, "status_with_sizes")):
+        got = {v["id"]: _reader_status(v, bytes.fromhex(v["receipt_hex"]), sizes) for v in _vectors()}
+        assert got == {v["id"]: v["proofbundle_reader"][key] for v in _vectors()}, key
+
+
+def test_without_sizes_nothing_is_confirmed_and_the_sizes_decide_s4_08_to_s4_10():
+    vs = {v["id"]: v for v in _vectors()}
+    assert not [i for i, v in vs.items() if v["proofbundle_reader"]["status_without_sizes"] == "confirmed"]
+    got = {i: (vs[i]["older_size"], vs[i]["newer_size"], vs[i]["proofbundle_reader"]["status_without_sizes"],
+               vs[i]["proofbundle_reader"]["status_with_sizes"], vs[i]["reading_b"]["result"],
+               vs[i]["reading_b_with_sizes"]["result"]) for i in ("S4-08", "S4-09", "S4-10")}
+    assert got == {
+        "S4-08": (24, 24, "consistency_anchor_not_canonical", "consistency_tree_sizes_invalid", "reject", "reject"),
+        "S4-09": (22, 24, "consistency_anchor_not_canonical", "consistency_anchor_position_mismatch", "reject",
+                  "reject"),
+        "S4-10": (6, 8, "confirmed_without_tree_sizes", "consistency_anchor_position_mismatch",
+                  "not_decidable_without_tree_sizes", "reject"),
+    }
 
 
 def test_the_checkers_tag_rule_matches_the_proofs_built_from_the_ledger():
@@ -125,23 +143,24 @@ def test_one_flipped_byte_changes_the_result_or_is_refused():
     for v in _vectors():
         older = bytes.fromhex(v["older_root_hex"])
         spki = bytes.fromhex(v["public_key"]["spki_der_hex"])
-        before_a = v["reading_a"]["result"]
-        before_b = v["reading_b"]["result"]
-        before_r = v["proofbundle_reader"]["status"]
+        m, n = v["older_size"], v["newer_size"]
+        before = {"reading A": v["reading_a"]["result"], "reading B": v["reading_b"]["result"],
+                  "reading B with sizes": v["reading_b_with_sizes"]["result"],
+                  "reader": v["proofbundle_reader"]["status_without_sizes"],
+                  "reader with sizes": v["proofbundle_reader"]["status_with_sizes"]}
         for site, receipt in _mutations(v, cbor2).items():
             if receipt is None:
                 counts["not_applicable"] += 1
                 continue
             counts["mutated"] += 1
-            a = checker.reading_a(receipt, older, spki)[0]
-            b = checker.reading_b(receipt, older, spki, v["generator_tree_sizes"])[0]
-            r = _reader_status(v, receipt)
-            if not (a != before_a or a == "reject"):
-                held.append((v["id"], site, "reading A", a))
-            if not (b != before_b or b == "reject"):
-                held.append((v["id"], site, "reading B", b))
-            if not (r != before_r or r != "confirmed"):
-                held.append((v["id"], site, "reader", r))
+            after = {"reading A": checker.reading_a(receipt, older, spki)[0],
+                     "reading B": checker.reading_b(receipt, older, spki, m, n)[0],
+                     "reading B with sizes": checker.reading_b(receipt, older, spki, m, n, sizes_are_input=True)[0],
+                     "reader": _reader_status(v, receipt), "reader with sizes": _reader_status(v, receipt, True)}
+            for who, got in after.items():
+                refused = got not in SUCCESS if who.startswith("reader") else got == "reject"
+                if not (got != before[who] or refused):
+                    held.append((v["id"], site, who, got))
     assert held == []
     assert counts == {"mutated": 57, "not_applicable": 3}
 
