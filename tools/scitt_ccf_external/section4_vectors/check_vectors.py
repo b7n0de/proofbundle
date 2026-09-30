@@ -43,6 +43,20 @@ def H(data: bytes) -> bytes:
 
 # ------------------------------------------------------------------------------------------------
 # The pieces both readings share
+#
+# IETF Code Components: compute_root() below transcribes Figure 7 (section 3.2), and compute_roots()
+# and reading_a() transcribe Figure 9 (section 4.2) of draft-ietf-scitt-receipts-ccf-profile-05.
+# For those three functions:
+#
+# Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+# reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification, is permitted
+# pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
+# Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+# (https://trustee.ietf.org/license-info).
+#
+# The authors, the license text and the licence of the rest of this file: LICENSE, beside this file.
 # ------------------------------------------------------------------------------------------------
 def cose_sign1(receipt: bytes) -> tuple:
     """(protected bytes, protected map, unprotected map, payload, signature) of a COSE_Sign1."""

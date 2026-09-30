@@ -2,9 +2,14 @@
  "what": "every file of this directory but this one, with its length and SHA-256",
  "files": [
   {
+   "path": "LICENSE",
+   "length": 4485,
+   "sha256": "e528f06f7e1fd51ed2b7212afa34dfe11e3e78d417aebdcaeab1c521dbcf1a51"
+  },
+  {
    "path": "README.md",
-   "length": 8781,
-   "sha256": "07b56ed9eaf5108da087665edab569a21228784d1f461520b700d74111edc40b"
+   "length": 9059,
+   "sha256": "b48a78dc6c756b01a97727546a0064976857e4efc03d197ba2eae91331f8245c"
   },
   {
    "path": "S4-01.json",
@@ -88,8 +93,8 @@
   },
   {
    "path": "check_vectors.py",
-   "length": 17868,
-   "sha256": "d23ff72d2f695b5dddf0ed7f0af3178a93321230002a3841a4b9fe9016969dca"
+   "length": 18626,
+   "sha256": "11b6287146ab6da193a1cc71c8c44b6575ae885e96c5c70d7d39eb3c222c0ebd"
   },
   {
    "path": "generate_vectors.py",
