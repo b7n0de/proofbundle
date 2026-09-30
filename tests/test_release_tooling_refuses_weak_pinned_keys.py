@@ -240,6 +240,11 @@ IN_BAND_TOOLING = {
     "tools/scitt_ccf_external/leafhash/same_digests.py": "reads a local ledger's own files with the ccf "
                                                          "package to compare its digests with "
                                                          "measure.py; it trusts nothing",
+    "tools/scitt_ccf_external/section4_vectors/check_vectors.py": "recomputes both readings of the section 4 "
+                                                                  "vectors under the key each vector prints, "
+                                                                  "the local service's or the directory's "
+                                                                  "TEST ONLY key, and must import nothing "
+                                                                  "from proofbundle; it trusts nothing",
 }
 
 #: Every library outside the standard library that a file under scripts/ or tools/ imports, and why it
