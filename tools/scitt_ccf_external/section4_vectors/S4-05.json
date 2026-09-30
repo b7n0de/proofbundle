@@ -101,8 +101,8 @@
   "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
   "status_without_sizes": "consistency_newer_roots_differ",
   "status_with_sizes": "consistency_newer_roots_differ",
-  "commit": "f455cc8494b811e1de03ca1e0c156008d32b7f2d",
-  "scitt_ccf_py_sha256": "ac8edb394c2eea6be249bc3692d03b9d66624b7fc88a3de632596106fabc75bd",
+  "commit": "ad11dba39b7323f15685a81122d6cd16ada9bc4f",
+  "scitt_ccf_py_sha256": "867f00f50be7528e1fbdc88745665aeba710f2fb7a5a79c6bda31c0d77fa5941",
   "older_issuer": "127.0.0.1:8000"
  }
 }
