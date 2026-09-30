@@ -47,6 +47,7 @@ informative only (owner decision Q2 a).
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -80,12 +81,27 @@ CONSISTENCY_STATUS_ORDER = (
     "consistency_proof_missing",         # 4.1: vdp MUST carry -2 with one or more proofs
     "consistency_payload_attached",      # 4.1: the payload (the newer root) MUST be detached
     "consistency_newer_roots_differ",    # 4.1: every proof MUST compute to the same newer root
+    "consistency_tree_sizes_invalid",    # 4: 0 < m < n, for the sizes given or from the header
+    "consistency_newer_size_mismatch",   # PROOFBUNDLE'S OWN RULE, not a requirement of -05: the
+                                         # caller's newer size is not the header txid's (G5)
+    "consistency_path_not_canonical",    # 4, both sizes: the path is no node of the newer tree
+    "consistency_anchor_position_mismatch",  # 4, both sizes: not the path of RFC 9162 2.1.4.1 for
+                                         # m and n, so the anchor is not the root of T[m-2^t..m-1]
     "consistency_anchor_not_canonical",  # 4: the anchor MUST be the largest complete subtree
     "consistency_older_root_mismatch",   # 4.2: no proof recomputes the older root the caller holds
     "consistency_issuer_mismatch",       # PROOFBUNDLE'S OWN RULE, not a requirement of -05: the older
                                          # root came from another service's receipt (SECTION4_WGLC.md, G3)
     "signature_invalid", "needs_rp_trust")
 MAX_CONSISTENCY_PROOFS = 8
+#: The success of a consistency receipt checked without both tree sizes: every rule held that the
+#: receipt allows, but the anchor rule of section 4 only as far as the first tag goes, and 0 < m < n
+#: not at all. Never ``confirmed``: what could not be checked is not reported as checked.
+CONFIRMED_WITHOUT_TREE_SIZES = "confirmed_without_tree_sizes"
+#: The largest tree size taken: a tree of more leaves has paths longer than 64, beyond MAX_PATH.
+MAX_TREE_SIZE = 1 << 64
+#: A CCF transaction ID "view.seqno" in ASCII digits without leading zeros, as CCF 7.0.17 writes it.
+_TXID = re.compile(r"(0|[1-9][0-9]{0,19})\.(0|[1-9][0-9]{0,19})")
+_SIZE_FROM_HEADER = "protected header ccf.v1 txid"
 
 #: The closed set of statuses, in the order that decides an entry without a confirmed receipt.
 STATUS_ORDER = ("no_lib", "malformed", "outside_profile", "unbound", "statement_signature_invalid",
@@ -582,6 +598,10 @@ class ConsistencyCheck:
     receipt_iat: Optional[int] = None
     ccf_txid: Optional[str] = None
     inclusion_proofs_present: bool = False
+    older_size: Optional[int] = None
+    newer_size: Optional[int] = None
+    newer_size_source: Optional[str] = None
+    anchor_rule_checked: bool = False
     detail: str = ""
     profile: str = PROFILE
 
@@ -842,10 +862,10 @@ def _inclusion_root(p: Any) -> tuple:
 
 
 def _consistency_roots(p: Any) -> tuple:
-    """-05 section 4.2 compute_roots of one ccf-consistency-proof -> (older, newer, first tag).
+    """-05 section 4.2 compute_roots of one ccf-consistency-proof -> (older, newer, tags).
 
     Folding the anchor with the left siblings alone gives the older root, with all siblings the
-    newer one. The first tag is returned because it decides whether the anchor is the one section 4
+    newer one. The tags are returned because they decide whether the anchor is the one section 4
     requires: see ``verify_consistency_receipt``."""
     anchor, path = _proof_map(p, "consistency proof", "{1: anchor, 2: path}")
     if not (isinstance(anchor, bytes) and len(anchor) == 32):
@@ -857,7 +877,104 @@ def _consistency_roots(p: Any) -> tuple:
             newer = hashlib.sha256(sib + newer).digest()
         else:
             newer = hashlib.sha256(newer + sib).digest()
-    return older, newer, path[0][0]
+    return older, newer, tuple(left for left, _sib in path)
+
+
+def _is_tree_size(x: Any) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= MAX_TREE_SIZE
+
+
+def _txid_tree_size(txid: Optional[str]) -> Optional[int]:
+    """The tree size a CCF signature at this txid covers: its seqno, leaf 0 counted.
+
+    PROOFBUNDLE'S OWN RULE, not a requirement of -05, which relates no txid to a tree size
+    (SECTION4_WGLC.md, G5). Measured on CCF 7.0.17: the signature at seqno s signs the tree of s
+    leaves, leaf 0 being 32 zero bytes. Anything but "view.seqno" in ASCII digits yields None."""
+    hit = _TXID.fullmatch(txid) if isinstance(txid, str) else None
+    return int(hit.group(2)) if hit else None
+
+
+def _lp2(size: int) -> int:
+    """The largest power of two below ``size`` (size >= 2): the split of RFC 9162 2.1.1."""
+    return 1 << ((size - 1).bit_length() - 1)
+
+
+def _canonical_tags(m: int, n: int) -> tuple:
+    """The tags section 4 requires for 0 < m < n, read from the anchor up: the side of each digest
+    of RFC 9162 2.1.4.1 SUBPROOF(m, D[0:n], true) (the anchor itself carries no tag)."""
+    down: list = []
+    lo, hi = 0, n
+    while hi - lo != m:
+        k = _lp2(hi - lo)
+        if m <= k:
+            down.append(False)          # MTH(D[k:n]) is a right sibling
+            hi = lo + k
+        else:
+            down.append(True)           # MTH(D[0:k]) is a left sibling
+            lo, m = lo + k, m - k
+    return tuple(reversed(down))
+
+
+def _node_of_path(tags: tuple, n: int) -> Optional[tuple]:
+    """The node (lo, hi) of the tree of n leaves whose path to the root these tags are, or None."""
+    lo, hi = 0, n
+    for left in reversed(tags):
+        if hi - lo < 2:
+            return None
+        k = _lp2(hi - lo)
+        lo, hi = (lo + k, hi) if left else (lo, lo + k)
+    return lo, hi
+
+
+def _anchor_rule(tags: tuple, m: Optional[int], n: int) -> Optional[tuple]:
+    """None if the path is the one section 4 requires in the tree of n leaves, else (status, detail).
+
+    m is the older size for a proof that recomputes the caller's older root; for any other proof it
+    is None and the older size is the one its anchor implies, the end of the node the path reaches."""
+    node = _node_of_path(tags, n)
+    if node is None:
+        return ("consistency_path_not_canonical",
+                f"a path of {len(tags)} elements describes no node of a tree of {n} leaves "
+                "(RFC 9162 2.1.4.1, section 4)")
+    lo, hi = node
+    if m is None:
+        m = hi
+        if not 0 < m < n:
+            return ("consistency_anchor_position_mismatch",
+                    f"a proof's anchor sits at node({lo}, {hi}), which ends at the last leaf of the "
+                    f"newer tree: no older tree is smaller (0 < m < n, section 4)")
+    if tags != _canonical_tags(m, n):
+        return ("consistency_anchor_position_mismatch",
+                f"the path puts the anchor at node({lo}, {hi}); section 4 requires node({m - (m & -m)}, "
+                f"{m}) for m = {m} and n = {n}, the path of RFC 9162 2.1.4.1")
+    return None
+
+
+def _consistency_sizes(older_size: Any, newer_size: Any, txid: Optional[str]) -> tuple:
+    """(m, n, source of n, refusal): the sizes the anchor rule is checked with, refusal None or
+    (status, detail). A size the caller gives must be one; the header's is used where the caller
+    gives none."""
+    header = _txid_tree_size(txid)
+    for name, value in (("older_size", older_size), ("newer_size", newer_size)):
+        if value is not None and not _is_tree_size(value):
+            return None, None, None, ("consistency_tree_sizes_invalid",
+                                      f"{name} is not a tree size, an int from 1 to 2^64")
+    if newer_size is not None:
+        n, source = newer_size, "caller"
+    elif header is not None:
+        n, source = header, _SIZE_FROM_HEADER
+    else:
+        n, source = None, None
+    m = older_size
+    refusal = None
+    if m is not None and n is not None and not (_is_tree_size(n) and m < n):
+        refusal = ("consistency_tree_sizes_invalid",
+                   f"0 < m < n does not hold for m = {m} and n = {n} ({source}; section 4)")
+    elif newer_size is not None and header is not None and header != newer_size:
+        refusal = ("consistency_newer_size_mismatch",
+                   f"newer_size is {newer_size}, the header's txid {txid!r} yields {header} "
+                   "(proofbundle's own rule, not a requirement of -05; SECTION4_WGLC.md, G5)")
+    return m, n, source, refusal
 
 
 def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCheck:
@@ -1046,7 +1163,8 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
 # Consistency receipts (draft-ietf-scitt-receipts-ccf-profile-05, section 4)
 # ------------------------------------------------------------------------------------------------
 def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes, older_issuer: str,
-                               rp_trust: Optional[dict] = None) -> ConsistencyCheck:
+                               rp_trust: Optional[dict] = None, older_size: Optional[int] = None,
+                               newer_size: Optional[int] = None) -> ConsistencyCheck:
     """Verify a CCF consistency receipt against an older root the caller has already verified.
 
     ``older_root`` must be a root the caller verified itself, typically ``merkle_root`` of a
@@ -1057,30 +1175,47 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
 
     Never raises. ``confirmed`` holds only when every -05 section 4 rule this reader can check holds:
     ``vdp`` carries one or more consistency proofs (4.1), the payload is detached (4.1), every proof,
-    and every inclusion proof beside them, computes the same newer root (4.1, section 5), every
-    proof's first path element is a right sibling, which is what the anchor section 4 requires
-    looks like (see below), at least one proof recomputes ``older_root`` (4.2), the receipt's issuer
-    is ``older_issuer`` (proofbundle's own rule, not a requirement of -05; owner answer S1 a keeps it
-    until the working group answers gap G3), and a relying-party key for that issuer and kid verifies the
-    receipt signature over the newer root (4.2). Anything else is one of
+    and every inclusion proof beside them, computes the same newer root (4.1, section 5), both tree
+    sizes are known, 0 < m < n holds, and every proof's path is the one RFC 9162 2.1.4.1 gives for
+    them, so its anchor is the one section 4 requires (see below), at least one proof recomputes
+    ``older_root`` (4.2), the receipt's issuer is ``older_issuer`` (proofbundle's own rule, not a
+    requirement of -05; owner answer S1 a keeps it until the working group answers gap G3), and a
+    relying-party key for that issuer and kid verifies the receipt signature over the newer root
+    (4.2). ``confirmed_without_tree_sizes`` is the same with a size missing: the anchor rule was
+    checked only as far as the first tag goes, and 0 < m < n not at all. Anything else is one of
     ``CONSISTENCY_STATUS_ORDER``, the first that applies.
 
-    THE ANCHOR CHECK. -05 says the anchor cannot be checked without knowing m. What can be checked
-    is the first tag: the required anchor is the largest complete subtree ending at T[m-1], so its
-    sibling in the newer tree is always on its right, while a smaller anchor further down the same
-    edge folds to the same two roots and always starts with a left sibling. Measured exhaustively in
+    THE TREE SIZES. ``older_size`` is the size of the state ``older_root`` came from; like
+    ``older_root`` it is the caller's to bind, and the reader cannot see where it came from. The
+    caller takes it from the txid of the receipt that verified ``older_root``. ``newer_size`` is
+    taken from this receipt's own protected header (``ccf.v1`` txid) where the caller gives none,
+    and must equal it where both are known. That the seqno of a txid is the tree size its signature
+    covers is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement
+    of -05 (SECTION4_WGLC.md, G5).
+
+    THE ANCHOR CHECK. With both sizes the check is complete: the proof that recomputes
+    ``older_root`` must carry exactly the tags of RFC 9162 2.1.4.1 for m and n, which puts its anchor
+    at the root of T[m-2^t] .. T[m-1], and every other proof those for the older size its own anchor
+    implies. Without them -05 says the anchor cannot be checked. What can be checked is the first
+    tag: the required anchor is the largest complete subtree ending at T[m-1], so its sibling in the
+    newer tree is always on its right, while a smaller anchor further down the same edge folds to the
+    same two roots and always starts with a left sibling. Measured exhaustively in
     tools/scitt_ccf_external/consistency_probe.py; a proof that starts with a left sibling also
-    covers the case m = n, which section 4 excludes (0 < m < n).
+    covers the case m = n, which section 4 excludes (0 < m < n). An anchor that is no node of the
+    newer tree, such as the root of 6 leaves under one right sibling, has the form of a canonical
+    proof from 4 to 5 and passes the first tag; only the sizes tell them apart.
     """
     try:
-        return _verify_consistency(consistency_receipt, older_root, older_issuer, rp_trust)
+        return _verify_consistency(consistency_receipt, older_root, older_issuer, rp_trust, older_size,
+                                   newer_size)
     except ScittUnavailable as exc:
         return ConsistencyCheck(status="no_lib", detail=str(exc))
     except Exception as exc:  # noqa: BLE001 - a verifier must never crash its caller
         return ConsistencyCheck(status="malformed", detail=f"refused (fail-closed): {type(exc).__name__}")
 
 
-def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> ConsistencyCheck:
+def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
+                        newer_size) -> ConsistencyCheck:
     if not isinstance(receipt, (bytes, bytearray)):
         return ConsistencyCheck(status="malformed", detail="the receipt is not bytes")
     try:
@@ -1156,7 +1291,20 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
         base.update(signature_valid=bool(good),
                     kid_bound_to_key=(_derived_kid(good[0]) == kid) if good else None)
 
-    if any(first_left for _o, _n, first_left in computed):
+    m, n, source, refusal = _consistency_sizes(older_size, newer_size, txid)
+    checked = m is not None and n is not None and refusal is None
+    base.update(older_size=m, newer_size=n, newer_size_source=source, anchor_rule_checked=checked)
+    if refusal:
+        return out(refusal[0], detail=refusal[1])
+    if checked:
+        held = bytes(older_root) if isinstance(older_root, (bytes, bytearray)) else None
+        found = [f for f in (_anchor_rule(tags, m if o == held else None, n)
+                             for o, _n, tags in computed) if f]
+        for status in ("consistency_path_not_canonical", "consistency_anchor_position_mismatch"):
+            hit = [detail for s, detail in found if s == status]
+            if hit:
+                return out(status, detail=hit[0])
+    if any(tags[0] for _o, _n, tags in computed):
         return out("consistency_anchor_not_canonical",
                    detail="a proof starts with a left sibling: its anchor is not the largest complete "
                           "subtree ending at the older tree's last transaction (section 4)")
@@ -1171,4 +1319,10 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
         return out("needs_rp_trust", detail="no relying-party key for this issuer and kid")
     if not good:
         return out("signature_invalid", detail="the receipt signature does not verify over the newer root")
+    if not checked:
+        missing = " and ".join(name for name, v in (("older_size", m), ("newer_size", n)) if v is None)
+        return out(CONFIRMED_WITHOUT_TREE_SIZES,
+                   detail=f"the anchor rule of section 4 was not checked beyond the first tag, "
+                          f"and 0 < m < n not at all: {missing} not known (older_size from the "
+                          "caller, newer_size from the caller or this receipt's ccf.v1 txid)")
     return out(CONFIRMED)
