@@ -115,7 +115,17 @@ def verify_hybrid(*, classical_pub: bytes, classical_sig: bytes, pq_pub: bytes, 
 
     ``classical_pub`` is a key the caller trusts, so it gets the trust-anchor rule: a low-order Ed25519
     leg would verify a signature made with no private key and leave the hybrid resting on ML-DSA alone,
-    which is exactly the single point the hybrid exists to avoid (deep gate Z195, class of L1-Z195-02)."""
+    which is exactly the single point the hybrid exists to avoid (deep gate Z195, class of L1-Z195-02).
+
+    The message is read ONCE, and both legs verify that one reading (deep gate run 5 at d388ed3d, the sweep of
+    L4-620v5-T5-SECOND-READING-01): each leg read it on its own, so a ``bytearray`` the caller changed between the two checks had
+    its Ed25519 leg verified over one message and its ML-DSA leg over another, and the hybrid answered True
+    for a message only one of its keys signed. A message that is no bytes-like value is handed on unchanged,
+    and both legs refuse it as before."""
+    from .canonical import _bytes_von  # noqa: PLC0415
+    gelesen = _bytes_von(message)
+    if gelesen is not None:
+        message = gelesen
     return (verify_ed25519_pinned(classical_pub, classical_sig, message)
             and verify_mldsa(pq_pub, pq_sig, message, level=pq_level))
 

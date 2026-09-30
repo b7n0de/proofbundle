@@ -708,19 +708,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # `related` IS READ BEFORE ANY CALLER CODE RUNS (verify lane on pull request 312): the lineage below
         # read the caller's map after the evidence resolver had run, and a resolver that cleared the map
-        # hid an attached retraction, so ok went from False to True. Each attached entry is read here, once
-        # (`relation._read_attached_entries` inside the two calls), and the result is recorded further down.
-        from .relation import _carries_attached_entries  # noqa: PLC0415
+        # hid an attached retraction, so ok went from False to True. The map is read here ONCE
+        # (`relation._related_lesen`), and whether there are targets, the edges and `supersededByAttached` are all
+        # judged over that one reading (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of three jurors P1): the
+        # question, `verify_relationship_edges` and `successor_warning` were three readings, and a gc callback of
+        # the caller that emptied its map between the last two hid the retraction while the edge to the parent
+        # stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one alike.
+        from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
         _linie = None
-        if "relationships" in predicate or _carries_attached_entries(related):
+        _related_gelesen = _related_lesen(related)
+        if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
-            _linie = (verify_relationship_edges(predicate.get("relationships"), related, subject_hex=_subject_hex),
-                      successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex))
+            _linie = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
         r["action_outcome_proven"] = action_outcome_proven(predicate)
         if r["action_outcome_proven"] is False:
             r["warnings"].append("actionOutcome.status=executed is self-asserted (no signed outcomeRef)")
@@ -774,14 +777,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
         # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
         # Whether targets are attached is read from what the map stores, never through the caller's own
-        # `__bool__` or `__len__` (`_carries_attached_entries`): a map that said it was empty skipped this
+        # `__bool__` or `__len__` (`_related_traegt_eintraege` of the one reading): a map that said it was empty skipped this
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
         # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
         # where it always stood, so the order of the warnings is unchanged.
         if _linie is not None:
-            r["lineage"], _sw = _linie
-            # Advisory by default; the policy's reject_superseded turns it into a blocker below.
-            r["lineage"]["supersededByAttached"] = _sw
+            r["lineage"] = _linie
+            # Advisory by default; the policy's reject_superseded turns it into a blocker below. Set by the engine
+            # over the one reading of the map, and only read here.
+            _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":

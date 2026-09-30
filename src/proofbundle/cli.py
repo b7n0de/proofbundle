@@ -2048,6 +2048,15 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         except (ProofBundleError, OSError, ValueError) as exc:
             _err(f"cannot read --anchors: {exc}")
             return 2
+        # A FILE WHOSE CONTENT IS THE LIBRARY'S "NO ANCHORS" IS REFUSED LIKE THE EMPTY VALUE (deep gate run 5
+        # at d388ed3d, L3-620v5-T14-ANCHORS-NULL-FILE-01, two of three jurors P1). `null` became `anchors=None`, the value of a call
+        # without the option, and an empty list is what the anchor layer reads None as
+        # (`anchors._anker_lesen`), so both ended with exit 0 exactly like no `--anchors`, while `--anchors ''`
+        # ends with exit 2. A relying party who names an anchors file asked for its anchors to be checked.
+        if anchors is None or (type(anchors) is list and not anchors):
+            _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
+                 "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
+            return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected

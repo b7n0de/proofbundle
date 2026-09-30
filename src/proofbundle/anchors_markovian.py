@@ -53,6 +53,20 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     The final status/warn mirror the OTS verifier (pending / upgraded_unverified / confirmed); a PASS also
     names the committing wallet and Markovian chain height.
     """
+    # 0. The proof and the target root as the bytes they store, each read once (deep gate run 5 at d388ed3d,
+    # the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). The binding compared one reading
+    # of `canonical_root` and the Bitcoin proof was checked against another, so a `bytearray` root the caller
+    # changed in between was bound to the envelope in one state and time-stamped in another; the proof was
+    # sized and decoded as two readings, a `bytes` subclass through its own `__len__` and `decode`. A value
+    # that is no bytes-like value is handed on unchanged and refused below as before.
+    from .canonical import _bytes_von  # noqa: PLC0415
+    _gelesen = _bytes_von(proof)
+    if _gelesen is not None:
+        proof = _gelesen
+    _gelesen = _bytes_von(canonical_root)
+    if _gelesen is not None:
+        canonical_root = _gelesen
+
     # 1. parse (WP-C1: strict — a duplicated key in the envelope is a parser differential over
     # which wallet/merkle_root was committed; BundleFormatError keeps the never-raise contract)
     try:

@@ -144,6 +144,16 @@ def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     except ProofBundleError as exc:
         return {"ok": False,
                 "detail": f"chia-datalayer proof exceeds the verification budget (fail-closed): {exc}"}
+    # THE PROOF IS READ ONCE, into the plain copy of what it stores, after the budget and before any field
+    # is judged (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one
+    # caller value). Its fields were read one by one through the caller's own `get`, with hashing between
+    # the reads, so a proof changed in between had its root taken from one state and its key from another.
+    # A proof with no plain copy is malformed.
+    from .canonical import _pruefkopie  # noqa: PLC0415
+    try:
+        proof_obj = _pruefkopie(proof_obj)
+    except ValueError as exc:
+        return {"ok": False, "detail": f"malformed chia-datalayer proof: {exc}"}
     try:
         key_clvm = _hexbytes(proof_obj.get("key_clvm_hash"), "key_clvm_hash")
         value_clvm = _hexbytes(proof_obj.get("value_clvm_hash"), "value_clvm_hash")
@@ -192,8 +202,13 @@ def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Option
     but whose published_root was never on-chain would pass HERE — the honest, documented boundary; a relying
     party who needs the chain binding runs level ii/iii with Chia software, see docs/ANCHORS.md).
     """
-    if not isinstance(proof, (bytes, bytearray)):
+    # The proof as the bytes it stores, read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the size
+    # guard and the decode read it twice, and a `bytes` subclass through its own `__len__` and `__bytes__`.
+    from .canonical import _bytes_von  # noqa: PLC0415
+    gelesen = _bytes_von(proof)
+    if gelesen is None:
         return {"ok": False, "warn": False, "status": "fail", "detail": "chia-datalayer proof must be bytes"}
+    proof = gelesen
     if len(proof) > _MAX_PROOF_BYTES:
         return {"ok": False, "warn": False, "status": "fail", "detail": f"chia-datalayer proof too large (> {_MAX_PROOF_BYTES} bytes)"}
     # Unconditional fail-closed backstop: a verifier must NEVER crash its caller on a hostile proof. Enumerating

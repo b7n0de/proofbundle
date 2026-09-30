@@ -625,6 +625,22 @@ def join_test_result(block: dict, statement: dict) -> dict:
     r: dict[str, Any] = {"subject_matches_build": False, "digest_matches": False,
                          "result_matches": False, "vector_set_matches": False,
                          "ok": False, "errors": fehler}
+    # THE BLOCK AND THE STATEMENT ARE READ ONCE, here, and the copies are what is validated, digested and
+    # compared (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller
+    # value). Each validator read a copy of its own, and the four equalities then read the caller's objects
+    # again, through their own `__contains__` and `__getitem__`: a statement changed between the readings was
+    # validated in one state and digested and compared in another, and the join reported ok for a statement
+    # that is not valid. A value with no plain copy is refused here with the validator's own message.
+    try:
+        block = _pruefkopie(block)
+    except ValueError:
+        fehler.append("the block is not a valid verifier block")
+        return r
+    try:
+        statement = _pruefkopie(statement)
+    except ValueError as exc:
+        fehler.append(f"statement is not a JSON value: {exc}")
+        return r
     if validate_verifier_block(block):
         fehler.append("the block is not a valid verifier block")
         return r
@@ -706,6 +722,15 @@ def report(predicate: Any) -> dict:
         return r
     block = producer["verifier"]
     r["present"] = True
+    # Read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the validator read a copy and the fields
+    # below were read from the caller's block again, so a block changed in between was reported valid and
+    # named by another state. A block with no plain copy is refused here with the validator's own message.
+    try:
+        block = _pruefkopie(block)
+    except ValueError as exc:
+        r["valid"] = False
+        r["errors"].append(f"producer.verifier: block is not a JSON value: {exc}")
+        return r
     errs = validate_verifier_block(block)
     r["valid"] = not errs
     r["errors"].extend(f"producer.verifier: {e}" for e in errs)

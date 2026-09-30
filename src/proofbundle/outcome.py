@@ -789,20 +789,23 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
         # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
-        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, as on the
-        # decision path (`_carries_attached_entries`).
-        from .relation import _carries_attached_entries  # noqa: PLC0415
-        if "relationships" in predicate or _carries_attached_entries(related):
+        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, and read ONCE
+        # (`relation._related_lesen`), as on the decision path: whether there are targets, the edges and
+        # `supersededByAttached` are all judged over that one reading (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of
+        # three jurors P1). `verify_relationship_edges` and `successor_warning` read the map twice, and a gc
+        # callback of the caller that emptied it between the two hid an attached retraction while the edge to the
+        # parent stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one.
+        from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
+        _related_gelesen = _related_lesen(related)
+        if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
-            r["lineage"] = verify_relationship_edges(
-                predicate.get("relationships"), related, subject_hex=_subject_hex)
-            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
-            r["lineage"]["supersededByAttached"] = _sw
+            r["lineage"] = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
+            # Set by the engine over the one reading of the map, and only read here.
+            _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":

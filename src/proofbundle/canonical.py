@@ -91,6 +91,37 @@ def _require_statement_shape(obj: Any) -> None:
             "ADR 0002 §2 full-Statement scope)")
 
 
+class _eine_lesung:
+    """One reading of a caller's value, run with the cyclic garbage collector paused, so that no gc callback
+    of the caller runs between the parts of that one reading.
+
+    WHY A READING NEEDS THIS (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01). A copy
+    of a nested value is many reads, one per node, and it allocates between them; every allocation of a
+    tracked object can start a collection, and a collection runs the callbacks in ``gc.callbacks``, which are
+    the caller's code. A callback that rewrote two entries at once while the copy was between them gave a
+    copy that held one entry from before and one from after, a state the caller's value never had, and a
+    verdict over it that neither state gives (measured with the sweep of
+    tests/test_a_verifier_reads_a_callers_value_once.py on `join_test_result`, after its two readings had
+    become one). The copy itself runs no code of the caller (`_plain_for_jcs`); with the collector paused,
+    nothing else does either, so the one reading is one state.
+
+    The collector is paused only if it runs and is started again only if this paused it, so a caller that
+    runs with it off keeps it off, and a reading inside a reading changes nothing. A value another THREAD
+    changes while it is read is outside this: that is a race of the caller's own threads, which no reading
+    can order."""
+    __slots__ = ("_pausiert",)
+
+    def __enter__(self) -> "_eine_lesung":
+        self._pausiert = gc.isenabled()
+        if self._pausiert:
+            gc.disable()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        if self._pausiert:
+            gc.enable()
+
+
 def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel: str = "") -> Any:
     """A copy of ``value`` that holds only plain JSON types: every string and key a plain ``str``.
 
@@ -191,7 +222,8 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     sits (``provenance.k``, ``ci95[0]``), starting at ``wurzel`` when the caller names the argument.
     """
     try:
-        return _plain_value(value, set())
+        with _eine_lesung():   # one state of the value, not one node at a time (`_eine_lesung`)
+            return _plain_value(value, set())
     except _Abweisung as abweisung:
         ort = wurzel + "".join(reversed(abweisung.pfad))
         if ort.startswith("."):

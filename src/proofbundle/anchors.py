@@ -44,8 +44,8 @@ import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
-from .canonical import (_abbild_von, _bytes_von, _feld_von, _folge_von, _plain_for_jcs, _puffer_von,
-                        _zeichen_von)
+from .canonical import (_abbild_von, _bytes_von, _eine_lesung, _feld_von, _folge_von, _plain_for_jcs,
+                        _puffer_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from ._membership import is_member, require_switch, stored_str_items
 from ._membership import type_name as _type_name  # the parameter of register_anchor_type is type_name
@@ -552,23 +552,30 @@ def _anker_lesen(anchors, rp_trust) -> tuple:
     THE REGISTRY IS READ HERE TOO (verify lens on the cross-check fix at bc3d275f, 2026-09-29): it was copied in
     `_anker_urteil`, which the decision verifier runs after the evidence resolver, so a resolver that called
     `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one and ``ok`` and
-    ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran."""
+    ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran.
+
+    ALL OF IT IS ONE STATE (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
+    were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
+    between them gave a list the caller never held. The whole reading runs with the collector paused
+    (`canonical._eine_lesung`)."""
     if anchors is None:
         return [], None, None
     if not issubclass(type(anchors), list):
         raise BundleFormatError("anchors must be a list")
-    eintraege = [_eintrag_lesen(a) for a in _folge_von(anchors)]
-    rp_kopie = None
-    if eintraege and rp_trust is not None:
-        rp_kopie = _abbild_von(rp_trust)
-        if rp_kopie is None:
-            raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type {_type_name(rp_trust)} "
-                                    "or one holding a value that is no JSON value (fail-closed)")
-    pruefer = None
-    if eintraege:
-        _ensure_builtin_types()
-        pruefer = dict(_VERIFIERS)
-    return eintraege, rp_kopie, pruefer
+    with _eine_lesung():
+        eintraege = [_eintrag_lesen(a) for a in _folge_von(anchors)]
+        rp_kopie = None
+        if eintraege and rp_trust is not None:
+            rp_kopie = _abbild_von(rp_trust)
+            if rp_kopie is None:
+                raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type "
+                                        f"{_type_name(rp_trust)} or one holding a value that is no JSON value "
+                                        "(fail-closed)")
+        pruefer = None
+        if eintraege:
+            _ensure_builtin_types()
+            pruefer = dict(_VERIFIERS)
+        return eintraege, rp_kopie, pruefer
 
 
 def _anker_urteil(gelesen: tuple, *, target_roots, require: Optional[str] = None,

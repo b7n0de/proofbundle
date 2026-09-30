@@ -22,7 +22,18 @@ refused `audit-challenge --nonce ''` by comparing the spelling with "", while th
 `bytes.fromhex(value)`, which skips ASCII whitespace: `--nonce ' '` decoded to the empty nonce, gave the
 grindable self-challenge indices under the label "auditor-nonce" and exited 0. So every measured site is run
 with whitespace spellings of the empty value as well, the audit challenge is checked as a property of the
-bytes it uses, and the class guard also refuses any comparison of a one-value option's spelling with "".
+bytes it uses, and the class guard also refuses a comparison of a one-value option's spelling with the literal ""
+by `==` or `!=`, directly or through a local name. It reads no other form (`in`, `is`, a pattern, `b""`); none
+stands in cli.py (deep gate at d388ed3d, L3-620v5-T14-GUARD-CLAIM-01, which found the wording "any comparison").
+
+A FILE WHOSE CONTENT READS AS ABSENT (deep gate run 5 at d388ed3d, L3-620v5-T14-ANCHORS-NULL-FILE-01, two of
+three jurors P1). `decision verify --anchors FILE` with the content `null` became `anchors=None`, the value of
+a call without the option, and ended with exit 0 like no option, while `--anchors ''` ended with exit 2; an
+empty list is what the anchor layer reads None as, and ended the same way. So the third part runs every file
+option whose absence is a state of its own with a generator of contents (JSON null alone and in whitespace,
+the empty collections, an empty string, and the whitespace spellings above as the whole file), and a guard
+reads cli.py for every option whose value names a file a command reads: each one is a case of the generator
+or named with the reason it has no absent state that a content could reach.
 """
 from __future__ import annotations
 
@@ -75,6 +86,11 @@ class _Belege:
             suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.8", score="0.9",
             n=10, model_id="m", dataset_id="d", issuer="Lab", timestamp="2026-07-02T00:00:00Z")
         self.eval_receipt = schreibe("eval.json", emit_eval_receipt(claim, generate_signer()))
+        enclave_claim, _ = build_eval_claim(
+            suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.8", score="0.9",
+            n=10, model_id="m", dataset_id="d", issuer="Lab", timestamp="2026-07-02T00:00:00Z",
+            assurance_level="enclave_attested")
+        self.eval_enclave = schreibe("eval_enclave.json", emit_eval_receipt(enclave_claim, generate_signer()))
         dpred = json.loads((REPO / "examples" / "decision_receipt_deny.json").read_text(encoding="utf-8"))
         self.decision = schreibe("decision.json", emit_decision_receipt(dpred, signer, strict=True))
         opred = {"schemaVersion": "0.1.0", "outcomeId": "o1", "decisionRef": {"sha256": "e" * 64},
@@ -191,6 +207,217 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
         for label, basis, _option, _erwartet in self._faelle():
             with self.subTest(case=label):
                 self.assertEqual(_run(basis), 0, f"the base of {label} does not pass on its own")
+
+
+# ── the file options: a content that reads as absent is refused like the empty value ──────────────
+
+#: What a file named by an option may hold that a reader can turn into the library's "not given": JSON null
+#: alone and in whitespace, the empty collections, an empty JSON string, zero and false, and every
+#: whitespace spelling of `_LEERRAUM` as the whole content.
+_DATEI_INHALTE = ("null", " null", "null\n", "\t null \r\n", "[]", " [ ] ", "{}", '""', "0", "false") + _LEERRAUM
+
+#: The file options the generator runs, by command and option: every one whose absence is a state of its own.
+_DATEI_FAELLE = frozenset({
+    ("verify", "--policy"), ("verify", "--trusted-checkpoint"), ("verify", "--trusted-tsa-root"),
+    ("show-eval", "--eat"), ("decision verify", "--policy"), ("decision verify", "--anchors"),
+    ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"),
+    ("outcome verify", "--policy"), ("outcome verify", "--with-related"),
+    ("relation-statement verify", "--policy"), ("relation-statement verify", "--with-related"),
+    ("policy instantiate", "--expected-root-file")})
+
+#: A syntactically valid log verifier key, for the trusted-checkpoint case (the checkpoint itself is the file).
+_VKEY = "example.com/log+abcd1234+AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+
+
+def _beobachte(argv: list[str]) -> tuple:
+    """Exit code and stdout of one run: what a caller of the command can tell apart."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        try:
+            rc = main(argv)
+        except SystemExit as exc:
+            rc = exc.code
+    return rc, out.getvalue()
+
+
+class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._td = tempfile.TemporaryDirectory(prefix="pb_file_option_")
+        cls.b = _Belege(cls._td.name)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._td.cleanup()
+
+    def _instantiate(self, extra: list[str]) -> tuple:
+        """`policy instantiate` writes the policy to a file; what it wrote is the observable, beside the exit."""
+        ziel = Path(self._td.name) / "instantiated.json"
+        if ziel.exists():
+            ziel.unlink()
+        rc, _ = _beobachte(["policy", "instantiate", "strict-eval-authenticated-root-template-v1",
+                            "--issuer-key", self.b.keyfile, "--policy-id", "org/file-option-v1",
+                            "--output", str(ziel)] + extra)
+        return rc, ziel.read_text(encoding="utf-8") if ziel.exists() else None
+
+    def _datei_faelle(self) -> dict:
+        """{(command, option): (base argv, argv beside the option, observer)} for every file option whose
+        absence is a state of its own. The observer runs base + option + beside, or the base alone."""
+        b = self.b
+        dv = ["decision", "verify", b.decision, "--pub", b.pub]
+        ov = ["outcome", "verify", b.outcome, "--pub", b.pub]
+        rv = ["relation-statement", "verify", b.relation, "--pub", b.pub]
+        return {
+            ("verify", "--policy"): (["verify", b.bundle], [], _beobachte),
+            ("verify", "--trusted-checkpoint"): (["verify", b.bundle], ["--checkpoint-vkey", _VKEY], _beobachte),
+            ("verify", "--trusted-tsa-root"): (["verify", b.bundle, "--anchor-type", "rfc3161-tsa"], [], _beobachte),
+            ("show-eval", "--eat"): (["show-eval", b.eval_enclave], [], _beobachte),
+            ("decision verify", "--policy"): (dv, [], _beobachte),
+            ("decision verify", "--anchors"): (dv, [], _beobachte),
+            ("decision verify", "--trusted-tsa-root"): (dv, [], _beobachte),
+            ("decision verify", "--with-related"): (dv, [], _beobachte),
+            ("outcome verify", "--policy"): (ov, [], _beobachte),
+            ("outcome verify", "--with-related"): (ov, [], _beobachte),
+            ("relation-statement verify", "--policy"): (rv, [], _beobachte),
+            ("relation-statement verify", "--with-related"): (rv, [], _beobachte),
+            ("policy instantiate", "--expected-root-file"): ([], [], lambda argv: self._instantiate(argv)),
+        }
+
+    def test_the_cases_are_the_named_ones(self) -> None:
+        self.assertEqual(set(self._datei_faelle()), _DATEI_FAELLE)
+
+    def test_the_empty_value_is_told_apart_from_no_option(self) -> None:
+        # Without this, a case whose empty value already ends like no option would make the generator vacuous.
+        for (befehl, option), (basis, daneben, beobachte) in self._datei_faelle().items():
+            with self.subTest(case=f"{befehl} {option}"):
+                self.assertNotEqual(beobachte(basis + [option, ""] + daneben), beobachte(basis))
+
+    def test_a_file_whose_content_reads_as_absent_ends_unlike_no_option(self) -> None:
+        for (befehl, option), (basis, daneben, beobachte) in self._datei_faelle().items():
+            ohne = beobachte(basis)
+            for i, inhalt in enumerate(_DATEI_INHALTE):
+                datei = Path(self._td.name) / f"inhalt_{i}.txt"
+                datei.write_text(inhalt, encoding="utf-8")
+                with self.subTest(case=f"{befehl} {option}", content=repr(inhalt)):
+                    self.assertNotEqual(beobachte(basis + [option, str(datei)] + daneben), ohne,
+                                        f"{befehl} {option} with a file holding {inhalt!r} ended like no {option}")
+
+    def test_control_the_generator_sees_an_option_the_command_does_not_read(self) -> None:
+        # The generator has to be able to fail: `show-eval --eat` on a receipt that declares no enclave level
+        # never reads the file, so every content ends like no option, and the comparison says so.
+        basis = ["show-eval", self.b.eval_receipt]
+        datei = Path(self._td.name) / "unread.txt"
+        datei.write_text("null", encoding="utf-8")
+        self.assertEqual(_beobachte(basis + ["--eat", str(datei)]), _beobachte(basis))
+
+
+#: Every file option without a generator case, with the reason no content of it can read as its absence.
+#: Measured on the tree of this change for the optional ones: without the option the command is refused
+#: (exit 2), and so is every content of `_DATEI_INHALTE`.
+_OHNE_ABWESENHEIT = "no absent state: without it the command is refused (exit 2), and so is every content"
+_PFLICHT = "required: argparse refuses a call without it, so there is no absent state a content could reach"
+_DATEI_OPTIONEN_OHNE_FALL = {
+    ("emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("emit-eval", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("intoto", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("svr", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("decision emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("outcome emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("relation-statement emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
+    ("anchor upgrade", "--target-file"): _OHNE_ABWESENHEIT + " (provide --target-file or --canonical-root-hex)",
+    ("emit", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
+    ("verify-proof", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
+    ("emit-eval", "--claim"): _PFLICHT,
+    ("verify-enclave", "--receipt"): _PFLICHT,
+    ("anchor upgrade", "--proof"): _PFLICHT,
+    ("policy instantiate", "--issuer-key"): _PFLICHT,
+}
+
+#: The functions that read a file named by their first argument. `open` counts only in a read mode.
+_DATEI_LESER = frozenset({"_open_input", "open", "load_bundle", "resolve_policy_source", "_load_related",
+                          "load_signer", "_resolve_signer"})
+
+
+def _optionsziele_in(ausdruck: ast.AST, alias: dict) -> set:
+    ziele: set = set()
+    for knoten in ast.walk(ausdruck):
+        ziel = _optionsziel(knoten)
+        if ziel is not None:
+            ziele.add(ziel)
+        if isinstance(knoten, ast.Name) and knoten.id in alias:
+            ziele |= alias[knoten.id]
+    return ziele
+
+
+def _datei_ziele(quelle: str) -> set[str]:
+    """The dest of every option whose value reaches a file reader of `_DATEI_LESER` as its first argument,
+    directly, through a local name bound to it, or as the variable of a loop over it."""
+    ziele: set[str] = set()
+    for funktion in ast.walk(ast.parse(quelle)):
+        if not isinstance(funktion, ast.FunctionDef):
+            continue
+        alias: dict = {}
+        for _ in range(3):   # a name bound from a name bound from the option
+            for knoten in ast.walk(funktion):
+                if (isinstance(knoten, ast.Assign) and len(knoten.targets) == 1
+                        and isinstance(knoten.targets[0], ast.Name)):
+                    gefunden = _optionsziele_in(knoten.value, alias)
+                    if gefunden:
+                        alias.setdefault(knoten.targets[0].id, set()).update(gefunden)
+                elif isinstance(knoten, (ast.For, ast.comprehension)) and isinstance(knoten.target, ast.Name):
+                    gefunden = _optionsziele_in(knoten.iter, alias)
+                    if gefunden:
+                        alias.setdefault(knoten.target.id, set()).update(gefunden)
+        for knoten in ast.walk(funktion):
+            if not (isinstance(knoten, ast.Call) and knoten.args):
+                continue
+            name = (knoten.func.id if isinstance(knoten.func, ast.Name)
+                    else knoten.func.attr if isinstance(knoten.func, ast.Attribute) else None)
+            if name not in _DATEI_LESER:
+                continue
+            if name == "open":
+                modus = knoten.args[1] if len(knoten.args) > 1 else next(
+                    (k.value for k in knoten.keywords if k.arg == "mode"), None)
+                if isinstance(modus, ast.Constant) and any(c in str(modus.value) for c in "wax"):
+                    continue
+            ziele |= _optionsziele_in(knoten.args[0], alias)
+    return ziele
+
+
+def _datei_optionen(parser: argparse.ArgumentParser, ziele: set[str], pfad: tuple = ()) -> set[tuple[str, str]]:
+    """(command, longest option string) of every option, in every subcommand, whose dest is in `ziele`."""
+    gefunden: set[tuple[str, str]] = set()
+    gesehen: set[int] = set()
+    for aktion in parser._actions:
+        if isinstance(aktion, argparse._SubParsersAction):
+            for name, unter in aktion.choices.items():
+                if id(unter) not in gesehen:
+                    gesehen.add(id(unter))
+                    gefunden |= _datei_optionen(unter, ziele, pfad + (name,))
+        elif aktion.option_strings and aktion.dest in ziele:
+            gefunden.add((" ".join(pfad), max(aktion.option_strings, key=len)))
+    return gefunden
+
+
+class EveryFileOptionIsClassified(unittest.TestCase):
+
+    def test_every_file_option_is_a_case_or_named(self) -> None:
+        gefunden = _datei_optionen(build_parser(), _datei_ziele(CLI.read_text(encoding="utf-8")))
+        benannt = _DATEI_FAELLE | set(_DATEI_OPTIONEN_OHNE_FALL)
+        self.assertEqual(sorted(gefunden - benannt), [], "a file option that is neither a case nor named")
+        self.assertEqual(sorted(benannt - gefunden), [], "a named file option that no command reads any more")
+
+    def test_control_the_guard_finds_a_planted_file_read(self) -> None:
+        gepflanzt = ("def _x(args):\n"
+                     "    with _open_input(args.policy) as h:\n        pass\n"
+                     "    p = getattr(args, 'anchors', None)\n"
+                     "    open(p, encoding='utf-8')\n"
+                     "    for k in args.issuer_key:\n        open(k)\n"
+                     "    open(args.out, 'w')\n"
+                     "    decode(args.pub)\n")
+        self.assertEqual(_datei_ziele(gepflanzt), {"policy", "anchors", "issuer_key"})
+
 
 
 # ── the class guard ───────────────────────────────────────────────────────────────────────────────

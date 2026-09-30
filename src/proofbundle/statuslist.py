@@ -119,6 +119,14 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     result: dict[str, str | bool | int | None] = {
         "ok": False, "status": None, "status_label": None, "fresh": None,
         "self_issued": None, "iat": None, "exp": None, "ttl": None, "detail": ""}
+    # THE ISSUER KEY IS READ ONCE, here, before anything else (deep gate run 5 at d388ed3d, the sweep of
+    # L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). `self_issued` compared one reading of a
+    # `bytearray` key and the signature check read it again after the token was parsed, so a key the caller
+    # changed in between reported the list as self-issued while its signature was checked under another key.
+    # A key that is no bytes-like value is handed on unchanged, and the signature check refuses it as before.
+    _schluessel = _bytes_von(issuer_pubkey)
+    if _schluessel is not None:
+        issuer_pubkey = _schluessel
     if receipt_issuer_pubkey is not None:
         # hmac.compare_digest for a constant-time compare of the two public keys (defensive; the
         # values are public, but consistent with the codebase's compare discipline).

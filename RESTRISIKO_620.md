@@ -24,6 +24,10 @@ notes name as their release commit closes both (the section on them below), and 
 the pre-tag receipt is the closing round. That gate, at 99f76ceb, ended FIX_FIRST for one P1, seen by two lenses:
 the fix of the empty option judged `audit-challenge --nonce` by its spelling (the section below). The commit that
 closes it is the new release commit, and the gate at the next head that carries a pre-tag receipt is the closing round.
+That gate, at d388ed3d, ended FIX_FIRST for two P1 findings, each confirmed by two of three blind jurors: the decision
+and outcome verifiers read the caller's `related` map twice, and `decision verify --anchors` read a file holding
+`null` like no option (the section below). The commit that closes both is the new release commit, and the gate at the
+next head that carries a pre-tag receipt is the closing round.
 
 | Branch | Pull request | Head that landed | Last lens round | Codex series |
 |---|---|---|---|---|
@@ -110,7 +114,9 @@ targets through its own `__bool__`. Measured 2026-09-28 by executing both at the
 holding a verified retraction of the subject, with `reject_superseded` set, gave `ok` True at both
 tags and on main (decision: `policy_ok` None; outcome: `policy_ok` True); the plain dict with the same
 entry gives `ok` False. 6.2.0 reads the map by what it stores (pull request 300,
-`relation._carries_attached_entries`, commit 1f08bd50). The reach is the Python API: the CLI builds a plain dict.
+`relation._carries_attached_entries`, commit 1f08bd50), and since the fix of the gate at d388ed3d once, in one
+reading that also decides whether there are targets (`relation._related_lesen`, the section below). The reach is the
+Python API: the CLI builds a plain dict.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -253,11 +259,45 @@ Their test files were run on 2026-09-29 against the source of the tagged trees v
   where `--nonce ''` itself also ran as the self-challenge. The nonce is decoded once now, before a mode is chosen; a
   nonce that decodes to no bytes is refused with exit 2, and the mode follows the decoded bytes. The test file above
   runs every site with whitespace spellings of the empty value, checks the audit challenge as a property of the bytes
-  it uses, and refuses any comparison of an option's spelling with `""`; at 99f76ceb it fails 25 times, as pytest
+  it uses, and refuses a comparison of an option's spelling with the literal `""` by `==` or `!=`, directly or through a
+  local name (no other form, and none stands in `cli.py`); at 99f76ceb it fails 25 times, as pytest
   counts them. Two sweeps with the empty value and whitespace, over 24 option and `--pub` sites at 99f76ceb and over
   the 16 inputs the CLI itself normalises (`bytes.fromhex`, `strip`, base64, a file's content) at the commit of the
   fix, found no other site that reads whitespace like an absent option; `--related-pub ''` still means the same
   key, as documented.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
+2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 read a related map twice, and the CLI read an anchors file holding null as absent
+
+The deep gate at d388ed3d (pull request 311, the head that carried the pre-tag receipt after the fix of 99f76ceb)
+ended FIX_FIRST for two P1 findings, each confirmed by two of three blind jurors. The commit that closes both is the
+new release commit. Measured on 2026-09-30 by executing each against the source of the tagged trees v6.0.0
+(`4e32e83b`) and v6.1.0 (`dcac5aee`) and at d388ed3d (Python 3.10.12):
+- `verify_decision_receipt` and `verify_outcome_receipt` judged the edges of the caller's `related` map in
+  `verify_relationship_edges` and read the map again in `successor_warning`, whose `supersededByAttached` they
+  recorded (L4-620v5-T5-SECOND-READING-01). Under a policy with `reject_superseded` and
+  `require_relation_resolution: ["derivedFrom"]`, which refuses the full map and the empty map alike, a gc callback
+  of the caller that emptied its own map between the two readings gave `ok` True: at both tags the two readers were
+  called three times per verification, and a sweep over every collection start of a call gave `ok` True at four to
+  seven of them (the gate's lens measured `safeForAutomation` True as well under a policy that pins the decision
+  maker). 6.2.0 reads the map once and judges that reading; the reach is the Python API, since the CLI builds a
+  plain dict and runs no caller code between the readings. The sweep of the class found that one reading was not yet
+  one state (a callback that changes two entries at once while the copy is between them) at the three receipt
+  verifiers, at `verify_anchors` and at `join_test_result`, and eight more verdict functions that read one parameter
+  at more than one place; the CHANGELOG entry of this fix names each, and
+  `tests/test_a_verifier_reads_a_callers_value_once.py` holds the class: a sweep over every collection start, and a
+  scan of every public verdict function whose remaining double readings, eighteen, each stand in a named list with
+  the reason they are not this class.
+- `decision verify --anchors FILE` whose content is `null` became `anchors=None`, the value of a call without the
+  option, and exited 0 with the output of no `--anchors`, while `--anchors ''` exits 2 at d388ed3d
+  (L3-620v5-T14-ANCHORS-NULL-FILE-01); an empty list, which the anchor layer reads None as, ended the same way. At
+  both tags a file holding `null`, one holding `null` in whitespace and one holding `[]` exited 0 like no option, and
+  so did `--anchors ''` (refused since pull request 311). 6.2.0 refuses such a file with exit 2.
+  `tests/test_an_option_given_an_empty_value_is_not_dropped.py` runs every file option whose absence is a state of
+  its own, thirteen, with a generator of contents, and holds every other file option of `cli.py` to a named list with
+  the reason no content can read as its absence.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -687,6 +727,55 @@ attacked there; that is a limit of the gate, not a line of this file.
   "never raises". A fifth reader of the row above on readers that catch only decode errors; the tool is in the sdist
   only, and nothing is promoted.
 
+From the deep gate at d388ed3d, the head of pull request 311 that carried the pre-tag receipt after the fix of
+99f76ceb, which ended FIX_FIRST for the two P1 in the section above. These lines enter with the iteration that fixes
+them, before the next closing round (owner decision of 2026-09-30). Each was judged real by at least two of three
+blind jurors; lines are as at d388ed3d and carry the jurors' measurement. Four claims were refuted by the jury and are
+not listed.
+- **`verify_dual_hash` runs a non-dict Mapping's own `items()` unguarded** (P2): `hashalg.py:196-197`, so a raw
+  `RuntimeError`, `KeyError` or `TypeError` escapes an exported never-raise surface. Nothing is promoted, since the
+  structural budget refuses every non-dict Mapping afterwards. It came with pull request 300 (a1e9774e) and is a new
+  site of the class under "a caller's own Python objects can make a never-raise surface raise" below.
+- **`witness_quorum` frames the whole note once per roster entry** (P2): an in-budget tlog proof of 8 MiB with 510
+  signature lines and 256 witnesses costs about 40 to 62 s of CPU with a correct `ok` True. Each cap holds; their
+  product (`input_bytes` times witnesses) has no bound. A sibling of the capped-axes product rows above; the roster
+  is relying-party configuration.
+- **`input_bytes` does not bind the direct text API of three verifiers** (P3): `verify_tlog_proof`,
+  `verify_witnessed_checkpoint` and `verify_key_binding` take 67 to 136 MB and answer a correct `ok` True, while the
+  CLI's `verify-proof` (exit 2) and `verify_bundle` over a dict (`string_len`) refuse the same bytes. Rejection
+  parity breaks; nothing is promoted.
+- The row above on an OpenTimestamps height too large to render holds at d388ed3d: a height of 2**50000 gives a raw
+  `ValueError` from `verify_evidence_pack` (`anchors_ots.py:225` and `:253`), and the CLI stays at exit 2 without a
+  traceback.
+- **The wording of the empty-comparison guard claimed more than it reads** (P3): this file, the CHANGELOG and the
+  test's docstring said the guard refuses "any comparison" of an option's spelling with `""`; `_leervergleiche` reads
+  `==` and `!=` against the literal `""`, directly or through a local name, and no `in`, `is`, pattern, walrus,
+  annotated or tuple alias or `b""`. No such form stands in `cli.py` at d388ed3d. The wording is narrowed in this
+  iteration in all three places; the guard is not widened.
+- **The Rust `verify-relation` does not check the canonical form of the main payload** (P2): `main.rs:2222-2231`
+  (only `load_related` does, at `:2062-2065`), so a decision receipt with a JSON-escaped digit in `declaredAt`, or
+  any other non-canonical byte, exits 0 in Rust and 2 in `decision verify`. The Rust binary is not shipped, and the
+  `declaredAt` digit rule of pull request 300 holds (28 values, 0 differences). The `verify-relation` neighbour of
+  the row above on the relation statement verifier and a non-canonical payload.
+- **The README block and the release notes attribute the findings of d97de8e5 to the last round before the closing
+  one, and do not name the whitespace nonce** (P3): the README's current-release block (the sdist's long
+  description) and line 7 of `release_notes/RELEASE_NOTES_v6.2.0.md` call d97de8e5 "the last gate round before the
+  closing one", which was 99f76ceb, and name no whitespace-nonce defect of the released 6.0.0 and 6.1.0 (exit 0 under
+  the label `auditor-nonce` with the self-challenge indices), so this file's sentence that the notes name the
+  affected versions and the effect does not hold for it. Text only. This iteration's README sentence on d388ed3d no
+  longer calls d97de8e5 the last round; the nonce stays unnamed there.
+- **`pre_tag_receipt_lib.verify_receipt` judges `audit_exit_code` by `!= 0`** (P3): line 651, so a receipt signed by
+  a trusted key with `audit_exit_code` false, 0.0, -0.0 or 0e0 verifies as a successful audit. Reaching it needs the
+  trusted signer, and the tool is in the sdist only. The fix is `type(x) is int and x == 0`.
+- **The reproducible build takes untracked files** (P3): `build_reproducible.py` builds from the file system through
+  `MANIFEST.in` with no cleanliness check, so an untracked file in a grafted directory ships in the sdist with exit 0
+  and another digest, while `tree_digest` (from `ls-tree` of HEAD) stays the same. `release.yml` builds in a fresh
+  checkout and is not affected. The same class as row S27 of `RESTRISIKO_600.md`, carried to 6.3.0.
+- **`head_commit_epoch` reads the log's commit time under the caller's git configuration** (P3): with
+  `log.showSignature=true` and a signed epoch commit, `int()` fails and the function returns 1700000000 without a
+  word. d388ed3d is not affected, since c91da604 is unsigned. The fix pins `-c log.showSignature=false` (or the
+  configuration environment) and makes the fallback loud.
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -786,6 +875,17 @@ those on a verify, emit or release path:
   a path outside `release_notes/` and `audit_artifacts/`, the only two the tag chain writes (owner decision of
   2026-09-29). Whether the sdist and the wheel of 6.2.0 on PyPI equal the digests
   bound at the receipt head is measured after the release and recorded then.
+- The fix of the gate at d388ed3d names these limits, none a promoted verdict. One reading is one state only against
+  the caller's own code in the same thread: the collector is paused while a caller's container is read
+  (`canonical._eine_lesung`), and a value another thread changes meanwhile is a race of the caller's threads. The
+  pause is process-wide for the length of one copy; a copy of a large value therefore runs without collections. The
+  scan of `tests/test_a_verifier_reads_a_callers_value_once.py` follows parameters by name, so a value reached through
+  a parameter (a nested container, a local derived from it) or a parameter rebound before a second reading is outside
+  it, and the sweep reaches a window between two readings only if a tracked object is allocated in it
+  (`verify_offline_merkle` and `verify_markovian` read twice at d388ed3d where no collection starts; both read once
+  now). Functions outside the five verdict prefixes (`report` of the verifier block among them, fixed by reading) are
+  not scanned. The file generator of `tests/test_an_option_given_an_empty_value_is_not_dropped.py` reads the options
+  whose value reaches one of seven file readers in `cli.py`; a file read through another function is outside it.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 

@@ -238,9 +238,22 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # `{1: "a", "b": 2}` passed it and then raised a raw TypeError out of `json.dumps` — the same
     # class as the depth guard, one hop further in. Same verdict as a non-mapping: attestation
     # failure, REASON_MALFORMED, named instead of propagated.
+    #
+    # THE EVIDENCE IS READ ONCE, here, and every check below reads that copy (deep gate run 5 at
+    # d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). The tamper
+    # check, the binding check, the hash checks, the route and the record each read the caller's
+    # mapping again, the route through its own `get`: evidence changed between the tamper check and
+    # the binding check was judged untampered in one state and bound in another, and the answer was
+    # ACCEPTED although neither state of it is. The copy is the one every check already judged,
+    # `_without_credentials` (credential-shaped members dropped, the depth bound kept), so its digest,
+    # its binding and its record are those of the evidence as it was handed in. Evidence that changes
+    # its size while it is read is refused like evidence that cannot be canonicalised.
+    from ..canonical import _eine_lesung  # noqa: PLC0415
     try:
+        with _eine_lesung():   # one state of the mapping, not one member at a time
+            evidence = _without_credentials(evidence)
         digest = evidence_digest(evidence)
-    except (TypeError, ValueError, BundleFormatError) as exc:
+    except (TypeError, ValueError, RuntimeError, BundleFormatError) as exc:
         return {"outcome": OUTCOME_ATTESTATION_FAILURE, "reasons": [REASON_MALFORMED],
                 "not_measurable": [], "evidence_digest": None,
                 "normalised": {"assurance": ASSURANCE_PROVIDER_DECLARED, "provider": provider,
@@ -254,7 +267,12 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
 
     # 2. Does the provider's signed material carry OUR nonce? A quote that predates this request
     #    cannot contain it. This is the same measurement as `binding_present`, named for the
-    #    failure it catches.
+    #    failure it catches. The nonce is read once as well, as the text it holds, and the record
+    #    below is built with that reading.
+    from ..canonical import _zeichen_von as _text_von  # noqa: PLC0415
+    _nonce_text = _text_von(nonce)
+    if _nonce_text is not None:
+        nonce = _nonce_text
     if not binding_present(evidence, nonce):
         reasons.append(REASON_STALE_NONCE)
 

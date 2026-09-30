@@ -113,10 +113,15 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     """
     result = {"ok": False, "tier": None, "profile": None, "ueid": None, "nonce_ok": False,
               "fresh": None, "iat": None, "exp": None, "detail": ""}
-    if not isinstance(eat_jws, str) or eat_jws.count(".") != 2:
+    # The token as the text it holds, read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the shape
+    # check and the split were two readings, a `str` subclass through its own `count` and `split`, and a count
+    # that answered 2 beside a split into four parts escaped this surface as a raw ValueError.
+    from ..canonical import _zeichen_von  # noqa: PLC0415
+    text = _zeichen_von(eat_jws)
+    if text is None or text.count(".") != 2:
         result["detail"] = "not a compact JWS"
         return result
-    header_b64, payload_b64, sig_b64 = eat_jws.split(".")
+    header_b64, payload_b64, sig_b64 = text.split(".")
     try:
         header = loads_strict(_b64url_decode(header_b64))   # WP-C1: dup keys fail-closed
         claims = loads_strict(_b64url_decode(payload_b64))

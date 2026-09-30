@@ -30,7 +30,7 @@ import re
 from typing import Any
 
 from .budget import render_keys_safe
-from .canonical import _pruefkopie, _zeichen_von
+from .canonical import _eine_lesung, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
@@ -192,16 +192,21 @@ def _read_attached_entries(related: Any) -> list[tuple[str, Any, str | None]]:
     if not issubclass(type(related), dict):
         return []
     entries: list[tuple[str, Any, str | None]] = []
-    for key, value in list(dict.items(related)):
-        label = _zeichen_von(key)
-        if label is None:
-            entries.append(("(no str key)", _UNREADABLE,
-                            f"its key is a value of type {type_name(key)}, not a string"))
-            continue
-        try:
-            entries.append((label, _pruefkopie(value), None))
-        except ValueError as exc:
-            entries.append((label, _UNREADABLE, str(exc)))
+    # ONE STATE OF THE MAP (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
+    # are copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
+    # between them gave a map the caller never held. The whole reading runs with the collector paused
+    # (`canonical._eine_lesung`).
+    with _eine_lesung():
+        for key, value in list(dict.items(related)):
+            label = _zeichen_von(key)
+            if label is None:
+                entries.append(("(no str key)", _UNREADABLE,
+                                f"its key is a value of type {type_name(key)}, not a string"))
+                continue
+            try:
+                entries.append((label, _pruefkopie(value), None))
+            except ValueError as exc:
+                entries.append((label, _UNREADABLE, str(exc)))
     return entries
 
 
@@ -243,10 +248,12 @@ def _carries_attached_entries(related: Any) -> bool:
     caller's map answered through its own ``__bool__``. Measured 2026-09-28 on main 86671552 and on
     D4: a ``dict`` subclass whose ``__len__`` is 0, holding a verified retraction of the subject,
     skipped the lineage block, so ``reject_superseded`` never saw the retraction and both verifiers
-    answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False."""
-    if related is None:
-        return False
-    return not issubclass(type(related), dict) or dict.__len__(related) > 0
+    answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False.
+
+    The verifiers no longer ask it before they read the map (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01): the question
+    and the reading were two readings. They ask `_related_traegt_eintraege` of their one reading; this is the same
+    answer over a reading of its own."""
+    return _related_traegt_eintraege(_related_lesen(related))
 
 
 def _edge_target_hex(edge: dict) -> str | None:
@@ -346,6 +353,38 @@ def verify_relationship_edges(
     unresolved; else VERIFIED (>=1 edge verified); NOT_EVALUATED when no profile present.
     The aggregate NEVER upgrades any other verdict — wiring into cryptoValid is forbidden.
     """
+    return _kanten_urteil(relationships, _related_lesen(related), subject_hex=subject_hex, max_depth=max_depth)
+
+
+def _related_lesen(related: Any) -> tuple[str | None, list[tuple[str, Any, str | None]]]:
+    """``related`` read ONCE: ``(refusal, entries)``, the refusal of `_related_abgelehnt` or None, and the entries
+    `_read_attached_entries` read (none when it is refused). Everything a verdict says about the attached targets,
+    the edges, ``supersededByAttached`` and whether there are targets at all, comes from this one reading.
+
+    THE VERDICT WAS ASSEMBLED FROM TWO READINGS (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of three jurors P1).
+    `verify_decision_receipt` and `verify_outcome_receipt` asked `_carries_attached_entries` whether there were
+    targets, judged the edges in this function's reading and then read the map a third time in `successor_warning`,
+    whose ``supersededByAttached`` they recorded over the one this function had set. A gc callback of the caller that
+    emptied its own map between the readings hid an attached verified retraction from ``reject_superseded`` while
+    the edge to the parent stayed VERIFIED, so ``ok`` came out True under a policy that refuses the full map and the
+    empty one alike. The verifiers now read the map once with this function and judge that reading
+    (`_kanten_urteil`), as the anchors are read once (`anchors._anker_lesen`) and judged (`anchors._anker_urteil`)."""
+    abgelehnt = _related_abgelehnt(related)
+    if abgelehnt is not None:
+        return abgelehnt, []
+    return None, _read_attached_entries(related)
+
+
+def _related_traegt_eintraege(gelesen: tuple[str | None, list]) -> bool:
+    """Whether the one reading of `_related_lesen` holds attached entries: a refused ``related`` counts as holding
+    them, so the verifiers run the lineage step, which reports the refusal."""
+    abgelehnt, eintraege = gelesen
+    return abgelehnt is not None or bool(eintraege)
+
+
+def _kanten_urteil(relationships: Any, gelesen: tuple[str | None, list[tuple[str, Any, str | None]]], *,
+                   subject_hex: str | None = None, max_depth: int = MAX_CHAIN_DEPTH) -> dict:
+    """`verify_relationship_edges` over the one reading of `_related_lesen`."""
     # One reading of the attached targets, by what they store (round 12): the plain copy, so the
     # targets judged below are not answered by a dict subclass's own `get` and `__contains__`. Each
     # entry is read on its own (`_read_attached_entries`, Codex review of PR 300, thread 4121924153):
@@ -353,10 +392,9 @@ def verify_relationship_edges(
     # `successor_warning` names it, but it never clears the entries beside it. A `related` that is neither None
     # nor a dict is refused (`_related_abgelehnt`, deep gate at 7409b123, L4-620b-01): it was read as no
     # targets, and a verified retraction it held was never seen.
-    abgelehnt = _related_abgelehnt(related)
+    abgelehnt, attached_entries = gelesen
     if abgelehnt is not None:
         return {"lineage": LINEAGE_FAIL, "edges": [], "errors": [abgelehnt], "supersededByAttached": abgelehnt}
-    attached_entries = _read_attached_entries(related)
     related = _attached_targets(attached_entries)
     # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
     # value ([1]/{1:2}/{1,2}/bytearray) crashed the ``{subject_hex}`` seed in the resolved-edge branch
@@ -385,8 +423,12 @@ def verify_relationship_edges(
     # wenn das Objekt selbst gar keine Kante hat. Die Richtung ist monoton: der Schluessel kann eine
     # Politik-Verletzung nur HINZUFUEGEN, nie eine entfernen.
     #
-    # Die Aufrufer, die ihn heute selbst setzen, ueberschreiben ihn mit demselben Wert — ein
-    # No-Op. Ihre Zeilen zu entfernen ist die Nacharbeit, nicht die Bedingung dieser Haertung.
+    # Die Aufrufer, die ihn selbst setzten, ueberschrieben ihn — und das war KEIN No-Op, wie hier bis
+    # d388ed3d stand (deep gate Lauf 5, L4-620v5-T5-SECOND-READING-01, zwei von drei Juroren P1): `successor_warning` las das
+    # `related` des Aufrufers ein zweites Mal, und ein Aufrufer, der seine Tabelle zwischen den beiden
+    # Lesungen leerte, verlor die angehaengte Ruecknahme aus genau diesem Schluessel. Fuer ein `related`,
+    # das keine Tabelle ist, ersetzte die zweite Lesung zudem die Ablehnung durch None. Die Aufrufer lesen
+    # den Schluessel jetzt aus dieser Rueckgabe und setzen ihn nicht mehr.
     _sba = _successor_warning_over(attached_entries, subject_hex)
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": [],
@@ -610,7 +652,12 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     Each entry of ``related`` is read on its own (`_read_attached_entries`): an entry that cannot be
     read is named with ``relation:malformed_successor`` unless a readable entry declares such a
     relation, and it never hides the entries beside it. A ``related`` that is neither None nor a dict is
-    named with its refusal (`_related_abgelehnt`), never read as no attached receipts."""
+    named with its refusal (`_related_abgelehnt`), never read as no attached receipts.
+
+    A verifier that also judges the edges takes ``supersededByAttached`` from `verify_relationship_edges`,
+    which answers this over the reading it judges the edges in. Calling both reads the caller's map twice,
+    and a map changed between the two readings gave a verdict neither state of it gives (deep gate run 5
+    at d388ed3d, L4-620v5-T5-SECOND-READING-01)."""
     abgelehnt = _related_abgelehnt(related)
     if abgelehnt is not None:
         return abgelehnt
