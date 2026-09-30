@@ -487,7 +487,49 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     return results
 
 
-# --- one repository ----------------------------------------------------------------------------------
+# --- verdicts ---------------------------------------------------------------------------------------
+
+#: The rule every rejection, every skill and the server's instructions repeat word for word (D19).
+WEAKEN_RULE = ("Never weaken the evidence declaration, a trust policy or an expected key to get past the gate; "
+               "obtain the missing evidence instead or ask the user.")
+
+
+class Verdict:
+    """What the gate found for one repository.
+
+    For a deny or an ask it also names, in short, the evidence it concerns (kind and path), what failed
+    and the next step (DECISIONS.md, D19); the detail text stays behind them. reason_id is a stable name
+    for the case, and digests are the sha256 of every evidence and policy file the gate read.
+    """
+
+    __slots__ = ("decision", "detail", "reason_id", "evidence", "failed", "next_step", "digests", "repo", "head")
+
+    def __init__(self, decision: str, detail: str, reason_id: str, evidence: str = "", failed: str = "",
+                 next_step: str = "", digests: tuple = (), repo: str | None = None, head: str | None = None):
+        self.decision, self.detail, self.reason_id = decision, detail, reason_id
+        self.evidence, self.failed, self.next_step = evidence, failed, next_step
+        self.digests, self.repo, self.head = tuple(digests), repo, head
+
+    def text(self) -> str:
+        if self.decision in ("pass", "inactive"):
+            return self.detail
+        if self.detail.startswith("NOT MEASURED: "):
+            prefix, detail = "NOT MEASURED: ", self.detail[len("NOT MEASURED: "):]
+        else:
+            prefix, detail = "proofbundle gate: ", self.detail.removeprefix("proofbundle gate: ")
+        return (f"{prefix}Evidence: {self.evidence.rstrip('.')}. Failed: {self.failed.rstrip('.')}. "
+                f"Next step: {self.next_step.rstrip('.')}. {WEAKEN_RULE} Details: {detail}")
+
+    def __iter__(self):
+        return iter((self.decision, self.text()))
+
+    def __getitem__(self, index: int):
+        return (self.decision, self.text())[index]
+
+
+def _item(n: int, item: dict) -> str:
+    return f"{item['kind']} {item['path']} (evidence[{n}])"
+
 
 def _absent_at_head(repo: str, commit: str, deadline: float) -> bool:
     """True only when git lists nothing at DECLARATION in the commit's tree and says so with exit 0."""
@@ -510,42 +552,148 @@ def _absent_in_working_tree(repo: str) -> bool:
     return False
 
 
-def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
-    """('pass' | 'inactive' | 'deny' | 'ask', reason) for the repository that contains directory.
+# --- the evidence rules a push changes (DECISIONS.md, D20) ------------------------------------------
+
+def _rules_at(repo: str, commit: str, deadline: float) -> tuple:
+    """The evidence rules at a commit: whether a declaration exists, its items without their per-release
+    subject (kind, path, policy, public_key), and the blob of each declared policy. Evidence files and any
+    other file under .proofbundle/ are not rules."""
+    try:
+        raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
+    except GateError as exc:
+        return ("unreadable", str(exc))
+    if raw is None:
+        return ("absent",)
+    try:
+        items = parse_declaration(raw)
+    except GateError:
+        return ("malformed", hashlib.sha256(raw).hexdigest())
+    rules = tuple(sorted((i["kind"], i["path"], i.get("policy", ""), i.get("public_key", "")) for i in items))
+    policies = []
+    for path in sorted({i["policy"] for i in items if "policy" in i}):
+        blob = _git(repo, "rev-parse", "--verify", "--quiet", f"{commit}:{path}", deadline=deadline)
+        policies.append((path, blob.stdout.decode().strip() if blob.returncode == 0 else ""))
+    return ("declared", rules, tuple(policies))
+
+
+def _rules_difference(base: tuple, head: tuple) -> str:
+    if base[0] != head[0]:
+        return {("absent", "declared"): "the push adds the declaration",
+                ("declared", "absent"): "the push removes the declaration"}.get(
+                    (base[0], head[0]), f"the declaration goes from {base[0]} to {head[0]}")
+    if base[0] != "declared":
+        return "the declaration changes"
+    parts = []
+    if base[1] != head[1]:
+        parts.append("the declared items change (kind, path, policy or public_key)")
+    before, after = dict(base[2]), dict(head[2])
+    parts += [f"the policy {path} changes" for path in sorted(set(before) | set(after))
+              if before.get(path) != after.get(path)]
+    return "; ".join(parts)
+
+
+def rules_change(repo: str, commit: str, deadline: float) -> tuple[str, str]:
+    """('unmeasured' | 'unchanged' | 'changed', what) for a push of commit, from local refs only.
+
+    What the push adds is `git rev-list commit --not --remotes`: the commits no remote-tracking ref holds.
+    Their boundary is what the remote is known to have, the predecessor. The rules at every boundary
+    commit are compared with the rules at commit. Without any remote-tracking ref the gate cannot tell what
+    the push adds, and says so. The gate never fetches.
+    """
+    remotes = _git(repo, "for-each-ref", "--format=%(objectname)", "refs/remotes", deadline=deadline)
+    if remotes.returncode != 0 or not remotes.stdout.strip():
+        return "unmeasured", "no remote-tracking ref is known locally, so the gate cannot tell what the push adds"
+    listing = _git(repo, "rev-list", "--boundary", commit, "--not", "--remotes", deadline=deadline)
+    if listing.returncode != 0:
+        return "unmeasured", "git could not list the commits the push adds"
+    lines = listing.stdout.decode().split()
+    added = [line for line in lines if not line.startswith("-")]
+    bases = [line[1:] for line in lines if line.startswith("-")]
+    if not added:
+        return "unchanged", ""
+    head_rules = _rules_at(repo, commit, deadline)
+    changes = []
+    for base in bases or [None]:
+        base_rules = ("absent",) if base is None else _rules_at(repo, base, deadline)
+        if base_rules != head_rules:
+            where = f"against {base[:12]}" if base else "against nothing, as the pushed history has no known base"
+            changes.append(f"{_rules_difference(base_rules, head_rules)} ({where})")
+    return ("changed", "; ".join(dict.fromkeys(changes))) if changes else ("unchanged", "")
+
+
+_RULES_NEXT = ("have a person review the change to the evidence rules, then push; the gate reports every "
+               "such change")
+
+
+def _rules_verdict(repo: str, commit: str, what: str, digests: tuple = ()) -> Verdict:
+    return Verdict("ask", f"proofbundle gate: the push changes the evidence rules under {EVIDENCE_DIR} at HEAD "
+                          f"{commit[:12]}: {what}. Changes to the evidence rules need a review.",
+                   "rules_changed", evidence=f"the evidence rules under {EVIDENCE_DIR} ({DECLARATION} and its policies)",
+                   failed=what, next_step=_RULES_NEXT, digests=digests, repo=repo, head=commit)
+
+
+# --- one repository ----------------------------------------------------------------------------------
+
+def evaluate_repository(directory: str, deadline: float) -> Verdict:
+    """The verdict for the repository that contains directory: pass, inactive, deny or ask.
 
     'inactive' is the one NOT MEASURED answer without a permission decision: the gate measured that the
-    repository declares nothing, neither at HEAD nor in the working tree (DECISIONS.md, D5).
+    repository declares nothing, neither at HEAD nor in the working tree (DECISIONS.md, D5), and it cannot
+    see a push that removes a declaration the remote holds (D20).
     """
     top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
     if top.returncode != 0:
-        return "ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked."
+        return Verdict("ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked.",
+                       "not_a_work_tree", evidence=f"none, {directory} is not inside a git work tree",
+                       failed="there is no repository to check",
+                       next_step="run the call inside the repository it acts on, or confirm it yourself",
+                       repo=directory)
     repo = top.stdout.decode().strip()
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     if head.returncode != 0:
-        return "ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked."
+        return Verdict("ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked.",
+                       "no_commit", evidence=f"the declaration {DECLARATION}", failed="the repository has no commit",
+                       next_step="commit first, then retry", repo=repo)
     commit = head.stdout.decode().strip()
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
     if raw is None:
         if _absent_at_head(repo, commit, deadline) and _absent_in_working_tree(repo):
-            return "inactive", (f"NOT MEASURED: {repo} declares no evidence, neither at HEAD {commit[:12]} nor "
-                                f"in the working tree ({DECLARATION} is absent). The gate is not active in "
-                                "this repository, because nothing is declared. Nothing was verified.")
-        hint = (" A declaration exists in the working tree but is not committed; the gate reads HEAD."
-                if os.path.exists(os.path.join(repo, DECLARATION)) else "")
-        return "ask", (f"NOT MEASURED: {repo} declares no evidence at HEAD {commit[:12]} "
-                       f"({DECLARATION} is absent). Nothing was verified.{hint}")
+            status, what = rules_change(repo, commit, deadline)
+            if status == "changed":
+                return _rules_verdict(repo, commit, what)
+            return Verdict("inactive", f"NOT MEASURED: {repo} declares no evidence, neither at HEAD {commit[:12]} "
+                                       f"nor in the working tree ({DECLARATION} is absent). The gate is not active in "
+                                       "this repository, because nothing is declared. Nothing was verified.",
+                           "nothing_declared", repo=repo, head=commit)
+        in_tree = os.path.exists(os.path.join(repo, DECLARATION))
+        hint = " A declaration exists in the working tree but is not committed; the gate reads HEAD." if in_tree else ""
+        return Verdict("ask", f"NOT MEASURED: {repo} declares no evidence at HEAD {commit[:12]} "
+                              f"({DECLARATION} is absent). Nothing was verified.{hint}",
+                       "declaration_uncommitted" if in_tree else "absence_not_measured",
+                       evidence=f"the declaration {DECLARATION}" + (" (working tree only)" if in_tree else ""),
+                       failed=("the declaration is not committed, and the gate reads HEAD" if in_tree
+                               else "the gate could not confirm that nothing is declared"),
+                       next_step=("commit the declaration and the evidence it names, then retry" if in_tree
+                                  else f"check what stands at {DECLARATION} in the working tree and at HEAD"),
+                       repo=repo, head=commit)
     items = parse_declaration(raw)
     if not items:
-        return "ask", (f"NOT MEASURED: {DECLARATION} at HEAD {commit[:12]} declares an empty evidence "
-                       "list. Nothing was verified.")
+        return Verdict("ask", f"NOT MEASURED: {DECLARATION} at HEAD {commit[:12]} declares an empty evidence "
+                              "list. Nothing was verified.", "empty_declaration",
+                       evidence=f"the declaration {DECLARATION}", failed="its evidence list is empty",
+                       next_step="declare the evidence this tree needs and commit it", repo=repo, head=commit)
     tree = tree_digest(repo, commit, deadline)
-    stale = [f"evidence[{n}] {item['path']} names {item['subject']['digest']}" for n, item in enumerate(items)
-             if item["subject"]["digest"] != tree]
+    stale = [(n, item) for n, item in enumerate(items) if item["subject"]["digest"] != tree]
     if stale:
-        return "deny", (f"proofbundle gate: the declared subject does not match the tree at HEAD "
-                        f"{commit[:12]}, which is {TREE_ALGORITHM} {tree}. " + " | ".join(stale)
-                        + ". The evidence speaks for another tree.")
-    requests, contents = [], []
+        return Verdict("deny", f"proofbundle gate: the declared subject does not match the tree at HEAD "
+                               f"{commit[:12]}, which is {TREE_ALGORITHM} {tree}. "
+                               + " | ".join(f"evidence[{n}] {i['path']} names {i['subject']['digest']}" for n, i in stale)
+                               + ". The evidence speaks for another tree.", "stale_subject",
+                       evidence=", ".join(_item(n, i) for n, i in stale),
+                       failed=f"its subject is not the tree digest of HEAD ({TREE_ALGORITHM} {tree})",
+                       next_step="build and sign the evidence for the tree at HEAD, then commit it under .proofbundle/",
+                       repo=repo, head=commit)
+    requests, contents, digests = [], [], []
     with tempfile.TemporaryDirectory(prefix="proofbundle-gate-") as scratch:
         for n, item in enumerate(items):
             arguments = {"kind": item["kind"]}
@@ -555,10 +703,23 @@ def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
                 limit = MAX_EVIDENCE_BYTES if field == "path" else MAX_DECLARATION_BYTES
                 content = _blob(repo, commit, item[field], deadline, limit)
                 if content is None:
-                    return "deny", (f"proofbundle gate: declared {field} {item[field]} of evidence[{n}] "
-                                    f"is missing at HEAD {commit[:12]}. Nothing may be published without it.")
+                    return Verdict("deny", f"proofbundle gate: declared {field} {item[field]} of evidence[{n}] is "
+                                           f"missing at HEAD {commit[:12]}. Nothing may be published without it.",
+                                   "missing_file", evidence=f"{field} {item[field]} of {_item(n, item)}",
+                                   failed="the file is missing at HEAD",
+                                   next_step="obtain the declared file and commit it under .proofbundle/",
+                                   digests=digests, repo=repo, head=commit)
+                digests.append(f"{item[field]} sha256:{hashlib.sha256(content).hexdigest()}")
                 if field == "policy" and item["kind"] == "bundle":
-                    require_pinned_signer(content, f"the policy {item[field]} of evidence[{n}]")
+                    try:
+                        require_pinned_signer(content, f"the policy {item[field]} of evidence[{n}]")
+                    except GateError as exc:
+                        return Verdict("deny", f"proofbundle gate: {exc}.", "policy_pins_no_signer",
+                                       evidence=f"policy {item[field]} of {_item(n, item)}",
+                                       failed="the policy pins no signer",
+                                       next_step="obtain a policy that pins the expected signer (a non-empty "
+                                                 "allowed_issuers and signature.require_expected_signer true)",
+                                       digests=digests, repo=repo, head=commit)
                 if field == "path":
                     contents.append(content)
                 target = os.path.join(scratch, f"{n}-{field}.json")
@@ -574,29 +735,60 @@ def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
         version = result.get("proofbundle_version", version)
         if result["is_error"] or result.get("exit_code") != 0:
             why = result.get("error") or f"exit {result.get('exit_code')}: {result.get('meaning')}"
-            failed.append(f"evidence[{n}] {item['kind']} {item['path']}: {why}")
+            failed.append((n, item, why))
     if failed:
-        return "deny", (f"proofbundle gate: verification failed at HEAD {commit[:12]} "
-                        f"(proofbundle {version}). " + " | ".join(failed))
+        return Verdict("deny", f"proofbundle gate: verification failed at HEAD {commit[:12]} (proofbundle {version}). "
+                               + " | ".join(f"evidence[{n}] {i['kind']} {i['path']}: {why}" for n, i, why in failed),
+                       "verification_failed", evidence=", ".join(_item(n, i) for n, i, _ in failed),
+                       failed="; ".join(why for _, _, why in failed),
+                       next_step="obtain evidence that verifies under the declared key or policy",
+                       digests=digests, repo=repo, head=commit)
     unbound = []
     for n, (item, content) in enumerate(zip(items, contents)):
         named = signed_subjects(item["kind"], content)
         if not named:
-            unbound.append(f"evidence[{n}] {item['path']}: the signed evidence names no tree subject")
+            unbound.append((n, item, "the signed evidence names no tree subject"))
         elif item["subject"]["digest"] not in named:
-            unbound.append(f"evidence[{n}] {item['path']}: the signed evidence names {', '.join(named)}, "
-                           f"not the declared subject {item['subject']['digest']}")
+            unbound.append((n, item, f"the signed evidence names {', '.join(named)}, not the declared subject "
+                                     f"{item['subject']['digest']}"))
     if unbound:
-        return "deny", (f"proofbundle gate: the evidence verified but is not bound to the tree at HEAD "
-                        f"{commit[:12]}. " + " | ".join(unbound))
-    return "pass", (f"proofbundle gate: {len(items)} of {len(items)} declared items verified at HEAD "
-                    f"{commit[:12]} for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves "
-                    "who signed the recorded bytes and which tree they name, not that the recorded values "
-                    "are true.")
+        return Verdict("deny", f"proofbundle gate: the evidence verified but is not bound to the tree at HEAD "
+                               f"{commit[:12]}. " + " | ".join(f"evidence[{n}] {i['path']}: {why}" for n, i, why in unbound),
+                       "not_bound", evidence=", ".join(_item(n, i) for n, i, _ in unbound),
+                       failed="; ".join(why for _, _, why in unbound),
+                       next_step="sign a statement that names the tree digest of HEAD and commit it",
+                       digests=digests, repo=repo, head=commit)
+    status, what = rules_change(repo, commit, deadline)
+    if status == "changed":
+        return _rules_verdict(repo, commit, what, tuple(digests))
+    if status == "unmeasured":
+        return Verdict("ask", f"NOT MEASURED: the declared evidence verified at HEAD {commit[:12]}, but {what}. "
+                              f"The gate cannot tell whether the push changes the evidence rules under {EVIDENCE_DIR}.",
+                       "range_not_measured",
+                       evidence=f"the evidence rules under {EVIDENCE_DIR} ({DECLARATION} and its policies)",
+                       failed=what, next_step="fetch the remote, so its branches are known locally, then retry",
+                       digests=tuple(digests), repo=repo, head=commit)
+    return Verdict("pass", f"proofbundle gate: {len(items)} of {len(items)} declared items verified at HEAD "
+                           f"{commit[:12]} for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves "
+                           "who signed the recorded bytes and which tree they name, not that the recorded values "
+                           "are true. The push leaves the evidence rules as the remote holds them.",
+                   "verified", digests=tuple(digests), repo=repo, head=commit)
 
 
-def decide(command: str, cwd: str, deadline: float) -> tuple[str, str] | None:
-    """None for a call the gate does not gate, else the combined (decision, reason)."""
+class Outcome:
+    """The combined answer for one call: the decision, its text, and the verdict of every repository."""
+
+    __slots__ = ("decision", "text", "verdicts")
+
+    def __init__(self, decision: str, text: str, verdicts: list):
+        self.decision, self.text, self.verdicts = decision, text, verdicts
+
+    def __iter__(self):
+        return iter((self.decision, self.text))
+
+
+def decide(command: str, cwd: str, deadline: float) -> Outcome | None:
+    """None for a call the gate does not gate, else the combined outcome."""
     calls = gated_calls(command)
     if not calls:
         return None
@@ -607,7 +799,7 @@ def mcp_gated(tool: str) -> bool:
     return re.fullmatch(MCP_MATCHER, tool) is not None
 
 
-def decide_mcp(tool: str, cwd: str, deadline: float) -> tuple[str, str] | None:
+def decide_mcp(tool: str, cwd: str, deadline: float) -> Outcome | None:
     """None for an MCP tool the gate does not know; else the verdict for the local repository at cwd.
 
     An MCP tool acts on a remote repository the gate cannot read. The gate judges the repository the
@@ -615,29 +807,41 @@ def decide_mcp(tool: str, cwd: str, deadline: float) -> tuple[str, str] | None:
     """
     if not mcp_gated(tool):
         return None
-    decision, reason = _judge([(f"MCP {tool}", ".")], cwd, deadline)
+    outcome = _judge([(f"MCP {tool}", ".")], cwd, deadline)
     unseen = _MCP_UNSEEN.get(tool.rsplit("__", 1)[-1], "it cannot see the branch the tool publishes")
-    return decision, (reason + f" (MCP tool {tool}: the gate checked the local repository at {cwd}, "
-                               f"at its HEAD; {unseen}.)")
+    outcome.text += (f" (MCP tool {tool}: the gate checked the local repository at {cwd}, at its HEAD; "
+                     f"{unseen}.)")
+    return outcome
 
 
-def _judge(calls: list[tuple[str, str | None]], cwd: str, deadline: float) -> tuple[str, str]:
+def _judge(calls: list[tuple[str, str | None]], cwd: str, deadline: float) -> Outcome:
     verdicts = []
     for directory in dict.fromkeys(d if d is UNKNOWN else os.path.normpath(os.path.join(cwd, d))
                                    for _, d in calls):
         names = ", ".join(sorted({c for c, d in calls
                                   if (d if d is UNKNOWN else os.path.normpath(os.path.join(cwd, d))) == directory}))
         if directory is UNKNOWN:
-            verdicts.append(("ask", f"NOT MEASURED: the gate cannot tell which repository {names} acts on "
-                                    "(a directory change or a git option it does not resolve)."))
-        else:
+            verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {names} acts on "
+                                           "(a directory change or a git option it does not resolve).",
+                                    "directory_unresolved", evidence=f"unknown, the repository {names} acts on",
+                                    failed="the gate cannot resolve the directory",
+                                    next_step="run the call in the repository's directory, with a literal path"))
+            continue
+        try:
             verdicts.append(evaluate_repository(directory, deadline))
+        except GateError as exc:
+            verdicts.append(Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached "
+                                            "no verdict.", "gate_error",
+                                    evidence=f"the declaration {DECLARATION} and the evidence it names at HEAD",
+                                    failed=str(exc),
+                                    next_step="fix the cause named here; the gate denies until it reaches a verdict",
+                                    repo=directory))
     for decision in ("deny", "ask"):
-        reasons = [r for d, r in verdicts if d == decision]
-        if reasons:
-            return decision, " ".join(reasons)
-    combined = "pass" if all(d == "pass" for d, _ in verdicts) else "inactive"
-    return combined, " ".join(r for _, r in verdicts)
+        chosen = [v for v in verdicts if v.decision == decision]
+        if chosen:
+            return Outcome(decision, " ".join(v.text() for v in chosen), verdicts)
+    combined = "pass" if all(v.decision == "pass" for v in verdicts) else "inactive"
+    return Outcome(combined, " ".join(v.text() for v in verdicts), verdicts)
 
 
 # --- the host's hook protocol ------------------------------------------------------------------------
@@ -718,12 +922,18 @@ def main(argv: list[str] | None = None) -> int:
             command, cwd = _command_from_event(event)
             verdict = decide(command, cwd, deadline)
     except GateError as exc:
-        verdict = ("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.")
+        failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",
+                          "hook_input", evidence="none, the gate could not read the call", failed=str(exc),
+                          next_step="check the plugin's hook command and the host version")
+        verdict = Outcome("deny", failure.text(), [failure])
     except Exception as exc:  # noqa: BLE001 - any failure inside the gate denies, it never allows
-        verdict = ("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. "
-                           "The call is denied because the gate reached no verdict.")
+        failure = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}. "
+                                  "The call is denied because the gate reached no verdict.", "internal_error",
+                          evidence="none, the gate failed before a verdict", failed=f"{type(exc).__name__}: {exc}",
+                          next_step="report this error; the gate denies until it is fixed")
+        verdict = Outcome("deny", failure.text(), [failure])
     if verdict is not None:
-        sys.stdout.write(json.dumps(answer(*verdict, host=host)) + "\n")
+        sys.stdout.write(json.dumps(answer(verdict.decision, verdict.text, host=host)) + "\n")
     return 0
 
 

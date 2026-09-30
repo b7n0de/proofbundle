@@ -48,6 +48,11 @@ case "$mode" in
     fi
     git add -A
     git commit -q -m release
+    if [ "$mode" != repo-nodecl ] && [ "$mode" != repo-worktree-only ]; then
+      # The reviewed state of the evidence rules, as the remote holds it (DECISIONS.md, D20): pushed to
+      # another branch, so remote.git/refs/heads/main still tells whether the case's push went through.
+      git push -q origin HEAD:refs/heads/published
+    fi
     if [ "$mode" = repo-worktree-only ]; then
       mkdir -p .proofbundle
       cp "$data/policy.json" .proofbundle/policy.json

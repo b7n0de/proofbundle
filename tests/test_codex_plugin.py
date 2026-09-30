@@ -208,6 +208,9 @@ def _repo(tmp_path: pathlib.Path, *, declare: bool, tamper: bool = False) -> pat
                           "subject": subject}]}), encoding="utf-8")
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "-m", "evidence")
+        _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
+        _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+        _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
     return repo
 
 
@@ -236,6 +239,8 @@ def _codex_valid(answer: dict) -> str:
         assert set(answer) == {"systemMessage", "hookSpecificOutput"}
         return "pass"
     assert specific["permissionDecisionReason"].strip()
+    for part in ("Evidence: ", ". Failed: ", ". Next step: ", gate.WEAKEN_RULE):
+        assert part in specific["permissionDecisionReason"], part
     return "deny"
 
 
@@ -522,3 +527,18 @@ def test_the_guard_finds_each_form_that_would_switch_the_hooks_off(tmp_path, pla
     for source in ("hooks/hooks.json", ".codex-plugin/plugin.json"):
         (plugin / source).unlink()
     assert _gate_hook_sources(plugin) == [] and _guard_failure(plugin) is None, "the guard is armed only by the hooks"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_a_rules_change_is_denied_and_the_same_push_passes_once_published(shim, tmp_path):
+    repo = _repo(tmp_path, declare=True)
+    policy = json.loads((repo / ".proofbundle" / "policy.json").read_text(encoding="utf-8"))
+    other = generate_signer().public_key().public_bytes_raw()
+    policy["allowed_issuers"].append({"public_key_b64": base64.b64encode(other).decode()})
+    (repo / ".proofbundle" / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "widen the policy")
+    codex = _run(shim, repo, "--host", "codex")
+    assert _codex_valid(codex) == "deny"
+    assert "evidence rules" in codex["systemMessage"] and "Codex cannot ask" in codex["systemMessage"]
+    assert _run(shim, repo)["hookSpecificOutput"]["permissionDecision"] == "ask"

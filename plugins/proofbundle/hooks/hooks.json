@@ -1,5 +1,5 @@
 {
-  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or merges a pull request, verify the evidence the repository declares at HEAD. A failed check denies the call. A repository that declares nothing, neither at HEAD nor in the working tree, gets no decision, marked NOT MEASURED; every other case where nothing was verified asks.",
+  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or merges a pull request, verify the evidence the repository declares at HEAD. A failed check denies the call. A repository that declares nothing, neither at HEAD nor in the working tree, gets no decision, marked NOT MEASURED; every other case where nothing was verified asks. A push that changes the evidence rules against what the remote is known to hold is asked.",
   "hooks": {
     "PreToolUse": [
       {

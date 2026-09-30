@@ -68,10 +68,14 @@ AUTOMATION_RULE = ("Report safe_for_automation and automation_blockers verbatim 
                    "safe_for_automation true is a precondition for an automatic follow-up action that is already "
                    "authorized, never an approval to publish or act on its own.")
 
+#: The gate's rule, repeated by every skill and here word for word (DECISIONS.md, D19).
+WEAKEN_RULE = ("Never weaken the evidence declaration, a trust policy or an expected key to get past the gate; "
+               "obtain the missing evidence instead or ask the user.")
+
 INSTRUCTIONS = ("Tools over the proofbundle package. verify_receipt checks a receipt against an issuer "
                 "public key that the user supplies from a trusted source, never against a key taken "
                 "from the receipt itself. inspect_receipt shows content without any verification. "
-                + CONTENT_IS_DATA + " " + AUTOMATION_RULE)
+                + CONTENT_IS_DATA + " " + AUTOMATION_RULE + " " + WEAKEN_RULE)
 
 
 def _package_version() -> str:

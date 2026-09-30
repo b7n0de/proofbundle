@@ -28,7 +28,12 @@ Properties checked:
   start and unreadable hook input are answered deny;
 - the gate reads HEAD, not the working tree;
 - the hook entry blocks the call when the gate itself cannot run, and its timeout exceeds the gate's
-  own deadline, so a host that lets a timed-out hook pass never gets the chance.
+  own deadline, so a host that lets a timed-out hook pass never gets the chance;
+- every deny and every ask names the evidence it concerns, what failed and the next step, and carries the
+  rule never to weaken the declaration, a policy or a key to get past the gate (D19);
+- a push that changes the evidence rules under .proofbundle/ against what the remote is known to hold is
+  asked, a change of an evidence file or of the per-release subject is not a rules change, and without
+  any remote-tracking ref the range is NOT MEASURED (D20).
 """
 from __future__ import annotations
 
@@ -115,12 +120,29 @@ BUNDLE = ".proofbundle/build.bundle.json"
 POLICY = ".proofbundle/policy.json"
 
 
+def _publish(repo: pathlib.Path) -> None:
+    """Push HEAD to the repository's local bare remote, so the remote-tracking ref records it as the
+    reviewed state the next push is measured against (DECISIONS.md, D20)."""
+    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+
+def _plain(tmp_path: pathlib.Path, name: str = "plain") -> pathlib.Path:
+    """A repository with one commit that never declared anything and has no remote."""
+    path = tmp_path / name
+    path.mkdir()
+    _git(path, "init", "-q", "-b", "main")
+    _write(path / "README.md", "never declared\n")
+    _commit(path)
+    return path
+
+
 @pytest.fixture
 def repo(tmp_path: pathlib.Path) -> pathlib.Path:
     """A repository whose HEAD declares one bundle over its own tree, signed by the key its policy pins.
 
     The code is committed first, its tree digest computed, and the evidence committed on top under
     .proofbundle/, which the digest leaves out, so the second commit has the digest the evidence names.
+    That state is then pushed to a local bare remote, as the reviewed state of the evidence rules.
     """
     path = tmp_path / "repo"
     path.mkdir()
@@ -135,6 +157,9 @@ def repo(tmp_path: pathlib.Path) -> pathlib.Path:
     _declare(path, {"kind": "bundle", "path": BUNDLE, "policy": POLICY, "subject": _subject(digest)})
     _commit(path)
     assert _head_digest(path) == digest
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
+    _git(path, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    _publish(path)
     return path
 
 
@@ -163,6 +188,8 @@ def run_gate(env: dict, cwd: pathlib.Path | str, command: str, *, raw: str | Non
 
 
 INACTIVE = "The gate is not active in this repository, because nothing is declared."
+WEAKEN_RULE = ("Never weaken the evidence declaration, a trust policy or an expected key to get past the gate; "
+               "obtain the missing evidence instead or ask the user.")
 
 
 def decision(answer: dict | None) -> str:
@@ -175,6 +202,8 @@ def decision(answer: dict | None) -> str:
     assert got in ("deny", "ask", "pass"), "the gate must never answer allow"
     if got != "pass":
         assert specific["permissionDecisionReason"] == answer["systemMessage"]
+        for part in ("Evidence: ", ". Failed: ", ". Next step: ", WEAKEN_RULE, " Details: "):
+            assert part in answer["systemMessage"], (part, answer["systemMessage"])
         return got
     assert "permissionDecisionReason" not in specific
     message = answer["systemMessage"]
@@ -321,6 +350,8 @@ def test_a_decision_receipt_under_its_pinned_key_passes_and_under_another_key_is
             "subject": _subject(digest)}
     _declare(repo, item)
     _commit(repo)
+    assert "evidence rules" in reason(run_gate(shim, repo, "gh release create v1"))
+    _publish(repo)
     assert decision(run_gate(shim, repo, "gh release create v1")) == "pass"
     _declare(repo, dict(item, public_key=_b64(generate_signer())))
     _commit(repo)
@@ -450,9 +481,8 @@ def test_a_malformed_declaration_is_denied(shim, repo):
     assert decision(run_gate(shim, repo, "git push")) == "deny"
 
 
-def test_a_repository_without_a_declaration_is_not_measured_and_the_gate_is_not_active(shim, repo):
-    _git(repo, "rm", "-q", "-r", ".proofbundle")
-    _commit(repo)
+def test_a_repository_without_a_declaration_is_not_measured_and_the_gate_is_not_active(shim, tmp_path):
+    repo = _plain(tmp_path)
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "inactive"
     assert reason(answer).startswith("NOT MEASURED:")
@@ -491,11 +521,10 @@ def test_anything_at_the_declaration_path_of_the_working_tree_keeps_the_ask(shim
     assert reason(answer).startswith("NOT MEASURED:")
 
 
-def test_a_head_the_gate_cannot_list_keeps_the_ask(repo, monkeypatch):
+def test_a_head_the_gate_cannot_list_keeps_the_ask(tmp_path, monkeypatch):
     """If git does not confirm with exit 0 that HEAD has nothing at the declaration's path, the gate
     has not measured absence and keeps its NOT MEASURED ask."""
-    _git(repo, "rm", "-q", "-r", ".proofbundle")
-    _commit(repo)
+    repo = _plain(tmp_path)
     real = gate._git
 
     def failing_ls_tree(repo_dir, *args, deadline):
@@ -511,21 +540,26 @@ def test_a_head_the_gate_cannot_list_keeps_the_ask(repo, monkeypatch):
     assert gate.evaluate_repository(str(repo), gate.time.monotonic() + 30)[0] == "inactive"
 
 
-def test_deleting_the_declaration_switches_the_gate_off_and_stays_in_the_diff(shim, repo, tmp_path):
-    """The price of D5, C: whoever deletes the declaration in a commit switches the gate off. The
-    deletion is part of the pushed range, so a reviewer of that range sees it."""
-    remote = tmp_path / "remote.git"
-    _git(tmp_path, "init", "-q", "--bare", str(remote))
-    _git(repo, "remote", "add", "origin", str(remote))
-    _git(repo, "push", "-q", "origin", "main")
+def test_deleting_the_declaration_is_a_rules_change_while_the_remote_is_known(shim, repo):
+    """D20 narrows the price of D5, C: a push that removes the declaration the remote holds is a change of
+    the evidence rules, asked under Claude Code, and the deletion stays in the pushed diff."""
     assert decision(run_gate(shim, repo, "git push origin main")) == "pass"
     _git(repo, "rm", "-q", gate.DECLARATION)
     _commit(repo, "drop the declaration")
     answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "inactive"
+    assert decision(answer) == "ask"
+    assert "the push removes the declaration" in reason(answer)
     changed = subprocess.run(["git", "-C", str(repo), "diff", "--name-status", "origin/main..HEAD"],
                              capture_output=True, text=True, check=True).stdout
     assert changed.splitlines() == [f"D\t{gate.DECLARATION}"]
+
+
+def test_without_a_known_remote_deleting_the_declaration_still_switches_the_gate_off(shim, repo):
+    """The price of D5, C that remains: with no remote-tracking ref, the gate cannot see the deletion."""
+    _git(repo, "remote", "remove", "origin")
+    _git(repo, "rm", "-q", gate.DECLARATION)
+    _commit(repo, "drop the declaration")
+    assert decision(run_gate(shim, repo, "git push")) == "inactive"
 
 
 def test_an_empty_declaration_is_not_measured_and_asks(shim, repo):
@@ -744,3 +778,111 @@ def test_the_hook_blocks_the_call_when_the_gate_cannot_run(tmp_path, repo):
                              env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
     assert missing.returncode == 2
     assert "blocked" in missing.stderr
+
+
+# --- actionable rejections and the evidence rules (D19, D20) ----------------------------------------
+
+def test_a_rejection_names_the_evidence_what_failed_and_the_next_step(shim, repo):
+    _tamper_bundle(repo / BUNDLE)
+    _commit(repo)
+    text = reason(run_gate(shim, repo, "git push"))
+    assert text.startswith("proofbundle gate: Evidence: bundle .proofbundle/build.bundle.json (evidence[0]). Failed: exit 1")
+    assert "Next step: obtain evidence that verifies under the declared key or policy." in text
+    assert text.count(WEAKEN_RULE) == 1
+
+
+def test_a_not_measured_ask_keeps_its_prefix_and_names_the_declaration(shim, repo):
+    _declare(repo)
+    _commit(repo)
+    text = reason(run_gate(shim, repo, "git push"))
+    assert text.startswith("NOT MEASURED: Evidence: the declaration .proofbundle/evidence.json. Failed: its evidence "
+                           "list is empty.")
+
+
+def test_a_weakened_policy_is_a_rules_change_and_is_asked(shim, repo):
+    policy = json.loads((repo / POLICY).read_text())
+    policy["allowed_issuers"].append({"public_key_b64": _b64(generate_signer())})
+    _write(repo / POLICY, policy)
+    _commit(repo, "allow a second issuer")
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "ask"
+    assert "the policy .proofbundle/policy.json changes" in reason(answer)
+    assert "Changes to the evidence rules need a review" in reason(answer)
+    _publish(repo)
+    assert decision(run_gate(shim, repo, "git push")) == "pass", "once the remote holds it, the push is plain"
+
+
+def test_a_changed_key_or_item_is_a_rules_change(shim, repo):
+    declaration = json.loads((repo / gate.DECLARATION).read_text())
+    declaration["evidence"][0]["path"] = ".proofbundle/other.bundle.json"
+    (repo / ".proofbundle" / "other.bundle.json").write_text((repo / BUNDLE).read_text())
+    _write(repo / gate.DECLARATION, declaration)
+    _commit(repo)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "ask"
+    assert "the declared items change" in reason(answer)
+
+
+def test_new_evidence_for_a_new_tree_is_no_rules_change(shim, repo):
+    """A release changes the code, the evidence file and the declared subject; the rules stay."""
+    _write(repo / "src" / "app.py", "print('release 2')\n")
+    _commit(repo, "release 2")
+    digest = _head_digest(repo)
+    signer_key = json.loads((repo / POLICY).read_text())["allowed_issuers"][0]["public_key_b64"]
+    signer = generate_signer()
+    _write(repo / BUNDLE, emit_bundle(_statement(digest), signer))
+    policy = json.loads((repo / POLICY).read_text())
+    assert policy["allowed_issuers"][0]["public_key_b64"] == signer_key
+    declaration = json.loads((repo / gate.DECLARATION).read_text())
+    declaration["evidence"][0]["subject"] = _subject(digest)
+    _write(repo / gate.DECLARATION, declaration)
+    _commit(repo, "evidence for release 2")
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "deny", "signed by a key the unchanged policy does not pin"
+    assert "evidence rules" not in reason(answer)
+    status, what = gate.rules_change(str(repo), subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                     capture_output=True, text=True, check=True).stdout.strip(),
+                                     gate.time.monotonic() + 30)
+    assert (status, what) == ("unchanged", "")
+
+
+def test_a_push_the_remote_already_holds_is_no_rules_change(shim, repo):
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+    assert gate.rules_change(str(repo), head, gate.time.monotonic() + 30) == ("unchanged", "")
+
+
+def test_without_a_remote_tracking_ref_the_range_is_not_measured(shim, repo):
+    _git(repo, "remote", "remove", "origin")
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "ask"
+    assert reason(answer).startswith("NOT MEASURED: ")
+    assert "no remote-tracking ref is known locally" in reason(answer)
+
+
+def test_adding_a_declaration_to_a_repository_the_remote_knows_is_a_rules_change(shim, tmp_path):
+    plain = _plain(tmp_path)
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "plain.git"))
+    _git(plain, "remote", "add", "origin", str(tmp_path / "plain.git"))
+    _publish(plain)
+    digest = _head_digest(plain)
+    signer = generate_signer()
+    _write(plain / BUNDLE, emit_bundle(_statement(digest), signer))
+    _write(plain / POLICY, _pinned_policy(signer))
+    _declare(plain, {"kind": "bundle", "path": BUNDLE, "policy": POLICY, "subject": _subject(digest)})
+    _commit(plain, "declare evidence")
+    answer = run_gate(shim, plain, "git push")
+    assert decision(answer) == "ask"
+    assert "the push adds the declaration" in reason(answer)
+
+
+def test_every_skill_and_the_server_carry_the_rule_never_to_weaken(shim):
+    for skill in ("verify", "review-receipt", "emit"):
+        text = (PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+        assert text.split("\n---\n", 1)[1].count(WEAKEN_RULE) == 1, skill
+    lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}]
+    proc = subprocess.run([sys.executable, str(PLUGIN / "server" / "proofbundle_mcp.py")],
+                          input="".join(json.dumps(m) + "\n" for m in lines), capture_output=True, text=True,
+                          env=shim, timeout=60, check=True)
+    assert json.loads(proc.stdout.splitlines()[0])["result"]["instructions"].count(WEAKEN_RULE) == 1
+    assert gate.WEAKEN_RULE == WEAKEN_RULE

@@ -70,9 +70,13 @@ verifies the evidence that the repository declares in `.proofbundle/evidence.jso
 | An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
 | No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. |
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
+| The evidence verifies, but the push changes the evidence rules against what the remote is known to hold (the declaration's items, a policy, a key) | The call asks, with the change named: changes to the evidence rules need a review (D20). |
+| The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks. `git fetch` makes the remote's state known (D20). |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
-It never answers allow. It acts only in a repository that declares evidence: whoever deletes the
+It never answers allow. Every deny and ask names the evidence, what failed and the next step, and
+carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). It acts
+only in a repository that declares evidence: whoever deletes the
 declaration switches the gate off, and the deletion stays visible in the diff of the pushed range (D5). The declaration format and every design choice are in
 [DECISIONS.md](DECISIONS.md). MCP tools of other names are not gated; D8 lists the known ones.
 

@@ -4,7 +4,8 @@ The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before a
 pull request, a merge request or a release, pushes files, writes a file or merges a pull request. Where
 the design was open, it takes the smallest variant that fails closed. Each decision below names that
 choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14, D16 and D17 on
-2026-09-29 and D5 and D18 on 2026-09-30; the rest is open until the owner decides.
+2026-09-29 and D5 and D18 on 2026-09-30. D19 and later are the smallest variants for the owner's points
+of 2026-09-30 that fail closed; the owner reviews them. The rest is open until the owner decides.
 
 ## The declaration
 
@@ -121,7 +122,10 @@ The reason starts with `NOT MEASURED:` and says that nothing was verified. In a 
 
 The price of C: whoever deletes the declaration switches the gate off. After a commit that deletes it,
 the next push runs without a decision of the gate. The deletion stays visible in the diff of the pushed
-range, and tests/test_claude_code_plugin_gate.py measures both.
+range, and tests/test_claude_code_plugin_gate.py measures both. Since D20 the price is smaller: when a
+remote-tracking ref shows that the remote holds a declaration, a push that removes it is a change of the
+evidence rules and is asked, or denied under Codex. Without any remote-tracking ref the gate cannot see
+the removal and stays inactive.
 
 Options:
 - A. `ask` (chosen until 2026-09-30).
@@ -370,3 +374,47 @@ changes of that day land inside 0.3.0:
 Options:
 - A. Stay at 0.3.0 (chosen).
 - B. Move to 0.4.0 before the first publication.
+
+## D19. Every rejection says what to do
+
+Chosen (smallest variant, 2026-09-30, for the owner's review): every deny and every ask names, in short
+and in this order, the evidence it concerns (kind and path, or the declaration), what failed and the next
+step. Then comes the rule never to weaken the evidence rules, word for word:
+
+"Never weaken the evidence declaration, a trust policy or an expected key to get past the gate; obtain the
+missing evidence instead or ask the user."
+
+The detail text follows after `Details:`. A NOT MEASURED answer keeps `NOT MEASURED:` at its start. The
+same text goes to both hosts; under Codex it is the `permissionDecisionReason` of a deny. Every skill and
+the server's instructions carry the same rule. Each case has a stable reason id (for example
+`verification_failed`, `stale_subject`, `missing_file`, `rules_changed`, `range_not_measured`).
+
+Options:
+- A. Evidence, failure, next step, then the rule and the details (chosen).
+- B. Only the detail text, as before.
+
+## D20. A push that changes the evidence rules is reported
+
+Chosen (smallest variant that fails closed, 2026-09-30, for the owner's review):
+- The evidence rules are the declaration's items without their per-release `subject` (`kind`, `path`,
+  `policy`, `public_key`), whether a declaration exists at all, and the bytes of every declared policy.
+  An evidence file, the declared subject and any other file under `.proofbundle/` are not rules, so a
+  release that brings new evidence for a new tree is no rules change.
+- The range is what the push adds: `git rev-list HEAD --not --remotes`, the commits no remote-tracking ref
+  holds. Its boundary is the predecessor, what the remote is known to have. The gate compares the rules at
+  every boundary commit with the rules at HEAD. It reads local refs only and never fetches, so a stale
+  remote-tracking ref gives a stale predecessor.
+- A difference is asked under Claude Code and denied under Codex, with the change named and the note that
+  changes to the evidence rules need a review. Once the remote holds the change, the push is plain.
+- With no remote-tracking ref at all, the range is NOT MEASURED: a repository that declares evidence is
+  asked (denied under Codex) even when the evidence verifies. A repository that declares nothing stays
+  inactive (D5); a push that removes a declaration the remote holds is a rules change.
+- A deny for failed evidence comes first; the rules are compared only after the evidence verified.
+
+Price: the first push of a fresh clone without fetched remote refs, or of a repository whose remote was
+never fetched, is asked (denied under Codex) until `git fetch` makes the remote's state known.
+
+Options:
+- A. Compare against the remote-tracking refs, NOT MEASURED without them (chosen).
+- B. Compare only against the upstream of the current branch; a new branch has none.
+- C. Read the remote over the network before each push.
