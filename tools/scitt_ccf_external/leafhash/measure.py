@@ -198,6 +198,19 @@ def main() -> int:
         k = lp2(hi - lo)
         return t.node(lo, lo + k) + t.node(lo + k, hi)
 
+    # IETF Code Component: lax_root() transcribes compute_root of Figure 7 (section 3.2) of
+    # draft-ietf-scitt-receipts-ccf-profile-05, without the ccf-leaf sizes and types.
+    #
+    # This code was derived from IETF draft-ietf-scitt-receipts-ccf-profile-05. Please reproduce this
+    # note if possible.
+    #
+    # Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+    # reserved.
+    #
+    # Redistribution and use in source and binary forms, with or without modification, is permitted
+    # pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
+    # Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+    # (https://trustee.ietf.org/license-info).
     def lax_root(itx, ev_bytes, dh, path):
         """-05 section 3.2 compute_root, transcribed without the ccf-leaf sizes and types."""
         h = H(itx + H(ev_bytes) + dh)

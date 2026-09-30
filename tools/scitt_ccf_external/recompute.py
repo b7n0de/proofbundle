@@ -457,6 +457,19 @@ def statement_signature(st: Sign1) -> dict:
                      "consistency check, not an identity or trust decision"}
 
 
+# IETF Code Component: fold() is the loop of compute_root of Figure 7 (section 3.2) of
+# draft-ietf-scitt-receipts-ccf-profile-05, over the leaf hash computed as its first statement.
+#
+# This code was derived from IETF draft-ietf-scitt-receipts-ccf-profile-05. Please reproduce this
+# note if possible.
+#
+# Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+# reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification, is permitted
+# pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
+# Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+# (https://trustee.ietf.org/license-info).
 def fold(leaf_hash: bytes, path) -> bytes:
     h = leaf_hash
     for left, sibling in path:
