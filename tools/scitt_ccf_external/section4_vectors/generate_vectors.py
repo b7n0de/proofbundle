@@ -28,7 +28,6 @@ checkout.
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import sys
@@ -152,6 +151,8 @@ def spki_of(pub) -> bytes:
 
 
 def main() -> int:
+    sys.path.insert(0, str(REPO / "src"))
+    from proofbundle._wire_b64 import decode_b64   # the one strict base64 decoder tools may use
     fx = json.loads(FIXTURE.read_text(encoding="utf-8"))
     tree = Tree([bytes.fromhex(x) for x in json.loads(LEAVES.read_text(encoding="utf-8"))["ledger"]["leaves"]])
     states = fx["states"]
@@ -160,12 +161,12 @@ def main() -> int:
         assert tree.root(size) == root, f"the leaves do not give the signed root at {size}"
     R19, R22, R24 = roots[19], roots[22], roots[24]
 
-    newer = cbor2.loads(base64.b64decode(fx["newer_receipt_b64"]))
+    newer = cbor2.loads(decode_b64(fx["newer_receipt_b64"]))
     prot_raw, newer_unprot, _payload, service_sig = newer.value
     service_prot = cbor2.loads(prot_raw)
     service_kid = service_prot[4]
     service_issuer = service_prot[15][1]
-    service_keys = cbor2.loads(base64.b64decode(fx["service_keyset_b64"]))
+    service_keys = cbor2.loads(decode_b64(fx["service_keyset_b64"]))
     service_key = next(k for k in service_keys if k.get(2) == service_kid)
     curve = {1: ec.SECP256R1(), 2: ec.SECP384R1()}[service_key[-1]]
     service_spki = spki_of(ec.EllipticCurvePublicNumbers(int.from_bytes(service_key[-2], "big"),
@@ -173,7 +174,7 @@ def main() -> int:
     newer_inclusion = list(newer_unprot[396][-1])
 
     def inclusion_of(state: str) -> list:
-        ts = cbor2.loads(base64.b64decode(states[state]["transparent_statement_b64"]))
+        ts = cbor2.loads(decode_b64(states[state]["transparent_statement_b64"]))
         receipt = cbor2.loads(ts.value[1][394][0])
         return list(receipt.value[1][396][-1])
     older_inclusion = inclusion_of("older")
@@ -185,7 +186,7 @@ def main() -> int:
     p19, p22, p20_22 = enc(*tree.proof(19, 24)), enc(*tree.proof(22, 24)), enc(*tree.proof(20, 22))
     a22, path22 = tree.proof(22, 24)
     a19, path19 = tree.proof(19, 24)
-    deeper = base64.b64decode(fx["deeper_anchor_proof_b64"])
+    deeper = decode_b64(fx["deeper_anchor_proof_b64"])
     unchanged = enc(tree.node(16, 24), [(True, tree.node(0, 16))])
     n1_sibling = tree.node(6, 8)
     n1 = H(tree.root(6) + n1_sibling)
@@ -258,7 +259,6 @@ def main() -> int:
          "the S4-01 receipt, checked against R_22, a root of the same ledger that its proof does not recompute"),
     ]
 
-    sys.path.insert(0, str(REPO / "src"))
     try:
         from proofbundle import scitt_ccf as reader
         reader_sha256 = hashlib.sha256((REPO / "src" / "proofbundle" / "scitt_ccf.py").read_bytes()).hexdigest()
@@ -308,7 +308,7 @@ def main() -> int:
         if reader is not None:
             trust = ({"scitt_ccf_services": {TEST_ISSUER: [{"spki": test_spki, "kid": test_kid}]}} if is_test
                      else {"scitt_ccf_services": {service_issuer: reader.load_cose_keyset(
-                         base64.b64decode(fx["service_keyset_b64"]))}})
+                         decode_b64(fx["service_keyset_b64"]))}})
             bare = reader.verify_consistency_receipt(receipt, older_root=older_root, older_issuer=issuer,
                                                      rp_trust=trust)
             with_sizes = reader.verify_consistency_receipt(receipt, older_root=older_root, older_issuer=issuer,
