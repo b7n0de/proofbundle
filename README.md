@@ -1,6 +1,6 @@
 <div align="center">
 
-<img alt="b7n0de, Verified AI Work, flat rabbit head with a pink ear tip" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-hase-flach-frei-512.png" width="180">
+<img alt="proofbundle, flat rabbit head with a pink ear tip" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/proofbundle-hase-flach-512.png" width="180">
 
 <h1>proofbundle</h1>
 
