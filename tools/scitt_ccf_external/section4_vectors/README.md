@@ -42,7 +42,7 @@ group to decide.
   directory, `TEST_ONLY_es384_private_key.pem`: an ES384 (P-384) key made for these vectors alone,
   published on purpose, and not a key of any service, release or person. Its signatures are
   deterministic (RFC 6979), so `generate_vectors.py` reproduces the same bytes. Its protected header
-  carries the txid `2.8`, as a service's header carries the txid of the state it signs.
+  carries the txid `2.7`, as a service's header carries the txid of the state it signs.
 - The relation between a txid and a tree size (next section) is measured on one ledger, not stated by
   -05.
 
@@ -111,7 +111,7 @@ python generate_vectors.py         # from a checkout of this repository; rewrite
 | S4-07 | a valid consistency proof and an inclusion proof to the same root, control | 19, 24 | accept | passes_size_free_checks | accept |
 | S4-08 | unchanged tree, m = n, left siblings only | 24, 24 | accept | reject, B10 | reject, B10 |
 | S4-09 | deeper anchor, the first sibling a left one | 22, 24 | accept | reject, B11 | reject, B11 |
-| S4-10 | root N1 over R_6 with one right sibling, test key, txid 2.8 | 6, 8 | accept | passes_size_free_checks | reject, B14 |
+| S4-10 | Tiago Pinto's N1 = HASH(R_6 \|\| HASH(d[6])), path [right leaf 6], test key, txid 2.7 | 6, 7 | accept | passes_size_free_checks | reject, B14 |
 | S4-11 | empty consistency-proof array | 19, 24 | reject, `assert(len(proofs) > 0)` | reject, B4 | reject, B4 |
 | S4-12 | a vdp key other than -1 and -2 | 19, 24 | accept | reject, B3 | reject, B3 |
 | S4-13 | one tag flipped, negative control | 19, 24 | reject, `assert(len(payloads) > 0)` | reject, B11 | reject, B11 |

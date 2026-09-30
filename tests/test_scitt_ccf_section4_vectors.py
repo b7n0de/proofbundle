@@ -88,7 +88,7 @@ def test_without_sizes_nothing_is_confirmed_and_the_sizes_decide_s4_08_to_s4_10(
         "S4-08": (24, 24, "consistency_anchor_not_canonical", "consistency_tree_sizes_invalid", "reject", "reject"),
         "S4-09": (22, 24, "consistency_anchor_not_canonical", "consistency_anchor_position_mismatch", "reject",
                   "reject"),
-        "S4-10": (6, 8, "confirmed_without_tree_sizes", "consistency_anchor_position_mismatch",
+        "S4-10": (6, 7, "confirmed_without_tree_sizes", "consistency_anchor_position_mismatch",
                   "passes_size_free_checks", "reject"),
     }
 

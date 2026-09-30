@@ -441,10 +441,11 @@ def sized(rcpt, m, n=None, *, older=None, rp=None):
 
 
 def _n1():
-    """S4-10 of the section 4 vectors, rebuilt here: the older root R_6, one right sibling node(6, 8),
-    and N1 = HASH(R_6 || node(6, 8)) signed as if it were the root of an 8-leaf state (txid 2.8)."""
-    n1 = H(TREE.root(6) + TREE.node(6, 8))
-    return receipt([enc_proof(TREE.root(6), [[False, TREE.node(6, 8)]])], signed=sign_over(n1, txid="2.8"))
+    """S4-10 of the section 4 vectors, rebuilt here as Tiago Pinto wrote it: the older root R_6, the
+    path [right HASH(d[6])] with leaf 6, and N1 = HASH(R_6 || HASH(d[6])) signed as if it were the
+    root of a 7-leaf state (txid 2.7)."""
+    n1 = H(TREE.root(6) + TREE.node(6, 7))
+    return receipt([enc_proof(TREE.root(6), [[False, TREE.node(6, 7)]])], signed=sign_over(n1, txid="2.7"))
 
 
 def test_n1_has_the_form_of_a_canonical_4_to_5_proof_and_only_the_sizes_tell_them_apart():
@@ -455,7 +456,7 @@ def test_n1_has_the_form_of_a_canonical_4_to_5_proof_and_only_the_sizes_tell_the
     assert sized(four_to_five, 4).status == S.CONFIRMED
     c = sized(_n1(), 6)
     assert (c.status, c.anchor_rule_checked) == ("consistency_anchor_position_mismatch", True)
-    assert (c.older_size, c.newer_size, c.newer_size_source) == (6, 8, HEADER)
+    assert (c.older_size, c.newer_size, c.newer_size_source) == (6, 7, HEADER)
     assert "node(0, 4)" in c.detail and "node(4, 6)" in c.detail
 
 
