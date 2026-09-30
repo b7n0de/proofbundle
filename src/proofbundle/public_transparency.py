@@ -195,6 +195,8 @@ def _konsistenz_stand(wert: Any) -> Any:
         return [list(befund)] + [getattr(wert, feld) for feld in felder]
     try:
         gelesen = lesen()
+    except RecursionError:
+        raise   # the stack ran out: `canonical._stand` raises it as it is (verify lane V10 on d58be0b8, F3)
     except Exception:  # noqa: BLE001 - an object that cannot be read here is read by the evaluation as before
         return wert
     return _KonsistenzStand(*gelesen)

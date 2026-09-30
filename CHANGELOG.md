@@ -103,7 +103,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     private copy of every dict, list, tuple, set, bytearray, deque and array, a subclass as its base type holding what
     it stores and an OrderedDict in its own order, of a memoryview and of a view of a dict (`keys()`, `values()`,
     `items()`, a `MappingProxyType`), and of every object of a dataclass of this package field by field, read through the base
-    types' own methods, so no method of the caller runs and no object of the caller's classes is made. A key of a
+    types' own methods, so no method of the caller runs and no object of the caller's classes is made. An iterator
+    or a generator cannot be read twice, so it is handed on and the body reads it when it reads it, as it reads a value
+    of the caller's own class and a memoryview in a format no view of private bytes can take (all three named in
+    RESTRISIKO_620.md). A key of a
     `str` or `bytes` subclass is copied as what it stores, in a class of this package that hashes and compares as the
     base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
     promoted by the copy. The reading collects every container twice and keeps the first collect only when the
@@ -115,7 +118,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     Mapping that is no dict (`rp_trust`, `frozen`, the result and checks of `automation_summary`) and the consistency
     result of `evaluate_public_transparency` can only be read through their own methods; a named reader reads each
     before the first collect and after the second, and the reading counts only when its two answers are the same
-    value (equal values it builds anew included), so what it reads is part of the one reading. A RecursionError
+    value (two answers whose copies would hold the same are one value, so an equal container, scalar or date it
+    builds anew counts, and a new object of the caller's class does not), so what it reads is part of the one
+    reading. A RecursionError
     raised while the arguments are read is raised as it is, not refused as a change. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
     registered anchor verifier) is read as one state where it returns, the callable runs as the caller's code
     (`canonical._draussen`), so a public function it calls reads its arguments whatever frame calls it, and a
@@ -140,6 +145,19 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     now, a deque, an array and a view are copied, a RecursionError passes as it is, the anchor verifier runs as the
     caller's code, and the scans follow a name bound to a parameter. A memoryview whose format no view of private
     bytes can take stays the caller's view (named in RESTRISIKO_620.md, the same at every earlier tree).
+  - The fourth form (d58be0b8, not pushed) had the verify lanes V10 and V11. V10 measured the class closed at every
+    shape the lanes V7 and V8 found (0 mixed verdicts at d58be0b8 against 173 of 1080 at 085869313 for two Mappings),
+    and three things left: a Mapping that builds a new set, frozenset, bytearray or deque on each read was refused as
+    changed, where 8f2fa980 gave a verdict (V11 added an OrderedDict, a defaultdict, an array, a date and the same
+    pairs in another order, as a configuration that parses JSON on each read builds them); a RecursionError inside a
+    named reader became an unreadable Mapping; and six planted defects of the comparison and of the collection of the
+    package's dataclasses were caught by no test. The comparison now judges two answers by the reading the copy is
+    built from, so two answers whose copies would hold the same are one value; the readers let a RecursionError
+    through; and each rule has a test. V10
+    also measured that an iterator or a generator handed in as an argument is read by the body after the other
+    arguments were copied, at every tree since d388ed3d (`evaluate_public_transparency` passed witness keys in 297 of
+    968 runs where each state fails); it cannot be read twice, and RESTRISIKO_620.md names it as open. Pass a list or
+    a tuple, not an iterator, a generator, `map`, `chain` or `reversed`: with a list the same sweeps give 0.
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
     beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
@@ -179,9 +197,12 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   adapter, which wrote a list or dict subclass through its own `__iter__` or `items()`, writes what it stores), an
   object of a dataclass of this package reaches it as a new object of that class holding copies, a key of a `str` or
   `bytes` subclass as what it stores in a class of this package, a deque, an array and a view of a dict as private
-  copies of the same type, and a dict with a key that is none of these (no exact str, number, bytes or None, no
-  subclass of str or bytes and no tuple or frozenset of such values), or whose keys meet as one in the copy, stays
-  the caller's object, as does a memoryview whose format no view of private bytes can take; a function never changes
+  copies of the same type (a `MappingProxyType` over an OrderedDict as one over a plain dict in the OrderedDict's
+  own order), and a dict with a key that is none of these (no exact str, int, float, bool, bytes or None, no subclass
+  of str or bytes and no tuple or frozenset of exact str, int, float, bool, bytes or None values), or whose keys meet
+  as one in the copy, stays
+  the caller's object, as does a memoryview whose format no view of private bytes can take; an iterator or a
+  generator is read by the body as before; a function never changes
   the caller's object (none but `attach` did); `canonical_es256_signature` returns a value of a mutable type that is
   no signature as an equal copy, not as the object itself, `renewal.last_ats` returns an equal copy of the newest
   ArchiveTimeStamp, and the sequences `renew_timestamp` and `renew_hashtree` return hold equal copies of the
@@ -204,11 +225,13 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   collects all the time, and a guard that the package uses the module `gc` only as `gc.get_referents`; and what the
   lanes V7 and V8 found: two Mappings changed together, a deque, an array and a view copied and read as one state, a
   RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length, the depth
-  after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier; and
+  what the lane V10 found: each rule of the comparison of a reader's two answers, a RecursionError inside a reader
+  and in the collection of the package's dataclasses) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
   (the file-content generator, with a planted option the command does not read, the policy with nothing the command
   evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of
   the generator or named with its reason). Two surfaces the lanes named have no sweep of their own: the pair tuples of
-  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them: at d388ed3d 91 failed in the first file and 23 in the second; at 6d674973, 79 and 17; at 8f2fa980, 48 and 4; at 085869313, 14 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
+  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them: at d388ed3d 93 failed in the first file and 23 in the second; at 6d674973, 81 and 17; at 8f2fa980, 49 and 4 (a count that moves by one or two between runs there, because two tests depend on the load at that tree, the copy of nested tuples in linear time and a thread that collects all the time); at 085869313, 16 and 0; at d58be0b8, 3 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
 
 - **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
   value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each

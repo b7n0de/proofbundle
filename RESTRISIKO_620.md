@@ -836,6 +836,21 @@ these lines are what the lanes found that the fix does not change.
   collection of the package's dataclasses racing a module import, fork, signal handlers and `sys.settrace`, and the
   cost of the third fix (measured by the lane V9 after the full suite).
 
+From the verify lanes V10 and V11 on d58be0b8, the fourth form of that fix, before it was pushed. Their P2 findings
+are closed by the fix and named in its CHANGELOG entry; these lines are what the lanes found that the fix does not
+change.
+- **An iterator or a generator handed in as an argument is read by the body, after the other arguments were copied**
+  (P1, V10-F1, the same at 085869313, 8f2fa980 and d388ed3d): an iterator over the caller's list, a generator
+  expression, `map`, `itertools.chain` or `reversed` is no container the reading can copy, and it cannot be read
+  twice, so the double collect cannot tell one state of it. `evaluate_public_transparency(witness_vkeys=<iterator>)`
+  gave PUBLIC_TRANSPARENCY PASS in 297 of 968 runs where each state fails, and `emit_bundle(prior_leaves=<iterator>)`
+  signed the payload of one state over the leaves of the other in 110 of 533; a list gives 0. `verify_anchors`, whose
+  body reads the iterator at once, gave 0. The reach is the Python API, with an iterator over state the caller's own
+  code changes during the call; the command line passes lists. Reading it at the call would consume the caller's
+  iterator where the body refused before reading it and would not close the window; refusing it would change what a
+  caller with a generator gets. Pass a list or a tuple instead, not an iterator, a generator, `map`, `chain` or
+  `reversed`: with a list the same sweeps give 0 mixed verdicts. A fix comes after 6.2.0 as an item of its own.
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -942,10 +957,11 @@ those on a verify, emit or release path:
   caller's subclass of such a dataclass) is read through its own methods by a named reader where a function reads one
   (`rp_trust`, `frozen`, the result of `automation_summary`, the consistency result of
   `evaluate_public_transparency`), before the first collect and after the second, and the two answers must be the
-  same value; it is otherwise handed on as the caller's object. The items of a frozenset and a view of an OrderedDict
-  are handed on as they are. The public instance methods of the package's classes do not take the reading. A dict with a key
-  that is no exact str, int, float, bool, bytes or None, no `str` or `bytes` subclass and no tuple or frozenset of such
-  values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
+  same value; it is otherwise handed on as the caller's object. The items of a frozenset, a keys, values or items
+  view of an OrderedDict, an iterator and a generator are handed on as they are (the last two: the first line of the block of the lanes V10
+  and V11 below). The public instance methods of the package's classes do not take the reading. A dict with a key
+  that is no exact str, int, float, bool, bytes or None, no `str` or `bytes` subclass and no tuple or frozenset of exact
+  str, int, float, bool, bytes or None values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
   items, and an OrderedDict whose own order cannot be read without hashing stay the caller's object inside the copy:
   a copy would run the key's own hash, or lose a key. The reading touches no state of the process: it reads every
   container twice and keeps the first reading when the second finds the same objects. A change that is made and
@@ -954,8 +970,9 @@ those on a verify, emit or release path:
   of which the value changed, the function raises `_StandGestoert`, a `ProofBundleError`, also where a never-raise
   surface would otherwise answer. Only two readings that differ cause it: code that changes the value while it is
   read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
-  values that differ, an object of the caller's class built anew on each read among them (equal built-in values
-  built anew are the same value). A RecursionError raised while the arguments are read is raised as it is, before
+  values that differ, an object of the caller's class built anew on each read among them (two answers whose copies
+  would hold the same are the same value; a new object of the caller's class, a datetime with a tzinfo and a set
+  holding a float or a caller's object are not). A RecursionError raised while the arguments are read is raised as it is, before
   the body runs, also at a never-raise surface. The reading costs two reads and one copy of the arguments per call
   from outside the package, linear in their size, and two runs of a named reader (the line on its cost above). A public function that the package's own code calls from inside the body of another
   reads nothing again, because what it is passed is that reading or was made from it, and a value the package hands

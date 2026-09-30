@@ -36,7 +36,7 @@ import inspect
 import sys
 import threading
 import types
-from datetime import datetime, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from collections import OrderedDict, deque
 from collections.abc import Mapping
 from typing import Any, Callable, Union
@@ -168,7 +168,9 @@ def _lies(wert: Any) -> Any:
     ``types.MappingProxyType``). A deque, an array and a view were handed on as the caller's objects until verify lane
     V8 on 085869313: `emit_bundle` read a deque of prior leaves at body time and signed the payload of one state over
     the leaves of another, and `evaluate_public_transparency` passed witness keys in a deque that neither state holds.
-    Not read: a frozenset (its items are handed on as they are), a view of an OrderedDict, and any other type."""
+    Not read: an iterator or a generator (it cannot be read twice, so no second collect could compare it; verify lane
+    V10 on d58be0b8 measured the body reading one after the copy, named in RESTRISIKO_620.md), a frozenset (its items
+    are handed on as they are), a keys, values or items view of an OrderedDict, and any other type."""
     typ = type(wert)
     if issubclass(typ, dict):
         paare = list(dict.items(wert))
@@ -471,15 +473,26 @@ def _stand(wurzel: Any, leser: Any = None) -> Any:
 
 
 def _derselbe(alt: Any, neu: Any) -> bool:
-    """Whether two answers of a reader (`_stand`) are the same value: the same object; an exact ``str``, ``bytes``,
-    ``int`` or ``bool`` of equal value, an exact ``float`` of the same bits (a NaN is itself, -0.0 is not 0.0); an exact
-    tuple, list or dict, or an object of a dataclass of this package, holding the same values place by place (keys in
-    the same order); or two of the empty mappings a reader leaves for a mapping it could not read (`_Unlesbar`). A
-    Mapping may build its values anew on each read, as ``os.environ`` builds its text and a view builds a dict (verify
-    lanes V7 and V8 on 085869313: such a Mapping, never changed, was refused at `verify_anchors`, `verify_rfc3161` and
-    `automation_summary`, where every earlier tree gave a verdict), so equal new objects are the same value here. Any
-    other object is the same only when it is the same object. Read without recursion and by the base types' own
-    methods; the objects compared are the reader's own or its answer's, and none of the caller's methods runs."""
+    """Whether two answers of a reader (`_stand`) are the same value, judged by what the copy made from each would hold.
+
+    A container the reading copies (`_lies`: a dict, list, tuple, set, bytearray, deque or array or a subclass of one, a
+    memoryview, a view of a dict, a dataclass of this package) is the same when both answers are of the same type and
+    `_lies` reads the same thing from each: the same bytes, the same ``maxlen``, type code, format and shape, and the
+    same values place by place, a dict or a dataclass pair by pair. A plain dict whose keys are all exact ``str``,
+    ``bytes``, ``int``, ``bool`` or None may list its pairs in another order, and a set holds the same items when every
+    item on both sides is such a value (their hash and comparison are the interpreter's own); any other set is the same
+    only as the same object. A leaf is the same when it is the same object, an exact ``str``, ``bytes``, ``int`` or
+    ``bool`` of equal value, an exact ``float`` of the same bits (a NaN is itself, -0.0 is not 0.0), an exact ``date``,
+    ``time``, ``datetime`` or ``timedelta`` of equal value without a ``tzinfo``, or one of the empty mappings a reader
+    leaves for a mapping it could not read (`_Unlesbar`). Any other value is the same only when it is the same object:
+    an object of the caller's class built anew on each read, a datetime with a ``tzinfo``.
+
+    WHY BY THE READING (verify lanes V7, V8, V10 and V11 on 085869313 and d58be0b8). A Mapping may build its values anew
+    on each read, as ``os.environ`` builds its text and a configuration that parses JSON builds an OrderedDict, and such
+    a Mapping, never changed, was refused as changed at `verify_anchors`, `verify_rfc3161` and `automation_summary`,
+    where 8f2fa980 and d388ed3d gave a verdict. A list of types grew with each lane; the copy is what the body reads, so
+    two answers whose copies would be equal are one value. Read without recursion, by the base types' own methods; the
+    objects compared are the reader's answers, and none of the caller's methods runs."""
     stapel = [(alt, neu)]
     gesehen: set = set()
     while stapel:
@@ -499,34 +512,59 @@ def _derselbe(alt: Any, neu: Any) -> bool:
             continue
         if typ is _Unlesbar:
             continue
+        if typ is date or typ is timedelta or ((typ is datetime or typ is dt_time) and a.tzinfo is None
+                                               and b.tzinfo is None):
+            if a != b:
+                return False
+            continue
         paar = (id(a), id(b))
         if paar in gesehen:
             continue
         gesehen.add(paar)
-        if typ is tuple or typ is list:
-            teile_a, teile_b = list(typ.__iter__(a)), list(typ.__iter__(b))
-            if len(teile_a) != len(teile_b):
-                return False
-            stapel.extend(zip(teile_a, teile_b))
-            continue
-        if typ is dict:
-            da, db = a, b
-        elif _paketklasse(typ):
-            try:
-                da, db = object.__getattribute__(a, "__dict__"), object.__getattribute__(b, "__dict__")
-            except AttributeError:
-                return False
-            if type(da) is not dict or type(db) is not dict:
-                return False
-        else:
+        satz_a, satz_b = _lies(a), _lies(b)
+        if satz_a is None or satz_b is None:
             return False
-        paare_a, paare_b = list(dict.items(da)), list(dict.items(db))
-        if len(paare_a) != len(paare_b):
+        art, _, inhalt_a, extra_a = satz_a
+        if satz_b[0] != art or satz_b[3] != extra_a:
             return False
-        for (ka, va), (kb, vb) in zip(paare_a, paare_b):
-            stapel.append((ka, kb))
-            stapel.append((va, vb))
+        inhalt_b = satz_b[2]
+        if art == "bytearray" or art == "memoryview":
+            if inhalt_a != inhalt_b:
+                return False
+        elif art == "array":
+            if (array.array.typecode.__get__(inhalt_a) != array.array.typecode.__get__(inhalt_b)
+                    or array.array.tobytes(inhalt_a) != array.array.tobytes(inhalt_b)):
+                return False
+        elif art == "set":
+            if not all(_skalar_mit_eigenem_hash(x) for x in inhalt_a + inhalt_b):
+                return False
+            if len(inhalt_a) != len(inhalt_b) or set(inhalt_a) != set(inhalt_b):
+                return False
+        elif art == "list" or art == "tuple" or art == "deque" or art == "sicht":
+            if len(inhalt_a) != len(inhalt_b):
+                return False
+            stapel.extend(zip(inhalt_a, inhalt_b))
+        else:   # "dict", "lebend", "daten": the stored pairs
+            if len(inhalt_a) != len(inhalt_b):
+                return False
+            if (typ is dict and all(_skalar_mit_eigenem_hash(k) for k, _ in inhalt_a)
+                    and all(_skalar_mit_eigenem_hash(k) for k, _ in inhalt_b)):
+                nach_b = dict(inhalt_b)
+                if len(nach_b) != len(inhalt_b) or set(nach_b) != {k for k, _ in inhalt_a}:
+                    return False
+                stapel.extend((wert, nach_b[k]) for k, wert in inhalt_a)
+            else:
+                for (ka, va), (kb, vb) in zip(inhalt_a, inhalt_b):
+                    stapel.append((ka, kb))
+                    stapel.append((va, vb))
     return True
+
+
+def _skalar_mit_eigenem_hash(wert: Any) -> bool:
+    """Whether hashing and comparing ``wert`` is the interpreter's own code: an exact ``str``, ``bytes``, ``int`` or
+    ``bool``, or None (a float is left out, a NaN is no key of its own)."""
+    typ = type(wert)
+    return typ is str or typ is bytes or typ is int or typ is bool or wert is None
 
 
 #: What a reader leaves for a mapping it could not read: its own ``items`` raises, like the mapping's did.
@@ -556,6 +594,8 @@ def _abbild_stand(wert: Any) -> Any:
         return wert
     try:
         return dict(list(wert.items()))
+    except RecursionError:
+        raise   # the stack ran out, the mapping is not unreadable (verify lane V10 on d58be0b8, F3)
     except Exception:  # noqa: BLE001 - a mapping that cannot list its pairs is no mapping to read
         return _Unlesbar()
 

@@ -41,19 +41,20 @@ dataclasses and a key of a `str` subclass, in linear time, and a sweep over the 
 is taken away. Section 6 holds the second collect: a change between the two collects is seen and the value read again,
 three readings before a refusal, and nothing of the process is touched. Section 7 holds what the verify lanes V7 and V8
 on 085869313 found: the reader of a Mapping is part of both collects, a deque, an array and a view of a dict are copied,
-a RecursionError is no change, a Mapping that builds its values anew is read, and each edge a planted defect showed
-untested (the second collect of each kind, the depth after an exception, the warning's frame, the prefix of a module
-name) has a test that falls on that plant.
+a RecursionError is no change, a Mapping that builds its values anew is read, and each edge a planted defect of the
+lanes V7 and V10 showed untested (the second collect of each kind, the depth after an exception, the warning's frame,
+the prefix of a module name, each rule of the same value) has a test that falls on that plant.
 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
 reader reads it before the first collect and after the second, and the two answers must be the same
 (`canonical._abbild_stand`, `public_transparency._konsistenz_stand`); any other such object is handed on as the caller's
 object. The public instance methods of this package's classes are not read at their call. A dict with a key that is no
-str, bytes, number or None, no subclass of str or bytes and no tuple or frozenset of such values stays the caller's
-object (its hash can be the caller's code), and so do a dict whose keys meet as one in the copy, an OrderedDict whose own
-order cannot be read without hashing, a view of an OrderedDict, the items of a frozenset, and a memoryview whose format
-a view of private bytes cannot take (read by both collects, then read by the body as the caller's view). A change that
+str, int, float, bool, bytes or None, no subclass of str or bytes and no tuple or frozenset of exact such values stays
+the caller's object (its hash can be the caller's code), and so do a dict whose keys meet as one in the copy, an
+OrderedDict whose own order cannot be read without hashing, a keys, values or items view of an OrderedDict, the items of a frozenset, an iterator or a generator
+(it cannot be read twice, and the body reads it when it reads it), and a memoryview whose format a view of private bytes
+cannot take (read by both collects, then read by the body as the caller's view). A change that
 is made and undone between the two reads of one container is not seen. And the sweep reaches a window only where a
 tracked object is allocated in it.
 """
@@ -2096,20 +2097,74 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         at `verify_anchors`, `verify_rfc3161` and `automation_summary`, where every earlier tree gave a verdict."""
         from proofbundle.anchors_rfc3161 import verify_rfc3161
         from proofbundle.automation_verdict import automation_summary
-        ergebnis = {"crypto_ok": True, "structure_ok": True, "policy_ok": True, "extra": {"n": [1.5, None]}}
+        import array
+        import datetime
+        from collections import OrderedDict, defaultdict, deque
+        ergebnis = {"crypto_ok": True, "structure_ok": True, "policy_ok": True,
+                    "extra": {"n": [1.5, None], "b": bytearray(b"x"), "s": {1, "a"}, "q": deque([1], 4),
+                              "od": OrderedDict([("z", 1), ("a", 2)]), "dd": defaultdict(list, {"x": [1]}),
+                              "arr": array.array("d", [float("nan")]), "tag": datetime.date(2026, 9, 30),
+                              "dauer": datetime.timedelta(seconds=5)}}
         r = automation_summary(_NeuGebaut(ergebnis), required_checks=_NeuGebaut({"crypto": "crypto_ok"}))
         self.assertIs(r["cryptoValid"], True)
         v = verify_rfc3161(b"proof", b"root", frozen={}, rp_trust=_NeuGebaut({"trusted_tsa_roots": ["QUJD"]}))
         self.assertIn("status", v)
 
     def test_same_value_tells_types_and_the_bits_of_a_float_apart(self):
-        from proofbundle.canonical import _derselbe
+        """Each rule of `canonical._derselbe` on values built anew (verify lane V10 on d58be0b8, F4: without the rule
+        for bytes, for int, for the length or the keys of a dict, or for `_Unlesbar`, no test fell)."""
+        from collections import deque
+        from proofbundle.canonical import _Unlesbar, _derselbe
+        roh = b"abc" * 10
+        neu_roh = bytes(bytearray(roh))
+        gross = 10 ** 30
+        neu_gross = int("1" + "0" * 30)
+        self.assertIsNot(roh, neu_roh)
+        self.assertIsNot(gross, neu_gross)
+        self.assertTrue(_derselbe(roh, neu_roh))
+        self.assertTrue(_derselbe(gross, neu_gross))
+        self.assertFalse(_derselbe(gross, gross + 1))
+        self.assertFalse(_derselbe({"a": 1}, {"a": 1, "b": 2}))
+        self.assertFalse(_derselbe({"a": 1, "b": 2}, {"a": 1}))
+        self.assertFalse(_derselbe({"a": 1}, {"b": 1}))
+        self.assertTrue(_derselbe(_Unlesbar(), _Unlesbar()))
+        self.assertTrue(_derselbe(bytearray(b"ab"), bytearray(b"ab")))
+        self.assertFalse(_derselbe(bytearray(b"ab"), bytearray(b"ac")))
+        self.assertTrue(_derselbe({1, "a", b"b", None}, {1, "a", b"b", None}))
+        self.assertFalse(_derselbe({1}, {2}))
+        self.assertFalse(_derselbe(frozenset({1.0}), frozenset({1.0})), "a float in a set is not compared by value")
+        self.assertTrue(_derselbe(deque([1, [2]], 3), deque([1, [2]], 3)))
+        self.assertFalse(_derselbe(deque([1], 3), deque([1], 4)))
+        # V11 F1: judged by the reading the copy is built from, so these count too.
+        import array
+        import datetime
+        import types
+        from collections import OrderedDict, defaultdict
+        self.assertTrue(_derselbe({"a": 1, "b": [2]}, {"b": [2], "a": 1}), "a plain dict in another order")
+        self.assertTrue(_derselbe(OrderedDict([("a", 1), ("b", 2)]), OrderedDict([("a", 1), ("b", 2)])))
+        self.assertFalse(_derselbe(OrderedDict([("a", 1), ("b", 2)]), OrderedDict([("b", 2), ("a", 1)])),
+                         "an OrderedDict's own order is part of its value")
+        self.assertTrue(_derselbe(defaultdict(list, {"a": [1]}), defaultdict(list, {"a": [1]})))
+        self.assertTrue(_derselbe(array.array("d", [float("nan")]), array.array("d", [float("nan")])))
+        self.assertFalse(_derselbe(array.array("b", [1]), array.array("B", [1])), "another type code")
+        self.assertTrue(_derselbe(datetime.date(2026, 9, 30), datetime.date(2026, 9, 30)))
+        self.assertTrue(_derselbe(datetime.timedelta(1), datetime.timedelta(1)))
+        utc = datetime.timezone.utc
+        self.assertFalse(_derselbe(datetime.datetime(2026, 9, 30, tzinfo=utc), datetime.datetime(2026, 9, 30, tzinfo=utc)),
+                         "a tzinfo answers through its own methods")
+        self.assertTrue(_derselbe({"a": 1}.keys(), {"a": 1}.keys()))
+        self.assertFalse(_derselbe(types.MappingProxyType({"a": 1}), types.MappingProxyType({"a": 2})))
+
+        class Eigen(dict):
+            pass
+        self.assertTrue(_derselbe(Eigen(a=1), Eigen(a=1)), "a dict subclass is copied as what it stores")
         self.assertFalse(_derselbe(1, True))
         self.assertFalse(_derselbe(1, 1.0))
         self.assertFalse(_derselbe(0.0, -0.0))
         self.assertTrue(_derselbe(float("nan"), float("nan")))
         self.assertTrue(_derselbe({"a": [1, (2, "x")]}, {"a": [1, (2, "x")]}))
-        self.assertFalse(_derselbe({"a": 1, "b": 2}, {"b": 2, "a": 1}), "keys in another order")
+        self.assertTrue(_derselbe({"a": 1, "b": 2}, {"b": 2, "a": 1}),
+                        "a plain dict with exact keys in another order is one value (V11 F1); an OrderedDict is not")
         ring_a: list = [1]
         ring_a.append(ring_a)
         ring_b: list = [1]
@@ -2119,6 +2174,42 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         class Eigen:
             pass
         self.assertFalse(_derselbe(Eigen(), Eigen()), "an object of the caller is the same only as itself")
+
+    def test_a_recursion_error_in_a_reader_is_raised(self):
+        """V10 F3: the readers caught a RecursionError as a Mapping that cannot list its pairs, and `automation_summary`
+        answered a valid Mapping a few frames below the limit as unreadable."""
+        from proofbundle import canonical
+        from proofbundle.public_transparency import _konsistenz_stand
+
+        class Tief(_Sicht):
+            def items(self):
+                raise RecursionError("maximum recursion depth exceeded")
+
+        class TiefesErgebnis:
+            def validate(self):
+                raise RecursionError("maximum recursion depth exceeded")
+        with self.assertRaises(RecursionError):
+            canonical._stand(Tief({"a": 1}), canonical._abbild_stand)
+        with self.assertRaises(RecursionError):
+            _konsistenz_stand(TiefesErgebnis())
+
+    def test_the_collection_of_package_classes_lets_a_recursion_error_through(self):
+        """V10 plant q07b: with the collection of this package's dataclasses catching a RecursionError as another
+        thread's import, no test fell; an unknown class would then be judged no class of the package."""
+        from proofbundle import canonical
+
+        class Tief:
+            def __get__(self, obj, typ=None):
+                raise RecursionError("maximum recursion depth exceeded")
+        original, stand = canonical._MODULNAME, canonical._PAKETKLASSEN_BEI[0]
+        canonical._MODULNAME = Tief()
+        canonical._PAKETKLASSEN_BEI[0] = -2
+        try:
+            with self.assertRaises(RecursionError):
+                canonical._paketklasse(type("Unbekannt", (), {}))
+        finally:
+            canonical._MODULNAME = original
+            canonical._PAKETKLASSEN_BEI[0] = stand
 
     def test_a_recursion_error_is_no_change(self):
         """V7 F1 and V8 F4: the retry caught RecursionError as a RuntimeError, and a valid input a few frames below the
