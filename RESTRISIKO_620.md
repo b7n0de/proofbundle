@@ -288,22 +288,27 @@ new release commit. Measured on 2026-09-30 by executing each against the source 
   loop of readings, a copy per chain or receipt, two parameters each read once at two times, a budget and a copy, a
   Mapping or an object read through its own methods, and a pause that a second thread ended), each measured with a
   sweep over every collection start and present at d388ed3d. So every public function now reads all of its
-  arguments in one reading at its call (`canonical._ein_stand`, `canonical._stand`), with the collector paused once
-  for the whole process; the CHANGELOG entry of this fix names each surface, and
-  `tests/test_a_verifier_reads_a_callers_value_once.py` holds the class: the sweep at every measured surface, a guard
-  that every public function carries the reading and that every call of a caller's callable is named, and the one
-  reading itself with a sweep that falls when the pause is taken away.
+  arguments in one reading at its call (`canonical._ein_stand`, `canonical._stand`). The three verify lanes on that
+  second fix (8f2fa980, not pushed) found what its reading left out (a public classmethod, the package's own
+  dataclasses, a dict keyed by a `str` subclass, a resolver that is a partial of a public function) and what its
+  pause of the collector for the whole process cost; the reading copies those values now, and reads every container
+  twice instead of pausing. The CHANGELOG entry of this fix names each surface, and
+  `tests/test_a_verifier_reads_a_callers_value_once.py` holds the class: the sweep at the measured surfaces, a guard
+  that every public function, classmethod and staticmethod carries the reading and that every call of a caller's
+  callable is named, and the one reading itself with a sweep that falls when the second collect is taken away.
 - `decision verify --anchors FILE` whose content is `null` became `anchors=None`, the value of a call without the
   option, and exited 0 with the output of no `--anchors`, while `--anchors ''` exits 2 at d388ed3d
   (L3-620v5-T14-ANCHORS-NULL-FILE-01); an empty list, which the anchor layer reads None as, ended the same way. At
   both tags a file holding `null`, one holding `null` in whitespace and one holding `[]` exited 0 like no option, and
   so did `--anchors ''` (refused since pull request 311); `{}`, `""`, `0` and `false` did too (verify lane V1 on
-  6d674973). 6.2.0 refuses such a file with exit 2. `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  6d674973). 6.2.0 refuses a file holding null or an empty list with exit 2, and one holding `{}`, `""`, `0` or
+  `false` with exit 1, as no list of anchors. `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
   runs every file option whose absence is a state of its own, fifteen, with a generator of contents, and holds every
   other file option of `cli.py` to a named list with the reason no content can read as its absence. One level down,
   a valid policy that holds no section a command evaluates ended `decision verify`, `outcome verify` and
   `relation-statement verify` like no `--policy`, at d388ed3d and at both tags (verify lane V3); it is refused with
-  exit 2 now, and so is an empty `--key` or `--new-key` beside the other, which `emit` dropped.
+  exit 2 now, and so is a policy whose `relations` section sets no rule, and an empty `--key` or `--new-key` beside the
+  other, which `emit` dropped.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -783,6 +788,32 @@ not listed.
   word. d388ed3d is not affected, since c91da604 is unsigned. The fix pins `-c log.showSignature=false` (or the
   configuration environment) and makes the fallback loud.
 
+From the verify lanes V4, V5 and V6 on 8f2fa980, the second fix of the gate at d388ed3d, before it was pushed. Their
+P1 findings are closed by the fix and named in its CHANGELOG entry; these lines are what the lanes found that the fix
+does not change. Each carries its lane's measurement unless it says otherwise.
+- **At `decision verify` a passing `relations` section reads as no policy** (P2, V6-F2, the same at d388ed3d):
+  `verify_decision_receipt` sets `policy_ok` from the `decision_receipt` section only, so a policy whose only section
+  is `relations` makes the verify fail when one of its rules is broken (exit 3), and when every rule holds leaves
+  `policy_ok` None and prints `POLICY: NOT_EVALUATED (no decision policy supplied)`: with `reject_retracted: true` or
+  `reject_superseded: false` and no attached target the output is byte-identical to a verify without the policy.
+  The section is applied; its verdict on a pass is not shown. A `relations` section that sets no rule is refused now
+  (the CHANGELOG entry). The fix shows the relations verdict, in `policy_ok` or in a line of its own, after 6.2.0.
+- **`verify --policy` reports `POLICY: OK` for a policy with nothing in it `verify` evaluates** (P3, V6-F13): a policy
+  with only its schema and id, or only a `relations` or a `decision_receipt` section, gives `policy_ok` True with the
+  warning that it attributes to nobody and `safeForAutomation` False, where the three receipt verify commands refuse
+  such a policy. Its output is not that of no policy, and the warning is the documented answer of `verify` to a
+  vacuous policy (P0-B of the audit of 2026-07-13); the rule of the receipt commands would change that contract, an
+  item after 6.2.0.
+- **An empty or unwritable `--out` escapes a signing command as a raw exception** (P3, V6-F11, the same at d388ed3d):
+  `emit`, `emit-eval`, `intoto`, `svr` and the three `emit` subcommands open `--out` after they signed, and
+  `FileNotFoundError` or another `OSError` leaves `main()` with a traceback. Nothing is signed that should not be; the
+  output is lost. The template printers and `policy instantiate --output` write an empty value to stdout, named in the
+  test's list of truth reads. The fix catches the write as the key file's is caught.
+- **`join_test_result` raises `FloatDomainError` for a statement holding NaN** (P3, V6-F12, the same at d388ed3d and
+  6d674973): an exception out of a never-raise surface; the input is refused either way.
+- **What the reading at the call costs** (P3, V6-F6 and V6-F7, measured by the lane at 8f2fa980 with the pause):
+  the lane measured 2 to 5 times the time of d388ed3d for a call with a small dict argument and about three times the peak memory for a structure argument, and a 200 MiB `bytearray` message copied twice where d388ed3d copies it once; a `memoryview` message that `verify_ed25519` refuses at every tree is copied first. The form of the fix, measured by the filer on 2026-09-30 as the least of three alternating rounds over the lane's 55 cases: a median of 1.5 times the time at d388ed3d and 1.06 times that of 8f2fa980, at most 7.1 times for a small call (`cap1.check_cap1_document`, 0.010 against 0.071 ms) and 3.4 times for a large one (`validate_decision_predicate` over 90 000 nodes, 53 against 181 ms); the peak memory of a structure argument is about three times that at d388ed3d, and `verify_sequence` over 2000 renewals peaks at 3.3 MB against 0.4 MB, because each ArchiveTimeStamp is copied. Every case stays linear. A large `bytearray` is copied by each of the two collects, and the first copy is the one the body reads.
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -883,24 +914,27 @@ those on a verify, emit or release path:
   2026-09-29). Whether the sdist and the wheel of 6.2.0 on PyPI equal the digests
   bound at the receipt head is measured after the release and recorded then.
 - The fix of the gate at d388ed3d names these limits, none a promoted verdict. The reading at the call copies every
-  built-in container; a value of the caller's own class that is none (an object, a Mapping that is no dict) is read
-  through its own methods, once, by a named reader where a function reads one (`rp_trust`, `frozen`, the digests of
-  `verify_dual_hash`, the result of `automation_summary`, the consistency result of `evaluate_public_transparency`),
-  and is otherwise handed on as the caller's object. A dict with a key that is no exact str, int, float, bool,
-  bytes or None (or a tuple or frozenset of such), a set of such items, and an OrderedDict whose own order cannot be
-  read without hashing stay the caller's object inside the copy: a copy would run the key's own hash, or, keyed by
-  the text a `str` subclass stores, would promote it where a reader counts only an exact str as a key. The collector is paused for the length of one reading, for the whole process, and started again by the
-  last reading to end; a collection that starts anyway is seen and the value read again, and after three such
-  readings the function raises `_StandGestoert`, a `ProofBundleError`, where a never-raise surface would otherwise
-  answer (only code of the caller inside a reading, or another thread that collects on every attempt, can cause it).
-  A value another thread writes WITHOUT a collection while it is read is a race of the caller's threads, which no
-  reading can order. The reading costs one copy of the arguments per call from outside the package; a public
-  function that the package's own code calls from inside the body of another reads nothing again, because what it
-  is passed is that reading or was made from it, and a value the package hands on uncopied (an object of the
-  caller's class under the limit above) is read by the inner function as the outer one would. The sweep
-  reaches a window only if a tracked object is allocated in it (`verify_markovian` was measured with a real
-  OpenTimestamps proof by a verify lane; the sweep of the test file does not carry one). `verifier_block.attach`
-  fills the caller's predicate in place by contract and does not take the reading. The file generator of
+  built-in container and every object of a dataclass of this package; a value of the caller's own class that is none
+  (an object, a Mapping that is no dict, an object of a caller's subclass of such a dataclass) is read through its own
+  methods by a named reader where a function reads one (`rp_trust`, `frozen`, the result of `automation_summary`, the
+  consistency result of `evaluate_public_transparency`), twice and compared, and is otherwise handed on as the
+  caller's object. The public instance methods of the package's classes do not take the reading. A dict with a key
+  that is no exact str, int, float, bool, bytes or None, no `str` or `bytes` subclass and no tuple or frozenset of such
+  values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
+  items, and an OrderedDict whose own order cannot be read without hashing stay the caller's object inside the copy:
+  a copy would run the key's own hash, or lose a key. The reading touches no state of the process: it reads every
+  container twice and keeps the first reading when the second finds the same objects. A change that is made and
+  undone between the two reads of one container is not seen (the ABA case of the double collect), and a change
+  another thread makes in several steps is read in one of the states it passes through. After three readings in each
+  of which the value changed, the function raises `_StandGestoert`, a `ProofBundleError`, also where a never-raise
+  surface would otherwise answer; only code that changes the value while it is read, the caller's own or another
+  thread's, causes it. The reading costs two reads and one copy of the arguments per call from outside the package, linear in their size (the line on its cost above). A public function that the package's own code calls from inside the body of another
+  reads nothing again, because what it is passed is that reading or was made from it, and a value the package hands
+  on uncopied (a value of the caller's class under the limit above) is read by the inner function as the outer one
+  would. A caller's code that names a module of this package as its own and runs while the package's code runs, as a
+  gc callback can, is not read again at such a call; what it computes reaches no verdict of that call. The sweep
+  reaches a window only if a tracked object is allocated in it. `verifier_block.attach` fills the caller's predicate
+  in place by contract and does not take the reading. The file generator of
   `tests/test_an_option_given_an_empty_value_is_not_dropped.py` reads the options whose value reaches one of eight
   file readers in `cli.py`; a file read through another function is outside it.
 

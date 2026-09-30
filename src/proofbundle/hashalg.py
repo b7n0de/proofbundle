@@ -30,8 +30,7 @@ from typing import Any, Optional
 
 from ._membership import require_switch
 from .budget import DEFAULT_BUDGET, render_safe
-from .canonical import (_abbild_stand, _bytes_von, _ein_stand, _in_einem_zug, _puffer_von,
-                        _zeichen_von)
+from .canonical import _bytes_von, _ein_stand, _puffer_von, _zeichen_von
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -180,7 +179,7 @@ def _enforce_structural_budget(obj, *, budget=None):
     enforce_structural_budget(obj, budget=budget)
 
 
-@_ein_stand(digests=_abbild_stand)
+@_ein_stand
 def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationResult:
     """Verify that EVERY declared digest binds ``data``, and that at least one is a CURRENT algorithm.
 
@@ -199,16 +198,17 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     # L4-620v5-T5-SECOND-READING-01): `list(dict.items(...))` builds one pair tuple after another, and a process
     # with no free pair tuples allocates each of them, so a gc callback of the caller that rewrote three entries
     # at once while the list was between them gave pairs no state of the map holds, and a map whose every
-    # state fails passed (measured: one collection start of 32). The pairs are read with the collector paused.
+    # state fails passed (reported by a verify lane at d388ed3d; a later lane, V4 on 8f2fa980, did not reproduce
+    # the window in its process). A dict of digests is the one reading of the call
+    # (`canonical._stand`); a Mapping that is no dict is read here through its own `items()`, once.
     gespeichert: Any = digests
     paare: list
-    with _in_einem_zug():
-        if issubclass(type(gespeichert), dict):
-            paare = list(dict.items(gespeichert))
-        elif issubclass(type(digests), Mapping):   # by its own type, never its `__class__` (round 12)
-            paare = list(digests.items())
-        else:
-            paare = []
+    if issubclass(type(gespeichert), dict):
+        paare = list(dict.items(gespeichert))
+    elif issubclass(type(digests), Mapping):   # by its own type, never its `__class__` (round 12)
+        paare = list(digests.items())
+    else:
+        paare = []
     if not paare:
         result.checks.append(Check("hashalg:dual", False,
                                    "digests must be a non-empty mapping of alg -> hex"))

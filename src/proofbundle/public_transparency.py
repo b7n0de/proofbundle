@@ -26,8 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .canonical import (_ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie,
-                        _zeichen_von)
+from .canonical import (_StandGestoert, _ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie,
+                        _zeichen_von, _zweimal)
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items
 
@@ -180,19 +180,29 @@ class _KonsistenzStand:
 def _konsistenz_stand(wert: Any) -> Any:
     """The boundary reader of ``consistency_result`` (`canonical._ein_stand`). None, and an object without
     ``validate``, are handed on unchanged for the evaluation to judge as before; so is an object whose
-    ``validate()`` answer is no list or whose fields cannot be read, which the evaluation then reads as before."""
+    ``validate()`` answer is no list or whose fields cannot be read, which the evaluation then reads as before. The
+    answer and the fields are read twice and compared (`canonical._zweimal`), because the object can only be read
+    through its own code, and a gc callback between two of its reads could otherwise pair two states."""
     if wert is None or not hasattr(wert, "validate"):
         return wert
-    try:
+    felder = ("new_origin", "new_tree_size", "new_root_b64", "confirmed")
+
+    def lesen() -> list:
         befund = wert.validate()
         if type(befund) is not list:
-            return wert
-        stand = _KonsistenzStand()
-        stand._befund = list(befund)
-        for feld in ("new_origin", "new_tree_size", "new_root_b64", "confirmed"):
-            setattr(stand, feld, getattr(wert, feld))
+            raise TypeError("validate() answered no list")
+        # Its findings as one exact tuple, so the two readings compare them place by place (`canonical._zweimal`).
+        return [tuple(befund)] + [getattr(wert, feld) for feld in felder]
+    try:
+        gelesen = _zweimal(lesen)
+    except _StandGestoert:
+        raise
     except Exception:  # noqa: BLE001 - an object that cannot be read here is read by the evaluation as before
         return wert
+    stand = _KonsistenzStand()
+    stand._befund = list(gelesen[0])
+    for feld, feldwert in zip(felder, gelesen[1:]):
+        setattr(stand, feld, feldwert)
     return stand
 
 

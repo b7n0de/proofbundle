@@ -44,8 +44,8 @@ import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
-from .canonical import (_abbild_stand, _abbild_von, _bytes_von, _ein_stand, _feld_von, _folge_von,
-                        _in_einem_zug, _plain_for_jcs, _puffer_von, _stand, _zeichen_von)
+from .canonical import (_abbild_stand, _abbild_von, _bytes_von, _draussen, _ein_stand, _feld_von, _folge_von,
+                        _plain_for_jcs, _puffer_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from ._membership import is_member, require_switch, stored_str_items
 from ._membership import type_name as _type_name  # the parameter of register_anchor_type is type_name
@@ -316,7 +316,8 @@ def _call_verifier(fn: Callable, proof: bytes, canonical_root: bytes, *,
             kw["rp_trust"] = rp_trust
     except (ValueError, TypeError):   # a builtin/C callable with no introspectable signature
         pass
-    return fn(proof, canonical_root, **kw)
+    with _draussen():   # the verifier is the caller's code (`canonical._draussen`)
+        return fn(proof, canonical_root, **kw)
 
 
 @_ein_stand(rp_trust=_abbild_stand)
@@ -345,16 +346,15 @@ def _wurzeln_lesen(target_roots) -> dict:
     gate at 7409b123, L1-620v2-T3-01). ``_feld_von`` reads what the dict stores and ``_puffer_von`` copies the bytes
     a root holds, so a verifier run for one anchor cannot move the root the next anchor is compared with. A target
     that is absent is absent here; a root that is no bytes-like value is `_KEIN_PUFFER`, which matches nothing, as
-    the comparison with ``None`` did before. The three targets are one reading, with the collector paused
-    (`canonical._in_einem_zug`), so a gc callback of the caller cannot pair the root of one target from before a change
-    with the root of another from after it (the class of L4-620v5-T5-SECOND-READING-01)."""
+    the comparison with ``None`` did before. The three targets come from the one reading of the call
+    (`canonical._stand`), so a gc callback of the caller cannot pair the root of one target from before a change with
+    the root of another from after it (the class of L4-620v5-T5-SECOND-READING-01)."""
     wurzeln: dict = {}
-    with _in_einem_zug():
-        for ziel in ANCHOR_TARGETS:
-            wert = _feld_von(target_roots, ziel)
-            if wert is not None:
-                roh = _puffer_von(wert)
-                wurzeln[ziel] = roh if roh is not None else _KEIN_PUFFER
+    for ziel in ANCHOR_TARGETS:
+        wert = _feld_von(target_roots, ziel)
+        if wert is not None:
+            roh = _puffer_von(wert)
+            wurzeln[ziel] = roh if roh is not None else _KEIN_PUFFER
     return wurzeln
 
 
@@ -570,26 +570,25 @@ def _anker_lesen(anchors, rp_trust) -> tuple:
 
     ALL OF IT IS ONE STATE (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
     were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
-    between them gave a list the caller never held. The whole reading runs with the collector paused
-    (`canonical._in_einem_zug`)."""
+    between them gave a list the caller never held. Both callers read their arguments as one state at their call
+    (`canonical._stand`), and this reads that copy."""
     if anchors is None:
         return [], None, None
     if not issubclass(type(anchors), list):
         raise BundleFormatError("anchors must be a list")
-    with _in_einem_zug():
-        eintraege = [_eintrag_lesen(a) for a in _folge_von(anchors)]
-        rp_kopie = None
-        if eintraege and rp_trust is not None:
-            rp_kopie = _abbild_von(rp_trust)
-            if rp_kopie is None:
-                raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type "
-                                        f"{_type_name(rp_trust)} or one holding a value that is no JSON value "
-                                        "(fail-closed)")
-        pruefer = None
-        if eintraege:
-            _ensure_builtin_types()
-            pruefer = dict(_VERIFIERS)
-        return eintraege, rp_kopie, pruefer
+    eintraege = [_eintrag_lesen(a) for a in _folge_von(anchors)]
+    rp_kopie = None
+    if eintraege and rp_trust is not None:
+        rp_kopie = _abbild_von(rp_trust)
+        if rp_kopie is None:
+            raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type "
+                                    f"{_type_name(rp_trust)} or one holding a value that is no JSON value "
+                                    "(fail-closed)")
+    pruefer = None
+    if eintraege:
+        _ensure_builtin_types()
+        pruefer = dict(_VERIFIERS)
+    return eintraege, rp_kopie, pruefer
 
 
 def _anker_urteil(gelesen: tuple, *, target_roots, require: Optional[str] = None,

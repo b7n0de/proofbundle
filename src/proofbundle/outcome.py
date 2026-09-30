@@ -23,7 +23,7 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie, _plain_for_jcs,
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _draussen, _ein_stand, _eine_kopie, _plain_for_jcs,
                         _pruefkopie, _richtlinie_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
@@ -905,7 +905,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     return None
 
                 def _f(d):
-                    res = _stand(receiver_attestation_resolver(d))   # the answer as one state (verify lane V2)
+                    with _draussen():   # the resolver is the caller's code (`canonical._draussen`)
+                        res = receiver_attestation_resolver(d)
+                    res = _stand(res)   # the answer as one state (verify lane V2)
                     if type(res) is bytearray:
                         res = bytes(res)
                     _recv_answers[idx] = res

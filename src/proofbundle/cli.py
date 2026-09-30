@@ -155,7 +155,8 @@ _VERIFY_NULLABLE_FIELDS = (
 
 
 def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple) -> bool:
-    """True when a loaded ``--policy`` holds none of the sections this command evaluates.
+    """True when a loaded ``--policy`` holds none of the sections this command evaluates, or holds them with nothing
+    in them that applies.
 
     A FILE WHOSE CONTENT READS AS ABSENT, ONE LEVEL DOWN (verify lane V3 on 6d674973, the class of
     L3-620v5-T14-ANCHORS-NULL-FILE-01). A valid policy with no section for this command, the packaged eval
@@ -163,9 +164,26 @@ def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple) -> bool:
     `relation-statement verify` ended with exit 0 and output byte-identical to a call without `--policy`
     (measured at d388ed3d and at both tags). A relying party who names a policy asked for it to be applied,
     so such a file is refused like the empty value. A section the policy holds as null counts as held: the
-    gate refuses it with its own code."""
+    gate refuses it with its own code.
+
+    WHAT COUNTS AS HELD, section by section (verify lanes V4, V5 and V6 on 8f2fa980). ``decision_receipt`` counts
+    when present: its default rules apply to an empty section too (``allow_raw_inputs``). ``relations`` counts when
+    it holds a key: each of its rules is one the policy sets, so ``{}`` sets none, and `decision verify` under it
+    ended byte-identical to a verify without the policy. ``anchors`` counts when it gives trust material for the
+    anchors of ``--anchors`` (`policy.policy_anchor_trust`), the only part of it these commands read; a policy with
+    only that section confirmed an anchor at d388ed3d, and the first form of this refusal refused it."""
     from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
-    return all(_feld_von(policy, name, _FEHLT) is _FEHLT for name in abschnitte)
+    from .policy import policy_anchor_trust  # noqa: PLC0415
+    for name in abschnitte:
+        wert = _feld_von(policy, name, _FEHLT)
+        if wert is _FEHLT:
+            continue
+        if name == "relations" and type(wert) is dict and not wert:
+            continue
+        if name == "anchors" and not policy_anchor_trust(policy):
+            continue
+        return False
+    return True
 
 
 def _error_verify_fields(error: str) -> dict:
@@ -2070,10 +2088,6 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         except PolicyError as exc:
             _err(exc)
             return 2
-        if _policy_ohne_abschnitt(policy, ("decision_receipt", "relations")):
-            _err("cannot use --policy: the policy holds neither a decision_receipt nor a relations section, so "
-                 "nothing in it applies to a decision receipt; a verify without a policy omits the option")
-            return 2
     anchors = None
     if getattr(args, "anchors", None) is not None:   # `--anchors ''` is a file that cannot be read
         try:
@@ -2091,6 +2105,15 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
                  "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
             return 2
+    # A policy the command reads as nothing is refused like the empty value (`_policy_ohne_abschnitt`). Its
+    # `anchors` section gives the relying party's trust for the anchors of `--anchors` (`policy_anchor_trust`), so it
+    # applies when anchors are checked, and only then (verify lane V4 on 8f2fa980: a policy with only that section
+    # beside `--anchors` confirmed an anchor at d388ed3d and was refused here).
+    if policy is not None and _policy_ohne_abschnitt(
+            policy, ("decision_receipt", "relations") + (("anchors",) if anchors is not None else ())):
+        _err("cannot use --policy: the policy holds no decision_receipt section, no relations rule and no anchor trust "
+             "beside --anchors, so nothing in it applies to this verify; a verify without a policy omits the option")
+        return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -2307,7 +2330,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             _err(exc)
             return 2
         if _policy_ohne_abschnitt(policy, ("relations",)):
-            _err("cannot use --policy: the policy holds no relations section, the only section an outcome "
+            _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
                  "receipt is judged by; a verify without a policy omits the option")
             return 2
     try:
@@ -2475,7 +2498,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             _err(exc)
             return 2
         if _policy_ohne_abschnitt(policy, ("relations",)):
-            _err("cannot use --policy: the policy holds no relations section, the only section a relation "
+            _err("cannot use --policy: the policy holds no relations rule, the only part of a policy a relation "
                  "statement is judged by; a verify without a policy omits the option")
             return 2
     try:

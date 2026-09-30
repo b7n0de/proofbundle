@@ -30,7 +30,7 @@ import re
 from typing import Any
 
 from .budget import render_keys_safe
-from .canonical import _ein_stand, _in_einem_zug, _pruefkopie, _zeichen_von
+from .canonical import _ein_stand, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
@@ -195,20 +195,19 @@ def _read_attached_entries(related: Any) -> list[tuple[str, Any, str | None]]:
         return []
     entries: list[tuple[str, Any, str | None]] = []
     # ONE STATE OF THE MAP (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
-    # are copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
-    # between them gave a map the caller never held. The whole reading runs with the collector paused
-    # (`canonical._in_einem_zug`).
-    with _in_einem_zug():
-        for key, value in list(dict.items(related)):
-            label = _zeichen_von(key)
-            if label is None:
-                entries.append(("(no str key)", _UNREADABLE,
-                                f"its key is a value of type {type_name(key)}, not a string"))
-                continue
-            try:
-                entries.append((label, _pruefkopie(value), None))
-            except ValueError as exc:
-                entries.append((label, _UNREADABLE, str(exc)))
+    # were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
+    # between them gave a map the caller never held. The map is the one reading of the call of the public function
+    # that passes it (`canonical._stand`).
+    for key, value in list(dict.items(related)):
+        label = _zeichen_von(key)
+        if label is None:
+            entries.append(("(no str key)", _UNREADABLE,
+                            f"its key is a value of type {type_name(key)}, not a string"))
+            continue
+        try:
+            entries.append((label, _pruefkopie(value), None))
+        except ValueError as exc:
+            entries.append((label, _UNREADABLE, str(exc)))
     return entries
 
 

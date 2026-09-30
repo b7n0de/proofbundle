@@ -279,10 +279,8 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # `_without_credentials` (credential-shaped members dropped, the depth bound kept), so its digest,
     # its binding and its record are those of the evidence as it was handed in. Evidence that changes
     # its size while it is read is refused like evidence that cannot be canonicalised.
-    from ..canonical import _in_einem_zug  # noqa: PLC0415
     try:
-        with _in_einem_zug():   # one state of the mapping, not one member at a time
-            evidence = _without_credentials(evidence)
+        evidence = _without_credentials(evidence)   # from the one reading of the call (`canonical._stand`)
         digest = evidence_digest(evidence)
     except (TypeError, ValueError, RuntimeError, BundleFormatError) as exc:
         return {"outcome": OUTCOME_ATTESTATION_FAILURE, "reasons": [REASON_MALFORMED],

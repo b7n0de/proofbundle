@@ -1408,7 +1408,9 @@ def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bo
         warnings.warn(
             f"{funktion}(v02=...) ist ab 6.0.0 veraltet und wird in einer spaeteren MAJOR "
             "entfernt. v0.2 ist die Vorgabe; fuer die Altfassung legacy_v01=True benutzen.",
-            DeprecationWarning, stacklevel=3)
+            # 4: this helper, the public function, its reading at the call (`canonical._ein_stand`), the caller. At
+            # 3 the warning named canonical.py (verify lane V5 on 8f2fa980).
+            DeprecationWarning, stacklevel=4)
         if legacy_v01 and v02:
             raise AgentReviewError(
                 "legacy_v01=True und v02=True widersprechen sich — es gibt keine Fassung, die "

@@ -347,6 +347,9 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
         ohne_abschnitt = [
             {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/no-section-v1"},
             {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "org/no-section-v1"},
+            # V6-F2 on 8f2fa980: a relations section with no rule sets nothing, and `decision verify` under it ended
+            # byte-identical to a verify without the policy.
+            {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/empty-relations-v1", "relations": {}},
         ]
         vorlage = Path(self._td.name) / "template.json"
         _beobachte(["policy", "instantiate", "strict-eval-template-v1", "--issuer-key", b.keyfile,
@@ -371,6 +374,48 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
                 mit.write_text(json.dumps({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/rel-v1",
                                            "relations": {"reject_superseded": True}}), encoding="utf-8")
                 self.assertNotEqual(_beobachte(basis + ["--policy", str(mit)])[0], 2)
+        with self.subTest(command="decision verify", control="an empty decision_receipt section is evaluated"):
+            # Its default rules apply to an empty section too (`allow_raw_inputs`), so it is no policy of nothing.
+            leer = Path(self._td.name) / "empty_decision_section.json"
+            leer.write_text(json.dumps({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/dr-v1",
+                                        "decision_receipt": {}}), encoding="utf-8")
+            self.assertNotEqual(_beobachte(befehle["decision verify"] + ["--policy", str(leer)])[0], 2)
+
+    def test_a_policy_with_only_an_anchors_section_applies_beside_anchors(self) -> None:
+        """Verify lane V4 on 8f2fa980: the `anchors` section of a policy gives the relying party's trust for the
+        anchors of `--anchors`, and a policy with only that section beside `--anchors` confirmed an anchor at
+        d388ed3d; the first form of the refusal refused it. It applies beside `--anchors`, and without anchors it is
+        a policy the command reads as nothing."""
+        b = self.b
+        politik = Path(self._td.name) / "anchors_only.json"
+        politik.write_text(json.dumps({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/anchors-only-v1",
+                                       "anchors": {"bitcoin_block_headers": {"850000": "ab" * 32}}}), encoding="utf-8")
+        anker = Path(self._td.name) / "one_anchor.json"
+        anker.write_text(json.dumps([{"type": "unregistered-type/v1", "target": "statement",
+                                      "canonicalRoot": base64.b64encode(b"\x00" * 32).decode(),
+                                      "proof": base64.b64encode(b"p").decode()}]), encoding="utf-8")
+        dv = ["decision", "verify", b.decision, "--pub", b.pub]
+
+        def fehlerzeile(argv):
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                rc = main(argv)
+            return rc, err.getvalue()
+        rc, err = fehlerzeile(dv + ["--anchors", str(anker), "--policy", str(politik)])
+        self.assertNotIn("cannot use --policy", err, "a policy whose anchors section applies was refused")
+        rc_ohne, _ = fehlerzeile(dv + ["--anchors", str(anker)])
+        self.assertEqual(rc, rc_ohne, "the case needs the anchors verdict itself to decide the exit, as without policy")
+        rc, err = fehlerzeile(dv + ["--policy", str(politik)])
+        self.assertEqual(rc, 2)
+        self.assertIn("cannot use --policy", err)
+        # An anchors section that gives no trust material applies nothing beside --anchors either (V6 on 8f2fa980):
+        # decision verify reads only the trust material of it.
+        ohne_vertrauen = Path(self._td.name) / "anchors_without_trust.json"
+        ohne_vertrauen.write_text(json.dumps({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/anc-v1",
+                                              "anchors": {"require_anchor": "any"}}), encoding="utf-8")
+        rc, err = fehlerzeile(dv + ["--anchors", str(anker), "--policy", str(ohne_vertrauen)])
+        self.assertEqual(rc, 2)
+        self.assertIn("cannot use --policy", err)
 
     def test_control_the_generator_sees_an_option_the_command_does_not_read(self) -> None:
         # The generator has to be able to fail: `show-eval --eat` on a receipt that declares no enclave level

@@ -20,7 +20,7 @@ import re
 from typing import Any, Callable, Optional, TypeGuard, Union
 
 from ._membership import require_switch, stored_str_items
-from .canonical import _ein_stand, _pruefkopie, _stand
+from .canonical import _draussen, _ein_stand, _pruefkopie, _stand
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
@@ -159,8 +159,11 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     detail = "a well-formed sha256 digest object is present (attacker-choosable content, not content-checked)"
     if evidence_resolver is not None:
         try:
-            # The answer is the caller's value too, read as one state (verify lane V2 on 6d674973).
-            answer = _stand(evidence_resolver(digest_obj))
+            # The answer is the caller's value too, read as one state (verify lane V2 on 6d674973), and the resolver
+            # runs as the caller's code (`canonical._draussen`).
+            with _draussen():
+                answer = evidence_resolver(digest_obj)
+            answer = _stand(answer)
         except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
             answer = False
         # The contract is a bool, so only the exact True promotes. bool(answer) would promote on 1, "true",
@@ -268,8 +271,10 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     # is kept and the detail says why. Without an expectation the contract is unchanged (additive).
     try:
         # The answer is the caller's value too: a key in a `bytearray` is judged, measured and compared below in one
-        # state of it (verify lane V2 on 6d674973).
-        res = _stand(independent_attestation_resolver(digest_obj))
+        # state of it (verify lane V2 on 6d674973). The resolver runs as the caller's code (`canonical._draussen`).
+        with _draussen():
+            res = independent_attestation_resolver(digest_obj)
+        res = _stand(res)
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
         res = False
     # Key material only as a plain bytes/bytearray object (_is_key_material): an object whose __class__ says

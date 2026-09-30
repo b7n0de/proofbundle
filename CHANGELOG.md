@@ -39,8 +39,9 @@ The deep gate at d388ed3d found two more, both in the released 6.0.0 and 6.1.0: 
 verifiers read the caller's `related` map twice and recorded the second reading, and `decision verify --anchors`
 read a file holding `null` or an empty list like no option. The verify lanes on the first fix found the first class
 wherever a function read a caller's value at more than one time, so every public function now reads all of its
-arguments in one reading at its call; and they found the second one level down, in a policy file with no section
-the command evaluates.
+arguments in one reading at its call; and they found the second one level down, in a policy file with nothing in it
+the command evaluates. The verify lanes on the second fix found what its reading left out and what its pause of the
+collector cost, so the reading copies those values too and reads twice instead of pausing.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
@@ -48,8 +49,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
 - **A public function reads a caller's values once, at its call, as one state, and a file whose content reads as
   absent is refused like the empty value** (deep gate of the 6.2.0 release preparation at d388ed3d: two P1 findings,
   L4-620v5-T5-SECOND-READING-01 and L3-620v5-T14-ANCHORS-NULL-FILE-01, each confirmed by two of three blind jurors;
-  then three verify lanes on the first fix, 6d674973, before it was pushed). Both findings are present at v6.0.0
-  (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured on 2026-09-30 by executing them against the source of both tags:
+  then three verify lanes on the first fix, 6d674973, and three on the second, 8f2fa980, before either was pushed).
+  Both findings are present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured on 2026-09-30 by executing them
+  against the source of both tags:
   - `verify_decision_receipt` and `verify_outcome_receipt` judged the edges of the caller's `related` map in
     `verify_relationship_edges`, read the map again in `successor_warning` and recorded that second reading's
     `supersededByAttached` over the one the engine had set. A gc callback of the caller that emptied its map between
@@ -70,83 +72,119 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     (nine rules each reading the document, 12 of 58), at `agent_review.resolve_receipt_chain`, at the policy and
     `related` of the three receipt verifiers and at the block and the statement of `join_test_result` (each read
     once, at two times: 246 of 603 starts at decision), at a structural budget that read one state and a copy that
-    read another (`verify_offline_merkle`, `verify_relationship_edges`, `verify_bundle`), at `verify_dual_hash` when
-    the process has no free pair tuples, at a Mapping read through its own methods at several places
-    (`automation_verdict.automation_summary`, the `rp_trust` of `verify_rfc3161`) and at a result object read at
-    five places (`evaluate_public_transparency`). And the pause did not hold: each reading had its own flag, so a
-    reading in a second thread found the collector off, paused nothing, and the first reading's end started it again
-    in the middle of the second (24 of 300 calls of `verify_decision_receipt` gave a verdict neither state gives
-    while another thread looped `join_test_result`); code of the caller inside a reading could start it again too.
-  - So the reading sits at the call. Every public function of every public module (`canonical._ein_stand`; the
-    command line, the demo and the two framework hooks are named outside, and `verifier_block.attach`, which fills
-    the caller's predicate in place by contract) reads all of its arguments in one reading before its body reads
-    any of them (`canonical._stand`): a private copy of every built-in container, a subclass as its base type
-    holding what it stores and an OrderedDict in its own order, read through the base types' own methods, so no
-    method of the caller runs and no object of the caller's classes is made. A Mapping that is no dict (`rp_trust`,
-    `frozen`, the digests of `verify_dual_hash`, the result and checks of `automation_summary`) and the consistency
-    result of `evaluate_public_transparency` are read once by a named reader inside the same reading. The collector
-    is paused once for the whole process, under a lock and a count of the open readings, and a collection that
-    starts during a reading anyway (code of the caller inside a reading, or another thread) is seen: the value is
-    read again, and after three such readings refused with `canonical._StandGestoert`, a `ProofBundleError`. A value
-    a caller's callable returns into a verdict (an evidence or attestation resolver, a registered anchor verifier)
-    is read as one state where it returns, and a registered verifier gets its own copy of `frozen` and `rp_trust`.
-    A public function that the package's own code calls from inside the body of another reads nothing again: what
-    it is passed is that reading or was made from it (measured without this, on a loaded machine,
-    `verify_decision_receipt` took 1.94 ms against 0.86 ms at 6d674973; with it 0.93 ms against 0.87 ms). A call from
-    the caller's code, a resolver or a gc callback among them, is read as every call is. The recursion of
-    `merkle.merkle_tree_hash` and its leaf hash run on its one reading, not through the public names.
+    read another (`verify_offline_merkle`, `verify_relationship_edges`, `verify_bundle`), at a Mapping read through
+    its own methods at several places (`automation_verdict.automation_summary`, the `rp_trust` of `verify_rfc3161`)
+    and at a result object read at five places (`evaluate_public_transparency`). The counts are the lanes' own: how
+    many collections a call starts depends on the state of the process, and a later lane counted the same kind of
+    result over other totals. And the pause did not hold: each reading had its own flag, so a reading in a second
+    thread found the collector off, paused nothing, and the first reading's end started it again in the middle of
+    the second (measured with the lane's script at 6d674973: 52 of 300 calls of `verify_decision_receipt` gave a
+    verdict neither state gives while another thread looped `join_test_result`); code of the caller inside a reading
+    could start it again too.
+  - The second fix read every argument at the call and paused the collector once for the whole process (8f2fa980,
+    not pushed). Its three verify lanes measured what that left out and what the pause cost. `RenewalPolicy.from_dict`,
+    a public classmethod, read the caller's dict three times, and a policy neither state holds passed
+    `evaluate_renewal_policy`. A `VerificationResult` with its `Check` objects, and an `ArchiveTimeStamp`, were handed
+    on as the caller's objects: `root_authenticity_summary`, `evaluate_policy`, `adapters.agt_receipt.exit_code` and
+    `verify_sequence` gave verdicts neither state gives, and `verify_sequence` handed four times the OpenTimestamps
+    size cap to the library. A `related` map keyed by a `str` subclass that overrides nothing stayed the caller's
+    object, and `verify_decision_receipt` gave `ok` True in 291 of 618 runs where both states give False. A
+    `functools.partial` of a public function handed in as a resolver was called from the package's own frame and not
+    read. Under eight threads the collector ran in none of the samples and the memory grew from 27 to 70 MiB, a thread
+    that collected every 100 ms made most calls refuse, and an exception at the wrong line, another thread changing
+    its own gc callbacks, or a fork during a reading left the collector off for the process. A tuple of tuples was
+    copied in quadratic time (16000 tuples in 55 s at `verify_bundle`). A Mapping of digests, which `verify_dual_hash`
+    refuses at both tags, was turned into a dict and accepted. And a policy holding only an `anchors` section, which
+    gives the relying party's trust for `decision verify --anchors`, was refused.
+  - So the reading sits at the call and reads twice. Every public function of every public module, and every public
+    classmethod and staticmethod of a public class there (`canonical._ein_stand`; the command line, the demo and the
+    two framework hooks are named outside, and `verifier_block.attach`, which fills the caller's predicate in place by
+    contract), reads all of its arguments in one reading before its body reads any of them (`canonical._stand`): a
+    private copy of every built-in container, a subclass as its base type holding what it stores and an OrderedDict
+    in its own order, and of every object of a dataclass of this package field by field, read through the base
+    types' own methods, so no method of the caller runs and no object of the caller's classes is made. A key of a
+    `str` or `bytes` subclass is copied as what it stores, in a class of this package that hashes and compares as the
+    base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
+    promoted by the copy. The reading collects every container twice and keeps the first collect only when the
+    second finds the same objects in each (the double collect of the atomic snapshot, Afek, Attiya, Dolev, Gafni,
+    Merritt and Shavit, J. ACM 40(4), 1993): then there is one instant at which the value held what was read. A
+    container that changed between the two collects, or changed its size while it was read, makes both be made again,
+    and after three readings in each of which the value changed the call is refused with `canonical._StandGestoert`,
+    a `ProofBundleError`. Nothing of the process is touched, and no module of the package switches the collector. A
+    Mapping that is no dict (`rp_trust`, `frozen`, the result and checks of `automation_summary`) and the consistency
+    result of `evaluate_public_transparency` can only be read through their own methods; a named reader reads each
+    twice and compares. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
+    registered anchor verifier) is read as one state where it returns, the callable runs as the caller's code
+    (`canonical._draussen`), so a public function it calls reads its arguments whatever frame calls it, and a
+    registered verifier gets its own copy of `frozen` and `rp_trust`. A public function that the package's own code
+    calls from inside the body of another reads nothing again: what it is passed is that reading or was made from it
+    (measured without this, on a loaded machine, `verify_decision_receipt` took 1.94 ms against 0.86 ms at
+    6d674973). A call from the caller's code, a resolver or a gc callback among them, is read as every call is. The
+    recursion of `merkle.merkle_tree_hash` and its leaf hash run on its one reading, not through the public names.
+    What the reading costs, measured on 2026-09-30 as the least of three alternating rounds over the 55 cases of a verify lane on a loaded machine: the median call takes 1.5 times its time at d388ed3d and 1.06 times its time at the second fix. A small call pays a fixed part (`merkle.leaf_hash` 0.5 against 1.2 microseconds, `cap1.check_cap1_document` over a small document 0.010 against 0.071 ms), `verify_decision_receipt` without a large argument 0.79 against 0.86 ms, and a call over a large argument up to 3.4 times (`validate_decision_predicate` over 90 000 nodes 53 against 181 ms; `canonicalize_statement` over 190 000 nodes 296 against 687 ms and 21 against 62 MB at its peak; `verify_sequence` over 2000 renewals 14 against 38 ms and 0.4 against 3.3 MB, since each ArchiveTimeStamp is copied). Every case stays linear in the size of its arguments.
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
-    beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer`,
-    `verify_markovian`, `verify_status_snapshot` and `verify_hybrid`; `check_on_receipt` copies the evidence by the
-    base types and refuses a key that is no text and no exact JSON scalar with the error json gives for it (a key's
-    own `__str__` rewrote the evidence while it was copied, measured at 6d674973); `verify_offline_merkle` reads the
-    fields of a DataLayer proof from one plain copy, not through the caller's `get`; `join_test_result` and `report`
-    compare and digest copies, not the caller's objects through their own `__contains__` and `__getitem__`.
+    beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
+    `verify_markovian`; `check_on_receipt` copies the evidence by the base types and refuses a key that is no text and
+    no exact JSON scalar with the error json gives for it (a key's own `__str__` rewrote the evidence while it was
+    copied, measured at 6d674973); `verify_offline_merkle` reads the fields of a DataLayer proof from one plain copy,
+    not through the caller's `get`; `join_test_result` and `report` compare and digest copies, not the caller's
+    objects through their own `__contains__` and `__getitem__`.
   - `decision verify --anchors FILE` whose content is JSON null became `anchors=None`, the value of a call without
     the option, and exited 0 with the output of no `--anchors`, while `--anchors ''` exits 2; an empty list is what
-    the anchor layer reads None as, and ended the same way. Such a file is refused with exit 2 now. At v6.0.0 and
-    v6.1.0 `--anchors ''` and a file holding `null`, `[]`, `{}`, `""`, `0` or `false` all ended like no option; the
-    empty value is refused since pull request 311 in this release. The generator of this class runs every file
-    option whose absence is a state of its own, fifteen, with JSON null alone and in whitespace, the empty
-    collections, an empty string, zero, false and every whitespace spelling of the empty value as the whole file:
-    only `--anchors` read one of them like no option. `prereg --check` and `evalcard --check`, which read their file
-    through `decode_eval_claim`, were not seen by the guard until the verify lane named them; every such content was
-    refused there already. The fourteen other file options have no absent state such a content could reach: seven
-    `--key` options and `--target-file` are refused without the option, and `--target-file`'s bytes are the target
-    itself, so every content names one; six are required by argparse.
+    the anchor layer reads None as, and ended the same way. Such a file is refused with exit 2 now, and one holding
+    `{}`, `""`, `0` or `false` with exit 1, as no list of anchors. At v6.0.0 and v6.1.0 `--anchors ''` and a file
+    holding `null`, `[]`, `{}`, `""`, `0` or `false` all ended like no option; the empty value is refused since pull
+    request 311 in this release. The generator of this class runs every file option whose absence is a state of its
+    own, fifteen, with JSON null alone and in whitespace, the empty collections, an empty string, zero, false and every
+    whitespace spelling of the empty value as the whole file: only `--anchors` read one of them like no option.
+    `prereg --check` and `evalcard --check`, which read their file through `decode_eval_claim`, were not seen by the
+    guard until the verify lane named them; every such content was refused there already. The fourteen other file
+    options have no absent state such a content could reach: seven `--key` options and `--target-file` are refused
+    without the option, and `--target-file`'s bytes are the target itself, so every content names one; six are
+    required by argparse.
   - One level down, a file whose content the command reads as nothing (verify lane V3 on 6d674973, present at
     d388ed3d and at both tags): a valid policy that holds no section a command evaluates (the packaged eval template,
     or a policy with only its schema and id) was loaded and not evaluated, and `decision verify`, `outcome verify`
     and `relation-statement verify` ended with exit 0 and output byte-identical to no `--policy`. Such a policy is
-    refused with exit 2 now: at `decision verify` one with neither a `decision_receipt` nor a `relations` section,
-    at the other two one without a `relations` section. And `emit --key K --new-key ''` signed with K and exited 0,
-    `--key '' --new-key N` wrote N: the two signer options were read by their truth. Both are read by `is not None`
-    now, both given is refused, and a key or payload file that cannot be read or written is exit 2, not a raw
-    traceback (`emit --payload-file ''` ended in one).
+    refused with exit 2 now: at `decision verify` one with no `decision_receipt` section, no rule in its `relations`
+    section and, beside `--anchors`, no anchor trust in its `anchors` section; at the other two one with no rule in a
+    `relations` section. An empty `relations` section sets no rule, and `decision verify` under it ended like no
+    `--policy`; an empty `decision_receipt` section applies its default rules and is evaluated. And
+    `emit --key K --new-key ''` signed with K and exited 0, `--key '' --new-key N` wrote N: the two signer options were
+    read by their truth. Both are read by `is not None` now, both given is refused, and a key or payload file that
+    cannot be read or written is exit 2, not a raw traceback (`emit --payload-file ''` ended in one).
   What a caller sees differently: `supersededByAttached` of the decision and outcome verifiers is the one
   `verify_relationship_edges` sets; a public function's body works on a private copy of its arguments, so a subclass
   of a built-in container reaches it as its base type holding what it stores and none of its methods runs (the AGT
-  adapter, which wrote a list or dict subclass through its own `__iter__` or `items()`, writes what it stores), a
-  dict with a key that is no exact str, number, bytes or None stays the caller's object, and a function never
-  changes the caller's object (none but `attach` did); `canonical_es256_signature` returns a value of a mutable
-  type that is no signature as an equal copy, not as the object itself; a collection during every one of three readings of an argument is
-  `_StandGestoert`;
-  `verify_offline_merkle` refuses a proof that holds a value that is no JSON value, also in a field it does not
-  judge, and a tuple of layers as before; `check_on_receipt` reads evidence that changes its size while it is read
-  as malformed; `decision verify` exits 2 for an anchors file holding null or an empty list, and the three receipt
-  verify commands for a policy with no section they evaluate; `emit` and the other signing commands exit 2 for an
-  empty `--key` or `--new-key` beside the other.
+  adapter, which wrote a list or dict subclass through its own `__iter__` or `items()`, writes what it stores), an
+  object of a dataclass of this package reaches it as a new object of that class holding copies, a key of a `str` or
+  `bytes` subclass as what it stores in a class of this package, and a dict with any other key that is no exact str,
+  number, bytes or None, or whose keys meet as one in the copy, stays the caller's object; a function never changes
+  the caller's object (none but `attach` did); `canonical_es256_signature` returns a value of a mutable type that is
+  no signature as an equal copy, not as the object itself, `renewal.last_ats` returns an equal copy of the newest
+  ArchiveTimeStamp, and the sequences `renew_timestamp` and `renew_hashtree` return hold equal copies of the
+  caller's ArchiveTimeStamps; an argument that changed during each of three readings,
+  or a Mapping whose two readings differ each time, is `_StandGestoert`, also at a function that otherwise answers
+  every input with a verdict; `verify_offline_merkle` refuses a proof that holds a value that is no JSON value, also
+  in a field it does not judge, and a tuple of layers as before; `check_on_receipt` reads evidence that changes its
+  size while it is read as malformed; `decision verify` exits 2 for an anchors file holding null or an empty list,
+  and the three receipt verify commands for a policy with nothing in it they evaluate; `emit` and the other signing
+  commands exit 2 for an empty `--key` or `--new-key` beside the other.
   Tests: `tests/test_a_verifier_reads_a_callers_value_once.py` (the sweep over every collection start of a call, with
-  a planted double reading it catches, at every surface the gate and the verify lanes measured; a count of the
-  readings of `related`; the subclass cases; a guard that every public function carries the reading at its call and
-  every call of a caller's callable is named; the one reading itself over a generator of values, with recording
-  subclasses and a sweep that falls when the pause is taken away; and the pause across threads and under a
-  collection during a reading) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py` (the file-content
-  generator, with a planted option the command does not read, the policy with no section, the signer options, and
-  a guard that every option whose value names a file a command reads is a case of the generator or named with its
-  reason). Measured at d388ed3d: 42 failed in the first file and 19 in the second, as pytest counts
-  them; at 6d674973, 29 and 13.
+  a planted double reading it catches, at the surfaces the gate and the verify lanes measured, several also over four
+  phases of the allocator; a count of the readings of `related`; the subclass cases; a guard that every public
+  function, classmethod and staticmethod carries the reading at its call once, that every call of a caller's callable
+  is named, and that each whose answer enters a verdict runs as the caller's code; the one reading itself over a
+  generator of values, with recording subclasses of every method a base type has, the package's dataclasses, keys of
+  a `str` subclass, a tuple of tuples in linear time and a sweep that falls when the second collect is taken away;
+  and the second collect: a change between the two collects read again, three readings before a refusal, a dict that
+  changes its size while it is read, a Mapping read twice, a thread that collects all the time, and a guard that no
+  module of the package switches the collector) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  (the file-content generator, with a planted option the command does not read, the policy with nothing the command
+  evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of
+  the generator or named with its reason). Two surfaces the lanes named have no sweep of their own: the pair tuples of
+  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured at d388ed3d: 64 failed in the first file and 23 in the second, as pytest counts them; at 6d674973, 52 and 17; at 8f2fa980, 26 and 4; here both pass. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
 
 - **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
   value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each
@@ -1172,7 +1210,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   key and naming another as its issuer was returned.
 
   The caller's object is read once now, by what it stores, and nothing reads it again. A bundle goes
-  through `evalclaim._in_einem_zug` (a path through `load_bundle`, an object through the structural
+  through `evalclaim._eine_lesung` (a path through `load_bundle`, an object through the structural
   budget and the plain copy `canonical._plain_for_jcs`); `bundle._verify_bundle`, the body of
   `verify_bundle`, returns the payload bytes its signature check read, and those are the bytes
   parsed; the issuer binding reads the key from the same copy. An envelope goes through
@@ -1330,7 +1368,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   - F4 and F5 `hf_evals.to_eval_results_entry` read `payload_b64` a third time for its "is this an
     eval claim" rule, and `receipt_token` wrote the token through the bundle's own `items()`: an eval
     claim that does not decode was published with a value the signed verdict contradicts, and the token
-    held another receipt than the one judged. The bundle is read once (`evalclaim._in_einem_zug`), and
+    held another receipt than the one judged. The bundle is read once (`evalclaim._eine_lesung`), and
     the token is the plain copy.
   - F6 `agent_review.resolve_receipt_chain` took the digest from one reading of each envelope and the
     supersession claims from another: the chain was ordered by a claim nobody signed. Each envelope's

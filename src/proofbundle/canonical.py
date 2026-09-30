@@ -95,174 +95,226 @@ def _require_statement_shape(obj: Any) -> None:
             "ADR 0002 §2 full-Statement scope)")
 
 
-class _in_einem_zug:
-    """One reading of a caller's value, run with the cyclic garbage collector paused, so that no gc callback
-    of the caller runs between the parts of that one reading.
-
-    WHY A READING NEEDS THIS (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01). A copy
-    of a nested value is many reads, one per node, and it allocates between them; every allocation of a
-    tracked object can start a collection, and a collection runs the callbacks in ``gc.callbacks``, which are
-    the caller's code. A callback that rewrote two entries at once while the copy was between them gave a
-    copy that held one entry from before and one from after, a state the caller's value never had, and a
-    verdict over it that neither state gives (measured with the sweep of
-    tests/test_a_verifier_reads_a_callers_value_once.py on `join_test_result`, after its two readings had
-    become one). The copy itself runs no code of the caller (`_plain_for_jcs`); with the collector paused,
-    nothing else does either, so the one reading is one state.
-
-    ONE PAUSE FOR THE WHOLE PROCESS (verify lanes V2 and V3 on 6d674973). The collector is one switch of the
-    process, and each reading had its own flag: a reading in a second thread found it off, paused nothing,
-    and the first reading's end switched it on in the middle of the second (measured: 24 of 300 calls of
-    `verify_decision_receipt` gave a verdict neither state gives while another thread looped
-    `join_test_result`). So the readings of all threads share one count under one lock: the first to begin
-    pauses the collector if it runs, the last to end starts it again if the first paused it. A caller that
-    runs with the collector off keeps it off.
-
-    A COLLECTION THAT RUNS ANYWAY IS SEEN. Code of the caller that runs inside a reading (a ``Mapping``'s own
-    ``items``, which is the only way to read it) can start the collector again or call ``gc.collect``, and
-    another thread can do the same; then a collection runs the callbacks in the middle of the reading.
-    While a reading is open a callback of this module counts every collection that starts, and a reading
-    during which one started says so (``gestoert``); `_stand` reads again and refuses after three such
-    readings. What another thread writes into the caller's value WITHOUT a collection is a race of the
-    caller's own threads, which no reading can order."""
-    __slots__ = ("_beginn", "gestoert")
-
-    def __enter__(self) -> "_in_einem_zug":
-        with _ZUG_SPERRE:
-            if _ZUG[0] == 0:
-                _ZUG[1] = gc.isenabled()
-                gc.disable()
-                gc.callbacks.append(_zug_zaehlt)
-            _ZUG[0] += 1
-            self._beginn = _SAMMLUNGEN[0]
-        self.gestoert = False
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        with _ZUG_SPERRE:
-            self.gestoert = _SAMMLUNGEN[0] != self._beginn
-            _ZUG[0] -= 1
-            if _ZUG[0] == 0:
-                # By identity: `list.remove` would compare through each callback's own `__eq__`.
-                for stelle, rueckruf in enumerate(list(gc.callbacks)):
-                    if rueckruf is _zug_zaehlt:
-                        del gc.callbacks[stelle]
-                        break
-                if _ZUG[1]:
-                    gc.enable()
-
-
-#: The readings open in this process, and whether the first of them found the collector running.
-_ZUG: list = [0, False]
-_ZUG_SPERRE = threading.RLock()
-#: Collections that started while a reading was open.
-_SAMMLUNGEN: list = [0]
-
-
-def _zug_zaehlt(phase: str, info: Any) -> None:
-    if phase == "start":
-        _SAMMLUNGEN[0] += 1
-
-
 class _StandGestoert(ProofBundleError):
-    """A caller's value could not be read as one state: a collection started during each of three readings."""
+    """A caller's value could not be read as one state: it changed between the two collects of each of `_VERSUCHE`
+    readings (`_stand`)."""
 
 
 #: How often `_stand` reads before it refuses.
 _VERSUCHE = 3
 
-def _lesen_einmal(wurzeln: Any) -> dict:
-    """Phase one of `_stand`: every built-in container reachable from ``wurzeln`` through built-in containers,
-    read by what it stores (the base type's own methods, which run no code of the caller). Returns
-    ``id -> (art, typ, inhalt)``. Nothing here hashes, compares or calls a method of the caller."""
+#: The dataclasses this package defines, by the id of the class (`_paketklasse`). A class of the caller is never one.
+_PAKETKLASSEN: dict = {}
+#: How many modules the interpreter had loaded when `_PAKETKLASSEN` was last filled.
+_PAKETKLASSEN_BEI: list = [-1]
+
+
+def _paketklasse(typ: Any) -> bool:
+    """Whether ``typ`` is a dataclass this package defines: `_stand` copies an object of it field by field, as it
+    copies a dict (verify lane V5 on 8f2fa980: a `VerificationResult`, its `Check` objects and an `ArchiveTimeStamp`
+    were handed on as the caller's objects, and `root_authenticity_summary`, `evaluate_policy`, `exit_code` and
+    `verify_sequence`, which read such an object at several times, gave verdicts neither state gives). Asked by the
+    identity of the class, so no hook of a metaclass runs. The classes are collected from the loaded modules of this
+    package, and collected again when an unknown class is asked about after the interpreter loaded another module."""
+    bekannt = _PAKETKLASSEN.get(id(typ))
+    if bekannt is not None:
+        return bekannt is typ
+    geladen = len(sys.modules)
+    if geladen == _PAKETKLASSEN_BEI[0]:
+        return False
+    try:
+        for name, modul in list(sys.modules.items()):
+            if type(name) is not str or not (name == "proofbundle" or name.startswith("proofbundle.")):
+                continue
+            if type(modul) is not _MODULTYP:   # an object placed there that is no module is read by nothing here
+                continue
+            for wert in list(vars(modul).values()):   # a module's own dict: no code of the caller runs
+                if type(wert) is not type:
+                    continue
+                heimat = _MODULNAME.__get__(wert)
+                if (type(heimat) is str and (heimat == "proofbundle" or heimat.startswith("proofbundle."))
+                        and "__dataclass_fields__" in _KLASSENDICT.__get__(wert)):
+                    _PAKETKLASSEN[id(wert)] = wert
+    except RuntimeError:   # another thread loaded a module meanwhile: collected again at the next unknown class
+        return False
+    _PAKETKLASSEN_BEI[0] = geladen
+    return _PAKETKLASSEN.get(id(typ)) is typ
+
+
+#: The getters behind ``type.__module__`` and ``type.__dict__``, taken from ``type`` itself, and the type of a module.
+_MODULNAME = type.__dict__["__module__"]
+_KLASSENDICT = type.__dict__["__dict__"]
+_MODULTYP = type(sys)
+
+
+def _lies(wert: Any) -> Any:
+    """One container as it stores its contents now, ``(art, typ, inhalt, extra)``, or None for a value `_stand` does
+    not copy. Read through the base type's own methods, which run no code of the caller: nothing is hashed, compared
+    or called on the caller's objects. Both collects of `_stand` read a container through this one function, so both
+    read it the same way. Raises RuntimeError when the container changed its size while it was read."""
+    typ = type(wert)
+    if issubclass(typ, dict):
+        paare = list(dict.items(wert))
+        if typ is not dict and issubclass(typ, OrderedDict):
+            try:
+                return ("dict", typ, _in_eigener_reihenfolge(wert, paare), None)
+            except _Abweisung:
+                # Its own order cannot be read without hashing a key, so it stays the caller's object; its stored pairs
+                # are compared by the second collect, so a refusal that a change in the middle caused is read again.
+                return ("lebend", typ, paare, None)
+        return ("dict", typ, paare, None)
+    if issubclass(typ, list):
+        return ("list", typ, list(list.__iter__(wert)), None)
+    if issubclass(typ, tuple):
+        return ("tuple", typ, list(tuple.__iter__(wert)), None)
+    if issubclass(typ, set):
+        return ("set", typ, list(set.__iter__(wert)), None)
+    if issubclass(typ, bytearray):
+        # The base type's slice is a private bytearray of the stored bytes; the first collect's is the copy itself.
+        return ("bytearray", typ, bytearray.__getitem__(wert, slice(None)), None)
+    if typ is memoryview:
+        try:
+            return ("memoryview", typ, b"" + wert, (wert.format, tuple(wert.shape)))
+        except (BufferError, TypeError, ValueError):
+            return None
+    if _paketklasse(typ):
+        try:
+            eigen = object.__getattribute__(wert, "__dict__")
+        except AttributeError:
+            return None
+        if type(eigen) is not dict:
+            return None
+        return ("daten", typ, list(dict.items(eigen)), None)
+    return None
+
+
+def _lesen_einmal(wurzel: Any) -> dict:
+    """One collect of `_stand`: every container `_lies` reads that is reachable from ``wurzel`` through such
+    containers, as ``id -> (art, typ, inhalt, extra, container)``. The record holds each container, so no id is
+    reused while the reading lives."""
     gelesen: dict = {}
-    stapel = [wurzeln]
+    stapel = [wurzel]
     while stapel:
         wert = stapel.pop()
         typ = type(wert)
         if typ is str or typ is int or typ is bytes or typ is float or typ is bool or wert is None:
             continue
-        schluessel = id(wert)
-        if schluessel in gelesen:
+        if id(wert) in gelesen:
             continue
-        if issubclass(typ, dict):
-            paare = list(dict.items(wert))
-            if typ is not dict and issubclass(typ, OrderedDict):
-                try:
-                    paare = _in_eigener_reihenfolge(wert, paare)
-                except _Abweisung:
-                    continue   # its own order cannot be read without hashing its keys: the caller's object
-            gelesen[schluessel] = ("dict", typ, paare, None)
-            stapel.extend(eintrag for _, eintrag in paare)
-        elif issubclass(typ, list):
-            teile = list(list.__iter__(wert))
-            gelesen[schluessel] = ("list", typ, teile, None)
-            stapel.extend(teile)
-        elif issubclass(typ, tuple):
-            teile = list(tuple.__iter__(wert))
-            gelesen[schluessel] = ("tuple", typ, teile, None)
-            stapel.extend(teile)
-        elif issubclass(typ, set):
-            gelesen[schluessel] = ("set", typ, list(set.__iter__(wert)), None)
-        elif issubclass(typ, bytearray):
-            gelesen[schluessel] = ("bytearray", typ, bytes(bytearray.__getitem__(wert, slice(None))), None)
-        elif typ is memoryview:
-            try:
-                gelesen[schluessel] = ("memoryview", typ, b"" + wert, (wert.format, tuple(wert.shape)))
-            except (BufferError, TypeError, ValueError):
-                continue
+        satz = _lies(wert)
+        if satz is None:
+            continue
+        gelesen[id(wert)] = satz + (wert,)
+        art = satz[0]
+        if art == "dict" or art == "daten":
+            stapel.extend([eintrag for _, eintrag in satz[2]])
+        elif art == "list" or art == "tuple":
+            stapel.extend(satz[2])
     return gelesen
+
+
+def _gleich_gelesen(gelesen: dict) -> bool:
+    """The second collect of `_stand`: every container of the first, read again through `_lies`. True when each still
+    holds the same objects (compared by identity; a set as the ids it holds) and each byte buffer the same bytes."""
+    for art, _, inhalt, _, wert in gelesen.values():
+        if art == "tuple":
+            continue   # a tuple cannot change what it holds
+        satz = _lies(wert)
+        if satz is None or satz[0] != art:
+            return False
+        neu = satz[2]
+        if art == "bytearray" or art == "memoryview":
+            if neu != inhalt:
+                return False
+        elif len(neu) != len(inhalt):
+            return False
+        elif art == "set":
+            if {id(x) for x in neu} != {id(x) for x in inhalt}:
+                return False
+        elif art == "list":
+            for alt, jetzt in zip(inhalt, neu):
+                if alt is not jetzt:
+                    return False
+        else:
+            for alt, jetzt in zip(inhalt, neu):
+                if alt[0] is not jetzt[0] or alt[1] is not jetzt[1]:
+                    return False
+    return True
 
 
 #: What `_schluessel_von` answers for a key whose hash would be code of the caller.
 _UNSICHER = object()
 
 
-def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
-    """A key or set item as it is, when its hash and comparison are the interpreter's own, or `_UNSICHER`.
+class _FremderText(str):
+    """A key of the caller's value that is a ``str`` subclass, in the copy: the characters it stores, in a class of this
+    package that hashes and compares as ``str`` does. It is no exact ``str``, as the caller's key was none."""
+    __slots__ = ()
 
-    An exact ``str``, ``bytes``, ``int``, ``float``, ``bool`` or None, and a tuple or frozenset of such values, is
-    kept. Any other key cannot be put into the copy without its hash, and its own hash can be code of the caller;
-    nor can it be replaced by the plain value it stores, because a reader may count only an exact ``str`` as a key
-    (`assurance` does, so a ``str`` subclass spelled "sha256" is no digest there): the copy would promote what the
-    caller's value did not hold."""
+
+class _FremdeBytes(bytes):
+    """A key of the caller's value that is a ``bytes`` subclass, in the copy: the bytes it stores (`_FremderText`)."""
+    __slots__ = ()
+
+
+def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
+    """A key or set item for the copy, or `_UNSICHER`.
+
+    An exact ``str``, ``bytes``, ``int``, ``float``, ``bool`` or None, and a tuple or frozenset of such values, is kept:
+    its hash and comparison are the interpreter's own. A ``str`` or ``bytes`` subclass becomes what it stores, in
+    `_FremderText` or `_FremdeBytes`: its hash and comparison are then those of the base type, and it is still no exact
+    ``str`` or ``bytes``, so a reader that counts only an exact ``str`` as a key (`assurance`: a ``str`` subclass
+    spelled "sha256" is no digest there) reads the copy as it read the caller's value, and no method of the caller's
+    key runs when the copy is read. Until verify lane V5 on 8f2fa980 such a dict stayed the caller's object, and a
+    callback that changed it while the body read it gave `verify_decision_receipt` ok True in 291 of 618 runs where
+    both states give False. Any other key is `_UNSICHER`: its hash can be code of the caller."""
     typ = type(wert)
     if typ is str or typ is int or typ is bytes or typ is float or typ is bool or wert is None:
         return wert
+    if issubclass(typ, str):
+        return _FremderText(str.__str__(wert))
+    if issubclass(typ, bytes):
+        return _FremdeBytes(bytes.__getitem__(wert, slice(None)))
     if tiefe < 16 and (typ is tuple or typ is frozenset):
-        teile = [_schluessel_von(t, tiefe + 1) for t in (tuple.__iter__(wert) if typ is tuple
-                                                        else frozenset.__iter__(wert))]
-        if any(t is _UNSICHER for t in teile):
-            return _UNSICHER
+        for teil in (tuple.__iter__(wert) if typ is tuple else frozenset.__iter__(wert)):
+            if _schluessel_von(teil, tiefe + 1) is not teil:
+                return _UNSICHER
         return wert
     return _UNSICHER
 
 
 def _bauen(gelesen: dict, wurzel: Any) -> Any:
-    """Phase two of `_stand`: a private plain copy of every container phase one read, built only from what
-    phase one read, so nothing the caller does after the reading reaches it, and no object of the caller's
-    classes is made. A subclass of dict, list, tuple, set or bytearray becomes the base type holding what
-    it stores, as `_plain_for_jcs` copies it; an OrderedDict becomes a dict in its own order. A key is kept
-    when its hash is the interpreter's own (`_schluessel_von`); a dict with any other key, and a set of any other
-    item, stays the caller's object, because a copy would either run the caller's hash or change what the key
-    is."""
+    """The copy `_stand` returns: a private plain copy of every container the reading read, built only from what it
+    read, so nothing the caller does afterwards reaches it, and no object of the caller's classes is made. A subclass
+    of dict, list, tuple, set or bytearray becomes the base type holding what it stores, as `_plain_for_jcs` copies it;
+    an OrderedDict becomes a dict in its own order; an object of a dataclass of this package becomes a new object of
+    that class holding copies of what its ``__dict__`` stores, made without its ``__init__``. A key is taken as
+    `_schluessel_von` gives it. A dict or set whose key would be the caller's code, or whose keys meet as one in the
+    copy (a ``str`` subclass beside the ``str`` it spells), and an object of this package with an attribute name that is
+    no exact ``str``, stay the caller's objects."""
     kopie: dict = {}
     schluessel_je: dict = {}
-    for schluessel, (art, typ, inhalt, extra) in gelesen.items():
-        if art == "dict":
+    for schluessel, (art, typ, inhalt, extra, _) in gelesen.items():
+        if art == "dict" or art == "daten":
             neue = [_schluessel_von(k) for k, _ in inhalt]
-            if any(k is _UNSICHER for k in neue):
-                continue
+            if art == "daten":
+                if any(type(k) is not str for k in neue):
+                    continue
+                kopie[schluessel] = object.__new__(typ)
+            else:
+                if any(k is _UNSICHER for k in neue) or len(set(neue)) != len(neue):
+                    continue
+                kopie[schluessel] = {}
             schluessel_je[schluessel] = neue
-            kopie[schluessel] = {}
         elif art == "list":
             kopie[schluessel] = []
         elif art == "set":
             neue = [_schluessel_von(k) for k in inhalt]
-            if any(k is _UNSICHER for k in neue):
+            if any(k is _UNSICHER for k in neue) or len(set(neue)) != len(neue):
                 continue
             kopie[schluessel] = set(neue)
         elif art == "bytearray":
-            kopie[schluessel] = bytearray(inhalt)
+            kopie[schluessel] = inhalt   # the private slice of the first collect (`_lies`)
         elif art == "memoryview":
             ansicht = memoryview(inhalt)
             form, gestalt = extra
@@ -272,47 +324,115 @@ def _bauen(gelesen: dict, wurzel: Any) -> Any:
                 except (TypeError, ValueError):
                     continue
             kopie[schluessel] = ansicht
-    # Tuples after their tuple parts; a circle through tuples alone cannot be built.
-    for schluessel, (art, _, inhalt, _) in gelesen.items():
-        if art != "tuple" or schluessel in kopie:
+    # Tuples after their tuple parts, each part looked at once (verify lane V6 on 8f2fa980: the parts of a tuple were
+    # scanned again after each part was built, and a tuple of 16000 tuples took 55 s). A circle through tuples alone
+    # cannot be built from Python; one met anyway keeps the caller's tuple at the place that closes it.
+    for schluessel, satz in gelesen.items():
+        if satz[0] != "tuple" or schluessel in kopie:
             continue
-        weg = [(schluessel, inhalt)]
+        weg = [[schluessel, satz[2], 0]]
+        auf_dem_weg = {schluessel}
         while weg:
-            s, teile = weg[-1]
-            offen = [x for x in teile if id(x) in gelesen and gelesen[id(x)][0] == "tuple" and id(x) not in kopie]
-            if offen:
-                weg.append((id(offen[0]), gelesen[id(offen[0])][2]))
+            oben = weg[-1]
+            teile = oben[1]
+            i = oben[2]
+            while i < len(teile):
+                kennung = id(teile[i])
+                teil = gelesen.get(kennung)
+                if (teil is not None and teil[0] == "tuple" and kennung not in kopie
+                        and kennung not in auf_dem_weg):
+                    break
+                i += 1
+            oben[2] = i + 1
+            if i < len(teile):
+                weg.append([kennung, gelesen[kennung][2], 0])
+                auf_dem_weg.add(kennung)
                 continue
             weg.pop()
-            kopie[s] = tuple([kopie.get(id(x), x) for x in teile])
-    for schluessel, (art, _, inhalt, _) in gelesen.items():
+            auf_dem_weg.discard(oben[0])
+            kopie[oben[0]] = tuple([kopie.get(id(x), x) for x in teile])
+    for schluessel, (art, _, inhalt, _, _) in gelesen.items():
         ziel = kopie.get(schluessel)
         if ziel is None:
             continue
         if art == "dict":
             for k, (_, v) in zip(schluessel_je[schluessel], inhalt):
                 ziel[k] = kopie.get(id(v), v)
+        elif art == "daten":
+            eigen = object.__getattribute__(ziel, "__dict__")
+            for k, (_, v) in zip(schluessel_je[schluessel], inhalt):
+                eigen[k] = kopie.get(id(v), v)
         elif art == "list":
             ziel.extend([kopie.get(id(v), v) for v in inhalt])
     return kopie.get(id(wurzel), wurzel)
 
 
 def _stand(wurzel: Any, leser: Any = None) -> Any:
-    """ONE STATE of a caller's value: a private copy of every built-in container in it (dict, list, tuple, set,
-    bytearray, memoryview, and a subclass of each as an object of its own class), read in one reading with
-    the collector paused, so that code of the caller that runs later changes nothing a verdict reads.
+    """ONE STATE of a caller's value: a private copy of every container in it (`_bauen`), taken from a reading that is
+    known to be one state.
 
-    ``leser`` runs inside the same pause before the copy (the reader of an argument that is read through its
-    own methods, `_abbild_stand`), so it and the copy are one reading too. A reading during which a collection
-    started anyway is read again; after `_VERSUCHE` such readings `_StandGestoert` is raised."""
+    HOW IT IS KNOWN: the double collect of the atomic snapshot (Afek, Attiya, Dolev, Gafni, Merritt and Shavit,
+    "Atomic snapshots of shared memory", J. ACM 40(4), 1993). Every container is read (`_lesen_einmal`), and then every
+    container of that reading is read again the same way (`_gleich_gelesen`). When each still holds the same objects,
+    there is one instant, the end of the first collect, at which each held what the first collect read, so the copy
+    is the value's state at that instant. When one differs, or one changed its size while it was read, both collects
+    are made again; after `_VERSUCHE` readings in each of which the value changed, `_StandGestoert` is raised. Nothing
+    of the process is touched: the collector runs as the caller left it, and a gc callback, a signal handler or another
+    thread that changes the value between two reads of a container is seen by the second collect. A change another
+    thread makes in several steps is read in one of the states it passes through, a state the value did hold.
+
+    WHY NOT A PAUSE (verify lanes V5 and V6 on 8f2fa980). The reading of 8f2fa980 paused the collector for the whole
+    process while it read, which is one switch for every thread: under eight threads the collector ran in none of the
+    samples and the memory grew from 27 to 70 MiB, a thread that collected every 100 ms made most calls refuse, an
+    exception at the wrong line or a fork during a reading left the collector off for good, and a change a callback of
+    another thread had begun before the reading was read half done.
+
+    THE LIMIT. A change that is made and undone between the two reads of one container (the ABA case of the double
+    collect) is not seen, and the copy can then hold that container from before the change beside another from its
+    middle. The snapshot algorithms close it with a counter in each register; a caller's container has none.
+
+    ``leser`` runs at the start of each reading (the reader of an argument that is read through its own methods,
+    `_abbild_stand`), and what it returns is read and compared like the rest. Such an argument can only be read
+    through code of the caller, so a reader reads it twice itself and compares (`_zweimal`)."""
     for _ in range(_VERSUCHE):
-        with _in_einem_zug() as zug:
-            gelesen_wurzel = leser(wurzel) if leser is not None else wurzel
+        gelesen_wurzel = leser(wurzel) if leser is not None else wurzel
+        try:
             gelesen = _lesen_einmal(gelesen_wurzel)
-        if not zug.gestoert:
-            return _bauen(gelesen, gelesen_wurzel)
-    raise _StandGestoert("a value of the caller changed while it was read: a collection ran during each of "
-                         f"{_VERSUCHE} readings of it")
+            if _gleich_gelesen(gelesen):
+                return _bauen(gelesen, gelesen_wurzel)
+        except RuntimeError:   # a dict or set changed its size while it was read: this reading is no state
+            pass
+    raise _StandGestoert(f"a value of the caller changed while it was read, in each of {_VERSUCHE} readings of it")
+
+
+def _derselbe(alt: Any, neu: Any) -> bool:
+    """Whether two reads of one place gave the same value: the same object, an exact scalar of equal value (a mapping
+    may build its text anew on each read, as ``os.environ`` does), or an exact tuple of such values."""
+    if alt is neu:
+        return True
+    typ = type(alt)
+    if typ is not type(neu):
+        return False
+    if typ is str or typ is bytes or typ is int or typ is float or typ is bool:
+        return alt == neu
+    if typ is tuple:
+        teile_alt, teile_neu = list(tuple.__iter__(alt)), list(tuple.__iter__(neu))
+        return len(teile_alt) == len(teile_neu) and all(_derselbe(a, b) for a, b in zip(teile_alt, teile_neu))
+    return False
+
+
+def _zweimal(lesen: Callable[[], list]) -> list:
+    """For a reader that can read the caller's object only through its own methods (a ``Mapping`` that is no dict, a
+    result object): ``lesen()`` twice, and its first answer when the second gave the same values place by place
+    (`_derselbe`), the double collect of `_stand` for such an object; else both again, and `_StandGestoert` after
+    `_VERSUCHE` readings. Until verify lane V5 on 8f2fa980 the one call ran with the collector paused; without the pause
+    a gc callback between two of the object's own ``__getitem__`` calls gave a reading that mixed two states."""
+    for _ in range(_VERSUCHE):
+        erste = lesen()
+        zweite = lesen()
+        if len(erste) == len(zweite) and all(_derselbe(a, b) for a, b in zip(erste, zweite)):
+            return erste
+    raise _StandGestoert(f"a value of the caller changed while it was read, in each of {_VERSUCHE} readings of it")
 
 
 #: What a reader leaves for a mapping it could not read: its own ``items`` raises, like the mapping's did.
@@ -334,13 +454,15 @@ class _Unlesbar(Mapping):
 
 def _abbild_stand(wert: Any) -> Any:
     """The boundary reader of an argument that is a ``Mapping`` but no dict (``rp_trust``, ``frozen``): its own
-    ``items()``, called once, as a dict of the pairs it listed; a mapping that cannot list them becomes one
-    whose ``items`` raises. Any other value is left as it is (a dict is copied by `_stand`)."""
+    ``items()``, read twice and compared (`_zweimal`), as a dict of the pairs it listed; a mapping that cannot list them
+    becomes one whose ``items`` raises. Any other value is left as it is (a dict is copied by `_stand`)."""
     typ = type(wert)
     if wert is None or issubclass(typ, dict) or not issubclass(typ, Mapping):
         return wert
     try:
-        return dict(wert.items())
+        return dict(_zweimal(lambda: list(wert.items())))
+    except _StandGestoert:
+        raise
     except Exception:  # noqa: BLE001 - a mapping that cannot list its pairs is no mapping to read
         return _Unlesbar()
 
@@ -354,6 +476,22 @@ def _aus_dem_paket(rahmen: Any) -> bool:
     return type(name) is str and (name == "proofbundle" or name.startswith("proofbundle."))
 
 
+class _draussen:
+    """Around the call of a caller's callable (an evidence resolver, a registered anchor verifier): the code that runs
+    there is the caller's, so a public function it calls reads its arguments as every call from the caller does. The
+    frame that calls the public function can be this package's all the same, for a `functools.partial` of a public
+    function handed in as the resolver, or a function whose globals name a module of this package; the skip of a call
+    from inside then read nothing (verify lane V5 on 8f2fa980). Inside this block no call counts as one from inside."""
+    __slots__ = ("_tiefe",)
+
+    def __enter__(self) -> None:
+        self._tiefe = getattr(_INNEN, "tiefe", 0)
+        _INNEN.tiefe = 0
+
+    def __exit__(self, *exc: Any) -> None:
+        _INNEN.tiefe = self._tiefe
+
+
 def _ein_stand(funktion: Any = None, **leser: Any) -> Any:
     """Every argument of a public function, read as one state at its call (`_stand`), before its body reads
     any of them. ``leser`` names arguments that are read through their own methods and the reader for each.
@@ -361,11 +499,12 @@ def _ein_stand(funktion: Any = None, **leser: Any) -> Any:
 
     A CALL FROM INSIDE is not read again: when this thread is in the body of a public function whose arguments
     were read at its call, and the function that calls is this package's own code, what it passes is that
-    reading or was made from it (a value a caller's callable returns is read where it returns, `_stand`). A
-    call from the caller's code (a gc callback, a resolver, a Mapping's own method) is read as every call is.
-    Measured without this, on a loaded machine: `verify_decision_receipt` took 1.94 ms against 0.86 ms at
-    6d674973, because each public function it calls read its arguments again. It stands outermost, so the
-    frame that calls it is the caller's."""
+    reading or was made from it (a value a caller's callable returns is read where it returns, `_stand`, and the
+    callable itself runs as the caller's code, `_draussen`). A call from the caller's code (a gc callback, a
+    resolver, a Mapping's own method) is read as every call is. Measured without this, on a loaded machine:
+    `verify_decision_receipt` took 1.94 ms against 0.86 ms at 6d674973, because each public function it calls read
+    its arguments again. It stands outermost, so the frame that calls it is the caller's. The body runs one frame
+    below the call on both ways, so a warning with a fixed ``stacklevel`` names the same frame on both."""
     def verpacken(f: Any) -> Any:
         # The positional parameters, then the keyword-only ones, of the function itself: a decorator below this one
         # (`_refuse_unreadable_input`, `_never_raise_verdict`) wraps it in `*args, **kwargs`, whose code names none
@@ -384,11 +523,11 @@ def _ein_stand(funktion: Any = None, **leser: Any) -> Any:
         @functools.wraps(f)
         def lesen(*args: Any, **kwargs: Any) -> Any:
             tiefe = getattr(_INNEN, "tiefe", 0)
-            if tiefe and _aus_dem_paket(sys._getframe(1)):
-                return f(*args, **kwargs)
+            if not (tiefe and _aus_dem_paket(sys._getframe(1))):
+                args, kwargs = _gelesen(namen, leser, args, kwargs)
             _INNEN.tiefe = tiefe + 1
             try:
-                return _gelesen_rufen(f, namen, leser, args, kwargs)
+                return f(*args, **kwargs)
             finally:
                 _INNEN.tiefe = tiefe
         lesen.__ein_stand__ = True  # type: ignore[attr-defined]
@@ -396,14 +535,14 @@ def _ein_stand(funktion: Any = None, **leser: Any) -> Any:
     return verpacken(funktion) if funktion is not None else verpacken
 
 
-def _gelesen_rufen(f: Any, namen: tuple, leser: dict, args: tuple, kwargs: dict) -> Any:
-    """`f` over the one reading of its arguments (`_ein_stand`)."""
+def _gelesen(namen: tuple, leser: dict, args: tuple, kwargs: dict) -> tuple:
+    """The arguments of one call as one reading (`_ein_stand`): ``(args, kwargs)``."""
     for a in list(args) + list(kwargs.values()):
         t = type(a)
         if not (t is str or t is bytes or t is int or t is bool or t is float or a is None):
             break
     else:
-        return f(*args, **kwargs)
+        return args, kwargs
     if leser:
         def lesen_mit(paar: Any) -> Any:
             pos, kw = paar
@@ -416,10 +555,8 @@ def _gelesen_rufen(f: Any, namen: tuple, leser: dict, args: tuple, kwargs: dict)
                 if name in leser and name in namen[1]:
                     kw[name] = leser[name](kw[name])
             return (tuple(pos), kw)
-        args, kwargs = _stand((args, kwargs), lesen_mit)
-    else:
-        args, kwargs = _stand((args, kwargs))
-    return f(*args, **kwargs)
+        return _stand((args, kwargs), lesen_mit)
+    return _stand((args, kwargs))
 
 
 def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel: str = "") -> Any:
@@ -522,8 +659,7 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     sits (``provenance.k``, ``ci95[0]``), starting at ``wurzel`` when the caller names the argument.
     """
     try:
-        with _in_einem_zug():   # one state of the value, not one node at a time (`_in_einem_zug`)
-            return _plain_value(value, set())
+        return _plain_value(value, set())
     except _Abweisung as abweisung:
         ort = wurzel + "".join(reversed(abweisung.pfad))
         if ort.startswith("."):
@@ -990,7 +1126,6 @@ def _plain_value(value: Any, offen: set) -> Any:
 
 
 @_ein_stand
-@_ein_stand
 def canonicalize_statement(statement: Any, *, require_statement_shape: bool = False) -> bytes:
     """RFC-8785 (JCS) canonical bytes of a JSON in-toto Statement (or predicate) OBJECT.
 
@@ -1048,7 +1183,6 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     return rfc8785.dumps(_plain_for_jcs(statement, rfc8785.CanonicalizationError))
 
 
-@_ein_stand
 @_ein_stand
 def statement_content_root(statement: Union[Mapping, list, bytes, bytearray], *,
                            require_statement_shape: bool = False) -> bytes:

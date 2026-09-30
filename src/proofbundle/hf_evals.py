@@ -31,7 +31,7 @@ from ._membership import require_switch, type_name
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
-from .canonical import _ein_stand, _feld_von, _in_einem_zug, _plain_for_jcs, _zahl_von, _zeichen_von
+from .canonical import _ein_stand, _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
@@ -207,14 +207,14 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # `canonical._feld_von`): never the entry's own `get`, and each value by its own type (`_zeichen_von`,
     # `_zahl_von`). The rest of the entry is not read, so an entry parsed from YAML with a date object
     # in `date` keeps verifying as before.
-    # BOTH FIELDS ARE READ IN ONE READING, here, before the token is verified (a verify lens of the fix of the
-    # gate at d388ed3d, the class of L4-620v5-T5-SECOND-READING-01). The value was read after the receipt inside
-    # the token had been verified, a second reading of the caller's entry: a gc callback of the caller that
-    # changed both fields in between paired the token of one state with the value of the other, and the entry
-    # verified although neither state of it is consistent (measured: `ok` True at 22 of 112 collection starts).
-    with _in_einem_zug():
-        token = _feld_von(entry, "verifyToken")
-        _val = _feld_von(entry, "value")
+    # BOTH FIELDS ARE READ FROM ONE READING, the one of the call (`canonical._stand`), before the token is verified
+    # (a verify lens of the fix of the gate at d388ed3d, the class of L4-620v5-T5-SECOND-READING-01). The value was
+    # read after the receipt inside the token had been verified, a second reading of the caller's entry: a gc
+    # callback of the caller that changed both fields in between paired the token of one state with the value of
+    # the other, and the entry verified although neither state of it is consistent (measured: `ok` True at 22 of
+    # 112 collection starts).
+    token = _feld_von(entry, "verifyToken")
+    _val = _feld_von(entry, "value")
     token = _zeichen_von(token) if _zeichen_von(token) is not None else token
     if type(token) is not str or not token:   # `type()`: a `__class__` claim is no str (round 12)
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"

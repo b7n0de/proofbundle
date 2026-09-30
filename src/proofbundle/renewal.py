@@ -32,7 +32,7 @@ from typing import Optional, cast
 
 from .budget import int_magnitude_ok
 from .budget import render_safe as _rs
-from .canonical import (_abbild_stand, _bytes_von, _ein_stand, _feld_von, _folge_von, _in_einem_zug,
+from .canonical import (_abbild_stand, _bytes_von, _ein_stand, _feld_von, _folge_von,
                         _zeichen_von)
 from ._membership import type_name
 from .errors import Check, ProofBundleError, VerificationResult
@@ -320,12 +320,11 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     ``__bytes__`` ran here, and a key that stored the trusted key T anchored a signature of another key
     through ``bytes(pub)``. A value that is no dict holds no key (fail-closed, as `_as_dict` answered).
 
-    Both keys are one reading, with the collector paused (a verify lens of the fix of the gate at d388ed3d, the
-    class of L4-620v5-T5-SECOND-READING-01): the hybrid leg read the Ed25519 key and the ML-DSA key in two
-    readings of the caller's map, so a gc callback that changed both in between paired the key of one state with
-    the key of the other."""
-    with _in_einem_zug():
-        _gelesen = {teil: _bytes_von(_feld_von(authority_keys, teil)) for teil in ("ed25519", "mldsa65")}
+    Both keys come from the one reading of the call of the public function (`canonical._stand`; a verify lens of the
+    fix of the gate at d388ed3d, the class of L4-620v5-T5-SECOND-READING-01): the hybrid leg read the Ed25519 key and
+    the ML-DSA key in two readings of the caller's map, so a gc callback that changed both in between paired the key
+    of one state with the key of the other."""
+    _gelesen = {teil: _bytes_von(_feld_von(authority_keys, teil)) for teil in ("ed25519", "mldsa65")}
 
     def _schluessel(teil: str):
         return _gelesen[teil]
@@ -1336,6 +1335,7 @@ class RenewalPolicy:
     strictness: str = "warn"
 
     @classmethod
+    @_ein_stand
     def from_dict(cls, obj: dict) -> "RenewalPolicy":
         strictness = obj.get("strictness", "warn")
         if strictness not in ("warn", "fail"):
