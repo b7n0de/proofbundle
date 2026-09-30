@@ -29,7 +29,7 @@ Counted in the file: section 4 has 1 MUST, 4.1 has 4, 4.2 has none; no other BCP
 
 | row | section | sentence | proofbundle status when violated |
 |---|---|---|---|
-| M1 | 4 | "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`." | `consistency_anchor_not_canonical` (see G1) |
+| M1 | 4 | "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`." | without sizes `consistency_anchor_not_canonical` (first tag); with m alone `consistency_left_siblings_mismatch`; with m and n `consistency_anchor_position_mismatch` or `consistency_path_not_canonical` (see G1) |
 | M2 | 4.1 | "Its unprotected header MUST include: `vdp` (label 396): map." | `consistency_proof_missing`; not a map: `malformed` |
 | M3 | 4.1 | "It MUST contain the `consistency-proof` (-2) key, whose value is an array of one or more `ccf-consistency-proof` values, each relating one older root to the newer root." | `consistency_proof_missing` |
 | M4 | 4.1 | "The payload is the newer root `R_n`, and MUST be detached." | `consistency_payload_attached` |
@@ -102,7 +102,10 @@ Real ledger:
 
 Variants on constructed receipts over the run 2 states (the service's own COSE_Sign1 over the newer
 root, proofs computed from the ledger's leaves, no receipt the service emitted), proofbundle against
-a literal transcription of the 4.2 pseudo-code, its signature check included:
+a literal transcription of the 4.2 pseudo-code, its signature check included. The proofbundle column
+is the reader as measured on 2026-09-25, called without tree sizes; the reader of today reports each
+of its `confirmed` rows as `confirmed_without_tree_sizes` when called the same way (WHAT THE READER
+DOES, AS BUILT):
 
 | variant | proofbundle | 4.2 as written |
 |---|---|---|
@@ -139,6 +142,8 @@ G1. Is the anchor rule M1 a rule for verifiers, or for generation only?
 - Measured, fold only: every one of those 31871 proofs starts with a left sibling; all 32896 canonical proofs start with a right sibling.
 - Measured, full acceptance, one case only: the constructed 22-to-24 receipt with a deeper anchor (the service's own COSE_Sign1 over `R_24`, the proof computed from the ledger's leaves) passes 4.2 as written, signature check included. The third-party RFC 9162 verifier rejects the same proof. No other deeper-anchor receipt was built.
 - Why the first tag decides: the M1 anchor is the largest complete subtree ending at T[m-1], so its sibling in the newer tree lies to its right; a smaller node on the same edge first meets its left sibling inside that subtree. This is the argument; the counts above are the measurement.
+- Measured, S4-10 of `section4_vectors/` (Tiago Pinto's N1 = HASH(R_6 || HASH(d[6])), path [right HASH(d[6])], signed with a test key as the root of 7 leaves): without sizes the proof has the form of a canonical proof from 4 to 5, anchor equal to the older root and one right sibling, and passes the first tag; no check without m and n can tell the two apart. m = 6 alone decides it (popcount(6) - 1 = 1 left sibling required, none present); n = 7 alone does not (the right sibling reads as the canonical anchor for m = 4).
+- Measured, the reader of today: with both sizes it requires the tags of RFC 9162 2.1.4.1 for m and n (S4-09 and S4-10: `consistency_anchor_position_mismatch`); with m alone it requires popcount(m) - 1 left siblings (N1 without a txid: `consistency_left_siblings_mismatch`); without m it keeps the first tag.
 - Question: should a verifier reject a proof whose first path element is a left sibling, and should 4.2 then say so and drop "cannot be checked without knowing m"? Or is the anchor MUST for generation only, so that a verifier accepts a deeper anchor, and the RFC 9162 sentence of section 4 then describes what a producer emits, not every proof a verifier accepts?
 
 G2. The multiple-proof rule M5 is not checked by 4.2.
@@ -160,14 +165,15 @@ G3. The text does not say which trust rule authorizes the signer of a consistenc
 
 G4. `0 < m < n` is stated, and 4.2 does not check it.
 - Sentence, 4: "where `0 < m < n`".
-- Measured: a proof whose path holds only left siblings folds older and newer to the same root; 4.2 accepts it whenever the service signed that root. The first-tag check of G1 refuses it.
+- Measured: a proof whose path holds only left siblings folds older and newer to the same root; 4.2 accepts it whenever the service signed that root. The first-tag check of G1 refuses it; with m = n = 24 given, the reader refuses it as `consistency_tree_sizes_invalid` (S4-08).
 - Question: is a consistency receipt for m = n invalid, and should 4.2 say so?
 
 G5. Tree sizes and CCF transaction IDs are not related by the text.
 - Sentence, 4: "Neither tree size is needed for verification."
 - Sentence, 2.1: "The Merkle Tree encodes an ordered list of `n` transactions T_n = \{T\[0\], ..., T\[n-1\]\}."
 - Measured, ccf package 7.0.17 and 9 signed states: leaf 0 is 32 zero bytes, not a transaction; a signature at seqno s signs the tree of s leaves.
-- A verifier does not need this. A second producer of consistency receipts from a CCF ledger does, and "n transactions" suggests T[0] is one.
+- Measured again 2026-09-30 on the three fixture states: the receipts' protected headers carry `"ccf.v1": {"txid": "2.19"}`, `"2.22"` and `"2.24"`, and MTH(leaves[0:s]) equals the signed root for s = 19, 22 and 24, leaf 0 counted.
+- A verifier following 4.2 does not need this. proofbundle's reader uses it, as its own rule and not as a requirement of -05, to take n from the txid of the receipt's protected header when the caller gives none. A second producer of consistency receipts from a CCF ledger needs it too, and "n transactions" suggests T[0] is one.
 - Question: should the draft state how m and n relate to transaction IDs, including leaf 0?
 
 G6. There is nothing to test an implementation against.
@@ -191,15 +197,19 @@ G8. Does "the same digests" in section 4 mean the same nodes, or the same values
 
 ## WHAT THE READER DOES, AS BUILT
 
-- Function: `proofbundle.scitt_ccf.verify_consistency_receipt(consistency_receipt, *, older_root, older_issuer, rp_trust)`
-- Status set: `CONSISTENCY_STATUS_ORDER`, separate from the statement statuses, first match decides.
+- Function: `proofbundle.scitt_ccf.verify_consistency_receipt(consistency_receipt, *, older_root, older_issuer, rp_trust, older_size=None, newer_size=None)`
+- Tree sizes: `older_size` from the caller, bound like `older_root` to the state it came from; `newer_size` from the caller or, where it gives none, the seqno of the receipt's `ccf.v1` txid (G5, proofbundle's own rule).
+- With both sizes: 0 < m < n, and every proof carries the tags of RFC 9162 2.1.4.1 (the proof that recomputes `older_root` for m and n, any other for the m its anchor implies). With m alone: popcount(m) - 1 left siblings in the proof that recomputes `older_root`. Without m: the first tag (G1).
+- Status set: `CONSISTENCY_STATUS_ORDER`, separate from the statement statuses, first match decides: `no_lib`, `malformed`, `outside_profile`, `consistency_proof_missing`, `consistency_payload_attached`, `consistency_newer_roots_differ`, `consistency_tree_sizes_invalid`, `consistency_newer_size_mismatch` (proofbundle's own rule), `consistency_path_not_canonical`, `consistency_anchor_position_mismatch`, `consistency_left_siblings_mismatch`, `consistency_anchor_not_canonical`, `consistency_older_root_mismatch`, `consistency_issuer_mismatch` (proofbundle's own rule), `signature_invalid`, `needs_rp_trust`.
+- Two successes: confirmed_without_tree_sizes means that the implemented checks passed without both tree sizes being available. It does not establish strict growth or the full anchor rule. confirmed requires both sizes and the corresponding checks; the sizes must be bound to the roots under the caller's trust model and our local txid-to-size rule.
+- Vectors: `section4_vectors/`, fifteen receipts with readings A and B (size-free and size-aware) and the reader's status without and with the sizes, checked by an independent `check_vectors.py`.
 - Not an anchor type and not reachable from any verify path (AP5 comes after 6.3.0).
 - Rust parity: registered `PENDING` in `scripts/rust_parity_registry.json`.
-- Tests: `tests/test_scitt_ccf_consistency.py`, synthetic and on the committed run-2 vector; seven single-rule mutants of the verifier each fail at least one test.
+- Tests: `tests/test_scitt_ccf_consistency.py`, synthetic and on the committed run-2 vector; seven single-rule mutants of the verifier each failed at least one test when it was first built, fifteen single mutants of the size rules and four of the left-sibling rule since, each failing at least one test.
 
 ## NOT MEASURED
 
-- The mail that opened the last call, the datatracker page and the rendered draft.
+- The mail that opened the last call, the datatracker page and the rendered draft. The three list messages on the vectors (Team EMILIA, Tiago Pinto, Nicholas Templeman) were read in the archive by Cowork, the owner's review session, on 2026-09-30, not from this environment.
 - Any consistency receipt produced by a service: none exists in the code measured.
 - A production CCF service.
 - Trees larger than 257 leaves (exhaustive), or larger than 64 against the oracle.
