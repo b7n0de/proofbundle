@@ -24,11 +24,15 @@ the .proofbundle/ folder (see tree_manifest). The subject must stand in the decl
 signed evidence, and both must equal the digest the gate computes; otherwise the call is denied.
 
 Usage as a hook: proofbundle_gate.py [--host claude|codex]. stdin: the host's PreToolUse event (JSON).
-stdout: one JSON answer, or nothing for a call the gate does not gate.
+stdout: one JSON answer, or nothing for a call the gate does not gate. The exit code is always 0; a
+failure inside the gate is answered as deny.
 
 Usage for a producer: proofbundle_gate.py tree-digest [--repo DIR] [--rev REV] [--statement] prints the
-tree digest of REV (default HEAD), or with --statement the JSON a bundle signs to name it. The exit code is always 0; a failure inside the gate is answered as deny. Standard library
-only, so the gate itself needs no package.
+tree digest of REV (default HEAD), or with --statement the JSON a bundle signs to name it.
+
+Usage in CI: proofbundle_gate.py ci-check --repo DIR --require-declaration true|false prints one JSON
+report and exits 0 (verified, or nothing declared where none is required), 1 (everything else) or 2 (a
+wrong call); see DECISIONS.md, D22. Standard library only, so the gate itself needs no package.
 """
 from __future__ import annotations
 
@@ -643,12 +647,13 @@ def _rules_verdict(repo: str, commit: str, what: str, digests: tuple = ()) -> Ve
 
 # --- one repository ----------------------------------------------------------------------------------
 
-def evaluate_repository(directory: str, deadline: float) -> Verdict:
+def evaluate_repository(directory: str, deadline: float, check_range: bool = True) -> Verdict:
     """The verdict for the repository that contains directory: pass, inactive, deny or ask.
 
     'inactive' is the one NOT MEASURED answer without a permission decision: the gate measured that the
     repository declares nothing, neither at HEAD nor in the working tree (DECISIONS.md, D5), and it cannot
-    see a push that removes a declaration the remote holds (D20).
+    see a push that removes a declaration the remote holds (D20). check_range False skips the comparison of
+    the evidence rules with the remote (D20), for the CI mode (D22).
     """
     top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
     if top.returncode != 0:
@@ -667,7 +672,7 @@ def evaluate_repository(directory: str, deadline: float) -> Verdict:
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
     if raw is None:
         if _absent_at_head(repo, commit, deadline) and _absent_in_working_tree(repo):
-            status, what = rules_change(repo, commit, deadline)
+            status, what = rules_change(repo, commit, deadline) if check_range else ("unchanged", "")
             if status == "changed":
                 return _rules_verdict(repo, commit, what)
             return Verdict("inactive", f"NOT MEASURED: {repo} declares no evidence, neither at HEAD {commit[:12]} "
@@ -767,7 +772,7 @@ def evaluate_repository(directory: str, deadline: float) -> Verdict:
                        failed="; ".join(why for _, _, why in unbound),
                        next_step="sign a statement that names the tree digest of HEAD and commit it",
                        digests=digests, repo=repo, head=commit)
-    status, what = rules_change(repo, commit, deadline)
+    status, what = rules_change(repo, commit, deadline) if check_range else ("unchanged", "")
     if status == "changed":
         return _rules_verdict(repo, commit, what, tuple(digests))
     if status == "unmeasured":
@@ -780,7 +785,8 @@ def evaluate_repository(directory: str, deadline: float) -> Verdict:
     return Verdict("pass", f"proofbundle gate: {len(items)} of {len(items)} declared items verified at HEAD "
                            f"{commit[:12]} for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves "
                            "who signed the recorded bytes and which tree they name, not that the recorded values "
-                           "are true. The push leaves the evidence rules as the remote holds them.",
+                           "are true. " + ("The push leaves the evidence rules as the remote holds them." if check_range
+                                           else "The evidence rules were not compared with any earlier state."),
                    "verified", digests=tuple(digests), repo=repo, head=commit)
 
 
@@ -950,6 +956,62 @@ def write_log(entry: dict, host: str) -> str | None:
     return path
 
 
+CI_USAGE = "usage: ci-check --repo DIR --require-declaration true|false"
+
+
+def ci_check(repo: str, require_declaration: bool, deadline: float | None = None) -> tuple[int, dict]:
+    """The CI mode (DECISIONS.md, D22): the gate's own evaluation of HEAD, stricter than at a push.
+
+    Exit 0 only when every declared item verified and is bound to the tree of the commit, or when nothing
+    is declared and the workflow says the repository need not declare. Every NOT MEASURED, every deny and a
+    missing declaration where one is required exit 1. Whether a declaration is required comes from the
+    workflow, not from the declaration, so deleting the declaration cannot switch the check off. The push
+    range of D20 is not read: in CI the reviewed state of the evidence rules is CODEOWNERS' part.
+    """
+    deadline = time.monotonic() + DEADLINE_SECONDS if deadline is None else deadline
+    try:
+        verdict = evaluate_repository(repo, deadline, check_range=False)
+    except GateError as exc:
+        verdict = Verdict("deny", f"proofbundle gate: {exc}. The check fails because the gate reached no verdict.",
+                          "gate_error", evidence=f"the declaration {DECLARATION} and the evidence it names",
+                          failed=str(exc), next_step="fix the cause named here", repo=repo)
+    if verdict.decision == "pass":
+        code, outcome = 0, "verified"
+    elif verdict.decision == "inactive" and not require_declaration:
+        code, outcome = 0, "not_required"
+    elif verdict.decision == "inactive":
+        code, outcome = 1, "declaration_required"
+        verdict = Verdict("deny", f"proofbundle gate: the workflow requires a declaration, and {DECLARATION} is absent "
+                                  f"at HEAD {verdict.head[:12]}.", "declaration_required", evidence=f"the declaration {DECLARATION}",
+                          failed="the repository must declare evidence, and it declares none",
+                          next_step="restore the declaration and its evidence, or change the workflow input in a "
+                                    "reviewed change", repo=verdict.repo, head=verdict.head)
+    else:
+        code, outcome = 1, "not_measured" if verdict.detail.startswith("NOT MEASURED") else "failed"
+    report = {"outcome": outcome, "exit_code": code, "require_declaration": require_declaration,
+              "repo": verdict.repo, "head": verdict.head, "verdict": verdict.decision, "reason_id": verdict.reason_id,
+              "digests": list(verdict.digests), "message": verdict.text(), "gate_version": GATE_VERSION}
+    return code, report
+
+
+def ci_check_command(argv: list[str]) -> int:
+    options, i = {"--repo": None, "--require-declaration": None}, 0
+    while i < len(argv):
+        if argv[i] in options and i + 1 < len(argv):
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"{CI_USAGE}; unknown {argv[i]!r}", file=sys.stderr)
+            return 2
+    if None in options.values() or options["--require-declaration"] not in ("true", "false"):
+        print(CI_USAGE, file=sys.stderr)
+        return 2
+    code, report = ci_check(options["--repo"], options["--require-declaration"] == "true")
+    sys.stdout.write(json.dumps(report, indent=1) + "\n")
+    print(("proofbundle evidence check passed: " if code == 0 else "proofbundle evidence check FAILED: ")
+          + report["message"], file=sys.stderr)
+    return code
+
+
 def _host(argv: list[str]) -> str:
     if not argv:
         return "claude"
@@ -962,6 +1024,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["tree-digest"]:
         return tree_digest_command(argv[1:])
+    if argv[:1] == ["ci-check"]:
+        return ci_check_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions = "claude", None, []
     try:

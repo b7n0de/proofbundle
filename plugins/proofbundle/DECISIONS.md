@@ -448,3 +448,43 @@ Options:
 - A. A local log per host data directory, read by the server where the host names it (chosen).
 - B. No log; the gate note alone.
 - C. A fixed path shared by both hosts, which the server would have to guess.
+
+## D22. The same check in CI
+
+Chosen (smallest variant, 2026-09-30, for the owner's review):
+- `proofbundle_gate.py ci-check --repo DIR --require-declaration true|false` runs the gate's own
+  evaluation of HEAD (`evaluate_repository`), the same code as before a push, and prints one JSON report.
+  Exit 0 only when every declared item verified and names the tree of HEAD (`verified`), or when nothing
+  is declared and the input says the repository need not declare (`not_required`). Exit 1 for a missing
+  declaration where one is required (`declaration_required`), for every other NOT MEASURED
+  (`not_measured`) and for every deny, including a verifier that cannot start (`failed`). Exit 2 for a
+  wrong call, without a report.
+- Whether a repository must declare is the workflow input `require-declaration`, a required boolean
+  without a default, never a field of the declaration. Deleting the declaration therefore cannot switch
+  the check off where the workflow requires one.
+- The CI mode checks HEAD of the checkout and has no revision option. The absence check of D5 reads the
+  working tree, which is HEAD's; another revision would be judged against a working tree of another state.
+  The template checks out the head of a pull request, not GitHub's merge commit, because the declaration
+  names the tree of the commit that is pushed.
+- The push range of D20 is not read in CI: a checkout holds no remote-tracking refs, and the question
+  "does this change the evidence rules" belongs to review. The CODEOWNERS template puts `.proofbundle/`,
+  the two workflows and CODEOWNERS itself under a required code owner review. The pass text of the CI
+  mode says the rules were not compared, instead of the push text.
+- `required=false` with nothing declared exits 0. That keeps the check usable in a repository that has
+  not declared yet; the report says `not_required` and NOT MEASURED, never verified.
+- The templates live in `ci/` of the plugin, not in proofbundle's own `.github/`. The workflow is a
+  reusable one (`workflow_call`) that the repository copies and calls; it takes the gate from a full commit
+  SHA of b7n0de/proofbundle and fails its first step on anything else. Its action pins are copied from
+  proofbundle's own workflows and were not re-checked against GitHub.
+- A pull request can change the workflow it runs under, including the input. The check protects only
+  together with the CODEOWNERS template and a rule that requires the code owners' review; `ci/README.md`
+  says so.
+
+Options:
+- A. The gate's evaluation of HEAD with the requirement as a workflow input, no range, CODEOWNERS for the
+  rules (chosen).
+- B. Also compare the rules with the base branch of a pull request, fetched in CI. More code and a fetch,
+  and it still depends on the workflow the pull request can change.
+- C. The requirement as a field of the declaration or a file under `.proofbundle/`. Deleting the file
+  would switch the check off.
+- D. A `--rev` option. Rejected, see the third point.

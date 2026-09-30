@@ -94,6 +94,15 @@ version, session, tool, gated actions, decision, reason ids, and per repository 
 sha256 of each evidence file read. It holds no evidence content, no environment and no key. `gate_status`
 reads it; under Codex the server is not told where the hook writes, so it answers NOT MEASURED (D21).
 
+### The same check in CI
+
+`proofbundle_gate.py ci-check --repo DIR --require-declaration true|false` runs the gate's evaluation of
+HEAD in CI and exits 0 only for verified evidence, or for nothing declared where the workflow says the
+repository need not declare. Every NOT MEASURED, every deny and a missing declaration where one is
+required exit 1. Whether a repository must declare is a workflow input, not part of the declaration. The
+templates in `ci/`, a reusable workflow and a CODEOWNERS file, are for your repository and are described
+in `ci/README.md` (D22).
+
 ### The tree digest
 
 The subject is `proofbundle-tree-sha256/v1`. It covers every file of the commit at HEAD except the

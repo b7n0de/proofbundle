@@ -1,0 +1,17 @@
+# A CODEOWNERS template of the proofbundle plugin (plugins/proofbundle/ci, DECISIONS.md D22).
+# Copy the lines below into .github/CODEOWNERS of your repository and replace @OWNER with the people
+# or the team who review changes to the evidence rules. It protects only together with a branch
+# ruleset or branch protection that requires a review from code owners. After copying, open the
+# CODEOWNERS file on GitHub and check that it shows no errors: a line GitHub cannot read protects nothing.
+
+# The evidence rules: the declaration, the trust policies and the evidence files.
+/.proofbundle/ @OWNER
+
+# The workflows that decide whether a declaration is required and which gate checks it. A pull request
+# can change the workflow it runs under, so a change here needs the same review. Add the workflow that
+# calls proofbundle-evidence.yml under its own name.
+/.github/workflows/proofbundle-evidence.yml @OWNER
+/.github/workflows/evidence.yml @OWNER
+
+# This file, so the owners above cannot be removed without their review.
+/.github/CODEOWNERS @OWNER

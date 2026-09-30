@@ -1,0 +1,84 @@
+name: proofbundle-evidence
+
+# A template of the proofbundle plugin (plugins/proofbundle/ci, DECISIONS.md D22), not a workflow of
+# proofbundle itself. Copy it to .github/workflows/proofbundle-evidence.yml of the repository whose
+# evidence it checks, and call it from a workflow that runs on pull requests and pushes (ci/README.md).
+#
+# It runs the CI mode of the plugin gate on the commit under review: the same evaluation as the gate
+# before a push, with two differences. Every NOT MEASURED fails, and whether the repository must
+# declare evidence is the input require-declaration of this workflow, not anything in the declaration,
+# so deleting the declaration cannot switch the check off. The push range the gate compares before a
+# push is not read here; changes to the evidence rules and to this workflow are the review of the
+# CODEOWNERS template beside it.
+#
+# Exit 0: every declared item verified and names the tree of the commit, or nothing is declared and
+# require-declaration is false. Exit 1: everything else. Exit 2: the gate was called wrongly.
+#
+# Actions are pinned to full commit SHAs, copied from proofbundle's own workflows. Check them against
+# your own supply-chain policy before you rely on them.
+
+on:
+  workflow_call:
+    inputs:
+      require-declaration:
+        description: "true: the repository must declare evidence in .proofbundle/evidence.json, and a missing declaration fails. false: a repository that declares nothing passes, as NOT MEASURED."
+        type: boolean
+        required: true
+      proofbundle-ref:
+        description: "The full 40-character commit SHA of b7n0de/proofbundle whose plugin gate runs the check."
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: The gate is pinned to a full commit SHA
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+        run: |
+          if [[ ! "$GATE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "proofbundle-ref must be a full 40-character commit SHA, not: $GATE_REF" >&2
+            exit 1
+          fi
+
+      # The commit under review. On a pull request that is its head, not the merge commit GitHub
+      # builds, because the declaration names the tree of the commit that is pushed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: checked
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: b7n0de/proofbundle
+          ref: ${{ inputs.proofbundle-ref }}
+          path: gate
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The gate starts the plugin's verifier with uv, which installs the proofbundle version the
+      # server pins. Pin uv by hash as well if your policy requires it.
+      - name: Install uv
+        run: python -m pip install "uv==0.8.17"
+
+      - name: Check the declared evidence
+        env:
+          REQUIRE_DECLARATION: ${{ inputs.require-declaration }}
+        run: |
+          python gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check \
+            --repo checked --require-declaration "$REQUIRE_DECLARATION"
