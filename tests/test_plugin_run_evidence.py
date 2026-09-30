@@ -200,7 +200,7 @@ def test_a_working_tree_that_differs_from_head_gives_no_evidence(env, repo, tmp_
     ("import subprocess\n\ndef test_commits():\n    subprocess.run(['git', '-c', 'user.name=t', '-c', "
      "'user.email=t@example.org', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'x'], "
      "check=True)\n", "head_moved"),
-])
+], ids=["writes-a-file", "edits-a-tracked-file", "commits"])
 def test_a_run_that_changes_the_tree_or_moves_head_gives_no_evidence(env, repo, tmp_path, body, reason_id):
     _write(repo / "tests" / "test_side_effect.py", body)
     _commit(repo)
@@ -215,7 +215,7 @@ def test_a_run_that_changes_the_tree_or_moves_head_gives_no_evidence(env, repo, 
     (None, (sys.executable, "-m", "pytest", "-q", "tests/", "-k", "no_such_test"), "run_failed"),
     (None, ("true",), "no_report"),
     (None, ("no-such-program-for-run-evidence",), "no_program"),
-])
+], ids=["red-test", "fixture-error", "nothing-selected", "not-pytest", "no-program"])
 def test_a_run_that_is_not_green_gives_no_evidence(env, repo, tmp_path, body, command, reason_id):
     if body is not None:
         _write(repo / "tests" / "test_more.py", body)
@@ -269,7 +269,7 @@ open(report, "w", encoding="utf-8").write(sys.argv[1])
     ('<testsuites/>', "no_report"),
     ('<other tests="2"/>', "no_report"),
     ('not xml', "no_report"),
-])
+], ids=["green-testsuites", "green-testsuite", "report-error", "report-failure", "only-skipped", "no-tests", "counts-do-not-add-up", "count-not-a-number", "negative-count", "entity", "doctype", "no-testsuite", "other-root", "not-xml"])
 def test_the_counts_come_from_the_report_and_not_from_the_exit_code(env, repo, tmp_path, xml, reason_id):
     """A runner that exits 0 and writes the given report: the record takes the counts from the report."""
     runner = tmp_path / "fake_runner.py"
@@ -355,7 +355,7 @@ def _green_record(repo: pathlib.Path, env: dict, tmp_path: pathlib.Path) -> dict
     (lambda r: r.update(note="an extra key"), "is not a"),
     (lambda r: r.pop("report_sha256"), "is not a"),
     (lambda r: r.update(command=[]), "names no command"),
-])
+], ids=["exit-code-1", "exit-code-true", "exit-code-false", "a-failure", "an-error", "none-passed", "sum-off", "count-a-string", "count-missing", "tree-after", "tree-before", "old-schema", "extra-key", "missing-key", "no-command"])
 def test_a_signed_run_record_that_is_not_green_is_denied(env, repo, tmp_path, mutate, why):
     statement = _green_record(repo, env, tmp_path)
     forged = copy.deepcopy(statement)
