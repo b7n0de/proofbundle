@@ -14,77 +14,77 @@
   {
    "path": "S4-01.json",
    "length": 4091,
-   "sha256": "264dd2fc89356b5bf6a83e9df2be842add8e92ca9e92ae059f93e4f26db94eb6"
+   "sha256": "86d5024fec1995a342901057a461aa8ff2e35c8cd28bed2655c16a5537ff2d6a"
   },
   {
    "path": "S4-02.json",
    "length": 3922,
-   "sha256": "52f81d954000fcf17cc7a61e6ea592bfb6d5fdd9aed05c677cce68a3ea353bfe"
+   "sha256": "2b9086ff2411cdaf275a239bdb59e5a06903874ec5afcad93a04437b8fd94e0c"
   },
   {
    "path": "S4-03.json",
    "length": 4731,
-   "sha256": "cb2a80d0bdc9a8badf1c8a73d1bff10ba200d2018ed6e6f407569c86a21288eb"
+   "sha256": "0d20d508f17cc02b863b7da577e78d859290062d28dee4b6da214780f682a696"
   },
   {
    "path": "S4-04.json",
    "length": 4710,
-   "sha256": "2f34b78dc2c4cb275408b7fcaa3587d34327fc25bd29fd7fa67d84c846acb442"
+   "sha256": "16cc64196ee5bf72dea07bb40feb6d778019b68ecde5224b39c442664b5114a0"
   },
   {
    "path": "S4-05.json",
    "length": 4753,
-   "sha256": "e9345c560ca3d13f43a3e674553a15311f7e5c40359bd3f29701ef5e8184fea7"
+   "sha256": "10b5c1aee81bf9074bbc560921a7805bb87f7da848b5a06af9e7a70ed6fb4164"
   },
   {
    "path": "S4-06.json",
    "length": 4670,
-   "sha256": "1fd278d2aca376390db1d81b068c5a8983006f7e2f28a12aec758c54ba42d2eb"
+   "sha256": "f64742c3545f801bfa57f86c617ced75a60457c01821926321f167997cd97c1c"
   },
   {
    "path": "S4-07.json",
    "length": 4723,
-   "sha256": "44e81a147df1eff68103a90ccb67962f7ad7d0f613cbcfd9edc2ea2f40123b3f"
+   "sha256": "b643c51138f7dbd61bba16377cf3b5c175f20d69f52e2cf32bdfdadb1596a7ef"
   },
   {
    "path": "S4-08.json",
    "length": 3716,
-   "sha256": "352355a31eb50fd90cd195617f5b48003e64bcf17e53e0ca58b796747d0cc678"
+   "sha256": "70d1dbe1e447dbd26047033a615de1bde61321f17382ecb12c0b1481096238c2"
   },
   {
    "path": "S4-09.json",
    "length": 4425,
-   "sha256": "28b4a6303f722a80e58bb6d459b74065cc44c7ba88044532ced727a7c730cb41"
+   "sha256": "921696c72fdd36515505413df813d4a57c551bc04d8cf3c364008c336617cf8b"
   },
   {
    "path": "S4-10.json",
    "length": 4196,
-   "sha256": "eeb9e6dec4fa2ea71cf8aba7a5a8cb6da62137a3e66b5cf31a042682cf34ac3b"
+   "sha256": "a08c2637b3fa0eacdd9118867d5d42ecc34035724eeddb1ec0ee163361c764d0"
   },
   {
    "path": "S4-11.json",
    "length": 3035,
-   "sha256": "d3ffa9d727cf54f2f0d39f10fd2d63682b8ab5b6a095f90fbc1e5caf29a37f43"
+   "sha256": "fa88d24610d8bdd2c883bcf0c2d1664f517fcb504f64a211e5ebda34f4220ae2"
   },
   {
    "path": "S4-12.json",
    "length": 4277,
-   "sha256": "5d3ef33bb36e5d685d6f9a7f4e19f3137b741add614dac01fb2b3c05aba58c0b"
+   "sha256": "1c4b3f94f55d318680a1d1b123995adfe3a0c3a7658c421057a73da33ec126e8"
   },
   {
    "path": "S4-13.json",
    "length": 4016,
-   "sha256": "3382c693c5cd04ff8da26e3d4f93e2a5060c609492af91ffa8c005c7f15d0dd1"
+   "sha256": "513ab621a06106d84535c527c66a1b9e432db7fca00594c6afc2bc5d813cbf83"
   },
   {
    "path": "S4-14.json",
    "length": 3876,
-   "sha256": "a283f80852f9cc6a7c453787a67bf469ada91ee4346a28394f649329873fb54a"
+   "sha256": "1f4740f254c7bfff38a3fc869e9ba7b18751c657a762df715c9317fdb44c3497"
   },
   {
    "path": "S4-15.json",
    "length": 3905,
-   "sha256": "cb9ab176db7f8cfd246208948c62849935a4a2b3fbc639be70c0b2a26c9c17f5"
+   "sha256": "bc49844f56c5af0e7763ab297ab003ecb989f10f66d40653a4c70faab908e370"
   },
   {
    "path": "TEST_ONLY_es384_private_key.pem",
@@ -99,7 +99,7 @@
   {
    "path": "generate_vectors.py",
    "length": 21614,
-   "sha256": "b96f39180a52e8a0c5ba34818bdc380656c43b64587b7d056179f8c657414f26"
+   "sha256": "ae96c271802416c72e0d78a9aa11af75b05c26430d5b79c03783a0e3674f2481"
   }
  ]
 }
