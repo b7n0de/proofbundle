@@ -311,9 +311,9 @@ def recompute_data_hash(data: bytes) -> bytes:
 # Keys and signatures (cryptography), algorithm bound to key type and curve
 # ------------------------------------------------------------------------------------------------
 def _crit_ok(headers: dict, processed: tuple) -> Optional[str]:
-    crit = headers.get(_CRIT)
-    if crit is None:
+    if _CRIT not in headers:                    # PRESENCE, not the value: crit = null is a crit
         return None
+    crit = headers[_CRIT]
     if not isinstance(crit, list) or not crit:
         return "crit is not a non-empty array"
     for label in crit:
@@ -519,6 +519,8 @@ def load_cose_keyset(data: bytes) -> list:
         cls, n = curves[crv]
         x, y, kid = k.get(-2), k.get(-3), k.get(2)
         if not (isinstance(x, bytes) and isinstance(y, bytes) and len(x) == n and len(y) == n):
+            continue
+        if 2 in k and not isinstance(kid, bytes):   # a present kid is a bstr; null is not an absent kid
             continue
         try:
             pub = ec.EllipticCurvePublicNumbers(int.from_bytes(x, "big"), int.from_bytes(y, "big"),
@@ -1023,7 +1025,7 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         # THE PROOFS BEFORE THE PROFILE (Codex, PR 278): an early profile branch must not skip the
         # shape of what follows it, or an unsupported algorithm makes junk proofs look readable.
         raw_vdp = rc.unprotected.get(_VDP)
-        if raw_vdp is not None and not isinstance(raw_vdp, dict):
+        if _VDP in rc.unprotected and not isinstance(raw_vdp, dict):    # PRESENCE: null is not absent
             return out("malformed", detail="vdp (396) is not a map")
         # EVERY PROOF FAMILY, NOT ONLY -1 (Codex, PR 278 round three): the -05 CDDL closes vdp to -1
         # and -2, and section 5 says all proofs in a receipt recompute the same root, the newer root
@@ -1032,9 +1034,9 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
         unknown = [k for k in (raw_vdp or {}) if k not in (_INCLUSION, _CONSISTENCY)]
         if unknown:
             return out("malformed", detail=f"vdp carries {unknown!r}; -05 defines -1 and -2 only")
-        for name, arr, limit in (("inclusion", proofs, MAX_INCLUSION_PROOFS),
-                                 ("consistency", consistency, MAX_CONSISTENCY_PROOFS)):
-            if arr is not None and not isinstance(arr, list):
+        for name, label, arr, limit in (("inclusion", _INCLUSION, proofs, MAX_INCLUSION_PROOFS),
+                                        ("consistency", _CONSISTENCY, consistency, MAX_CONSISTENCY_PROOFS)):
+            if label in vdp and not isinstance(arr, list):     # PRESENCE: -1 or -2 = null is not absent
                 return out("malformed", detail=f"the {name} proofs are not an array")
             if isinstance(arr, list) and len(arr) > limit:
                 return out("malformed", detail=f"more than {limit} {name} proofs")
@@ -1257,9 +1259,10 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
 
     computed: list = []
     inclusion_roots: list = []
-    if _is_ccf(rc) and raw_vdp is not None:
+    if _is_ccf(rc) and _VDP in rc.unprotected:
         # THE PROOFS BEFORE THE PROFILE (Codex, PR 278), as in _receipt: a shape defect is
-        # malformed whatever the profile says, and malformed precedes outside_profile.
+        # malformed whatever the profile says, and malformed precedes outside_profile. PRESENCE,
+        # not the value: vdp = null is a vdp that is not a map.
         if not isinstance(raw_vdp, dict):
             return out("malformed", detail="vdp (396) is not a map")
         unknown = [k for k in raw_vdp if k not in (_INCLUSION, _CONSISTENCY)]
@@ -1267,8 +1270,8 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
             return out("malformed", detail=f"vdp carries {unknown!r}; -05 defines -1 and -2 only")
         proofs = raw_vdp.get(_CONSISTENCY)
         inclusion = raw_vdp.get(_INCLUSION)
-        for name, arr in (("consistency", proofs), ("inclusion", inclusion)):
-            if arr is not None and not isinstance(arr, list):
+        for name, label, arr in (("consistency", _CONSISTENCY, proofs), ("inclusion", _INCLUSION, inclusion)):
+            if label in raw_vdp and not isinstance(arr, list):    # PRESENCE: null is not absent
                 return out("malformed", detail=f"the {name} proofs are not an array")
             if arr is not None and len(arr) > MAX_CONSISTENCY_PROOFS:
                 return out("malformed", detail=f"more than {MAX_CONSISTENCY_PROOFS} {name} proofs")
