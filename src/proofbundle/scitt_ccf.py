@@ -95,10 +95,10 @@ CONSISTENCY_STATUS_ORDER = (
                                          # root came from another service's receipt (SECTION4_WGLC.md, G3)
     "signature_invalid", "needs_rp_trust")
 MAX_CONSISTENCY_PROOFS = 8
-#: The success of a consistency receipt checked without both tree sizes: every rule held that the
-#: receipt allows, but the anchor rule of section 4 only as far as the first tag goes, or with m alone
-#: as far as m decides it, and 0 < m < n not at all. Never ``confirmed``: what could not be checked
-#: is not reported as checked.
+#: confirmed_without_tree_sizes means that the implemented checks passed without both tree sizes
+#: being available. It does not establish strict growth or the full anchor rule. confirmed requires
+#: both sizes and the corresponding checks; the sizes must be bound to the roots under the caller's
+#: trust model and our local txid-to-size rule.
 CONFIRMED_WITHOUT_TREE_SIZES = "confirmed_without_tree_sizes"
 #: The largest tree size taken: a tree of more leaves has paths longer than 64, beyond MAX_PATH.
 MAX_TREE_SIZE = 1 << 64
@@ -1197,9 +1197,11 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
     ``older_root`` (4.2), the receipt's issuer is ``older_issuer`` (proofbundle's own rule, not a
     requirement of -05; owner answer S1 a keeps it until the working group answers gap G3), and a
     relying-party key for that issuer and kid verifies the receipt signature over the newer root
-    (4.2). ``confirmed_without_tree_sizes`` is the same with a size missing: the anchor rule was
-    checked only as far as the first tag goes, or with m alone as far as m decides it, and 0 < m < n
-    not at all. Anything else is one of ``CONSISTENCY_STATUS_ORDER``, the first that applies.
+    (4.2). confirmed_without_tree_sizes means that the implemented checks passed without both tree
+    sizes being available. It does not establish strict growth or the full anchor rule. confirmed
+    requires both sizes and the corresponding checks; the sizes must be bound to the roots under the
+    caller's trust model and our local txid-to-size rule. Anything else is one of
+    ``CONSISTENCY_STATUS_ORDER``, the first that applies.
 
     THE TREE SIZES. ``older_size`` is the size of the state ``older_root`` came from; like
     ``older_root`` it is the caller's to bind, and the reader cannot see where it came from. The

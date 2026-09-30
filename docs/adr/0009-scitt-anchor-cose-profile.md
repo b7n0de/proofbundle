@@ -473,10 +473,10 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 | `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -05 (owner answer S1 a, until the working group answers G3) |
 | `signature_invalid`, `needs_rp_trust` | as for inclusion receipts, over the newer root |
 
-A receipt that passes every rule is `confirmed` only when both tree sizes were known; without them
-it is `confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`), because the anchor rule of
-section 4 was then checked only as far as the first tag goes and 0 < m < n not at all. What could
-not be checked is never reported as checked. The older size is the caller's (`older_size`), bound
+`confirmed_without_tree_sizes` (`CONFIRMED_WITHOUT_TREE_SIZES`) means that the implemented checks
+passed without both tree sizes being available. It does not establish strict growth or the full
+anchor rule. `confirmed` requires both sizes and the corresponding checks; the sizes must be bound
+to the roots under the caller's trust model and our local txid-to-size rule. The older size is the caller's (`older_size`), bound
 like `older_root` to the state it came from, typically the seqno of the txid of the inclusion
 receipt that verified it; the newer size is the caller's `newer_size` or, where the caller gives
 none, the seqno of this receipt's `ccf.v1` txid. That a seqno is the tree size its signature covers
