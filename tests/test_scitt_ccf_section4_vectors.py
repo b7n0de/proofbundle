@@ -183,3 +183,62 @@ def test_the_one_test_key_is_labelled_test_only_and_signs_deterministically():
         tbs = cbor2.dumps(["Signature1", prot, b"", newer])
         r, s = utils.decode_dss_signature(key.sign(tbs, ec.ECDSA(hashes.SHA384(), deterministic_signing=True)))
         assert r.to_bytes(48, "big") + s.to_bytes(48, "big") == sig
+
+
+def _test_key_receipt(vdp: dict, prot: dict, cbor2) -> tuple:
+    """A receipt over S4-01's newer root signed with the directory's TEST ONLY key: (bytes, spki)."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, utils
+    key = serialization.load_pem_private_key((DIR / "TEST_ONLY_es384_private_key.pem").read_bytes(), password=None)
+    spki = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    s401 = json.loads((DIR / "S4-01.json").read_text(encoding="utf-8"))
+    newer = bytes.fromhex(s401["consistency_proofs_decoded"][0]["anchor_hex"])
+    for left, h in s401["consistency_proofs_decoded"][0]["path"]:
+        newer = hashlib.sha256((bytes.fromhex(h) + newer) if left else (newer + bytes.fromhex(h))).digest()
+    prot_b = cbor2.dumps(prot)
+    r, s = utils.decode_dss_signature(key.sign(cbor2.dumps(["Signature1", prot_b, b"", newer]),
+                                               ec.ECDSA(hashes.SHA384(), deterministic_signing=True)))
+    return b"\xd2" + cbor2.dumps([prot_b, {396: vdp}, None, r.to_bytes(48, "big") + s.to_bytes(48, "big")]), spki
+
+
+def _s401_parts(cbor2) -> tuple:
+    s401 = json.loads((DIR / "S4-01.json").read_text(encoding="utf-8"))
+    tag = cbor2.loads(bytes.fromhex(s401["receipt_hex"]))
+    return s401, tag.value, dict(tag.value[1][396])
+
+
+@pytest.mark.parametrize("vds", [2.0, "2", True, None, 2], ids=["float", "text", "bool", "null", "control"])
+def test_the_checker_takes_vds_only_as_the_int_2(vds):
+    """B1: vds (395) => int, TBD_1 = 2. Python's 2.0 == 2 must not let a float through."""
+    import cbor2
+    _s401, _parts, vdp = _s401_parts(cbor2)
+    prot = {1: -35, 4: b"test-only", 15: {1: "test-only.section4-vectors.invalid"}, "ccf.v1": {"txid": "2.24"}}
+    if vds is not None:
+        prot[395] = vds
+    receipt, spki = _test_key_receipt({-2: list(vdp[-2])}, prot, cbor2)
+    older = bytes.fromhex(_s401["older_root_hex"])
+    got = _checker().reading_b(receipt, older, spki)
+    is_int_2 = isinstance(vds, int) and not isinstance(vds, bool) and vds == 2
+    assert got == (("accept", "every rule of reading B holds") if is_int_2 else ("reject", "B1")), got
+
+
+@pytest.mark.parametrize("alg", [-35.0, True, "-35"], ids=["float", "bool", "text"])
+def test_the_checkers_verify_cose_takes_alg_only_as_an_int(alg):
+    """Reading A reaches verify_cose, which looked alg up in a dict: -35.0 hashes like -35."""
+    import cbor2
+    s401, _parts, vdp = _s401_parts(cbor2)
+    prot = {1: alg, 4: b"test-only", 15: {1: "test-only.section4-vectors.invalid"}, 395: 2}
+    receipt, spki = _test_key_receipt({-2: list(vdp[-2])}, prot, cbor2)
+    older = bytes.fromhex(s401["older_root_hex"])
+    assert _checker().reading_a(receipt, older, spki) == ("reject", "assert(verify_cose(consistency_receipt, payload))")
+
+
+@pytest.mark.parametrize("value", [None, {}, [], b"", 0], ids=["null", "map", "empty", "bstr", "int"])
+def test_the_checker_takes_a_present_inclusion_key_as_present(value):
+    """B6: a -1 in vdp must be an array of one or more inclusion proofs; -1 with null is not absent."""
+    import cbor2
+    s401, (prot_b, _u, payload, sig), vdp = _s401_parts(cbor2)
+    receipt = b"\xd2" + cbor2.dumps([prot_b, {396: {**vdp, -1: value}}, payload, sig])
+    got = _checker().reading_b(receipt, bytes.fromhex(s401["older_root_hex"]),
+                               bytes.fromhex(s401["public_key"]["spki_der_hex"]))
+    assert got == ("reject", "B6"), got

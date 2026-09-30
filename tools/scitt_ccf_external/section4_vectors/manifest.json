@@ -88,8 +88,8 @@
   },
   {
    "path": "check_vectors.py",
-   "length": 16850,
-   "sha256": "e17edec7712f5909f491715b514d4dc2a5c2fba088a6fc158392081b71b0c466"
+   "length": 17119,
+   "sha256": "ab42aeaa94652162c8f37f283a5baf937c167aab1738c3728008df1bf3e25320"
   },
   {
    "path": "generate_vectors.py",

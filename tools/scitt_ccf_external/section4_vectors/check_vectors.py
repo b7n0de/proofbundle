@@ -78,8 +78,8 @@ def compute_root(proof: bytes) -> bytes:
 
 def verify_cose(prot_raw: bytes, alg: object, payload: bytes, sig: bytes, spki: bytes) -> bool:
     """verify_cose over the detached payload: Sig_structure ["Signature1", protected, h'', payload]."""
-    if alg not in ALGS or not isinstance(sig, bytes):
-        return False
+    if isinstance(alg, bool) or not isinstance(alg, int) or alg not in ALGS or not isinstance(sig, bytes):
+        return False                            # an int, not a float that hashes like one (-35.0)
     curve, hash_cls, n = ALGS[alg]
     key = load_der_public_key(spki)
     if not isinstance(key, ec.EllipticCurvePublicKey) or not isinstance(key.curve, curve) or len(sig) != 2 * n:
@@ -235,10 +235,10 @@ def reading_b(receipt: bytes, older_root: bytes, spki: bytes, older_size: int | 
         prot_raw, prot, unprot, payload, sig = cose_sign1(receipt)
     except Exception as exc:  # noqa: BLE001
         return "reject", f"B1 the receipt is not a COSE_Sign1 ({type(exc).__name__})"
-    alg = prot.get(ALG)
-    if not (isinstance(alg, int) and not isinstance(alg, bool)) or prot.get(VDS) != CCF_LEDGER_SHA256 \
-            or isinstance(prot.get(VDS), bool):
-        return "reject", "B1"
+    alg, vds = prot.get(ALG), prot.get(VDS)
+    if not (isinstance(alg, int) and not isinstance(alg, bool)) \
+            or not (isinstance(vds, int) and not isinstance(vds, bool) and vds == CCF_LEDGER_SHA256):
+        return "reject", "B1"                   # int and not bool: 2.0 == 2 in Python
     vdp = unprot.get(VDP) if isinstance(unprot, Mapping) else None
     if not isinstance(vdp, Mapping):
         return "reject", "B2"
@@ -251,9 +251,9 @@ def reading_b(receipt: bytes, older_root: bytes, spki: bytes, older_size: int | 
         if not all(_consistency_shape(p) for p in proofs):
             return "reject", "B5"
         inclusion = vdp.get(INCLUSION)
-        if inclusion is not None and not (_array(inclusion) and len(inclusion) >= 1
-                                          and all(_inclusion_shape(p) for p in inclusion)):
-            return "reject", "B6"
+        if INCLUSION in vdp and not (_array(inclusion) and len(inclusion) >= 1
+                                     and all(_inclusion_shape(p) for p in inclusion)):
+            return "reject", "B6"               # a present -1 is checked, null included
     except Exception:  # noqa: BLE001 - a proof that does not decode fails its CDDL
         return "reject", "B5"
     if payload is not None:
