@@ -154,6 +154,19 @@ def pycose_rows(files: dict) -> dict:
         t = cbor2.loads(raw)
         rec = t.value[1][394][0]
         proof = cbor2.loads(cbor2.loads(rec).value[1][396][-1][0])
+        # IETF Code Component: the four lines below compute compute_root of Figure 7 (section 3.2) of
+        # draft-ietf-scitt-receipts-ccf-profile-05.
+        #
+        # This code was derived from IETF draft-ietf-scitt-receipts-ccf-profile-05. Please reproduce this
+        # note if possible.
+        #
+        # Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+        # reserved.
+        #
+        # Redistribution and use in source and binary forms, with or without modification, is permitted
+        # pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
+        # Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+        # (https://trustee.ietf.org/license-info).
         itx, ev, dh = proof[1]
         h = hashlib.sha256(itx + hashlib.sha256(ev.encode()).digest() + dh).digest()
         for left, sib in proof[2]:

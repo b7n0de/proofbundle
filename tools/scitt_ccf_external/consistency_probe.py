@@ -127,6 +127,19 @@ def _lp2(n: int) -> int:
     return 1 << ((n - 1).bit_length() - 1)
 
 
+# IETF Code Components: fold() below transcribes compute_roots, and as_written() further below
+# verify_consistency_receipt, of Figure 9 (section 4.2) of draft-ietf-scitt-receipts-ccf-profile-05.
+#
+# This code was derived from IETF draft-ietf-scitt-receipts-ccf-profile-05. Please reproduce this
+# note if possible.
+#
+# Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+# reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification, is permitted
+# pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
+# Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+# (https://trustee.ietf.org/license-info).
 def fold(anchor: bytes, path: list) -> tuple:
     """compute_roots of -05 section 4.2, transcribed."""
     older = newer = anchor
@@ -317,6 +330,8 @@ def _root_of(merkle, size: int) -> str:
 # ------------------------------------------------------------------------------------------------
 # measure
 # ------------------------------------------------------------------------------------------------
+# IETF Code Component: as_written() transcribes verify_consistency_receipt of Figure 9 (section 4.2)
+# of draft-ietf-scitt-receipts-ccf-profile-05; its notice stands above fold().
 def as_written(receipt: bytes, older_root: bytes, keys: list) -> str:
     """The 4.2 pseudo-code, transcribed with cbor2 and cryptography only: 'accepts' or the assert
     that fails. Independent of proofbundle.scitt_ccf."""
