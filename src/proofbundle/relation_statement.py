@@ -26,7 +26,8 @@ import hashlib
 import re
 from typing import Any
 
-from .canonical import _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie, _pruefkopie,
+                        _richtlinie_von)
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -53,6 +54,7 @@ class RelationStatementError(ProofBundleError):
     """A relation-statement/v0.1 predicate is malformed (fail-closed)."""
 
 
+@_ein_stand
 def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     """Return a list of fail-closed errors (empty == valid). RETURNS, never raises — do NOT wrap
     in try/except (a caller that treats "no exception" as valid would report a malformed predicate
@@ -94,6 +96,7 @@ def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     return errors
 
 
+@_ein_stand
 def require_valid_relation_statement_predicate(predicate: Any) -> None:
     """Raise :class:`RelationStatementError` if the predicate is invalid; return None if valid."""
     errs = validate_relation_statement_predicate(predicate)
@@ -132,6 +135,7 @@ def _predicate_once(predicate):
                       error=lambda m: RelationStatementError(f"invalid relation-statement predicate: {m}"))
 
 
+@_ein_stand
 def build_relation_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the relation-statement. The subject
@@ -152,6 +156,7 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
+@_ein_stand
 def emit_relation_statement(predicate: dict, signer, *, subject_name: str | None = None,
                             subject_sha256: str | None = None, keyid: str | None = None) -> dict:
     """Sign a relation-statement as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical.
@@ -192,6 +197,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool = False,
                               require_derived_subject: bool = False,
                               related: dict | None = None, policy: dict | None = None) -> dict:

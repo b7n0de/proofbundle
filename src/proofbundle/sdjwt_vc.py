@@ -26,7 +26,7 @@ import hashlib
 from typing import Any
 
 from ._strict_json import loads_strict
-from .canonical import _plain_for_jcs, _pruefkopie, _zeichen_von
+from .canonical import _ein_stand, _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64
 from ._membership import is_member, stored_str_items
@@ -54,6 +54,7 @@ class SdjwtVcError(ProofBundleError):
     """An SD-JWT VC profile policy is malformed, or a required profile check could not be enforced."""
 
 
+@_ein_stand
 def validate_vc_policy(policy: Any) -> list[str]:
     """Fail-closed validation of an SD-JWT VC profile policy (empty = valid)."""
     try:
@@ -124,6 +125,7 @@ def _plain_metadata(offline_metadata: Any) -> Any:
         return {}
 
 
+@_ein_stand
 def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | None = None) -> dict:
     """Check an SD-JWT VC against the profile policy. NO network I/O — SSRF-safe by construction.
 
@@ -198,6 +200,7 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
     return r
 
 
+@_ein_stand
 def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None = None,
                     holder_pubkey: bytes | None = None,
                     expected_aud: str | None = None, expected_nonce: str | None = None,

@@ -21,8 +21,8 @@ from ._membership import require_switch, type_name
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
 from .budget import render_safe
-from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _plain_for_jcs, _type_name,
-                        _zeichen_von, canonicalize_statement)
+from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _ein_stand, _plain_for_jcs,
+                        _type_name, _zeichen_von, canonicalize_statement)
 from .errors import BundleFormatError, ProofBundleError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -178,6 +178,7 @@ def _alg_once(content_root_alg: Any) -> str:
     return _text_once(content_root_alg, f"unknown contentRootAlg of type {type_name(content_root_alg)} "
                                         "(ADR 0002 §1; no silent default)")
 
+@_ein_stand
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
                         harness: Optional[dict] = None) -> dict:
     """Build an in-toto Statement v1 whose predicate is the eval receipt.
@@ -346,6 +347,7 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[s
     return True, alg, ""
 
 
+@_ein_stand
 def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, url: Optional[str] = None,
                              content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
@@ -434,6 +436,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     }, content_root_alg)
 
 
+@_ein_stand
 def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
                        harness: Optional[dict] = None, url: Optional[str] = None,
                        keyid: Optional[str] = None,
@@ -808,6 +811,7 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
     return res
 
 
+@_ein_stand
 def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
                        expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
@@ -932,6 +936,7 @@ def _require_export_fields(claim: dict) -> bool:
     return require_bool_verdict(claim, wo="refusing to export")
 
 
+@_ein_stand
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
                     subject_name: Optional[str] = None, subject_sha256: Optional[str] = None) -> list:
     """Build the Statement `subject` for a subject profile. Every subject carries a real `digest` (in-toto
@@ -983,6 +988,7 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
         f"unknown subject profile {render_safe(profile)} (one of {', '.join(SUBJECT_PROFILES)})")
 
 
+@_ein_stand
 def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
                              subject_profile: str = "receipt") -> dict:
@@ -1047,6 +1053,7 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     return predicate
 
 
+@_ein_stand
 def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
                              subject_profile: str = "receipt",
@@ -1066,6 +1073,7 @@ def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[s
     }, content_root_alg)
 
 
+@_ein_stand
 def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "receipt",
                             subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
                             root_b64: Optional[str] = None, harness: Optional[dict] = None,
@@ -1113,6 +1121,7 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+@_ein_stand
 def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: str = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
@@ -1167,6 +1176,7 @@ def _now_rfc3339z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@_ein_stand
 def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
                    anchor_verified: bool = False) -> list:
     """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
@@ -1248,6 +1258,7 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     return props
 
 
+@_ein_stand
 def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
                     anchor_verified: bool = False, keyid: Optional[str] = None,
@@ -1349,6 +1360,7 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+@_ein_stand
 def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     """Structural check of an SVR Statement's predicate — the shape every consumer dereferences.
 
@@ -1389,6 +1401,7 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     return True, ""
 
 
+@_ein_stand
 def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                     expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,

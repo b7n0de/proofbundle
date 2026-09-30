@@ -56,6 +56,7 @@ from .._membership import is_member
 from ..budget import DEFAULT_BUDGET
 from ..errors import VerificationResult
 from ..signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
+from ..canonical import _ein_stand
 
 __all__ = [
     "AGT_AUTHORIZATION_TYPE",
@@ -269,6 +270,7 @@ def _kanonisch(daten: Dict[str, Any], was: str) -> bytes:
                           f"deeper, on every interpreter")
 
 
+@_ein_stand
 def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     """The bytes AGT signs. `sort_keys` JSON with compact separators and raw UTF-8.
 
@@ -289,11 +291,13 @@ def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     return _kanonisch(daten, "receipt payload")
 
 
+@_ein_stand
 def payload_hash(receipt: Dict[str, Any]) -> str:
     """SHA-256 over :func:`canonical_payload`. This is what `parent_receipt_hash` points at."""
     return hashlib.sha256(canonical_payload(receipt)).hexdigest()
 
 
+@_ein_stand
 def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
     """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce. Read from
     one copy of the receipt's fields (`_feldkopie`, round 12), so the metadata checked and the payload
@@ -729,6 +733,7 @@ def _gelesen(receipt: Any) -> "tuple[Dict[str, Any] | None, bytes | None, str]":
         return felder, None, f"the receipt cannot be read: reading it raised {_typname(fehler)}"
 
 
+@_ein_stand
 def verify_agt_receipt(
     receipt: Dict[str, Any],
     *,
@@ -965,6 +970,7 @@ def _pruefe_mit_gelesener_liste(
     return ergebnis
 
 
+@_ein_stand
 def verify_agt_receipt_chain(
     receipts: Sequence[Dict[str, Any]],
     **kwargs: Any,
@@ -1073,6 +1079,7 @@ def _blanker_name(name: str) -> str:
     return _KETTENPRAEFIX.sub("", name, count=1)
 
 
+@_ein_stand
 def exit_code(ergebnis: VerificationResult) -> int:
     """Map a verdict onto the house exit-code contract.
 

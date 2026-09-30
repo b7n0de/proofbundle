@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from .canonical import _pruefkopie
+from .canonical import _ein_stand, _pruefkopie
 from .errors import ProofBundleError
 
 # AMBIGUOUS (deep gate 2026-09-05, finding L4-02): a Statement with MORE THAN ONE subject never binds silently
@@ -46,11 +46,13 @@ def _rfc8785_bytes(obj: Any) -> bytes:
             "subject binding needs the RFC 8785 (JCS) canonicalizer — install proofbundle[eval]") from exc
 
 
+@_ein_stand
 def derive_subject_digest(predicate: Any) -> str:
     """The canonical DERIVED subject digest: sha256 over the RFC-8785 canonical predicate bytes (hex)."""
     return hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
 
 
+@_ein_stand
 def subject_cardinality(statement: Any) -> int | None:
     """How many entries the Statement's ``subject`` array carries; ``None`` when there is no array at all.
 
@@ -77,6 +79,7 @@ def _declared_subject_sha256(statement: Any) -> str | None:
     return sha if isinstance(sha, str) else None
 
 
+@_ein_stand
 def classify_subject(statement: Any) -> dict:
     """Classify a Statement's subject binding.
 
@@ -111,6 +114,7 @@ def classify_subject(statement: Any) -> dict:
             "derived_sha256": derived, "declared_sha256": declared}
 
 
+@_ein_stand
 def require_derived_subject(statement: Any) -> None:
     """Fail-closed gate: raise :class:`SubjectBindingError` unless the subject is a genuine DERIVED commitment
     to the predicate. Use this when a relying party requires the subject to bind the predicate (an
@@ -127,6 +131,7 @@ def require_derived_subject(statement: Any) -> None:
             "trust it only via a policy that pins the external attester")
 
 
+@_ein_stand
 def nested_closure_violations(obj: Any, allowed_map: dict[str, tuple[str, ...]], *, path: str = "") -> list[str]:
     """Walk ``obj`` and report nested objects with keys not in ``allowed_map`` for their dotted path.
 

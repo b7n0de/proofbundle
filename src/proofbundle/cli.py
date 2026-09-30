@@ -154,6 +154,20 @@ _VERIFY_NULLABLE_FIELDS = (
     "root_authenticity")
 
 
+def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple) -> bool:
+    """True when a loaded ``--policy`` holds none of the sections this command evaluates.
+
+    A FILE WHOSE CONTENT READS AS ABSENT, ONE LEVEL DOWN (verify lane V3 on 6d674973, the class of
+    L3-620v5-T14-ANCHORS-NULL-FILE-01). A valid policy with no section for this command, the packaged eval
+    template for instance, was loaded and then not evaluated, and `decision verify`, `outcome verify` and
+    `relation-statement verify` ended with exit 0 and output byte-identical to a call without `--policy`
+    (measured at d388ed3d and at both tags). A relying party who names a policy asked for it to be applied,
+    so such a file is refused like the empty value. A section the policy holds as null counts as held: the
+    gate refuses it with its own code."""
+    from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
+    return all(_feld_von(policy, name, _FEHLT) is _FEHLT for name in abschnitte)
+
+
 def _error_verify_fields(error: str) -> dict:
     """The stable single-field contract on the malformed-input (exit 2) path (verify-lens L2,
     2026-07-09): crypto could not even be evaluated, so crypto_ok is False and every check field is
@@ -345,17 +359,29 @@ def _check_matrix(result) -> list:
 
 
 def _resolve_signer(args):
-    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error)."""
-    if getattr(args, "new_key", None) and getattr(args, "key", None):
+    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error).
+
+    Both options are read by `is not None` (verify lane V3 on 6d674973, the class of L3-620v3-CLI-EMPTY-OPTION-01):
+    they were read by their truth, so `--key K --new-key ''` signed with K and exited 0, and `--key '' --new-key N`
+    wrote N, each exactly as if the empty option had not been given. Both given is refused whatever they hold, and
+    a key file that cannot be read or written, the empty path included, is refused with exit 2, not a raw
+    traceback."""
+    new_key = getattr(args, "new_key", None)
+    key = getattr(args, "key", None)
+    if new_key is not None and key is not None:
         print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
         return None
-    if getattr(args, "new_key", None):
-        signer = generate_signer()
-        save_signer(signer, args.new_key)
-        print(f"wrote new signing key to {args.new_key} (keep this secret)", file=sys.stderr)
-        return signer
-    if getattr(args, "key", None):
-        return load_signer(args.key)
+    try:
+        if new_key is not None:
+            signer = generate_signer()
+            save_signer(signer, new_key)
+            print(f"wrote new signing key to {new_key} (keep this secret)", file=sys.stderr)
+            return signer
+        if key is not None:
+            return load_signer(key)
+    except (OSError, ValueError, ProofBundleError) as exc:
+        _err(exc)
+        return None
     print("ERROR: provide --key <file> or --new-key <file>", file=sys.stderr)
     return None
 
@@ -1061,11 +1087,15 @@ def _cmd_emit(args: argparse.Namespace) -> int:
     if signer is None:
         return 2
 
-    with open(args.payload_file, "rb") as handle:
-        # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
-        # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
-        # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
-        payload = handle.read()
+    try:
+        with open(args.payload_file, "rb") as handle:
+            # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
+            # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
+            # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+            payload = handle.read()
+    except OSError as exc:   # `--payload-file ''` or a missing file: exit 2, not a raw traceback (verify lane V3)
+        _err(f"cannot read --payload-file: {exc}")
+        return 2
 
     bundle = emit_bundle(payload, signer)
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -2040,6 +2070,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         except PolicyError as exc:
             _err(exc)
             return 2
+        if _policy_ohne_abschnitt(policy, ("decision_receipt", "relations")):
+            _err("cannot use --policy: the policy holds neither a decision_receipt nor a relations section, so "
+                 "nothing in it applies to a decision receipt; a verify without a policy omits the option")
+            return 2
     anchors = None
     if getattr(args, "anchors", None) is not None:   # `--anchors ''` is a file that cannot be read
         try:
@@ -2272,6 +2306,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         except PolicyError as exc:
             _err(exc)
             return 2
+        if _policy_ohne_abschnitt(policy, ("relations",)):
+            _err("cannot use --policy: the policy holds no relations section, the only section an outcome "
+                 "receipt is judged by; a verify without a policy omits the option")
+            return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -2435,6 +2473,10 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             _err(exc)
+            return 2
+        if _policy_ohne_abschnitt(policy, ("relations",)):
+            _err("cannot use --policy: the policy holds no relations section, the only section a relation "
+                 "statement is judged by; a verify without a policy omits the option")
             return 2
     try:
         with _open_input(args.envelope) as handle:

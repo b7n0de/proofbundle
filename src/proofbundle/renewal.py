@@ -32,7 +32,8 @@ from typing import Optional, cast
 
 from .budget import int_magnitude_ok
 from .budget import render_safe as _rs
-from .canonical import _bytes_von, _feld_von, _folge_von, _zeichen_von
+from .canonical import (_abbild_stand, _bytes_von, _ein_stand, _feld_von, _folge_von, _in_einem_zug,
+                        _zeichen_von)
 from ._membership import type_name
 from .errors import Check, ProofBundleError, VerificationResult
 from .hashalg import HASH_REGISTRY, HashAlgError, compute_digest, resolve_hash_alg
@@ -263,6 +264,7 @@ class VerifiedAnchorResult:
 _ANCHOR_PROOF_HASH = "sha256"
 
 
+@_ein_stand
 def anchor_proof_digest(ats: ArchiveTimeStamp) -> str:
     """The canonical binding digest for a ``VerifiedAnchorResult.proof_digest`` over ``ats``: SHA-256
     (fixed, independent of ``ats.hash_alg`` — evidence about WHICH ArchiveTimeStamp was verified is a
@@ -316,9 +318,17 @@ def _verify_ats_signature(ats: ArchiveTimeStamp, authority_keys: dict) -> bool:
     The keys are read by what ``authority_keys`` stores and as the bytes each key stores (deep gate 6.2.0
     at 2348f0a7, the neighbour of L2-620-RENEWAL-*): the dict's own ``get`` and a ``bytes`` subclass's own
     ``__bytes__`` ran here, and a key that stored the trusted key T anchored a signature of another key
-    through ``bytes(pub)``. A value that is no dict holds no key (fail-closed, as `_as_dict` answered)."""
+    through ``bytes(pub)``. A value that is no dict holds no key (fail-closed, as `_as_dict` answered).
+
+    Both keys are one reading, with the collector paused (a verify lens of the fix of the gate at d388ed3d, the
+    class of L4-620v5-T5-SECOND-READING-01): the hybrid leg read the Ed25519 key and the ML-DSA key in two
+    readings of the caller's map, so a gc callback that changed both in between paired the key of one state with
+    the key of the other."""
+    with _in_einem_zug():
+        _gelesen = {teil: _bytes_von(_feld_von(authority_keys, teil)) for teil in ("ed25519", "mldsa65")}
+
     def _schluessel(teil: str):
-        return _bytes_von(_feld_von(authority_keys, teil))
+        return _gelesen[teil]
 
     if not ats.sig_alg:
         return False
@@ -733,6 +743,7 @@ def _ats_wie_gespeichert(a: "ArchiveTimeStamp") -> "ArchiveTimeStamp | None":
     return ArchiveTimeStamp(**werte)
 
 
+@_ein_stand
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
                            anchor_status: str = _CONFIRMED, sig_alg: str = "",
                            signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
@@ -817,6 +828,7 @@ def _require_int_time(time, prior: "ArchiveTimeStamp") -> None:
             raise RenewalError(f"{label} time must be an int, got {type(t).__name__} (fail-closed)")
 
 
+@_ein_stand
 def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
                     anchor_status: str = _CONFIRMED, sig_alg: Optional[str] = None,
                     signers: Optional[dict] = None,
@@ -854,6 +866,7 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     return out
 
 
+@_ein_stand
 def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                    new_hash_alg: str, time: int, anchor_status: str = _CONFIRMED,
                    sig_alg: Optional[str] = None,
@@ -888,11 +901,13 @@ def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequenc
     return [list(chain) for chain in sequence] + [new_chain]
 
 
+@_ein_stand
 def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
     """The single newest ATS — the ONLY one RFC 4998 requires watching for expiry (operating rule)."""
     return _newest(sequence)
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 @_never_raise_verdict("renewal:internal_fail_closed")
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                     authority_keys: Optional[dict] = None,
@@ -1362,6 +1377,7 @@ class RenewalPolicy:
         )
 
 
+@_ein_stand
 @_never_raise_verdict("renewal:internal_fail_closed")
 def evaluate_renewal_policy(sequence: list[list[ArchiveTimeStamp]], *, policy: RenewalPolicy,
                             now: int) -> VerificationResult:

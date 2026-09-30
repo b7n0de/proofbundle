@@ -25,7 +25,8 @@ from typing import Union
 
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
-from .canonical import KEIN_ZEITPUNKT, _plain_for_jcs, _pruefkopie, _zeichen_von, _zeitpunkt_von
+from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _plain_for_jcs, _pruefkopie, _zeichen_von,
+                        _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -409,6 +410,7 @@ def _validate_checkpoint_entry(entry, idx: int) -> None:
                 raise PolicyError(f"{where}.{tkey} must be an ISO-8601 timestamp string")
 
 
+@_ein_stand
 def load_policy(source: Union[str, dict]) -> dict:
     """Parse and structurally validate a trust policy, fail-closed. ``source`` is a path or a dict.
 
@@ -722,6 +724,7 @@ def _relations_felder_pruefen(rel: dict) -> None:
                                       "non-empty list of them")
 
 
+@_ein_stand
 def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
                              signer_public_key_b64: str, anchor_status: str | None = None) -> dict:
     """Apply the v0.2 decision_receipt policy section over an already crypto-verified Decision Receipt. Returns
@@ -913,6 +916,7 @@ def _projizierbar(policy) -> dict:
     return kopie
 
 
+@_ein_stand
 def policy_expected_aud(policy: dict):
     """The aud the policy wants bound (sd_jwt.expected_aud), or None. Used by the CLI to reconcile
     with the --aud flag (a policy/flag conflict is an error, never a silent override). A policy the loader
@@ -921,6 +925,7 @@ def policy_expected_aud(policy: dict):
     return _as_dict(policy.get("sd_jwt")).get("expected_aud")
 
 
+@_ein_stand
 def policy_anchor_trust(policy: dict) -> dict | None:
     """WP-A1: the relying-party anchor TRUST material carried in the policy's ``anchors`` section, as an
     ``rp_trust`` dict (``trusted_tsa_roots`` / ``bitcoin_block_headers`` / ``trusted_tsa_policy_oids``), or
@@ -939,6 +944,7 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     return rp or None
 
 
+@_ein_stand
 def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """Evaluate a trust policy OVER a completed crypto verification.
 
@@ -1314,6 +1320,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
 # ── WP-TP1: explain / lint / vacuous-pass warning ────────────────────────────
 
+@_ein_stand
 def explain_policy(policy: dict) -> list:
     """Human-readable list of the EFFECTIVE pins a (already load_policy-validated) policy makes.
 
@@ -1444,6 +1451,7 @@ def _attributes_to_nobody(policy: dict) -> bool:
     return not (has_issuers or has_require or has_dm)
 
 
+@_ein_stand
 def policy_warnings(policy: dict) -> list:
     """Non-fatal honesty warnings for a valid policy (surfaced by `verify` next to POLICY: OK)."""
     warnings: list = []
@@ -1472,6 +1480,7 @@ def _gelesene_richtlinie(policy):
         return {}
 
 
+@_ein_stand
 def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
     in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
@@ -1489,6 +1498,7 @@ def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     return current > parsed
 
 
+@_ein_stand
 def policy_not_yet_valid(policy: dict, *, now=None) -> Union[bool, None]:
     """A-P0-2 §6: True iff the policy carries a ``valid_from`` still in the FUTURE, False iff it
     carries one already reached, None iff it carries none. Mirrors :func:`policy_expired`; both are
@@ -1557,6 +1567,7 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     return True, "checkpoint signature verified"
 
 
+@_ein_stand
 def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     """Lint a policy for WIRKUNGSLOSIGKEIT (vacuous pass), fail-closed style.
 

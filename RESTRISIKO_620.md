@@ -283,21 +283,27 @@ new release commit. Measured on 2026-09-30 by executing each against the source 
   called three times per verification, and a sweep over every collection start of a call gave `ok` True at four to
   seven of them (the gate's lens measured `safeForAutomation` True as well under a policy that pins the decision
   maker). 6.2.0 reads the map once and judges that reading; the reach is the Python API, since the CLI builds a
-  plain dict and runs no caller code between the readings. The sweep of the class found that one reading was not yet
-  one state (a callback that changes two entries at once while the copy is between them) at the three receipt
-  verifiers, at `verify_anchors` and at `join_test_result`, and eight more verdict functions that read one parameter
-  at more than one place; the CHANGELOG entry of this fix names each, and
-  `tests/test_a_verifier_reads_a_callers_value_once.py` holds the class: a sweep over every collection start, and a
-  scan of every public verdict function whose remaining double readings, eighteen, each stand in a named list with
-  the reason they are not this class.
+  plain dict and runs no caller code between the readings. The first fix (6d674973) read each such value once where
+  the body read it; the three verify lanes on it found the class where no single reading of one parameter shows it (a
+  loop of readings, a copy per chain or receipt, two parameters each read once at two times, a budget and a copy, a
+  Mapping or an object read through its own methods, and a pause that a second thread ended), each measured with a
+  sweep over every collection start and present at d388ed3d. So every public function now reads all of its
+  arguments in one reading at its call (`canonical._ein_stand`, `canonical._stand`), with the collector paused once
+  for the whole process; the CHANGELOG entry of this fix names each surface, and
+  `tests/test_a_verifier_reads_a_callers_value_once.py` holds the class: the sweep at every measured surface, a guard
+  that every public function carries the reading and that every call of a caller's callable is named, and the one
+  reading itself with a sweep that falls when the pause is taken away.
 - `decision verify --anchors FILE` whose content is `null` became `anchors=None`, the value of a call without the
   option, and exited 0 with the output of no `--anchors`, while `--anchors ''` exits 2 at d388ed3d
   (L3-620v5-T14-ANCHORS-NULL-FILE-01); an empty list, which the anchor layer reads None as, ended the same way. At
   both tags a file holding `null`, one holding `null` in whitespace and one holding `[]` exited 0 like no option, and
-  so did `--anchors ''` (refused since pull request 311). 6.2.0 refuses such a file with exit 2.
-  `tests/test_an_option_given_an_empty_value_is_not_dropped.py` runs every file option whose absence is a state of
-  its own, thirteen, with a generator of contents, and holds every other file option of `cli.py` to a named list with
-  the reason no content can read as its absence.
+  so did `--anchors ''` (refused since pull request 311); `{}`, `""`, `0` and `false` did too (verify lane V1 on
+  6d674973). 6.2.0 refuses such a file with exit 2. `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  runs every file option whose absence is a state of its own, fifteen, with a generator of contents, and holds every
+  other file option of `cli.py` to a named list with the reason no content can read as its absence. One level down,
+  a valid policy that holds no section a command evaluates ended `decision verify`, `outcome verify` and
+  `relation-statement verify` like no `--policy`, at d388ed3d and at both tags (verify lane V3); it is refused with
+  exit 2 now, and so is an empty `--key` or `--new-key` beside the other, which `emit` dropped.
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
@@ -737,7 +743,8 @@ not listed.
   structural budget refuses every non-dict Mapping afterwards. It came with pull request 300 (a1e9774e) and is a new
   site of the class under "a caller's own Python objects can make a never-raise surface raise" below.
 - **`witness_quorum` frames the whole note once per roster entry** (P2): an in-budget tlog proof of 8 MiB with 510
-  signature lines and 256 witnesses costs about 40 to 62 s of CPU with a correct `ok` True. Each cap holds; their
+  signature lines and 256 witnesses costs tens of seconds of CPU with a correct `ok` True (the jurors measured 40
+  to 62 s, a verify lane on 6d674973 31.0 s on another machine load; the cost is the machine's). Each cap holds; their
   product (`input_bytes` times witnesses) has no bound. A sibling of the capped-axes product rows above; the roster
   is relying-party configuration.
 - **`input_bytes` does not bind the direct text API of three verifiers** (P3): `verify_tlog_proof`,
@@ -875,17 +882,27 @@ those on a verify, emit or release path:
   a path outside `release_notes/` and `audit_artifacts/`, the only two the tag chain writes (owner decision of
   2026-09-29). Whether the sdist and the wheel of 6.2.0 on PyPI equal the digests
   bound at the receipt head is measured after the release and recorded then.
-- The fix of the gate at d388ed3d names these limits, none a promoted verdict. One reading is one state only against
-  the caller's own code in the same thread: the collector is paused while a caller's container is read
-  (`canonical._eine_lesung`), and a value another thread changes meanwhile is a race of the caller's threads. The
-  pause is process-wide for the length of one copy; a copy of a large value therefore runs without collections. The
-  scan of `tests/test_a_verifier_reads_a_callers_value_once.py` follows parameters by name, so a value reached through
-  a parameter (a nested container, a local derived from it) or a parameter rebound before a second reading is outside
-  it, and the sweep reaches a window between two readings only if a tracked object is allocated in it
-  (`verify_offline_merkle` and `verify_markovian` read twice at d388ed3d where no collection starts; both read once
-  now). Functions outside the five verdict prefixes (`report` of the verifier block among them, fixed by reading) are
-  not scanned. The file generator of `tests/test_an_option_given_an_empty_value_is_not_dropped.py` reads the options
-  whose value reaches one of seven file readers in `cli.py`; a file read through another function is outside it.
+- The fix of the gate at d388ed3d names these limits, none a promoted verdict. The reading at the call copies every
+  built-in container; a value of the caller's own class that is none (an object, a Mapping that is no dict) is read
+  through its own methods, once, by a named reader where a function reads one (`rp_trust`, `frozen`, the digests of
+  `verify_dual_hash`, the result of `automation_summary`, the consistency result of `evaluate_public_transparency`),
+  and is otherwise handed on as the caller's object. A dict with a key that is no exact str, int, float, bool,
+  bytes or None (or a tuple or frozenset of such), a set of such items, and an OrderedDict whose own order cannot be
+  read without hashing stay the caller's object inside the copy: a copy would run the key's own hash, or, keyed by
+  the text a `str` subclass stores, would promote it where a reader counts only an exact str as a key. The collector is paused for the length of one reading, for the whole process, and started again by the
+  last reading to end; a collection that starts anyway is seen and the value read again, and after three such
+  readings the function raises `_StandGestoert`, a `ProofBundleError`, where a never-raise surface would otherwise
+  answer (only code of the caller inside a reading, or another thread that collects on every attempt, can cause it).
+  A value another thread writes WITHOUT a collection while it is read is a race of the caller's threads, which no
+  reading can order. The reading costs one copy of the arguments per call from outside the package; a public
+  function that the package's own code calls from inside the body of another reads nothing again, because what it
+  is passed is that reading or was made from it, and a value the package hands on uncopied (an object of the
+  caller's class under the limit above) is read by the inner function as the outer one would. The sweep
+  reaches a window only if a tracked object is allocated in it (`verify_markovian` was measured with a real
+  OpenTimestamps proof by a verify lane; the sweep of the test file does not carry one). `verifier_block.attach`
+  fills the caller's predicate in place by contract and does not take the reading. The file generator of
+  `tests/test_an_option_given_an_empty_value_is_not_dropped.py` reads the options whose value reaches one of eight
+  file readers in `cli.py`; a file read through another function is outside it.
 
 ## Open — a caller's own Python objects can make a never-raise surface raise
 

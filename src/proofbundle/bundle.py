@@ -30,7 +30,7 @@ from typing import Any, Optional, Union
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
-from .canonical import _plain_for_jcs
+from .canonical import _ein_stand, _plain_for_jcs
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -229,6 +229,7 @@ def _require_hash_alg(mk: dict) -> str:
     return hash_alg
 
 
+@_ein_stand
 def load_bundle(path: str) -> dict:
     """Read and JSON-parse a bundle file. Deeply-nested JSON overflows the parser's C-recursion; that
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than
@@ -285,6 +286,7 @@ def load_bundle(path: str) -> dict:
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
+@_ein_stand
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
                   expected_root_b64: Optional[str] = None,
                   expected_tree_size: Optional[int] = None) -> VerificationResult:
@@ -670,6 +672,7 @@ def _checks_passed(result) -> "tuple[bool, list[str]]":
     return ok is True and all(w is True for w in gelesen), []
 
 
+@_ein_stand
 def root_authenticity_summary(result: VerificationResult, *,
                               policy_authenticated_root: Optional[bool] = None,
                               policy_ok: Optional[bool] = None,
@@ -849,6 +852,7 @@ def root_authenticity_summary(result: VerificationResult, *,
     }
 
 
+@_ein_stand
 def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     """Recompute the Merkle root from the bundle's own payload + inclusion proof (v1.2, issue #2).
 

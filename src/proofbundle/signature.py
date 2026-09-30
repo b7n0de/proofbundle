@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
-from .canonical import _bytes_von
+from .canonical import _bytes_von, _ein_stand
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
            "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
@@ -63,6 +63,7 @@ TRUST_ANCHOR_REFUSAL = {
 }
 
 
+@_ein_stand
 def plain_bytes(value: Any) -> "bytes | None":
     """The bytes a ``bytes`` or ``bytearray`` value holds, as an exact ``bytes``, read ONCE from the
     value's own storage, or None for a value of any other type.
@@ -101,6 +102,7 @@ def plain_bytes(value: Any) -> "bytes | None":
     return None
 
 
+@_ein_stand
 def plain_text(value: Any) -> "str | None":
     """The text a ``str`` value holds, as an exact ``str``, read ONCE from the value's own storage, or
     None for a value of any other type.
@@ -120,6 +122,7 @@ def plain_text(value: Any) -> "str | None":
     return str.__str__(value) if issubclass(type(value), str) else None
 
 
+@_ein_stand
 def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     """Why ``public_key`` cannot stand as a TRUSTED Ed25519 identity, or None when it can.
 
@@ -169,6 +172,7 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     return None
 
 
+@_ein_stand
 def verify_ed25519_pinned(public_key: bytes, signature: bytes, message: bytes) -> bool:
     """:func:`verify_ed25519` for a key the CALLER trusts: False when the key is malformed, non-canonical
     or low-order (:func:`ed25519_trust_anchor_weakness`), before any signature arithmetic. Same
@@ -184,6 +188,7 @@ def verify_ed25519_pinned(public_key: bytes, signature: bytes, message: bytes) -
     return verify_ed25519(public_key, signature, message)
 
 
+@_ein_stand
 def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     """Return True iff ``signature`` is a valid Ed25519 signature over ``message``.
 
@@ -212,6 +217,7 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
 
 
+@_ein_stand
 def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bool:
     """Return True iff ``signature`` is a valid ECDSA P-256 (ES256, RFC 7518 §3.4) signature
     over ``message``.
@@ -263,6 +269,7 @@ def _es256_other_spelling(signature: bytes) -> "bytes | None":
     return signature[:32] + (_P256_N - s).to_bytes(32, "big")
 
 
+@_ein_stand
 def canonical_es256_signature(signature):
     """The one spelling of an ES256 signature that an identity is formed over: ``R || min(S, n - S)``.
 
@@ -284,7 +291,9 @@ def canonical_es256_signature(signature):
     signature has a second spelling was not measured.
 
     Anything that is not a 64-byte ``R || S`` with ``0 < S < n`` is returned unchanged: no such value
-    verifies, so it has no second spelling to fold. Never raises.
+    verifies, so it has no second spelling to fold. A value of a mutable type (a ``bytearray``, a list) is
+    returned as the one reading of it at the call (`canonical._ein_stand`), which equals it: the length check
+    and the copy read a caller's ``bytearray`` at two times before. Never raises.
     """
     if not isinstance(signature, (bytes, bytearray)) or len(signature) != 64:
         return signature

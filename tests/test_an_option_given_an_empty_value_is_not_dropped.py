@@ -9,8 +9,8 @@ stands next to `--expected-origin` in cli.py: a flag whose subject is missing is
 nothing, and an empty string is a question that was asked. `verify-proof --expected-origin ''` already fails
 (tests/test_verify_proof_expected_origin.py); this is the same rule for every option.
 
-TWO PARTS. The first runs each measured site and checks the exit code against the one without the option.
-The second is the class guard: it builds the parser, collects every option that takes one value, and reads
+THREE PARTS. The first runs each measured site and checks the exit code against the one without the option.
+The second is the class guard at the end of this file: it builds the parser, collects every option that takes one value, and reads
 cli.py for every place that tests such a value by its truth, directly or through a local name bound to it,
 in these forms: `if`, `while`, a conditional expression, `and` and `or`, `not`, `assert`, a comprehension
 filter and `bool()`. Each such place must be named below with its reason, so an option added later, or a
@@ -34,6 +34,14 @@ option whose absence is a state of its own with a generator of contents (JSON nu
 the empty collections, an empty string, and the whitespace spellings above as the whole file), and a guard
 reads cli.py for every option whose value names a file a command reads: each one is a case of the generator
 or named with the reason it has no absent state that a content could reach.
+
+ONE LEVEL DOWN, AND WHAT THE GUARD DID NOT SEE (verify lane V3 on 6d674973). A valid policy that holds no section
+a command evaluates (the packaged eval template, or a policy with only a schema and an id) was loaded and not
+evaluated, and `decision verify`, `outcome verify` and `relation-statement verify` ended with exit 0 and output
+identical to no `--policy`, at d388ed3d and at both tags; such a file is refused now, and the cases below hold it.
+`prereg --check` and `evalcard --check` read their file through `decode_eval_claim`, which the guard did not
+list; every content was already refused there (exit 1), and both are cases of the generator now. And
+`emit --key K --new-key ''` signed with K and exited 0: the two signer options were read by their truth.
 """
 from __future__ import annotations
 
@@ -106,6 +114,15 @@ class _Belege:
         self.relation = schreibe("relation.json", emit_relation_statement(rpred, signer))
         self.keyfile = str(d / "issuer.pub")
         Path(self.keyfile).write_text(self.pub + "\n", encoding="utf-8")
+        self.protokoll = str(d / "protocol.txt")
+        Path(self.protokoll).write_text("the protocol of an eval, committed to before the run\n", encoding="utf-8")
+        self.karte = str(d / "card.md")
+        Path(self.karte).write_text("# An eval card\n", encoding="utf-8")
+        self.seed = str(d / "seed.key")
+        from proofbundle.emit import save_signer
+        save_signer(generate_signer(), self.seed)
+        self.nutzlast = str(d / "payload.bin")
+        Path(self.nutzlast).write_bytes(b"a payload")
 
 
 class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
@@ -202,6 +219,23 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
         self.assertIs(feld(basis + ["--decision-maker-id", ""]), True)
         self.assertIs(feld(basis + ["--decision-maker-id", "executor:x"]), False)   # control
 
+    def test_an_empty_signer_option_is_refused(self) -> None:
+        """`emit --key K --new-key ''` signed with K and exited 0, and `--key '' --new-key N` wrote N (verify lane V3
+        on 6d674973): the two signer options were read by their truth. `--payload-file ''` ended in a raw traceback."""
+        b = self.b
+        aus = str(Path(self._td.name) / "bundle_out.json")
+        neu = str(Path(self._td.name) / "new.key")
+        basis = ["emit", "--payload-file", b.nutzlast, "--out", aus]
+        for label, extra in (("--key K --new-key ''", ["--key", b.seed, "--new-key", ""]),
+                             ("--key '' --new-key N", ["--key", "", "--new-key", neu]),
+                             ("--key ''", ["--key", ""]), ("--new-key ''", ["--new-key", ""])):
+            with self.subTest(case=label):
+                self.assertEqual(_run(basis + extra), 2)
+        with self.subTest(case="--payload-file ''"):
+            self.assertEqual(_run(["emit", "--payload-file", "", "--out", aus, "--key", b.seed]), 2)
+        with self.subTest(control="--key K signs"):
+            self.assertEqual(_run(basis + ["--key", b.seed]), 0)
+
     def test_control_each_base_command_passes_without_the_option(self) -> None:
         # Without this, a base that already fails would make every case above pass for the wrong reason.
         for label, basis, _option, _erwartet in self._faelle():
@@ -223,7 +257,7 @@ _DATEI_FAELLE = frozenset({
     ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"),
     ("outcome verify", "--policy"), ("outcome verify", "--with-related"),
     ("relation-statement verify", "--policy"), ("relation-statement verify", "--with-related"),
-    ("policy instantiate", "--expected-root-file")})
+    ("policy instantiate", "--expected-root-file"), ("prereg", "--check"), ("evalcard", "--check")})
 
 #: A syntactically valid log verifier key, for the trusted-checkpoint case (the checkpoint itself is the file).
 _VKEY = "example.com/log+abcd1234+AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
@@ -282,6 +316,8 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
             ("relation-statement verify", "--policy"): (rv, [], _beobachte),
             ("relation-statement verify", "--with-related"): (rv, [], _beobachte),
             ("policy instantiate", "--expected-root-file"): ([], [], lambda argv: self._instantiate(argv)),
+            ("prereg", "--check"): (["prereg", b.protokoll], [], _beobachte),
+            ("evalcard", "--check"): (["evalcard", b.karte], [], _beobachte),
         }
 
     def test_the_cases_are_the_named_ones(self) -> None:
@@ -302,6 +338,39 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
                 with self.subTest(case=f"{befehl} {option}", content=repr(inhalt)):
                     self.assertNotEqual(beobachte(basis + [option, str(datei)] + daneben), ohne,
                                         f"{befehl} {option} with a file holding {inhalt!r} ended like no {option}")
+
+    def test_a_policy_that_holds_no_section_the_command_evaluates_is_refused(self) -> None:
+        """One level down from `_DATEI_INHALTE` (verify lane V3 on 6d674973): a policy the loader accepts, with no
+        section the command judges by, ended like no `--policy`. Each such policy is refused with exit 2; a
+        policy with the section is evaluated, the control that the refusal is about the section."""
+        b = self.b
+        ohne_abschnitt = [
+            {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/no-section-v1"},
+            {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "org/no-section-v1"},
+        ]
+        vorlage = Path(self._td.name) / "template.json"
+        _beobachte(["policy", "instantiate", "strict-eval-template-v1", "--issuer-key", b.keyfile,
+                    "--policy-id", "org/eval-only-v1", "--output", str(vorlage)])
+        dateien = [str(vorlage)]
+        for i, pol in enumerate(ohne_abschnitt):
+            datei = Path(self._td.name) / f"no_section_{i}.json"
+            datei.write_text(json.dumps(pol), encoding="utf-8")
+            dateien.append(str(datei))
+        befehle = {"decision verify": ["decision", "verify", b.decision, "--pub", b.pub],
+                   "outcome verify": ["outcome", "verify", b.outcome, "--pub", b.pub],
+                   "relation-statement verify": ["relation-statement", "verify", b.relation, "--pub", b.pub]}
+        for name, basis in befehle.items():
+            ohne = _beobachte(basis)
+            for datei in dateien:
+                with self.subTest(command=name, policy=Path(datei).name):
+                    aus = _beobachte(basis + ["--policy", datei])
+                    self.assertNotEqual(aus, ohne, f"{name} ended like no --policy")
+                    self.assertEqual(aus[0], 2)
+            with self.subTest(command=name, control="a relations section is evaluated"):
+                mit = Path(self._td.name) / "with_relations.json"
+                mit.write_text(json.dumps({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "org/rel-v1",
+                                           "relations": {"reject_superseded": True}}), encoding="utf-8")
+                self.assertNotEqual(_beobachte(basis + ["--policy", str(mit)])[0], 2)
 
     def test_control_the_generator_sees_an_option_the_command_does_not_read(self) -> None:
         # The generator has to be able to fail: `show-eval --eat` on a receipt that declares no enclave level
@@ -325,7 +394,10 @@ _DATEI_OPTIONEN_OHNE_FALL = {
     ("decision emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("outcome emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("relation-statement emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
-    ("anchor upgrade", "--target-file"): _OHNE_ABWESENHEIT + " (provide --target-file or --canonical-root-hex)",
+    ("anchor upgrade", "--target-file"): ("no absent state a content could reach: without it the command is refused "
+                                          "(exit 2, provide --target-file or --canonical-root-hex), and with it the "
+                                          "file's bytes are the target itself, whose hash the proof must commit to, so "
+                                          "every content, the empty file included, names a target (verify lane V1)"),
     ("emit", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
     ("verify-proof", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
     ("emit-eval", "--claim"): _PFLICHT,
@@ -336,7 +408,7 @@ _DATEI_OPTIONEN_OHNE_FALL = {
 
 #: The functions that read a file named by their first argument. `open` counts only in a read mode.
 _DATEI_LESER = frozenset({"_open_input", "open", "load_bundle", "resolve_policy_source", "_load_related",
-                          "load_signer", "_resolve_signer"})
+                          "load_signer", "_resolve_signer", "decode_eval_claim"})
 
 
 def _optionsziele_in(ausdruck: ast.AST, alias: dict) -> set:
@@ -425,8 +497,6 @@ class EveryFileOptionIsClassified(unittest.TestCase):
 #: Every place in cli.py that reads a one-value option by its truth, with the reason an empty value is
 #: still not dropped there. Keyed by (function, option dest). A new entry needs a reason that holds.
 _ERLAUBTE_WAHRHEITSLESUNGEN = {
-    ("_resolve_signer", "new_key"): "an empty --new-key falls through to --key and then to the refusal, exit 2",
-    ("_resolve_signer", "key"): "an empty --key falls through to the refusal 'provide --key or --new-key', exit 2",
     ("_cmd_decision_verify", "pub"): "an empty --pub is refused with exit 2 before anything is read",
     ("_cmd_outcome_verify", "pub"): "an empty --pub is refused with exit 2 before anything is read",
     ("_cmd_relation_statement_verify", "pub"): "an empty --pub is refused with exit 2 before anything is read",

@@ -52,7 +52,8 @@ from pathlib import Path
 from typing import Any, TypeGuard
 
 from ._membership import is_member, require_switch
-from .canonical import _eine_kopie, _feld_von, _folge_von, _pruefkopie, _richtlinie_von, _zeichen_von
+from .canonical import (_ein_stand, _eine_kopie, _feld_von, _folge_von, _pruefkopie,
+                        _richtlinie_von, _zeichen_von)
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -170,6 +171,7 @@ def _text_once(value: Any, refusal: str) -> str:
     return text
 
 
+@_ein_stand
 def body_core_bytes(body: str) -> bytes:
     """The exact UTF-8 bytes the digest is taken over: the body with the disclosure block replaced.
 
@@ -197,6 +199,7 @@ def body_core_bytes(body: str) -> bytes:
     return (body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:]).encode("utf-8")
 
 
+@_ein_stand
 def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
     """The body as it will look ONCE it carries a disclosure block — call this BEFORE emitting.
 
@@ -240,6 +243,7 @@ def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
     return body[:i] + "\n\n" + platzhalter + body[i:]
 
 
+@_ein_stand
 def replace_disclosure_block(body: str, block: str) -> str:
     """Swap the block for a rendered one. The core digest MUST survive this — that is the contract."""
     body = _text_once(body, "body must be a string")
@@ -259,12 +263,14 @@ def replace_disclosure_block(body: str, block: str) -> str:
     return neu
 
 
+@_ein_stand
 def body_core_digest(body: str) -> str:
     """sha256 hex over :func:`body_core_bytes`. Stable across re-renders of the block (P0 test 7)."""
     return hashlib.sha256(body_core_bytes(body)).hexdigest()
 
 
 # ── disclosureCoreDigest ────────────────────────────────────────────────────────────────────────
+@_ein_stand
 def disclosure_core_bytes(body: str) -> bytes:
     """The bytes of the disclosure block itself, with only the receipt digest substituted.
 
@@ -306,12 +312,14 @@ def disclosure_core_bytes(body: str) -> bytes:
     return innen.encode("utf-8")
 
 
+@_ein_stand
 def disclosure_core_digest(body: str) -> str:
     """sha256 hex over :func:`disclosure_core_bytes`."""
     return hashlib.sha256(disclosure_core_bytes(body)).hexdigest()
 
 
 # ── findingsRoot ────────────────────────────────────────────────────────────────────────────────
+@_ein_stand
 def findings_root(findings: list[dict]) -> str:
     """A digest over the canonical findings list — removing one finding must change it (P0 test 11).
 
@@ -366,6 +374,7 @@ def _code_segment(roh: str) -> str:
     return _CODE_ERLAUBT.sub("", roh.upper()).strip("_") or "UNBENANNT"
 
 
+@_ein_stand
 def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                                     decl_zusatz: frozenset = frozenset(),
                                     cov_zusatz: frozenset = frozenset(),
@@ -653,6 +662,7 @@ LIMITATION_CODES = frozenset((
 ))
 
 
+@_ein_stand
 def derive_limitation_codes(predicate: dict) -> list[str]:
     """Die Codes aus dem Predicate ABLEITEN statt sie tippen zu lassen.
 
@@ -986,6 +996,7 @@ def _gespeicherte_payload(envelope: object) -> "str | None":
     return _zeichen_von(_feld_von(envelope, "payload"))
 
 
+@_ein_stand
 def receipt_digest(envelope: dict) -> str:
     """Der sha256 ueber die kanonischen Bytes des Statements — die Groesse, die supersession bindet.
 
@@ -1007,6 +1018,7 @@ def receipt_digest(envelope: dict) -> str:
     return hashlib.sha256(bytes_).hexdigest()
 
 
+@_ein_stand
 def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -> dict:
     """Welches Receipt gilt JETZT, welche sind korrigiert, und ist die Kette vollstaendig.
 
@@ -1139,6 +1151,7 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
                      "about the chain being complete, never about cryptographic validity")}
 
 
+@_ein_stand
 def require_valid_agent_review_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_agent_review_predicate(predicate, strict=strict)
     if errs:
@@ -1203,6 +1216,7 @@ def _fassung_fuer_renderer(predicate: Any, legacy_v01: bool | None) -> bool:
     return _traegt_v02_felder(predicate) or _traegt_verifier_block(predicate)
 
 
+@_ein_stand
 def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = False,
                                              legacy_v01: bool | None = None) -> None:
     """v0.1 oder v0.2, die Fassung aus dem Predicate gelesen — und die Strenge kommt mit ihr.
@@ -1238,6 +1252,7 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
 _HUMAN_LINE_ORDER = ("Involvement", "Review", "Findings", "Assurance", "Limits")
 
 
+@_ein_stand
 def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = None,
                             legacy_v01: bool | None = None) -> str:
     """The human-visible block, derived deterministically from the predicate.
@@ -1279,6 +1294,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     return f"{DISCLOSURE_BEGIN}\n{body}{tail}\n{DISCLOSURE_END}"
 
 
+@_ein_stand
 def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url: str,
                            leaf_url: str | None = None, leaf_witnessed: bool = False,
                            pruefweg: str | None = None, legacy_v01: bool | None = None) -> str:
@@ -1417,6 +1433,7 @@ def _predicate_once(predicate):
                       error=lambda m: AgentReviewError(f"invalid agent-review predicate: {m}"))
 
 
+@_ein_stand
 def build_agent_review_statement(predicate: dict, *, subject_name: str | None = None,
                                  subject_sha256: str | None = None,
                                  legacy_v01: bool = False, v02: bool | None = None) -> dict:
@@ -1465,6 +1482,7 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
     }
 
 
+@_ein_stand
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
                       strict: bool = True, legacy_v01: bool = False,
@@ -1780,6 +1798,7 @@ def _lagen_satz(pfad: str, lage: str, wert: object, erwartet: str) -> str:
     return f"{pfad} must be {erwartet}, got {type(wert).__name__}"
 
 
+@_ein_stand
 def validate_statement_shape(statement: object, predicate: object) -> list[ShapeError]:
     """Type the whole in-toto Statement BEFORE any semantics are computed (P0.1, P0.3).
 
@@ -2014,6 +2033,7 @@ TIME_AXIS_STATES = ("ABSENT", "SELF_DECLARED", "RUNNER_OBSERVED", "PLATFORM_ATTE
                     "EXTERNALLY_ANCHORED", "CONFLICT", "NOT_EVALUATED")
 
 
+@_ein_stand
 def validate_time_claim(tc: object) -> list[str]:
     """Eine fachliche Zeitaussage traegt IMMER ihre Quelle und ihre Assurance."""
     errs: list[str] = []
@@ -2046,6 +2066,7 @@ def validate_time_claim(tc: object) -> list[str]:
     return errs
 
 
+@_ein_stand
 def validate_agent_review_v03_predicate(predicate: object, *, strict: bool = False) -> list[str]:
     """v0.3 = v0.2 plus `producer.verifier`, validated by `proofbundle.verifier_block`.
 
@@ -2057,6 +2078,7 @@ def validate_agent_review_v03_predicate(predicate: object, *, strict: bool = Fal
                                                _producer_zusatz=_PRODUCER_FIELDS_V03)
 
 
+@_ein_stand
 def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = False,
                                         _producer_zusatz: frozenset = frozenset()) -> list[str]:
     """v0.2 zusaetzlich zu allem, was v0.1 schon verlangt.
@@ -2274,6 +2296,7 @@ def _gelesen_oder_leer(wert: Any) -> Any:
         return {} if issubclass(type(wert), dict) else None
 
 
+@_ein_stand
 def evaluate_time_policy(axes: dict, policy: dict) -> dict:
     """Die Entscheidung einer RELYING PARTY, nicht des Verifiers (Policytests 9 bis 14).
 
@@ -2323,6 +2346,7 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
                        f"the policy exists to check")}
 
 
+@_ein_stand
 def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     """Geprüfte externe Zeitevidenz auf die Achsen anwenden — und NUR auf die richtige.
 
@@ -2366,6 +2390,7 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
 # Der Klassen-Fix ist nicht ein besserer Waechter, sondern eine Stelle, an der man es nicht mehr
 # vergessen KANN. Gemessen mit entfernten separaten Aufrufen: 0 Verstoesse bei 14 echten Aufrufstellen (hier stand '18' — das waren grep-Treffer inklusive drei Kommentarzeilen und einer def-Zeile; gemessen wurde ein VORKOMMEN statt einer EIGENSCHAFT).
 
+@_ein_stand
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
                         expected_subject_digest: str | None = None,
                         observed_body: str | None = None) -> dict:
@@ -2681,6 +2706,7 @@ def _internal_error_ergebnis(fassung: str, exc: BaseException) -> dict:
     return _finalize_failclosed(r)
 
 
+@_ein_stand
 def verify_agent_review_v03(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_subject_digest: str | None = None,
                             observed_body: str | None = None,
@@ -2701,6 +2727,7 @@ def verify_agent_review_v03(envelope: dict, public_key: bytes, *, strict: bool =
         return _internal_error_ergebnis("v0.3", exc)
 
 
+@_ein_stand
 def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_subject_digest: str | None = None,
                             observed_body: str | None = None,
@@ -3120,6 +3147,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 AGENT_REVIEW_LEGACY_V01 = "AGENT_REVIEW_LEGACY_V01"
 
 
+@_ein_stand
 def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
     """Alle drei Fassungen lesen, alles andere ablehnen — und NIE werfen.
 
@@ -3239,6 +3267,7 @@ STANDARD_POLICY_NAME = "agent-review/default"
 POLICY_NOT_EVALUATED = "POLICY_NOT_EVALUATED"
 
 
+@_ein_stand
 def standard_policy_path() -> Path:
     """Die Standard-Policy liegt IM PAKET, nicht im Repo-Baum.
 
@@ -3261,6 +3290,7 @@ def standard_policy_path() -> Path:
     return Path(str(ref))
 
 
+@_ein_stand
 def load_policy(pfad=None) -> dict:
     """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
@@ -3349,6 +3379,7 @@ def _pruefe_policy_form(policy: dict, *, quelle: str | None = None) -> None:
         raise AgentReviewError(f"policy{wo}: name must be a string, not {type(name).__name__}")
 
 
+@_ein_stand
 def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
     """Die abgeleiteten Einschraenkungscodes gegen die Policy halten.
 

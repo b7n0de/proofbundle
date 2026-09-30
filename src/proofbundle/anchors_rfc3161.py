@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 from ._wire_b64 import decode_b64
 from typing import Optional
+from .canonical import _abbild_stand, _ein_stand
 
 
 def _load_der_cert(b64: str):
@@ -23,6 +24,7 @@ def _load_der_cert(b64: str):
     return x509.load_der_x509_certificate(decode_b64(b64))
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,
                    rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed offline verify of an RFC 3161 token. Returns {ok, detail}.
@@ -164,6 +166,7 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     return out
 
 
+@_ein_stand
 def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
                           root_certs_der: list, tsa_cert_der: Optional[bytes] = None,
                           intermediate_certs_der: Optional[list] = None,

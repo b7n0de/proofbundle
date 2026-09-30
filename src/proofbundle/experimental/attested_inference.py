@@ -39,7 +39,9 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from .._membership import type_name
 from ..errors import BundleFormatError
+from ..canonical import _ein_stand
 
 __all__ = ["ASSURANCE_PROVIDER_DECLARED", "binding_present", "normalise_provider_evidence",
            "evidence_digest"]
@@ -70,21 +72,47 @@ _MAX_DEPTH = 64
 _TOO_DEEP = "<truncated: nesting deeper than %d levels>" % _MAX_DEPTH
 
 
+#: Key types json writes by value; their `str()` is the built-in one and runs no code of the caller.
+_SKALAR_SCHLUESSEL = (int, float, bool, type(None))
+
+
 def _without_credentials(obj: Any, _depth: int = 0) -> Any:
     """Drop credential-looking members, recursively. Structure preserved, values not inspected.
 
     Bounded by :data:`_MAX_DEPTH` — see there for why the bound exists.
+
+    Read by what the value stores, so that no method of the caller runs while the evidence is copied (deep gate
+    run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): a mapping through the base type's own
+    `dict.items`, a list through `list.__iter__`, a key by its characters. `obj.items()` ran a dict subclass's own
+    `items`, and `str(k).lower()` a key's own `__str__`, in the middle of the one reading `check_on_receipt` takes
+    of the evidence: a key whose `__str__` rewrote two members of the evidence left a copy that held one member from
+    before and one from after, and without an expected digest the answer was ACCEPTED although neither state of the
+    evidence is. A key that is no text and no exact JSON scalar is refused with the `TypeError` json gives for it,
+    before it is hashed into the copy, where its own `__hash__` and `__eq__` would run; a `str` subclass key is written
+    as the plain text it holds.
     """
     if _depth >= _MAX_DEPTH:
         return _TOO_DEEP
-    if isinstance(obj, dict):
-        return {k: _without_credentials(v, _depth + 1) for k, v in obj.items()
-                if not any(h in str(k).lower() for h in _CREDENTIAL_HINTS)}
-    if isinstance(obj, list):
-        return [_without_credentials(x, _depth + 1) for x in obj]
+    if issubclass(type(obj), dict):
+        kopie = {}
+        for k, v in list(dict.items(obj)):
+            if issubclass(type(k), str):
+                k = str.__str__(k)
+                name = k
+            elif type(k) in _SKALAR_SCHLUESSEL:
+                name = str(k)
+            else:
+                raise TypeError(f"keys must be str, int, float, bool or None, not {type_name(k)}")
+            if any(h in name.lower() for h in _CREDENTIAL_HINTS):
+                continue
+            kopie[k] = _without_credentials(v, _depth + 1)
+        return kopie
+    if issubclass(type(obj), list):
+        return [_without_credentials(x, _depth + 1) for x in list(list.__iter__(obj))]
     return obj
 
 
+@_ein_stand
 def evidence_digest(evidence: dict) -> str:
     """A stable digest over the provider's evidence, after credential removal.
 
@@ -99,6 +127,7 @@ def evidence_digest(evidence: dict) -> str:
                    ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+@_ein_stand
 def binding_present(evidence: dict, expected_binding: str) -> bool:
     """Does the provider's SIGNED material carry ``expected_binding``?
 
@@ -117,6 +146,7 @@ def binding_present(evidence: dict, expected_binding: str) -> bool:
     return expected_binding in json.dumps(_without_credentials(evidence), ensure_ascii=False)
 
 
+@_ein_stand
 def normalise_provider_evidence(evidence: dict, *, provider: str,
                                 expected_binding: Optional[str] = None,
                                 request_id: Optional[str] = None,
@@ -182,6 +212,7 @@ def _sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
+@_ein_stand
 def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
                      request_bytes: bytes, response_bytes: bytes,
                      planned_route: Optional[str] = None,
@@ -248,9 +279,9 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
     # `_without_credentials` (credential-shaped members dropped, the depth bound kept), so its digest,
     # its binding and its record are those of the evidence as it was handed in. Evidence that changes
     # its size while it is read is refused like evidence that cannot be canonicalised.
-    from ..canonical import _eine_lesung  # noqa: PLC0415
+    from ..canonical import _in_einem_zug  # noqa: PLC0415
     try:
-        with _eine_lesung():   # one state of the mapping, not one member at a time
+        with _in_einem_zug():   # one state of the mapping, not one member at a time
             evidence = _without_credentials(evidence)
         digest = evidence_digest(evidence)
     except (TypeError, ValueError, RuntimeError, BundleFormatError) as exc:
@@ -348,6 +379,7 @@ def check_on_receipt(evidence: dict, *, provider: str, nonce: str,
             "evidence_digest": digest, "normalised": normalised}
 
 
+@_ein_stand
 def counts_as_own_domain(receipt_check: dict) -> bool:
     """May this provider answer count as its own execution domain in a diversity panel?
 

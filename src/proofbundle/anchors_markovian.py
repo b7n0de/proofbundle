@@ -32,6 +32,7 @@ import binascii
 import hashlib
 from ._wire_b64 import decode_b64
 from typing import Optional
+from .canonical import _abbild_stand, _ein_stand
 
 ANCHOR_TYPE = "markovian-provenance/v1"
 
@@ -40,6 +41,7 @@ def _fail(status: str, detail: str) -> dict:
     return {"ok": False, "warn": False, "status": status, "detail": detail}
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
                      now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed verifier for a ``markovian-provenance/v1`` anchor. Returns {ok, warn, status, detail}.
@@ -57,8 +59,11 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     # the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). The binding compared one reading
     # of `canonical_root` and the Bitcoin proof was checked against another, so a `bytearray` root the caller
     # changed in between was bound to the envelope in one state and time-stamped in another; the proof was
-    # sized and decoded as two readings, a `bytes` subclass through its own `__len__` and `decode`. A value
-    # that is no bytes-like value is handed on unchanged and refused below as before.
+    # sized and decoded as two readings, a `bytes` subclass through its own `__len__` and `decode`. Any other
+    # value is handed on unchanged, as before: a `memoryview` root is compared below as the bytes it views and
+    # accepted like them (verify lane V2 on 6d674973 measured it; this comment said it was refused), and a
+    # value that is no bytes-like value is refused below. Since the reading at the call (`canonical._ein_stand`)
+    # the view is a private copy too.
     from .canonical import _bytes_von  # noqa: PLC0415
     _gelesen = _bytes_von(proof)
     if _gelesen is not None:
@@ -152,6 +157,7 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
                    f"{ots_res.get('detail', '')}"})
 
 
+@_ein_stand
 def register() -> None:
     """Register this third-party type so ``anchors[]`` entries of type ``markovian-provenance/v1`` verify."""
     from .anchors import register_anchor_type  # noqa: PLC0415

@@ -17,7 +17,7 @@ import re
 from typing import Any
 
 from ._statement_payload import load_statement_strict
-from .canonical import _eine_kopie, _pruefkopie
+from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member, require_switch
 
@@ -52,6 +52,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_summary_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``verification-summary/v0.1`` predicate (empty = valid)."""
     try:
@@ -134,6 +135,7 @@ def _validate_level(lvl: Any) -> list[str]:
     return errs
 
 
+@_ein_stand
 def require_valid_summary_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_summary_predicate(predicate, strict=strict)
     if errs:
@@ -171,6 +173,7 @@ def _predicate_once(predicate):
                       error=lambda m: VerificationSummaryError(f"invalid verification-summary predicate: {m}"))
 
 
+@_ein_stand
 def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
@@ -188,6 +191,7 @@ def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
     }
 
 
+@_ein_stand
 def emit_verification_summary(predicate: dict, signer, *, subject_name: str | None = None,
                               subject_sha256: str | None = None, keyid: str | None = None,
                               strict: bool = True) -> dict:
@@ -231,6 +235,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_verification_summary(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
     """Verify a DSSE-signed Verification Summary. Crypto first, then structure over the EXACT signed bytes.
 

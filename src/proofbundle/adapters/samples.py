@@ -18,8 +18,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import List
+from ..canonical import _ein_stand
 
 
+@_ein_stand
 def samples_from_lm_eval_jsonl(path) -> List[dict]:
     """Read an lm-evaluation-harness ``--log_samples`` JSONL (samples_<task>_*.jsonl) into leaf
     records: (doc_id, filter, doc/prompt/target hashes, filtered responses, metric values).
@@ -53,6 +55,7 @@ def samples_from_lm_eval_jsonl(path) -> List[dict]:
     return records
 
 
+@_ein_stand
 def samples_from_promptfoo_results(path) -> List[dict]:
     """Read a promptfoo results.json (summary v3) into leaf records:
     (testIdx, promptIdx, provider, success, score). Sorted by (testIdx, promptIdx, provider)."""

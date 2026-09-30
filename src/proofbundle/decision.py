@@ -16,7 +16,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
-from .canonical import _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
+from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
+                        _pruefkopie, _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
@@ -137,6 +138,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return a list of human-readable errors; **empty list == valid**. Fail-closed.
 
@@ -325,6 +327,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     return errors
 
 
+@_ein_stand
 def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) -> None:
     """Raise ``DecisionReceiptError`` if the predicate is invalid; return ``None`` if valid.
 
@@ -341,6 +344,7 @@ def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) ->
         )
 
 
+@_ein_stand
 def action_outcome_proven(predicate: Any) -> bool | None:
     """DEPRECATED (PB-2026-0717-08) — a digest-PRESENCE boolean whose name OVERSTATES. It reads True on a
     mere well-formed sha256 outcomeRef (evidence_levels REFERENCE_WELL_FORMED, attacker-choosable content),
@@ -357,6 +361,7 @@ def action_outcome_proven(predicate: Any) -> bool | None:
     return isinstance(ref, dict) and _is_digest(ref.get("digest"))
 
 
+@_ein_stand
 def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
                          artifact_bytes: bytes | None = None) -> dict:
     """Offline check of one ``evidenceRefs[]`` entry against resolved evidence (no network).
@@ -437,6 +442,7 @@ def _predicate_once(predicate):
                       error=lambda m: DecisionReceiptError(f"invalid decision predicate: {m}"))
 
 
+@_ein_stand
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
@@ -463,6 +469,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
+@_ein_stand
 def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                           subject_sha256: str | None = None, keyid: str | None = None,
                           strict: bool = True) -> dict:
@@ -521,6 +528,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                      expected_audience: str | None = None,
                                      expected_nonce: str | None = None, policy: dict | None = None,
@@ -540,6 +548,7 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         related=related, _raise_on_malformed=True)
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,

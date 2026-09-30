@@ -27,10 +27,12 @@ from __future__ import annotations
 import hashlib
 
 from .errors import ProofBundleError
+from .canonical import _ein_stand
 
 __all__ = ["evaluation_card_hash", "verify_evaluation_card"]
 
 
+@_ein_stand
 def evaluation_card_hash(card_path) -> str:
     """Return the lowercase-hex sha256 over the RAW bytes of the Eval Card document — the value to
     place in a claim's ``evaluation_card_sha256`` when signing the receipt."""
@@ -76,6 +78,7 @@ def evaluation_card_hash(card_path) -> str:
     return h.hexdigest()
 
 
+@_ein_stand
 def verify_evaluation_card(card_path, claim: dict) -> dict:
     """Check that ``claim['evaluation_card_sha256']`` matches the sha256 of the card document.
 

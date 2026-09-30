@@ -18,7 +18,7 @@ import re
 from typing import Any
 
 from ._statement_payload import load_statement_strict
-from .canonical import _eine_kopie, _pruefkopie
+from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
 from ._membership import is_member, require_switch
 
@@ -51,6 +51,7 @@ def _digest_hex(obj: Any) -> str | None:
     return obj["sha256"] if _is_digest(obj) else None
 
 
+@_ein_stand
 def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``run-ledger/v0.1`` predicate (empty = valid).
 
@@ -162,12 +163,14 @@ def _validate_run_shape(run: Any) -> list[str]:
     return errs
 
 
+@_ein_stand
 def require_valid_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
 
 
+@_ein_stand
 def link_runs(result_digests: list[str], statuses: list[str] | None = None) -> list[dict]:
     """Helper: build a well-formed, chained ``runs`` list from an ordered list of result-digest hexes.
 
@@ -232,6 +235,7 @@ def _predicate_once(predicate):
                       error=lambda m: RunLedgerError(f"invalid run-ledger predicate: {m}"))
 
 
+@_ein_stand
 def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
@@ -249,6 +253,7 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
     }
 
 
+@_ein_stand
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:
@@ -293,6 +298,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
     """Verify a DSSE-signed Run Ledger. Crypto first, then structure over the EXACT signed bytes.
 

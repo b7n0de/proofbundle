@@ -1401,7 +1401,12 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         so what it writes can be deeper than anything stored. Measured at a4e2fa5c: such a value
         holding 100 levels in its methods and nothing deeper in its storage was written, exit 1, on all
         five interpreters, and 5000 levels gave exit 2 on 3.10 and 3.11 and exit 1 from 3.12 on. The
-        depth is measured in the form the serialiser wrote now, and each method still runs once."""
+        depth is measured in the form the serialiser wrote.
+
+        SINCE THE READING AT THE CALL (the fix of the gate at d388ed3d, `canonical._ein_stand`) a list or dict
+        subclass reaches the adapter as its base type holding what it stores, so the serialiser writes what the
+        value stores and none of its methods runs. The ceiling is held here with the depth in the storage; a value
+        that is deep only in its methods is written as its shallow storage (the last subtest)."""
         from proofbundle.adapters.agt_receipt import (canonical_authorization_payload, canonical_payload, exit_code,
                                                       verify_agt_receipt, verify_agt_receipt_chain)
         r1, r3 = _agt("01_allow"), _agt("03_extern_autorisiert")
@@ -1425,8 +1430,9 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                 return [("k", self.inner)]
 
         def holding(kind, inner):
-            value = kind() if kind is Iterates else kind(stored=1)
-            value.inner = inner            # the form writes the field at level 2, `inner` at level 3
+            # the storage holds `inner` as the methods show it: the form writes the field at level 2, `inner` at 3
+            value = kind([inner]) if kind is Iterates else kind(k=inner)
+            value.inner = inner
             return value
 
         for kind in (Iterates, Items):
@@ -1439,7 +1445,7 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                         e = verify_agt_receipt(dict(receipt, **{field: holding(kind, nested(n))}),
                                                trusted_authorizer_keys=keys)
                         self.assertEqual(exit_code(e), code, [(c.name, c.detail) for c in e.checks if not c.ok])
-                        self.assertEqual(len(calls), 1, "the caller's method ran more or less than once")
+                        self.assertEqual(calls, [], "a method of the caller's value ran")
                         if code == 2 and n <= 100:     # 5000 may meet the serialiser's own limit first
                             self.assertIn("it nests arrays and objects more than 64 deep",
                                           " ".join(c.detail for c in e.checks))
@@ -1450,6 +1456,14 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                 e = verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=holding(kind, {text: [text, text]})))
                 self.assertEqual(exit_code(e), 1, [(c.name, c.detail) for c in e.checks if not c.ok])
                 self.assertEqual(exit_code(verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=text))), 1)
+        with self.subTest(since="the reading at the call: a value deep only in its methods is written as it stores"):
+            for kind in (Iterates, Items):
+                flach = kind() if kind is Iterates else kind(stored=1)
+                flach.inner = nested(100)
+                calls.clear()
+                e = verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=flach))
+                self.assertEqual(exit_code(e), 1, [(c.name, c.detail) for c in e.checks if not c.ok])
+                self.assertEqual(calls, [])
         with self.subTest(control="a value shared many times over is walked once per container and level"):
             shared: Any = "x"
             for _ in range(60):                   # 2**60 paths, 61 containers, the deepest at level 61
@@ -1500,7 +1514,9 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                     e = call()
                 except Exception as escape:  # noqa: BLE001 — an escape is the finding
                     self.fail(f"the verifier raised {type(escape).__name__}")
-                self.assertEqual(ReadOnce.calls, 1, "the payload was serialised more than once")
+                # Since the reading at the call the value reaches the adapter as the dict it stores, so its own
+                # `items()` runs not once but never; what this held (no second reading escapes) holds with it.
+                self.assertEqual(ReadOnce.calls, 0, "a method of the caller's value ran")
                 self.assertEqual(exit_code(e), 1, [(c.name, c.ok) for c in e.checks])
 
     def test_the_receipt_and_the_chain_are_read_through_their_own_storage(self):

@@ -26,7 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .canonical import _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie, _zeichen_von
+from .canonical import (_ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie,
+                        _zeichen_von)
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items
 
@@ -119,6 +120,7 @@ class ConsistencyVerificationResult:
         return errors
 
 
+@_ein_stand
 def validate_public_transparency_policy(policy: Any) -> list[str]:
     """Fail-closed validation of a public-transparency policy object (empty = valid)."""
     try:
@@ -159,6 +161,42 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     return errors
 
 
+class _KonsistenzStand:
+    """A consistency result read once at the call of `evaluate_public_transparency`: the answer of its own
+    ``validate()`` and the four fields the evaluation compares, each read one time (verify lane V2 on 6d674973).
+    The evaluation read the caller's object at five places; one whose fields are computed on each access passed
+    with the root of one state and the confirmation of another, where each state fails."""
+    __slots__ = ("_befund", "new_origin", "new_tree_size", "new_root_b64", "confirmed")
+    _befund: list
+    new_origin: Any
+    new_tree_size: Any
+    new_root_b64: Any
+    confirmed: Any
+
+    def validate(self) -> list:
+        return list(self._befund)
+
+
+def _konsistenz_stand(wert: Any) -> Any:
+    """The boundary reader of ``consistency_result`` (`canonical._ein_stand`). None, and an object without
+    ``validate``, are handed on unchanged for the evaluation to judge as before; so is an object whose
+    ``validate()`` answer is no list or whose fields cannot be read, which the evaluation then reads as before."""
+    if wert is None or not hasattr(wert, "validate"):
+        return wert
+    try:
+        befund = wert.validate()
+        if type(befund) is not list:
+            return wert
+        stand = _KonsistenzStand()
+        stand._befund = list(befund)
+        for feld in ("new_origin", "new_tree_size", "new_root_b64", "confirmed"):
+            setattr(stand, feld, getattr(wert, feld))
+    except Exception:  # noqa: BLE001 - an object that cannot be read here is read by the evaluation as before
+        return wert
+    return stand
+
+
+@_ein_stand(consistency_result=_konsistenz_stand)
 def evaluate_public_transparency(
     signed_note: str, policy: dict, *, log_vkey: str | None = None,
     witness_vkeys: list | None = None, expected_root_b64: str | None = None,

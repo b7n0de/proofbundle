@@ -29,6 +29,7 @@ from typing import Optional, Union
 from .._membership import require_switch
 from ..evalclaim import build_eval_claim
 from ._provenance import add_provenance
+from ..canonical import _ein_stand
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "eee_eval_schema.json"
 _SCHEMA_VERSION = "0.2.2"
@@ -161,6 +162,7 @@ def _leaks_model_id(text: str, model_id: str) -> bool:
     return any(t and (t in hay or t in hay_norm) for t in tokens)
 
 
+@_ein_stand
 def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, threshold: str,
                      timestamp: Optional[str] = None, eval_index: int = 0, metric_name: Optional[str] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None,

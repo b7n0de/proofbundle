@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Optional
+from .canonical import _abbild_stand, _ein_stand
 
 ANCHOR_TYPE = "chia-datalayer/v1"
 
@@ -63,16 +64,19 @@ def _hexbytes(value, field: str) -> bytes:
     return b
 
 
+@_ein_stand
 def clvm_atom_hash(atom: bytes) -> bytes:
     """CLVM tree hash of a raw atom: sha256(0x01 ‖ atom). Public helper (Paket 1 anchor-add reuses it)."""
     return _h(_ATOM_PREFIX, atom)
 
 
+@_ein_stand
 def leaf_node_hash(key_clvm_hash: bytes, value_clvm_hash: bytes) -> bytes:
     """DataLayer leaf hash: sha256(0x02 ‖ key_clvm_hash ‖ value_clvm_hash)."""
     return _h(_NODE_PREFIX, key_clvm_hash, value_clvm_hash)
 
 
+@_ein_stand
 def merkle_root_from_layers(node_hash: bytes, inclusion_layers: list) -> bytes:
     """Recompute the DataLayer root by ascending ``inclusion_layers`` from ``node_hash``.
 
@@ -103,6 +107,7 @@ def merkle_root_from_layers(node_hash: bytes, inclusion_layers: list) -> bytes:
     return cur
 
 
+@_ein_stand
 def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     """Pure offline verification (level i). ``proof_obj`` is the decoded chia-datalayer proof dict.
 
@@ -149,7 +154,12 @@ def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     # caller value). Its fields were read one by one through the caller's own `get`, with hashing between
     # the reads, so a proof changed in between had its root taken from one state and its key from another.
     # A proof with no plain copy is malformed.
-    from .canonical import _pruefkopie  # noqa: PLC0415
+    from .canonical import _feld_von, _pruefkopie  # noqa: PLC0415
+    # A tuple of layers stays refused, as before the copy: `_pruefkopie` writes a tuple inside a value as the array
+    # JSON writes, and verify lane V3 on 6d674973 measured a proof with a tuple of layers that d388ed3d refused
+    # ("inclusion_layers must be a list") accepted with ok True.
+    if issubclass(type(_feld_von(proof_obj, "inclusion_layers")), tuple):
+        return {"ok": False, "detail": "malformed chia-datalayer proof: inclusion_layers must be a list"}
     try:
         proof_obj = _pruefkopie(proof_obj)
     except ValueError as exc:
@@ -192,6 +202,7 @@ def verify_offline_merkle(proof_obj: dict, canonical_root: bytes) -> dict:
     return {"ok": True, "detail": "chia-datalayer merkle: canonicalRoot (as DataLayer key) included under published_root (level i, offline; chain binding NOT checked here)"}
 
 
+@_ein_stand(frozen=_abbild_stand)
 def verify_chia_datalayer(proof: bytes, canonical_root: bytes, *, frozen: Optional[dict] = None,
                           now: Optional[int] = None) -> dict:
     """Registered anchor verifier for ``chia-datalayer/v1`` (see ``register_anchor_type``).

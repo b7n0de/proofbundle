@@ -28,8 +28,12 @@ paths converge on. Providing it here does NOT change any released wire format โ€
 """
 from __future__ import annotations
 
+import functools
 import gc
 import hashlib
+import inspect
+import sys
+import threading
 from datetime import datetime, timezone
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -91,7 +95,7 @@ def _require_statement_shape(obj: Any) -> None:
             "ADR 0002 ยง2 full-Statement scope)")
 
 
-class _eine_lesung:
+class _in_einem_zug:
     """One reading of a caller's value, run with the cyclic garbage collector paused, so that no gc callback
     of the caller runs between the parts of that one reading.
 
@@ -105,21 +109,317 @@ class _eine_lesung:
     become one). The copy itself runs no code of the caller (`_plain_for_jcs`); with the collector paused,
     nothing else does either, so the one reading is one state.
 
-    The collector is paused only if it runs and is started again only if this paused it, so a caller that
-    runs with it off keeps it off, and a reading inside a reading changes nothing. A value another THREAD
-    changes while it is read is outside this: that is a race of the caller's own threads, which no reading
-    can order."""
-    __slots__ = ("_pausiert",)
+    ONE PAUSE FOR THE WHOLE PROCESS (verify lanes V2 and V3 on 6d674973). The collector is one switch of the
+    process, and each reading had its own flag: a reading in a second thread found it off, paused nothing,
+    and the first reading's end switched it on in the middle of the second (measured: 24 of 300 calls of
+    `verify_decision_receipt` gave a verdict neither state gives while another thread looped
+    `join_test_result`). So the readings of all threads share one count under one lock: the first to begin
+    pauses the collector if it runs, the last to end starts it again if the first paused it. A caller that
+    runs with the collector off keeps it off.
 
-    def __enter__(self) -> "_eine_lesung":
-        self._pausiert = gc.isenabled()
-        if self._pausiert:
-            gc.disable()
+    A COLLECTION THAT RUNS ANYWAY IS SEEN. Code of the caller that runs inside a reading (a ``Mapping``'s own
+    ``items``, which is the only way to read it) can start the collector again or call ``gc.collect``, and
+    another thread can do the same; then a collection runs the callbacks in the middle of the reading.
+    While a reading is open a callback of this module counts every collection that starts, and a reading
+    during which one started says so (``gestoert``); `_stand` reads again and refuses after three such
+    readings. What another thread writes into the caller's value WITHOUT a collection is a race of the
+    caller's own threads, which no reading can order."""
+    __slots__ = ("_beginn", "gestoert")
+
+    def __enter__(self) -> "_in_einem_zug":
+        with _ZUG_SPERRE:
+            if _ZUG[0] == 0:
+                _ZUG[1] = gc.isenabled()
+                gc.disable()
+                gc.callbacks.append(_zug_zaehlt)
+            _ZUG[0] += 1
+            self._beginn = _SAMMLUNGEN[0]
+        self.gestoert = False
         return self
 
     def __exit__(self, *exc: Any) -> None:
-        if self._pausiert:
-            gc.enable()
+        with _ZUG_SPERRE:
+            self.gestoert = _SAMMLUNGEN[0] != self._beginn
+            _ZUG[0] -= 1
+            if _ZUG[0] == 0:
+                # By identity: `list.remove` would compare through each callback's own `__eq__`.
+                for stelle, rueckruf in enumerate(list(gc.callbacks)):
+                    if rueckruf is _zug_zaehlt:
+                        del gc.callbacks[stelle]
+                        break
+                if _ZUG[1]:
+                    gc.enable()
+
+
+#: The readings open in this process, and whether the first of them found the collector running.
+_ZUG: list = [0, False]
+_ZUG_SPERRE = threading.RLock()
+#: Collections that started while a reading was open.
+_SAMMLUNGEN: list = [0]
+
+
+def _zug_zaehlt(phase: str, info: Any) -> None:
+    if phase == "start":
+        _SAMMLUNGEN[0] += 1
+
+
+class _StandGestoert(ProofBundleError):
+    """A caller's value could not be read as one state: a collection started during each of three readings."""
+
+
+#: How often `_stand` reads before it refuses.
+_VERSUCHE = 3
+
+def _lesen_einmal(wurzeln: Any) -> dict:
+    """Phase one of `_stand`: every built-in container reachable from ``wurzeln`` through built-in containers,
+    read by what it stores (the base type's own methods, which run no code of the caller). Returns
+    ``id -> (art, typ, inhalt)``. Nothing here hashes, compares or calls a method of the caller."""
+    gelesen: dict = {}
+    stapel = [wurzeln]
+    while stapel:
+        wert = stapel.pop()
+        typ = type(wert)
+        if typ is str or typ is int or typ is bytes or typ is float or typ is bool or wert is None:
+            continue
+        schluessel = id(wert)
+        if schluessel in gelesen:
+            continue
+        if issubclass(typ, dict):
+            paare = list(dict.items(wert))
+            if typ is not dict and issubclass(typ, OrderedDict):
+                try:
+                    paare = _in_eigener_reihenfolge(wert, paare)
+                except _Abweisung:
+                    continue   # its own order cannot be read without hashing its keys: the caller's object
+            gelesen[schluessel] = ("dict", typ, paare, None)
+            stapel.extend(eintrag for _, eintrag in paare)
+        elif issubclass(typ, list):
+            teile = list(list.__iter__(wert))
+            gelesen[schluessel] = ("list", typ, teile, None)
+            stapel.extend(teile)
+        elif issubclass(typ, tuple):
+            teile = list(tuple.__iter__(wert))
+            gelesen[schluessel] = ("tuple", typ, teile, None)
+            stapel.extend(teile)
+        elif issubclass(typ, set):
+            gelesen[schluessel] = ("set", typ, list(set.__iter__(wert)), None)
+        elif issubclass(typ, bytearray):
+            gelesen[schluessel] = ("bytearray", typ, bytes(bytearray.__getitem__(wert, slice(None))), None)
+        elif typ is memoryview:
+            try:
+                gelesen[schluessel] = ("memoryview", typ, b"" + wert, (wert.format, tuple(wert.shape)))
+            except (BufferError, TypeError, ValueError):
+                continue
+    return gelesen
+
+
+#: What `_schluessel_von` answers for a key whose hash would be code of the caller.
+_UNSICHER = object()
+
+
+def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
+    """A key or set item as it is, when its hash and comparison are the interpreter's own, or `_UNSICHER`.
+
+    An exact ``str``, ``bytes``, ``int``, ``float``, ``bool`` or None, and a tuple or frozenset of such values, is
+    kept. Any other key cannot be put into the copy without its hash, and its own hash can be code of the caller;
+    nor can it be replaced by the plain value it stores, because a reader may count only an exact ``str`` as a key
+    (`assurance` does, so a ``str`` subclass spelled "sha256" is no digest there): the copy would promote what the
+    caller's value did not hold."""
+    typ = type(wert)
+    if typ is str or typ is int or typ is bytes or typ is float or typ is bool or wert is None:
+        return wert
+    if tiefe < 16 and (typ is tuple or typ is frozenset):
+        teile = [_schluessel_von(t, tiefe + 1) for t in (tuple.__iter__(wert) if typ is tuple
+                                                        else frozenset.__iter__(wert))]
+        if any(t is _UNSICHER for t in teile):
+            return _UNSICHER
+        return wert
+    return _UNSICHER
+
+
+def _bauen(gelesen: dict, wurzel: Any) -> Any:
+    """Phase two of `_stand`: a private plain copy of every container phase one read, built only from what
+    phase one read, so nothing the caller does after the reading reaches it, and no object of the caller's
+    classes is made. A subclass of dict, list, tuple, set or bytearray becomes the base type holding what
+    it stores, as `_plain_for_jcs` copies it; an OrderedDict becomes a dict in its own order. A key is kept
+    when its hash is the interpreter's own (`_schluessel_von`); a dict with any other key, and a set of any other
+    item, stays the caller's object, because a copy would either run the caller's hash or change what the key
+    is."""
+    kopie: dict = {}
+    schluessel_je: dict = {}
+    for schluessel, (art, typ, inhalt, extra) in gelesen.items():
+        if art == "dict":
+            neue = [_schluessel_von(k) for k, _ in inhalt]
+            if any(k is _UNSICHER for k in neue):
+                continue
+            schluessel_je[schluessel] = neue
+            kopie[schluessel] = {}
+        elif art == "list":
+            kopie[schluessel] = []
+        elif art == "set":
+            neue = [_schluessel_von(k) for k in inhalt]
+            if any(k is _UNSICHER for k in neue):
+                continue
+            kopie[schluessel] = set(neue)
+        elif art == "bytearray":
+            kopie[schluessel] = bytearray(inhalt)
+        elif art == "memoryview":
+            ansicht = memoryview(inhalt)
+            form, gestalt = extra
+            if form != "B" or len(gestalt) != 1:
+                try:
+                    ansicht = ansicht.cast(form, gestalt)
+                except (TypeError, ValueError):
+                    continue
+            kopie[schluessel] = ansicht
+    # Tuples after their tuple parts; a circle through tuples alone cannot be built.
+    for schluessel, (art, _, inhalt, _) in gelesen.items():
+        if art != "tuple" or schluessel in kopie:
+            continue
+        weg = [(schluessel, inhalt)]
+        while weg:
+            s, teile = weg[-1]
+            offen = [x for x in teile if id(x) in gelesen and gelesen[id(x)][0] == "tuple" and id(x) not in kopie]
+            if offen:
+                weg.append((id(offen[0]), gelesen[id(offen[0])][2]))
+                continue
+            weg.pop()
+            kopie[s] = tuple([kopie.get(id(x), x) for x in teile])
+    for schluessel, (art, _, inhalt, _) in gelesen.items():
+        ziel = kopie.get(schluessel)
+        if ziel is None:
+            continue
+        if art == "dict":
+            for k, (_, v) in zip(schluessel_je[schluessel], inhalt):
+                ziel[k] = kopie.get(id(v), v)
+        elif art == "list":
+            ziel.extend([kopie.get(id(v), v) for v in inhalt])
+    return kopie.get(id(wurzel), wurzel)
+
+
+def _stand(wurzel: Any, leser: Any = None) -> Any:
+    """ONE STATE of a caller's value: a private copy of every built-in container in it (dict, list, tuple, set,
+    bytearray, memoryview, and a subclass of each as an object of its own class), read in one reading with
+    the collector paused, so that code of the caller that runs later changes nothing a verdict reads.
+
+    ``leser`` runs inside the same pause before the copy (the reader of an argument that is read through its
+    own methods, `_abbild_stand`), so it and the copy are one reading too. A reading during which a collection
+    started anyway is read again; after `_VERSUCHE` such readings `_StandGestoert` is raised."""
+    for _ in range(_VERSUCHE):
+        with _in_einem_zug() as zug:
+            gelesen_wurzel = leser(wurzel) if leser is not None else wurzel
+            gelesen = _lesen_einmal(gelesen_wurzel)
+        if not zug.gestoert:
+            return _bauen(gelesen, gelesen_wurzel)
+    raise _StandGestoert("a value of the caller changed while it was read: a collection ran during each of "
+                         f"{_VERSUCHE} readings of it")
+
+
+#: What a reader leaves for a mapping it could not read: its own ``items`` raises, like the mapping's did.
+class _Unlesbar(Mapping):
+    __slots__ = ()
+
+    def __getitem__(self, key: Any) -> Any:
+        raise KeyError(key)
+
+    def __iter__(self) -> Any:
+        return iter(())
+
+    def __len__(self) -> int:
+        return 0
+
+    def items(self) -> Any:
+        raise TypeError("the caller's mapping could not list its pairs")
+
+
+def _abbild_stand(wert: Any) -> Any:
+    """The boundary reader of an argument that is a ``Mapping`` but no dict (``rp_trust``, ``frozen``): its own
+    ``items()``, called once, as a dict of the pairs it listed; a mapping that cannot list them becomes one
+    whose ``items`` raises. Any other value is left as it is (a dict is copied by `_stand`)."""
+    typ = type(wert)
+    if wert is None or issubclass(typ, dict) or not issubclass(typ, Mapping):
+        return wert
+    try:
+        return dict(wert.items())
+    except Exception:  # noqa: BLE001 - a mapping that cannot list its pairs is no mapping to read
+        return _Unlesbar()
+
+
+#: How deep this thread is inside the body of a public function whose arguments were read at its call.
+_INNEN = threading.local()
+
+
+def _aus_dem_paket(rahmen: Any) -> bool:
+    name = rahmen.f_globals.get("__name__", "")
+    return type(name) is str and (name == "proofbundle" or name.startswith("proofbundle."))
+
+
+def _ein_stand(funktion: Any = None, **leser: Any) -> Any:
+    """Every argument of a public function, read as one state at its call (`_stand`), before its body reads
+    any of them. ``leser`` names arguments that are read through their own methods and the reader for each.
+    An argument of an exact type that cannot change is handed on without a reading.
+
+    A CALL FROM INSIDE is not read again: when this thread is in the body of a public function whose arguments
+    were read at its call, and the function that calls is this package's own code, what it passes is that
+    reading or was made from it (a value a caller's callable returns is read where it returns, `_stand`). A
+    call from the caller's code (a gc callback, a resolver, a Mapping's own method) is read as every call is.
+    Measured without this, on a loaded machine: `verify_decision_receipt` took 1.94 ms against 0.86 ms at
+    6d674973, because each public function it calls read its arguments again. It stands outermost, so the
+    frame that calls it is the caller's."""
+    def verpacken(f: Any) -> Any:
+        # The positional parameters, then the keyword-only ones, of the function itself: a decorator below this one
+        # (`_refuse_unreadable_input`, `_never_raise_verdict`) wraps it in `*args, **kwargs`, whose code names none
+        # of them, so the names are read from the innermost function (`inspect.unwrap`). A positional argument past
+        # the first group belongs to `*args` and is named by none of them.
+        code = inspect.unwrap(f).__code__
+        namen = (code.co_varnames[:code.co_argcount],
+                 code.co_varnames[:code.co_argcount + code.co_kwonlyargcount])
+        # A reader bound to a name the function does not have would read nothing, and nothing would say so (found
+        # before the push: the readers of `rp_trust` and `frozen` did nothing on four functions whose other
+        # decorator stood below this one). So such a binding fails where the function is defined.
+        fremd = sorted(set(leser) - set(namen[1]))
+        if fremd:
+            raise TypeError(f"_ein_stand: {', '.join(fremd)} is no parameter of {f.__qualname__}")
+
+        @functools.wraps(f)
+        def lesen(*args: Any, **kwargs: Any) -> Any:
+            tiefe = getattr(_INNEN, "tiefe", 0)
+            if tiefe and _aus_dem_paket(sys._getframe(1)):
+                return f(*args, **kwargs)
+            _INNEN.tiefe = tiefe + 1
+            try:
+                return _gelesen_rufen(f, namen, leser, args, kwargs)
+            finally:
+                _INNEN.tiefe = tiefe
+        lesen.__ein_stand__ = True  # type: ignore[attr-defined]
+        return lesen
+    return verpacken(funktion) if funktion is not None else verpacken
+
+
+def _gelesen_rufen(f: Any, namen: tuple, leser: dict, args: tuple, kwargs: dict) -> Any:
+    """`f` over the one reading of its arguments (`_ein_stand`)."""
+    for a in list(args) + list(kwargs.values()):
+        t = type(a)
+        if not (t is str or t is bytes or t is int or t is bool or t is float or a is None):
+            break
+    else:
+        return f(*args, **kwargs)
+    if leser:
+        def lesen_mit(paar: Any) -> Any:
+            pos, kw = paar
+            pos = list(pos)
+            for stelle, name in enumerate(namen[0][:len(pos)]):
+                if name in leser:
+                    pos[stelle] = leser[name](pos[stelle])
+            kw = dict(kw)
+            for name in list(kw):
+                if name in leser and name in namen[1]:
+                    kw[name] = leser[name](kw[name])
+            return (tuple(pos), kw)
+        args, kwargs = _stand((args, kwargs), lesen_mit)
+    else:
+        args, kwargs = _stand((args, kwargs))
+    return f(*args, **kwargs)
 
 
 def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel: str = "") -> Any:
@@ -222,7 +522,7 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     sits (``provenance.k``, ``ci95[0]``), starting at ``wurzel`` when the caller names the argument.
     """
     try:
-        with _eine_lesung():   # one state of the value, not one node at a time (`_eine_lesung`)
+        with _in_einem_zug():   # one state of the value, not one node at a time (`_in_einem_zug`)
             return _plain_value(value, set())
     except _Abweisung as abweisung:
         ort = wurzel + "".join(reversed(abweisung.pfad))
@@ -689,6 +989,8 @@ def _plain_value(value: Any, offen: set) -> Any:
     raise _Abweisung(f"a value of type {_type_name(typ)} is not a JSON value")
 
 
+@_ein_stand
+@_ein_stand
 def canonicalize_statement(statement: Any, *, require_statement_shape: bool = False) -> bytes:
     """RFC-8785 (JCS) canonical bytes of a JSON in-toto Statement (or predicate) OBJECT.
 
@@ -746,6 +1048,8 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     return rfc8785.dumps(_plain_for_jcs(statement, rfc8785.CanonicalizationError))
 
 
+@_ein_stand
+@_ein_stand
 def statement_content_root(statement: Union[Mapping, list, bytes, bytearray], *,
                            require_statement_shape: bool = False) -> bytes:
     """The content root of a Statement: 32 raw SHA-256 bytes over its canonical Statement bytes (ADR 0002).

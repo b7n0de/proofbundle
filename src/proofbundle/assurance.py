@@ -20,7 +20,7 @@ import re
 from typing import Any, Callable, Optional, TypeGuard, Union
 
 from ._membership import require_switch, stored_str_items
-from .canonical import _pruefkopie
+from .canonical import _ein_stand, _pruefkopie, _stand
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
@@ -113,6 +113,7 @@ def _is_key_material(value: Any) -> TypeGuard[Union[bytes, bytearray]]:
     return type(value) is bytes or type(value) is bytearray
 
 
+@_ein_stand
 def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
                              evidence_resolver: Optional[Callable[[Any], bool]] = None) -> dict:
     """Classify ONE digest-bound field (e.g. an ``effectDigest``, a ``decisionRef``, one
@@ -158,7 +159,8 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     detail = "a well-formed sha256 digest object is present (attacker-choosable content, not content-checked)"
     if evidence_resolver is not None:
         try:
-            answer = evidence_resolver(digest_obj)
+            # The answer is the caller's value too, read as one state (verify lane V2 on 6d674973).
+            answer = _stand(evidence_resolver(digest_obj))
         except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
             answer = False
         # The contract is a bool, so only the exact True promotes. bool(answer) would promote on 1, "true",
@@ -173,6 +175,7 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     return {"level": level, "level_name": level.name, "detail": detail}
 
 
+@_ein_stand
 def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     evidence_resolver: Optional[Callable[[Any], bool]] = None,
                                     independent_attestation_resolver: Optional[Callable[[Any], bool]] = None,
@@ -264,7 +267,9 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     # cannot bind a label to a key, so with an expectation in hand it earns no promotion — the base level
     # is kept and the detail says why. Without an expectation the contract is unchanged (additive).
     try:
-        res = independent_attestation_resolver(digest_obj)
+        # The answer is the caller's value too: a key in a `bytearray` is judged, measured and compared below in one
+        # state of it (verify lane V2 on 6d674973).
+        res = _stand(independent_attestation_resolver(digest_obj))
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
         res = False
     # Key material only as a plain bytes/bytearray object (_is_key_material): an object whose __class__ says
@@ -350,6 +355,7 @@ def _pick(field: dict) -> dict:
     return {"level": stored.get("level"), "level_name": stored.get("level_name")}
 
 
+@_ein_stand
 def evidence_ladder_summary(*fields: dict) -> dict:
     """Roll several :func:`classify_digest_evidence` results into ONE summary using AND semantics: a chain
     of evidence is only as strong as its WEAKEST applicable link (e.g. ``decision.py``'s
@@ -366,6 +372,7 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     return {**_pick(weakest), "fields": list(fields)}
 
 
+@_ein_stand
 def evidence_ladder_best(*fields: dict) -> dict:
     """Roll several :func:`classify_digest_evidence` results into ONE summary using OR semantics: only ONE
     of several alternative digest fields needs to hold for the claim to be satisfied (e.g.

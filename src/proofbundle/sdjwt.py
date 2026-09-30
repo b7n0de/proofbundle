@@ -52,7 +52,7 @@ from collections import deque
 from typing import Optional, Set
 
 from ._strict_json import loads_strict
-from .canonical import _zeichen_von
+from .canonical import _ein_stand, _zeichen_von
 from .errors import ProofBundleError
 from .signature import (_es256_other_spelling, canonical_es256_signature, verify_ecdsa_p256,
                         verify_ed25519_pinned)
@@ -117,6 +117,7 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
             _collect_committed_digests(item, out)
 
 
+@_ein_stand
 def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     """Verify an SD-JWT compact serialization.
 
@@ -317,6 +318,7 @@ def _canonical_es256_jws(jws):
     return head + _b64url_nopad(canonical)
 
 
+@_ein_stand
 def canonical_sd_jwt_compact(compact):
     """The form an IDENTITY of ``compact`` is computed over: every ES256 signature in it written with
     ``s <= n / 2`` (:func:`~proofbundle.signature.canonical_es256_signature`). A compact has two such

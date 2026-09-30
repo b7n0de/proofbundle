@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ..evalclaim import build_eval_claim
+from ..canonical import _ein_stand
 
 
 class InspectAdapterError(RuntimeError):
@@ -36,6 +37,7 @@ def _score_str(value) -> str:
     return str(value)
 
 
+@_ein_stand
 def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, timestamp: str,
                         model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None,
                         capture: str = "persisted_log_reader"):

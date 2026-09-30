@@ -27,7 +27,7 @@ from typing import Any, Optional
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .budget import DEFAULT_BUDGET
-from .canonical import _folge_von, _ganzzahl_von, _puffer_von, _zeichen_von
+from .canonical import _ein_stand, _folge_von, _ganzzahl_von, _puffer_von, _zeichen_von
 from .errors import BundleFormatError, UnsupportedError
 from ._plain_value import plain_int
 from .signature import (TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes, plain_text,
@@ -74,6 +74,7 @@ _MLDSA44_SIG_LEN = 2420             # FIPS 204 ML-DSA-44 signature bytes
 _MLDSA_LABEL = b"subtree/v1\n\x00"  # cosigned_message.label[12] — fixed 12 bytes
 
 
+@_ein_stand
 def expected_origin_wellformed(expected_origin: "str | None") -> "bool | None":
     """Ist der vom AUFRUFER gepinnte Origin nach derselben Regel wohlgeformt wie der des Logs?
 
@@ -190,6 +191,7 @@ def _int_once(value, refusal: str) -> int:
     return number
 
 
+@_ein_stand
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     """Build the C2SP checkpoint note text (3 lines + trailing newline). ``root`` is the raw RFC 6962
     Merkle root bytes at ``tree_size``. ``origin`` must be non-empty with no spaces/'+' (a schemeless URL).
@@ -242,6 +244,7 @@ def _key_bytes(pubkey, refusal: str) -> bytes:
     return roh
 
 
+@_ein_stand
 def key_id(keyname: str, pubkey: bytes) -> bytes:
     """C2SP note key ID = first 4 bytes of SHA-256(keyname ‖ 0x0A ‖ 0x01 ‖ 32-byte-Ed25519-pubkey)."""
     roh = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
@@ -260,6 +263,7 @@ def key_id(keyname: str, pubkey: bytes) -> bytes:
     return h[:4]
 
 
+@_ein_stand
 def vkey(keyname: str, pubkey: bytes) -> str:
     """C2SP verifier key encoding: name + '+' + hex8(keyID) + '+' + base64(0x01 ‖ pubkey).
 
@@ -282,6 +286,7 @@ def vkey(keyname: str, pubkey: bytes) -> str:
     return f"{name}+{kid_hex}+{keymat}"
 
 
+@_ein_stand
 def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: str) -> str:
     """Produce a signed C2SP checkpoint note. ``signer`` is an Ed25519 private key whose public key must
     correspond to ``keyname``. The signature is over the RAW note-text bytes (including the trailing
@@ -555,6 +560,7 @@ def _cap_signature_lines(sig_block: str, what: str) -> None:
             "— refused before any signature is decoded or verified (DoS guard, cap before work)")
 
 
+@_ein_stand
 def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     """Verify a signed C2SP checkpoint against a vkey. Returns {ok, origin, tree_size, root}. ``ok`` is
     True iff a signature line whose keyID matches the vkey verifies (Ed25519) over the exact note-text
@@ -640,6 +646,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
             "signer_present": signer_present}
 
 
+@_ein_stand
 def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
     """Decode a bundle's standard-base64 Merkle root to raw bytes (for feeding into checkpoint_note)."""
     try:
@@ -667,6 +674,7 @@ def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
 # ---------------------------------------------------------------------------
 
 
+@_ein_stand
 def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     """Cosignature/v1 key ID = SHA-256(name ‖ 0x0A ‖ 0x04 ‖ 32-byte-Ed25519-pubkey)[:4]."""
     roh = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
@@ -686,6 +694,7 @@ def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     return h[:4]
 
 
+@_ein_stand
 def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
     """Witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x04 ‖ pubkey). Written only for a
     key the trust-anchor rule accepts, with the refusal the witness-vkey parser gives (see `vkey`),
@@ -759,6 +768,7 @@ def _cosigned_message(note_text: str, timestamp: int) -> bytes:
     return (_COSIG_V1_PREFIX + f"time {timestamp}\n" + note_text).encode("utf-8")
 
 
+@_ein_stand
 def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, timestamp: int) -> str:
     """Append a witness cosignature line to a signed checkpoint note (Ed25519 cosignature/v1).
 
@@ -793,6 +803,7 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     return signed_note + f"{EM_DASH} {witness_name} {base64.b64encode(blob).decode('ascii')}\n"
 
 
+@_ein_stand
 def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     """ML-DSA-44 cosignature key ID = SHA-256(name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]."""
     roh = _key_bytes(pubkey, "ML-DSA-44 public key must be 1312 raw bytes")
@@ -812,6 +823,7 @@ def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     return h[:4]
 
 
+@_ein_stand
 def cosign_vkey_mldsa(witness_name: str, pubkey: bytes) -> str:
     """ML-DSA-44 witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x06 ‖ pubkey). The
     key is read once (`_key_bytes`); the Ed25519 rule does not apply to an ML-DSA key, but the key ID
@@ -863,6 +875,7 @@ def _mldsa_cosigned_message(cosigner_name: str, timestamp: int, origin: str,
             + root)
 
 
+@_ein_stand
 def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
                             timestamp: int) -> str:
     """Append an ML-DSA-44 witness cosignature line (C2SP type 0x06 — the spec's SHOULD for new
@@ -943,6 +956,7 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
         "witness vkey must be 0x04+32-byte Ed25519 or 0x06+1312-byte ML-DSA-44 key material")
 
 
+@_ein_stand
 def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
     """Verify one witness cosignature on a signed checkpoint note.
 
@@ -1058,6 +1072,7 @@ def _log_key_material_of(log_vkey: str) -> "bytes | None":
         return None
 
 
+@_ein_stand
 def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
                    log_key_material: "bytes | None"):  # DEEP-GATE 4.0.0 D1: REQUIRED keyword (was `= None`)
     """Shared k-of-n witness quorum (release-review fix): counts DISTINCT witness KEY MATERIAL, not names —
@@ -1179,6 +1194,7 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     return len(keys_ok) >= threshold, witnesses
 
 
+@_ein_stand
 def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, *,
                                 threshold: int = 1,
                                 expected_origin: "str | None" = None) -> dict:

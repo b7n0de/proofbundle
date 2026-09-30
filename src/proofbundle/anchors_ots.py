@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ._membership import is_member   # an unhashable status is not bound, and does not raise
+from .canonical import _abbild_stand, _ein_stand
 
 #: The largest serialized OTS proof this package deserializes, in bytes (deep gate Z195, finding
 #: L2-Z195-OTS-WORK-AMPLIFICATION-01, P3, jury 3 of 3). Why a second bound: the package's structural
@@ -53,6 +54,7 @@ _BINDING_HELD = frozenset({"pending", "empty", "needs_rp_trust", "confirmed", "n
 _BINDING_NOT_HELD = frozenset({"no_lib", "over_budget", "malformed", "unbound"})
 
 
+@_ein_stand
 def ots_binding_held(result) -> bool:
     """True iff `result`, a verdict of `verify_opentimestamps`, says the proof was read and commits the
     canonical root. Deny by default: an unknown status, a missing one, or a non-dict is not bound.
@@ -133,6 +135,7 @@ def _bitcoin_confirmations(timestamp):
             stack.append((child, seen_hash or isinstance(op, CryptOp)))
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_opentimestamps(proof: bytes, canonical_root: bytes, *, frozen: dict,
                           now: Optional[int] = None, rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed OTS verify. Returns {ok, detail, warn, status}. A pending proof is warn (status
@@ -326,6 +329,7 @@ _KNOWN_CALENDAR_OPERATORS = (
 )
 
 
+@_ein_stand
 def calendar_operator(uri: str) -> str:
     """Best-effort operator label for a calendar URI. Operator redundancy (distinct OPERATORS), not URL
     count, is what tolerates an outage or a defunding — two URLs on one operator are one point of
@@ -354,6 +358,7 @@ def calendar_operator(uri: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
+@_ein_stand
 def calendar_uris(proof: bytes) -> list[str]:
     """The distinct calendar URIs whose PendingAttestations carry ``proof`` (WP-B1 transparency).
     Fail-closed: without the ``[anchors]`` extra, or on a malformed proof, returns ``[]`` (never raises).
@@ -389,6 +394,7 @@ def _calendar_uris_of(timestamp) -> list[str]:
     return sorted(uris)
 
 
+@_ein_stand
 def calendar_operators(uris) -> list[str]:
     """The distinct, sorted operator labels behind a list of calendar URIs (WP-B1). ``len(...)`` is the
     OPERATOR redundancy — the number that survives an outage, unlike a raw URL count."""

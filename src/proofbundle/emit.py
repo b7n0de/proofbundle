@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.serialization import (
 
 from . import merkle
 from .bundle import SCHEMA
+from .canonical import _ein_stand
 
 __all__ = [
     "generate_signer",
@@ -42,6 +43,7 @@ def _raw_pub(key: Ed25519PrivateKey) -> bytes:
     return key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 
 
+@_ein_stand
 def generate_signer() -> Ed25519PrivateKey:
     """Generate a fresh Ed25519 signing key."""
     return Ed25519PrivateKey.generate()
@@ -66,6 +68,7 @@ def _pfad_boden(path) -> None:
         raise _BFE(f"signer key path must be a path string, got {type(path).__name__} (fail-closed)")
 
 
+@_ein_stand
 def save_signer(key: Ed25519PrivateKey, path: str) -> None:
     """Write the 32 byte raw Ed25519 private seed to ``path``, mode 0600.
 
@@ -84,6 +87,7 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
         handle.write(raw)
 
 
+@_ein_stand
 def load_signer(path: str) -> Ed25519PrivateKey:
     """Load an Ed25519 signing key from a 32 byte raw seed file."""
     # TYPE FLOOR, same invariant as evalcard/prereg (L1-01) — applied here only on 2026-08-16, because
@@ -100,6 +104,7 @@ def load_signer(path: str) -> Ed25519PrivateKey:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 
 
+@_ein_stand
 def emit_bundle(
     payload: bytes,
     signer: Ed25519PrivateKey,

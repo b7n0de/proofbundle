@@ -28,6 +28,7 @@ from typing import Any
 
 from .errors import ProofBundleError
 from .signature import verify_ed25519_pinned
+from .canonical import _ein_stand
 
 __all__ = [
     "PQUnavailable",
@@ -59,6 +60,7 @@ def _mldsa_classes(level: str) -> tuple[Any, Any]:
     return table[level]
 
 
+@_ein_stand
 def verify_mldsa(public_key: bytes, signature: bytes, message: bytes, *, level: str = "mldsa65") -> bool:
     """True iff ``signature`` is a valid ML-DSA (FIPS 204) signature over ``message`` at ``level``.
 
@@ -90,6 +92,7 @@ def verify_mldsa(public_key: bytes, signature: bytes, message: bytes, *, level: 
         return False
 
 
+@_ein_stand
 def verify_slhdsa(public_key: bytes, signature: bytes, message: bytes, *,
                   level: str = "slhdsa-sha2-128s") -> bool:
     """SLH-DSA (FIPS 205) verify — OPTIONAL and currently OPEN.
@@ -106,6 +109,7 @@ def verify_slhdsa(public_key: bytes, signature: bytes, message: bytes, *,
     raise PQUnavailable("SLH-DSA wiring is not implemented yet")  # pragma: no cover - future path
 
 
+@_ein_stand
 def verify_hybrid(*, classical_pub: bytes, classical_sig: bytes, pq_pub: bytes, pq_sig: bytes,
                   message: bytes, pq_level: str = "mldsa65") -> bool:
     """True iff BOTH the Ed25519 and the ML-DSA signature over ``message`` verify.
@@ -132,12 +136,14 @@ def verify_hybrid(*, classical_pub: bytes, classical_sig: bytes, pq_pub: bytes, 
 
 # --- test / demo helpers (key generation + signing live here, not on the production issuance path) ----
 
+@_ein_stand
 def generate_mldsa(level: str = "mldsa65") -> Any:
     """Generate an ML-DSA private key (test/demo helper; production issuance is out of scope)."""
     priv_cls, _pub_cls = _mldsa_classes(level)
     return priv_cls.generate()
 
 
+@_ein_stand
 def sign_mldsa(private_key: Any, message: bytes) -> bytes:
     """Sign ``message`` with an ML-DSA private key (test/demo helper)."""
     return bytes(private_key.sign(message))

@@ -30,7 +30,7 @@ import re
 from typing import Any
 
 from .budget import render_keys_safe
-from .canonical import _eine_lesung, _pruefkopie, _zeichen_von
+from .canonical import _ein_stand, _in_einem_zug, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
@@ -107,6 +107,7 @@ def _validate_edge_digest(obj: Any, path: str, errors: list[str]) -> None:
         errors.append(f"{path}.digest must be 64 lowercase hex chars (sha-256)")
 
 
+@_ein_stand
 def validate_relationships(value: Any) -> list[str]:
     """Return a list of human-readable errors; **empty list == valid**. Fail-closed.
 
@@ -154,6 +155,7 @@ def validate_relationships(value: Any) -> list[str]:
     return errors
 
 
+@_ein_stand
 def require_valid_relationships(value: Any) -> None:
     """Raise :class:`RelationProfileError` on the first invalid relationships block."""
     errors = validate_relationships(value)
@@ -195,8 +197,8 @@ def _read_attached_entries(related: Any) -> list[tuple[str, Any, str | None]]:
     # ONE STATE OF THE MAP (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
     # are copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
     # between them gave a map the caller never held. The whole reading runs with the collector paused
-    # (`canonical._eine_lesung`).
-    with _eine_lesung():
+    # (`canonical._in_einem_zug`).
+    with _in_einem_zug():
         for key, value in list(dict.items(related)):
             label = _zeichen_von(key)
             if label is None:
@@ -327,6 +329,7 @@ def _target_subject_pin_error(edge: dict, target: dict) -> str | None:
     return None
 
 
+@_ein_stand
 def verify_relationship_edges(
     relationships: Any,
     related: dict[str, dict] | None = None,
@@ -363,7 +366,7 @@ def _related_lesen(related: Any) -> tuple[str | None, list[tuple[str, Any, str |
 
     THE VERDICT WAS ASSEMBLED FROM TWO READINGS (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of three jurors P1).
     `verify_decision_receipt` and `verify_outcome_receipt` asked `_carries_attached_entries` whether there were
-    targets, judged the edges in this function's reading and then read the map a third time in `successor_warning`,
+    targets, judged the edges in this function's reading and then read the map again in `successor_warning`,
     whose ``supersededByAttached`` they recorded over the one this function had set. A gc callback of the caller that
     emptied its own map between the readings hid an attached verified retraction from ``reject_superseded`` while
     the edge to the parent stayed VERIFIED, so ``ok`` came out True under a policy that refuses the full map and the
@@ -426,8 +429,7 @@ def _kanten_urteil(relationships: Any, gelesen: tuple[str | None, list[tuple[str
     # Die Aufrufer, die ihn selbst setzten, ueberschrieben ihn — und das war KEIN No-Op, wie hier bis
     # d388ed3d stand (deep gate Lauf 5, L4-620v5-T5-SECOND-READING-01, zwei von drei Juroren P1): `successor_warning` las das
     # `related` des Aufrufers ein zweites Mal, und ein Aufrufer, der seine Tabelle zwischen den beiden
-    # Lesungen leerte, verlor die angehaengte Ruecknahme aus genau diesem Schluessel. Fuer ein `related`,
-    # das keine Tabelle ist, ersetzte die zweite Lesung zudem die Ablehnung durch None. Die Aufrufer lesen
+    # Lesungen leerte, verlor die angehaengte Ruecknahme aus genau diesem Schluessel. Die Aufrufer lesen
     # den Schluessel jetzt aus dieser Rueckgabe und setzen ihn nicht mehr.
     _sba = _successor_warning_over(attached_entries, subject_hex)
     if relationships is None:
@@ -641,6 +643,7 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
     return _dfs(start_hex, 1, set(seen))
 
 
+@_ein_stand
 def successor_warning(_subject_relationships: Any = None, related: dict[str, dict] | None = None,
                       subject_hex: str | None = None) -> str | None:
     """Advisory (policy `reject_superseded` turns it into a blocker): if an ATTACHED,
@@ -898,6 +901,7 @@ def _abschnitt_urteil(abschnitt: Any, lineage_result: dict, *, successor_key_b64
     return evaluate_relations_policy(abschnitt, lineage_result, successor_key_b64=successor_key_b64)
 
 
+@_ein_stand
 def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                               successor_key_b64: str | None) -> list[dict]:
     """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed

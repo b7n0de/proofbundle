@@ -52,6 +52,7 @@ from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
 from ..signature import verify_ed25519_pinned
 from .._wire_b64 import decode_b64, decode_b64url
+from ..canonical import _ein_stand
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
            "issue_enclave_attestation"]
@@ -69,6 +70,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def enclave_binding_for(bundle: dict) -> str:
     """The value an Attestation Result's ``eat_nonce`` MUST carry to be bound to ``bundle``.
 
@@ -95,6 +97,7 @@ def _match_nonce(eat_nonce, expected: str) -> bool:
     return False
 
 
+@_ein_stand
 def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected_binding: str,
                                expected_profile: Optional[str] = None,
                                now: Optional[int] = None) -> dict:
@@ -184,6 +187,7 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     return result
 
 
+@_ein_stand
 def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
                               ueid: Optional[str] = None, iat: Optional[int] = None,
                               exp: Optional[int] = None) -> str:

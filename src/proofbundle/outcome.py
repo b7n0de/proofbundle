@@ -23,8 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
-                        _richtlinie_von, _zeichen_von)
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie, _plain_for_jcs,
+                        _pruefkopie, _richtlinie_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -89,6 +89,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return a list of fail-closed errors for an ``action-outcome/v0.1`` predicate (empty = valid).
 
@@ -221,6 +222,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     return errors
 
 
+@_ein_stand
 def require_valid_outcome_predicate(predicate: Any, *, strict: bool = False) -> None:
     """Raise :class:`OutcomeReceiptError` if the predicate is invalid; return ``None`` if valid."""
     errs = validate_outcome_predicate(predicate, strict=strict)
@@ -228,6 +230,7 @@ def require_valid_outcome_predicate(predicate: Any, *, strict: bool = False) -> 
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
 
 
+@_ein_stand
 def outcome_execution_proven(predicate: Any) -> bool | None:
     """Whether ``status == executed`` is backed by a digest of what was actually done/effected.
 
@@ -245,6 +248,7 @@ def outcome_execution_proven(predicate: Any) -> bool | None:
 _OUTCOME_EXECUTOR_ROLE = "outcomeExecutors"
 
 
+@_ein_stand
 def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool:
     """True iff ``trust_pack.keys[key_id].publicKey`` decodes to exactly ``public_key`` — the 32 raw
     Ed25519 bytes the receipt was VERIFIED under. Deep gate 2026-09-05, finding L1-600-02 (P2, fail-open):
@@ -311,6 +315,7 @@ def _widerrufen(trust_pack: dict, key_id: str) -> bool:
     return key_id in revoked
 
 
+@_ein_stand
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
     """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
     revoked and — when ``public_key`` (the 32 raw Ed25519 bytes the receipt was verified under) is
@@ -367,6 +372,7 @@ _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
 _KEIN_NUTZBARER_SCHLUESSEL = b""
 
 
+@_ein_stand
 def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     """True iff ``receiver_key_id`` (a ``receiverRefs[]`` entry's ``receiverKeyId``) is a non-revoked member
     of ``trust_pack``'s ``outcomeReceivers`` role (Finding 16, mirrors :func:`executor_trusted_by_role`
@@ -391,6 +397,7 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     return True
 
 
+@_ein_stand
 def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
                          artifact_bytes: bytes | None = None) -> dict:
     """Offline check of one ``receiverRefs[]`` entry against resolved evidence (no network) — Finding 16,
@@ -429,6 +436,7 @@ def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
     return out
 
 
+@_ein_stand
 def detect_outcome_sequence_gaps(predicates) -> dict:
     """Best-effort gap detection across a set of outcome predicates that share an executor + ``sequence.runId``
     (Finding 16, additive) — a way to spot a SUPPRESSED outcome: an executor who silently omits emitting a
@@ -508,6 +516,7 @@ def _predicate_once(predicate):
                       error=lambda m: OutcomeReceiptError(f"invalid action-outcome predicate: {m}"))
 
 
+@_ein_stand
 def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Outcome Receipt. The subject is by DEFAULT
@@ -528,6 +537,7 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
     }
 
 
+@_ein_stand
 def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                          subject_sha256: str | None = None, keyid: str | None = None,
                          strict: bool = True) -> dict:
@@ -588,6 +598,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                     expected_decision_ref: str | None = None,
                                     decision_maker_id: str | None = None,
@@ -611,6 +622,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         _raise_on_malformed=True)
 
 
+@_ein_stand
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
@@ -893,7 +905,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     return None
 
                 def _f(d):
-                    res = receiver_attestation_resolver(d)
+                    res = _stand(receiver_attestation_resolver(d))   # the answer as one state (verify lane V2)
                     if type(res) is bytearray:
                         res = bytes(res)
                     _recv_answers[idx] = res

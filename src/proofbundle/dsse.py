@@ -28,7 +28,7 @@ import base64
 import binascii
 from typing import Any, Optional
 
-from .canonical import _plain_for_jcs, _puffer_von, _zeichen_von
+from .canonical import _ein_stand, _plain_for_jcs, _puffer_von, _zeichen_von
 from .errors import BundleFormatError
 from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
@@ -42,6 +42,7 @@ def _b64decode_any(s: str) -> bytes:
     return decode_b64_either(s)
 
 
+@_ein_stand
 def pae(payload_type: str, body: bytes) -> bytes:
     """DSSEv1 Pre-Authentication Encoding. Signed/verified over the RAW body bytes, never base64.
 
@@ -59,6 +60,7 @@ def pae(payload_type: str, body: bytes) -> bytes:
             + str(len(body)).encode("ascii") + b" " + body)
 
 
+@_ein_stand
 def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str] = None) -> dict:
     """Sign the RAW `body` bytes into a DSSE envelope. `signer` is an Ed25519 private key (its `.sign`
     signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}.
@@ -135,6 +137,7 @@ def _payload_of(envelope: dict) -> bytes:
         raise BundleFormatError("DSSE envelope.payload is not valid base64") from exc
 
 
+@_ein_stand
 def verify_envelope(envelope: dict, public_key: bytes, *, payload_type: Optional[str] = None) -> bool:
     """Verify a DSSE envelope against `public_key` (32 raw Ed25519 bytes). Decodes `payload` and rebuilds
     PAE over exactly those bytes (never re-serialized). True iff at least one signature verifies. If
@@ -206,6 +209,7 @@ def _verify_body(envelope: dict, body: bytes, public_key: bytes, payload_type: O
     return False
 
 
+@_ein_stand
 def load_payload(envelope: dict) -> bytes:
     """Return the raw decoded payload bytes (the in-toto Statement JSON) — for a verified envelope.
 
