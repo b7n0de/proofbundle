@@ -568,14 +568,17 @@ def test_the_newer_size_the_header_yields(txid, size):
 def test_without_both_sizes_the_success_says_the_anchor_rule_was_not_checked():
     no_txid = sign_over(TREE.root(24), prot={1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}})
     for c in (check(receipt()),                                           # no size at all
-              sized(receipt(signed=no_txid), 13),                          # m, and no n anywhere
               S.verify_consistency_receipt(receipt(), older_root=TREE.root(13), older_issuer=ISSUER,
                                            rp_trust=trust(), newer_size=24)):      # n, and no m
-        assert (c.status, c.anchor_rule_checked) == (UNSIZED, False)
-        assert "anchor rule of section 4 was not checked" in c.detail
+        assert (c.status, c.anchor_rule_checked, c.left_siblings_checked) == (UNSIZED, False, False)
+        assert "anchor rule of section 4 was not checked beyond the first tag" in c.detail
+    c = sized(receipt(signed=no_txid), 13)                                 # m, and no n anywhere
+    assert (c.status, c.anchor_rule_checked, c.left_siblings_checked) == (UNSIZED, False, True)
+    assert "checked only as far as m alone decides it" in c.detail
     c = sized(receipt(), 13)
     assert (c.status, c.anchor_rule_checked, c.detail) == (S.CONFIRMED, True, "")
-    assert {"older_size", "newer_size", "newer_size_source", "anchor_rule_checked"} <= set(c.to_dict())
+    assert {"older_size", "newer_size", "newer_size_source", "anchor_rule_checked",
+            "left_siblings_checked"} <= set(c.to_dict())
 
 
 def test_every_other_proof_is_held_to_the_size_its_anchor_implies():
@@ -597,7 +600,8 @@ def test_sizes_never_raise_and_every_status_is_in_the_closed_set(bad):
 def test_the_new_statuses_stand_in_the_order_that_decides():
     order = S.CONSISTENCY_STATUS_ORDER
     new = ("consistency_tree_sizes_invalid", "consistency_newer_size_mismatch",
-           "consistency_path_not_canonical", "consistency_anchor_position_mismatch")
+           "consistency_path_not_canonical", "consistency_anchor_position_mismatch",
+           "consistency_left_siblings_mismatch")
     assert [order.index(s) for s in new] == sorted(order.index(s) for s in new)
     assert order.index("consistency_newer_roots_differ") < order.index(new[0])
     assert order.index(new[-1]) < order.index("consistency_anchor_not_canonical")
@@ -653,3 +657,68 @@ def test_another_proof_whose_anchor_ends_at_the_last_leaf_implies_no_smaller_old
     c = sized(receipt([good, right_edge]), 13)
     assert c.status == "consistency_anchor_position_mismatch"
     assert "ends at the last leaf of the newer tree" in c.detail
+
+
+# ------------------------------------------------------------------------------------------------
+# With the older size alone (Nachtrag 2 to Z332): popcount(m) - 1 left siblings
+# ------------------------------------------------------------------------------------------------
+NO_TXID = {1: -35, 4: kid_of(SERVICE_KEY), 395: 2, 15: {1: ISSUER}}
+
+
+def _no_txid(proofs, newer_root):
+    return receipt(proofs, signed=sign_over(newer_root, prot=NO_TXID))
+
+
+def test_with_m_alone_a_trusted_m_of_6_refuses_tiagos_n1():
+    """The list answer: a trusted m = 6 is enough to refuse N1 = HASH(R_6 || HASH(d[6])), whose one
+    right sibling leaves no left sibling where 6 = 4 + 2 needs one."""
+    n1 = H(TREE.root(6) + TREE.node(6, 7))
+    rc = _no_txid([enc_proof(TREE.root(6), [[False, TREE.node(6, 7)]])], n1)
+    c = S.verify_consistency_receipt(rc, older_root=TREE.root(6), older_issuer=ISSUER, rp_trust=trust(),
+                                     older_size=6)
+    assert (c.status, c.newer_size, c.left_siblings_checked, c.anchor_rule_checked) == \
+        ("consistency_left_siblings_mismatch", None, True, False)
+    assert "0 left siblings" in c.detail and "popcount(6) - 1 = 1" in c.detail
+    bare = S.verify_consistency_receipt(rc, older_root=TREE.root(6), older_issuer=ISSUER, rp_trust=trust())
+    assert (bare.status, bare.left_siblings_checked) == (UNSIZED, False)
+
+
+def test_with_m_alone_every_canonical_pair_up_to_20_passes_and_every_deeper_anchor_is_refused():
+    passed = refused = 0
+    for n in range(2, 21):
+        for m in range(1, n):
+            c = S.verify_consistency_receipt(_no_txid([enc_proof(*TREE.proof(m, n))], TREE.root(n)),
+                                             older_root=TREE.root(m), older_issuer=ISSUER, rp_trust=trust(),
+                                             older_size=m)
+            assert (c.status, c.left_siblings_checked) == (UNSIZED, True), (m, n)
+            assert "as far as m alone decides it" in c.detail
+            passed += 1
+            for anchor, path in TREE.deeper(m, n):
+                c = S.verify_consistency_receipt(_no_txid([enc_proof(anchor, path)], TREE.root(n)),
+                                                 older_root=TREE.root(m), older_issuer=ISSUER,
+                                                 rp_trust=trust(), older_size=m)
+                assert c.status == "consistency_left_siblings_mismatch", (m, n)
+                refused += 1
+    assert (passed, refused) == (190, 150)
+
+
+def test_with_m_alone_only_the_proof_that_recomputes_the_older_root_is_counted():
+    good, beside = enc_proof(*TREE.proof(13, 24)), enc_proof(*TREE.proof(17, 24))
+    c = S.verify_consistency_receipt(_no_txid([good, beside], TREE.root(24)), older_root=TREE.root(13),
+                                     older_issuer=ISSUER, rp_trust=trust(), older_size=13)
+    assert (c.status, c.left_siblings_checked) == (UNSIZED, True)
+    wrong_m = S.verify_consistency_receipt(_no_txid([good], TREE.root(24)), older_root=TREE.root(13),
+                                           older_issuer=ISSUER, rp_trust=trust(), older_size=12)
+    assert wrong_m.status == "consistency_left_siblings_mismatch"      # 12 = 8 + 4 needs one, 13 has two
+
+
+def test_with_both_sizes_the_full_rule_decides_and_the_count_is_not_reported_apart():
+    c = sized(receipt([enc_proof(*TREE.deeper(20, 24)[0])], m=20, n=24), 20)
+    assert (c.status, c.left_siblings_checked, c.anchor_rule_checked) == \
+        ("consistency_anchor_position_mismatch", False, True)
+
+
+def test_the_left_sibling_status_stands_between_the_path_rule_and_the_first_tag():
+    order = S.CONSISTENCY_STATUS_ORDER
+    assert order.index("consistency_anchor_position_mismatch") \
+        < order.index("consistency_left_siblings_mismatch") < order.index("consistency_anchor_not_canonical")

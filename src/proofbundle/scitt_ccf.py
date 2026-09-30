@@ -87,6 +87,8 @@ CONSISTENCY_STATUS_ORDER = (
     "consistency_path_not_canonical",    # 4, both sizes: the path is no node of the newer tree
     "consistency_anchor_position_mismatch",  # 4, both sizes: not the path of RFC 9162 2.1.4.1 for
                                          # m and n, so the anchor is not the root of T[m-2^t..m-1]
+    "consistency_left_siblings_mismatch",  # 4, m alone: the proof that recomputes older_root has not
+                                         # popcount(m) - 1 left siblings
     "consistency_anchor_not_canonical",  # 4: the anchor MUST be the largest complete subtree
     "consistency_older_root_mismatch",   # 4.2: no proof recomputes the older root the caller holds
     "consistency_issuer_mismatch",       # PROOFBUNDLE'S OWN RULE, not a requirement of -05: the older
@@ -94,8 +96,9 @@ CONSISTENCY_STATUS_ORDER = (
     "signature_invalid", "needs_rp_trust")
 MAX_CONSISTENCY_PROOFS = 8
 #: The success of a consistency receipt checked without both tree sizes: every rule held that the
-#: receipt allows, but the anchor rule of section 4 only as far as the first tag goes, and 0 < m < n
-#: not at all. Never ``confirmed``: what could not be checked is not reported as checked.
+#: receipt allows, but the anchor rule of section 4 only as far as the first tag goes, or with m alone
+#: as far as m decides it, and 0 < m < n not at all. Never ``confirmed``: what could not be checked
+#: is not reported as checked.
 CONFIRMED_WITHOUT_TREE_SIZES = "confirmed_without_tree_sizes"
 #: The largest tree size taken: a tree of more leaves has paths longer than 64, beyond MAX_PATH.
 MAX_TREE_SIZE = 1 << 64
@@ -602,6 +605,7 @@ class ConsistencyCheck:
     newer_size: Optional[int] = None
     newer_size_source: Optional[str] = None
     anchor_rule_checked: bool = False
+    left_siblings_checked: bool = False
     detail: str = ""
     profile: str = PROFILE
 
@@ -950,6 +954,18 @@ def _anchor_rule(tags: tuple, m: Optional[int], n: int) -> Optional[tuple]:
     return None
 
 
+def _left_siblings_rule(tags: tuple, m: int) -> Optional[tuple]:
+    """None if a path from the anchor section 4 requires for m could have these tags, else (status,
+    detail). The left siblings of that anchor are the complete subtrees of T[0] .. T[m-2^t-1], one per
+    further 1 bit of m, so there are popcount(m) - 1 of them; the tree size n is not needed."""
+    left, need = sum(1 for t in tags if t), bin(m).count("1") - 1
+    if left == need:
+        return None
+    return ("consistency_left_siblings_mismatch",
+            f"the proof that recomputes older_root has {left} left siblings; the anchor section 4 requires "
+            f"for m = {m} has popcount({m}) - 1 = {need} (section 4, with m alone)")
+
+
 def _consistency_sizes(older_size: Any, newer_size: Any, txid: Optional[str]) -> tuple:
     """(m, n, source of n, refusal): the sizes the anchor rule is checked with, refusal None or
     (status, detail). A size the caller gives must be one; the header's is used where the caller
@@ -1182,8 +1198,8 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
     requirement of -05; owner answer S1 a keeps it until the working group answers gap G3), and a
     relying-party key for that issuer and kid verifies the receipt signature over the newer root
     (4.2). ``confirmed_without_tree_sizes`` is the same with a size missing: the anchor rule was
-    checked only as far as the first tag goes, and 0 < m < n not at all. Anything else is one of
-    ``CONSISTENCY_STATUS_ORDER``, the first that applies.
+    checked only as far as the first tag goes, or with m alone as far as m decides it, and 0 < m < n
+    not at all. Anything else is one of ``CONSISTENCY_STATUS_ORDER``, the first that applies.
 
     THE TREE SIZES. ``older_size`` is the size of the state ``older_root`` came from; like
     ``older_root`` it is the caller's to bind, and the reader cannot see where it came from. The
@@ -1196,8 +1212,10 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
     THE ANCHOR CHECK. With both sizes the check is complete: the proof that recomputes
     ``older_root`` must carry exactly the tags of RFC 9162 2.1.4.1 for m and n, which puts its anchor
     at the root of T[m-2^t] .. T[m-1], and every other proof those for the older size its own anchor
-    implies. Without them -05 says the anchor cannot be checked. What can be checked is the first
-    tag: the required anchor is the largest complete subtree ending at T[m-1], so its sibling in the
+    implies. With ``older_size`` alone, the proof that recomputes ``older_root`` must have exactly
+    popcount(m) - 1 left siblings, the complete subtrees left of the required anchor; this refuses an
+    anchor that is no node of the newer tree, and needs no n. Without m, -05 says the anchor cannot be
+    checked. What can be checked is the first tag: the required anchor is the largest complete subtree ending at T[m-1], so its sibling in the
     newer tree is always on its right, while a smaller anchor further down the same edge folds to the
     same two roots and always starts with a left sibling. Measured exhaustively in
     tools/scitt_ccf_external/consistency_probe.py; a proof that starts with a left sibling also
@@ -1293,17 +1311,23 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
 
     m, n, source, refusal = _consistency_sizes(older_size, newer_size, txid)
     checked = m is not None and n is not None and refusal is None
-    base.update(older_size=m, newer_size=n, newer_size_source=source, anchor_rule_checked=checked)
+    m_alone = m is not None and n is None and refusal is None
+    base.update(older_size=m, newer_size=n, newer_size_source=source, anchor_rule_checked=checked,
+                left_siblings_checked=m_alone)
     if refusal:
         return out(refusal[0], detail=refusal[1])
+    held = bytes(older_root) if isinstance(older_root, (bytes, bytearray)) else None
     if checked:
-        held = bytes(older_root) if isinstance(older_root, (bytes, bytearray)) else None
         found = [f for f in (_anchor_rule(tags, m if o == held else None, n)
                              for o, _n, tags in computed) if f]
         for status in ("consistency_path_not_canonical", "consistency_anchor_position_mismatch"):
             hit = [detail for s, detail in found if s == status]
             if hit:
                 return out(status, detail=hit[0])
+    if m_alone:
+        found = [f for f in (_left_siblings_rule(tags, m) for o, _n, tags in computed if o == held) if f]
+        if found:
+            return out(found[0][0], detail=found[0][1])
     if any(tags[0] for _o, _n, tags in computed):
         return out("consistency_anchor_not_canonical",
                    detail="a proof starts with a left sibling: its anchor is not the largest complete "
@@ -1321,8 +1345,10 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
         return out("signature_invalid", detail="the receipt signature does not verify over the newer root")
     if not checked:
         missing = " and ".join(name for name, v in (("older_size", m), ("newer_size", n)) if v is None)
+        how = ("checked only as far as m alone decides it (popcount(m) - 1 left siblings)" if m_alone
+               else "not checked beyond the first tag")
         return out(CONFIRMED_WITHOUT_TREE_SIZES,
-                   detail=f"the anchor rule of section 4 was not checked beyond the first tag, "
-                          f"and 0 < m < n not at all: {missing} not known (older_size from the "
-                          "caller, newer_size from the caller or this receipt's ccf.v1 txid)")
+                   detail=f"the anchor rule of section 4 was {how}, and 0 < m < n not at all: "
+                          f"{missing} not known (older_size from the caller, newer_size from the "
+                          "caller or this receipt's ccf.v1 txid)")
     return out(CONFIRMED)
