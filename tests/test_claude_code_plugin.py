@@ -16,6 +16,8 @@ Properties checked:
   (automation for decision and outcome, root_authenticity for a bundle), names where it took them, and
   gives null with "not reported by the core" where the report has no such field; it derives nothing;
 - the text for exit 1 does not rule out a structure failure, which is what a broken envelope gives;
+- the rule on safe_for_automation stands in the server too, in verify_receipt's description and in the
+  instructions, because a model can call the tool without the skill;
 - the server's version is the version of every manifest in the plugin folder, and every result carries
   it as plugin_version next to proofbundle_version;
 - every description of the plugin (both manifests, the marketplace, the catalog, the README) and the
@@ -313,6 +315,20 @@ def test_the_skills_report_safe_for_automation_and_act_on_their_own_only_on_true
     assert len(verified_block) == 1
     assert "`safe_for_automation` and `automation_blockers` verbatim" in verified_block[0]
     assert "only when `safe_for_automation` is `true`" in verified_block[0]
+
+
+AUTOMATION_RULE = ("Report safe_for_automation and automation_blockers verbatim with the result, and take an "
+                   "automatic follow-up action only when safe_for_automation is true.")
+
+
+def test_the_server_itself_carries_the_rule_on_safe_for_automation(server):
+    tools = {tool["name"]: tool for tool in server.request("tools/list")["result"]["tools"]}
+    assert tools["verify_receipt"]["description"].count(AUTOMATION_RULE) == 1
+    for name in ("receipt_template", "emit_receipt", "inspect_receipt"):
+        assert AUTOMATION_RULE not in tools[name]["description"], name
+    reply = server.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                          "clientInfo": {"name": "test", "version": "0"}})
+    assert reply["result"]["instructions"].count(AUTOMATION_RULE) == 1
 
 
 EXIT_1 = "verification failed: a signature, structure or other check did not hold; the report names which"
