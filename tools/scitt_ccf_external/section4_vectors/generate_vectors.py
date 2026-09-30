@@ -46,7 +46,7 @@ FIXTURE = REPO / "tests" / "fixtures" / "scitt_ccf" / "local_ledger_consistency.
 LEAVES = REPO / "tools" / "scitt_ccf_external" / "consistency_result.json"
 TEST_KEY = HERE / "TEST_ONLY_es384_private_key.pem"
 TEST_ISSUER = "test-only.section4-vectors.invalid"
-READER_COMMIT = "f455cc8494b811e1de03ca1e0c156008d32b7f2d"
+READER_COMMIT = "ad11dba39b7323f15685a81122d6cd16ada9bc4f"
 DRAFT = {"name": "draft-ietf-scitt-receipts-ccf-profile-05",
          "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
          "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",
