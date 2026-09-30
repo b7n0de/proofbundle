@@ -190,7 +190,7 @@ def main() -> int:
     a19, path19 = tree.proof(19, 24)
     deeper = decode_b64(fx["deeper_anchor_proof_b64"])
     unchanged = enc(tree.node(16, 24), [(True, tree.node(0, 16))])
-    n1_sibling = tree.node(6, 8)
+    n1_sibling = tree.node(6, 7)                  # the ledger's leaf 6: HASH(d[6]) in Tiago Pinto's notation
     n1 = H(tree.root(6) + n1_sibling)
 
     def service(vdp: dict, payload=None, sig: bytes = service_sig) -> bytes:
@@ -236,14 +236,14 @@ def main() -> int:
         ("S4-09", "Deeper anchor: the first sibling is a left one", service({-2: [deeper]}), R22, SERVICE,
          [{"m": 22, "n": 24}], [S_ANCHOR, S_NOT_CHECKED], A_OK, ("reject", "B11"), ["G1"],
          "deeper_anchor_proof of the fixture: anchor leaf 21, below the anchor node(20, 22) section 4 requires"),
-        ("S4-10", "Root N1 over R_6 with one right sibling, signed as the root of 8 leaves",
-         test_signed({-2: [enc(tree.root(6), [(False, n1_sibling)])]}, n1, "2.8"), tree.root(6), TEST,
-         [{"m": 6, "n": 8}], [S_ANCHOR, S_NO_SIZE], A_OK, ("reject", "B14"),
+        ("S4-10", "Tiago Pinto's N1 = HASH(R_6 || HASH(d[6])), signed as the root of 7 leaves",
+         test_signed({-2: [enc(tree.root(6), [(False, n1_sibling)])]}, n1, "2.7"), tree.root(6), TEST,
+         [{"m": 6, "n": 7}], [S_ANCHOR, S_NO_SIZE], A_OK, ("reject", "B14"),
          ["Pinto"],
-         "anchor R_6 of the ledger's first 6 leaves, one right sibling node(6, 8); N1 = HASH(R_6 || node(6, 8)) "
-         "is the root of no tree of the section 2.1 shape, so no service signs it; the test key signs it with "
-         "the txid 2.8, as a service would sign the root of 8 leaves. Without sizes the proof has the form of a "
-         "canonical proof from 4 to 5"),
+         "anchor R_6 of the ledger's first 6 leaves, path [right HASH(d[6])] with the ledger's leaf 6, signed "
+         "over N1 = HASH(R_6 || HASH(d[6])) with the txid 2.7, as a service would sign the root of 7 leaves; "
+         "N1 is a deliberately noncanonical root (R_7 is HASH(node(0, 4) || HASH(node(4, 6) || HASH(d[6])))). "
+         "Without sizes the proof has the form of a canonical proof from 4 to 5"),
         ("S4-11", "Empty consistency-proof array", service({-2: []}), R19, SERVICE, None, [S_ONE_OR_MORE],
          A_NO_PROOFS, ("reject", "B4"), [], "vdp {-2: []}"),
         ("S4-12", "A vdp key other than -1 and -2", service({-2: [p19], -3: [p19]}), R19, SERVICE,
