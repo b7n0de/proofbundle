@@ -229,9 +229,11 @@ def test_a_malformed_declaration_and_a_verifier_that_cannot_start_fail(env, repo
 
 # --- the push range is not read ------------------------------------------------------------------------
 
-def test_the_check_does_not_read_the_push_range(env, repo, tmp_path):
+def test_the_check_does_not_read_the_push_range(env, repo, tmp_path, monkeypatch):
     """Before a push the gate would ask here: the remote holds a state without the declaration, so the
     push adds it (D20). In CI that review is the code owners' part, and the check passes on evidence."""
+    for name in ("PATH", "PYTHONPATH"):
+        monkeypatch.setenv(name, env[name])  # the in-process gate starts its verifier through the uv shim
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
     _git(repo, "push", "-q", "origin", "HEAD~1:refs/heads/main")
