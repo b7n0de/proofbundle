@@ -176,11 +176,11 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     compared by its eight bytes, a Decimal by its sign, digits and exponent, and a complex, a range and the `fold` of
     a naive time or datetime are compared too. A keys, values or items view of an OrderedDict is handed on. A value
     still refused when a Mapping builds it anew (a Fraction, a UUID, a path, a datetime with a tzinfo, an object of
-    the caller's class and others) is named in RESTRISIKO_620.md. Each rule has a case that falls without it now:
-    measured on 2026-09-30 by planting 67 single defects (each rule of the comparison and of its key matching, and the
-    parts of `_lies` the step touched) into copies of this tree, 66 fell at the class tests (at an assertion, at the `_StandGestoert` of the Mapping
+    the caller's class and others) is named in RESTRISIKO_620.md. Measured on 2026-09-30 by planting 67 single
+    defects (rules of the comparison and of its key matching, and the parts of `_lies` the step touched) into copies of this tree, 66 fell at the class tests (at an assertion, at the `_StandGestoert` of the Mapping
     that parses its values anew, or at a raised TypeError), and one, the guard against a circle, hangs the ring case
-    and fell only to a time limit of 120 s.
+    and fell only to a time limit of 120 s. The lane V13 below found 18 more rules with no case that falls
+    without them.
   - The sixth form (95c9f82a, not pushed) had the verify lane V13. Its key matching looked a key up by its value only
     when the key was an exact scalar or a tuple of such, and else by identity: a never-changed Mapping keyed by a date,
     a timedelta, a naive datetime or time, a NaN or a tuple holding one was refused as changed, where d1c39ae3,
@@ -196,7 +196,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     the stored order of both answers; any one-to-one pairing is sound, because each pair is then compared type-exactly.
     A range is compared by its start, stop and step, and the fields of an object of this package's dataclasses in any
     order, as a plain dict. Each of the 18 rules has a case that falls without it: measured on 2026-09-30 by planting
-    92 single defects (each rule of the comparison, of the typed key and of the pairing, and the parts of `_lies` the
+    92 single defects (rules of the comparison, of the typed key and of the pairing, and the parts of `_lies` the
     chain touched) into copies of this tree, 91 fell at the class tests, and one, the guard against a circle, hangs
     the ring case and fell only to a time limit of 120 s. The second class file compared two runs of `show-eval`
     including the age it prints, which the clock writes: two runs a second apart differed, so its control failed
@@ -283,9 +283,12 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   lanes V7 and V8 found: two Mappings changed together, a deque, an array and a view copied and read as one state, a
   RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length, the depth
   after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier; and
-  what the lane V10 found: each rule of the comparison of a reader's two answers, a RecursionError inside a reader
+  what the lane V10 found: the rules of the comparison of a reader's two answers its plants showed untested, a
+  RecursionError inside a reader
   and in the collection of the package's dataclasses; and what the lanes V12 and V13 found: a case for each rule of
-  that comparison and of the pairing of keys, which falls without the rule and runs no method of the caller, a
+  that comparison and of the pairing of keys they named, which falls without the rule and runs no method of the
+  caller (33 further single defects of these rules the lane V14 planted fall at none, RESTRISIKO_620.md
+  R620-V14-3), a
   Mapping that parses its values anew in both orders, a view of an OrderedDict handed on, a memoryview of two
   dimensions and one that is not C-contiguous, and a str key beside a bytes key under `python -bb`) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
   (the file-content generator, with a planted option the command does not read and the line the clock writes kept

@@ -2175,7 +2175,7 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         self.assertIn(False, richtungen, "the value was not read in both orders")
 
     def test_same_value_tells_types_and_the_bits_of_a_float_apart(self):
-        """Each rule of `canonical._derselbe` on values built anew (verify lane V10 on d58be0b8, F4: without the rule
+        """Rules of `canonical._derselbe` on values built anew (verify lane V10 on d58be0b8, F4: without the rule
         for bytes, for int, for the length or the keys of a dict, or for `_Unlesbar`, no test fell)."""
         from collections import deque
         from proofbundle.canonical import _Unlesbar, _derselbe
@@ -2244,7 +2244,9 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
         """Verify lane V12 on d1c39ae3, F2: with one of 24 rules of `canonical._derselbe` planted away (a length, a key
         check, the bytes of an array or a memoryview, the date rule for a datetime or a time, the check of a tzinfo,
         the art or the extra of a reading, the recursion into a deque), no test fell. Each case here is built before
-        the comparison, the answer is judged, and no method of the caller's objects may run while it is judged."""
+        the comparison, the answer is judged, and no method of the caller's objects may run while it is judged. The
+        name holds for the rules the lanes V12 and V13 named: the lane V14 on 6723bf24 planted 33 further single
+        defects of these rules that no case here catches (RESTRISIKO_620.md, R620-V14-3)."""
         import array
         import datetime
         import struct
