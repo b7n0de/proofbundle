@@ -1,0 +1,100 @@
+{
+ "what": "every file of this directory but this one, with its length and SHA-256",
+ "files": [
+  {
+   "path": "README.md",
+   "length": 7063,
+   "sha256": "7444f8582e53a0ba708e32d9e4e523549aa55b80c3bb8d08296d023dd012d0ab"
+  },
+  {
+   "path": "S4-01.json",
+   "length": 3524,
+   "sha256": "e66fc42228ed5c081d209d19a683df65dc096278f2349e8711e5e35025fee6c1"
+  },
+  {
+   "path": "S4-02.json",
+   "length": 3355,
+   "sha256": "7ddfc11026f81072db44dcfe7038a16c3bab49e55122ad1dd8836e19d7fab692"
+  },
+  {
+   "path": "S4-03.json",
+   "length": 4169,
+   "sha256": "22eab88ea2af2ed999edd2b1da9af3f2a782667c343a574371696bf5f6e9f461"
+  },
+  {
+   "path": "S4-04.json",
+   "length": 4143,
+   "sha256": "45f05aff6707452b7ee6cf1515d66064b528564c10349f3719b69a627997f812"
+  },
+  {
+   "path": "S4-05.json",
+   "length": 4191,
+   "sha256": "38da33e611a588d566f28292065f243e7b6c09c3a8f3c82db60626c594bc8935"
+  },
+  {
+   "path": "S4-06.json",
+   "length": 4095,
+   "sha256": "63219ef0364c489b554cb6ea1f849bc4d9a0f7178a1f6b874bd3ec0cb21dc9ae"
+  },
+  {
+   "path": "S4-07.json",
+   "length": 4156,
+   "sha256": "9941a5c4802ff0aa55b208a4b5f550c0e0276ece697ec907d129ea6108646a20"
+  },
+  {
+   "path": "S4-08.json",
+   "length": 3183,
+   "sha256": "97f69d3f6113e18c27810a3b706a28f55803fddacec4fd496019db6a4efdd396"
+  },
+  {
+   "path": "S4-09.json",
+   "length": 3818,
+   "sha256": "cfc9d36ed74f116b0de4004fb632c722b5ba99675c026fc5c8f066b4af529db8"
+  },
+  {
+   "path": "S4-10.json",
+   "length": 3176,
+   "sha256": "800035c7af2116ca277f15639d9c25064394cdf9a4cc96075ebb9bd166882b10"
+  },
+  {
+   "path": "S4-11.json",
+   "length": 2468,
+   "sha256": "6168a4ec3fbbd6aa12361c82c0ed930d67885135a60ceafb33fcf9128e95be71"
+  },
+  {
+   "path": "S4-12.json",
+   "length": 3763,
+   "sha256": "b1f1c551959cde078d2dc41bbd2393cab8514225dc0a1e28aaed562aef07a84c"
+  },
+  {
+   "path": "S4-13.json",
+   "length": 3409,
+   "sha256": "e26da778fe8cb75b05640d5937674df2deb6de3378b3a204133f2607a51ad658"
+  },
+  {
+   "path": "S4-14.json",
+   "length": 3277,
+   "sha256": "2cdf7803f8b2383d9d9b2b5a7899f8f2884c133e531d19b7d3a8dd0846c3abc6"
+  },
+  {
+   "path": "S4-15.json",
+   "length": 3401,
+   "sha256": "6dbfb0ae9aacafb50dcba2ea97519b95e7acccdcf4f46a146052f80b40e7caea"
+  },
+  {
+   "path": "TEST_ONLY_es384_private_key.pem",
+   "length": 306,
+   "sha256": "8c22d9d394f22e50fb454f53acc8a3a356a0e94ee4536690e9a7419849466e56"
+  },
+  {
+   "path": "check_vectors.py",
+   "length": 15257,
+   "sha256": "819bb5017b135e1f686871ff65e76f3f9b3c24ea1c2812708711c6d2033149e9"
+  },
+  {
+   "path": "generate_vectors.py",
+   "length": 18877,
+   "sha256": "f8b6cdbf2c90f61cfcd0973130b35c28a2d422e4ee80284c7968d3d28e01a554"
+  }
+ ]
+}

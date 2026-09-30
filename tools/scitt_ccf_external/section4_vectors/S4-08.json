@@ -1,0 +1,70 @@
+{
+ "id": "S4-08",
+ "title": "Unchanged tree: m = n, left siblings only",
+ "draft": "draft-ietf-scitt-receipts-ccf-profile-05",
+ "sentences": [
+  {
+   "section": "4",
+   "text": "A CCF consistency proof establishes that the tree of `m` transactions with root `R_m` is a prefix of the tree of `n` transactions with root `R_n`, where `0 < m < n`: every transaction of the older tree is at the same position in the newer tree."
+  }
+ ],
+ "receipt_hex": "d284588da5013822045840386330383130343762303664653937303065626164386565663039313164306462343134326563353634383730616333386132656261313635346236633431370fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6ab6f4e819018b02666363662e7631a1647478696464322e3234a119018ca12181584aa20158201f9dfcef5376a51bee43b3c9d99349426e5312da062a8109b399002817971642028182f55820c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73f65860cb5f0a17c854a0c632fc46c38273625f8ecbbd906a7e283ee8aba177c94a7b4ad803f52aa34b4ac181ba4eb156b809a5fc8424fc9e454e7aff43d97a0bdbcb0d271451fafc8d131c402121ccdbd20d65414abdeefa64d23ceb47370fc227f1ce",
+ "older_root_hex": "9a01dacdb56cd9835b4ce70b5f418d73bbbaa012d9e96800a0fcd11b53292e01",
+ "public_key": {
+  "kid": "8c081047b06de9700ebad8eef0911d0db4142ec564870ac38a2eba1654b6c417",
+  "alg": -35,
+  "crv": "P-384",
+  "spki_der_hex": "3076301006072a8648ce3d020106052b8104002203620004b5f8ef555ba89856aeb0c22ee72cf454b4d3330c5fe112670fe31517c74e014bf9021e2fe90777a8027d27371348b482788418a62bfe245ce6929e9267147a67f9b1d2c3a6251f3dfa3dbc35fa935f31879c10ed4d752045338d270e4cdb25c2",
+  "issuer": "127.0.0.1:8000"
+ },
+ "reading_a": {
+  "result": "accept",
+  "step": "return true"
+ },
+ "reading_b": {
+  "result": "reject",
+  "rule": "B10",
+  "rule_text": "4: \"where 0 < m < n\" (a path of left siblings only folds both roots to one: m = n)"
+ },
+ "generator_tree_sizes": [
+  {
+   "m": 24,
+   "n": 24
+  }
+ ],
+ "consistency_proofs_decoded": [
+  {
+   "anchor_hex": "1f9dfcef5376a51bee43b3c9d99349426e5312da062a8109b399002817971642",
+   "path": [
+    [
+     true,
+     "c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73"
+    ]
+   ]
+  }
+ ],
+ "construction": "anchor node(16, 24) of the 24-leaf tree and its one left sibling node(0, 16); both folds give R_24",
+ "provenance": {
+  "signer": "service",
+  "note": "the service's own COSE_Sign1 over R_24 from the fixture, its unprotected header replaced; the proofs are computed from the ledger's leaves",
+  "ledger": "scitt-ccf-ledger 00101f769d872711356e080fbb089ac48589c60a, CCF 7.0.17, virtual mode, one node, local; not a production service"
+ },
+ "list_references": [
+  {
+   "name": "EMILIA",
+   "url": "https://mailarchive.ietf.org/arch/msg/scitt/FmclkmQ4eDiyOTB409P0WJSjdEk/"
+  },
+  {
+   "name": "G4",
+   "url": "tools/scitt_ccf_external/SECTION4_WGLC.md"
+  }
+ ],
+ "proofbundle_reader": {
+  "information_only": true,
+  "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
+  "status": "consistency_anchor_not_canonical",
+  "base_commit": "531e256423b317839f8927dae8b4fb9ab45f9e48",
+  "scitt_ccf_py_sha256": "b4a0f31187ad0fe1c4cf79ff8d5b11a59ea1ea42eb261431536a25cc12bf7d27",
+  "older_issuer": "127.0.0.1:8000"
+ }
+}
