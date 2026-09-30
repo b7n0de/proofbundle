@@ -119,9 +119,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     result of `evaluate_public_transparency` can only be read through their own methods; a named reader reads each
     before the first collect and after the second, and the reading counts only when its two answers are the same
     value (two answers are one value when the copies made from them would hold the same: equal contents, in any
-    order for a set, a frozenset, a dict that is no OrderedDict and the fields of an object of this package, and an
-    exact str, bytes, int, bool, a float or complex of the same bits, a range of the same start, stop and step, a
-    Decimal of the same digits and exponent, a date, a timedelta or a naive time or datetime of equal value and fold;
+    order for a set, a frozenset, a dict that is no OrderedDict and the fields of an object of this package, up to
+    keys that only their stored order can pair, which RESTRISIKO_620.md names, and an exact str, bytes, int, bool, a
+    float or complex of the same bits, a range of the same start, stop and step, a Decimal of the same sign, digits
+    and exponent, a date, a timedelta or a naive time or datetime of equal value and fold;
     any other value built anew, an object of the caller's class among them, is a change, named in RESTRISIKO_620.md),
     so what it reads is part of the one reading. A RecursionError
     raised while the arguments are read is raised as it is, not refused as a change. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
@@ -187,7 +188,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     and `range(0, 1)` are equal but store another start, stop and step. Looking `"a"` up among keys holding `b"a"`
     compared the two (their hash is the same), and under `python -bb` a BytesWarning escaped where the two answers are
     simply different. Two sentences were wrong: d1c39ae3 called `{0.0}` and `{-0.0}` different, not the same, and every
-    memoryview has strides, only one that is not contiguous is not read. And with one of 18 more rules planted away no
+    memoryview has strides, only one that is not C-contiguous is not read (a slice with a step, a Fortran-ordered view:
+    the lane V14 measured the second). And with one of 18 more rules planted away no
     test fell. The pairing of keys now looks each key up by its type and what it stores, read through the attributes of
     the exact built-in type (a float by its bits, a Decimal by its digits and exponent, a date by its fields, and so on
     for every type the comparison reads as a leaf, and a tuple or frozenset of such), else as the same object, else in
@@ -200,6 +202,17 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     including the age it prints, which the clock writes: two runs a second apart differed, so its control failed
     under load, and the generator could see a difference where a content read like no option. That line is kept
     as its label now, and a test runs the command twice across a second.
+  - The seventh form (6723bf24, not pushed) had the verify lane V14. It found no two answers called the same whose
+    copies differ, in about 1.3 million comparisons against an independent oracle, and no method of the caller run. It
+    found two sentences wrong, now put right: the "in any order" above held for keys the pairing can type by what they
+    store and that differ in it, but not for keys of one type and the same bits (two NaN keys) or keys it cannot type
+    (a tuple subclass, a key nested deeper than 16, a tuple holding a value it cannot type), which only the stored
+    order pairs, so the same keys in another order are refused; and a Decimal is one value by its sign, digits and
+    exponent, not by its digits and exponent alone. It also found 33 single defects of the leaf, typed-key and pairing
+    rules that no case of the class tests catches, so "each rule has a case" holds for the rules the lanes named, not
+    for these. By owner decision of 2026-09-30 a finding that gives no wrong verdict no longer blocks this release:
+    the refusals and the missing cases are named in RESTRISIKO_620.md, each with an identifier, a severity and a
+    workaround, and follow after the tag.
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
     beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
@@ -274,7 +287,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   and in the collection of the package's dataclasses; and what the lanes V12 and V13 found: a case for each rule of
   that comparison and of the pairing of keys, which falls without the rule and runs no method of the caller, a
   Mapping that parses its values anew in both orders, a view of an OrderedDict handed on, a memoryview of two
-  dimensions and one that is not contiguous, and a str key beside a bytes key under `python -bb`) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  dimensions and one that is not C-contiguous, and a str key beside a bytes key under `python -bb`) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
   (the file-content generator, with a planted option the command does not read and the line the clock writes kept
   out of its comparison, the policy with nothing the command
   evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of

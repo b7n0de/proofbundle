@@ -488,17 +488,17 @@ def _derselbe(alt: Any, neu: Any) -> bool:
     same values place by place, an OrderedDict pair by pair in its order. A set, a frozenset, a dict that is no
     OrderedDict and the fields of a dataclass of this package are paired item by item, or key by key (`_paarweise`: by
     the key's type and what it stores, else as the same object, else in the stored order), and each pair is compared
-    again by these rules, so their order is no part of the value and ``1`` meets no ``True``. A leaf is the same when it
-    is the same object, an exact ``str``, ``bytes``, ``int`` or ``bool`` of equal value, an exact ``float`` of the same
-    bits (a NaN of the same sign and payload is itself, -0.0 is not 0.0), an exact ``complex`` of the same bits, an
-    exact ``range`` of the same start, stop and step, an exact ``Decimal`` of the same sign, digits and exponent
-    (``Decimal("1.0")`` is no ``Decimal("1.00")``), an exact ``date`` or ``timedelta`` of equal value, an exact ``time``
-    or ``datetime`` without a ``tzinfo`` of equal value and ``fold``, or one of the empty mappings a reader leaves for a
-    mapping it could not read (`_Unlesbar`). Any other value is the same only when it is the same object: an object of
-    the caller's class built anew on each read, a ``str`` or ``bytes`` subclass, a datetime with a ``tzinfo``, a
-    ``Fraction``, a ``UUID``, a path, a keys, values or items view of an OrderedDict, a memoryview `_lies` cannot read.
-    Such a value as a key or set item built anew meets its counterpart only at the same place in both answers, and is
-    then still the same only as the same object.
+    again by these rules, so their order is no part of the value, up to keys only their stored order can pair, and ``1``
+    meets no ``True``. A leaf is the same when it is the same object, an exact ``str``, ``bytes``, ``int`` or ``bool``
+    of equal value, an exact ``float`` of the same bits (a NaN of the same sign and payload is itself, -0.0 is not 0.0),
+    an exact ``complex`` of the same bits, an exact ``range`` of the same start, stop and step, an exact ``Decimal`` of
+    the same sign, digits and exponent (``Decimal("1.0")`` is no ``Decimal("1.00")``), an exact ``date`` or
+    ``timedelta`` of equal value, an exact ``time`` or ``datetime`` without a ``tzinfo`` of equal value and ``fold``, or
+    one of the empty mappings a reader leaves for a mapping it could not read (`_Unlesbar`). Any other value is the same
+    only when it is the same object: an object of the caller's class built anew on each read, a ``str`` or ``bytes``
+    subclass, a datetime with a ``tzinfo``, a ``Fraction``, a ``UUID``, a path, a keys, values or items view of an
+    OrderedDict, a memoryview `_lies` cannot read. Such a value as a key or set item built anew meets its counterpart
+    only at the same place in both answers, and is then still the same only as the same object.
 
     WHY BY THE READING (verify lanes V7, V8, V10 and V11 on 085869313 and d58be0b8). A Mapping may build its values anew
     on each read, as ``os.environ`` builds its text and a configuration that parses JSON builds an OrderedDict, and such
@@ -645,10 +645,11 @@ def _paarweise(teile_a: list, teile_b: list, stapel: list, paare: bool = False) 
     ``-0.0``; verify lane V12 on d1c39ae3, F3). An item of the first answer meets the item of the second with the same
     key by `_typisiert` (its type and what it stores), else the same object, else the next item left in the second
     answer's stored order. So a date, a Decimal, a NaN or a tuple holding one, built anew on each read, meets its
-    counterpart in any order (verify lane V13 on 95c9f82a, F1: they met only as the same object), a key of the caller's
-    class built anew meets one when both answers list it at the same place, and no method of a key runs. Any pairing
-    that is one to one is sound: the answers are one value when every pair is, and a pairing that misses the matching
-    one only calls them different."""
+    counterpart in any order (verify lane V13 on 95c9f82a, F1: they met only as the same object), as long as no other
+    key of the same type holds the same bits; keys of one type and the same bits (two NaNs), keys `_typisiert` cannot
+    type and keys of the caller's class built anew meet only when both answers list them at the same place (verify lane
+    V14 on 6723bf24, F1 and F2), and no method of a key runs. Any pairing that is one to one is sound: the answers are
+    one value when every pair is, and a pairing that misses the matching one only calls them different."""
     if len(teile_a) != len(teile_b):
         return False
     nach_typ: dict = {}
@@ -1016,7 +1017,7 @@ def _puffer_von(wert: Any) -> Any:
     material). A plain copy must not narrow what they accept, so a ``memoryview`` stays a legitimate
     input there. ``memoryview`` cannot be subclassed, and its bytes are read by ``bytes.__add__``
     from the buffer it already holds, the operation those surfaces ran, so no code of the caller
-    runs. A view that cannot be read so (released, or not contiguous: the concatenation raised
+    runs. A view that cannot be read so (released, or not C-contiguous: the concatenation raised
     TypeError for one) is None, refused like any other value. Surfaces that refused a ``memoryview``
     before keep `_bytes_von`."""
     roh = _bytes_von(wert)

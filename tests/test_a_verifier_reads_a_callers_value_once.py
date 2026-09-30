@@ -44,8 +44,9 @@ on 085869313 found: the reader of a Mapping is part of both collects, a deque, a
 a RecursionError is no change, a Mapping that builds or parses its values anew is read, and each edge a planted
 defect of the lanes V7 and V10 showed untested (the second collect of each kind, the depth after an exception, the
 warning's frame, the prefix of a module name) has a test that falls on that plant; the lane V12 on d1c39ae3 found 24
-rules of the same value that no test held, and the lane V13 on 95c9f82a 18 more; each rule of it and of the pairing
-of keys has a case now that falls without it (the guard against a circle by a hang of the ring case).
+rules of the same value that no test held, and the lane V13 on 95c9f82a 18 more; each of these has a case now that
+falls without it (the guard against a circle by a hang of the ring case). The lane V14 on 6723bf24 found 33 further
+single defects of these rules that no case catches (RESTRISIKO_620.md, R620-V14-3).
 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
@@ -55,11 +56,11 @@ object. The public instance methods of this package's classes are not read at th
 str, int, float, bool, bytes or None, no subclass of str or bytes and no tuple or frozenset of exact such values stays
 the caller's object (its hash can be the caller's code), and so do a dict whose keys meet as one in the copy, an
 OrderedDict whose own order cannot be read without hashing, a keys, values or items view of an OrderedDict, the items of a frozenset, an iterator or a generator
-(it cannot be read twice, and the body reads it when it reads it), and a memoryview whose format a view of private bytes
-cannot take (read by both collects, then read by the body as the caller's view) or that is not contiguous (not read
-at all). A value of a type the comparison of a reader's two answers does not read (`canonical._derselbe` names them),
-built anew on each read, is a change, and the call is refused. A change that
-is made and undone between the two reads of one container is not seen. And the sweep reaches a window only where a
+(it cannot be read twice, and the body reads it when it reads it), and a memoryview whose format a view of private
+bytes cannot take (read by both collects, then read by the body as the caller's view) or that is not C-contiguous (not
+read at all). A value of a type the comparison of a reader's two answers does not read (`canonical._derselbe` names
+them), built anew on each read, is a change, and the call is refused. A change that is made and undone between the two
+reads of one container is not seen. And the sweep reaches a window only where a
 tracked object is allocated in it.
 """
 from __future__ import annotations
@@ -2477,7 +2478,7 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
                 self.assertIs(_stand([weitergereicht])[0], weitergereicht)
         gesprungen = memoryview(b"abcd")[::2]
         self.assertFalse(gesprungen.contiguous)
-        self.assertIs(_stand([gesprungen])[0], gesprungen, "a view that is not contiguous is not read at all")
+        self.assertIs(_stand([gesprungen])[0], gesprungen, "a view that is not C-contiguous is not read at all")
         proxy = types.MappingProxyType(od)
         kopie_proxy = _stand([proxy])[0]
         self.assertIsNot(kopie_proxy, proxy, "a proxy reads the OrderedDict through its own order, as its copy does")

@@ -821,8 +821,9 @@ P1 findings F1 and F3 of V8 and the P2 findings of both lanes are closed by the 
 these lines are what the lanes found that the fix does not change.
 - **A memoryview whose format no view of private bytes can take stays the caller's view** (P1, V8-F2, the same at
   8f2fa980 and d388ed3d): a view of a ctypes array (`<H`, `>I`, `T{...}`) or of an `array('u')` is read by both
-  collects and handed on, and a view that is not contiguous (a slice with a step) is not read at all and handed on
-  (its bytes are no one buffer, the lanes V12 and V13); the body reads the caller's view when it reads it.
+  collects and handed on, and a view that is not C-contiguous (a slice with a step, a Fortran-ordered view) is not
+  read at all and handed on (its bytes are no one buffer, the lanes V12 to V14); the body reads the caller's view when
+  it reads it.
   `merkle.verify_inclusion` read the proof first and the leaf later from two such views and gave True in 8 of 533
   runs where each state gives False. `memoryview.cast` takes none of these formats, and a view of the same bytes in
   format `B` would be another value to a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`
@@ -857,7 +858,7 @@ closed by the fix and named in its CHANGELOG entry; these lines are what the lan
 - **A value the comparison does not read, built anew on each read by a Mapping that never changes, is refused as
   changed** (P2, V12-F1; 8f2fa980 and d388ed3d give a verdict, 085869313 and d58be0b8 refuse these and more): a
   `Fraction`, a `UUID`, a path, an `ipaddress` value, a `slice`, a `timezone`, a `str` or `bytes` subclass as a
-  value, a datetime or time with a tzinfo, a memoryview that is not contiguous or a released one, a view of an
+  value, a datetime or time with a tzinfo, a memoryview that is not C-contiguous or a released one, a view of an
   OrderedDict, and an object of the caller's class; as a key or set item such a value built anew is compared with the
   one at the same place of the other answer, so the same keys in another order are refused too. `automation_summary` raises `_StandGestoert`, a `ProofBundleError`, where it gave a
   verdict; no verdict is promoted. Comparing such values would run code that is not the interpreter's own types' (a
@@ -872,13 +873,40 @@ closed by the fix and named in its CHANGELOG entry; these lines are what the lan
   reader that raises a RecursionError only on its second run, and plants of the second test file's own code.
 
 From the verify lane V13 on 95c9f82a, the sixth form of that fix, before it was pushed. Its findings are closed by the
-fix and named in its CHANGELOG entry; these lines are what the lane found that the fix does not change.
-- **A key of a type the comparison does not read, built anew, meets its counterpart only at the same place**: two
-  answers that list such keys (a Fraction, a UUID, an object of the caller's class) in another order are paired in
-  their stored order and called different, and the call is refused with `_StandGestoert`; the first line of the block
-  of the lane V12 above.
+fix and named in its CHANGELOG entry. From this block on, by owner decision of 2026-09-30, a finding blocks this
+release only when it gives a wrong verdict or shows a sentence of these texts to be wrong; a wrong sentence is put
+right. Every other finding is a line here with an identifier, a severity and a workaround, and follows after the tag.
+- **R620-V13-1, P2. A key of a type the comparison does not read, built anew, meets its counterpart only at the same
+  place**: two answers that list such keys (a Fraction, a UUID, an object of the caller's class) in another order are
+  paired in their stored order and called different, and the call is refused with `_StandGestoert`; no verdict is
+  given and none is promoted. The values themselves are the first line of the block of the lane V12 above.
+  Workaround: a Mapping that returns the same key objects on each read or lists its keys in one order, or a dict.
 - **What the lane did not run:** real threads, other Python versions, `-W error` beyond `-bb`, tracing, a view changed
   while it is read, the cost on 100 000 pairs (the suite ran), and plants of the second test file's own code.
+
+From the verify lane V14 on 6723bf24, the seventh form of that fix, before it was pushed. It found no two answers
+called the same whose copies differ (about 1.3 million comparisons against an independent oracle) and no method of the
+caller run. Its wrong sentences are put right in the CHANGELOG entry, the docstrings and the head of the class test
+file; these lines are its other findings.
+- **R620-V14-1, P2. Keys of one type and the same stored bits, built anew in another order, are refused** (V14-F1):
+  the pairing takes the first key of the same type and bits, and the rest in stored order, so `{nan_1: "A",
+  nan_2: "B"}` against `{nan_3: "B", nan_4: "A"}` is called different; the same for NaN inside a Decimal, a complex,
+  a tuple or a frozenset key, and for a shared NaN key beside a fresh one. A never-changed Mapping that lists such keys
+  in another order on each read is refused with `_StandGestoert`, where 8f2fa980 and d388ed3d give a verdict; in the
+  same order it gives a verdict. No verdict is promoted. Workaround: list the keys in one order, or return the same key
+  objects on each read.
+- **R620-V14-2, P3. Keys the pairing cannot type, built anew in another order, are refused** (V14-F2): a subclass of
+  tuple or frozenset (a namedtuple), a tuple or frozenset nested deeper than 16, and a tuple or frozenset holding a
+  value the pairing cannot type are paired in stored order, so the same keys in another order are called different and
+  the call is refused; in the same order the answers are one value. No verdict is promoted. Workaround: as R620-V14-1.
+- **R620-V14-3, P2. 33 single defects of the comparison's rules are caught by no case of the class tests** (V14-F3):
+  among them a float compared by part of its bytes, an int compared without its sign or its high part, a field of a
+  date, a timedelta, a time or a datetime left out, the tail of an array or of an OrderedDict left out, 20 defects of
+  the typed key, one of the pairing, and one that hashes a type through the caller's metaclass. The
+  rules themselves hold at this commit: the lane found no false "same" and no caller code run. Workaround: none is
+  needed by a caller; the cases follow after the tag.
+- **What the lane did not run:** Python 3.12 and later, `sys.settrace`, fork and signals, plants in `_ein_stand`,
+  `_abbild_stand` and `_bauen`, and the end-to-end cost of `automation_summary`.
 
 ## Open — named limits carried by the fixes themselves
 
@@ -1001,7 +1029,8 @@ those on a verify, emit or release path:
   is read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
   values that are no one value. Two answers are one value when the copies made from them would hold the same
   (`canonical._derselbe`): equal contents, in any order for a set, a frozenset, a dict that is no OrderedDict and the
-  fields of an object of this package, a caller's object only as itself, and an exact str, bytes, int, bool, a float
+  fields of an object of this package (up to keys that only their stored order pairs: R620-V13-1, R620-V14-1 and
+  R620-V14-2 above), a caller's object only as itself, and an exact str, bytes, int, bool, a float
   of the same bits, a complex of the same bits, a range of the same start, stop and step, a Decimal of the same sign,
   digits and exponent, a date, a timedelta or a naive time or datetime of equal value and fold. Any other value built anew on
   each read is a change even when it is equal: the first line of the block of the lane V12 above. A RecursionError raised while the arguments are read is raised as it is, before
