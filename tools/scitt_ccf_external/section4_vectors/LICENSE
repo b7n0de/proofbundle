@@ -40,34 +40,33 @@ e729c2ec037ac763d0cf422bb58a219f8d6a02f4):
 These are Code Components of an IETF Contribution. The Internet-Draft boilerplate under the IETF
 Trust Legal Provisions (TLP) 5 says of them: "Code Components extracted from this document must
 include Revised BSD License text as described in Section 4.e of the Trust Legal Provisions and are
-provided without warranty as described in the Revised BSD License." For those parts:
+provided without warranty as described in the Revised BSD License."
 
-Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
-reserved.
+Attribution (TLP section 4.d): This code was derived from IETF draft-ietf-scitt-receipts-ccf-profile-05.
+Please reproduce this note if possible.
 
 The persons identified as authors of draft-ietf-scitt-receipts-ccf-profile-05 are Henk Birkholz,
 Antoine Delignat-Lavaud, Cedric Fournet and Amaury Chamayou.
 
-Redistribution and use in source and binary forms, with or without modification, is permitted
-pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
-Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
-(https://trustee.ietf.org/license-info).
+The Revised BSD License of TLP section 4.c applies to those parts, reproduced here in full (TLP
+section 4.e, option 1):
 
-The Revised BSD License of Section 4.c, as it applies to those parts:
+Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+reserved.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted
 provided that the following conditions are met:
 
-- Redistributions of source code must retain the above copyright notice, this list of conditions
-  and the following disclaimer.
+Redistributions of source code must retain the above copyright notice, this list of conditions and
+the following disclaimer.
 
-- Redistributions in binary form must reproduce the above copyright notice, this list of
-  conditions and the following disclaimer in the documentation and/or other materials provided
-  with the distribution.
+Redistributions in binary form must reproduce the above copyright notice, this list of conditions
+and the following disclaimer in the documentation and/or other materials provided with the
+distribution.
 
-- Neither the name of Internet Society, IETF or IETF Trust, nor the names of specific
-  contributors, may be used to endorse or promote products derived from this software without
-  specific prior written permission.
+Neither the name of Internet Society, IETF or IETF Trust, nor the names of specific contributors,
+may be used to endorse or promote products derived from this software without specific prior
+written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
 IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
@@ -78,5 +77,10 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Source of the terms: IETF Trust Legal Provisions Relating to IETF Documents, version 5, section 4,
-https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/
+check_vectors.py carries, beside those functions, the attribution above and the legend of TLP
+section 6.d (TLP section 4.e, option 2).
+
+Source of the terms: IETF Trust Legal Provisions Relating to IETF Documents, TLP 5, Effective Date
+March 25, 2015, sections 4.c, 4.d, 4.e and 6.d,
+https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/. The quotation marks and the
+apostrophe of those texts are written here as ASCII characters, where the page sets typographic ones.
