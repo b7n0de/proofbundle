@@ -483,8 +483,9 @@ like `older_root` to the state it came from, typically the seqno of the txid of 
 receipt that verified it; the newer size is the caller's `newer_size` or, where the caller gives
 none, the seqno of this receipt's `ccf.v1` txid. That a seqno is the tree size its signature covers
 is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement of -05
-(`SECTION4_WGLC.md`, G5). With the older size alone the reader counts the left siblings of the
-proof that recomputes the older root: popcount(m) - 1, whatever n is. Without sizes, an anchor that is no node of the newer tree,
+(`SECTION4_WGLC.md`, G5). With older_size alone, the proof that recomputes older_root must have
+exactly popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it
+does not establish canonical tags. Without sizes, an anchor that is no node of the newer tree,
 such as the root of 6 leaves under one right sibling, has the form of a canonical proof from 4 to 5
 and passes the first tag; with them it is `consistency_anchor_position_mismatch` (vector S4-10 in
 `tools/scitt_ccf_external/section4_vectors/`).
