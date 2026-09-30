@@ -9,6 +9,8 @@ the Codex source, openai/codex at c248f6d4 (codex-rs):
 - ask is unsupported, and an unsupported answer fails the hook and lets the call run
   (hooks/src/engine/output_parser.rs, hooks/src/events/pre_tool_use.rs);
 - a reason without a decision is unsupported too;
+- an answer without a decision, carrying only systemMessage and additionalContext, is accepted and
+  lets Codex's own approval flow decide;
 - a plugin's MCP entry gets no ${CLAUDE_PLUGIN_ROOT} expansion, and its relative cwd is joined onto the
   plugin root (codex-mcp/src/plugin_config.rs);
 - on install, Codex copies regular files and drops symlinks (core-plugins/src/store.rs).
@@ -17,14 +19,17 @@ Properties checked:
 - both manifests name the same plugin and version, and reach the same server, gate and skills;
 - no file of the plugin's logic exists twice, and no symlink exists, so nothing can drift or vanish on
   install;
-- under --host codex the gate never answers ask or allow, turns NOT MEASURED into deny, and uses only
-  fields Codex accepts;
+- under --host codex the gate never answers ask or allow, turns every NOT MEASURED ask into deny, and
+  uses only fields Codex accepts;
+- a repository the gate measured to declare nothing, neither at HEAD nor in the working tree, gets an
+  answer without a decision under both hosts, which Codex accepts, marked NOT MEASURED and saying the
+  gate is not active there (D5, C; D12); a declaration only in the working tree is still denied;
 - the Codex MCP entry, run from the plugin root, starts the server and tells it its host;
 - under Codex, verify_receipt says that it cannot see whether the gate ran, and the verify skill passes
   that on and never claims the gate ran (Codex runs plugin hooks only after the user trusts them);
 - the second matcher, for MCP tools that open a pull request or a release, push files, write a file or
-  merge a pull request, is the same under both hosts, and under Codex such a call without declared
-  evidence is denied as NOT MEASURED;
+  merge a pull request, is the same under both hosts, and under Codex such a call in a repository that
+  declares nothing gets no decision, marked NOT MEASURED;
 - the emit skill runs only when invoked, under both hosts;
 - the runbook for the Mac run of a real Codex turn names every case with the answer it expects, and each
   case's scaffold mode exists.
@@ -224,20 +229,66 @@ def _codex_valid(answer: dict) -> str:
     assert decision in (None, "deny"), "Codex rejects ask, and allow without updatedInput"
     if decision is None:
         assert "permissionDecisionReason" not in specific, "Codex rejects a reason without a decision"
+        assert set(specific) == {"hookEventName", "additionalContext"}
+        assert set(answer) == {"systemMessage", "hookSpecificOutput"}
         return "pass"
     assert specific["permissionDecisionReason"].strip()
     return "deny"
 
 
+INACTIVE = "The gate is not active in this repository, because nothing is declared."
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_under_codex_nothing_declared_is_denied_as_not_measured(shim, tmp_path):
+def test_under_both_hosts_a_repository_that_declares_nothing_gets_no_decision(shim, tmp_path):
     repo = _repo(tmp_path, declare=False)
+    claude = _run(shim, repo)
+    codex = _run(shim, repo, "--host", "codex")
+    assert codex == claude, "the same answer under both hosts"
+    assert _codex_valid(codex) == "pass", "Codex accepts an answer without a decision"
+    assert "permissionDecision" not in codex["hookSpecificOutput"]
+    assert codex["systemMessage"].startswith("NOT MEASURED:")
+    assert INACTIVE in codex["systemMessage"]
+    assert codex["hookSpecificOutput"]["additionalContext"] == codex["systemMessage"]
+    assert "Codex cannot ask" not in codex["systemMessage"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_a_declaration_only_in_the_working_tree_is_denied_as_not_measured(shim, tmp_path):
+    repo = _repo(tmp_path, declare=False)
+    (repo / ".proofbundle").mkdir()
+    (repo / ".proofbundle" / "evidence.json").write_text(json.dumps(
+        {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
     codex = _run(shim, repo, "--host", "codex")
     assert _codex_valid(codex) == "deny"
     assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+    assert "not committed" in codex["systemMessage"]
     assert "Codex cannot ask" in codex["systemMessage"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_under_codex_every_other_not_measured_case_is_still_denied(shim, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    _git(fresh, "init", "-q")
+    empty = _repo(tmp_path / "empty", declare=False)
+    (empty / ".proofbundle").mkdir()
+    (empty / ".proofbundle" / "evidence.json").write_text(json.dumps(
+        {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
+    _git(empty, "add", "-A")
+    _git(empty, "commit", "-q", "-m", "empty declaration")
+    cases = [(plain, "git push"), (fresh, "git push"), (empty, "git push"),
+             (_repo(tmp_path / "unresolved", declare=False), "cd $SOMEWHERE && git push")]
+    for where, command in cases:
+        codex = _run(shim, where, "--host", "codex", command=command)
+        assert _codex_valid(codex) == "deny", (where, command)
+        assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+        claude = _run(shim, where, command=command)
+        assert claude["hookSpecificOutput"]["permissionDecision"] == "ask", (where, command)
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -257,8 +308,8 @@ def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path
 def test_under_codex_an_mcp_pull_request_is_gated_like_a_push(shim, tmp_path):
     undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex",
                       tool="mcp__github__create_pull_request")
-    assert _codex_valid(undeclared) == "deny"
-    assert undeclared["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+    assert _codex_valid(undeclared) == "pass"
+    assert undeclared["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in undeclared["systemMessage"]
     declared = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool="mcp__gitlab__create_merge_request")
     assert _codex_valid(declared) == "pass"
 
@@ -270,8 +321,8 @@ def test_under_codex_an_mcp_write_or_merge_is_gated_like_a_push(shim, tmp_path, 
     import re  # noqa: PLC0415
     assert re.search(_codex_hook_matcher(), tool)
     undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex", tool=tool)
-    assert _codex_valid(undeclared) == "deny"
-    assert undeclared["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+    assert _codex_valid(undeclared) == "pass"
+    assert undeclared["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in undeclared["systemMessage"]
     assert _codex_valid(_run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool=tool)) == "pass"
 
 
@@ -338,11 +389,43 @@ def test_the_mac_runbook_names_every_case_with_its_expected_answer():
     scaffold = (PLUGIN / "evals" / "_fixtures" / "scaffold.sh").read_text(encoding="utf-8")
     rows = [line for line in text.split("\n") if line.startswith("| ") and "repo-" in line]
     modes = [row.split("|")[2].strip().strip("`") for row in rows]
-    assert modes == ["repo-nodecl", "repo-tampered", "repo-missing", "repo-stale", "repo-valid", "repo-valid"]
+    assert modes == ["repo-nodecl", "repo-worktree-only", "repo-tampered", "repo-missing", "repo-stale",
+                     "repo-valid", "repo-valid"]
     for mode in set(modes):
         assert mode in scaffold, mode
     expected = [row.split("|")[4].strip() for row in rows]
-    assert expected[:4] == ["deny, NOT MEASURED", "deny", "deny", "deny"]
-    assert expected[4].startswith("no decision")
+    assert expected[0].startswith("no decision, NOT MEASURED")
+    assert expected[1:5] == ["deny, NOT MEASURED", "deny", "deny", "deny"]
+    assert expected[5].startswith("no decision")
     assert "NOT MEASURED" in text and "gate did not run" in text
     assert f"`{gate.MCP_MATCHER}`" in text, "the runbook names the matcher the manifests carry"
+
+
+def _runbook_rows() -> list[tuple[str, str, str, list[str]]]:
+    rows = []
+    for line in RUNBOOK.read_text(encoding="utf-8").split("\n"):
+        cells = [c.strip() for c in line.split("|")]
+        if line.startswith("| ") and "repo-" in line and cells[3] == "trusted":
+            quoted = [part for cell in cells[4:6] for n, part in enumerate(cell.split("`")) if n % 2]
+            rows.append((cells[1], cells[2].strip("`"), cells[4], quoted))
+    return rows
+
+
+@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="git or bash missing")
+@pytest.mark.parametrize("case, mode, expected, quoted", _runbook_rows(), ids=[r[0] for r in _runbook_rows()])
+def test_every_runbook_case_gets_from_the_gate_the_answer_its_row_expects(shim, tmp_path, case, mode, expected, quoted):
+    """The runbook's expected answers, measured without Codex: its scaffold, the gate under --host codex."""
+    work = tmp_path / "w"
+    work.mkdir()
+    subprocess.run(["bash", str(PLUGIN / "evals" / "_fixtures" / "scaffold.sh"), mode], cwd=work, check=True,
+                   capture_output=True)
+    answer = _run(shim, work, "--host", "codex")
+    got = _codex_valid(answer)
+    assert got == ("deny" if expected.startswith("deny") else "pass"), (case, answer)
+    for text in quoted:
+        if text not in ("NOT MEASURED:",):
+            assert text in answer["systemMessage"], (case, text)
+    if "NOT MEASURED" in expected:
+        assert answer["systemMessage"].startswith("NOT MEASURED:"), case
+    if "not active" in expected:
+        assert INACTIVE in answer["systemMessage"], case

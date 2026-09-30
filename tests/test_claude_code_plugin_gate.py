@@ -2,7 +2,7 @@
 
 The gate runs before every shell call. For git push, gh pr create and gh release create it verifies
 the evidence the repository declares at HEAD, through the plugin's MCP server, and answers deny, ask or
-nothing. These tests run the gate as the host runs it, a separate process fed one event on stdin, and
+no permission decision. These tests run the gate as the host runs it, a separate process fed one event on stdin, and
 replace only `uv` by a shim that starts the same server with this interpreter and this checkout.
 
 Properties checked:
@@ -16,8 +16,14 @@ Properties checked:
 - every declared item names the proofbundle-tree-sha256/v1 digest of the tree at HEAD, both in the
   declaration and inside the signed evidence; a missing, stale or unsigned subject is denied;
 - the gate never answers allow: a pass carries no permission decision;
-- a repository that declares nothing, or a call whose repository the gate cannot resolve, is answered
-  ask and NOT MEASURED, never a pass;
+- a repository the gate measured to declare nothing, neither at HEAD nor in the working tree, gets no
+  permission decision, and the answer says NOT MEASURED and that the gate is not active there (D5, C);
+  it is never reported as verified;
+- every other case where nothing was verified (a declaration only in the working tree, an empty list,
+  no repository or no commit, a repository the gate cannot resolve or cannot measure) is answered ask
+  and NOT MEASURED;
+- deleting the declaration in a commit switches the gate off, and the deletion stays in the diff of
+  the pushed range (the price of D5, C);
 - tampered, missing, unpinned or unverifiable evidence, a malformed declaration, a verifier that cannot
   start and unreadable hook input are answered deny;
 - the gate reads HEAD, not the working tree;
@@ -156,7 +162,11 @@ def run_gate(env: dict, cwd: pathlib.Path | str, command: str, *, raw: str | Non
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
+INACTIVE = "The gate is not active in this repository, because nothing is declared."
+
+
 def decision(answer: dict | None) -> str:
+    """deny, ask, pass (verified, no decision) or inactive (nothing declared, no decision)."""
     assert answer is not None, "a gated call must be answered"
     specific = answer["hookSpecificOutput"]
     assert specific["hookEventName"] == "PreToolUse"
@@ -165,7 +175,14 @@ def decision(answer: dict | None) -> str:
     assert got in ("deny", "ask", "pass"), "the gate must never answer allow"
     if got != "pass":
         assert specific["permissionDecisionReason"] == answer["systemMessage"]
-    return got
+        return got
+    assert "permissionDecisionReason" not in specific
+    message = answer["systemMessage"]
+    if "NOT MEASURED" in message:
+        # No decision on NOT MEASURED only where the gate measured that nothing is declared.
+        assert message.count("NOT MEASURED:") == message.count(INACTIVE), message
+        return "inactive"
+    return "pass"
 
 
 def reason(answer: dict) -> str:
@@ -433,16 +450,82 @@ def test_a_malformed_declaration_is_denied(shim, repo):
     assert decision(run_gate(shim, repo, "git push")) == "deny"
 
 
-def test_a_repository_without_a_declaration_is_not_measured_and_asks(shim, repo):
+def test_a_repository_without_a_declaration_is_not_measured_and_the_gate_is_not_active(shim, repo):
     _git(repo, "rm", "-q", "-r", ".proofbundle")
     _commit(repo)
     answer = run_gate(shim, repo, "git push")
-    assert decision(answer) == "ask"
+    assert decision(answer) == "inactive"
     assert reason(answer).startswith("NOT MEASURED:")
+    assert "neither at HEAD" in reason(answer) and "nor in the working tree" in reason(answer)
+
+
+def test_a_declaration_only_in_the_working_tree_is_not_measured_and_asks(shim, repo):
+    _git(repo, "rm", "-q", "-r", ".proofbundle")
+    _commit(repo)
     _declare(repo, GOOD_BUNDLE)
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "ask"
+    assert reason(answer).startswith("NOT MEASURED:")
     assert "not committed" in reason(answer)
+    _git(repo, "add", "-A")
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "ask", "staged is not committed; the gate reads HEAD"
+
+
+@pytest.mark.parametrize("plant", ["file", "dangling-link", "folder"])
+def test_anything_at_the_declaration_path_of_the_working_tree_keeps_the_ask(shim, repo, plant):
+    """Only "no such file" measures absence; a file where the folder should be, a dangling link or a
+    folder at the declaration's path is something, and the gate does not switch itself off for it."""
+    _git(repo, "rm", "-q", "-r", ".proofbundle")
+    _commit(repo)
+    target = repo / gate.DECLARATION
+    if plant == "file":
+        (repo / ".proofbundle").write_text("not a folder\n", encoding="utf-8")
+    elif plant == "dangling-link":
+        target.parent.mkdir()
+        target.symlink_to(repo / "nowhere.json")
+    else:
+        target.mkdir(parents=True)
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "ask"
+    assert reason(answer).startswith("NOT MEASURED:")
+
+
+def test_a_head_the_gate_cannot_list_keeps_the_ask(repo, monkeypatch):
+    """If git does not confirm with exit 0 that HEAD has nothing at the declaration's path, the gate
+    has not measured absence and keeps its NOT MEASURED ask."""
+    _git(repo, "rm", "-q", "-r", ".proofbundle")
+    _commit(repo)
+    real = gate._git
+
+    def failing_ls_tree(repo_dir, *args, deadline):
+        if args[:1] == ("ls-tree",) and gate.DECLARATION in args:
+            return subprocess.CompletedProcess(args, 128, b"", b"fatal: simulated")
+        return real(repo_dir, *args, deadline=deadline)
+
+    monkeypatch.setattr(gate, "_git", failing_ls_tree)
+    verdict, why = gate.evaluate_repository(str(repo), gate.time.monotonic() + 30)
+    assert verdict == "ask"
+    assert why.startswith("NOT MEASURED:")
+    monkeypatch.setattr(gate, "_git", real)
+    assert gate.evaluate_repository(str(repo), gate.time.monotonic() + 30)[0] == "inactive"
+
+
+def test_deleting_the_declaration_switches_the_gate_off_and_stays_in_the_diff(shim, repo, tmp_path):
+    """The price of D5, C: whoever deletes the declaration in a commit switches the gate off. The
+    deletion is part of the pushed range, so a reviewer of that range sees it."""
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "origin", "main")
+    assert decision(run_gate(shim, repo, "git push origin main")) == "pass"
+    _git(repo, "rm", "-q", gate.DECLARATION)
+    _commit(repo, "drop the declaration")
+    answer = run_gate(shim, repo, "git push origin main")
+    assert decision(answer) == "inactive"
+    changed = subprocess.run(["git", "-C", str(repo), "diff", "--name-status", "origin/main..HEAD"],
+                             capture_output=True, text=True, check=True).stdout
+    assert changed.splitlines() == [f"D\t{gate.DECLARATION}"]
 
 
 def test_an_empty_declaration_is_not_measured_and_asks(shim, repo):
@@ -477,8 +560,26 @@ def test_the_repository_a_directory_change_names_is_the_one_checked(shim, repo, 
     _git(other, "init", "-q", "-b", "main")
     _commit(other)
     assert decision(run_gate(shim, repo, "git push")) == "pass"
-    assert decision(run_gate(shim, repo, f"cd {other} && git push")) == "ask"
+    assert decision(run_gate(shim, repo, f"cd {other} && git push")) == "inactive"
     assert decision(run_gate(shim, other, f"git -C {repo} push")) == "pass"
+
+
+def test_an_undeclared_repository_next_to_others_gives_way_to_their_answers(shim, repo, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q", "-b", "main")
+    _commit(other)
+    both = run_gate(shim, repo, f"git push && git -C {other} push")
+    assert decision(both) == "inactive", "no decision: one verified, one not active"
+    assert "1 of 1 declared items verified" in reason(both) and INACTIVE in reason(both)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert decision(run_gate(shim, other, f"git push && git -C {plain} push")) == "ask"
+    tampered = tmp_path / "tampered"
+    shutil.copytree(repo, tampered)
+    _tamper_bundle(tampered / BUNDLE)
+    _commit(tampered)
+    assert decision(run_gate(shim, other, f"git push && git -C {tampered} push")) == "deny"
 
 
 def test_one_failing_repository_denies_the_whole_call(shim, repo, tmp_path):
@@ -561,8 +662,11 @@ def test_an_mcp_pull_request_without_declared_evidence_is_not_measured(shim, tmp
     _git(plain, "init", "-q", "-b", "main")
     _commit(plain)
     answer = run_gate(shim, plain, "", raw=_mcp_event(plain, "mcp__github__create_pull_request"))
-    assert decision(answer) == "ask"
+    assert decision(answer) == "inactive"
     assert reason(answer).startswith("NOT MEASURED:")
+    _declare(plain, GOOD_BUNDLE)
+    answer = run_gate(shim, plain, "", raw=_mcp_event(plain, "mcp__github__create_pull_request"))
+    assert decision(answer) == "ask"
 
 
 @pytest.mark.parametrize("tool, unseen", [
@@ -585,7 +689,7 @@ def test_an_mcp_write_without_declared_evidence_is_not_measured(shim, tmp_path):
     _commit(plain)
     for tool in ("mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__merge_pull_request"):
         answer = run_gate(shim, plain, "", raw=_mcp_event(plain, tool))
-        assert decision(answer) == "ask", tool
+        assert decision(answer) == "inactive", tool
         assert reason(answer).startswith("NOT MEASURED:"), tool
 
 

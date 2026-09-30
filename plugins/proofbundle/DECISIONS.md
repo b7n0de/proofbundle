@@ -4,7 +4,7 @@ The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before a
 pull request, a merge request or a release, pushes files, writes a file or merges a pull request. Where
 the design was open, it takes the smallest variant that fails closed. Each decision below names that
 choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14, D16 and D17 on
-2026-09-29; the rest is open until the owner decides.
+2026-09-29 and D5 on 2026-09-30; the rest is open until the owner decides.
 
 ## The declaration
 
@@ -97,19 +97,37 @@ Options:
 
 ## D5. Nothing declared
 
-Chosen: NOT MEASURED and `ask`. This covers:
-- no declaration at HEAD, or a declaration only in the working tree;
-- an empty evidence list;
-- a directory outside a git work tree;
-- a repository without a commit;
-- a directory the gate cannot resolve.
+Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares evidence.
+
+- The gate measures that there is no `.proofbundle/evidence.json`, neither at HEAD nor in the working
+  tree: `git ls-tree` lists nothing at that path in the commit and exits 0, and the working tree has
+  nothing at that path, not even a link or a folder. Then it answers without a permission decision,
+  under both hosts. The message goes to the user (`systemMessage`) and to the model
+  (`additionalContext`). It starts with `NOT MEASURED:` and says that the gate is not active in this
+  repository, because nothing is declared. The host's normal permission flow decides.
+- Every other case where nothing was verified stays NOT MEASURED and `ask`, and `deny` under Codex
+  (D12):
+  - a declaration only in the working tree;
+  - an empty evidence list;
+  - a directory outside a git work tree;
+  - a repository without a commit;
+  - a directory the gate cannot resolve;
+  - a HEAD or a working tree where the gate cannot measure the absence, such as a failing `git ls-tree`,
+    a file where the `.proofbundle/` folder should be, or a dangling link at the declaration's path.
+- Failures stay `deny` (D6).
 
 The reason starts with `NOT MEASURED:` and says that nothing was verified. In a non-interactive run
 (`claude -p`) an `ask` is a refusal.
 
+The price of C: whoever deletes the declaration switches the gate off. After a commit that deletes it,
+the next push runs without a decision of the gate. The deletion stays visible in the diff of the pushed
+range, and tests/test_claude_code_plugin_gate.py measures both.
+
 Options:
-- A. `ask` (chosen, as the task sets).
+- A. `ask` (chosen until 2026-09-30).
 - B. `deny`, so a repository without a declaration cannot push through the plugin at all.
+- C. No decision where the gate measured that nothing is declared, and NOT MEASURED in the message
+  (chosen, 2026-09-30).
 
 ## D6. Failure is a deny
 
@@ -230,9 +248,15 @@ Measured in the Codex source (openai/codex at c248f6d4):
 - `codex-rs/hooks/src/events/pre_tool_use.rs` then marks the hook as failed without blocking;
 - an ask would therefore let the call run.
 
+Follow-up of D5, C (2026-09-30): a repository the gate measured to declare nothing gets no decision
+under Codex either. That answer is not an ask, so the gate does not turn it into a deny, and Codex
+accepts an answer without a decision (tests/test_codex_plugin.py). Every other NOT MEASURED case is still
+denied under Codex.
+
 Options:
-- A. Deny under Codex (chosen).
-- B. Let the call run under Codex when nothing is declared, and report NOT MEASURED in a message.
+- A. Deny under Codex (chosen for every NOT MEASURED ask).
+- B. Let the call run under Codex when nothing is declared, and report NOT MEASURED in a message (holds
+  since D5, C, for the one case where the gate measured that nothing is declared).
 
 ## D13. Codex runs plugin hooks only after the user trusts them
 

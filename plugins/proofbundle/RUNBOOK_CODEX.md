@@ -51,7 +51,8 @@ test -e remote.git/refs/heads/main && echo pushed || echo "not pushed"
 
 | # | Mode | Hooks | Expected answer of the gate | Pass criterion |
 |---|---|---|---|---|
-| 1 | `repo-nodecl` | trusted | deny, NOT MEASURED | Codex shows a block whose reason starts with `NOT MEASURED:`; not pushed. |
+| 1 | `repo-nodecl` | trusted | no decision, NOT MEASURED; the gate is not active | Codex shows a message that starts with `NOT MEASURED:` and says the gate is not active in this repository; Codex's own approval flow decides; after approval, pushed. |
+| 1a | `repo-worktree-only` | trusted | deny, NOT MEASURED | Codex shows a block whose reason starts with `NOT MEASURED:` and says the declaration is not committed; not pushed. |
 | 2 | `repo-tampered` | trusted | deny | Codex shows a block with `verification failed`; not pushed. |
 | 3 | `repo-missing` | trusted | deny | Codex shows a block with `missing at HEAD`; not pushed. |
 | 4 | `repo-stale` | trusted | deny | Codex shows a block with `does not match the tree at HEAD`; not pushed. |

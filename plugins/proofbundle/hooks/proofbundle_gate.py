@@ -8,8 +8,12 @@ own MCP server, and answers the host in its hook format:
 - every declared item verifies: the gate makes no permission decision, so the host's normal
   permission flow applies, and a message names what was verified; the gate never grants a call;
 - a declared item fails, is missing, or the declaration cannot be read: deny, with the reason;
-- the repository declares nothing, or the gate cannot tell which repository the call acts on:
-  NOT MEASURED, and the host asks the user; a host without an ask (Codex) gets deny instead.
+- the gate measured that the repository has no declaration, neither at HEAD nor in the working tree:
+  NOT MEASURED, and no permission decision under either host, because the gate is not active in a
+  repository that declares nothing (DECISIONS.md, D5);
+- any other case where nothing was verified (a declaration only in the working tree, an empty list, no
+  repository or no commit, or a repository the gate cannot tell): NOT MEASURED, and the host asks the
+  user; a host without an ask (Codex) gets deny instead.
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree, so
 an uncommitted file can neither satisfy nor break it. The declaration lives at DECLARATION and is
@@ -83,7 +87,8 @@ MAX_NESTING = 4
 #: The hosts the gate answers. Claude Code has an "ask" decision; Codex has none. Codex's PreToolUse
 #: parser marks an "ask" answer as a failed hook and lets the call run (openai/codex
 #: codex-rs/hooks/src/engine/output_parser.rs and events/pre_tool_use.rs), so for Codex the gate turns
-#: every NOT MEASURED ask into a deny.
+#: every NOT MEASURED ask into a deny. The one NOT MEASURED case that is no ask, a repository the gate
+#: measured to declare nothing, carries no decision under either host (D5, D12).
 HOSTS = ("claude", "codex")
 
 SERVER = pathlib.Path(__file__).resolve().parent.parent / "server" / "proofbundle_mcp.py"
@@ -484,8 +489,33 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
 
 # --- one repository ----------------------------------------------------------------------------------
 
+def _absent_at_head(repo: str, commit: str, deadline: float) -> bool:
+    """True only when git lists nothing at DECLARATION in the commit's tree and says so with exit 0."""
+    listing = _git(repo, "ls-tree", "-z", "--full-tree", commit, "--", DECLARATION, deadline=deadline)
+    return listing.returncode == 0 and listing.stdout == b""
+
+
+def _absent_in_working_tree(repo: str) -> bool:
+    """True only when the working tree has nothing at DECLARATION, not even a link or a folder.
+
+    Any answer but "no such file" (no permission, a file where the folder should be) is not a
+    measurement of absence, and the gate keeps its NOT MEASURED ask.
+    """
+    try:
+        os.lstat(os.path.join(repo, DECLARATION))
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
-    """('pass' | 'deny' | 'ask', reason) for the repository that contains directory."""
+    """('pass' | 'inactive' | 'deny' | 'ask', reason) for the repository that contains directory.
+
+    'inactive' is the one NOT MEASURED answer without a permission decision: the gate measured that the
+    repository declares nothing, neither at HEAD nor in the working tree (DECISIONS.md, D5).
+    """
     top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
     if top.returncode != 0:
         return "ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked."
@@ -496,6 +526,10 @@ def evaluate_repository(directory: str, deadline: float) -> tuple[str, str]:
     commit = head.stdout.decode().strip()
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
     if raw is None:
+        if _absent_at_head(repo, commit, deadline) and _absent_in_working_tree(repo):
+            return "inactive", (f"NOT MEASURED: {repo} declares no evidence, neither at HEAD {commit[:12]} nor "
+                                f"in the working tree ({DECLARATION} is absent). The gate is not active in "
+                                "this repository, because nothing is declared. Nothing was verified.")
         hint = (" A declaration exists in the working tree but is not committed; the gate reads HEAD."
                 if os.path.exists(os.path.join(repo, DECLARATION)) else "")
         return "ask", (f"NOT MEASURED: {repo} declares no evidence at HEAD {commit[:12]} "
@@ -602,7 +636,8 @@ def _judge(calls: list[tuple[str, str | None]], cwd: str, deadline: float) -> tu
         reasons = [r for d, r in verdicts if d == decision]
         if reasons:
             return decision, " ".join(reasons)
-    return "pass", " ".join(r for _, r in verdicts)
+    combined = "pass" if all(d == "pass" for d, _ in verdicts) else "inactive"
+    return combined, " ".join(r for _, r in verdicts)
 
 
 # --- the host's hook protocol ------------------------------------------------------------------------
@@ -620,16 +655,17 @@ def _command_from_event(event: object) -> tuple[str, str]:
 
 
 def answer(decision: str, reason: str, host: str = "claude") -> dict:
-    """The PreToolUse answer. A pass carries no permission decision, only the message.
+    """The PreToolUse answer. A pass and an inactive gate carry no permission decision, only the message.
 
     The reason goes to the user (systemMessage) and to the model (additionalContext) as well as into
     permissionDecisionReason, because a host shows the reason of an "ask" to the user only. Every field
-    used here is one both hosts accept; Codex rejects an answer with any other field.
+    used here is one both hosts accept; Codex rejects an answer with any other field, and a
+    permissionDecisionReason without a permissionDecision.
     """
     if decision == "ask" and host == "codex":
         decision, reason = "deny", reason + " Codex cannot ask, so the gate denies the call."
     specific = {"hookEventName": "PreToolUse", "additionalContext": reason}
-    if decision != "pass":
+    if decision not in ("pass", "inactive"):
         specific.update(permissionDecision=decision, permissionDecisionReason=reason)
     return {"systemMessage": reason, "hookSpecificOutput": specific}
 

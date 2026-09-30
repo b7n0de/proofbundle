@@ -53,10 +53,12 @@ verifies the evidence that the repository declares in `.proofbundle/evidence.jso
 |---|---|
 | Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies, and a message names what was verified. |
 | An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
-| No declaration at HEAD, an empty list, no repository, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
+| No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. |
+| A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
-It never answers allow. The declaration format and every design choice are in
+It never answers allow. It acts only in a repository that declares evidence: whoever deletes the
+declaration switches the gate off, and the deletion stays visible in the diff of the pushed range (D5). The declaration format and every design choice are in
 [DECISIONS.md](DECISIONS.md). MCP tools of other names are not gated; D8 lists the known ones.
 
 A pass proves what the declared evidence proves, for the tree at HEAD: the declared signer signed a
@@ -140,8 +142,9 @@ Codex reads the skills from `skills/`. A skill's name is prefixed with the plugi
 
 The gate behaves differently under Codex in two ways:
 
-- Codex has no ask decision. Under Codex, a NOT MEASURED call is denied instead of asked (D12 in
-  DECISIONS.md).
+- Codex has no ask decision. Under Codex, a NOT MEASURED call that would ask is denied instead (D12 in
+  DECISIONS.md). A repository that declares nothing, neither at HEAD nor in the working tree, gets no
+  decision under Codex either, marked NOT MEASURED (D5).
 - Codex runs a plugin's hooks only after you trust them, at the start-up review or in `/hooks`. Until
   then the gate does not run, and a push is not gated (D13). Under Codex every result of
   `verify_receipt` carries a `gate_note` that says so; the server cannot see whether the hooks are
