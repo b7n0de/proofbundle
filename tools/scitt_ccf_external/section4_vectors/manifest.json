@@ -58,8 +58,8 @@
   },
   {
    "path": "S4-10.json",
-   "length": 4196,
-   "sha256": "a08c2637b3fa0eacdd9118867d5d42ecc34035724eeddb1ec0ee163361c764d0"
+   "length": 4131,
+   "sha256": "3dfa280c0f7d09113d3b2a246d925ca6e06743506f68e49ae75098db40caa214"
   },
   {
    "path": "S4-11.json",
@@ -98,8 +98,8 @@
   },
   {
    "path": "generate_vectors.py",
-   "length": 21614,
-   "sha256": "ae96c271802416c72e0d78a9aa11af75b05c26430d5b79c03783a0e3674f2481"
+   "length": 22091,
+   "sha256": "85c29f40bb8159d1fd69982b79c810efee7e54a4ae273ac07fd1af19814208c5"
   }
  ]
 }

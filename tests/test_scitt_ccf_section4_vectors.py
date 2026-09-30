@@ -275,3 +275,11 @@ def test_thirteen_unchanged_service_signatures_one_flipped_and_one_test_key():
     assert signer["S4-14"] == "service, one signature bit flipped"
     assert sum(bin(a ^ b).count("1") for a, b in zip(sig["S4-14"], service_sig)) == 1
     assert [i for i in IDS if signer[i] == "test key"] == ["S4-10"]
+
+
+def test_s4_10_names_its_newer_size_as_asserted_by_the_synthetic_txid_not_measured():
+    """Nachtrag 4, point 1: the test-key txid 2.7 is an assertion; only the service's txids were measured."""
+    notes = {v["id"]: v["tree_sizes_note"] for v in _vectors()}
+    assert notes.pop("S4-10") == ("older_size: 6 from the constructed older tree; newer_size: 7 asserted by the "
+                                  "synthetic test-key header txid 2.7; the signed N1 is not the canonical root R_7.")
+    assert all("as measured on CCF 7.0.17" in n for n in notes.values()) and len(notes) == 14
