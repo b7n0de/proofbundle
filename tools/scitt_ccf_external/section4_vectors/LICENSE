@@ -1,0 +1,82 @@
+Licence of tools/scitt_ccf_external/section4_vectors/
+
+1. This directory, except the IETF Code Components named in 2
+
+Every file of this directory is part of proofbundle and is licensed under its MIT License, the
+text of which follows, except the parts of check_vectors.py named in 2.
+
+MIT License
+
+Copyright (c) 2026 Konrad Gruszka
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+2. IETF Code Components in check_vectors.py
+
+check_vectors.py transcribes code from draft-ietf-scitt-receipts-ccf-profile-05
+(https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile, commit
+e729c2ec037ac763d0cf422bb58a219f8d6a02f4):
+
+- compute_root(), from Figure 7, "CCF Inclusion Receipt Verification" (section 3.2)
+- compute_roots() and reading_a(), from Figure 9, "CCF Consistency Receipt Verification"
+  (section 4.2), compute_roots and verify_consistency_receipt
+
+These are Code Components of an IETF Contribution. The Internet-Draft boilerplate under the IETF
+Trust Legal Provisions (TLP) 5 says of them: "Code Components extracted from this document must
+include Revised BSD License text as described in Section 4.e of the Trust Legal Provisions and are
+provided without warranty as described in the Revised BSD License." For those parts:
+
+Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
+reserved.
+
+The persons identified as authors of draft-ietf-scitt-receipts-ccf-profile-05 are Henk Birkholz,
+Antoine Delignat-Lavaud, Cedric Fournet and Amaury Chamayou.
+
+Redistribution and use in source and binary forms, with or without modification, is permitted
+pursuant to, and subject to the license terms contained in, the Revised BSD License set forth in
+Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
+(https://trustee.ietf.org/license-info).
+
+The Revised BSD License of Section 4.c, as it applies to those parts:
+
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice, this list of conditions
+  and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright notice, this list of
+  conditions and the following disclaimer in the documentation and/or other materials provided
+  with the distribution.
+
+- Neither the name of Internet Society, IETF or IETF Trust, nor the names of specific
+  contributors, may be used to endorse or promote products derived from this software without
+  specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Source of the terms: IETF Trust Legal Provisions Relating to IETF Documents, version 5, section 4,
+https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/

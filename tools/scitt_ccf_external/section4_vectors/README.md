@@ -92,6 +92,9 @@ caller's trust model and our local txid-to-size rule.
 - `generate_vectors.py`: builds the vectors from the inputs above.
 - `TEST_ONLY_es384_private_key.pem`: the test key, see Limits.
 - `manifest.json`: length and SHA-256 of every other file here.
+- `LICENSE`: the MIT License of proofbundle for this directory, and the Revised BSD License with the
+  copyright notice of the IETF Trust and the draft's authors for the parts of `check_vectors.py` that
+  transcribe Figures 7 and 9 of -05 (IETF Code Components, TLP section 4).
 
 ## Running
 
