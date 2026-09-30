@@ -309,16 +309,19 @@ def test_the_skills_report_safe_for_automation_and_act_on_their_own_only_on_true
     verify = (PLUGIN / "skills" / "verify" / "SKILL.md").read_text(encoding="utf-8")
     step5 = verify.split("\n5. ", 1)[1].split("\n6. ", 1)[0]
     assert "`safe_for_automation` and `automation_blockers`, verbatim" in step5
-    assert "only when `safe_for_automation` is `true`" in verify
+    step7 = " ".join(verify.split("\n7. ", 1)[1].split("\n\n", 1)[0].split())
+    assert "precondition" in step7 and "already authorized" in step7 and "never an approval" in step7, step7
     review = (PLUGIN / "skills" / "review-receipt" / "SKILL.md").read_text(encoding="utf-8")
     verified_block = [line for line in review.split("\n") if line.strip().startswith("- VERIFIED:")]
     assert len(verified_block) == 1
     assert "`safe_for_automation` and `automation_blockers` verbatim" in verified_block[0]
-    assert "only when `safe_for_automation` is `true`" in verified_block[0]
+    assert "precondition" in verified_block[0] and "already authorized" in verified_block[0]
+    assert "never an approval" in verified_block[0]
 
 
-AUTOMATION_RULE = ("Report safe_for_automation and automation_blockers verbatim with the result, and take an "
-                   "automatic follow-up action only when safe_for_automation is true.")
+AUTOMATION_RULE = ("Report safe_for_automation and automation_blockers verbatim with the result. "
+                   "safe_for_automation true is a precondition for an automatic follow-up action that is already "
+                   "authorized, never an approval to publish or act on its own.")
 
 
 def test_the_server_itself_carries_the_rule_on_safe_for_automation(server):

@@ -42,8 +42,9 @@ result also carries `safe_for_automation` and `automation_blockers`, copied verb
 (`automation` for a decision or outcome receipt, `root_authenticity` for a bundle), and
 `automation_source`, the path it copied them from. Where the report has no such field, both are `null`
 and `automation_source` says `not reported by the core`; the server derives nothing itself. The skills
-report both fields and propose an automatic follow-up only when `safe_for_automation` is `true`: exit 0
-means the signature and structure hold, not that a result may be acted on without a person.
+report both fields. `safe_for_automation: true` is a precondition for an automatic follow-up action that
+is already authorized, never an approval to publish or act on its own; exit 0 means only that the
+signature and structure hold.
 
 ## Requirements
 
