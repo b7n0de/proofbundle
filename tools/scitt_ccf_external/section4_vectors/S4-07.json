@@ -21,18 +21,18 @@
   "result": "accept",
   "step": "return true"
  },
- "reading_b": {
-  "result": "accept",
-  "rule": "every rule of reading B holds",
-  "rule_text": "B1 to B13 hold, and B14 where tree sizes are given"
+ "reading_b_size_free": {
+  "result": "passes_size_free_checks",
+  "rule": "B1 to B13 hold",
+  "rule_text": "the size-free checks B1 to B13 hold; this does not establish 0 < m < n or the canonical anchor position"
  },
  "older_size": 19,
  "newer_size": 24,
  "tree_sizes_note": "older_size: the size of the ledger tree whose root older_root is; newer_size: the seqno of the receipt's ccf.v1 txid 2.24, the tree size its signature covers as measured on CCF 7.0.17 with leaf 0 counted (not stated by -05)",
- "reading_b_with_sizes": {
+ "reading_b_size_aware": {
   "result": "accept",
-  "rule": "every rule of reading B holds",
-  "rule_text": "B1 to B13 hold, and B14 where tree sizes are given"
+  "rule": "B1 to B14 hold",
+  "rule_text": "B1 to B13 hold, and B14 with older_size and newer_size"
  },
  "generator_tree_sizes": [
   {
@@ -84,8 +84,8 @@
   "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
   "status_without_sizes": "confirmed_without_tree_sizes",
   "status_with_sizes": "confirmed",
-  "commit": "ec14c5a6f1e6bb59400224e5babc7293eb9fb3b1",
-  "scitt_ccf_py_sha256": "0889bb9c489893fa11835caf5297ebdcf2cb0703fa3b958245defcfcd3ace4be",
+  "commit": "dc932f085d47652ed6fc887166bb3fa4ebb26adf",
+  "scitt_ccf_py_sha256": "9e49f6896f0cd0ef2dade9b580d5ba396d6a94ef8c50db91977b68dd7ee5a68b",
   "older_issuer": "127.0.0.1:8000"
  }
 }

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Recompute both readings of section 4 of draft-ietf-scitt-receipts-ccf-profile-05 for every vector.
+"""Recompute readings A and B of section 4 of draft-ietf-scitt-receipts-ccf-profile-05 for every vector.
 
     python check_vectors.py [--dir DIR] [--json]
 
 Standard library, cbor2 and cryptography only. Nothing is imported from proofbundle, so this file is
-an implementation of its own, not a copy of the reader under test.
+an implementation of its own, not a copy of the reader under test, and it does not recompute the
+reader statuses a vector records.
 
-Reading A is Figure 9 of section 4.2, statement by statement. Reading B enforces every sentence of
-sections 4, 4.1 and 5 that the receipt carries enough to check, then the two checks of Figure 9 that
-bind the receipt (the older root and the signature). Where a rule needs a tree size, reading B is
-computed twice: once from the receipt alone, and once with the vector's older_size and newer_size,
-the sizes a caller holds (B14, the anchor rule in full). Where the receipt alone passes and the sizes
-decide otherwise, the receipt-alone reading reads "not_decidable_without_tree_sizes".
+Reading A is Figure 9 of section 4.2, statement by statement. Reading B applies the listed wire,
+root-binding and signature checks (B1 to B13); B10 and B11 are derived necessary shape conditions,
+not complete checks of strict growth or the canonical anchor. The size-free result runs B1 to B13
+without tree sizes and reports passes_size_free_checks when they pass. The separate size-aware
+result adds B14 using the vector's older_size and newer_size.
 
-Exit 0 when manifest.json matches the files of the directory and every vector's recorded results are
-reproduced; exit 1 otherwise.
+Exit 0 when manifest.json matches the files of the directory and every vector's recorded readings A
+and B (size-free and size-aware) are reproduced; exit 1 otherwise.
 """
 from __future__ import annotations
 
@@ -127,7 +127,7 @@ def reading_a(receipt: bytes, older_root: bytes, spki: bytes) -> tuple:
 
 
 # ------------------------------------------------------------------------------------------------
-# Reading B: every sentence of 4, 4.1 and 5 the receipt carries enough to check, then Figure 9's binding
+# Reading B: the listed wire, root-binding and signature checks, size-free (B1 to B13) and size-aware (B14)
 # ------------------------------------------------------------------------------------------------
 B_RULES = {
     "B1": "5: protected-header-map carries alg (1) => int and vds (395) => TBD_1; 4.1: \"the same protected "
@@ -226,56 +226,77 @@ def _b14(paths: list, roots: list, older_root: bytes, m: int | None, n: int | No
     return True
 
 
-def reading_b(receipt: bytes, older_root: bytes, spki: bytes, older_size: int | None = None,
-              newer_size: int | None = None, sizes_are_input: bool = False) -> tuple:
-    """(result, rule). B1 to B13 on the receipt alone, then B14 with the sizes. With sizes_are_input
-    the sizes are what the caller holds and a B14 failure rejects; without it this is the reading of
-    the receipt alone, and a B14 failure means the receipt alone cannot decide."""
+SIZE_FREE_PASS = ("passes_size_free_checks", "B1 to B13 hold")
+SIZE_AWARE_PASS = ("accept", "B1 to B14 hold")
+
+
+def reading_b_size_free(receipt: bytes, older_root: bytes, spki: bytes) -> tuple:
+    """(result, rule): B1 to B13, no tree size anywhere; passing establishes neither 0 < m < n nor
+    the canonical anchor position."""
+    verdict = _b1_to_b13(receipt, older_root, spki)
+    return verdict[:2] if verdict[0] else SIZE_FREE_PASS
+
+
+def reading_b_size_aware(receipt: bytes, older_root: bytes, spki: bytes, older_size: int | None,
+                         newer_size: int | None) -> tuple:
+    """(result, rule): B1 to B13, then B14 with the sizes supplied. Without an older size B14 has
+    nothing to use, and the result says so instead of passing."""
+    verdict = _b1_to_b13(receipt, older_root, spki)
+    if verdict[0]:
+        return verdict[:2]
+    if older_size is None:
+        return "no_sizes_supplied", "B14"
+    _none, _rule, paths, roots = verdict
+    if not _b14(paths, roots, older_root, older_size, newer_size):
+        return "reject", "B14"
+    return SIZE_AWARE_PASS
+
+
+def _b1_to_b13(receipt: bytes, older_root: bytes, spki: bytes) -> tuple:
+    """("reject", rule, None, None) at the first of B1 to B13 that fails, else (None, None, paths, roots)."""
     try:
         prot_raw, prot, unprot, payload, sig = cose_sign1(receipt)
     except Exception as exc:  # noqa: BLE001
-        return "reject", f"B1 the receipt is not a COSE_Sign1 ({type(exc).__name__})"
+        return "reject", f"B1 the receipt is not a COSE_Sign1 ({type(exc).__name__})", None, None
     alg, vds = prot.get(ALG), prot.get(VDS)
     if not (isinstance(alg, int) and not isinstance(alg, bool)) \
             or not (isinstance(vds, int) and not isinstance(vds, bool) and vds == CCF_LEDGER_SHA256):
-        return "reject", "B1"                   # int and not bool: 2.0 == 2 in Python
+        return "reject", "B1", None, None                   # int and not bool: 2.0 == 2 in Python
     vdp = unprot.get(VDP) if isinstance(unprot, Mapping) else None
     if not isinstance(vdp, Mapping):
-        return "reject", "B2"
+        return "reject", "B2", None, None
     if any(k not in (INCLUSION, CONSISTENCY) for k in vdp):
-        return "reject", "B3"
+        return "reject", "B3", None, None
     proofs = vdp.get(CONSISTENCY)
     if not (_array(proofs) and len(proofs) >= 1):
-        return "reject", "B4"
+        return "reject", "B4", None, None
     try:
         if not all(_consistency_shape(p) for p in proofs):
-            return "reject", "B5"
+            return "reject", "B5", None, None
         inclusion = vdp.get(INCLUSION)
         if INCLUSION in vdp and not (_array(inclusion) and len(inclusion) >= 1
                                      and all(_inclusion_shape(p) for p in inclusion)):
-            return "reject", "B6"               # a present -1 is checked, null included
+            return "reject", "B6", None, None               # a present -1 is checked, null included
     except Exception:  # noqa: BLE001 - a proof that does not decode fails its CDDL
-        return "reject", "B5"
+        return "reject", "B5", None, None
     if payload is not None:
-        return "reject", "B7"
+        return "reject", "B7", None, None
     roots = [compute_roots(p) for p in proofs]
     newer = roots[0][1]
     if any(n_ != newer for _o, n_ in roots):
-        return "reject", "B8"
+        return "reject", "B8", None, None
     if any(compute_root(p) != newer for p in inclusion or []):
-        return "reject", "B9"
+        return "reject", "B9", None, None
     paths = [cbor2.loads(p)[2] for p in proofs]
     if any(all(left for left, _h in path) for path in paths):
-        return "reject", "B10"
+        return "reject", "B10", None, None
     if any(path[0][0] for path in paths):
-        return "reject", "B11"
+        return "reject", "B11", None, None
     if not any(o == older_root for o, _n in roots):
-        return "reject", "B12"
+        return "reject", "B12", None, None
     if not verify_cose(prot_raw, alg, newer, sig, spki):
-        return "reject", "B13"
-    if not _b14(paths, roots, older_root, older_size, newer_size):
-        return ("reject" if sizes_are_input else "not_decidable_without_tree_sizes"), "B14"
-    return "accept", "every rule of reading B holds"
+        return "reject", "B13", None, None
+    return None, None, paths, roots
 
 
 # ------------------------------------------------------------------------------------------------
@@ -304,22 +325,19 @@ def check_vector(v: dict) -> dict:
     older_root = bytes.fromhex(v["older_root_hex"])
     spki = bytes.fromhex(v["public_key"]["spki_der_hex"])
     a = reading_a(receipt, older_root, spki)
-    m, n = v.get("older_size"), v.get("newer_size")
-    b = reading_b(receipt, older_root, spki, m, n)
-    bs = reading_b(receipt, older_root, spki, m, n, sizes_are_input=True) if m is not None else None
-    recorded_bs = v.get("reading_b_with_sizes")
+    b = reading_b_size_free(receipt, older_root, spki)
+    bs = reading_b_size_aware(receipt, older_root, spki, v.get("older_size"), v.get("newer_size"))
     prot = cbor2.loads(cose_sign1(receipt)[0])
     decoded = [{"anchor_hex": d[1].hex(), "path": [[left, h.hex()] for left, h in d[2]]}
                for d in (cbor2.loads(p) for p in cose_sign1(receipt)[2].get(VDP, {}).get(CONSISTENCY, []) or [])]
     return {
         "id": v["id"],
         "reading_a": {"result": a[0], "step": a[1]},
-        "reading_b": {"result": b[0], "rule": b[1]},
-        "reading_b_with_sizes": {"result": bs[0], "rule": bs[1]} if bs else None,
+        "reading_b_size_free": {"result": b[0], "rule": b[1]},
+        "reading_b_size_aware": {"result": bs[0], "rule": bs[1]},
         "a_matches": [a[0], a[1]] == [v["reading_a"]["result"], v["reading_a"]["step"]],
-        "b_matches": [b[0], b[1]] == [v["reading_b"]["result"], v["reading_b"]["rule"]]
-                     and (list(bs) if bs else None) == ([recorded_bs["result"], recorded_bs["rule"]]
-                                                         if recorded_bs else None),
+        "b_matches": [b[0], b[1]] == [v["reading_b_size_free"]["result"], v["reading_b_size_free"]["rule"]]
+                     and [bs[0], bs[1]] == [v["reading_b_size_aware"]["result"], v["reading_b_size_aware"]["rule"]],
         "kid_matches": prot.get(4) == v["public_key"]["kid"].encode("ascii"),
         "decoded_matches": decoded == v.get("consistency_proofs_decoded", decoded),
     }
@@ -341,13 +359,14 @@ def main(argv: list | None = None) -> int:
     else:
         for r in rows:
             ok = "OK  " if r not in bad else "DIFF"
-            bs = r["reading_b_with_sizes"]
-            print(f"{ok} {r['id']}  A: {r['reading_a']['result']:<7} B: {r['reading_b']['result']:<33} "
-                  f"{r['reading_b']['rule']:<30} B with sizes: "
-                  + (f"{bs['result']} {bs['rule'] if bs['result'] != 'accept' else ''}".rstrip() if bs else "none"))
+            b, bs = r["reading_b_size_free"], r["reading_b_size_aware"]
+            print(f"{ok} {r['id']}  A: {r['reading_a']['result']:<7} B size-free: "
+                  f"{b['result'] + (' ' + b['rule'] if b['result'] == 'reject' else ''):<24} B size-aware: "
+                  f"{bs['result'] + (' ' + bs['rule'] if bs['result'] == 'reject' else '')}")
         for p in problems:
             print(f"MANIFEST {p}")
-        print(f"{len(rows) - len(bad)} of {len(rows)} vectors reproduced; manifest problems: {len(problems)}")
+        print(f"readings A and B of {len(rows) - len(bad)} of {len(rows)} vectors reproduced (reader statuses "
+              f"are not recomputed here); manifest problems: {len(problems)}")
     return 0 if rows and not bad and not problems else 1
 
 

@@ -18,8 +18,10 @@ signatures are deterministic (RFC 6979), so a run reproduces the same bytes.
 
 Every vector also carries older_size, the size of the state older_root is the root of, and
 newer_size, the seqno of the receipt's ccf.v1 txid: that a seqno is the tree size its signature
-covers is measured on CCF 7.0.17 (leaf 0 counted), not stated by -05. Reading B is recorded from the
-receipt alone and with these sizes, and the reader's status without and with them.
+covers is measured on CCF 7.0.17 (leaf 0 counted), not stated by -05. Reading B is recorded size-free
+(B1 to B13, no size) and size-aware (B14 with these sizes), and the reader's status without and with
+them. CASES carries the size-aware result; the size-free one is that result, or
+passes_size_free_checks where it passes or fails only at B14.
 
 The results under reading A and reading B written in CASES are what each case was built to show.
 They are not taken on trust: check_vectors.py recomputes them independently, and the test fails when
@@ -43,7 +45,7 @@ FIXTURE = REPO / "tests" / "fixtures" / "scitt_ccf" / "local_ledger_consistency.
 LEAVES = REPO / "tools" / "scitt_ccf_external" / "consistency_result.json"
 TEST_KEY = HERE / "TEST_ONLY_es384_private_key.pem"
 TEST_ISSUER = "test-only.section4-vectors.invalid"
-READER_COMMIT = "ec14c5a6f1e6bb59400224e5babc7293eb9fb3b1"
+READER_COMMIT = "dc932f085d47652ed6fc887166bb3fa4ebb26adf"
 DRAFT = {"name": "draft-ietf-scitt-receipts-ccf-profile-05",
          "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
          "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",
@@ -82,7 +84,7 @@ A_OK = ("accept", "return true")
 A_NO_PROOFS = ("reject", "assert(len(proofs) > 0)")
 A_NO_OLDER = ("reject", "assert(len(payloads) > 0)")
 A_BAD_SIG = ("reject", "assert(verify_cose(consistency_receipt, payload))")
-B_OK = ("accept", "every rule of reading B holds")
+B_OK = ("accept", "B1 to B14 hold")                     # the size-aware result; size-free: B1 to B13
 
 
 def H(data: bytes) -> bytes:
@@ -236,7 +238,7 @@ def main() -> int:
          "deeper_anchor_proof of the fixture: anchor leaf 21, below the anchor node(20, 22) section 4 requires"),
         ("S4-10", "Root N1 over R_6 with one right sibling, signed as the root of 8 leaves",
          test_signed({-2: [enc(tree.root(6), [(False, n1_sibling)])]}, n1, "2.8"), tree.root(6), TEST,
-         [{"m": 6, "n": 8}], [S_ANCHOR, S_NO_SIZE], A_OK, ("not_decidable_without_tree_sizes", "B14"),
+         [{"m": 6, "n": 8}], [S_ANCHOR, S_NO_SIZE], A_OK, ("reject", "B14"),
          ["Pinto"],
          "anchor R_6 of the ledger's first 6 leaves, one right sibling node(6, 8); N1 = HASH(R_6 || node(6, 8)) "
          "is the root of no tree of the section 2.1 shape, so no service signs it; the test key signs it with "
@@ -277,7 +279,7 @@ def main() -> int:
         older_size = next(size for size in range(1, len(tree.leaves) + 1) if tree.root(size) == older_root)
         txid = cbor2.loads(cbor2.loads(receipt).value[0])["ccf.v1"]["txid"]
         newer_size = int(txid.split(".")[1])
-        b_sized = ("reject", b[1]) if b[0] == "not_decidable_without_tree_sizes" else b
+        b_free = SIZE_FREE_PASS if b == B_OK or b[1] == "B14" else b
         vector = {
             "id": vid,
             "title": title,
@@ -289,13 +291,13 @@ def main() -> int:
                            "crv": "P-384" if (key.curve if is_test else curve).name == "secp384r1" else "P-256",
                            "spki_der_hex": spki.hex(), "issuer": issuer},
             "reading_a": {"result": a[0], "step": a[1]},
-            "reading_b": {"result": b[0], "rule": b[1], "rule_text": None},
+            "reading_b_size_free": {"result": b_free[0], "rule": b_free[1], "rule_text": None},
             "older_size": older_size,
             "newer_size": newer_size,
             "tree_sizes_note": f"older_size: the size of the ledger tree whose root older_root is; newer_size: "
                                f"the seqno of the receipt's ccf.v1 txid {txid}, the tree size its signature "
                                "covers as measured on CCF 7.0.17 with leaf 0 counted (not stated by -05)",
-            "reading_b_with_sizes": {"result": b_sized[0], "rule": b_sized[1], "rule_text": None},
+            "reading_b_size_aware": {"result": b[0], "rule": b[1], "rule_text": None},
             "generator_tree_sizes": sizes,
             "consistency_proofs_decoded": decoded,
             "construction": construction,
@@ -318,8 +320,8 @@ def main() -> int:
                 "information_only": True, "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
                 "status_without_sizes": bare.status, "status_with_sizes": with_sizes.status,
                 "commit": READER_COMMIT, "scitt_ccf_py_sha256": reader_sha256, "older_issuer": issuer}
-        vector["reading_b"]["rule_text"] = RULE_TEXT.get(b[1])
-        vector["reading_b_with_sizes"]["rule_text"] = RULE_TEXT.get(b_sized[1])
+        vector["reading_b_size_free"]["rule_text"] = RULE_TEXT.get(b_free[1])
+        vector["reading_b_size_aware"]["rule_text"] = RULE_TEXT.get(b[1])
         (HERE / f"{vid}.json").write_text(json.dumps(vector, indent=1) + "\n", encoding="utf-8")
 
     files = sorted(p for p in HERE.iterdir() if p.is_file() and p.name != "manifest.json"
@@ -332,15 +334,16 @@ def main() -> int:
     return 0
 
 
-RULE_TEXT = {}
+# The rule texts and the size-free label are check_vectors.py's own, so a vector names the rule it is
+# checked against in the checker's words.
 sys.dont_write_bytecode = True
-try:  # the rule texts are check_vectors.py's own, so a vector names the rule it is checked against
-    sys.path.insert(0, str(HERE))
-    from check_vectors import B_RULES as RULE_TEXT  # noqa: E402
-    RULE_TEXT = dict(RULE_TEXT)
-    RULE_TEXT["every rule of reading B holds"] = "B1 to B13 hold, and B14 where tree sizes are given"
-except ImportError:
-    pass
+sys.path.insert(0, str(HERE))
+from check_vectors import B_RULES, SIZE_FREE_PASS  # noqa: E402
+
+RULE_TEXT = {**B_RULES,
+             "B1 to B13 hold": "the size-free checks B1 to B13 hold; this does not establish 0 < m < n or "
+                               "the canonical anchor position",
+             "B1 to B14 hold": "B1 to B13 hold, and B14 with older_size and newer_size"}
 
 if __name__ == "__main__":
     sys.exit(main())
