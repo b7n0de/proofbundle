@@ -1,9 +1,8 @@
 Licence of tools/scitt_ccf_external/section4_vectors/
 
-1. This directory, except the IETF Code Components named in 2
-
-Every file of this directory is part of proofbundle and is licensed under its MIT License, the
-text of which follows, except the parts of check_vectors.py named in 2.
+Our original material in this directory is licensed under the MIT License below. Quoted IETF
+material retains its applicable IETF terms; the extracted Code Components identified in section 2
+are covered by the IETF license stated there.
 
 MIT License
 
