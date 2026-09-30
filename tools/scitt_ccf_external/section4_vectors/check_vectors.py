@@ -8,9 +8,10 @@ an implementation of its own, not a copy of the reader under test.
 
 Reading A is Figure 9 of section 4.2, statement by statement. Reading B enforces every sentence of
 sections 4, 4.1 and 5 that the receipt carries enough to check, then the two checks of Figure 9 that
-bind the receipt (the older root and the signature). Where a rule needs a tree size the receipt does
-not carry, reading B is also computed with the tree sizes the generator used, which are not part of
-the receipt; when the two disagree the vector reads "not_decidable_without_tree_sizes".
+bind the receipt (the older root and the signature). Where a rule needs a tree size, reading B is
+computed twice: once from the receipt alone, and once with the vector's older_size and newer_size,
+the sizes a caller holds (B14, the anchor rule in full). Where the receipt alone passes and the sizes
+decide otherwise, the receipt-alone reading reads "not_decidable_without_tree_sizes".
 
 Exit 0 when manifest.json matches the files of the directory and every vector's recorded results are
 reproduced; exit 1 otherwise.
@@ -148,8 +149,10 @@ B_RULES = {
            "(without m: the first path element is a right sibling)",
     "B12": "4.2: \"At least one proof must start from older_root\"",
     "B13": "4.2: \"assert(verify_cose(consistency_receipt, payload))\" over the newer root",
-    "B14": "4: the anchor MUST and 0 < m < n with the tree sizes the generator used, which the receipt "
-           "does not carry",
+    "B14": "4: the anchor MUST and 0 < m < n with the tree sizes older_size m and newer_size n: 0 < m < n, "
+           "and the tags equal those of RFC 9162 2.1.4.1 for m and n (for a proof that does not start from "
+           "older_root, for some m' below n); with m alone, the proof from older_root has popcount(m) - 1 "
+           "left siblings",
 }
 
 
@@ -204,9 +207,30 @@ def canonical_tags(m: int, n: int) -> list:
     return [t for t in sub(m, 0, n, True) if t != "anchor"]
 
 
-def reading_b(receipt: bytes, older_root: bytes, spki: bytes, sizes: list | None = None) -> tuple:
-    """(result, rule). The receipt alone first; then, where the receipt alone accepts, the same with
-    the generator's tree sizes (B14)."""
+def _b14(paths: list, roots: list, older_root: bytes, m: int | None, n: int | None) -> bool:
+    """True if the anchor rule holds with the sizes given; True where no size is given."""
+    if m is None:
+        return True
+    if n is None:
+        return all(sum(left for left, _h in path) == bin(m).count("1") - 1
+                   for path, (o, _n) in zip(paths, roots) if o == older_root)
+    if not 0 < m < n:
+        return False
+    for path, (o, _n) in zip(paths, roots):
+        tags = [left for left, _h in path]
+        if o == older_root:
+            if tags != canonical_tags(m, n):
+                return False
+        elif not any(tags == canonical_tags(k, n) for k in range(1, n)):
+            return False
+    return True
+
+
+def reading_b(receipt: bytes, older_root: bytes, spki: bytes, older_size: int | None = None,
+              newer_size: int | None = None, sizes_are_input: bool = False) -> tuple:
+    """(result, rule). B1 to B13 on the receipt alone, then B14 with the sizes. With sizes_are_input
+    the sizes are what the caller holds and a B14 failure rejects; without it this is the reading of
+    the receipt alone, and a B14 failure means the receipt alone cannot decide."""
     try:
         prot_raw, prot, unprot, payload, sig = cose_sign1(receipt)
     except Exception as exc:  # noqa: BLE001
@@ -249,18 +273,8 @@ def reading_b(receipt: bytes, older_root: bytes, spki: bytes, sizes: list | None
         return "reject", "B12"
     if not verify_cose(prot_raw, alg, newer, sig, spki):
         return "reject", "B13"
-    if sizes:
-        for path, size in zip(paths, sizes):
-            if not size:
-                continue
-            m, n = size.get("m"), size.get("n")
-            tags = [left for left, _h in path]
-            if n is None:
-                wrong = sum(tags) != bin(m).count("1") - 1
-            else:
-                wrong = not (0 < m < n) or tags != canonical_tags(m, n)
-            if wrong:
-                return "not_decidable_without_tree_sizes", "B14"
+    if not _b14(paths, roots, older_root, older_size, newer_size):
+        return ("reject" if sizes_are_input else "not_decidable_without_tree_sizes"), "B14"
     return "accept", "every rule of reading B holds"
 
 
@@ -290,7 +304,10 @@ def check_vector(v: dict) -> dict:
     older_root = bytes.fromhex(v["older_root_hex"])
     spki = bytes.fromhex(v["public_key"]["spki_der_hex"])
     a = reading_a(receipt, older_root, spki)
-    b = reading_b(receipt, older_root, spki, v.get("generator_tree_sizes"))
+    m, n = v.get("older_size"), v.get("newer_size")
+    b = reading_b(receipt, older_root, spki, m, n)
+    bs = reading_b(receipt, older_root, spki, m, n, sizes_are_input=True) if m is not None else None
+    recorded_bs = v.get("reading_b_with_sizes")
     prot = cbor2.loads(cose_sign1(receipt)[0])
     decoded = [{"anchor_hex": d[1].hex(), "path": [[left, h.hex()] for left, h in d[2]]}
                for d in (cbor2.loads(p) for p in cose_sign1(receipt)[2].get(VDP, {}).get(CONSISTENCY, []) or [])]
@@ -298,8 +315,11 @@ def check_vector(v: dict) -> dict:
         "id": v["id"],
         "reading_a": {"result": a[0], "step": a[1]},
         "reading_b": {"result": b[0], "rule": b[1]},
+        "reading_b_with_sizes": {"result": bs[0], "rule": bs[1]} if bs else None,
         "a_matches": [a[0], a[1]] == [v["reading_a"]["result"], v["reading_a"]["step"]],
-        "b_matches": [b[0], b[1]] == [v["reading_b"]["result"], v["reading_b"]["rule"]],
+        "b_matches": [b[0], b[1]] == [v["reading_b"]["result"], v["reading_b"]["rule"]]
+                     and (list(bs) if bs else None) == ([recorded_bs["result"], recorded_bs["rule"]]
+                                                         if recorded_bs else None),
         "kid_matches": prot.get(4) == v["public_key"]["kid"].encode("ascii"),
         "decoded_matches": decoded == v.get("consistency_proofs_decoded", decoded),
     }
@@ -321,8 +341,10 @@ def main(argv: list | None = None) -> int:
     else:
         for r in rows:
             ok = "OK  " if r not in bad else "DIFF"
+            bs = r["reading_b_with_sizes"]
             print(f"{ok} {r['id']}  A: {r['reading_a']['result']:<7} B: {r['reading_b']['result']:<33} "
-                  f"{r['reading_b']['rule']}")
+                  f"{r['reading_b']['rule']:<30} B with sizes: "
+                  + (f"{bs['result']} {bs['rule'] if bs['result'] != 'accept' else ''}".rstrip() if bs else "none"))
         for p in problems:
             print(f"MANIFEST {p}")
         print(f"{len(rows) - len(bad)} of {len(rows)} vectors reproduced; manifest problems: {len(problems)}")

@@ -16,6 +16,11 @@ are placed beside it. A case a service would never sign is signed with the one T
 directory, TEST_ONLY_es384_private_key.pem, created on the first run and never replaced; its ECDSA
 signatures are deterministic (RFC 6979), so a run reproduces the same bytes.
 
+Every vector also carries older_size, the size of the state older_root is the root of, and
+newer_size, the seqno of the receipt's ccf.v1 txid: that a seqno is the tree size its signature
+covers is measured on CCF 7.0.17 (leaf 0 counted), not stated by -05. Reading B is recorded from the
+receipt alone and with these sizes, and the reader's status without and with them.
+
 The results under reading A and reading B written in CASES are what each case was built to show.
 They are not taken on trust: check_vectors.py recomputes them independently, and the test fails when
 the two differ. The proofbundle reader's status is recorded as information, from src/ of this
@@ -39,7 +44,7 @@ FIXTURE = REPO / "tests" / "fixtures" / "scitt_ccf" / "local_ledger_consistency.
 LEAVES = REPO / "tools" / "scitt_ccf_external" / "consistency_result.json"
 TEST_KEY = HERE / "TEST_ONLY_es384_private_key.pem"
 TEST_ISSUER = "test-only.section4-vectors.invalid"
-READER_BASE = "531e256423b317839f8927dae8b4fb9ab45f9e48"
+READER_COMMIT = "ec14c5a6f1e6bb59400224e5babc7293eb9fb3b1"
 DRAFT = {"name": "draft-ietf-scitt-receipts-ccf-profile-05",
          "repository": "https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile",
          "commit": "e729c2ec037ac763d0cf422bb58a219f8d6a02f4",
@@ -188,8 +193,8 @@ def main() -> int:
     def service(vdp: dict, payload=None, sig: bytes = service_sig) -> bytes:
         return b"\xd2" + cbor2.dumps([prot_raw, {396: vdp}, payload, sig])
 
-    def test_signed(vdp: dict, root: bytes) -> bytes:
-        prot = cbor2.dumps({1: -35, 4: test_kid, 15: {1: TEST_ISSUER}, 395: 2})
+    def test_signed(vdp: dict, root: bytes, txid: str) -> bytes:
+        prot = cbor2.dumps({1: -35, 4: test_kid, 15: {1: TEST_ISSUER}, 395: 2, "ccf.v1": {"txid": txid}})
         tbs = cbor2.dumps(["Signature1", prot, b"", root])
         r, s = utils.decode_dss_signature(key.sign(tbs, ec.ECDSA(hashes.SHA384(), deterministic_signing=True)))
         return b"\xd2" + cbor2.dumps([prot, {396: vdp}, None, r.to_bytes(48, "big") + s.to_bytes(48, "big")])
@@ -228,12 +233,14 @@ def main() -> int:
         ("S4-09", "Deeper anchor: the first sibling is a left one", service({-2: [deeper]}), R22, SERVICE,
          [{"m": 22, "n": 24}], [S_ANCHOR, S_NOT_CHECKED], A_OK, ("reject", "B11"), ["G1"],
          "deeper_anchor_proof of the fixture: anchor leaf 21, below the anchor node(20, 22) section 4 requires"),
-        ("S4-10", "Root N1 over R_6 with one right sibling, sizes absent",
-         test_signed({-2: [enc(tree.root(6), [(False, n1_sibling)])]}, n1), tree.root(6), TEST,
-         [{"m": 6, "n": None}], [S_ANCHOR, S_NO_SIZE], A_OK, ("not_decidable_without_tree_sizes", "B14"),
+        ("S4-10", "Root N1 over R_6 with one right sibling, signed as the root of 8 leaves",
+         test_signed({-2: [enc(tree.root(6), [(False, n1_sibling)])]}, n1, "2.8"), tree.root(6), TEST,
+         [{"m": 6, "n": 8}], [S_ANCHOR, S_NO_SIZE], A_OK, ("not_decidable_without_tree_sizes", "B14"),
          ["Pinto"],
          "anchor R_6 of the ledger's first 6 leaves, one right sibling node(6, 8); N1 = HASH(R_6 || node(6, 8)) "
-         "is the root of no tree of the section 2.1 shape, so no service signs it"),
+         "is the root of no tree of the section 2.1 shape, so no service signs it; the test key signs it with "
+         "the txid 2.8, as a service would sign the root of 8 leaves. Without sizes the proof has the form of a "
+         "canonical proof from 4 to 5"),
         ("S4-11", "Empty consistency-proof array", service({-2: []}), R19, SERVICE, None, [S_ONE_OR_MORE],
          A_NO_PROOFS, ("reject", "B4"), [], "vdp {-2: []}"),
         ("S4-12", "A vdp key other than -1 and -2", service({-2: [p19], -3: [p19]}), R19, SERVICE,
@@ -267,6 +274,10 @@ def main() -> int:
         issuer = TEST_ISSUER if is_test else service_issuer
         decoded = [{"anchor_hex": d[1].hex(), "path": [[left, h.hex()] for left, h in d[2]]}
                    for d in (cbor2.loads(p) for p in cbor2.loads(receipt).value[1][396].get(-2, []))]
+        older_size = next(size for size in range(1, len(tree.leaves) + 1) if tree.root(size) == older_root)
+        txid = cbor2.loads(cbor2.loads(receipt).value[0])["ccf.v1"]["txid"]
+        newer_size = int(txid.split(".")[1])
+        b_sized = ("reject", b[1]) if b[0] == "not_decidable_without_tree_sizes" else b
         vector = {
             "id": vid,
             "title": title,
@@ -279,6 +290,12 @@ def main() -> int:
                            "spki_der_hex": spki.hex(), "issuer": issuer},
             "reading_a": {"result": a[0], "step": a[1]},
             "reading_b": {"result": b[0], "rule": b[1], "rule_text": None},
+            "older_size": older_size,
+            "newer_size": newer_size,
+            "tree_sizes_note": f"older_size: the size of the ledger tree whose root older_root is; newer_size: "
+                               f"the seqno of the receipt's ccf.v1 txid {txid}, the tree size its signature "
+                               "covers as measured on CCF 7.0.17 with leaf 0 counted (not stated by -05)",
+            "reading_b_with_sizes": {"result": b_sized[0], "rule": b_sized[1], "rule_text": None},
             "generator_tree_sizes": sizes,
             "consistency_proofs_decoded": decoded,
             "construction": construction,
@@ -292,13 +309,17 @@ def main() -> int:
             trust = ({"scitt_ccf_services": {TEST_ISSUER: [{"spki": test_spki, "kid": test_kid}]}} if is_test
                      else {"scitt_ccf_services": {service_issuer: reader.load_cose_keyset(
                          base64.b64decode(fx["service_keyset_b64"]))}})
-            got = reader.verify_consistency_receipt(receipt, older_root=older_root, older_issuer=issuer,
-                                                    rp_trust=trust)
+            bare = reader.verify_consistency_receipt(receipt, older_root=older_root, older_issuer=issuer,
+                                                     rp_trust=trust)
+            with_sizes = reader.verify_consistency_receipt(receipt, older_root=older_root, older_issuer=issuer,
+                                                           rp_trust=trust, older_size=older_size,
+                                                           newer_size=newer_size)
             vector["proofbundle_reader"] = {
                 "information_only": True, "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
-                "status": got.status, "base_commit": READER_BASE, "scitt_ccf_py_sha256": reader_sha256,
-                "older_issuer": issuer}
+                "status_without_sizes": bare.status, "status_with_sizes": with_sizes.status,
+                "commit": READER_COMMIT, "scitt_ccf_py_sha256": reader_sha256, "older_issuer": issuer}
         vector["reading_b"]["rule_text"] = RULE_TEXT.get(b[1])
+        vector["reading_b_with_sizes"]["rule_text"] = RULE_TEXT.get(b_sized[1])
         (HERE / f"{vid}.json").write_text(json.dumps(vector, indent=1) + "\n", encoding="utf-8")
 
     files = sorted(p for p in HERE.iterdir() if p.is_file() and p.name != "manifest.json"

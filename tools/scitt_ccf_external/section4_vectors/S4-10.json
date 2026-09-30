@@ -1,6 +1,6 @@
 {
  "id": "S4-10",
- "title": "Root N1 over R_6 with one right sibling, sizes absent",
+ "title": "Root N1 over R_6 with one right sibling, signed as the root of 8 leaves",
  "draft": "draft-ietf-scitt-receipts-ccf-profile-05",
  "sentences": [
   {
@@ -12,7 +12,7 @@
    "text": "Neither tree size is needed for verification."
   }
  ],
- "receipt_hex": "d2845872a4013822045840623032336463326463323763383930623730346338333139656366393433313930376138393733653439646162323231623533343236396438333334643437340fa1017822746573742d6f6e6c792e73656374696f6e342d766563746f72732e696e76616c696419018b02a119018ca12181584aa20158206aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b028182f458208d99bb20a55aa7d091e05d90f04fdf30d241a0c5cff14c878f35eb86f8f4197df658608b66e748437e59eb80c4007af12c7beab9cfb0fc9ccdea5a2bd30d05216dcb12c5b150bf2ca72a42816b8b3584a8cdaf8d4be5521035862969910b9826f360df9194f90cd4bf21248daa891bac8c75e1bb94a1748b1dcebd4b34b96e9a88f2b2",
+ "receipt_hex": "d2845883a5013822045840623032336463326463323763383930623730346338333139656366393433313930376138393733653439646162323231623533343236396438333334643437340fa1017822746573742d6f6e6c792e73656374696f6e342d766563746f72732e696e76616c696419018b02666363662e7631a1647478696463322e38a119018ca12181584aa20158206aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b028182f458208d99bb20a55aa7d091e05d90f04fdf30d241a0c5cff14c878f35eb86f8f4197df65860c40aa80cda8eaa703b3d1d6a224f977ddf4143824b86170513e6803abdeb949daa0a3b3b4c8c299b511e117a72e0f9fabba7ee747c300b10a10718188de485b12cdd42670277e87a82e8c36b0e78cb77dc8f606023bad4660bf3c606f04146e9",
  "older_root_hex": "6aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b",
  "public_key": {
   "kid": "b023dc2dc27c890b704c8319ecf9431907a8973e49dab221b534269d8334d474",
@@ -28,12 +28,20 @@
  "reading_b": {
   "result": "not_decidable_without_tree_sizes",
   "rule": "B14",
-  "rule_text": "4: the anchor MUST and 0 < m < n with the tree sizes the generator used, which the receipt does not carry"
+  "rule_text": "4: the anchor MUST and 0 < m < n with the tree sizes older_size m and newer_size n: 0 < m < n, and the tags equal those of RFC 9162 2.1.4.1 for m and n (for a proof that does not start from older_root, for some m' below n); with m alone, the proof from older_root has popcount(m) - 1 left siblings"
+ },
+ "older_size": 6,
+ "newer_size": 8,
+ "tree_sizes_note": "older_size: the size of the ledger tree whose root older_root is; newer_size: the seqno of the receipt's ccf.v1 txid 2.8, the tree size its signature covers as measured on CCF 7.0.17 with leaf 0 counted (not stated by -05)",
+ "reading_b_with_sizes": {
+  "result": "reject",
+  "rule": "B14",
+  "rule_text": "4: the anchor MUST and 0 < m < n with the tree sizes older_size m and newer_size n: 0 < m < n, and the tags equal those of RFC 9162 2.1.4.1 for m and n (for a proof that does not start from older_root, for some m' below n); with m alone, the proof from older_root has popcount(m) - 1 left siblings"
  },
  "generator_tree_sizes": [
   {
    "m": 6,
-   "n": null
+   "n": 8
   }
  ],
  "consistency_proofs_decoded": [
@@ -47,7 +55,7 @@
    ]
   }
  ],
- "construction": "anchor R_6 of the ledger's first 6 leaves, one right sibling node(6, 8); N1 = HASH(R_6 || node(6, 8)) is the root of no tree of the section 2.1 shape, so no service signs it",
+ "construction": "anchor R_6 of the ledger's first 6 leaves, one right sibling node(6, 8); N1 = HASH(R_6 || node(6, 8)) is the root of no tree of the section 2.1 shape, so no service signs it; the test key signs it with the txid 2.8, as a service would sign the root of 8 leaves. Without sizes the proof has the form of a canonical proof from 4 to 5",
  "provenance": {
   "signer": "test key",
   "note": "signed with TEST_ONLY_es384_private_key.pem; no service signs this root",
@@ -62,9 +70,10 @@
  "proofbundle_reader": {
   "information_only": true,
   "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
-  "status": "confirmed",
-  "base_commit": "531e256423b317839f8927dae8b4fb9ab45f9e48",
-  "scitt_ccf_py_sha256": "b4a0f31187ad0fe1c4cf79ff8d5b11a59ea1ea42eb261431536a25cc12bf7d27",
+  "status_without_sizes": "confirmed_without_tree_sizes",
+  "status_with_sizes": "consistency_anchor_position_mismatch",
+  "commit": "ec14c5a6f1e6bb59400224e5babc7293eb9fb3b1",
+  "scitt_ccf_py_sha256": "0889bb9c489893fa11835caf5297ebdcf2cb0703fa3b958245defcfcd3ace4be",
   "older_issuer": "test-only.section4-vectors.invalid"
  }
 }

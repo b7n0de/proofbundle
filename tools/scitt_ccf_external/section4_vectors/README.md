@@ -1,7 +1,8 @@
 # Receipt-level vectors for section 4 of draft-ietf-scitt-receipts-ccf-profile-05
 
 Fifteen consistency receipts, each with the older root it is checked against, the key that verifies it,
-the sentence of the draft it tests, and its result under two readings of section 4. The vectors make
+the tree sizes a caller holds, the sentence of the draft it tests, and its result under two readings of
+section 4, reading B from the receipt alone and with the sizes. The vectors make
 the readings comparable; they do not presume either, and which one the draft means is for the working
 group to decide.
 
@@ -40,7 +41,10 @@ group to decide.
 - One vector, S4-10, carries a root no service would sign. It is signed with the one test key of this
   directory, `TEST_ONLY_es384_private_key.pem`: an ES384 (P-384) key made for these vectors alone,
   published on purpose, and not a key of any service, release or person. Its signatures are
-  deterministic (RFC 6979), so `generate_vectors.py` reproduces the same bytes.
+  deterministic (RFC 6979), so `generate_vectors.py` reproduces the same bytes. Its protected header
+  carries the txid `2.8`, as a service's header carries the txid of the state it signs.
+- The relation between a txid and a tree size (next section) is measured on one ledger, not stated by
+  -05.
 
 ## The two readings
 
@@ -53,21 +57,35 @@ two checks of Figure 9 that bind the receipt: all proofs in `vdp` are computed a
 newer root the signature covers (4.1, 5); `0 < m < n` holds (4: a path of left siblings only would fold
 both roots to one); the anchor MUST of 4 is checked the way it can be checked without `m` (the first
 path element is a right sibling); and the CDDL is closed (5: `verifiable-proofs` has the keys -1 and
--2 and no other). The rules are B1 to B13 in `check_vectors.py`, each with its section.
+-2 and no other). The rules are B1 to B14 in `check_vectors.py`, each with its section.
 
-Where a rule needs a tree size the receipt does not carry, a vector also holds the tree sizes the
-generator used (`generator_tree_sizes`, not part of the receipt), and reading B is computed with them
-too (B14). Where the receipt alone passes every rule and the sizes would decide otherwise, the vector
-reads `not_decidable_without_tree_sizes`, not a guessed result.
+Reading B is recorded twice. `reading_b` is the receipt alone: B1 to B13. `reading_b_with_sizes`
+adds B14, the anchor rule in full with the vector's `older_size` m and `newer_size` n: 0 < m < n, and
+the proof that recomputes `older_root` carries exactly the tags of RFC 9162 2.1.4.1 for m and n (any
+other proof, those for some m' below n). Where the receipt alone passes every rule and the sizes decide
+otherwise, `reading_b` reads `not_decidable_without_tree_sizes`, not a guessed result: without sizes,
+S4-10 has the form of a canonical proof from 4 to 5 (anchor equal to the older root, one right
+sibling), and no reader can tell the two apart.
+
+## Tree sizes
+
+- `older_size`: the size of the ledger tree whose root `older_root` is. A caller takes it from the txid
+  of the inclusion receipt that verified `older_root`.
+- `newer_size`: the seqno of the receipt's own `ccf.v1` txid.
+- Measured on the ledger above: the signature at seqno s signs the tree of s leaves, leaf 0 being 32
+  zero bytes, not a transaction (`MTH(leaves[0:s])` equals the signed root at seqnos 19, 22 and 24).
+  -05 does not relate a txid to a tree size (`../SECTION4_WGLC.md`, G5).
 
 ## Files
 
 - `S4-01.json` to `S4-15.json`: one vector each. Fields: `receipt_hex`, `older_root_hex`,
   `public_key` (kid, alg, curve, SubjectPublicKeyInfo, issuer), `sentences` (section and text of the
-  draft the case tests), `reading_a`, `reading_b`, `generator_tree_sizes`,
+  draft the case tests), `reading_a`, `reading_b`, `older_size`, `newer_size`, `tree_sizes_note`,
+  `reading_b_with_sizes`, `generator_tree_sizes` (the sizes each proof was built for),
   `consistency_proofs_decoded` (for reading; `check_vectors.py` confirms it equals the receipt),
   `construction`, `provenance`, `list_references`, and `proofbundle_reader`: the status of
-  `proofbundle.scitt_ccf.verify_consistency_receipt` at the named commit, information only.
+  `proofbundle.scitt_ccf.verify_consistency_receipt` at the named commit without and with the sizes,
+  information only.
 - `check_vectors.py`: recomputes both readings for every vector with the standard library, cbor2 and
   cryptography, importing nothing from proofbundle, and checks `manifest.json`.
 - `generate_vectors.py`: builds the vectors from the inputs above.
@@ -84,20 +102,20 @@ python generate_vectors.py         # from a checkout of this repository; rewrite
 
 ## The vectors
 
-| id | case | reading A | reading B |
-|---|---|---|---|
-| S4-01 | canonical proof 19 to 24, control | accept | accept |
-| S4-02 | canonical proof 22 to 24, control | accept | accept |
-| S4-03 | a second proof with one anchor bit flipped | accept | reject, B8 |
-| S4-04 | two valid proofs to the same newer root, control | accept | accept |
-| S4-05 | a second proof whose older and newer roots are both other roots | accept | reject, B8 |
-| S4-06 | a valid consistency proof and an inclusion proof to another root | accept | reject, B9 |
-| S4-07 | a valid consistency proof and an inclusion proof to the same root, control | accept | accept |
-| S4-08 | unchanged tree, m = n, left siblings only | accept | reject, B10 |
-| S4-09 | deeper anchor, the first sibling a left one | accept | reject, B11 |
-| S4-10 | root N1 over R_6 with one right sibling, test key | accept | not decidable without tree sizes, B14 |
-| S4-11 | empty consistency-proof array | reject, `assert(len(proofs) > 0)` | reject, B4 |
-| S4-12 | a vdp key other than -1 and -2 | accept | reject, B3 |
-| S4-13 | one tag flipped, negative control | reject, `assert(len(payloads) > 0)` | reject, B11 |
-| S4-14 | one signature byte flipped, negative control | reject, `assert(verify_cose(...))` | reject, B13 |
-| S4-15 | the older root matches no proof | reject, `assert(len(payloads) > 0)` | reject, B12 |
+| id | case | m, n | reading A | reading B | reading B with sizes |
+|---|---|---|---|---|---|
+| S4-01 | canonical proof 19 to 24, control | 19, 24 | accept | accept | accept |
+| S4-02 | canonical proof 22 to 24, control | 22, 24 | accept | accept | accept |
+| S4-03 | a second proof with one anchor bit flipped | 19, 24 | accept | reject, B8 | reject, B8 |
+| S4-04 | two valid proofs to the same newer root, control | 19, 24 | accept | accept | accept |
+| S4-05 | a second proof whose older and newer roots are both other roots | 19, 24 | accept | reject, B8 | reject, B8 |
+| S4-06 | a valid consistency proof and an inclusion proof to another root | 19, 24 | accept | reject, B9 | reject, B9 |
+| S4-07 | a valid consistency proof and an inclusion proof to the same root, control | 19, 24 | accept | accept | accept |
+| S4-08 | unchanged tree, m = n, left siblings only | 24, 24 | accept | reject, B10 | reject, B10 |
+| S4-09 | deeper anchor, the first sibling a left one | 22, 24 | accept | reject, B11 | reject, B11 |
+| S4-10 | root N1 over R_6 with one right sibling, test key, txid 2.8 | 6, 8 | accept | not decidable without tree sizes, B14 | reject, B14 |
+| S4-11 | empty consistency-proof array | 19, 24 | reject, `assert(len(proofs) > 0)` | reject, B4 | reject, B4 |
+| S4-12 | a vdp key other than -1 and -2 | 19, 24 | accept | reject, B3 | reject, B3 |
+| S4-13 | one tag flipped, negative control | 19, 24 | reject, `assert(len(payloads) > 0)` | reject, B11 | reject, B11 |
+| S4-14 | one signature byte flipped, negative control | 19, 24 | reject, `assert(verify_cose(...))` | reject, B13 | reject, B13 |
+| S4-15 | the older root matches no proof | 22, 24 | reject, `assert(len(payloads) > 0)` | reject, B12 | reject, B12 |
