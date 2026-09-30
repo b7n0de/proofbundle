@@ -295,6 +295,16 @@ Chosen (owner, 2026-09-29): A, in `plugins/proofbundle`.
   `disable-model-invocation` in SKILL.md for Claude Code, and `agents/openai.yaml` for Codex. It is the
   same rule in each host's own format, not a copy of one file.
 
+Addendum (owner, 2026-09-30): Measured 30.09.2026 with Codex 0.159.2: a root plugin.json in the Agent Plugins format is read, and then Codex loads no plugin hooks (core-plugins/src/loader.rs), also with hooks in extensions["com.openai"]; the same code stands at 0.161.0-alpha.4 and main. The gate needs its hooks, so the folder keeps .codex-plugin/plugin.json as the Codex manifest and carries no root plugin.json until a Codex release loads hooks for that format.
+
+- The place in the source: openai/codex `codex-rs/core-plugins/src/loader.rs`, lines 950 to 960 at tag
+  `rust-v0.159.2` and lines 952 to 962 at tag `rust-v0.161.0-alpha.4` and at `main` (read 2026-09-30
+  16:11Z): `if loaded_manifest.format == PluginManifestFormat::AgentPlugin { (Vec::new(), Vec::new()) }`
+  in place of `load_plugin_hooks`.
+- Measured on install with Codex 0.159.2 (app-server `hooks/list`): 2 hooks from
+  `.codex-plugin/plugin.json` without a root `plugin.json`, 0 hooks with one, with or without hooks in
+  `extensions["com.openai"]`.
+
 Options:
 - A. One folder (chosen).
 - B. Two folders with byte-identical copies, held equal by a test.
