@@ -3,12 +3,12 @@
   "owner": {
     "name": "Konrad Gruszka"
   },
-  "description": "Verify proofbundle receipts with the proofbundle plugin, installable from this repository.",
+  "description": "This marketplace contains the proofbundle plugin for receipt and evidence verification.",
   "plugins": [
     {
       "name": "proofbundle",
       "source": "./plugins/proofbundle",
-      "description": "Verify proofbundle receipts, evidence bundles and the evidence a repository declares before a push, a pull request or a release, and review what a verified receipt records. Emitting a signed receipt is experimental."
+      "description": "Verify signatures and integrity of proofbundle decision and outcome receipts, check evidence bundles, and review recorded claims. Active hooks check declared repository evidence before supported actions. Receipt signing is experimental and requires an explicit user request."
     }
   ]
 }

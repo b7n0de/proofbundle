@@ -18,8 +18,9 @@ Properties checked:
 - the text for exit 1 does not rule out a structure failure, which is what a broken envelope gives;
 - the server's version is the version of every manifest in the plugin folder, and every result carries
   it as plugin_version next to proofbundle_version;
-- verify first: every description of the plugin (both manifests, the marketplace, the catalog, the
-  README) begins with Verify, and each marks emit as experimental;
+- every description of the plugin (both manifests, the marketplace, the catalog, the README) and the
+  D14 addendum carry the owner's text word for word; each but the marketplace's own begins with Verify
+  and marks receipt signing as experimental;
 - the plugin directory is not part of the Python distribution.
 """
 from __future__ import annotations
@@ -352,31 +353,77 @@ def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
     assert template["plugin_version"] == declared
 
 
+#: The owner's texts of 2026-09-30 (KRAXO-CLOUD-PLUGIN-TEXTE-UND-SERVERREGEL-01), word for word. Texts 8 to 10
+#: (the emit mark, the data rule, the exit 1 text) are held by the tests above and below.
+OWNER_TEXTS = {
+    "1": ("Verify decision and outcome receipts in Claude Code against your chosen issuer key, check "
+          "evidence bundles, and review verification results separately from recorded claims. Active "
+          "hooks check declared repository evidence before supported push, pull request or release "
+          "actions. Receipt signing is experimental and requires an explicit user request. Verification "
+          "proves authorship and integrity of what was recorded, not that any recorded value is true."),
+    "2": ("Verify decision and outcome receipts in Codex against your chosen issuer key, check evidence "
+          "bundles, and review verification results separately from recorded claims. After you trust "
+          "the hooks, they check declared repository evidence before supported push, pull request or "
+          "release actions. Receipt signing is experimental and requires an explicit user request. "
+          "Verification proves authorship and integrity of what was recorded, not that any recorded "
+          "value is true."),
+    "3": ("This marketplace contains the proofbundle plugin for receipt and evidence verification."),
+    "4": ("Verify signatures and integrity of proofbundle decision and outcome receipts, check evidence "
+          "bundles, and review recorded claims. Active hooks check declared repository evidence before "
+          "supported actions. Receipt signing is experimental and requires an explicit user request."),
+    "5": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
+          "separately from recorded claims. Hooks check declared repository evidence before `git push`, "
+          "`gh pr create`, `gh release create` and the six supported MCP tools for creating pull or "
+          "merge requests or releases, pushing files, writing files or merging pull requests. Receipt "
+          "signing is experimental and requires an explicit user request."),
+    "6": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
+          "separately from recorded claims. Codex runs the repository checks only after you trust the "
+          "plugin's hooks. When they run, repositories without an evidence declaration get NOT MEASURED "
+          "and no decision; other unmeasurable calls are denied. Each `verify_receipt` result states "
+          "that the server cannot tell whether these checks ran. Receipt signing is experimental and "
+          "requires an explicit user request."),
+    "7": ("Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, "
+          "and review verification results separately from recorded claims. Receipt signing is "
+          "experimental and requires an explicit user request. Verification proves authorship and "
+          "integrity of what was recorded, not that any recorded value is true."),
+    "11": ("In the 30 September 2026 check, Codex 0.159.2 read a root Agent Plugins `plugin.json` but "
+           "did not load its hooks, including hooks in `extensions[\"com.openai\"]`. Source inspection "
+           "found the same loader code in 0.161.0-alpha.4 (`core-plugins/src/loader.rs`). The gate "
+           "requires hooks, so this plugin keeps `.codex-plugin/plugin.json` and omits a root "
+           "`plugin.json` until a released Codex version loads hooks for that format."),
+}
+
+
 def _descriptions() -> dict[str, str]:
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-    found = {"marketplace": market["description"], "marketplace entry": market["plugins"][0]["description"]}
-    for folder in (".claude-plugin", ".codex-plugin"):
-        found[folder] = json.loads((PLUGIN / folder / "plugin.json").read_text(encoding="utf-8"))["description"]
+    found = {"3": market["description"], "4": market["plugins"][0]["description"]}
+    for key, folder in (("1", ".claude-plugin"), ("2", ".codex-plugin")):
+        found[key] = json.loads((PLUGIN / folder / "plugin.json").read_text(encoding="utf-8"))["description"]
     catalog = (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").split("\n")
     for line in catalog:
-        if line.startswith("| Claude Code | ") or line.startswith("| Codex | "):
-            host, what = [c.strip() for c in line.strip("|").split(" | ")][:2]
-            found[f"catalog {host}"] = what
+        for key, host in (("5", "Claude Code"), ("6", "Codex")):
+            if line.startswith(f"| {host} | "):
+                found[key] = [c.strip() for c in line.strip("|").split(" | ")][1]
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")
-    found["README"] = " ".join(readme[1].split())
+    found["7"] = " ".join(readme[1].split())
+    decisions = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
+    d14 = decisions.split("## D14.", 1)[1].split("\n## ", 1)[0]
+    found["11"] = " ".join(d14.split("Addendum (owner, 2026-09-30): ", 1)[1].split("\n\n", 1)[0].split())
     return found
 
 
-def test_every_description_begins_with_verify_and_marks_emit_experimental():
+def test_every_description_carries_the_owners_text_word_for_word():
     found = _descriptions()
-    assert len(found) == 7, sorted(found)
-    for where, text in found.items():
-        if where == "marketplace":
-            assert text.startswith("Verify "), where
-            continue
-        assert text.startswith("Verify"), (where, text[:40])
-        assert "experimental" in text.lower(), where
-        assert "emit" in text.lower(), where
+    assert set(found) == set(OWNER_TEXTS)
+    for key in ("1", "2", "3", "4", "11"):
+        assert found[key] == OWNER_TEXTS[key], key
+    for key in ("5", "6"):
+        assert found[key] == OWNER_TEXTS[key].rstrip("."), "a catalog cell ends without a period"
+        assert not found[key].endswith(".")
+    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README opens with the owner's text"
+    for key in ("1", "2", "4", "5", "6", "7"):
+        assert found[key].startswith("Verify"), key
+        assert "Receipt signing is experimental and requires an explicit user request" in found[key], key
     table = (PLUGIN / "README.md").read_text(encoding="utf-8")
     assert "| emit (experimental) | `/proofbundle:emit" in table
     emit = _frontmatter((PLUGIN / "skills" / "emit" / "SKILL.md").read_text(encoding="utf-8"))

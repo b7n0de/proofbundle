@@ -1,9 +1,10 @@
 # proofbundle plugin for Claude Code and Codex
 
-Verify proofbundle receipts and evidence bundles from a Claude Code or Codex session, review what a
-verified receipt records, and verify the evidence a repository declares before a push, a pull request
-or a release. Emitting a signed receipt is experimental. The plugin calls the `proofbundle` package from
-PyPI, so every verdict is the package's own verdict and exit code.
+Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, and review
+verification results separately from recorded claims. Receipt signing is experimental and requires an
+explicit user request. Verification proves authorship and integrity of what was recorded, not that any
+recorded value is true. The plugin calls the `proofbundle` package from PyPI, so every verdict is the
+package's own verdict and exit code.
 One folder serves both hosts: `.claude-plugin/plugin.json` for Claude Code, `.codex-plugin/plugin.json`
 for Codex, over the same skills, MCP server and gate.
 

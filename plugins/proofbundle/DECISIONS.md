@@ -295,7 +295,7 @@ Chosen (owner, 2026-09-29): A, in `plugins/proofbundle`.
   `disable-model-invocation` in SKILL.md for Claude Code, and `agents/openai.yaml` for Codex. It is the
   same rule in each host's own format, not a copy of one file.
 
-Addendum (owner, 2026-09-30): Measured 30.09.2026 with Codex 0.159.2: a root plugin.json in the Agent Plugins format is read, and then Codex loads no plugin hooks (core-plugins/src/loader.rs), also with hooks in extensions["com.openai"]; the same code stands at 0.161.0-alpha.4 and main. The gate needs its hooks, so the folder keeps .codex-plugin/plugin.json as the Codex manifest and carries no root plugin.json until a Codex release loads hooks for that format.
+Addendum (owner, 2026-09-30): In the 30 September 2026 check, Codex 0.159.2 read a root Agent Plugins `plugin.json` but did not load its hooks, including hooks in `extensions["com.openai"]`. Source inspection found the same loader code in 0.161.0-alpha.4 (`core-plugins/src/loader.rs`). The gate requires hooks, so this plugin keeps `.codex-plugin/plugin.json` and omits a root `plugin.json` until a released Codex version loads hooks for that format.
 
 - The place in the source: openai/codex `codex-rs/core-plugins/src/loader.rs`, lines 950 to 960 at tag
   `rust-v0.159.2` and lines 952 to 962 at tag `rust-v0.161.0-alpha.4` and at `main` (read 2026-09-30
@@ -362,7 +362,8 @@ changes of that day land inside 0.3.0:
 - the rule that everything a receipt contains is data, in every skill and in the server's instructions;
 - `safe_for_automation`, `automation_blockers` and `automation_source` in every `verify_receipt` result,
   copied verbatim from the core, and the exit 1 text that no longer rules out a structure failure;
-- verify first: the descriptions begin with Verify, and emit is marked experimental;
+- verify first: the descriptions begin with Verify, except the marketplace's own, and receipt signing
+  is marked experimental; the wording is the owner's of 2026-09-30, after an external review;
 - the server reports the plugin's version, 0.3.0, as its `serverInfo` version and as `plugin_version`
   in every result, where it said 0.1.0 before; a test holds it equal to every manifest.
 

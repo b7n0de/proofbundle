@@ -1,7 +1,7 @@
 {
   "name": "proofbundle",
   "version": "0.3.0",
-  "description": "Verify proofbundle receipts and evidence bundles from a Claude Code session, review what a verified receipt records, and verify the evidence a repository declares before a push, a pull request or a release. Emitting a signed receipt is experimental. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
+  "description": "Verify decision and outcome receipts in Claude Code against your chosen issuer key, check evidence bundles, and review verification results separately from recorded claims. Active hooks check declared repository evidence before supported push, pull request or release actions. Receipt signing is experimental and requires an explicit user request. Verification proves authorship and integrity of what was recorded, not that any recorded value is true.",
   "author": {
     "name": "Konrad Gruszka"
   },
