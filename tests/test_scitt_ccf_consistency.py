@@ -623,3 +623,33 @@ def test_real_ledger_with_the_sizes_its_receipts_carry():
     deeper = decode_b64(v["deeper_anchor_proof_b64"])
     assert st([deeper], middle).status == "consistency_anchor_position_mismatch"
     assert st([p["19->24"]], older).newer_size == 24
+
+
+def test_a_path_below_a_leaf_is_not_canonical_and_decides_before_an_anchor_elsewhere():
+    """A leaf that is itself HASH(a || b) lets a path go one step below it and still compute R_24; it
+    describes no node of the tree of 24 leaves. Beside a proof whose anchor sits elsewhere, the path
+    status comes first, as CONSISTENCY_STATUS_ORDER says."""
+    a, b = H(b"below the leaf, left"), H(b"below the leaf, right")
+    tree = Tree(24, seed=b"a leaf with children")
+    tree.leaves[12] = H(a + b)
+    anchor, path = tree.proof(13, 24)                      # anchor: leaf 12
+    below = enc_proof(a, [[False, b]] + path)
+    deeper = enc_proof(*tree.deeper(20, 24)[0])
+    signed = sign_over(tree.root(24), txid="2.24")
+
+    def st(proofs):
+        return S.verify_consistency_receipt(receipt(proofs, signed=signed), older_root=tree.root(13),
+                                            older_issuer=ISSUER, rp_trust=trust(), older_size=13)
+    good = enc_proof(anchor, path)
+    assert st([good]).status == S.CONFIRMED
+    assert st([good, below]).status == "consistency_path_not_canonical"
+    assert st([good, deeper]).status == "consistency_anchor_position_mismatch"
+    assert st([good, deeper, below]).status == st([good, below, deeper]).status == "consistency_path_not_canonical"
+
+
+def test_another_proof_whose_anchor_ends_at_the_last_leaf_implies_no_smaller_older_tree():
+    good = enc_proof(*TREE.proof(13, 24))
+    right_edge = enc_proof(TREE.node(16, 24), [[True, TREE.node(0, 16)]])       # older = newer = R_24
+    c = sized(receipt([good, right_edge]), 13)
+    assert c.status == "consistency_anchor_position_mismatch"
+    assert "ends at the last leaf of the newer tree" in c.detail
