@@ -1,6 +1,6 @@
 Stricter input checks at verification boundaries, hardened Ed25519 trust-anchor handling, and offline AGT receipt verification. **Beta. Locations of the closing records are listed under Audit status.**
 
-[Changelog](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/docs/release_scope/6.2.0.md)
+[Changelog](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/docs/release_scope/6.2.0.md)
 
 ## Findings addressed in 6.2.0
 
@@ -18,31 +18,31 @@ Stricter input checks at verification boundaries, hardened Ed25519 trust-anchor 
 | **An attached target's subject state outside the four words of its resolver was read as present** | 6.0.0, 6.1.0; Python API | A target labelled `AMBIGUOUS` or `multiple` bound a declared `targetSubjectDigest` to its first subject, and `verify_decision_receipt`, `verify_outcome_receipt` and `verify_relation_statement` returned lineage `VERIFIED` and `ok=True` | When binding a declared `targetSubjectDigest`, states other than `None` must be `present`, `absent`, `ambiguous` or `malformed`; other values fail on direct edges and attached hops. Missing or `None` states remain inferred from the digest ([#311](https://github.com/b7n0de/proofbundle/pull/311)) |
 | **A restricting CLI option given an empty value was read as absent** | 6.0.0, 6.1.0; CLI | Nine command/option combinations, including `verify --policy ''`, `verify --anchor-type ''` and `decision verify --anchors ''`, exited 0 when their empty values were ignored | These options are read with `is not None`; empty paths and an empty nonce are refused with exit 2, while `verify --anchor-type ''` exits 3 ([#311](https://github.com/b7n0de/proofbundle/pull/311)) |
 
-The measurements behind each row are in [RESTRISIKO_620.md](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/RESTRISIKO_620.md). A security advisory is a separate outward act.
+The measurements behind each row are in [RESTRISIKO_620.md](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/RESTRISIKO_620.md). A security advisory is a separate outward act.
 
 ## What changed
 
 | Area | Change | Evidence |
 |---|---|---|
-| **Verify boundary** | The affected verify paths reject malformed inputs or read fixed copies of their stored values. | [#300](https://github.com/b7n0de/proofbundle/pull/300) · [#312](https://github.com/b7n0de/proofbundle/pull/312) · [#313](https://github.com/b7n0de/proofbundle/pull/313) · [Detail](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) |
-| **Keys** | Ed25519 trust-anchor paths reject low-order and non-canonical keys; the core §4a verification profile remains unchanged. | [#280](https://github.com/b7n0de/proofbundle/pull/280) · [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) |
-| **Callbacks** | Truthy non-boolean callback results no longer grant success; documented key-returning resolver results remain supported. | [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) |
-| **Relation timestamps** | An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does. | [#300](https://github.com/b7n0de/proofbundle/pull/300) · [Detail](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) |
-| **AGT receipts** | Offline verification of Agent Governance Toolkit (AGT) governance receipts. | [#255](https://github.com/b7n0de/proofbundle/pull/255) · [Detail](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) |
-| **Build timestamp** | The release build's default timestamp is the commit time of the first commit `git log` finds from HEAD back that changes a path outside `audit_artifacts/` and `release_notes/`. It skips commits confined to those two paths and a merge whose tree outside them equals one of its parents. 6.1.0 used HEAD's commit time. | [#311](https://github.com/b7n0de/proofbundle/pull/311) · [Detail](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md) |
+| **Verify boundary** | The affected verify paths reject malformed inputs or read fixed copies of their stored values. | [#300](https://github.com/b7n0de/proofbundle/pull/300) · [#312](https://github.com/b7n0de/proofbundle/pull/312) · [#313](https://github.com/b7n0de/proofbundle/pull/313) · [Detail](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) |
+| **Keys** | Ed25519 trust-anchor paths reject low-order and non-canonical keys; the core §4a verification profile remains unchanged. | [#280](https://github.com/b7n0de/proofbundle/pull/280) · [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) |
+| **Callbacks** | Truthy non-boolean callback results no longer grant success; documented key-returning resolver results remain supported. | [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) |
+| **Relation timestamps** | An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does. | [#300](https://github.com/b7n0de/proofbundle/pull/300) · [Detail](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) |
+| **AGT receipts** | Offline verification of Agent Governance Toolkit (AGT) governance receipts. | [#255](https://github.com/b7n0de/proofbundle/pull/255) · [Detail](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) |
+| **Build timestamp** | The release build's default timestamp is the commit time of the first commit `git log` finds from HEAD back that changes a path outside `audit_artifacts/` and `release_notes/`. It skips commits confined to those two paths and a merge whose tree outside them equals one of its parents. 6.1.0 used HEAD's commit time. | [#311](https://github.com/b7n0de/proofbundle/pull/311) · [Detail](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md) |
 
 ## Before upgrading
 
-- **Stricter verify boundary.** Some inputs accepted by 6.1.0 are now refused. Review the affected API and input rules before upgrading. [Details](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md).
-- **Python API and CLI.** The CLI passes no callbacks and builds plain values; of the findings of pull request 313 it reaches only a falsy `anchors` from `--anchors <file>`. A restricting option given an empty value, such as `--policy ''`, is refused or applied where 6.1.0 exited 0. [Details](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md).
-- **Keys a producer writes.** Ed25519 holder-key, log-vkey and witness-vkey producers reject the weak encodings their verifiers reject. [Details](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/CHANGELOG.md).
+- **Stricter verify boundary.** Some inputs accepted by 6.1.0 are now refused. Review the affected API and input rules before upgrading. [Details](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md).
+- **Python API and CLI.** The CLI passes no callbacks and builds plain values; of the findings of pull request 313 it reaches only a falsy `anchors` from `--anchors <file>`. A restricting option given an empty value, such as `--policy ''`, is refused or applied where 6.1.0 exited 0. [Details](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md).
+- **Keys a producer writes.** Ed25519 holder-key, log-vkey and witness-vkey producers reject the weak encodings their verifiers reject. [Details](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/CHANGELOG.md).
 
 <details>
 <summary>Audit status and known limitations</summary>
 
 These notes describe the package-source commit linked above; the closing record identifies the head actually checked. In the `v6.2.0` tagged tree, consult `gate_zeile.head` and `gate_zeile.verdict` in `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`; the separate `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result. A short soak does not satisfy C6.3's full 24-hour requirement; a full run after the tag is planned.
 
-[Residual risks](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/RESTRISIKO_620.md) · [README status](https://github.com/b7n0de/proofbundle/blob/5c65e536e6ad6923dfed5f0bb7996abbadc7a9b4/README.md#current-release)
+[Residual risks](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/RESTRISIKO_620.md) · [README status](https://github.com/b7n0de/proofbundle/blob/c91da6049aba05d5496e51c45b794ce7600a3a71/README.md#current-release)
 
 The published package and a passed closing audit are separate facts.
 
