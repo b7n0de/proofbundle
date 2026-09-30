@@ -2,7 +2,7 @@
 
 tools/scitt_ccf_external/section4_vectors/ holds one file per vector. Each records the result under
 reading A (Figure 9 of 4.2, as written) and under reading B (every sentence of 4, 4.1 and 5 the
-receipt carries enough to check), from the receipt alone and with the vector's tree sizes. This test
+listed wire, root-binding and signature checks), size-free and size-aware with the vector's tree sizes. This test
 runs the directory's own checker, which imports nothing from proofbundle, runs proofbundle's reader
 over the same vectors without and with the sizes, and flips one byte in the signature, a tag, the
 anchor and the path of each vector: the result must then change or be a rejection.
@@ -82,14 +82,14 @@ def test_without_sizes_nothing_is_confirmed_and_the_sizes_decide_s4_08_to_s4_10(
     vs = {v["id"]: v for v in _vectors()}
     assert not [i for i, v in vs.items() if v["proofbundle_reader"]["status_without_sizes"] == "confirmed"]
     got = {i: (vs[i]["older_size"], vs[i]["newer_size"], vs[i]["proofbundle_reader"]["status_without_sizes"],
-               vs[i]["proofbundle_reader"]["status_with_sizes"], vs[i]["reading_b"]["result"],
-               vs[i]["reading_b_with_sizes"]["result"]) for i in ("S4-08", "S4-09", "S4-10")}
+               vs[i]["proofbundle_reader"]["status_with_sizes"], vs[i]["reading_b_size_free"]["result"],
+               vs[i]["reading_b_size_aware"]["result"]) for i in ("S4-08", "S4-09", "S4-10")}
     assert got == {
         "S4-08": (24, 24, "consistency_anchor_not_canonical", "consistency_tree_sizes_invalid", "reject", "reject"),
         "S4-09": (22, 24, "consistency_anchor_not_canonical", "consistency_anchor_position_mismatch", "reject",
                   "reject"),
         "S4-10": (6, 8, "confirmed_without_tree_sizes", "consistency_anchor_position_mismatch",
-                  "not_decidable_without_tree_sizes", "reject"),
+                  "passes_size_free_checks", "reject"),
     }
 
 
@@ -97,7 +97,7 @@ def test_the_checkers_tag_rule_matches_the_proofs_built_from_the_ledger():
     checker = _checker()
     seen = 0
     for v in _vectors():
-        if v["reading_b"]["result"] != "accept":
+        if v["reading_b_size_aware"]["result"] != "accept":
             continue
         for proof, size in zip(v["consistency_proofs_decoded"], v["generator_tree_sizes"] or []):
             if size and size["n"] is not None:
@@ -144,8 +144,8 @@ def test_one_flipped_byte_changes_the_result_or_is_refused():
         older = bytes.fromhex(v["older_root_hex"])
         spki = bytes.fromhex(v["public_key"]["spki_der_hex"])
         m, n = v["older_size"], v["newer_size"]
-        before = {"reading A": v["reading_a"]["result"], "reading B": v["reading_b"]["result"],
-                  "reading B with sizes": v["reading_b_with_sizes"]["result"],
+        before = {"reading A": v["reading_a"]["result"], "reading B": v["reading_b_size_free"]["result"],
+                  "reading B with sizes": v["reading_b_size_aware"]["result"],
                   "reader": v["proofbundle_reader"]["status_without_sizes"],
                   "reader with sizes": v["proofbundle_reader"]["status_with_sizes"]}
         for site, receipt in _mutations(v, cbor2).items():
@@ -154,8 +154,8 @@ def test_one_flipped_byte_changes_the_result_or_is_refused():
                 continue
             counts["mutated"] += 1
             after = {"reading A": checker.reading_a(receipt, older, spki)[0],
-                     "reading B": checker.reading_b(receipt, older, spki, m, n)[0],
-                     "reading B with sizes": checker.reading_b(receipt, older, spki, m, n, sizes_are_input=True)[0],
+                     "reading B": checker.reading_b_size_free(receipt, older, spki)[0],
+                     "reading B with sizes": checker.reading_b_size_aware(receipt, older, spki, m, n)[0],
                      "reader": _reader_status(v, receipt), "reader with sizes": _reader_status(v, receipt, True)}
             for who, got in after.items():
                 refused = got not in SUCCESS if who.startswith("reader") else got == "reject"
@@ -217,9 +217,9 @@ def test_the_checker_takes_vds_only_as_the_int_2(vds):
         prot[395] = vds
     receipt, spki = _test_key_receipt({-2: list(vdp[-2])}, prot, cbor2)
     older = bytes.fromhex(_s401["older_root_hex"])
-    got = _checker().reading_b(receipt, older, spki)
+    got = _checker().reading_b_size_free(receipt, older, spki)
     is_int_2 = isinstance(vds, int) and not isinstance(vds, bool) and vds == 2
-    assert got == (("accept", "every rule of reading B holds") if is_int_2 else ("reject", "B1")), got
+    assert got == (("passes_size_free_checks", "B1 to B13 hold") if is_int_2 else ("reject", "B1")), got
 
 
 @pytest.mark.parametrize("alg", [-35.0, True, "-35"], ids=["float", "bool", "text"])
@@ -239,6 +239,23 @@ def test_the_checker_takes_a_present_inclusion_key_as_present(value):
     import cbor2
     s401, (prot_b, _u, payload, sig), vdp = _s401_parts(cbor2)
     receipt = b"\xd2" + cbor2.dumps([prot_b, {396: {**vdp, -1: value}}, payload, sig])
-    got = _checker().reading_b(receipt, bytes.fromhex(s401["older_root_hex"]),
+    got = _checker().reading_b_size_free(receipt, bytes.fromhex(s401["older_root_hex"]),
                                bytes.fromhex(s401["public_key"]["spki_der_hex"]))
     assert got == ("reject", "B6"), got
+    sized = _checker().reading_b_size_aware(receipt, bytes.fromhex(s401["older_root_hex"]),
+                                            bytes.fromhex(s401["public_key"]["spki_der_hex"]), 19, 24)
+    assert sized == ("reject", "B6"), sized
+
+
+def test_the_size_free_result_uses_no_size_and_names_its_pass_alike():
+    """Nachtrag 2, point 1: the size-free result takes no size at all, and every vector that passes
+    B1 to B13 reads passes_size_free_checks, S4-10 included; only the size-aware result adds B14."""
+    import inspect
+    checker = _checker()
+    assert list(inspect.signature(checker.reading_b_size_free).parameters) == ["receipt", "older_root", "spki"]
+    passing = sorted(v["id"] for v in _vectors() if v["reading_b_size_free"]["result"] == "passes_size_free_checks")
+    assert passing == ["S4-01", "S4-02", "S4-04", "S4-07", "S4-10"]
+    assert {v["reading_b_size_free"]["result"] for v in _vectors()} == {"passes_size_free_checks", "reject"}
+    aware = {v["id"]: (v["reading_b_size_aware"]["result"], v["reading_b_size_aware"]["rule"]) for v in _vectors()}
+    assert aware["S4-10"] == ("reject", "B14")
+    assert [i for i in passing if aware[i][0] == "accept"] == ["S4-01", "S4-02", "S4-04", "S4-07"]
