@@ -304,6 +304,9 @@ Addendum (owner, 2026-09-30): Measured 30.09.2026 with Codex 0.159.2: a root plu
 - Measured on install with Codex 0.159.2 (app-server `hooks/list`): 2 hooks from
   `.codex-plugin/plugin.json` without a root `plugin.json`, 0 hooks with one, with or without hooks in
   `extensions["com.openai"]`.
+- `tests/test_codex_plugin.py` fails while the gate has hooks if the folder carries a `plugin.json` or
+  `mcp.json` whose `$schema` starts with `https://agent-plugins.org/schemas/`, or a root `plugin.json`
+  that is a link or not a regular file, for which Codex finds no manifest at all.
 
 Options:
 - A. One folder (chosen).

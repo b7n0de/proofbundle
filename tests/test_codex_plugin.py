@@ -32,7 +32,10 @@ Properties checked:
   declares nothing gets no decision, marked NOT MEASURED;
 - the emit skill runs only when invoked, under both hosts;
 - the runbook for the Mac run of a real Codex turn names every case with the answer it expects, and each
-  case's scaffold mode exists.
+  case's scaffold mode exists;
+- while the gate has hooks, the folder carries no plugin.json or mcp.json in the Agent Plugins format,
+  and no root plugin.json that is a link or not a regular file: Codex 0.159.2 reads such a root manifest
+  and then loads no plugin hooks, or finds no manifest at all (DECISIONS.md, D14).
 """
 from __future__ import annotations
 
@@ -429,3 +432,93 @@ def test_every_runbook_case_gets_from_the_gate_the_answer_its_row_expects(shim, 
         assert answer["systemMessage"].startswith("NOT MEASURED:"), case
     if "not active" in expected:
         assert INACTIVE in answer["systemMessage"], case
+
+
+# --- the root manifest Codex would read instead (DECISIONS.md, D14) ----------------------------------
+
+#: Every $schema Codex 0.159.2 takes as the Agent Plugins format starts with this (utils/plugins/src/
+#: plugin_namespace.rs, AGENT_PLUGIN_SCHEMA_PREFIX); a version it does not support fails the whole plugin.
+AGENT_PLUGINS_SCHEMA_PREFIX = "https://agent-plugins.org/schemas/"
+
+
+def _gate_hook_sources(plugin: pathlib.Path) -> list[str]:
+    """Where the gate's PreToolUse hooks are declared: hooks/hooks.json and the Codex manifest."""
+    found = []
+    claude = plugin / "hooks" / "hooks.json"
+    if claude.is_file() and json.loads(claude.read_text(encoding="utf-8")).get("hooks", {}).get("PreToolUse"):
+        found.append("hooks/hooks.json")
+    codex = plugin / ".codex-plugin" / "plugin.json"
+    if codex.is_file() and json.loads(codex.read_text(encoding="utf-8")).get("hooks", {}).get("hooks", {}).get("PreToolUse"):
+        found.append(".codex-plugin/plugin.json")
+    return found
+
+
+def _agent_plugins_files(plugin: pathlib.Path) -> list[str]:
+    """Each plugin.json or mcp.json under the folder that names an Agent Plugins schema, and a root
+    plugin.json that is a link or not a regular file (Codex then finds no manifest at all)."""
+    found = []
+    root = plugin / "plugin.json"
+    if root.is_symlink() or (root.exists() and not root.is_file()):
+        found.append("plugin.json (a link or not a regular file)")
+    for path in sorted(plugin.rglob("*")):
+        if path.name not in ("plugin.json", "mcp.json") or path.is_symlink() or not path.is_file():
+            continue
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        try:
+            schema = json.loads(text).get("$schema") if text.lstrip().startswith("{") else None
+        except ValueError:
+            schema = AGENT_PLUGINS_SCHEMA_PREFIX if AGENT_PLUGINS_SCHEMA_PREFIX in text else None
+        if isinstance(schema, str) and schema.startswith(AGENT_PLUGINS_SCHEMA_PREFIX):
+            found.append(str(path.relative_to(plugin)))
+    return found
+
+
+def _guard_failure(plugin: pathlib.Path) -> str | None:
+    """The guard's message when the folder carries a manifest that would switch the gate's hooks off."""
+    hooks = _gate_hook_sources(plugin)
+    offending = _agent_plugins_files(plugin)
+    if not hooks or not offending:
+        return None
+    return (f"{offending} would make Codex read the Agent Plugins format, and Codex 0.159.2 then loads no "
+            f"plugin hooks, so the gate declared in {hooks} would stop running under Codex without a message. "
+            "See DECISIONS.md, D14 (addendum of 2026-09-30).")
+
+
+def test_while_the_gate_has_hooks_no_agent_plugins_manifest_can_switch_them_off():
+    assert _gate_hook_sources(PLUGIN) == ["hooks/hooks.json", ".codex-plugin/plugin.json"], \
+        "the guard is armed by these"
+    failure = _guard_failure(PLUGIN)
+    assert failure is None, failure
+
+
+@pytest.mark.parametrize("plant", ["root-plugin", "root-plugin-other-version", "root-mcp", "nested-mcp",
+                                   "root-plugin-link", "root-plugin-folder", "root-plugin-not-json"])
+def test_the_guard_finds_each_form_that_would_switch_the_hooks_off(tmp_path, plant):
+    plugin = tmp_path / "proofbundle"
+    shutil.copytree(PLUGIN, plugin, ignore=shutil.ignore_patterns("__pycache__", "evals"))
+    assert _agent_plugins_files(plugin) == []
+    manifest = {"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "1.0.0/plugin.schema.json", "name": "proofbundle"}
+    mcp = {"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "1.0.0/mcp.schema.json", "mcpServers": {}}
+    if plant == "root-plugin":
+        (plugin / "plugin.json").write_text(json.dumps(manifest), encoding="utf-8")
+    elif plant == "root-plugin-other-version":
+        (plugin / "plugin.json").write_text(json.dumps(dict(manifest, **{"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "2.0.0/plugin.schema.json"})), encoding="utf-8")
+    elif plant == "root-mcp":
+        (plugin / "mcp.json").write_text(json.dumps(mcp), encoding="utf-8")
+    elif plant == "nested-mcp":
+        (plugin / "server" / "mcp.json").write_text(json.dumps(mcp), encoding="utf-8")
+    elif plant == "root-plugin-link":
+        (plugin / "plugin.json").symlink_to(plugin / ".claude-plugin" / "plugin.json")
+    elif plant == "root-plugin-folder":
+        (plugin / "plugin.json").mkdir()
+    else:
+        (plugin / "plugin.json").write_text('{"$schema": "' + AGENT_PLUGINS_SCHEMA_PREFIX + '1.0.0/plugin.schema.json",', encoding="utf-8")
+    assert len(_agent_plugins_files(plugin)) == 1, plant
+    failure = _guard_failure(plugin)
+    assert failure and "DECISIONS.md, D14" in failure and _agent_plugins_files(plugin)[0].split(" ")[0] in failure
+    (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "proofbundle", "version": "0.3.0"}),
+                                                          encoding="utf-8")
+    assert len(_agent_plugins_files(plugin)) == 1, "a manifest without an Agent Plugins schema is not counted"
+    for source in ("hooks/hooks.json", ".codex-plugin/plugin.json"):
+        (plugin / source).unlink()
+    assert _gate_hook_sources(plugin) == [] and _guard_failure(plugin) is None, "the guard is armed only by the hooks"
