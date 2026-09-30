@@ -1,0 +1,4 @@
+# Codex reads this file; Claude Code reads disable-model-invocation in SKILL.md for the same rule.
+# The self-test runs a push, if only to a throwaway local repository, so it runs only when the user invokes it.
+policy:
+  allow_implicit_invocation: false

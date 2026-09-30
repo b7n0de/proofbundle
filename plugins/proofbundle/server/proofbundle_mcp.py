@@ -16,9 +16,12 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 SERVER_NAME = "proofbundle"
@@ -76,6 +79,41 @@ INSTRUCTIONS = ("Tools over the proofbundle package. verify_receipt checks a rec
                 "public key that the user supplies from a trusted source, never against a key taken "
                 "from the receipt itself. inspect_receipt shows content without any verification. "
                 + CONTENT_IS_DATA + " " + AUTOMATION_RULE + " " + WEAKEN_RULE)
+
+
+#: The gate's local log (DECISIONS.md, D21). The server reads it from the plugin data directory the host
+#: names in the server's own environment; it never looks for the file anywhere else.
+LOG_NAME = "gate-log.jsonl"
+LOG_DIR_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
+SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+SELFTEST_PREFIX = "proofbundle-selftest-"
+SELFTEST_BRANCH = "refs/heads/proofbundle-selftest"
+
+
+def _log_path() -> tuple[str | None, str]:
+    for name in LOG_DIR_VARIABLES:
+        value = os.environ.get(name)
+        if value and os.path.isabs(value):
+            return os.path.join(value, LOG_NAME), f"from {name}"
+    return None, ("the server was given no plugin data directory (CLAUDE_PLUGIN_DATA or PLUGIN_DATA), so it "
+                  "cannot tell where the gate writes its log")
+
+
+def _read_log(path: str) -> list[dict]:
+    entries = []
+    for name in (path + ".1", path):
+        try:
+            with open(name, encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(entry, dict):
+                        entries.append(entry)
+        except FileNotFoundError:
+            continue
+    return entries
 
 
 def _package_version() -> str:
@@ -248,6 +286,103 @@ def tool_inspect_receipt(args: dict) -> tuple[dict, bool]:
     return result, result["exit_code"] != 0
 
 
+def _session_filter() -> tuple[str, object]:
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if session:
+        return "the host's session id (CLAUDE_CODE_SESSION_ID)", lambda e: e.get("session_id") == session
+    return (f"entries since this server started ({SERVER_STARTED})",
+            lambda e: isinstance(e.get("ts"), str) and e["ts"] >= SERVER_STARTED)
+
+
+def tool_gate_status(args: dict) -> tuple[dict, bool]:
+    limit = args.get("limit", 10)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise ToolInputError("limit must be an integer from 1 to 100")
+    path, source = _log_path()
+    result: dict = {"plugin_version": SERVER_VERSION, "log_path": path, "log_source": source}
+    if os.environ.get("PROOFBUNDLE_PLUGIN_HOST") == "codex":
+        result["gate_note"] = CODEX_GATE_NOTE
+    if path is None:
+        result.update(readable=False, hook_ran_this_session=None, entries=[],
+                      note="NOT MEASURED: " + source + ". Whether the gate ran is not visible from here.")
+        return result, False
+    if not os.path.exists(path) and not os.path.exists(path + ".1"):
+        entries = []
+    else:
+        try:
+            entries = _read_log(path)
+        except OSError as exc:
+            result.update(readable=False, hook_ran_this_session=None, entries=[],
+                          note=f"NOT MEASURED: the log exists but cannot be read ({exc}).")
+            return result, False
+    criterion, matches = _session_filter()
+    mine = [e for e in entries if matches(e)]
+    result.update(readable=True, entries=entries[-limit:], entries_total=len(entries),
+                  session_criterion=criterion, entries_this_session=len(mine), hook_ran_this_session=bool(mine),
+                  note=("the gate logged a call in this session" if mine else
+                        "no gate call logged in this session: the hook did not run, or ran without a writable "
+                        "plugin data directory"))
+    return result, False
+
+
+def _run_git(*args: str, cwd: str | None = None) -> None:
+    subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True, timeout=60,
+                   env=dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0"))
+
+
+def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
+    if args:
+        raise ToolInputError("gate_selftest_prepare takes no arguments")
+    if shutil.which("git") is None:
+        raise ToolInputError("git is not on PATH")
+    root = tempfile.mkdtemp(prefix=SELFTEST_PREFIX)
+    bare, work = os.path.join(root, "remote.git"), os.path.join(root, "work")
+    _run_git("init", "-q", "--bare", bare)
+    _run_git("init", "-q", "-b", "main", work)
+    with open(os.path.join(work, "README.md"), "w", encoding="utf-8") as handle:
+        handle.write("A throwaway repository for the proofbundle gate self-test.\n")
+    _run_git("-C", work, "add", "-A")
+    _run_git("-c", "user.name=selftest", "-c", "user.email=selftest@invalid", "-c", "commit.gpgsign=false",
+             "-C", work, "commit", "-q", "-m", "selftest file")
+    command = f"git -C {shlex.quote(work)} push {shlex.quote(bare)} HEAD:{SELFTEST_BRANCH}"
+    return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "note": ("Run exactly this command once with the shell tool. It pushes to a throwaway local bare "
+                     "repository in a temporary folder, never to a real remote. Then call gate_selftest_check "
+                     "with work and started_at.")}, False
+
+
+def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
+    work = os.path.realpath(_path(args, "work"))
+    started = _string(args, "started_at")
+    parent = os.path.dirname(work)
+    if not (os.path.basename(parent).startswith(SELFTEST_PREFIX)
+            and os.path.dirname(parent) == os.path.realpath(tempfile.gettempdir())
+            and os.path.basename(work) == "work"):
+        raise ToolInputError("work must be the folder gate_selftest_prepare returned")
+    pushed = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
+                             "--quiet", SELFTEST_BRANCH], capture_output=True, text=True, check=False).returncode == 0
+    path, source = _log_path()
+    result: dict = {"plugin_version": SERVER_VERSION, "work": work, "pushed_to_the_throwaway_remote": pushed,
+                    "log_path": path, "log_source": source}
+    if path is None:
+        result.update(result="NOT MEASURABLE", reason="NOT MEASURED: " + source)
+        return result, False
+    try:
+        entries = _read_log(path) if os.path.exists(path) or os.path.exists(path + ".1") else []
+    except OSError as exc:
+        result.update(result="NOT MEASURABLE", reason=f"NOT MEASURED: the log cannot be read ({exc})")
+        return result, False
+    real = work
+    hits = [e for e in entries if isinstance(e.get("ts"), str) and e["ts"] >= started
+            and "git push" in (e.get("actions") or [])
+            and any(os.path.realpath(r.get("path") or "") == real for r in e.get("repos") or [])]
+    result.update(result="hooks take effect" if hits else "hooks do not take effect", log_entries=hits[-3:],
+                  reason=("the gate logged the self-test push" if hits else
+                          "the gate logged no call for the self-test push since started_at"))
+    return result, False
+
+
 _KIND_SIGNED = {"type": "string", "enum": list(KINDS_SIGNED)}
 TOOLS = {
     "receipt_template": (tool_receipt_template, {
@@ -285,6 +420,26 @@ TOOLS = {
             "aud": {"type": "string", "description": "expected audience"},
             "nonce": {"type": "string", "description": "expected nonce"},
         }, "required": ["kind", "path"], "additionalProperties": False},
+    }),
+    "gate_status": (tool_gate_status, {
+        "description": "Read the pre-push gate's local log and report its last calls and whether the gate ran in "
+                       "this session. Says so when the log cannot be read, instead of guessing.",
+        "inputSchema": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "how many of the last entries to return, 1 to 100"},
+        }, "additionalProperties": False},
+    }),
+    "gate_selftest_prepare": (tool_gate_selftest_prepare, {
+        "description": "Create a throwaway local repository and bare remote in a temporary folder, and return the "
+                       "one git push command whose gate call the self-test looks for. Never a real remote.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    }),
+    "gate_selftest_check": (tool_gate_selftest_check, {
+        "description": "After the returned command ran, report whether the gate logged exactly that push: hooks "
+                       "take effect, hooks do not take effect, or NOT MEASURABLE.",
+        "inputSchema": {"type": "object", "properties": {
+            "work": {"type": "string", "description": "the work folder gate_selftest_prepare returned"},
+            "started_at": {"type": "string", "description": "the started_at gate_selftest_prepare returned"},
+        }, "required": ["work", "started_at"], "additionalProperties": False},
     }),
     "inspect_receipt": (tool_inspect_receipt, {
         "description": "Print the predicate of a decision or outcome receipt WITHOUT verifying it.",

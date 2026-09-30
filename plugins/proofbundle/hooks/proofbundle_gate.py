@@ -92,6 +92,15 @@ MAX_NESTING = 4
 HOSTS = ("claude", "codex")
 
 SERVER = pathlib.Path(__file__).resolve().parent.parent / "server" / "proofbundle_mcp.py"
+#: The plugin's version, the one of every manifest; a test holds them equal.
+GATE_VERSION = "0.3.0"
+#: The local log of every gate call (DECISIONS.md, D21): one JSON line each, in the first named plugin data
+#: directory the host gives the hook that is a writable directory. Measured: Claude Code 2.1.285 gives a
+#: PreToolUse hook CLAUDE_PLUGIN_DATA; Codex 0.159.2 gives PLUGIN_DATA and CLAUDE_PLUGIN_DATA
+#: (codex-rs/hooks/src/engine/discovery.rs, lines 262 to 270, read in the source, not in a run).
+LOG_NAME = "gate-log.jsonl"
+LOG_DIR_VARIABLES = {"claude": ("CLAUDE_PLUGIN_DATA",), "codex": ("PLUGIN_DATA", "CLAUDE_PLUGIN_DATA")}
+MAX_LOG_BYTES = 1024 * 1024
 
 _GIT_OPTIONS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace",
                                      "--config-env", "--super-prefix"})
@@ -894,6 +903,53 @@ def tree_digest_command(argv: list[str]) -> int:
     return 0
 
 
+def log_directory(host: str, environ: dict | None = None) -> str | None:
+    """The first plugin data directory the host names that is, or can be made, a writable directory."""
+    environ = os.environ if environ is None else environ
+    for name in LOG_DIR_VARIABLES.get(host, ()):
+        value = environ.get(name)
+        if not value or not os.path.isabs(value):
+            continue
+        try:
+            os.makedirs(value, exist_ok=True)
+        except OSError:
+            continue
+        if os.path.isdir(value) and os.access(value, os.W_OK):
+            return value
+    return None
+
+
+def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list[str]) -> dict:
+    """What one call leaves in the log: no evidence content, no environment, no key."""
+    session = event.get("session_id") if isinstance(event, dict) else None
+    tool = event.get("tool_name") if isinstance(event, dict) else None
+    verdict = outcome.decision if outcome is not None else "not_gated"
+    sent = "none" if verdict in ("pass", "inactive", "not_gated") else ("deny" if host == "codex" else verdict)
+    repos = [] if outcome is None else [
+        {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests)}
+        for v in outcome.verdicts]
+    return {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "host": host, "gate_version": GATE_VERSION,
+            "session_id": session if isinstance(session, str) else None,
+            "tool": tool if isinstance(tool, str) else None, "actions": actions, "decision": sent,
+            "verdict": verdict, "reason_ids": [r["reason_id"] for r in repos] or [verdict], "repos": repos}
+
+
+def write_log(entry: dict, host: str) -> str | None:
+    """Append the entry; never raises, never changes the answer. None when no directory was writable."""
+    directory = log_directory(host)
+    if directory is None:
+        return None
+    path = os.path.join(directory, LOG_NAME)
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > MAX_LOG_BYTES:
+            os.replace(path, path + ".1")
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    except OSError:
+        return None
+    return path
+
+
 def _host(argv: list[str]) -> str:
     if not argv:
         return "claude"
@@ -907,7 +963,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] == ["tree-digest"]:
         return tree_digest_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
-    host = "claude"
+    host, event, actions = "claude", None, []
     try:
         host = _host(argv)
         try:
@@ -917,9 +973,11 @@ def main(argv: list[str] | None = None) -> int:
         tool = event.get("tool_name") if isinstance(event, dict) else None
         if isinstance(tool, str) and tool.startswith("mcp__"):
             cwd = event.get("cwd")
+            actions = [f"MCP {tool}"] if mcp_gated(tool) else []
             verdict = decide_mcp(tool, cwd if isinstance(cwd, str) and cwd else os.getcwd(), deadline)
         else:
             command, cwd = _command_from_event(event)
+            actions = sorted({name for name, _ in gated_calls(command)})
             verdict = decide(command, cwd, deadline)
     except GateError as exc:
         failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",
@@ -932,6 +990,11 @@ def main(argv: list[str] | None = None) -> int:
                           evidence="none, the gate failed before a verdict", failed=f"{type(exc).__name__}: {exc}",
                           next_step="report this error; the gate denies until it is fixed")
         verdict = Outcome("deny", failure.text(), [failure])
+    if host in HOSTS:
+        try:
+            write_log(log_entry(host, event, verdict, actions), host)
+        except Exception:  # noqa: BLE001 - the log never changes the answer
+            pass
     if verdict is not None:
         sys.stdout.write(json.dumps(answer(verdict.decision, verdict.text, host=host)) + "\n")
     return 0

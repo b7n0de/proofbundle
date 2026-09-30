@@ -418,3 +418,33 @@ Options:
 - A. Compare against the remote-tracking refs, NOT MEASURED without them (chosen).
 - B. Compare only against the upstream of the current branch; a new branch has none.
 - C. Read the remote over the network before each push.
+
+## D21. A local log shows whether the gate ran
+
+Chosen (smallest variant, 2026-09-30, for the owner's review):
+- Every gate call appends one JSON line to `gate-log.jsonl`: the time in UTC, the host, the gate version,
+  the host's session id from the hook event, the tool, the gated actions (none for an ungated call), the
+  decision sent to the host (deny, ask or none), the gate's verdict, the reason ids, and per repository its
+  path, HEAD, verdict and the sha256 of every evidence and policy file read. No evidence content, no
+  environment variable and no key is written. Above 1 MiB the file is moved once to `gate-log.jsonl.1`.
+- The place is the first named plugin data directory the host gives the hook that is, or can be made, a
+  writable directory, given as an absolute path. Measured: Claude Code 2.1.285 gives a PreToolUse hook
+  `CLAUDE_PLUGIN_DATA` (a run of a probe hook, the directory existed and was writable). Codex 0.159.2
+  gives `PLUGIN_DATA` and `CLAUDE_PLUGIN_DATA` (`codex-rs/hooks/src/engine/discovery.rs`, lines 262 to
+  270, read in the source, not in a run); the gate takes `PLUGIN_DATA` first. Without such a directory
+  there is no log. Writing the log never changes the answer.
+- `gate_status` reads the log from the plugin data directory named in the server's own environment
+  (`CLAUDE_PLUGIN_DATA`, then `PLUGIN_DATA`), and never looks anywhere else. "This session" is the host's
+  session id (`CLAUDE_CODE_SESSION_ID`) where the server has it, else the time since the server started;
+  the answer names which. Under Codex the server's entry of `.codex-plugin/plugin.json` gets neither
+  variable, so the server cannot read the log and says NOT MEASURED; the `gate_note` stays.
+- The self-test (skill `selftest`, tools `gate_selftest_prepare` and `gate_selftest_check`) makes a
+  throwaway repository and a bare remote in a temporary folder, has the model run one `git push` to that
+  local path, and then looks for exactly that gate call in the log: hooks take effect, hooks do not take
+  effect, or NOT MEASURABLE. It never pushes to a real remote; the check refuses any folder it did not
+  create. The skill runs only when the user invokes it.
+
+Options:
+- A. A local log per host data directory, read by the server where the host names it (chosen).
+- B. No log; the gate note alone.
+- C. A fixed path shared by both hosts, which the server would have to guess.
