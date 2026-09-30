@@ -1,5 +1,5 @@
 ---
 type: regex
-pattern: 'exit(?: code|_code)?\W{0,8}0\b'
+pattern: 'exit(?:[ _]code)?(?:\s+(?:is|was|of|returned|=))?\W{0,8}0\b'
 flags: i
 ---

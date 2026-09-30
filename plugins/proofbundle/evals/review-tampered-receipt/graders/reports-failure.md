@@ -1,5 +1,5 @@
 ---
 type: regex
-pattern: 'exit(?: code|_code)?\W{0,8}1\b|not verified|verification failed|failed'
+pattern: 'exit(?:[ _]code)?(?:\s+(?:is|was|of|returned|=))?\W{0,8}1\b|not verified|verification failed|failed'
 flags: i
 ---

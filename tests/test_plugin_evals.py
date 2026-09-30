@@ -203,6 +203,46 @@ def test_the_injection_cases_keep_their_skill_grader():
         assert _graders(case)["skill-fired.md"]["tool"] == "Skill", case
 
 
+# --- the exit-code graders (Nachtrag 5, A2) -----------------------------------------------------------
+
+#: The owner's expression of 2026-09-30 for a grader that the answer names the exit code; {digit} is 1 or 0.
+OWNER_EXIT = r"exit(?:[ _]code)?(?:\s+(?:is|was|of|returned|=))?\W{{0,8}}{digit}\b"
+#: The phrasings of Nachtrag 3: eight correct answers, five wrong ones, for exit 1 and the same for exit 0.
+RIGHT = {1: ["**The exit code is 1, and the receipt did not verify.**", "**Exit code: 1.** The receipt did not verify.",
+             "exit_code 1", "It exited with exit code 1.", "the exit code was 1", "exit code = 1", "Exit 1",
+             "exit code of 1"],
+         0: ["**The exit code is 0, and the receipt verified.**", "**Exit code: 0.** The receipt verified.",
+             "exit_code 0", "It exited with exit code 0.", "the exit code was 0", "exit code = 0", "Exit 0",
+             "exit code of 0"]}
+WRONG = {1: ["exit code is not 1", "exit code 10", "exit code is 0", "exit code 2", "exit code is 11"],
+         0: ["exit code is not 0", "exit code 01", "exit code is 1", "exit code 2", "exit code is 00"]}
+EXIT_GRADERS = [("verify-tampered-receipt", "reports-exit-1.md", 1), ("verify-foreign-key", "reports-exit-1.md", 1),
+                ("verify-valid-receipt", "reports-exit-0.md", 0)]
+
+
+@pytest.mark.parametrize("case, grader, digit", EXIT_GRADERS)
+def test_an_exit_code_grader_takes_every_correct_phrasing_and_no_wrong_one(case, grader, digit):
+    fields = _graders(case)[grader]
+    pattern = fields["pattern"].strip("'")
+    assert (fields["type"], pattern, fields.get("flags")) == ("regex", OWNER_EXIT.format(digit=digit), "i")
+    assert [text for text in RIGHT[digit] if not re.search(pattern, text, re.I)] == []
+    assert [text for text in WRONG[digit] if re.search(pattern, text, re.I)] == []
+
+
+def test_the_review_failure_grader_uses_the_same_exit_expression():
+    pattern = _graders("review-tampered-receipt")["reports-failure.md"]["pattern"].strip("'")
+    assert pattern.startswith(OWNER_EXIT.format(digit=1) + "|")
+    assert [text for text in RIGHT[1] if not re.search(pattern, text, re.I)] == []
+
+
+def test_no_grader_keeps_the_narrow_exit_expression():
+    """The class, not the instance: the old form admits nothing but non-word characters between "exit
+    code" and the digit, so "the exit code is 1" failed a correct answer (Nachtrag 3, run 3)."""
+    narrow = [f"{case}/{name}" for case in CASES for name, g in _graders(case).items()
+              if g.get("type") == "regex" and r"exit(?: code|_code)?\W" in g.get("pattern", "")]
+    assert narrow == []
+
+
 # --- the failure corpus (evals/CORPUS.md) -----------------------------------------------------------
 
 CORPUS = {"verify-foreign-key": "verify-valid-receipt", "gate-push-rules-changed": "gate-push-verified",
