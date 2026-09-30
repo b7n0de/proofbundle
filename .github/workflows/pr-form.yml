@@ -1,0 +1,54 @@
+name: pr-form
+
+# The pull-request form gate (owner decision 2026-09-28): a pull request carries a milestone, its
+# description ends with exactly the two lines of the house footer, and it carries no tool
+# attribution, no session link and no retired closing sentence. The judgement is
+# scripts/b7_pr_form_gate.py; it reads the milestone and the description from the event payload the
+# runner writes, with no API call and no token.
+#
+# ITS OWN FILE, NOT A JOB IN ci.yml (owner order 2026-09-28, 13:4x Berlin). Every event ci.yml
+# subscribes to restarts the whole suite. A changed description or milestone needs this one short
+# job, not the suite, so the three events below start this workflow and nothing else.
+#
+# NO CONDITION ON THE JOB. GitHub reports a job skipped by an `if:` as success, and a skipped check
+# at the same head could hide a red one. The job runs on every event it subscribes to.
+#
+# EVERY BASE BRANCH. A stacked pull request carries a milestone and a footer as well; there is no
+# `branches` filter.
+#
+# NO LABEL EVENTS (owner decision 2026-09-28, 14:17 Berlin): the milestone is the only sorting sign
+# on a pull request, and the gate has no rule about labels, so `labeled` and `unlabeled` start
+# nothing here.
+#
+# ADVISORY. The job is not a required context of the ruleset protect-main, so a red form shows and
+# blocks nothing until the owner makes it required.
+#
+# Actions are pinned to full commit SHAs, matching the other workflows.
+
+on:
+  pull_request:
+    # `edited`, `milestoned` and `demilestoned` beside the three default types: a verdict made on
+    # the last push would stay green after the milestone is removed or the description edited.
+    types: [opened, synchronize, reopened, edited, milestoned, demilestoned]
+
+# A later event on the same pull request makes the verdict over the earlier payload moot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-form:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      # THE DESCRIPTION COMES THROUGH THE PAYLOAD FILE, NOT THROUGH THE COMMAND LINE. It is text
+      # anyone who opens a pull request writes; no expression splices it into this line.
+      - name: Pull-request form gate
+        run: python scripts/b7_pr_form_gate.py --event "$GITHUB_EVENT_PATH"
