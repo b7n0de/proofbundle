@@ -31,10 +31,16 @@ KINDS_VERIFY = ("decision", "outcome", "bundle")
 #: The verify exit-code contract of the proofbundle command line.
 EXIT_MEANING = {
     0: "verified: signature and structure are valid under the given key",
-    1: "verification failed: a signature or another cryptographic check did not hold",
+    1: "verification failed: a signature, structure or other check did not hold; the report names which",
     2: "malformed input: the file, the key or an option could not be read as required",
     3: "cryptography valid, but a supplied policy or anchor requirement was not met",
 }
+
+#: Where the core's verify JSON says whether the result is safe to act on without a person, per kind:
+#: safeForAutomation and automationBlockers inside this object. The server copies both verbatim and derives
+#: nothing itself; a kind whose output lacks the field gets null and NOT_REPORTED.
+AUTOMATION_SOURCE = {"decision": "automation", "outcome": "automation", "bundle": "root_authenticity"}
+NOT_REPORTED = "not reported by the core"
 
 #: What a passing verification does and does not establish. Returned with every verify result so
 #: the caller never has to infer it.
@@ -186,6 +192,17 @@ def tool_emit_receipt(args: dict) -> tuple[dict, bool]:
     return result, failed
 
 
+def automation_fields(kind: str, output: object) -> dict:
+    """safe_for_automation, automation_blockers and automation_source, verbatim from the core's output."""
+    section = AUTOMATION_SOURCE[kind]
+    block = output.get(section) if isinstance(output, dict) else None
+    if not isinstance(block, dict) or "safeForAutomation" not in block:
+        return {"safe_for_automation": None, "automation_blockers": None, "automation_source": NOT_REPORTED}
+    return {"safe_for_automation": block["safeForAutomation"],
+            "automation_blockers": block.get("automationBlockers"),
+            "automation_source": f"output.{section}"}
+
+
 def tool_verify_receipt(args: dict) -> tuple[dict, bool]:
     kind = _kind(args, KINDS_VERIFY)
     path = _path(args, "path")
@@ -205,6 +222,7 @@ def tool_verify_receipt(args: dict) -> tuple[dict, bool]:
     result = _run_cli(argv)
     result["meaning"] = EXIT_MEANING.get(result["exit_code"], "unknown exit code: treat as not verified")
     result["verified"] = result["exit_code"] == 0
+    result.update(automation_fields(kind, result["output"]))
     result["scope"] = SCOPE
     if os.environ.get("PROOFBUNDLE_PLUGIN_HOST") == "codex":
         result["gate_note"] = CODEX_GATE_NOTE
@@ -243,7 +261,8 @@ TOOLS = {
     }),
     "verify_receipt": (tool_verify_receipt, {
         "description": "Verify a decision receipt, an outcome receipt or an evidence bundle with the "
-                       "proofbundle command line. Returns the exit code, its meaning and the full JSON "
+                       "proofbundle command line. Returns the exit code, its meaning, the full JSON "
+                       "report, and safe_for_automation with automation_blockers copied verbatim from the "
                        "report. For decision and outcome, public_key is the issuer key in base64 from a "
                        "source the user trusts.",
         "inputSchema": {"type": "object", "properties": {

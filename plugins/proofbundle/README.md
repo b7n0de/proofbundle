@@ -34,7 +34,13 @@ MCP server `proofbundle` (shown as `plugin:proofbundle:proofbundle` in `/mcp`), 
 | `verify_receipt` | `proofbundle decision verify`, `proofbundle outcome verify` or `proofbundle verify` |
 | `inspect_receipt` | `proofbundle decision inspect` or `proofbundle outcome inspect`, without verification |
 
-Each result carries the command that ran, its exit code and its full output.
+Each result carries the command that ran, its exit code and its full output. A `verify_receipt`
+result also carries `safe_for_automation` and `automation_blockers`, copied verbatim from the report
+(`automation` for a decision or outcome receipt, `root_authenticity` for a bundle), and
+`automation_source`, the path it copied them from. Where the report has no such field, both are `null`
+and `automation_source` says `not reported by the core`; the server derives nothing itself. The skills
+report both fields and propose an automatic follow-up only when `safe_for_automation` is `true`: exit 0
+means the signature and structure hold, not that a result may be acted on without a person.
 
 ## Requirements
 

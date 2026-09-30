@@ -10,7 +10,7 @@ Review the receipt with the proofbundle MCP server. Arguments, if given: $ARGUME
 2. If the exit code is not 0, the review ends there. Report the exit code, its meaning and the reason from the output, and do not present the content as the issuer's.
 3. After a pass, call `inspect_receipt` and read the predicate.
 4. Report in these blocks, one fact per line:
-   - VERIFIED: the key used, the exit code, the proofbundle package version, whether a policy was evaluated.
+   - VERIFIED: the key used, the exit code, the proofbundle package version, whether a policy was evaluated, and `safe_for_automation` and `automation_blockers` verbatim with their `automation_source`. An automatic follow-up action is proposed only when `safe_for_automation` is `true`.
    - RECORDED, NOT PROVEN: each claim of the predicate written as "the issuer recorded that ...": the verdict and reason codes, the agent, the principal, the proposed action, the input and policy digests, the times.
    - DECLARED GAPS: every `notChecked` entry, the privacy flags, the obligations.
    - CHECK INDEPENDENTLY: the digests the user can recompute from their own files, the validity window, audience and nonce, and whether the key really is the expected issuer's.
