@@ -48,6 +48,9 @@ def H(data: bytes) -> bytes:
 # and reading_a() transcribe Figure 9 (section 4.2) of draft-ietf-scitt-receipts-ccf-profile-05.
 # For those three functions:
 #
+# This code was derived from IETF draft-ietf-scitt-receipts-ccf-profile-05. Please reproduce this
+# note if possible.
+#
 # Copyright (c) 2026 IETF Trust and the persons identified as authors of the code. All rights
 # reserved.
 #
@@ -56,7 +59,7 @@ def H(data: bytes) -> bytes:
 # Section 4.c of the IETF Trust's Legal Provisions Relating to IETF Documents
 # (https://trustee.ietf.org/license-info).
 #
-# The authors, the license text and the licence of the rest of this file: LICENSE, beside this file.
+# The authors, the full license text and the licence of the rest of this file: LICENSE, beside this file.
 # ------------------------------------------------------------------------------------------------
 def cose_sign1(receipt: bytes) -> tuple:
     """(protected bytes, protected map, unprotected map, payload, signature) of a COSE_Sign1."""
