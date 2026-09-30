@@ -81,6 +81,9 @@ S_ALL_SAME = ("5", "All proofs in a receipt recompute the same root (the newer r
 S_CDDL = ("5", "verifiable-proofs = { &(inclusion-proof: -1) => inclusion-proofs ? &(consistency-proof: -2) "
                "=> consistency-proofs // &(consistency-proof: -2) => consistency-proofs } (Figure 11)")
 
+#: S4-10 carries a synthetic txid under the test key: the newer size is asserted by it, not measured.
+SIZES_NOTE_S4_10 = ("older_size: 6 from the constructed older tree; newer_size: 7 asserted by the synthetic "
+                    "test-key header txid 2.7; the signed N1 is not the canonical root R_7.")
 A_OK = ("accept", "return true")
 A_NO_PROOFS = ("reject", "assert(len(proofs) > 0)")
 A_NO_OLDER = ("reject", "assert(len(payloads) > 0)")
@@ -193,6 +196,7 @@ def main() -> int:
     unchanged = enc(tree.node(16, 24), [(True, tree.node(0, 16))])
     n1_sibling = tree.node(6, 7)                  # the ledger's leaf 6: HASH(d[6]) in Tiago Pinto's notation
     n1 = H(tree.root(6) + n1_sibling)
+    assert n1 != tree.root(7), "N1 must not be the canonical root R_7"     # the S4-10 note says so
 
     def service(vdp: dict, payload=None, sig: bytes = service_sig) -> bytes:
         return b"\xd2" + cbor2.dumps([prot_raw, {396: vdp}, payload, sig])
@@ -299,7 +303,8 @@ def main() -> int:
             "reading_b_size_free": {"result": b_free[0], "rule": b_free[1], "rule_text": None},
             "older_size": older_size,
             "newer_size": newer_size,
-            "tree_sizes_note": f"older_size: the size of the ledger tree whose root older_root is; newer_size: "
+            "tree_sizes_note": SIZES_NOTE_S4_10 if vid == "S4-10" else
+                               f"older_size: the size of the ledger tree whose root older_root is; newer_size: "
                                f"the seqno of the receipt's ccf.v1 txid {txid}, the tree size its signature "
                                "covers as measured on CCF 7.0.17 with leaf 0 counted (not stated by -05)",
             "reading_b_size_aware": {"result": b[0], "rule": b[1], "rule_text": None},

@@ -32,7 +32,7 @@
  },
  "older_size": 6,
  "newer_size": 7,
- "tree_sizes_note": "older_size: the size of the ledger tree whose root older_root is; newer_size: the seqno of the receipt's ccf.v1 txid 2.7, the tree size its signature covers as measured on CCF 7.0.17 with leaf 0 counted (not stated by -05)",
+ "tree_sizes_note": "older_size: 6 from the constructed older tree; newer_size: 7 asserted by the synthetic test-key header txid 2.7; the signed N1 is not the canonical root R_7.",
  "reading_b_size_aware": {
   "result": "reject",
   "rule": "B14",
