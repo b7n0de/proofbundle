@@ -209,6 +209,9 @@ claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \
   --allow-tools Bash "mcp__plugin_proofbundle_proofbundle__*"
 ```
 
+`evals/CORPUS.md` lists the cases built from real failures, each with a valid counterpart, and
+`evals/run_corpus.sh` runs them after every update of Claude Code or Codex, with the host versions.
+
 The scaffold scripts run offline. They copy the signed fixtures in `evals/_fixtures/data/`. Those
 fixtures were made once by `evals/_fixtures/make.py` with the pinned package, and they carry public
 keys only.

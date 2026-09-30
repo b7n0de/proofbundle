@@ -1,5 +1,5 @@
 ---
-tags: [skill, verify, positive, counterpart]
+tags: [skill, verify, negative, corpus]
 max_turns: 12
 timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]

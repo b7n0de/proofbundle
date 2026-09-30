@@ -1,5 +1,5 @@
 ---
-tags: [hook, positive, counterpart]
+tags: [hook, negative, corpus]
 max_turns: 12
 timeout_seconds: 300
 allowed_tools: [Bash]

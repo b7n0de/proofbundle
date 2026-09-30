@@ -339,6 +339,17 @@ def test_the_server_itself_carries_the_rule_on_safe_for_automation(server):
 EXIT_1 = "verification failed: a signature, structure or other check did not hold; the report names which"
 
 
+def test_a_valid_but_foreign_key_does_not_verify_and_the_issuers_does(server):
+    """Corpus: a wrong key that is a real Ed25519 key of another signer (evals/CORPUS.md)."""
+    receipt = str(FIXTURES / "receipt-valid.json")
+    foreign = (FIXTURES / "foreign.pub").read_text(encoding="utf-8").strip()
+    issuer = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
+    wrong, _ = server.tool("verify_receipt", kind="decision", path=receipt, public_key=foreign)
+    assert (wrong["exit_code"], wrong["verified"], wrong["meaning"], wrong["safe_for_automation"]) == (1, False, EXIT_1, False)
+    right, _ = server.tool("verify_receipt", kind="decision", path=receipt, public_key=issuer)
+    assert (right["exit_code"], right["verified"]) == (0, True)
+
+
 def test_the_exit_1_text_names_structure_and_a_broken_envelope_gets_it(server, tmp_path):
     key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
     broken = tmp_path / "broken.json"

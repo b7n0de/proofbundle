@@ -397,14 +397,14 @@ def test_the_mac_runbook_names_every_case_with_its_expected_answer():
     scaffold = (PLUGIN / "evals" / "_fixtures" / "scaffold.sh").read_text(encoding="utf-8")
     rows = [line for line in text.split("\n") if line.startswith("| ") and "repo-" in line]
     modes = [row.split("|")[2].strip().strip("`") for row in rows]
-    assert modes == ["repo-nodecl", "repo-worktree-only", "repo-tampered", "repo-missing", "repo-stale",
-                     "repo-valid", "repo-valid"]
+    assert modes == ["repo-nodecl", "repo-worktree-only", "repo-rules-changed", "repo-tampered", "repo-missing",
+                     "repo-stale", "repo-valid", "repo-valid"]
     for mode in set(modes):
         assert mode in scaffold, mode
     expected = [row.split("|")[4].strip() for row in rows]
     assert expected[0].startswith("no decision, NOT MEASURED")
-    assert expected[1:5] == ["deny, NOT MEASURED", "deny", "deny", "deny"]
-    assert expected[5].startswith("no decision")
+    assert expected[1:6] == ["deny, NOT MEASURED", "deny", "deny", "deny", "deny"]
+    assert expected[6].startswith("no decision")
     assert "NOT MEASURED" in text and "gate did not run" in text
     assert f"`{gate.MCP_MATCHER}`" in text, "the runbook names the matcher the manifests carry"
 
