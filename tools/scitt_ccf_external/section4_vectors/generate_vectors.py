@@ -10,9 +10,9 @@ Inputs, committed in this repository:
 - tools/scitt_ccf_external/consistency_result.json: the ledger's 25 leaves, read with the ccf package
   7.0.17, from which every proof here is computed
 
-Thirteen vectors reuse that COSE_Sign1 unchanged: its protected header and signature cover the newer
-root only, and vdp sits in the unprotected header, so the signature stays valid whatever proofs are
-placed beside it. S4-14 flips one bit of that signature, so it does not verify. S4-10, a deliberately
+Thirteen vectors reuse its protected header and signature unchanged. They cover the newer root only,
+and vdp sits in the unprotected header, so the signature stays valid whatever proofs are placed beside
+it. S4-14 flips one bit of that signature, so it does not verify. S4-10, a deliberately
 noncanonical root, is signed with the one TEST ONLY key in this
 directory, TEST_ONLY_es384_private_key.pem, created on the first run and never replaced; its ECDSA
 signatures are deterministic (RFC 6979), so a run reproduces the same bytes.
