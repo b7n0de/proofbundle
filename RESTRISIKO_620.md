@@ -821,8 +821,8 @@ P1 findings F1 and F3 of V8 and the P2 findings of both lanes are closed by the 
 these lines are what the lanes found that the fix does not change.
 - **A memoryview whose format no view of private bytes can take stays the caller's view** (P1, V8-F2, the same at
   8f2fa980 and d388ed3d): a view of a ctypes array (`<H`, `>I`, `T{...}`) or of an `array('u')` is read by both
-  collects and handed on, and a view with strides is not read at all and handed on (its bytes are no one buffer, the
-  lane V12 on d1c39ae3); the body reads the caller's view when it reads it.
+  collects and handed on, and a view that is not contiguous (a slice with a step) is not read at all and handed on
+  (its bytes are no one buffer, the lanes V12 and V13); the body reads the caller's view when it reads it.
   `merkle.verify_inclusion` read the proof first and the leaf later from two such views and gave True in 8 of 533
   runs where each state gives False. `memoryview.cast` takes none of these formats, and a view of the same bytes in
   format `B` would be another value to a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`
@@ -857,8 +857,9 @@ closed by the fix and named in its CHANGELOG entry; these lines are what the lan
 - **A value the comparison does not read, built anew on each read by a Mapping that never changes, is refused as
   changed** (P2, V12-F1; 8f2fa980 and d388ed3d give a verdict, 085869313 and d58be0b8 refuse these and more): a
   `Fraction`, a `UUID`, a path, an `ipaddress` value, a `slice`, a `timezone`, a `str` or `bytes` subclass as a
-  value, a datetime or time with a tzinfo, a memoryview with strides or a released one, a view of an OrderedDict, and
-  an object of the caller's class. `automation_summary` raises `_StandGestoert`, a `ProofBundleError`, where it gave a
+  value, a datetime or time with a tzinfo, a memoryview that is not contiguous or a released one, a view of an
+  OrderedDict, and an object of the caller's class; as a key or set item such a value built anew is compared with the
+  one at the same place of the other answer, so the same keys in another order are refused too. `automation_summary` raises `_StandGestoert`, a `ProofBundleError`, where it gave a
   verdict; no verdict is promoted. Comparing such values would run code that is not the interpreter's own types' (a
   tzinfo's `utcoffset`, a caller's `__eq__`), or the copy hands them on as the caller's objects. `verify_rfc3161`
   refuses such an `rp_trust` in its body at 8f2fa980 already. A Mapping that returns the same objects on each read, or
@@ -869,6 +870,15 @@ closed by the fix and named in its CHANGELOG entry; these lines are what the lan
   verdict is FAIL both ways (the rule of the lane V11: a dict that is no OrderedDict has no order in its value).
 - **What the lane did not run:** the cost on a Mapping of 100 000 pairs, other Python versions, `-bb`, real threads, a
   reader that raises a RecursionError only on its second run, and plants of the second test file's own code.
+
+From the verify lane V13 on 95c9f82a, the sixth form of that fix, before it was pushed. Its findings are closed by the
+fix and named in its CHANGELOG entry; these lines are what the lane found that the fix does not change.
+- **A key of a type the comparison does not read, built anew, meets its counterpart only at the same place**: two
+  answers that list such keys (a Fraction, a UUID, an object of the caller's class) in another order are paired in
+  their stored order and called different, and the call is refused with `_StandGestoert`; the first line of the block
+  of the lane V12 above.
+- **What the lane did not run:** real threads, other Python versions, `-W error` beyond `-bb`, tracing, a view changed
+  while it is read, the cost on 100 000 pairs (the suite ran), and plants of the second test file's own code.
 
 ## Open — named limits carried by the fixes themselves
 
@@ -990,9 +1000,10 @@ those on a verify, emit or release path:
   surface would otherwise answer. Two readings that are no one value cause it: code that changes the value while it
   is read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
   values that are no one value. Two answers are one value when the copies made from them would hold the same
-  (`canonical._derselbe`): equal contents, in any order for a set, a frozenset and a dict that is no OrderedDict, a
-  caller's object only as itself, and an exact str, bytes, int, bool, a float of the same bits, a complex, range or
-  Decimal, a date, a timedelta or a naive time or datetime of equal value and fold. Any other value built anew on
+  (`canonical._derselbe`): equal contents, in any order for a set, a frozenset, a dict that is no OrderedDict and the
+  fields of an object of this package, a caller's object only as itself, and an exact str, bytes, int, bool, a float
+  of the same bits, a complex of the same bits, a range of the same start, stop and step, a Decimal of the same sign,
+  digits and exponent, a date, a timedelta or a naive time or datetime of equal value and fold. Any other value built anew on
   each read is a change even when it is equal: the first line of the block of the lane V12 above. A RecursionError raised while the arguments are read is raised as it is, before
   the body runs, also at a never-raise surface. The reading costs two reads and one copy of the arguments per call
   from outside the package, linear in their size, and two runs of a named reader (the line on its cost above). A public function that the package's own code calls from inside the body of another

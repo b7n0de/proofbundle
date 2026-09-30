@@ -119,8 +119,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     result of `evaluate_public_transparency` can only be read through their own methods; a named reader reads each
     before the first collect and after the second, and the reading counts only when its two answers are the same
     value (two answers are one value when the copies made from them would hold the same: equal contents, in any
-    order for a set, a frozenset and a dict that is no OrderedDict, and an exact str, bytes, int, bool, a float of the
-    same bits, a complex, range or Decimal, a date, a timedelta or a naive time or datetime of equal value and fold;
+    order for a set, a frozenset, a dict that is no OrderedDict and the fields of an object of this package, and an
+    exact str, bytes, int, bool, a float or complex of the same bits, a range of the same start, stop and step, a
+    Decimal of the same digits and exponent, a date, a timedelta or a naive time or datetime of equal value and fold;
     any other value built anew, an object of the caller's class among them, is a change, named in RESTRISIKO_620.md),
     so what it reads is part of the one reading. A RecursionError
     raised while the arguments are read is raised as it is, not refused as a change. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
@@ -162,8 +163,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     968 runs where each state fails); it cannot be read twice, and RESTRISIKO_620.md names it as open. Pass a list or
     a tuple, not an iterator, a generator, `map`, `chain` or `reversed`: with a list the same sweeps give 0.
   - The fifth form (d1c39ae3, not pushed) had the verify lane V12, and it found the comparison of a reader's two
-    answers wrong both ways. It called answers the same whose copies differ: `{1}` and `{True}`, `{0.0}` and
-    `{-0.0}`, two NaNs of another sign or payload, two naive datetimes of another `fold`. And it called equal values a
+    answers wrong both ways. It called answers the same whose copies differ: `{1}` and `{True}`, two NaNs of another
+    sign or payload, two naive datetimes of another `fold`. And it called equal values a
     change: a never-changed Mapping that builds a frozenset, a set of floats or tuples, a complex, a range, a Decimal,
     a Counter or a dict with float or tuple keys in another order on each read was refused at `automation_summary`,
     where 8f2fa980 gives a verdict. `dict.keys(od)` of an OrderedDict was copied as a view of the copy, which lists the
@@ -179,6 +180,26 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     parts of `_lies` the step touched) into copies of this tree, 66 fell at the class tests (at an assertion, at the `_StandGestoert` of the Mapping
     that parses its values anew, or at a raised TypeError), and one, the guard against a circle, hangs the ring case
     and fell only to a time limit of 120 s.
+  - The sixth form (95c9f82a, not pushed) had the verify lane V13. Its key matching looked a key up by its value only
+    when the key was an exact scalar or a tuple of such, and else by identity: a never-changed Mapping keyed by a date,
+    a timedelta, a naive datetime or time, a NaN or a tuple holding one was refused as changed, where d1c39ae3,
+    8f2fa980 and d388ed3d give a verdict, a step back of that form. A `range` was compared by `==`, and `range(0, 3, 5)`
+    and `range(0, 1)` are equal but store another start, stop and step. Looking `"a"` up among keys holding `b"a"`
+    compared the two (their hash is the same), and under `python -bb` a BytesWarning escaped where the two answers are
+    simply different. Two sentences were wrong: d1c39ae3 called `{0.0}` and `{-0.0}` different, not the same, and every
+    memoryview has strides, only one that is not contiguous is not read. And with one of 18 more rules planted away no
+    test fell. The pairing of keys now looks each key up by its type and what it stores, read through the attributes of
+    the exact built-in type (a float by its bits, a Decimal by its digits and exponent, a date by its fields, and so on
+    for every type the comparison reads as a leaf, and a tuple or frozenset of such), else as the same object, else in
+    the stored order of both answers; any one-to-one pairing is sound, because each pair is then compared type-exactly.
+    A range is compared by its start, stop and step, and the fields of an object of this package's dataclasses in any
+    order, as a plain dict. Each of the 18 rules has a case that falls without it: measured on 2026-09-30 by planting
+    92 single defects (each rule of the comparison, of the typed key and of the pairing, and the parts of `_lies` the
+    chain touched) into copies of this tree, 91 fell at the class tests, and one, the guard against a circle, hangs
+    the ring case and fell only to a time limit of 120 s. The second class file compared two runs of `show-eval`
+    including the age it prints, which the clock writes: two runs a second apart differed, so its control failed
+    under load, and the generator could see a difference where a content read like no option. That line is kept
+    as its label now, and a test runs the command twice across a second.
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
     beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
@@ -250,13 +271,15 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length, the depth
   after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier; and
   what the lane V10 found: each rule of the comparison of a reader's two answers, a RecursionError inside a reader
-  and in the collection of the package's dataclasses; and what the lane V12 found: a case for each rule of that
-  comparison, which falls without the rule and runs no method of the caller, a Mapping that parses its values anew,
-  a view of an OrderedDict handed on and a memoryview of two dimensions) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
-  (the file-content generator, with a planted option the command does not read, the policy with nothing the command
+  and in the collection of the package's dataclasses; and what the lanes V12 and V13 found: a case for each rule of
+  that comparison and of the pairing of keys, which falls without the rule and runs no method of the caller, a
+  Mapping that parses its values anew in both orders, a view of an OrderedDict handed on, a memoryview of two
+  dimensions and one that is not contiguous, and a str key beside a bytes key under `python -bb`) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  (the file-content generator, with a planted option the command does not read and the line the clock writes kept
+  out of its comparison, the policy with nothing the command
   evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of
   the generator or named with its reason). Two surfaces the lanes named have no sweep of their own: the pair tuples of
-  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them (each failed case of a test with cases counts once): at d388ed3d 96 failed in the first file and 23 in the second; at 6d674973, 84 and 17; at 8f2fa980, 51 and 4 (a count that moves by one or two between runs there, because two tests depend on the load at that tree, the copy of nested tuples in linear time and a thread that collects all the time); at 085869313, 36 and 0; at d58be0b8, 23 and 0; at d1c39ae3, 19 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
+  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them (each failed case of a test with cases counts once): at d388ed3d 97 failed in the first file and 23 in the second; at 6d674973, 85 and 17; at 8f2fa980, 53 and 4 (a count that moves by one or two between runs there, because two tests depend on the load at that tree, the copy of nested tuples in linear time and a thread that collects all the time); at 085869313, 56 and 0; at d58be0b8, 40 and 0; at d1c39ae3, 36 and 0; at 95c9f82a, 16 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
 
 - **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
   value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each

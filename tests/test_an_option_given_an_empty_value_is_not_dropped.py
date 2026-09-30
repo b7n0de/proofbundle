@@ -52,6 +52,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -263,15 +264,22 @@ _DATEI_FAELLE = frozenset({
 _VKEY = "example.com/log+abcd1234+AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
 
 
+#: A line of stdout that the clock writes, not the input: `show-eval` prints the age of the claim in seconds. Two runs
+#: a second apart differ there, which made the control below fail under load, and could make the generator see a
+#: difference where a content read like no option (measured on 2026-09-30, 853180s against 853181s).
+_UHRZEILE = re.compile(r"(?m)^age +\S+s$")
+
+
 def _beobachte(argv: list[str]) -> tuple:
-    """Exit code and stdout of one run: what a caller of the command can tell apart."""
+    """Exit code and stdout of one run: what a caller of the command can tell apart, with the line the clock writes
+    (`_UHRZEILE`) kept as its label."""
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
         try:
             rc = main(argv)
         except SystemExit as exc:
             rc = exc.code
-    return rc, out.getvalue()
+    return rc, _UHRZEILE.sub("age <seconds>s", out.getvalue())
 
 
 class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
@@ -424,6 +432,16 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
         datei = Path(self._td.name) / "unread.txt"
         datei.write_text("null", encoding="utf-8")
         self.assertEqual(_beobachte(basis + ["--eat", str(datei)]), _beobachte(basis))
+
+    def test_the_line_the_clock_writes_is_no_difference(self) -> None:
+        """The age `show-eval` prints moves with the clock, so two runs a second apart must still read as one
+        observation; the label keeps the line, so its absence would still be a difference."""
+        import time
+        basis = ["show-eval", self.b.eval_receipt]
+        erster = _beobachte(basis)
+        self.assertIn("age <seconds>s", erster[1])
+        time.sleep(1.1)
+        self.assertEqual(_beobachte(basis), erster)
 
 
 #: Every file option without a generator case, with the reason no content of it can read as its absence.
