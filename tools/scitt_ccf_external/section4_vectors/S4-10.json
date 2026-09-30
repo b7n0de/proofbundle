@@ -55,10 +55,10 @@
    ]
   }
  ],
- "construction": "anchor R_6 of the ledger's first 6 leaves, path [right HASH(d[6])] with the ledger's leaf 6, signed over N1 = HASH(R_6 || HASH(d[6])) with the txid 2.7, as a service would sign the root of 7 leaves; N1 is a deliberately noncanonical root (R_7 is HASH(node(0, 4) || HASH(node(4, 6) || HASH(d[6])))). Without sizes the proof has the form of a canonical proof from 4 to 5",
+ "construction": "anchor R_6 of the ledger's first 6 leaves, path [right HASH(d[6])] with the ledger's leaf 6, signed over N1 = HASH(R_6 || HASH(d[6])) with the txid 2.7 a service writes for a state of 7 leaves; N1 is a deliberately noncanonical root (R_7 is HASH(node(0, 4) || HASH(node(4, 6) || HASH(d[6])))). Without sizes the proof has the form of a canonical proof from 4 to 5",
  "provenance": {
   "signer": "test key",
-  "note": "signed with TEST_ONLY_es384_private_key.pem; no service signs this root",
+  "note": "signed with TEST_ONLY_es384_private_key.pem over a deliberately noncanonical root",
   "ledger": "scitt-ccf-ledger 00101f769d872711356e080fbb089ac48589c60a, CCF 7.0.17, virtual mode, one node, local; not a production service"
  },
  "list_references": [

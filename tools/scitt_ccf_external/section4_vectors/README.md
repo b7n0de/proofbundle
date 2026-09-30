@@ -1,6 +1,6 @@
 # Receipt-level vectors for section 4 of draft-ietf-scitt-receipts-ccf-profile-05
 
-Fifteen consistency receipts, each with the older root it is checked against, the key that verifies it,
+Fifteen consistency receipts, each with the older root it is checked against, the public key used to check it,
 the tree sizes a caller holds, the sentence of the draft it tests, and its result under two readings of
 section 4, reading B both size-free and size-aware. The vectors make
 the readings comparable; they do not presume either, and which one the draft means is for the working
@@ -24,21 +24,24 @@ group to decide.
 - The ledger's three signed states (tree sizes 19, 22 and 24) and the service's COSE_Sign1 over the
   newest root come from `tests/fixtures/scitt_ccf/local_ledger_consistency.json`; the ledger's 25 leaves
   from `../consistency_result.json`, read with the ccf package 7.0.17.
-- The three list messages that asked for these cases, by address; they were not retrieved from the
-  environment that built the vectors, whose network refuses mailarchive.ietf.org (tried 2026-09-30):
+- The three list messages that asked for these cases. Cowork, the owner's review session, read them in
+  the archive on 2026-09-30 and confirmed the sentences cited here. The environment that built the
+  vectors could not reach mailarchive.ietf.org (tried 2026-09-30):
   - Team EMILIA, signed vectors at receipt level: https://mailarchive.ietf.org/arch/msg/scitt/FmclkmQ4eDiyOTB409P0WJSjdEk/
-  - Tiago Pinto, mixed receipts and a root without sizes: https://mailarchive.ietf.org/arch/msg/scitt/eF_K0AwI5dQRDUwnLazYem0YrJA/
+  - Tiago Pinto, the 96 bytes and the root N1: https://mailarchive.ietf.org/arch/msg/scitt/eF_K0AwI5dQRDUwnLazYem0YrJA/
   - Nicholas Templeman, several proofs in one receipt: https://mailarchive.ietf.org/arch/msg/scitt/55Ausn8Rf5oyBJ2t67uAyZWpxWs/
 - Our own points G1 to G8: `../SECTION4_WGLC.md`.
 
 ## Limits
 
-- No service measured emits a -05 consistency receipt. The vectors signed by the service combine the
-  service's own signature over a newer root with consistency proofs computed from the leaves of its
-  ledger. This works because `vdp` sits in the unprotected header: the signature covers the protected
-  header and the detached newer root only, so it stays valid whatever proofs are placed beside it.
+- No service measured emits a -05 consistency receipt. Thirteen vectors carry the service's own
+  signature over the newer root R_24 unchanged, beside consistency proofs computed from the leaves of
+  its ledger; S4-14 carries that signature with one bit flipped, so it does not verify; S4-10 is signed
+  with the test key. The unchanged signature stays valid whatever proofs are placed beside it, because
+  `vdp` sits in the unprotected header: the signature covers the protected header and the detached
+  newer root only.
 - The ledger is a local one in virtual mode, not a production service.
-- One vector, S4-10, carries a root no service would sign. It is signed with the one test key of this
+- One vector, S4-10, carries a deliberately noncanonical root. It is signed with the one test key of this
   directory, `TEST_ONLY_es384_private_key.pem`: an ES384 (P-384) key made for these vectors alone,
   published on purpose, and not a key of any service, release or person. Its signatures are
   deterministic (RFC 6979), so `generate_vectors.py` reproduces the same bytes. Its protected header

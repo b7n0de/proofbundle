@@ -65,8 +65,8 @@
  ],
  "construction": "S4-01 with bit 0 of signature byte 0 flipped",
  "provenance": {
-  "signer": "service",
-  "note": "the service's own COSE_Sign1 over R_24 from the fixture, its unprotected header replaced; the proofs are computed from the ledger's leaves",
+  "signer": "service, one signature bit flipped",
+  "note": "the service's COSE_Sign1 over R_24 from the fixture with bit 0 of signature byte 0 flipped, so it does not verify; its unprotected header replaced; the proofs are computed from the ledger's leaves",
   "ledger": "scitt-ccf-ledger 00101f769d872711356e080fbb089ac48589c60a, CCF 7.0.17, virtual mode, one node, local; not a production service"
  },
  "list_references": [],
