@@ -26,8 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .canonical import (_StandGestoert, _ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie,
-                        _zeichen_von, _zweimal)
+from .canonical import (_ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie, _zeichen_von)
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items
 
@@ -161,12 +160,13 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     return errors
 
 
+@dataclass
 class _KonsistenzStand:
     """A consistency result read once at the call of `evaluate_public_transparency`: the answer of its own
     ``validate()`` and the four fields the evaluation compares, each read one time (verify lane V2 on 6d674973).
     The evaluation read the caller's object at five places; one whose fields are computed on each access passed
-    with the root of one state and the confirmation of another, where each state fails."""
-    __slots__ = ("_befund", "new_origin", "new_tree_size", "new_root_b64", "confirmed")
+    with the root of one state and the confirmation of another, where each state fails. A dataclass of this
+    package, so `canonical._stand` compares two readings of it field by field (`canonical._derselbe`)."""
     _befund: list
     new_origin: Any
     new_tree_size: Any
@@ -181,8 +181,9 @@ def _konsistenz_stand(wert: Any) -> Any:
     """The boundary reader of ``consistency_result`` (`canonical._ein_stand`). None, and an object without
     ``validate``, are handed on unchanged for the evaluation to judge as before; so is an object whose
     ``validate()`` answer is no list or whose fields cannot be read, which the evaluation then reads as before. The
-    answer and the fields are read twice and compared (`canonical._zweimal`), because the object can only be read
-    through its own code, and a gc callback between two of its reads could otherwise pair two states."""
+    object can only be read through its own code, so `canonical._stand` runs this reader before its first collect and
+    after its second and compares the two answers field by field: a gc callback between two of its reads, or one
+    that changes it and another argument together, cannot pair two states."""
     if wert is None or not hasattr(wert, "validate"):
         return wert
     felder = ("new_origin", "new_tree_size", "new_root_b64", "confirmed")
@@ -191,19 +192,12 @@ def _konsistenz_stand(wert: Any) -> Any:
         befund = wert.validate()
         if type(befund) is not list:
             raise TypeError("validate() answered no list")
-        # Its findings as one exact tuple, so the two readings compare them place by place (`canonical._zweimal`).
-        return [tuple(befund)] + [getattr(wert, feld) for feld in felder]
+        return [list(befund)] + [getattr(wert, feld) for feld in felder]
     try:
-        gelesen = _zweimal(lesen)
-    except _StandGestoert:
-        raise
+        gelesen = lesen()
     except Exception:  # noqa: BLE001 - an object that cannot be read here is read by the evaluation as before
         return wert
-    stand = _KonsistenzStand()
-    stand._befund = list(gelesen[0])
-    for feld, feldwert in zip(felder, gelesen[1:]):
-        setattr(stand, feld, feldwert)
-    return stand
+    return _KonsistenzStand(*gelesen)
 
 
 @_ein_stand(consistency_result=_konsistenz_stand)

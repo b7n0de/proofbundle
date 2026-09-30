@@ -32,7 +32,7 @@ from typing import Optional, cast
 
 from .budget import int_magnitude_ok
 from .budget import render_safe as _rs
-from .canonical import (_abbild_stand, _bytes_von, _ein_stand, _feld_von, _folge_von,
+from .canonical import (_abbild_stand, _bytes_von, _draussen, _ein_stand, _feld_von, _folge_von,
                         _zeichen_von)
 from ._membership import type_name
 from .errors import Check, ProofBundleError, VerificationResult
@@ -1029,12 +1029,19 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     def _no_anchor(_a: ArchiveTimeStamp) -> bool:
         return False
 
+    def _caller_anchor(a: ArchiveTimeStamp) -> bool:
+        # The caller's callable runs as the caller's code (`canonical._draussen`): a public function it calls reads
+        # its arguments as every call from the caller does (verify lane V8 on 085869313, F5: a `functools.partial` of
+        # a public function, called under the name `verify_anchor` outside such a block, read nothing).
+        with _draussen():
+            return anchor_verifier(a)  # type: ignore[misc]
+
     anchor_mode: str
     if authority_keys is not None:
         verify_anchor: Callable[[ArchiveTimeStamp], bool] = _signature_anchor
         anchor_mode = "authority signature"
     elif anchor_verifier is not None:
-        verify_anchor = anchor_verifier
+        verify_anchor = _caller_anchor
         anchor_mode = "caller anchor_verifier"
     elif allow_unauthenticated_anchor is True:
         verify_anchor = _default_anchor

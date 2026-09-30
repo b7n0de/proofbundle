@@ -28,14 +28,16 @@ paths converge on. Providing it here does NOT change any released wire format â€
 """
 from __future__ import annotations
 
+import array
 import functools
 import gc
 import hashlib
 import inspect
 import sys
 import threading
+import types
 from datetime import datetime, timezone
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Mapping
 from typing import Any, Callable, Union
 
@@ -135,6 +137,8 @@ def _paketklasse(typ: Any) -> bool:
                 if (type(heimat) is str and (heimat == "proofbundle" or heimat.startswith("proofbundle."))
                         and "__dataclass_fields__" in _KLASSENDICT.__get__(wert)):
                     _PAKETKLASSEN[id(wert)] = wert
+    except RecursionError:
+        raise   # the interpreter's stack ran out here: no module changed, so nothing is decided from it
     except RuntimeError:   # another thread loaded a module meanwhile: collected again at the next unknown class
         return False
     _PAKETKLASSEN_BEI[0] = geladen
@@ -146,12 +150,25 @@ _MODULNAME = type.__dict__["__module__"]
 _KLASSENDICT = type.__dict__["__dict__"]
 _MODULTYP = type(sys)
 
+#: The views `_lies` reads, taken by identity: none of them can be subclassed.
+_SCHLUESSELSICHT: Any = type({}.keys())
+_WERTESICHT: Any = type({}.values())
+_PAARSICHT: Any = type({}.items())
+_ABBILDSICHT = types.MappingProxyType
+
 
 def _lies(wert: Any) -> Any:
     """One container as it stores its contents now, ``(art, typ, inhalt, extra)``, or None for a value `_stand` does
     not copy. Read through the base type's own methods, which run no code of the caller: nothing is hashed, compared
     or called on the caller's objects. Both collects of `_stand` read a container through this one function, so both
-    read it the same way. Raises RuntimeError when the container changed its size while it was read."""
+    read it the same way. Raises RuntimeError when the container changed its size while it was read.
+
+    Read: a dict, list, tuple, set, bytearray, ``collections.deque`` and ``array.array`` and every subclass of them, a
+    memoryview, a dataclass of this package, and a view of a dict (``keys()``, ``values()``, ``items()``, a
+    ``types.MappingProxyType``). A deque, an array and a view were handed on as the caller's objects until verify lane
+    V8 on 085869313: `emit_bundle` read a deque of prior leaves at body time and signed the payload of one state over
+    the leaves of another, and `evaluate_public_transparency` passed witness keys in a deque that neither state holds.
+    Not read: a frozenset (its items are handed on as they are), a view of an OrderedDict, and any other type."""
     typ = type(wert)
     if issubclass(typ, dict):
         paare = list(dict.items(wert))
@@ -172,6 +189,20 @@ def _lies(wert: Any) -> Any:
     if issubclass(typ, bytearray):
         # The base type's slice is a private bytearray of the stored bytes; the first collect's is the copy itself.
         return ("bytearray", typ, bytearray.__getitem__(wert, slice(None)), None)
+    if issubclass(typ, deque):
+        # The base type's own iteration, which raises RuntimeError when the deque changes while it is read.
+        return ("deque", typ, list(deque.__iter__(wert)), deque.maxlen.__get__(wert))
+    if issubclass(typ, array.array):
+        # The base type's slice is a private array of the same type code; the first collect's is the copy itself.
+        return ("array", typ, array.array.__getitem__(wert, slice(None)), None)
+    if typ is _SCHLUESSELSICHT or typ is _WERTESICHT or typ is _PAARSICHT or typ is _ABBILDSICHT:
+        # A view holds one mapping, which the interpreter's own traversal names without running code of the caller
+        # (as `_in_eigener_reihenfolge` bounds an OrderedDict). It is rebuilt over the copy of that mapping; a view of
+        # a mapping that is no dict stays the caller's object.
+        bezug = gc.get_referents(wert)
+        if len(bezug) != 1 or not issubclass(type(bezug[0]), dict):
+            return None
+        return ("sicht", typ, bezug, None)
     if typ is memoryview:
         try:
             return ("memoryview", typ, b"" + wert, (wert.format, tuple(wert.shape)))
@@ -208,17 +239,18 @@ def _lesen_einmal(wurzel: Any) -> dict:
         art = satz[0]
         if art == "dict" or art == "daten":
             stapel.extend([eintrag for _, eintrag in satz[2]])
-        elif art == "list" or art == "tuple":
+        elif art == "list" or art == "tuple" or art == "deque" or art == "sicht":
             stapel.extend(satz[2])
     return gelesen
 
 
 def _gleich_gelesen(gelesen: dict) -> bool:
     """The second collect of `_stand`: every container of the first, read again through `_lies`. True when each still
-    holds the same objects (compared by identity; a set as the ids it holds) and each byte buffer the same bytes."""
+    holds the same objects (compared by identity; a set as the ids it holds) and each byte buffer and array the same
+    bytes."""
     for art, _, inhalt, _, wert in gelesen.values():
-        if art == "tuple":
-            continue   # a tuple cannot change what it holds
+        if art == "tuple" or art == "sicht":
+            continue   # a tuple cannot change what it holds, nor a view the mapping it shows
         satz = _lies(wert)
         if satz is None or satz[0] != art:
             return False
@@ -226,12 +258,15 @@ def _gleich_gelesen(gelesen: dict) -> bool:
         if art == "bytearray" or art == "memoryview":
             if neu != inhalt:
                 return False
+        elif art == "array":
+            if array.array.tobytes(neu) != array.array.tobytes(inhalt):   # by the bytes, so a NaN is equal to itself
+                return False
         elif len(neu) != len(inhalt):
             return False
         elif art == "set":
             if {id(x) for x in neu} != {id(x) for x in inhalt}:
                 return False
-        elif art == "list":
+        elif art == "list" or art == "deque":
             for alt, jetzt in zip(inhalt, neu):
                 if alt is not jetzt:
                     return False
@@ -286,12 +321,17 @@ def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
 def _bauen(gelesen: dict, wurzel: Any) -> Any:
     """The copy `_stand` returns: a private plain copy of every container the reading read, built only from what it
     read, so nothing the caller does afterwards reaches it, and no object of the caller's classes is made. A subclass
-    of dict, list, tuple, set or bytearray becomes the base type holding what it stores, as `_plain_for_jcs` copies it;
-    an OrderedDict becomes a dict in its own order; an object of a dataclass of this package becomes a new object of
-    that class holding copies of what its ``__dict__`` stores, made without its ``__init__``. A key is taken as
-    `_schluessel_von` gives it. A dict or set whose key would be the caller's code, or whose keys meet as one in the
-    copy (a ``str`` subclass beside the ``str`` it spells), and an object of this package with an attribute name that is
-    no exact ``str``, stay the caller's objects."""
+    of dict, list, tuple, set, bytearray, deque or array becomes the base type holding what it stores (a deque with its
+    ``maxlen``, an array with its type code), as `_plain_for_jcs` copies a subclass; an OrderedDict becomes a dict in
+    its own order; a view of a dict becomes the same view of the dict's copy; an object of a dataclass of this package
+    becomes a new object of that class holding copies of what its ``__dict__`` stores, made without its ``__init__``. A
+    key is taken as `_schluessel_von` gives it. A dict or set whose key would be the caller's code, or whose keys meet
+    as one in the copy (a ``str`` subclass beside the ``str`` it spells), an object of this package with an attribute
+    name that is no exact ``str``, a view of such a dict, and a memoryview whose format and shape a view of private
+    bytes cannot take (a format with a byte order such as ``<H``, a record ``T{...}``, ``u``: `memoryview.cast` takes
+    none of them) stay the caller's objects. Such a view is read by both collects, so the reading is one state, but
+    the body reads the caller's view when it reads it; a view of private bytes in format ``B`` would be another value to
+    a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`)."""
     kopie: dict = {}
     schluessel_je: dict = {}
     for schluessel, (art, typ, inhalt, extra, _) in gelesen.items():
@@ -313,8 +353,10 @@ def _bauen(gelesen: dict, wurzel: Any) -> Any:
             if any(k is _UNSICHER for k in neue) or len(set(neue)) != len(neue):
                 continue
             kopie[schluessel] = set(neue)
-        elif art == "bytearray":
+        elif art == "bytearray" or art == "array":
             kopie[schluessel] = inhalt   # the private slice of the first collect (`_lies`)
+        elif art == "deque":
+            kopie[schluessel] = deque((), extra)
         elif art == "memoryview":
             ansicht = memoryview(inhalt)
             form, gestalt = extra
@@ -324,6 +366,16 @@ def _bauen(gelesen: dict, wurzel: Any) -> Any:
                 except (TypeError, ValueError):
                     continue
             kopie[schluessel] = ansicht
+    # A view over the copy of its mapping, before the tuples, so a tuple that holds a view holds its copy.
+    for schluessel, (art, typ, inhalt, _, _) in gelesen.items():
+        if art != "sicht":
+            continue
+        abbild = kopie.get(id(inhalt[0]))
+        if abbild is None:
+            continue
+        kopie[schluessel] = (_ABBILDSICHT(abbild) if typ is _ABBILDSICHT else dict.keys(abbild)
+                             if typ is _SCHLUESSELSICHT else dict.values(abbild) if typ is _WERTESICHT
+                             else dict.items(abbild))
     # Tuples after their tuple parts, each part looked at once (verify lane V6 on 8f2fa980: the parts of a tuple were
     # scanned again after each part was built, and a tuple of 16000 tuples took 55 s). A circle through tuples alone
     # cannot be built from Python; one met anyway keeps the caller's tuple at the place that closes it.
@@ -362,7 +414,7 @@ def _bauen(gelesen: dict, wurzel: Any) -> Any:
             eigen = object.__getattribute__(ziel, "__dict__")
             for k, (_, v) in zip(schluessel_je[schluessel], inhalt):
                 eigen[k] = kopie.get(id(v), v)
-        elif art == "list":
+        elif art == "list" or art == "deque":
             ziel.extend([kopie.get(id(v), v) for v in inhalt])
     return kopie.get(id(wurzel), wurzel)
 
@@ -391,48 +443,90 @@ def _stand(wurzel: Any, leser: Any = None) -> Any:
     collect) is not seen, and the copy can then hold that container from before the change beside another from its
     middle. The snapshot algorithms close it with a counter in each register; a caller's container has none.
 
-    ``leser`` runs at the start of each reading (the reader of an argument that is read through its own methods,
-    `_abbild_stand`), and what it returns is read and compared like the rest. Such an argument can only be read
-    through code of the caller, so a reader reads it twice itself and compares (`_zweimal`)."""
+    ``leser`` is the reader of the arguments that are read through their own methods (`_abbild_stand`,
+    `public_transparency._konsistenz_stand`). It runs before the first collect, and what it returns is collected
+    with the rest; it runs again after the second collect, and the reading counts only when the second answer is
+    the first place by place (`_derselbe`). So the reader's reading is part of both collects: what it read held
+    from before the first collect to after the second, and each container held what the first collect read from
+    its end to the start of the second, so all of it held at one instant between them. Until verify lane V8 on
+    085869313 the reader ran once, before the collects, and read twice only inside itself: a callback that changed
+    a Mapping and another argument together after the reader ran paired the Mapping of one state with the argument
+    of the other (`automation_summary` safe in 171 of 1080 runs, `verify_anchor` ok in 107 of 1519, where each state
+    gives False).
+
+    A RecursionError is raised as it is: the interpreter's stack ran out, nothing of the value changed, and the
+    refusal would name a change that did not happen (verify lanes V7 and V8 on 085869313: a valid input a few frames
+    below the limit got `_StandGestoert`)."""
     for _ in range(_VERSUCHE):
-        gelesen_wurzel = leser(wurzel) if leser is not None else wurzel
         try:
+            gelesen_wurzel = leser(wurzel) if leser is not None else wurzel
             gelesen = _lesen_einmal(gelesen_wurzel)
-            if _gleich_gelesen(gelesen):
+            if _gleich_gelesen(gelesen) and (leser is None or _derselbe(gelesen_wurzel, leser(wurzel))):
                 return _bauen(gelesen, gelesen_wurzel)
-        except RuntimeError:   # a dict or set changed its size while it was read: this reading is no state
+        except RecursionError:
+            raise
+        except RuntimeError:   # a dict, set or deque changed its size while it was read: this reading is no state
             pass
     raise _StandGestoert(f"a value of the caller changed while it was read, in each of {_VERSUCHE} readings of it")
 
 
 def _derselbe(alt: Any, neu: Any) -> bool:
-    """Whether two reads of one place gave the same value: the same object, an exact scalar of equal value (a mapping
-    may build its text anew on each read, as ``os.environ`` does), or an exact tuple of such values."""
-    if alt is neu:
-        return True
-    typ = type(alt)
-    if typ is not type(neu):
-        return False
-    if typ is str or typ is bytes or typ is int or typ is float or typ is bool:
-        return alt == neu
-    if typ is tuple:
-        teile_alt, teile_neu = list(tuple.__iter__(alt)), list(tuple.__iter__(neu))
-        return len(teile_alt) == len(teile_neu) and all(_derselbe(a, b) for a, b in zip(teile_alt, teile_neu))
-    return False
-
-
-def _zweimal(lesen: Callable[[], list]) -> list:
-    """For a reader that can read the caller's object only through its own methods (a ``Mapping`` that is no dict, a
-    result object): ``lesen()`` twice, and its first answer when the second gave the same values place by place
-    (`_derselbe`), the double collect of `_stand` for such an object; else both again, and `_StandGestoert` after
-    `_VERSUCHE` readings. Until verify lane V5 on 8f2fa980 the one call ran with the collector paused; without the pause
-    a gc callback between two of the object's own ``__getitem__`` calls gave a reading that mixed two states."""
-    for _ in range(_VERSUCHE):
-        erste = lesen()
-        zweite = lesen()
-        if len(erste) == len(zweite) and all(_derselbe(a, b) for a, b in zip(erste, zweite)):
-            return erste
-    raise _StandGestoert(f"a value of the caller changed while it was read, in each of {_VERSUCHE} readings of it")
+    """Whether two answers of a reader (`_stand`) are the same value: the same object; an exact ``str``, ``bytes``,
+    ``int`` or ``bool`` of equal value, an exact ``float`` of the same bits (a NaN is itself, -0.0 is not 0.0); an exact
+    tuple, list or dict, or an object of a dataclass of this package, holding the same values place by place (keys in
+    the same order); or two of the empty mappings a reader leaves for a mapping it could not read (`_Unlesbar`). A
+    Mapping may build its values anew on each read, as ``os.environ`` builds its text and a view builds a dict (verify
+    lanes V7 and V8 on 085869313: such a Mapping, never changed, was refused at `verify_anchors`, `verify_rfc3161` and
+    `automation_summary`, where every earlier tree gave a verdict), so equal new objects are the same value here. Any
+    other object is the same only when it is the same object. Read without recursion and by the base types' own
+    methods; the objects compared are the reader's own or its answer's, and none of the caller's methods runs."""
+    stapel = [(alt, neu)]
+    gesehen: set = set()
+    while stapel:
+        a, b = stapel.pop()
+        if a is b:
+            continue
+        typ = type(a)
+        if typ is not type(b):
+            return False
+        if typ is str or typ is bytes or typ is int or typ is bool:
+            if a != b:
+                return False
+            continue
+        if typ is float:
+            if float.hex(a) != float.hex(b):
+                return False
+            continue
+        if typ is _Unlesbar:
+            continue
+        paar = (id(a), id(b))
+        if paar in gesehen:
+            continue
+        gesehen.add(paar)
+        if typ is tuple or typ is list:
+            teile_a, teile_b = list(typ.__iter__(a)), list(typ.__iter__(b))
+            if len(teile_a) != len(teile_b):
+                return False
+            stapel.extend(zip(teile_a, teile_b))
+            continue
+        if typ is dict:
+            da, db = a, b
+        elif _paketklasse(typ):
+            try:
+                da, db = object.__getattribute__(a, "__dict__"), object.__getattribute__(b, "__dict__")
+            except AttributeError:
+                return False
+            if type(da) is not dict or type(db) is not dict:
+                return False
+        else:
+            return False
+        paare_a, paare_b = list(dict.items(da)), list(dict.items(db))
+        if len(paare_a) != len(paare_b):
+            return False
+        for (ka, va), (kb, vb) in zip(paare_a, paare_b):
+            stapel.append((ka, kb))
+            stapel.append((va, vb))
+    return True
 
 
 #: What a reader leaves for a mapping it could not read: its own ``items`` raises, like the mapping's did.
@@ -454,15 +548,14 @@ class _Unlesbar(Mapping):
 
 def _abbild_stand(wert: Any) -> Any:
     """The boundary reader of an argument that is a ``Mapping`` but no dict (``rp_trust``, ``frozen``): its own
-    ``items()``, read twice and compared (`_zweimal`), as a dict of the pairs it listed; a mapping that cannot list them
-    becomes one whose ``items`` raises. Any other value is left as it is (a dict is copied by `_stand`)."""
+    ``items()`` as a dict of the pairs it listed; a mapping that cannot list them becomes one whose ``items`` raises.
+    Any other value is left as it is (a dict is copied by `_stand`). `_stand` runs it before its first collect and
+    after its second and compares the two answers (`_derselbe`), so what it reads is part of the one reading."""
     typ = type(wert)
     if wert is None or issubclass(typ, dict) or not issubclass(typ, Mapping):
         return wert
     try:
-        return dict(_zweimal(lambda: list(wert.items())))
-    except _StandGestoert:
-        raise
+        return dict(list(wert.items()))
     except Exception:  # noqa: BLE001 - a mapping that cannot list its pairs is no mapping to read
         return _Unlesbar()
 

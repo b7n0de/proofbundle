@@ -78,8 +78,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     many collections a call starts depends on the state of the process, and a later lane counted the same kind of
     result over other totals. And the pause did not hold: each reading had its own flag, so a reading in a second
     thread found the collector off, paused nothing, and the first reading's end started it again in the middle of
-    the second (measured with the lane's script at 6d674973: 52 of 300 calls of `verify_decision_receipt` gave a
-    verdict neither state gives while another thread looped `join_test_result`); code of the caller inside a reading
+    the second (the lane measured 24 of 300 calls of `verify_decision_receipt` with a verdict neither state gives
+    while another thread looped `join_test_result`, at 6d674973); code of the caller inside a reading
     could start it again too.
   - The second fix read every argument at the call and paused the collector once for the whole process (8f2fa980,
     not pushed). Its three verify lanes measured what that left out and what the pause cost. `RenewalPolicy.from_dict`,
@@ -100,8 +100,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     classmethod and staticmethod of a public class there (`canonical._ein_stand`; the command line, the demo and the
     two framework hooks are named outside, and `verifier_block.attach`, which fills the caller's predicate in place by
     contract), reads all of its arguments in one reading before its body reads any of them (`canonical._stand`): a
-    private copy of every built-in container, a subclass as its base type holding what it stores and an OrderedDict
-    in its own order, and of every object of a dataclass of this package field by field, read through the base
+    private copy of every dict, list, tuple, set, bytearray, deque and array, a subclass as its base type holding what
+    it stores and an OrderedDict in its own order, of a memoryview and of a view of a dict (`keys()`, `values()`,
+    `items()`, a `MappingProxyType`), and of every object of a dataclass of this package field by field, read through the base
     types' own methods, so no method of the caller runs and no object of the caller's classes is made. A key of a
     `str` or `bytes` subclass is copied as what it stores, in a class of this package that hashes and compares as the
     base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
@@ -113,7 +114,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     a `ProofBundleError`. Nothing of the process is touched, and no module of the package switches the collector. A
     Mapping that is no dict (`rp_trust`, `frozen`, the result and checks of `automation_summary`) and the consistency
     result of `evaluate_public_transparency` can only be read through their own methods; a named reader reads each
-    twice and compares. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
+    before the first collect and after the second, and the reading counts only when its two answers are the same
+    value (equal values it builds anew included), so what it reads is part of the one reading. A RecursionError
+    raised while the arguments are read is raised as it is, not refused as a change. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
     registered anchor verifier) is read as one state where it returns, the callable runs as the caller's code
     (`canonical._draussen`), so a public function it calls reads its arguments whatever frame calls it, and a
     registered verifier gets its own copy of `frozen` and `rp_trust`. A public function that the package's own code
@@ -122,6 +125,21 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     6d674973). A call from the caller's code, a resolver or a gc callback among them, is read as every call is. The
     recursion of `merkle.merkle_tree_hash` and its leaf hash run on its one reading, not through the public names.
     What the reading costs, measured on 2026-09-30 as the least of three alternating rounds over the 55 cases of a verify lane on a loaded machine: the median call takes 1.5 times its time at d388ed3d and 1.06 times its time at the second fix. A small call pays a fixed part (`merkle.leaf_hash` 0.5 against 1.2 microseconds, `cap1.check_cap1_document` over a small document 0.010 against 0.071 ms), `verify_decision_receipt` without a large argument 0.79 against 0.86 ms, and a call over a large argument up to 3.4 times (`validate_decision_predicate` over 90 000 nodes 53 against 181 ms; `canonicalize_statement` over 190 000 nodes 296 against 687 ms and 21 against 62 MB at its peak; `verify_sequence` over 2000 renewals 14 against 38 ms and 0.4 against 3.3 MB, since each ArchiveTimeStamp is copied). Every case stays linear in the size of its arguments.
+  - The third fix (085869313, not pushed) read by the double collect. Its two verify lanes, V7 and V8, measured what
+    it left open. The reader of a Mapping ran once, before the collects, so a callback that changed a Mapping and
+    another argument together paired two states: `automation_summary` safe in 171 of 1080 runs, `verify_anchor` ok in
+    107 of 1519, `evaluate_public_transparency` PASS in 79 of 1028, where each state is refused, and with real threads
+    `safeForAutomation` True in 172 of 445 975 calls; 0 at 8f2fa980 for these shapes, so this was a step back. A deque,
+    an array and a view of a dict were not copied and the body read them after the other arguments were copied:
+    `emit_bundle` signed the payload of one state over the prior leaves of another in 99 of 521 runs, and
+    `evaluate_public_transparency` passed witness keys in a deque in 194 of 814, both also at 8f2fa980. A Mapping that
+    builds equal values anew and is never changed was refused as changed at `verify_anchors`, `verify_rfc3161` and
+    `automation_summary`, where every earlier tree gave a verdict, and so was a valid input a few frames below the
+    recursion limit. `verify_sequence` called its `anchor_verifier` under another name, outside `_draussen`, and the
+    scan of calls, which looked for the parameter's own name, did not see it. The reader is part of both collects
+    now, a deque, an array and a view are copied, a RecursionError passes as it is, the anchor verifier runs as the
+    caller's code, and the scans follow a name bound to a parameter. A memoryview whose format no view of private
+    bytes can take stays the caller's view (named in RESTRISIKO_620.md, the same at every earlier tree).
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
     beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
@@ -149,8 +167,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     and `relation-statement verify` ended with exit 0 and output byte-identical to no `--policy`. Such a policy is
     refused with exit 2 now: at `decision verify` one with no `decision_receipt` section, no rule in its `relations`
     section and, beside `--anchors`, no anchor trust in its `anchors` section; at the other two one with no rule in a
-    `relations` section. An empty `relations` section sets no rule, and `decision verify` under it ended like no
-    `--policy`; an empty `decision_receipt` section applies its default rules and is evaluated. And
+    `relations` section. An empty `relations` section sets no rule: `decision verify` under it ended like no
+    `--policy`, and `outcome verify` and `relation-statement verify` printed `POLICY: OK` over a policy that holds no
+    rule they evaluate. An empty `decision_receipt` section applies its default rules and is evaluated. And
     `emit --key K --new-key ''` signed with K and exited 0, `--key '' --new-key N` wrote N: the two signer options were
     read by their truth. Both are read by `is not None` now, both given is refused, and a key or payload file that
     cannot be read or written is exit 2, not a raw traceback (`emit --payload-file ''` ended in one).
@@ -159,32 +178,37 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   of a built-in container reaches it as its base type holding what it stores and none of its methods runs (the AGT
   adapter, which wrote a list or dict subclass through its own `__iter__` or `items()`, writes what it stores), an
   object of a dataclass of this package reaches it as a new object of that class holding copies, a key of a `str` or
-  `bytes` subclass as what it stores in a class of this package, and a dict with any other key that is no exact str,
-  number, bytes or None, or whose keys meet as one in the copy, stays the caller's object; a function never changes
+  `bytes` subclass as what it stores in a class of this package, a deque, an array and a view of a dict as private
+  copies of the same type, and a dict with a key that is none of these (no exact str, number, bytes or None, no
+  subclass of str or bytes and no tuple or frozenset of such values), or whose keys meet as one in the copy, stays
+  the caller's object, as does a memoryview whose format no view of private bytes can take; a function never changes
   the caller's object (none but `attach` did); `canonical_es256_signature` returns a value of a mutable type that is
   no signature as an equal copy, not as the object itself, `renewal.last_ats` returns an equal copy of the newest
   ArchiveTimeStamp, and the sequences `renew_timestamp` and `renew_hashtree` return hold equal copies of the
   caller's ArchiveTimeStamps; an argument that changed during each of three readings,
   or a Mapping whose two readings differ each time, is `_StandGestoert`, also at a function that otherwise answers
-  every input with a verdict; `verify_offline_merkle` refuses a proof that holds a value that is no JSON value, also
+  every input with a verdict; a Mapping argument read through a named reader is read twice per reading; `verify_offline_merkle` refuses a proof that holds a value that is no JSON value, also
   in a field it does not judge, and a tuple of layers as before; `check_on_receipt` reads evidence that changes its
   size while it is read as malformed; `decision verify` exits 2 for an anchors file holding null or an empty list,
   and the three receipt verify commands for a policy with nothing in it they evaluate; `emit` and the other signing
   commands exit 2 for an empty `--key` or `--new-key` beside the other.
   Tests: `tests/test_a_verifier_reads_a_callers_value_once.py` (the sweep over every collection start of a call, with
-  a planted double reading it catches, at the surfaces the gate and the verify lanes measured, several also over four
+  a planted double reading it catches, at the surfaces the gate and the verify lanes measured, several also over nine
   phases of the allocator; a count of the readings of `related`; the subclass cases; a guard that every public
   function, classmethod and staticmethod carries the reading at its call once, that every call of a caller's callable
   is named, and that each whose answer enters a verdict runs as the caller's code; the one reading itself over a
   generator of values, with recording subclasses of every method a base type has, the package's dataclasses, keys of
   a `str` subclass, a tuple of tuples in linear time and a sweep that falls when the second collect is taken away;
   and the second collect: a change between the two collects read again, three readings before a refusal, a dict that
-  changes its size while it is read, a Mapping read twice, a thread that collects all the time, and a guard that no
-  module of the package switches the collector) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
+  changes its size while it is read, a Mapping read before the first collect and after the second, a thread that
+  collects all the time, and a guard that the package uses the module `gc` only as `gc.get_referents`; and what the
+  lanes V7 and V8 found: two Mappings changed together, a deque, an array and a view copied and read as one state, a
+  RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length, the depth
+  after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier) and `tests/test_an_option_given_an_empty_value_is_not_dropped.py`
   (the file-content generator, with a planted option the command does not read, the policy with nothing the command
   evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of
   the generator or named with its reason). Two surfaces the lanes named have no sweep of their own: the pair tuples of
-  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured at d388ed3d: 64 failed in the first file and 23 in the second, as pytest counts them; at 6d674973, 52 and 17; at 8f2fa980, 26 and 4; here both pass. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
+  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them: at d388ed3d 91 failed in the first file and 23 in the second; at 6d674973, 79 and 17; at 8f2fa980, 48 and 4; at 085869313, 14 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
 
 - **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
   value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each

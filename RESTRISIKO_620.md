@@ -292,7 +292,9 @@ new release commit. Measured on 2026-09-30 by executing each against the source 
   second fix (8f2fa980, not pushed) found what its reading left out (a public classmethod, the package's own
   dataclasses, a dict keyed by a `str` subclass, a resolver that is a partial of a public function) and what its
   pause of the collector for the whole process cost; the reading copies those values now, and reads every container
-  twice instead of pausing. The CHANGELOG entry of this fix names each surface, and
+  twice instead of pausing. The two verify lanes on that third fix (085869313, not pushed) found that the reader of a
+  Mapping ran once, before the collects, and that a deque, an array and a view of a dict were not copied; the reader
+  is part of both collects now and those values are copied. The CHANGELOG entry of this fix names each surface, and
   `tests/test_a_verifier_reads_a_callers_value_once.py` holds the class: the sweep at the measured surfaces, a guard
   that every public function, classmethod and staticmethod carries the reading and that every call of a caller's
   callable is named, and the one reading itself with a sweep that falls when the second collect is taken away.
@@ -814,6 +816,26 @@ does not change. Each carries its lane's measurement unless it says otherwise.
 - **What the reading at the call costs** (P3, V6-F6 and V6-F7, measured by the lane at 8f2fa980 with the pause):
   the lane measured 2 to 5 times the time of d388ed3d for a call with a small dict argument and about three times the peak memory for a structure argument, and a 200 MiB `bytearray` message copied twice where d388ed3d copies it once; a `memoryview` message that `verify_ed25519` refuses at every tree is copied first. The form of the fix, measured by the filer on 2026-09-30 as the least of three alternating rounds over the lane's 55 cases: a median of 1.5 times the time at d388ed3d and 1.06 times that of 8f2fa980, at most 7.1 times for a small call (`cap1.check_cap1_document`, 0.010 against 0.071 ms) and 3.4 times for a large one (`validate_decision_predicate` over 90 000 nodes, 53 against 181 ms); the peak memory of a structure argument is about three times that at d388ed3d, and `verify_sequence` over 2000 renewals peaks at 3.3 MB against 0.4 MB, because each ArchiveTimeStamp is copied. Every case stays linear. A large `bytearray` is copied by each of the two collects, and the first copy is the one the body reads.
 
+From the verify lanes V7 and V8 on 085869313, the third fix of the gate at d388ed3d, before it was pushed. The
+P1 findings F1 and F3 of V8 and the P2 findings of both lanes are closed by the fix and named in its CHANGELOG entry;
+these lines are what the lanes found that the fix does not change.
+- **A memoryview whose format no view of private bytes can take stays the caller's view** (P1, V8-F2, the same at
+  8f2fa980 and d388ed3d): a view of a ctypes array (`<H`, `>I`, `T{...}`), of an `array('u')`, or a view with
+  strides is read by both collects and handed on, and the body reads the caller's view when it reads it.
+  `merkle.verify_inclusion` read the proof first and the leaf later from two such views and gave True in 8 of 533
+  runs where each state gives False. `memoryview.cast` takes none of these formats, and a view of the same bytes in
+  format `B` would be another value to a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`
+  reads `<u` as text and `B` as bytes), so the copy keeps the caller's view. A buffer object that is no memoryview (a
+  ctypes array, an mmap, a NumPy array) is handed on as the caller's object as well. The reach is the Python API,
+  with such a buffer that the caller's own code changes during the call.
+- **A value of the caller's own class inside a copied container decides through its own methods** (V8, E10, within
+  the named limit above): a `str` subclass value whose `__ne__` depends on state gave `decision.action_outcome_proven`
+  True in 62 of 183 runs where the states give None and False.
+- **What the lanes did not run:** 123 public functions without a recorded call pair (V8, `not_swept_head.txt`), the
+  corpus sweep with the free list drained, keys of a `bytes` subclass in a verdict sweep, a caller's `tzinfo`, a
+  collection of the package's dataclasses racing a module import, fork, signal handlers and `sys.settrace`, and the
+  cost of the third fix (measured by the lane V9 after the full suite).
+
 ## Open — named limits carried by the fixes themselves
 
 Collected from the CHANGELOG entries of this release; each entry names its own limits, and this list gathers
@@ -913,12 +935,15 @@ those on a verify, emit or release path:
   a path outside `release_notes/` and `audit_artifacts/`, the only two the tag chain writes (owner decision of
   2026-09-29). Whether the sdist and the wheel of 6.2.0 on PyPI equal the digests
   bound at the receipt head is measured after the release and recorded then.
-- The fix of the gate at d388ed3d names these limits, none a promoted verdict. The reading at the call copies every
-  built-in container and every object of a dataclass of this package; a value of the caller's own class that is none
-  (an object, a Mapping that is no dict, an object of a caller's subclass of such a dataclass) is read through its own
-  methods by a named reader where a function reads one (`rp_trust`, `frozen`, the result of `automation_summary`, the
-  consistency result of `evaluate_public_transparency`), twice and compared, and is otherwise handed on as the
-  caller's object. The public instance methods of the package's classes do not take the reading. A dict with a key
+- The fix of the gate at d388ed3d names these limits, none a promoted verdict but the first line of the block of
+  the lanes V7 and V8 below. The reading at the call copies every dict, list, tuple, set, bytearray, deque and array
+  and their subclasses, every memoryview it can rebuild, every view of a dict and every object of a dataclass of this
+  package; a value of the caller's own class that is none (an object, a Mapping that is no dict, an object of a
+  caller's subclass of such a dataclass) is read through its own methods by a named reader where a function reads one
+  (`rp_trust`, `frozen`, the result of `automation_summary`, the consistency result of
+  `evaluate_public_transparency`), before the first collect and after the second, and the two answers must be the
+  same value; it is otherwise handed on as the caller's object. The items of a frozenset and a view of an OrderedDict
+  are handed on as they are. The public instance methods of the package's classes do not take the reading. A dict with a key
   that is no exact str, int, float, bool, bytes or None, no `str` or `bytes` subclass and no tuple or frozenset of such
   values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
   items, and an OrderedDict whose own order cannot be read without hashing stay the caller's object inside the copy:
@@ -927,8 +952,12 @@ those on a verify, emit or release path:
   undone between the two reads of one container is not seen (the ABA case of the double collect), and a change
   another thread makes in several steps is read in one of the states it passes through. After three readings in each
   of which the value changed, the function raises `_StandGestoert`, a `ProofBundleError`, also where a never-raise
-  surface would otherwise answer; only code that changes the value while it is read, the caller's own or another
-  thread's, causes it. The reading costs two reads and one copy of the arguments per call from outside the package, linear in their size (the line on its cost above). A public function that the package's own code calls from inside the body of another
+  surface would otherwise answer. Only two readings that differ cause it: code that changes the value while it is
+  read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
+  values that differ, an object of the caller's class built anew on each read among them (equal built-in values
+  built anew are the same value). A RecursionError raised while the arguments are read is raised as it is, before
+  the body runs, also at a never-raise surface. The reading costs two reads and one copy of the arguments per call
+  from outside the package, linear in their size, and two runs of a named reader (the line on its cost above). A public function that the package's own code calls from inside the body of another
   reads nothing again, because what it is passed is that reading or was made from it, and a value the package hands
   on uncopied (a value of the caller's class under the limit above) is read by the inner function as the outer one
   would. A caller's code that names a module of this package as its own and runs while the package's code runs, as a

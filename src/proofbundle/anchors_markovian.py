@@ -63,7 +63,8 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
     # value is handed on unchanged, as before: a `memoryview` root is compared below as the bytes it views and
     # accepted like them (verify lane V2 on 6d674973 measured it; this comment said it was refused), and a
     # value that is no bytes-like value is refused below. Since the reading at the call (`canonical._ein_stand`)
-    # the view is a private copy too.
+    # such a view is a private copy too, unless its format is one no view of private bytes can take
+    # (`canonical._bauen`), which stays the caller's view.
     from .canonical import _bytes_von  # noqa: PLC0415
     _gelesen = _bytes_von(proof)
     if _gelesen is not None:

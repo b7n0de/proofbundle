@@ -30,26 +30,32 @@ THE PROPERTY, measured with the caller's own gc callback rather than with a list
 the function a value in a first state, and at the k-th start of a garbage collection during the call the caller's
 callback rewrites that value, in place, into a second state. The verdict must be the verdict over the first state
 or the verdict over the second, for every k from the first collection of the call to past its last one. Section 1
-opens with the planted control (a function that reads twice is caught by the same sweep) and holds every surface
-the gate and the verify lanes measured. Section 2 counts the readings of the `related` map, section 3 holds the
+opens with the planted control (a function that reads twice is caught by the same sweep) and holds the surfaces
+the gate and the verify lanes measured, each with a sweep of its own but the two the CHANGELOG entry names. Section 2 counts the readings of the `related` map, section 3 holds the
 neighbours that are a split in reader (a subclass read through its own methods and by what it stores). Section 4
 holds the guard: every public function of a public module, and every public classmethod and staticmethod of a public
 class there, carries the reading at its call, once; every call of a caller's callable is named, and each whose answer
 enters a verdict runs as the caller's code. Section 5 holds the one reading itself: a private copy of one state,
-sharing no container with the caller, running no method of the caller, copying this package's dataclasses and a key of
-a `str` subclass, in linear time, and a sweep over the copy that falls when the second collect is taken away. Section 6
-holds the second collect: a change between the two collects is seen and the value read again, three readings before a
-refusal, and nothing of the process is touched.
+sharing none of the containers it copies with the caller, running no method of the caller, copying this package's
+dataclasses and a key of a `str` subclass, in linear time, and a sweep over the copy that falls when the second collect
+is taken away. Section 6 holds the second collect: a change between the two collects is seen and the value read again,
+three readings before a refusal, and nothing of the process is touched. Section 7 holds what the verify lanes V7 and V8
+on 085869313 found: the reader of a Mapping is part of both collects, a deque, an array and a view of a dict are copied,
+a RecursionError is no change, a Mapping that builds its values anew is read, and each edge a planted defect showed
+untested (the second collect of each kind, the depth after an exception, the warning's frame, the prefix of a module
+name) has a test that falls on that plant.
 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
-reader reads it twice at the call and compares (`canonical._abbild_stand`, `public_transparency._konsistenz_stand`),
-and any other such object is handed on as the caller's object. The public instance methods of this package's classes
-are not read at their call. A dict with a key that is no str, bytes, number or None, no subclass of str or bytes and no
-tuple or frozenset of such values stays the caller's object (its hash can be the caller's code), and so do a dict whose
-keys meet as one in the copy and an OrderedDict whose own order cannot be read without hashing. A change that is made
-and undone between the two reads of one container is not seen. And the sweep reaches a window only where a tracked
-object is allocated in it.
+reader reads it before the first collect and after the second, and the two answers must be the same
+(`canonical._abbild_stand`, `public_transparency._konsistenz_stand`); any other such object is handed on as the caller's
+object. The public instance methods of this package's classes are not read at their call. A dict with a key that is no
+str, bytes, number or None, no subclass of str or bytes and no tuple or frozenset of such values stays the caller's
+object (its hash can be the caller's code), and so do a dict whose keys meet as one in the copy, an OrderedDict whose own
+order cannot be read without hashing, a view of an OrderedDict, the items of a frozenset, and a memoryview whose format
+a view of private bytes cannot take (read by both collects, then read by the body as the caller's view). A change that
+is made and undone between the two reads of one container is not seen. And the sweep reaches a window only where a
+tracked object is allocated in it.
 """
 from __future__ import annotations
 
@@ -93,12 +99,14 @@ def _edge(target: str, relation: str) -> dict:
 # ── the sweep ───────────────────────────────────────────────────────────────────────────────────
 
 def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any], None], pad: int = 0,
-         drain: bool = False) -> "tuple[Any, int]":
+         drain: "bool | str" = False) -> "tuple[Any, int]":
     """One call with the caller's gc callback armed to change `value` at the k-th collection start;
     returns the call's result and how many collections started. ``drain`` empties the free list of lists first, so the
     next list the call makes is a fresh allocation, and ``pad`` shifts the count of the collector by that many lists: a
     window between two readings is reached only where an allocation starts a collection in it (verify lane V5 on
-    8f2fa980 found `RenewalPolicy.from_dict` and `exit_code` only this way).
+    8f2fa980 found `RenewalPolicy.from_dict` and `exit_code` only this way). ``drain="v5"`` is the lane's own phase:
+    drained, collected, and one tracked object of a new class made, so the collector counts one (verify lane V7 on
+    085869313: without it the sweep of `from_dict` did not reach the window at 8f2fa980, where the method was open).
 
     Every object that exists before the call is frozen for its length (`gc.freeze`), so a collection the sweep starts
     walks only what the call allocates. Measured in the full suite on 2026-09-30: without it each collection walked the
@@ -107,10 +115,12 @@ def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any],
     seen = {"n": 0}
     gc.freeze()
     try:
-        keep = [[] for _ in range(100)] if drain else []
+        keep: list = [[] for _ in range(100)] if drain else []
         if drain or pad:
             gc.collect()
             keep.extend([[] for _ in range(pad)])
+        if drain == "v5":
+            keep.append(object.__new__(type("T", (), {})))
 
         def callback(phase, info):
             if phase != "start":
@@ -134,14 +144,16 @@ def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any],
 def sweep(call: Callable[[Any], Any], make: Callable[[], Any], change: Callable[[Any], None],
           verdict: Callable[[Any], Any], *, phasen: bool = False) -> "tuple[Any, Any, list, int]":
     """(verdict over the first state, verdict over the second, the mixed verdicts, calls swept). With ``phasen`` the
-    sweep runs once for each allocator phase, the free list drained or not and 0 to 3 lists of padding (`_run`)."""
+    sweep runs once for each allocator phase, the free list drained or not and 0 to 3 lists of padding, and once in the
+    phase of verify lane V5 (`_run`): nine phases."""
     first = verdict(call(make()))
     second_state = make()
     change(second_state)
     second = verdict(call(second_state))
     mixed = []
     gesamt = 0
-    for drain, pad in ([(d, p) for d in (False, True) for p in range(4)] if phasen else [(False, 0)]):
+    phasenliste: list = [(d, p) for d in (False, True) for p in range(4)] + [("v5", 0)]
+    for drain, pad in (phasenliste if phasen else [(False, 0)]):
         _, n = _run(call, make(), 1 << 60, change, pad, drain)
         for k in range(n + n // 4 + 16):
             out, _ = _run(call, make(), k, change, pad, drain)
@@ -864,7 +876,9 @@ class EveryVerdictIsTheVerdictOverOneState(unittest.TestCase):
 
     def test_the_signatures_of_an_archive_timestamp_are_read_as_one_state(self):
         """V5-03: an `ArchiveTimeStamp` kept its `signatures` list as the caller's object; `verify_sequence` read it
-        for the rollback digest and again for the authority signature, and passed an ATS whose two states each fail."""
+        for the rollback digest and again for the authority signature, and passed an ATS whose two states each fail.
+        From the refused signature to the valid one: the other direction never gave ok True at 8f2fa980, where the
+        class was open, so a sweep in it could not fall (verify lane V7 on 085869313; this one gave 18 of 157)."""
         import dataclasses
         from proofbundle.renewal import anchor_proof_digest, build_initial_sequence, verify_sequence
         schluessel = Ed25519PrivateKey.generate()
@@ -876,12 +890,12 @@ class EveryVerdictIsTheVerdictOverOneState(unittest.TestCase):
         erinnert = anchor_proof_digest(dataclasses.replace(ats0, signatures=(("ed25519", falsch),)))
 
         def change(a):
-            a.signatures[:] = [("ed25519", falsch)]
+            a.signatures[:] = [("ed25519", gueltig)]
         self._assert_one_state(
             "verify_sequence signatures",
             lambda a: verify_sequence([[a]], daten, authority_keys={"ed25519": _raw(schluessel)},
                                       known_newest_token_digest=erinnert),
-            lambda: dataclasses.replace(ats0, signatures=[("ed25519", gueltig)]), change, lambda r: r.ok,
+            lambda: dataclasses.replace(ats0, signatures=[("ed25519", falsch)]), change, lambda r: r.ok,
             first=False, second=False)
 
     def test_the_size_cap_of_an_opentimestamps_token_holds_for_the_bytes_handed_on(self):
@@ -1204,17 +1218,52 @@ def verify_relationship_edges_from_the_caller(wert: dict) -> Any:
     return verify_dual_hash(b"x", wert)
 
 
+def _aliasse(fn: ast.AST, namen: "set[str]") -> "dict[str, str]":
+    """Each name ``fn`` (or a function nested in it) binds to one of ``namen`` or to such a name, by an assignment whose
+    value is that name, or a conditional or ``or`` over it, mapped to the parameter it stands for (verify lane V8 on
+    085869313, F5: `renewal.verify_sequence` called its ``anchor_verifier`` as ``verify_anchor``, and the scans, which
+    looked for the parameter's own name, did not see the call)."""
+    def quellen(wert: "ast.AST | None") -> list:
+        if isinstance(wert, ast.Name):
+            return [wert.id]
+        if isinstance(wert, ast.IfExp):
+            return quellen(wert.body) + quellen(wert.orelse)
+        if isinstance(wert, ast.BoolOp):
+            return [q for v in wert.values for q in quellen(v)]
+        return []
+    aliasse: "dict[str, str]" = {}
+    while True:
+        vorher = dict(aliasse)
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Assign):
+                ziele, wert = n.targets, n.value
+            elif isinstance(n, (ast.AnnAssign, ast.NamedExpr)) and n.value is not None:
+                ziele, wert = [n.target], n.value
+            else:
+                continue
+            for q in quellen(wert):
+                herkunft = q if q in namen else aliasse.get(q)
+                if herkunft is None:
+                    continue
+                for z in ziele:
+                    if isinstance(z, ast.Name) and z.id not in namen:
+                        aliasse.setdefault(z.id, herkunft)
+        if aliasse == vorher:
+            return aliasse
+
+
 def _ausserhalb_von_draussen(quelle: str, funktion: str, parameter: str) -> "list[str]":
-    """``funktion:zeile`` for every call of ``parameter`` in ``funktion`` (or a function nested in it) that stands in no
-    ``with _draussen():``."""
+    """``funktion:zeile`` for every call of ``parameter`` in ``funktion`` (or a function nested in it), under its own
+    name or a name bound to it (`_aliasse`), that stands in no ``with _draussen():``."""
     baum = ast.parse(quelle)
     eltern = {kind: knoten for knoten in ast.walk(baum) for kind in ast.iter_child_nodes(knoten)}
     offen = []
     for fn in ast.walk(baum):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or fn.name != funktion:
             continue
+        gerufen = {parameter} | {a for a, p in _aliasse(fn, {parameter}).items() if p == parameter}
         for n in ast.walk(fn):
-            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == parameter):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in gerufen):
                 continue
             k, drin = n, False
             while k in eltern and not drin:
@@ -1320,7 +1369,7 @@ class EveryPublicFunctionReadsItsArgumentsAtItsCall(unittest.TestCase):
         paket = REPO / "src" / "proofbundle"
         offen = []
         for (datei, funktion, parameter), grund in _AUFRUFE_VON_PARAMETERN.items():
-            if grund is _EINE_ANTWORT or (datei, funktion) == ("anchors.py", "_call_verifier"):
+            if grund is _EINE_ANTWORT or grund is _NUR_WAHR or (datei, funktion) == ("anchors.py", "_call_verifier"):
                 offen += _ausserhalb_von_draussen((paket / datei).read_text(encoding="utf-8"), funktion, parameter)
         self.assertEqual(offen, [])
 
@@ -1329,6 +1378,12 @@ class EveryPublicFunctionReadsItsArgumentsAtItsCall(unittest.TestCase):
                      "    with _draussen():\n        a = resolver(d)\n"
                      "    b = resolver(d)\n    return a, b\n")
         self.assertEqual(_ausserhalb_von_draussen(gepflanzt, "verify_x", "resolver"), ["verify_x:4"])
+        unter_anderem_namen = ("def verify_y(anchor_verifier, d):\n"
+                               "    if d:\n        pruefe = anchor_verifier\n    else:\n        pruefe = None\n"
+                               "    zweit = pruefe or d\n"
+                               "    return pruefe(d), zweit(d)\n")
+        self.assertEqual(_ausserhalb_von_draussen(unter_anderem_namen, "verify_y", "anchor_verifier"),
+                         ["verify_y:7", "verify_y:7"])
 
     def test_a_reader_is_bound_to_a_parameter_the_function_has(self):
         """Found before the push: with `_ein_stand` outermost, the names of a function wrapped by another decorator were
@@ -1731,12 +1786,13 @@ class TheSecondCollectSeesAChange(unittest.TestCase):
         self.assertNotEqual(v1, v2)
         self.assertEqual(gemischt, [])
 
-    def test_a_mapping_read_through_its_own_methods_is_read_twice(self):
-        """The reader of a Mapping that is no dict reads it twice and compares (`canonical._zweimal`); a value that
-        changes between the two is read again, and one that changes each time is refused."""
-        from proofbundle.canonical import _StandGestoert, _abbild_stand
+    def test_a_mapping_read_through_its_own_methods_is_read_in_both_collects(self):
+        """The reader of a Mapping that is no dict runs before the first collect and after the second, and the two
+        answers must be the same (`canonical._stand`, `canonical._derselbe`): a value that changes each time is
+        refused, and one that builds equal values anew each time is read."""
+        from proofbundle.canonical import _StandGestoert, _abbild_stand, _stand
         d = {"a": 1, "b": 2}
-        self.assertEqual(_abbild_stand(_Sicht(d)), d)
+        self.assertEqual(_stand(_Sicht(d), _abbild_stand), d)
         zaehler = [0]
 
         class Wandelnd(_Sicht):
@@ -1744,9 +1800,9 @@ class TheSecondCollectSeesAChange(unittest.TestCase):
                 zaehler[0] += 1
                 return [zaehler[0]] if k == "a" else super().__getitem__(k)
         with self.assertRaises(_StandGestoert):
-            _abbild_stand(Wandelnd(d))
+            _stand(Wandelnd(d), _abbild_stand)
         import os
-        self.assertEqual(_abbild_stand(os.environ), dict(os.environ), "a mapping that builds its text anew is read")
+        self.assertEqual(_stand(os.environ, _abbild_stand), dict(os.environ), "a mapping that builds its text anew")
 
     def test_nothing_of_the_process_is_touched(self):
         """V5-06, V5-07, V5-08 and V6-F4 on 8f2fa980: the reading switched the collector of the process off and on,
@@ -1773,15 +1829,29 @@ class TheSecondCollectSeesAChange(unittest.TestCase):
 
     def test_no_code_of_the_package_switches_the_collector(self):
         """The guard over the class: no module of the package switches the collector, sets its thresholds or adds a
-        callback to it, so no reading can leave it switched for the process."""
+        callback to it, so no reading can leave it switched for the process. The package reads the module only as
+        ``gc.get_referents`` (`_gc_zugriffe`)."""
         paket = REPO / "src" / "proofbundle"
         gefunden = []
         for pfad in sorted(paket.rglob("*.py")):
-            for n in ast.walk(ast.parse(pfad.read_text(encoding="utf-8"))):
-                if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "gc"
-                        and n.attr in ("disable", "enable", "set_threshold", "callbacks", "freeze", "unfreeze")):
-                    gefunden.append(f"{pfad.relative_to(paket)}:{n.lineno} gc.{n.attr}")
+            gefunden += [f"{pfad.relative_to(paket)}:{z}" for z in _gc_zugriffe(pfad.read_text(encoding="utf-8"))]
         self.assertEqual(gefunden, [])
+
+    def test_control_the_gc_guard_sees_an_alias_an_import_and_a_getattr(self):
+        """Verify lane V7 on 085869313 planted three forms the list of attribute names missed: the module bound to
+        another name, a name imported from it, and ``getattr`` over it. Each is caught, and the one read the package
+        makes is not."""
+        gepflanzt = {
+            "alias": "import gc\ndef f():\n    g = gc\n    g.disable()\n",
+            "from": "from gc import disable\n",
+            "getattr": "import gc\ndef f():\n    getattr(gc, 'set_debug')(0)\n",
+            "import as": "import gc as sammler\nsammler.disable()\n",
+            "attribute": "import gc\ngc.callbacks.append(print)\n",
+        }
+        for name, quelle in gepflanzt.items():
+            with self.subTest(form=name):
+                self.assertTrue(_gc_zugriffe(quelle), f"the guard missed {name}")
+        self.assertEqual(_gc_zugriffe("import gc\ndef f(x):\n    return gc.get_referents(x)\n"), [])
 
     def test_a_thread_that_collects_all_the_time_makes_no_call_refuse(self):
         """V5-07 on 8f2fa980: a thread that ran `gc.collect()` every 100 ms made 46 of 60 calls refuse. A collection
@@ -1842,9 +1912,29 @@ class TheSecondCollectSeesAChange(unittest.TestCase):
         self.assertTrue(eingeschaltet, "the collector stayed off after the readings ended")
 
 
+def _gc_zugriffe(quelle: str) -> "list[str]":
+    """``zeile: form`` for every use of the module ``gc`` in ``quelle`` other than ``gc.get_referents``: an attribute
+    of it, the name handed on or bound to another, a ``from gc import``, an ``import gc as``."""
+    baum = ast.parse(quelle)
+    eltern = {kind: knoten for knoten in ast.walk(baum) for kind in ast.iter_child_nodes(knoten)}
+    gefunden = []
+    for n in ast.walk(baum):
+        if isinstance(n, ast.ImportFrom) and n.module == "gc":
+            gefunden.append(f"{n.lineno}: from gc import")
+        elif isinstance(n, ast.Import):
+            gefunden += [f"{n.lineno}: import gc as {a.asname}" for a in n.names if a.name == "gc" and a.asname]
+        elif isinstance(n, ast.Name) and n.id == "gc":
+            oben = eltern.get(n)
+            if not (isinstance(oben, ast.Attribute) and oben.value is n and oben.attr == "get_referents"):
+                gefunden.append(f"{n.lineno}: gc" + (f".{oben.attr}" if isinstance(oben, ast.Attribute) else ""))
+    return gefunden
+
+
 #: Every call in src/ of a function's own parameter, with why its answer is not a caller's value read twice, or
 #: where it is read as one state. A value a caller's callable returns into a verdict is a caller's value too.
 _EINE_ANTWORT = "the caller's callable: its answer is read as one state where it returns (`canonical._stand`)"
+_NUR_WAHR = ("the caller's anchor verifier: only the exact True it returns anchors, compared by identity, so nothing of "
+             "its answer is read")
 _AUFRUFE_VON_PARAMETERN = {
     ("anchors.py", "_call_verifier", "fn"): ("a registered anchor verifier, the caller's code: `verify_anchor` hands it "
                                              "its own copy of `frozen` and `rp_trust` and reads its result as one "
@@ -1856,9 +1946,9 @@ _AUFRUFE_VON_PARAMETERN = {
     ("canonical.py", "_plain_for_jcs", "key_error"): "the error type its callers in this package pass",
     ("canonical.py", "_eine_kopie", "fehler"): "the error type its callers in this package pass",
     ("sdjwt_issue.py", "_fehler", "art"): "the error type its callers in this package pass",
-    ("canonical.py", "_stand", "leser"): "a boundary reader of this package (`_abbild_stand`, `_konsistenz_stand`)",
-    ("canonical.py", "_zweimal", "lesen"): ("the reading of a boundary reader of this package, called twice and compared "
-                                            "(`_abbild_stand`, `_konsistenz_stand`)"),
+    ("canonical.py", "_stand", "leser"): ("a boundary reader of this package (`_abbild_stand`, `_konsistenz_stand`), "
+                                          "run before the first collect and after the second and compared"),
+    ("renewal.py", "verify_sequence", "anchor_verifier"): _NUR_WAHR,
     ("canonical.py", "verpacken", "f"): "the decorated function of this package itself",
     ("anchors.py", "_refuse_unreadable_input", "surface"): "the decorated function of this package itself",
     ("renewal.py", "deco", "fn"): "the decorated function of this package itself",
@@ -1887,9 +1977,13 @@ def _aufrufe_von_parametern(quelle: str) -> "set[tuple[str, str]]":
         for extra in (fn.args.vararg, fn.args.kwarg):
             if extra is not None:
                 namen.add(extra.arg)
+        aliasse = _aliasse(fn, namen)
         for n in ast.walk(fn):
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in namen:
-                gefunden.add((fn.name, n.func.id))
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+                if n.func.id in namen:
+                    gefunden.add((fn.name, n.func.id))
+                elif n.func.id in aliasse:
+                    gefunden.add((fn.name, aliasse[n.func.id]))
     return gefunden
 
 
@@ -1909,6 +2003,401 @@ class EveryCallOfACallersCallableIsNamed(unittest.TestCase):
                      "    def innen(d):\n        return resolver(d)\n"
                      "    return innen(wert), len(wert)\n")
         self.assertEqual(_aufrufe_von_parametern(gepflanzt), {("verify_x", "resolver")})
+        alias = ("def verify_y(anchor_verifier, wert):\n"
+                 "    pruefe = anchor_verifier if wert else None\n"
+                 "    weiter = pruefe\n"
+                 "    return weiter(wert)\n")
+        self.assertEqual(_aufrufe_von_parametern(alias), {("verify_y", "anchor_verifier")})
+
+
+# ── 7. what the verify lanes V7 and V8 on 085869313 found ────────────────────────────────────────
+
+class _Abbild(Mapping):
+    """A caller's Mapping that is no dict, over a dict the caller swaps whole (verify lane V8, E1)."""
+
+    def __init__(self, d):
+        self.d = d
+
+    def __getitem__(self, k):
+        return self.d[k]
+
+    def __iter__(self):
+        return iter(self.d)
+
+    def __len__(self):
+        return len(self.d)
+
+
+class _NeuGebaut(Mapping):
+    """A caller's Mapping that builds a new, equal value on each read and never changes (verify lanes V7 F2, V8 F4)."""
+
+    def __init__(self, d):
+        self._d = d
+
+    def __getitem__(self, k):
+        return copy.deepcopy(self._d[k])
+
+    def __iter__(self):
+        return iter(list(self._d))
+
+    def __len__(self):
+        return len(self._d)
+
+
+class TheReaderIsPartOfBothCollects(unittest.TestCase):
+
+    def test_two_mappings_changed_together_are_read_as_one_state(self):
+        """V8 F1: the reader ran once, before the collects, so a callback that swapped both Mappings after it ran gave
+        `automation_summary` the result of one state and the required checks of the other: safe in 171 of 1080 runs
+        at 085869313, where each state is refused."""
+        from proofbundle.automation_verdict import automation_summary
+        r0 = {"crypto_ok": True, "alt": False, "structure_ok": True}
+        c0 = {"crypto": "alt", "structure": "structure_ok"}
+        r1 = {"crypto_ok": False, "alt": True, "structure_ok": True}
+        c1 = {"crypto": "crypto_ok", "structure": "structure_ok"}
+
+        def change(st):
+            st[0].d = dict(r1)
+            st[1].d = dict(c1)
+        EveryVerdictIsTheVerdictOverOneState._assert_one_state(
+            self, "automation_summary, two Mappings", lambda st: automation_summary(st[0], required_checks=st[1]),
+            lambda: (_Abbild(dict(r0)), _Abbild(dict(c0))), change, lambda r: r["safeForAutomation"],
+            first=False, second=False, phasen=True)
+
+    def test_the_reader_runs_again_after_the_second_collect(self):
+        """The reader's second answer comes after the second collect, and a change between the two answers reads the
+        value again. The change here is made when the second collect ends, so a reader read only before the collects
+        (the form of 085869313) returns the first state beside nothing it can compare, and this fails."""
+        from proofbundle import canonical
+        d = {"a": [1]}
+        wert = _Abbild(d)
+        leser_gerufen = []
+        original = canonical._gleich_gelesen
+
+        def leser(w):
+            leser_gerufen.append(1)
+            return canonical._abbild_stand(w)
+
+        def spion(gelesen):
+            ergebnis = original(gelesen)
+            if len(leser_gerufen) == 1:
+                wert.d = {"a": [2]}
+            return ergebnis
+        canonical._gleich_gelesen = spion
+        try:
+            kopie = canonical._stand(wert, leser)
+        finally:
+            canonical._gleich_gelesen = original
+        self.assertEqual(kopie, {"a": [2]}, "a reading whose reader answered two states was kept")
+        self.assertEqual(len(leser_gerufen), 4, "the reader did not run before and after both collects, twice")
+
+    def test_a_mapping_that_builds_its_values_anew_gives_a_verdict(self):
+        """V7 F2 and V8 F4: a Mapping that is never changed but builds a new value on each read was refused as changed
+        at `verify_anchors`, `verify_rfc3161` and `automation_summary`, where every earlier tree gave a verdict."""
+        from proofbundle.anchors_rfc3161 import verify_rfc3161
+        from proofbundle.automation_verdict import automation_summary
+        ergebnis = {"crypto_ok": True, "structure_ok": True, "policy_ok": True, "extra": {"n": [1.5, None]}}
+        r = automation_summary(_NeuGebaut(ergebnis), required_checks=_NeuGebaut({"crypto": "crypto_ok"}))
+        self.assertIs(r["cryptoValid"], True)
+        v = verify_rfc3161(b"proof", b"root", frozen={}, rp_trust=_NeuGebaut({"trusted_tsa_roots": ["QUJD"]}))
+        self.assertIn("status", v)
+
+    def test_same_value_tells_types_and_the_bits_of_a_float_apart(self):
+        from proofbundle.canonical import _derselbe
+        self.assertFalse(_derselbe(1, True))
+        self.assertFalse(_derselbe(1, 1.0))
+        self.assertFalse(_derselbe(0.0, -0.0))
+        self.assertTrue(_derselbe(float("nan"), float("nan")))
+        self.assertTrue(_derselbe({"a": [1, (2, "x")]}, {"a": [1, (2, "x")]}))
+        self.assertFalse(_derselbe({"a": 1, "b": 2}, {"b": 2, "a": 1}), "keys in another order")
+        ring_a: list = [1]
+        ring_a.append(ring_a)
+        ring_b: list = [1]
+        ring_b.append(ring_b)
+        self.assertTrue(_derselbe(ring_a, ring_b))
+
+        class Eigen:
+            pass
+        self.assertFalse(_derselbe(Eigen(), Eigen()), "an object of the caller is the same only as itself")
+
+    def test_a_recursion_error_is_no_change(self):
+        """V7 F1 and V8 F4: the retry caught RecursionError as a RuntimeError, and a valid input a few frames below the
+        limit was refused as "changed while it was read"."""
+        from proofbundle import canonical
+        original = canonical._lesen_einmal
+
+        def tief(wurzel):
+            raise RecursionError("maximum recursion depth exceeded")
+        canonical._lesen_einmal = tief
+        try:
+            with self.assertRaises(RecursionError):
+                canonical._stand([1])
+        finally:
+            canonical._lesen_einmal = original
+
+
+class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
+
+    def test_the_second_collect_sees_a_change_of_each_kind_at_its_length(self):
+        """Verify lane V7 on 085869313: with the second collect of a set, a bytearray, a memoryview, a dataclass of this
+        package or a kept OrderedDict left out, or a list or set compared by its length, no test fell. Each kind is
+        changed here without changing its length."""
+        from collections import OrderedDict, deque
+        import array
+        from proofbundle import canonical
+        from proofbundle.errors import Check, VerificationResult
+
+        class K(str):
+            pass
+        puffer = bytearray(b"ab")
+        faelle = {
+            "dict value": ({"a": [1]}, lambda w: w.__setitem__("a", [1])),
+            "dict key": ({"a": 1}, lambda w: (w.pop("a"), w.__setitem__("b", 1))),
+            "list": ([[1], [2]], lambda w: w.__setitem__(0, [1])),
+            "set": ({1, 2}, lambda w: (w.discard(1), w.add(3))),
+            "bytearray": (bytearray(b"ab"), lambda w: w.__setitem__(0, 122)),
+            "memoryview": (memoryview(puffer), lambda w: puffer.__setitem__(0, 122)),
+            "dataclass": (VerificationResult([Check("a", True)]),
+                          lambda w: setattr(w, "checks", [Check("a", True)])),
+            "kept OrderedDict": (OrderedDict([(K("a"), [1])]),
+                                 lambda w: dict.__setitem__(w, next(iter(dict.keys(w))), [1])),
+            "deque": (deque([[1], [2]]), lambda w: w.__setitem__(0, [1])),
+            "array": (array.array("b", [1, 2]), lambda w: w.__setitem__(0, 5)),
+            "view": ({"a": [1]}.keys(), None),
+        }
+        for name, (wert, aendern) in faelle.items():
+            with self.subTest(kind=name):
+                if name == "view":
+                    d = {"a": [1]}
+                    wert = d.keys()
+
+                    def aendern(_w, d=d):
+                        d["a"] = [1]
+                gelesen = canonical._lesen_einmal([wert])
+                self.assertTrue(canonical._gleich_gelesen(gelesen), "an unchanged value read as changed")
+                aendern(wert)
+                self.assertFalse(canonical._gleich_gelesen(gelesen), f"a change of the {name} was not seen")
+
+    def test_a_deque_an_array_and_a_view_are_copied(self):
+        """V8 F3: a deque, an array and a view of a dict were handed on as the caller's objects, and the body read
+        them after the other arguments were copied. They are copies of the same type now, and none of their methods
+        runs (`_aufzeichnend`)."""
+        import array
+        import types
+        from collections import deque
+        from proofbundle.canonical import _stand
+        Q, A = _aufzeichnend(deque), _aufzeichnend(array.array)
+        teil = [1]
+        q = Q([teil, 2], 5)
+        a = A("d", [float("nan"), 2.0])
+        d = {"x": teil}
+        werte = (q, a, d.keys(), d.values(), d.items(), types.MappingProxyType(d))
+        _Aufgezeichnet.aufrufe.clear()
+        kopie = _stand(werte)
+        self.assertEqual(_Aufgezeichnet.aufrufe, [])
+        self.assertIs(type(kopie[0]), deque)
+        self.assertEqual(kopie[0].maxlen, 5)
+        self.assertIsNot(kopie[0][0], teil)
+        self.assertIs(type(kopie[1]), array.array)
+        self.assertEqual((kopie[1].typecode, kopie[1].tobytes()), ("d", array.array.tobytes(a)))
+        self.assertEqual([type(x).__name__ for x in kopie[2:]], ["dict_keys", "dict_values", "dict_items", "mappingproxy"])
+        for sicht in kopie[3:6]:
+            self.assertNotIn(id(teil), [id(v) for v in (sicht.values() if isinstance(sicht, Mapping) else
+                                                       [p if not isinstance(p, tuple) else p[1] for p in sicht])])
+        teil.append(9)
+        self.assertEqual(list(kopie[3]), [[1]])
+
+    def test_a_deque_of_witness_keys_is_read_as_one_state(self):
+        """V8 F3 at `evaluate_public_transparency`: the policy was copied at the call and the witness keys, in a deque,
+        read by the body; 194 of 814 runs passed where each state fails."""
+        from collections import deque
+        from proofbundle import checkpoint as cp
+        from proofbundle.public_transparency import evaluate_public_transparency
+        log = Ed25519PrivateKey.from_private_bytes(b"\x07" * 32)
+        zeuge = Ed25519PrivateKey.from_private_bytes(b"\x09" * 32)
+        notiz = cp.sign_checkpoint("example.org/log", 10, b"\x42" * 32, log, "example.org/log")
+        notiz = cp.cosign_checkpoint(notiz, zeuge, "witness-1", 1700000000)
+        schluessel = cp.cosign_vkey("witness-1", zeuge.public_key().public_bytes_raw())
+
+        def change(st):
+            st[0]["witnessQuorum"]["threshold"] = 2
+            st[1].append(schluessel)
+        EveryVerdictIsTheVerdictOverOneState._assert_one_state(
+            self, "evaluate_public_transparency, a deque of witness keys",
+            lambda st: evaluate_public_transparency(notiz, st[0], witness_vkeys=st[1])["PUBLIC_TRANSPARENCY"],
+            lambda: ({"witnessQuorum": {"threshold": 1}}, deque()), change, lambda v: v,
+            first="FAIL", second="FAIL", phasen=True)
+
+    def test_a_deque_of_prior_leaves_is_signed_over_one_state(self):
+        """V8 F3 at `emit_bundle`: the payload was copied at the call and the prior leaves, in a deque, read by the
+        body, so the signed tree held the payload of one state over the leaves of the other (99 of 521 runs)."""
+        from collections import deque
+        from proofbundle.emit import emit_bundle
+        sk = Ed25519PrivateKey.from_private_bytes(b"\x05" * 32)
+
+        def change(st):
+            st[0][:] = b"payload-state-1"
+            st[1].clear()
+            st[1].extend([b"leaf-a1", b"leaf-b1"])
+        EveryVerdictIsTheVerdictOverOneState._assert_one_state(
+            self, "emit_bundle, a deque of prior leaves",
+            lambda st: emit_bundle(st[0], sk, prior_leaves=st[1]),
+            lambda: (bytearray(b"payload-state-0"), deque([b"leaf-a0", b"leaf-b0"])), change,
+            lambda b: (b["payload_b64"], b["merkle"]["root_b64"]), phasen=True)
+
+    def test_a_memoryview_the_copy_cannot_rebuild_stays_the_callers_view(self):
+        """The named limit (V8 F2): a view whose format no view of private bytes can take (``<H`` of a ctypes array)
+        stays the caller's view, read by both collects. A copy in format ``B`` would be another value to a reader that
+        judges a buffer by its format (`adapters.agt_receipt._puffer`). Pinned, so a change of it is seen."""
+        import ctypes
+        from proofbundle.canonical import _stand
+        sicht = memoryview((ctypes.c_uint16 * 2)(1, 2))
+        self.assertEqual(sicht.format, "<H")
+        self.assertIs(_stand([sicht])[0], sicht)
+        self.assertIsNot(_stand([memoryview(bytearray(b"ab"))])[0].obj, None)
+
+    def test_a_set_whose_items_meet_in_the_copy_stays_the_callers_object(self):
+        """V7 plant p05b: with the check that two items meet as one taken out for a set, no test fell."""
+        from proofbundle.canonical import _stand
+        gerufen = []
+
+        class K(str):
+            def __hash__(self):
+                gerufen.append("__hash__")
+                return 7
+
+            def __eq__(self, other):
+                gerufen.append("__eq__")
+                return self is other
+        menge = {K("a"), "a"}
+        self.assertEqual(len(menge), 2)
+        gerufen.clear()
+        self.assertIs(_stand([menge])[0], menge)
+        self.assertEqual(gerufen, [])
+
+    def test_an_object_of_this_package_with_an_attribute_name_that_is_no_str_stays_the_callers(self):
+        """V7 plant p26: with the check of an attribute name taken out, a dataclass of this package was copied with a
+        name of the caller's class in its instance dict, and no test fell."""
+        from proofbundle.canonical import _stand
+        from proofbundle.errors import Check, VerificationResult
+
+        class K(str):
+            pass
+        ergebnis = VerificationResult([Check("a", True)])
+        object.__getattribute__(ergebnis, "__dict__")[K("fremd")] = 1
+        self.assertIs(_stand([ergebnis])[0], ergebnis)
+
+
+class TheEdgesOfTheReadingAtTheCall(unittest.TestCase):
+
+    def _zaehlend(self):
+        from proofbundle import canonical
+        gezaehlt: list = []
+        original = canonical._stand
+
+        def zaehlend(wurzel, leser=None):
+            gezaehlt.append(1)
+            return original(wurzel, leser)
+        return canonical, original, zaehlend, gezaehlt
+
+    def test_a_call_from_the_callers_frame_inside_a_body_is_read(self):
+        """V7 plant p10: with the skip taken for every call inside a body, whatever frame makes it, no test fell. A call
+        from this file while the depth says "inside a body" is the caller's, and is read."""
+        from proofbundle.hashalg import verify_dual_hash
+        canonical, original, zaehlend, gezaehlt = self._zaehlend()
+        war = getattr(canonical._INNEN, "tiefe", 0)
+        canonical._stand = zaehlend
+        canonical._INNEN.tiefe = 1
+        try:
+            verify_dual_hash(b"x", {"sha256": [1]})
+        finally:
+            canonical._INNEN.tiefe = war
+            canonical._stand = original
+        self.assertEqual(len(gezaehlt), 1)
+
+    def test_the_depth_is_restored_after_a_body_raises_and_after_draussen(self):
+        """V7 plants p16 and p17: with the depth left where the body or `_draussen` set it, no test fell. A later call
+        from inside the package would then be read or skipped by a depth that is no longer true."""
+        from proofbundle import canonical
+        from proofbundle.canonical import _draussen, canonicalize_statement
+        war = getattr(canonical._INNEN, "tiefe", 0)
+        try:
+            canonical._INNEN.tiefe = 3
+            with _draussen():
+                self.assertEqual(canonical._INNEN.tiefe, 0)
+            self.assertEqual(canonical._INNEN.tiefe, 3)
+            canonical._INNEN.tiefe = 0
+            with self.assertRaises(Exception):
+                canonicalize_statement({"a": [1]}, require_statement_shape="yes")
+            self.assertEqual(canonical._INNEN.tiefe, 0, "the depth stayed where the body set it")
+        finally:
+            canonical._INNEN.tiefe = war
+
+    def test_a_deprecation_warning_names_the_callers_line(self):
+        """V7 plant p15: with the warning's ``stacklevel`` at 3 again, it named canonical.py, and no test fell."""
+        import warnings
+        from proofbundle.agent_review import build_agent_review_statement
+        with warnings.catch_warnings(record=True) as gesehen:
+            warnings.simplefilter("always")
+            try:
+                build_agent_review_statement({}, v02=True)
+            except Exception:  # noqa: BLE001 - only the warning is judged here
+                pass
+        veraltet = [w for w in gesehen if issubclass(w.category, DeprecationWarning)]
+        self.assertTrue(veraltet)
+        self.assertEqual(Path(veraltet[0].filename).resolve(), Path(__file__).resolve())
+
+    def test_only_this_package_is_this_package(self):
+        """V7 plants p47 and p48: with a module name read by its prefix, a module named ``proofbundlex`` counted as this
+        package, for the skip of a call from inside and for the copy of a dataclass, and no test fell."""
+        import dataclasses
+        import types
+        from proofbundle import canonical
+        rahmen = {}
+        for name in ("proofbundlex", "proofbundle.innen", "proofbundle"):
+            g = {"__name__": name, "sys": sys}
+            exec("r = sys._getframe()", g)  # noqa: S102 - a frame whose module has this name
+            rahmen[name] = g["r"]
+        self.assertFalse(canonical._aus_dem_paket(rahmen["proofbundlex"]))
+        self.assertTrue(canonical._aus_dem_paket(rahmen["proofbundle.innen"]))
+        self.assertTrue(canonical._aus_dem_paket(rahmen["proofbundle"]))
+
+        @dataclasses.dataclass
+        class Fremd:
+            a: int = 1
+        Fremd.__module__ = "proofbundlex"
+        modul = types.ModuleType("proofbundle._test_fremd_heimat")
+        modul.Fremd = Fremd  # type: ignore[attr-defined]
+        sys.modules[modul.__name__] = modul
+        try:
+            self.assertFalse(canonical._paketklasse(Fremd))
+        finally:
+            del sys.modules[modul.__name__]
+            canonical._PAKETKLASSEN.pop(id(Fremd), None)
+
+    def test_a_tuple_argument_is_read(self):
+        """V7 plant p51: with a tuple taken as a value that cannot change, a list inside it was the caller's, and no
+        test fell."""
+        from proofbundle.canonical import _gelesen
+        liste = [1]
+        args, _ = _gelesen((("x",), ("x",)), {}, ((1, liste),), {})
+        self.assertIsNot(args[0][1], liste)
+        self.assertEqual(args[0][1], liste)
+
+    def test_a_partial_as_an_anchor_verifier_is_read(self):
+        """V8 F5: `verify_sequence` called its ``anchor_verifier`` under another name, outside `_draussen`, so a
+        `functools.partial` of a public function handed in there read nothing. It runs as the caller's code now."""
+        import functools
+        from proofbundle.hashalg import verify_dual_hash
+        from proofbundle.renewal import build_initial_sequence, verify_sequence
+        folge = build_initial_sequence(["a" * 64], hash_alg="sha256", time=1000)
+        canonical, original, zaehlend, gezaehlt = self._zaehlend()
+        canonical._stand = zaehlend
+        try:
+            verify_sequence(folge, ["a" * 64], anchor_verifier=functools.partial(verify_dual_hash, b"x"))
+        finally:
+            canonical._stand = original
+        self.assertEqual(len(gezaehlt), 2, "the call the partial made was not read")
 
 
 if __name__ == "__main__":
