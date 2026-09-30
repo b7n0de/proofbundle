@@ -467,6 +467,7 @@ inclusion receipt) and that receipt's issuer, with its own closed status set,
 | `consistency_newer_size_mismatch` | the caller's newer size is not the one the header's `ccf.v1` txid yields; proofbundle's own rule, not a requirement of -05 (G5) |
 | `consistency_path_not_canonical` | with both sizes: a proof's path describes no node of the tree of n leaves |
 | `consistency_anchor_position_mismatch` | with both sizes: a proof's tags are not those of RFC 9162 2.1.4.1 for m and n (for a proof that does not recompute the older root, for the m its anchor implies), so its anchor is not the root of T[m-2^t] .. T[m-1] (4) |
+| `consistency_left_siblings_mismatch` | with the older size alone: the proof that recomputes the older root has not popcount(m) - 1 left siblings, the complete subtrees left of the anchor section 4 requires (4) |
 | `consistency_anchor_not_canonical` | a proof starts with a left sibling, so its anchor is not the one section 4 requires |
 | `consistency_older_root_mismatch` | no proof recomputes the older root (4.2) |
 | `consistency_issuer_mismatch` | the older root came from another service's receipt; proofbundle's own rule, not a requirement of -05 (owner answer S1 a, until the working group answers G3) |
@@ -480,7 +481,8 @@ like `older_root` to the state it came from, typically the seqno of the txid of 
 receipt that verified it; the newer size is the caller's `newer_size` or, where the caller gives
 none, the seqno of this receipt's `ccf.v1` txid. That a seqno is the tree size its signature covers
 is proofbundle's own rule, measured on CCF 7.0.17 with leaf 0 counted, not a requirement of -05
-(`SECTION4_WGLC.md`, G5). Without sizes, an anchor that is no node of the newer tree,
+(`SECTION4_WGLC.md`, G5). With the older size alone the reader counts the left siblings of the
+proof that recomputes the older root: popcount(m) - 1, whatever n is. Without sizes, an anchor that is no node of the newer tree,
 such as the root of 6 leaves under one right sibling, has the form of a canonical proof from 4 to 5
 and passes the first tag; with them it is `consistency_anchor_position_mismatch` (vector S4-10 in
 `tools/scitt_ccf_external/section4_vectors/`).
