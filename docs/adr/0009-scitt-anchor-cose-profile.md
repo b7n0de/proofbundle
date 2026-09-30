@@ -74,7 +74,9 @@ The type string is `scitt-ccf/v1` (owner answer Q1 b; precedent `chia-datalayer/
   inclusion root as their newer root (-05 section 5: all proofs in a receipt recompute the same
   root). Their older roots and anchors are not evaluated in the statement verdict, because that
   needs an older root the caller holds (`verify_consistency_receipt`, Decision 15). A vdp key other
-  than -1 and -2 is outside the -05 CDDL and `malformed`. (Codex, PR 278 rounds three and four;
+  than -1 and -2 is outside the -05 CDDL and `malformed`, and so is a present vdp, -1 or -2 whose
+  value is null: presence decides, not the value, so null is never read as an absent key. The same
+  holds for crit (`outside_profile`) and for a COSE_Key's kid (the key is dropped). (Codex, PR 278 rounds three and four;
   until then -2 was reported and not parsed.)
 
 The value 2 is a requested assignment (`TBD_1`), not yet made by IANA (-05, section "Description
