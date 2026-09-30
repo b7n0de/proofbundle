@@ -575,7 +575,7 @@ def test_without_both_sizes_the_success_says_the_anchor_rule_was_not_checked():
         assert "anchor rule of section 4 was not checked beyond the first tag" in c.detail
     c = sized(receipt(signed=no_txid), 13)                                 # m, and no n anywhere
     assert (c.status, c.anchor_rule_checked, c.left_siblings_checked) == (UNSIZED, False, True)
-    assert "checked only as far as m alone decides it" in c.detail
+    assert "checked for the necessary left-sibling count with m alone" in c.detail
     c = sized(receipt(), 13)
     assert (c.status, c.anchor_rule_checked, c.detail) == (S.CONFIRMED, True, "")
     assert {"older_size", "newer_size", "newer_size_source", "anchor_rule_checked",
@@ -692,7 +692,7 @@ def test_with_m_alone_every_canonical_pair_up_to_20_passes_and_every_deeper_anch
                                              older_root=TREE.root(m), older_issuer=ISSUER, rp_trust=trust(),
                                              older_size=m)
             assert (c.status, c.left_siblings_checked) == (UNSIZED, True), (m, n)
-            assert "as far as m alone decides it" in c.detail
+            assert "checked for the necessary left-sibling count with m alone" in c.detail
             passed += 1
             for anchor, path in TREE.deeper(m, n):
                 c = S.verify_consistency_receipt(_no_txid([enc_proof(anchor, path)], TREE.root(n)),
@@ -723,3 +723,22 @@ def test_the_left_sibling_status_stands_between_the_path_rule_and_the_first_tag(
     order = S.CONSISTENCY_STATUS_ORDER
     assert order.index("consistency_anchor_position_mismatch") \
         < order.index("consistency_left_siblings_mismatch") < order.index("consistency_anchor_not_canonical")
+
+
+def test_the_left_sibling_count_is_necessary_not_sufficient():
+    """Nachtrag 4: the external reviewer's case. With m = 6 the path [right, right, left] from the anchor
+    node(4, 6) has the one left sibling the count requires and recomputes R_6, so m alone lets it pass;
+    the canonical tags for 6 begin [right, left], and with n the full rule refuses it."""
+    x, y = H(b"not a node, one"), H(b"not a node, two")
+    anchor, left = TREE.node(4, 6), TREE.node(0, 4)
+    path = [[False, x], [False, y], [True, left]]
+    newer = H(left + H(H(anchor + x) + y))
+    proof = enc_proof(anchor, path)
+    assert _fold(anchor, path) == (TREE.root(6), newer)
+    m_alone = S.verify_consistency_receipt(_no_txid([proof], newer), older_root=TREE.root(6), older_issuer=ISSUER,
+                                           rp_trust=trust(), older_size=6)
+    assert (m_alone.status, m_alone.left_siblings_checked, m_alone.anchor_rule_checked) == (UNSIZED, True, False)
+    for n in (7, 8, 16):
+        both = S.verify_consistency_receipt(_no_txid([proof], newer), older_root=TREE.root(6),
+                                            older_issuer=ISSUER, rp_trust=trust(), older_size=6, newer_size=n)
+        assert both.status in ("consistency_anchor_position_mismatch", "consistency_path_not_canonical"), n

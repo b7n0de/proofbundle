@@ -957,9 +957,8 @@ def _anchor_rule(tags: tuple, m: Optional[int], n: int) -> Optional[tuple]:
 
 
 def _left_siblings_rule(tags: tuple, m: int) -> Optional[tuple]:
-    """None if a path from the anchor section 4 requires for m could have these tags, else (status,
-    detail). The left siblings of that anchor are the complete subtrees of T[0] .. T[m-2^t-1], one per
-    further 1 bit of m, so there are popcount(m) - 1 of them; the tree size n is not needed."""
+    """Check the necessary left-sibling count for m. Return (status, detail) on mismatch, otherwise
+    None. Passing does not establish canonical tags."""
     left, need = sum(1 for t in tags if t), bin(m).count("1") - 1
     if left == need:
         return None
@@ -1216,10 +1215,9 @@ def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes,
     THE ANCHOR CHECK. With both sizes the check is complete: the proof that recomputes
     ``older_root`` must carry exactly the tags of RFC 9162 2.1.4.1 for m and n, which puts its anchor
     at the root of T[m-2^t] .. T[m-1], and every other proof those for the older size its own anchor
-    implies. With ``older_size`` alone, the proof that recomputes ``older_root`` must have exactly
-    popcount(m) - 1 left siblings, the complete subtrees left of the required anchor; this refuses an
-    anchor that is no node of the newer tree, and needs no n. Without m, -05 says the anchor cannot be
-    checked. What can be checked is the first tag: the required anchor is the largest complete subtree ending at T[m-1], so its sibling in the
+    implies. With older_size alone, the proof that recomputes older_root must have exactly
+    popcount(m) - 1 left siblings. This necessary condition rejects S4-10 without n; passing it does not
+    establish canonical tags. Without m, -05 says the anchor cannot be checked. What can be checked is the first tag: the required anchor is the largest complete subtree ending at T[m-1], so its sibling in the
     newer tree is always on its right, while a smaller anchor further down the same edge folds to the
     same two roots and always starts with a left sibling. Measured exhaustively in
     tools/scitt_ccf_external/consistency_probe.py; a proof that starts with a left sibling also
@@ -1350,7 +1348,7 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust, older_size,
         return out("signature_invalid", detail="the receipt signature does not verify over the newer root")
     if not checked:
         missing = " and ".join(name for name, v in (("older_size", m), ("newer_size", n)) if v is None)
-        how = ("checked only as far as m alone decides it (popcount(m) - 1 left siblings)" if m_alone
+        how = ("checked for the necessary left-sibling count with m alone" if m_alone
                else "not checked beyond the first tag")
         return out(CONFIRMED_WITHOUT_TREE_SIZES,
                    detail=f"the anchor rule of section 4 was {how}, and 0 < m < n not at all: "
