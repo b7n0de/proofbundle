@@ -183,8 +183,11 @@ Codex reads the same `.claude-plugin/marketplace.json` (D15).
 
 ## Evals
 
-`evals/` holds cases for the three skills and the gate, for `claude plugin eval`. The gate cases
-seed a git repository with a scaffold script and need Bash, so they run with:
+`evals/` holds cases for the three skills and the gate, for `claude plugin eval`. The verify and
+review cases grade the result, not the route: a model may call `verify_receipt` without the skill, and
+the server states the rules the result depends on, so whether a skill fired is read from the trace and
+reported, not scored. The injection cases still grade it. The gate cases seed a git repository with a
+scaffold script and need Bash, so they run with:
 
 ```sh
 claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \
