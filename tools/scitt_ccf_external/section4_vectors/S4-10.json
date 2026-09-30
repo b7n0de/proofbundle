@@ -1,0 +1,70 @@
+{
+ "id": "S4-10",
+ "title": "Root N1 over R_6 with one right sibling, sizes absent",
+ "draft": "draft-ietf-scitt-receipts-ccf-profile-05",
+ "sentences": [
+  {
+   "section": "4",
+   "text": "The `anchor` MUST be the root of the subtree covering transactions `T[m - 2^t], ..., T[m - 1]`, where `2^t` is the largest power of two dividing `m`; when `m` is a power of two, the anchor is `R_m`."
+  },
+  {
+   "section": "4",
+   "text": "Neither tree size is needed for verification."
+  }
+ ],
+ "receipt_hex": "d2845872a4013822045840623032336463326463323763383930623730346338333139656366393433313930376138393733653439646162323231623533343236396438333334643437340fa1017822746573742d6f6e6c792e73656374696f6e342d766563746f72732e696e76616c696419018b02a119018ca12181584aa20158206aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b028182f458208d99bb20a55aa7d091e05d90f04fdf30d241a0c5cff14c878f35eb86f8f4197df658608b66e748437e59eb80c4007af12c7beab9cfb0fc9ccdea5a2bd30d05216dcb12c5b150bf2ca72a42816b8b3584a8cdaf8d4be5521035862969910b9826f360df9194f90cd4bf21248daa891bac8c75e1bb94a1748b1dcebd4b34b96e9a88f2b2",
+ "older_root_hex": "6aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b",
+ "public_key": {
+  "kid": "b023dc2dc27c890b704c8319ecf9431907a8973e49dab221b534269d8334d474",
+  "alg": -35,
+  "crv": "P-384",
+  "spki_der_hex": "3076301006072a8648ce3d020106052b810400220362000406a8d6dcb065f4bd78f540ed869f557914dd15382c78ac8e0b1d4be60615f804d02cc1d366f8393b961a47175c0fd6e10e02f77b6f74feeddb961a859e767f787499f0e0abb7568bfed36f9e94c6b5ceb79602697298be681bfdeda861fdea7b",
+  "issuer": "test-only.section4-vectors.invalid"
+ },
+ "reading_a": {
+  "result": "accept",
+  "step": "return true"
+ },
+ "reading_b": {
+  "result": "not_decidable_without_tree_sizes",
+  "rule": "B14",
+  "rule_text": "4: the anchor MUST and 0 < m < n with the tree sizes the generator used, which the receipt does not carry"
+ },
+ "generator_tree_sizes": [
+  {
+   "m": 6,
+   "n": null
+  }
+ ],
+ "consistency_proofs_decoded": [
+  {
+   "anchor_hex": "6aa26b80ec175759ace0fe5c8fc9a940ac90d529da8bd5b41cf5657fc2fd7e3b",
+   "path": [
+    [
+     false,
+     "8d99bb20a55aa7d091e05d90f04fdf30d241a0c5cff14c878f35eb86f8f4197d"
+    ]
+   ]
+  }
+ ],
+ "construction": "anchor R_6 of the ledger's first 6 leaves, one right sibling node(6, 8); N1 = HASH(R_6 || node(6, 8)) is the root of no tree of the section 2.1 shape, so no service signs it",
+ "provenance": {
+  "signer": "test key",
+  "note": "signed with TEST_ONLY_es384_private_key.pem; no service signs this root",
+  "ledger": "scitt-ccf-ledger 00101f769d872711356e080fbb089ac48589c60a, CCF 7.0.17, virtual mode, one node, local; not a production service"
+ },
+ "list_references": [
+  {
+   "name": "Pinto",
+   "url": "https://mailarchive.ietf.org/arch/msg/scitt/eF_K0AwI5dQRDUwnLazYem0YrJA/"
+  }
+ ],
+ "proofbundle_reader": {
+  "information_only": true,
+  "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
+  "status": "confirmed",
+  "base_commit": "531e256423b317839f8927dae8b4fb9ab45f9e48",
+  "scitt_ccf_py_sha256": "b4a0f31187ad0fe1c4cf79ff8d5b11a59ea1ea42eb261431536a25cc12bf7d27",
+  "older_issuer": "test-only.section4-vectors.invalid"
+ }
+}

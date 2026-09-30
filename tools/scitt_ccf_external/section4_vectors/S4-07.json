@@ -1,0 +1,82 @@
+{
+ "id": "S4-07",
+ "title": "Mixed: a valid consistency proof and a valid inclusion proof to the same root, control",
+ "draft": "draft-ietf-scitt-receipts-ccf-profile-05",
+ "sentences": [
+  {
+   "section": "5",
+   "text": "All proofs in a receipt recompute the same root (the newer root, for consistency proofs), which is the detached payload."
+  }
+ ],
+ "receipt_hex": "d284588da5013822045840386330383130343762303664653937303065626164386565663039313164306462343134326563353634383730616333386132656261313635346236633431370fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6ab6f4e819018b02666363662e7631a1647478696464322e3234a119018ca22081590123a201835820be4d2e8c221c30171f42b978da859922ba0412ff1c586afc19294c44797d3abb784863653a322e32333a326263613038383133363063353938623430356231646334623739313638323537356532393761616538636166623735643433356438623461383239376638315820fd43c0bf8c5b04ec1e1a78000f0d96a88da57b7926bbd431f2a9f82ab212486e028482f558206b8fa4251ab3e4f5017f43eea480501632886b413b334d9ce56cfed6b6e8204682f5582081664aa80b32d5f94e6d010361c11d4ac8e119a4b2cca71e97c2c8996f4ab56e82f55820f950e61aca5467c11a3d2865bcb74df0aed683bf623ced867c7761c9c5ed4bd382f55820c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73218158b6a2015820edfce286806372de298d9c0f2f5abaa6a4fa01007f2df282bf7059637af04d63028482f45820d0acfb3aadbafc3e06d4072dbb050fad0c54f80159b319f40c314a8d1751cc7e82f558202bc9d3cef51a34f7b7ec8695fc0a919299b7a6ba384a8768d894832bf4cb56f482f458203e7aa797c6f4531c16abe04f50814cc4ef4f43b5d6b49b58a255850e68b3007f82f55820c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73f65860cb5f0a17c854a0c632fc46c38273625f8ecbbd906a7e283ee8aba177c94a7b4ad803f52aa34b4ac181ba4eb156b809a5fc8424fc9e454e7aff43d97a0bdbcb0d271451fafc8d131c402121ccdbd20d65414abdeefa64d23ceb47370fc227f1ce",
+ "older_root_hex": "16b49c67c4943baaeec85e2d7ac4cd1f9dbbab050cdd2480c8b1061c162430e2",
+ "public_key": {
+  "kid": "8c081047b06de9700ebad8eef0911d0db4142ec564870ac38a2eba1654b6c417",
+  "alg": -35,
+  "crv": "P-384",
+  "spki_der_hex": "3076301006072a8648ce3d020106052b8104002203620004b5f8ef555ba89856aeb0c22ee72cf454b4d3330c5fe112670fe31517c74e014bf9021e2fe90777a8027d27371348b482788418a62bfe245ce6929e9267147a67f9b1d2c3a6251f3dfa3dbc35fa935f31879c10ed4d752045338d270e4cdb25c2",
+  "issuer": "127.0.0.1:8000"
+ },
+ "reading_a": {
+  "result": "accept",
+  "step": "return true"
+ },
+ "reading_b": {
+  "result": "accept",
+  "rule": "every rule of reading B holds",
+  "rule_text": "B1 to B13 hold, and B14 where tree sizes are given"
+ },
+ "generator_tree_sizes": [
+  {
+   "m": 19,
+   "n": 24
+  }
+ ],
+ "consistency_proofs_decoded": [
+  {
+   "anchor_hex": "edfce286806372de298d9c0f2f5abaa6a4fa01007f2df282bf7059637af04d63",
+   "path": [
+    [
+     false,
+     "d0acfb3aadbafc3e06d4072dbb050fad0c54f80159b319f40c314a8d1751cc7e"
+    ],
+    [
+     true,
+     "2bc9d3cef51a34f7b7ec8695fc0a919299b7a6ba384a8768d894832bf4cb56f4"
+    ],
+    [
+     false,
+     "3e7aa797c6f4531c16abe04f50814cc4ef4f43b5d6b49b58a255850e68b3007f"
+    ],
+    [
+     true,
+     "c177d03ccb0e737c1e64a9cb82ec4531b7f740d56d9ecbdc44fcd1ed293b0d73"
+    ]
+   ]
+  }
+ ],
+ "construction": "the canonical 19-to-24 proof, and under -1 the service's own inclusion proof of R_24",
+ "provenance": {
+  "signer": "service",
+  "note": "the service's own COSE_Sign1 over R_24 from the fixture, its unprotected header replaced; the proofs are computed from the ledger's leaves",
+  "ledger": "scitt-ccf-ledger 00101f769d872711356e080fbb089ac48589c60a, CCF 7.0.17, virtual mode, one node, local; not a production service"
+ },
+ "list_references": [
+  {
+   "name": "Pinto",
+   "url": "https://mailarchive.ietf.org/arch/msg/scitt/eF_K0AwI5dQRDUwnLazYem0YrJA/"
+  },
+  {
+   "name": "G7",
+   "url": "tools/scitt_ccf_external/SECTION4_WGLC.md"
+  }
+ ],
+ "proofbundle_reader": {
+  "information_only": true,
+  "function": "proofbundle.scitt_ccf.verify_consistency_receipt",
+  "status": "confirmed",
+  "base_commit": "531e256423b317839f8927dae8b4fb9ab45f9e48",
+  "scitt_ccf_py_sha256": "b4a0f31187ad0fe1c4cf79ff8d5b11a59ea1ea42eb261431536a25cc12bf7d27",
+  "older_issuer": "127.0.0.1:8000"
+ }
+}
