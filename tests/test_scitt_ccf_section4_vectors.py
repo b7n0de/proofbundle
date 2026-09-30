@@ -259,3 +259,19 @@ def test_the_size_free_result_uses_no_size_and_names_its_pass_alike():
     aware = {v["id"]: (v["reading_b_size_aware"]["result"], v["reading_b_size_aware"]["rule"]) for v in _vectors()}
     assert aware["S4-10"] == ("reject", "B14")
     assert [i for i in passing if aware[i][0] == "accept"] == ["S4-01", "S4-02", "S4-04", "S4-07"]
+
+
+def test_thirteen_unchanged_service_signatures_one_flipped_and_one_test_key():
+    """Nachtrag 2, point 5: the fixture's signature over R_24, byte for byte, in 13 vectors; S4-14
+    carries it with one bit flipped; S4-10 is signed with the test key."""
+    import cbor2
+    from proofbundle._wire_b64 import decode_b64
+    fixture = json.loads((REPO / "tests" / "fixtures" / "scitt_ccf" / "local_ledger_consistency.json").read_text())
+    service_sig = cbor2.loads(decode_b64(fixture["newer_receipt_b64"])).value[3]
+    signer = {v["id"]: v["provenance"]["signer"] for v in _vectors()}
+    sig = {v["id"]: cbor2.loads(bytes.fromhex(v["receipt_hex"])).value[3] for v in _vectors()}
+    unchanged = sorted(i for i in IDS if sig[i] == service_sig)
+    assert unchanged == sorted(i for i in IDS if signer[i] == "service") and len(unchanged) == 13
+    assert signer["S4-14"] == "service, one signature bit flipped"
+    assert sum(bin(a ^ b).count("1") for a, b in zip(sig["S4-14"], service_sig)) == 1
+    assert [i for i in IDS if signer[i] == "test key"] == ["S4-10"]

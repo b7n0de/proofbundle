@@ -10,9 +10,10 @@ Inputs, committed in this repository:
 - tools/scitt_ccf_external/consistency_result.json: the ledger's 25 leaves, read with the ccf package
   7.0.17, from which every proof here is computed
 
-A vector signed by the service reuses that COSE_Sign1: its protected header and signature cover the
-newer root only, and vdp sits in the unprotected header, so the signature stays valid whatever proofs
-are placed beside it. A case a service would never sign is signed with the one TEST ONLY key in this
+Thirteen vectors reuse that COSE_Sign1 unchanged: its protected header and signature cover the newer
+root only, and vdp sits in the unprotected header, so the signature stays valid whatever proofs are
+placed beside it. S4-14 flips one bit of that signature, so it does not verify. S4-10, a deliberately
+noncanonical root, is signed with the one TEST ONLY key in this
 directory, TEST_ONLY_es384_private_key.pem, created on the first run and never replaced; its ECDSA
 signatures are deterministic (RFC 6979), so a run reproduces the same bytes.
 
@@ -204,7 +205,11 @@ def main() -> int:
 
     SERVICE = ("service", "the service's own COSE_Sign1 over R_24 from the fixture, its unprotected header "
                           "replaced; the proofs are computed from the ledger's leaves")
-    TEST = ("test key", "signed with TEST_ONLY_es384_private_key.pem; no service signs this root")
+    FLIPPED = ("service, one signature bit flipped",
+               "the service's COSE_Sign1 over R_24 from the fixture with bit 0 of signature byte 0 flipped, so "
+               "it does not verify; its unprotected header replaced; the proofs are computed from the ledger's "
+               "leaves")
+    TEST = ("test key", "signed with TEST_ONLY_es384_private_key.pem over a deliberately noncanonical root")
 
     cases = [
         ("S4-01", "Canonical proof 19 to 24, control", service({-2: [p19]}), R19, SERVICE,
@@ -241,7 +246,7 @@ def main() -> int:
          [{"m": 6, "n": 7}], [S_ANCHOR, S_NO_SIZE], A_OK, ("reject", "B14"),
          ["Pinto"],
          "anchor R_6 of the ledger's first 6 leaves, path [right HASH(d[6])] with the ledger's leaf 6, signed "
-         "over N1 = HASH(R_6 || HASH(d[6])) with the txid 2.7, as a service would sign the root of 7 leaves; "
+         "over N1 = HASH(R_6 || HASH(d[6])) with the txid 2.7 a service writes for a state of 7 leaves; "
          "N1 is a deliberately noncanonical root (R_7 is HASH(node(0, 4) || HASH(node(4, 6) || HASH(d[6])))). "
          "Without sizes the proof has the form of a canonical proof from 4 to 5"),
         ("S4-11", "Empty consistency-proof array", service({-2: []}), R19, SERVICE, None, [S_ONE_OR_MORE],
@@ -254,7 +259,7 @@ def main() -> int:
          [{"m": 19, "n": 24}], [S_PATH], A_NO_OLDER, ("reject", "B11"), [],
          "the canonical 19-to-24 proof with the tag of its first path element flipped"),
         ("S4-14", "One signature byte flipped, negative control", service({-2: [p19]}, sig=flip(service_sig, 0)),
-         R19, SERVICE, [{"m": 19, "n": 24}], [S_SIG], A_BAD_SIG, ("reject", "B13"), [],
+         R19, FLIPPED, [{"m": 19, "n": 24}], [S_SIG], A_BAD_SIG, ("reject", "B13"), [],
          "S4-01 with bit 0 of signature byte 0 flipped"),
         ("S4-15", "The older root matches no proof", service({-2: [p19]}), R22, SERVICE,
          [{"m": 19, "n": 24}], [S_BINDS], A_NO_OLDER, ("reject", "B12"), [],
