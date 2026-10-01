@@ -173,7 +173,7 @@ def shim(tmp_path: pathlib.Path) -> dict:
     """PATH with a `uv` that runs the plugin server with this interpreter and this checkout's package."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "uv").write_text(f'#!/bin/sh\nshift 3\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
     env = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))

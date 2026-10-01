@@ -259,8 +259,18 @@ with `uv run --script`. Its `verify_receipt` tool is the one the skills use, and
 (`proofbundle==6.1.0`) is the only pin. Without `uv`, or without a cached or reachable PyPI, the
 verifier does not start and the gate denies (D6).
 
+Isolation from the checked repository (review N4): the gate starts the verifier from an empty temporary
+directory, with `uv --no-config`, and with every `PYTHON*` environment name stripped; the server runs the
+command line with `python -I` from an empty temporary directory. So no file of the checked repository
+decides which code verifies: not a `proofbundle/` folder on the interpreter's path, not a `uv.toml` or
+`pyproject.toml`, not an inherited `PYTHONPATH`. The measured probes no longer load repository modules
+through the default working-directory path or repository uv configuration. The interpreter installation and
+the user's own environment (PATH, uv, UV_* variables) remain trusted inputs, named here as the boundary of
+the guarantee. Under Codex the server's manifest entry sets `cwd: "."`, so the server starts in the plugin
+directory, not the checked repository; the isolation above holds whatever that directory is.
+
 Options:
-- A. The plugin's MCP server (chosen).
+- A. The plugin's MCP server, started isolated from the checked repository (chosen).
 - B. A `proofbundle` command on `PATH`, which would verify with whatever version is installed.
 
 ## D12. Codex has no ask

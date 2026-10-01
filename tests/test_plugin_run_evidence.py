@@ -102,7 +102,7 @@ def env(tmp_path: pathlib.Path) -> dict:
     package's own pytest receipt, a planted secret, and a `uv` shim for the gate's verifier."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "uv").write_text(f'#!/bin/sh\nshift 3\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     (bin_dir / "uv").chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
     clean = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}

@@ -475,6 +475,14 @@ def require_pinned_signer(raw: bytes, where: str) -> None:
                         "signature.require_expected_signer true")
 
 
+#: Environment names that can make Python load code from the checked repository (a PYTHONPATH entry, a
+#: start-up file). The gate strips every PYTHON* name before it starts the verifier, so no file of the
+#: checked repository decides which code verifies (DECISIONS.md, D11; review N4). PATH, uv and the
+#: interpreter installation stay as the user's own trusted inputs.
+def _isolated_env() -> dict:
+    return {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+
+
 def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     """Call verify_receipt once per request on the plugin's MCP server and return the tool results."""
     uv = shutil.which("uv")
@@ -491,9 +499,10 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     if left <= 0:
         raise GateError("the gate ran out of time before the verifier started")
     try:
-        proc = subprocess.run([uv, "run", "--quiet", "--script", str(SERVER)],
-                              input="".join(json.dumps(m) + "\n" for m in lines), capture_output=True,
-                              text=True, timeout=left, check=False)
+        with tempfile.TemporaryDirectory(prefix="proofbundle-verify-") as clean:
+            proc = subprocess.run([uv, "run", "--quiet", "--no-config", "--script", str(SERVER)], cwd=clean,
+                                  env=_isolated_env(), input="".join(json.dumps(m) + "\n" for m in lines),
+                                  capture_output=True, text=True, timeout=left, check=False)
     except subprocess.TimeoutExpired as exc:
         raise GateError("the verifier did not finish in time") from exc
     replies = {}

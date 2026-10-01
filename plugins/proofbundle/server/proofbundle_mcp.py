@@ -184,10 +184,14 @@ def _public_key(args: dict) -> str:
 
 
 def _run_cli(argv: list[str]) -> dict:
-    """Run the package's command line and return what it said, verbatim."""
+    """Run the package's command line and return what it said, verbatim. The interpreter runs isolated
+    (`-I`: no PYTHONPATH, no user site, the working directory is not prepended to sys.path) from an empty
+    temporary directory, so a `proofbundle/` folder or a `uv.toml` in the checked repository cannot shadow
+    the pinned package or redirect the verifier (review N4). Every path argument is already absolute."""
     try:
-        proc = subprocess.run([sys.executable, "-m", "proofbundle.cli", *argv], capture_output=True,
-                              text=True, timeout=CLI_TIMEOUT_SECONDS, check=False)
+        with tempfile.TemporaryDirectory(prefix="proofbundle-cli-") as clean:
+            proc = subprocess.run([sys.executable, "-I", "-m", "proofbundle.cli", *argv], cwd=clean,
+                                  capture_output=True, text=True, timeout=CLI_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired as exc:
         raise ToolInputError(f"proofbundle did not finish within {CLI_TIMEOUT_SECONDS} s") from exc
     result: dict = {"proofbundle_version": _package_version(), "plugin_version": SERVER_VERSION,

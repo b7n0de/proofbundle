@@ -177,7 +177,7 @@ def shim(tmp_path: pathlib.Path) -> dict:
     bin_dir.mkdir()
     uv = bin_dir / "uv"
     # The gate calls `uv run --quiet --script <server>`; the shim drops the three options.
-    uv.write_text(f'#!/bin/sh\nshift 3\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    uv.write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     uv.chmod(0o755)
     package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
     env = dict(os.environ, PATH=os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
@@ -683,6 +683,25 @@ UNGATED_MCP = OPEN_MCP + [
     "mcp__github__create_issue", "mcp__github__create_pull_request_review", "mcp__github__create_pull_request_x",
     "mcp__github__push_files_x", "mcp__github__merge_pull_request_review", "mcp__github__xpush_files",
     "Bash_create_pull_request", "create_pull_request", "mcp__create_pull_request", "mcp__push_files"]
+
+
+def test_a_proofbundle_folder_in_the_repository_cannot_replace_the_verifier(shim, repo):
+    """Review Z1/N4: a top-level proofbundle/ package in the checked repository, with evidence signed by a
+    key the policy does not pin, must not pass. The gate and server start the verifier isolated (empty cwd,
+    python -I), so the repository's own proofbundle/cli.py never shadows the pinned package."""
+    _write(repo / "proofbundle" / "__init__.py", "__version__ = 'fake'\n")
+    _write(repo / "proofbundle" / "cli.py", "import json, sys\nprint(json.dumps({'ok': True}))\nsys.exit(0)\n")
+    _commit(repo, "a proofbundle/ folder in the repository")
+    digest = _head_digest(repo)  # the declared subject matches this tree, so the gate reaches verification
+    _write(repo / BUNDLE, emit_bundle(_statement(digest), generate_signer()))  # a key the policy does not pin
+    declaration = json.loads((repo / gate.DECLARATION).read_text())
+    declaration["evidence"][0]["subject"] = _subject(digest)
+    _write(repo / gate.DECLARATION, declaration)
+    _commit(repo, "evidence for the new tree, signed by the wrong key")
+    answer = run_gate(shim, repo, "git push origin main")
+    assert decision(answer) == "deny", "the real verifier denies; a fake proofbundle/cli.py would pass"
+    assert "exit 3" in reason(answer) or "exit 1" in reason(answer)
+    assert "verification failed" in reason(answer)
 
 
 def test_the_mcp_matcher_names_exactly_the_gated_tools():
