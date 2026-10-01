@@ -1079,7 +1079,10 @@ class TestReadingARegisteredVerifiersResultRunsNoneOfItsCode(unittest.TestCase):
     ``verify_anchors`` and ``verify_decision_receipt(anchors=...)``, whose guard around the anchors took only
     typed errors. The fail-closed try ended at the verifier CALL and did not cover the reading of its answer. The
     result is now read by iterating what the dict stores, a key counting only as an exact str, each value only by
-    its exact type, and the whole reading sits inside the fail-closed boundary."""
+    its exact type, and the whole reading sits inside the fail-closed boundary. Since the fix of deep gate run 6 at
+    fda55f98 the result is first read where it returns by the reading at the call, which refuses a dict holding a key
+    whose hash is the caller's code (`canonical._StandUnkopierbar`), so such a result is a failed anchor, also beside
+    ``ok`` True."""
 
     _TYPE = "test-reading-runs-no-caller-code/v1"
 
@@ -1138,17 +1141,20 @@ class TestReadingARegisteredVerifiersResultRunsNoneOfItsCode(unittest.TestCase):
             ("warn whose dunders raise", lambda: {"ok": False, "warn": _RaisingValue(calls)}),
             ("OrderedDict with a key 'ok' whose __eq__ raises",
              lambda: collections.OrderedDict([(_RaisingKey(calls, "ok"), True)])),
+            # Since the fix of deep gate run 6 the result is read where it returns by the reading at the call, which
+            # refuses a dict holding a key whose hash is the caller's code (`canonical._StandUnkopierbar`): the
+            # anchor fails closed, also beside ok True. Until then such a key was left unread and the anchor verified.
+            ("trustedTime with a key 'source' whose __eq__ raises",
+             lambda: {"ok": True, "trustedTime": {_RaisingKey(calls, "source"): "x"}}),
+            ("a second key 'warn' whose __eq__ raises", lambda: {"ok": True, _RaisingKey(calls, "warn"): True}),
         ]
         verified = [
             ("status whose dunders raise", lambda: {"ok": True, "status": _RaisingValue(calls)}),
             ("status a str subclass", lambda: {"ok": True, "status": s_cls("pass")}),
             ("detail whose dunders raise", lambda: {"ok": True, "detail": _RaisingValue(calls)}),
             ("trustedTime whose dunders raise", lambda: {"ok": True, "trustedTime": _RaisingValue(calls)}),
-            ("trustedTime with a key 'source' whose __eq__ raises",
-             lambda: {"ok": True, "trustedTime": {_RaisingKey(calls, "source"): "x"}}),
             ("trustedTime whose source raises", lambda: {"ok": True, "trustedTime": {"source": _RaisingValue(calls)}}),
             ("rp_trusted whose dunders raise", lambda: {"ok": True, "rp_trusted": _RaisingValue(calls)}),
-            ("a second key 'warn' whose __eq__ raises", lambda: {"ok": True, _RaisingKey(calls, "warn"): True}),
         ]
         for expected, cases in ((False, not_verified), (True, verified)):
             for label, make in cases:
@@ -1286,7 +1292,13 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
     with a raising ``__eq__`` made ``classify_digest_evidence``, ``classify_receiver_corroboration``,
     ``evidence_ladder_summary`` and ``evidence_ladder_best``, all documented never to raise, raise RuntimeError.
     A key now counts only as an exact str and the stored value only by its type, so none of the caller's code
-    runs and nothing it does can raise or stand in for a key it is not."""
+    runs and nothing it does can raise or stand in for a key it is not.
+
+    Since the fix of deep gate run 6 at fda55f98 a digest object or a field that is a dict holding a key whose hash is
+    the caller's code does not reach these bodies: the reading at the call refuses it with
+    `canonical._StandUnkopierbar`, a ``ProofBundleError``, before anything is classified (owner choice 8 on
+    OA-73db31053a: the old expectation became the refusal). The property held here is unchanged in what matters: no
+    exception of the caller escapes, nothing is promoted, and none of the caller's code runs."""
 
     _STRONG = {"level": EvidenceLevel.CONTENT_RESOLVED, "level_name": "CONTENT_RESOLVED"}
 
@@ -1296,28 +1308,31 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
                     d, evidence_resolver=lambda x: True, independent_attestation_resolver=lambda x: True,
                     executor_key_id="kid-exec", receiver_key_id="kid-recv")))
 
-    def test_the_reviews_inputs_classify_fail_closed_and_run_nothing(self):
+    def test_the_reviews_inputs_are_refused_at_the_call_and_run_nothing(self):
+        from proofbundle.canonical import _StandUnkopierbar
         calls: list = []
         for name, classify in self._digest_surfaces():
             with self.subTest(surface=name):
                 calls.clear()
-                self.assertEqual(classify({_RaisingKey(calls, "sha256"): "a" * 64})["level"], EvidenceLevel.CLAIMED)
+                with self.assertRaises(_StandUnkopierbar):
+                    classify({_RaisingKey(calls, "sha256"): "a" * 64})
                 self.assertEqual(calls, [])
-        for name, rollup, want in (("summary", evidence_ladder_summary, "CONTENT_RESOLVED"),
-                                   ("best", evidence_ladder_best, "CONTENT_RESOLVED")):
+        for name, rollup in (("summary", evidence_ladder_summary), ("best", evidence_ladder_best)):
             with self.subTest(surface=name):
                 calls.clear()
-                self.assertEqual(rollup({_RaisingKey(calls, "level"): 0}, self._STRONG)["level_name"], want)
+                with self.assertRaises(_StandUnkopierbar):
+                    rollup({_RaisingKey(calls, "level"): 0}, self._STRONG)
                 self.assertEqual(calls, [])
 
     def test_a_stored_key_or_value_of_any_shape_never_escapes_and_never_promotes(self):
+        from proofbundle.canonical import _StandUnkopierbar
         calls: list = []
         s_cls, i_cls, d_cls = _raising_subclass_values(calls)
         hex64 = "a" * 64
+        abgewiesen = "refused at the call"
         digests = [
-            ("non-str key 'sha256', __eq__ raises", {_RaisingKey(calls, "sha256"): hex64}, EvidenceLevel.CLAIMED),
-            ("non-str key 'sha256', __eq__ says equal", {_ImpersonatingKey(calls, "sha256"): hex64},
-             EvidenceLevel.CLAIMED),
+            ("non-str key 'sha256', __eq__ raises", {_RaisingKey(calls, "sha256"): hex64}, abgewiesen),
+            ("non-str key 'sha256', __eq__ says equal", {_ImpersonatingKey(calls, "sha256"): hex64}, abgewiesen),
             ("str-subclass key 'sha256', __eq__ raises", {_raising_str_key(calls, "sha256"): hex64},
              EvidenceLevel.CLAIMED),
             ("value whose dunders raise", {"sha256": _RaisingValue(calls)}, EvidenceLevel.CLAIMED),
@@ -1330,30 +1345,39 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
             for label, digest, level in digests:
                 with self.subTest(surface=name, digest=label):
                     calls.clear()
+                    if level == abgewiesen:
+                        with self.assertRaises(_StandUnkopierbar):
+                            classify(digest)
+                        self.assertEqual(calls, [], "the digest object's own code ran")
+                        continue
                     got = classify(digest)["level"]
                     if name == "classify_receiver_corroboration" and level == EvidenceLevel.CONTENT_RESOLVED:
                         level = EvidenceLevel.INDEPENDENTLY_ATTESTED
                     self.assertEqual(got, level)
                     self.assertEqual(calls, [], "the digest object's own code ran")
         fields = [
-            ("non-str key 'level', __eq__ raises", {_RaisingKey(calls, "level"): 0}, "CONTENT_RESOLVED"),
-            ("non-str key 'level', __eq__ says equal", {_ImpersonatingKey(calls, "level"): 0}, "CONTENT_RESOLVED"),
+            ("non-str key 'level', __eq__ raises", {_RaisingKey(calls, "level"): 0}, abgewiesen),
+            ("non-str key 'level', __eq__ says equal", {_ImpersonatingKey(calls, "level"): 0}, abgewiesen),
             ("str-subclass key 'level', __eq__ raises", {_raising_str_key(calls, "level"): 0}, "CONTENT_RESOLVED"),
             ("level whose dunders raise", {"level": _RaisingValue(calls)}, "CONTENT_RESOLVED"),
             ("level an int subclass storing 0", {"level": i_cls(0), "level_name": "CLAIMED"}, "CLAIMED"),
             ("a dict subclass whose methods raise, storing level 0", d_cls(level=0, level_name="CLAIMED"),
              "CLAIMED"),
             ("level_name behind a key whose __eq__ raises", {"level": 0, _RaisingKey(calls, "level_name"): "x"},
-             None),
+             abgewiesen),
             ("the field's dunders raise", _RaisingValue(calls), "CONTENT_RESOLVED"),
         ]
         for label, field, weakest in fields:
             with self.subTest(field=label):
                 calls.clear()
+                if weakest == abgewiesen:
+                    for rollup in (evidence_ladder_summary, evidence_ladder_best):
+                        with self.assertRaises(_StandUnkopierbar):
+                            rollup(field, self._STRONG)
+                    self.assertEqual(calls, [], "the field's own code ran")
+                    continue
                 summary = evidence_ladder_summary(field, self._STRONG)
                 self.assertEqual(summary["level_name"], weakest)
-                if weakest is None:
-                    self.assertEqual(summary["level"], 0)
                 self.assertEqual(evidence_ladder_best(field, self._STRONG)["level_name"], "CONTENT_RESOLVED")
                 self.assertEqual(calls, [], "the field's own code ran")
 
