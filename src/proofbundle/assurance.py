@@ -120,6 +120,12 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     ``evidenceRefs[]`` entry) onto the :class:`EvidenceLevel` ladder. Never raises; a malformed input
     classifies as ``CLAIMED``, it never crashes the caller.
 
+    ONE REFUSAL COMES BEFORE THIS BODY (deep gate run 6 at fda55f98): a digest object that is a dict holding a
+    key whose hash would be the caller's code, or keys that meet as one, cannot be copied by the reading at the
+    call (`canonical._ein_stand`), and the call is refused with `canonical._StandUnkopierbar`, a
+    ``ProofBundleError``, before anything is classified; parsed JSON cannot build such an object. Until then
+    such a key was left unread and the object classified as ``CLAIMED``.
+
     ``applicable=False`` (e.g. ``status != 'executed'``) -> ``level=None`` (not applicable, mirrors the
     existing ``*_proven=None`` convention: a non-applicable claim is not a WEAK claim, it is not a claim
     at all). ``applicable`` must be a bool: anything else raises
@@ -127,7 +133,7 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     read by its truth, so ``applicable=None``, ``0``, ``""`` or ``[]`` made a field not applicable, and
     :func:`evidence_ladder_summary`, which ignores such a field, rose above the weakest real link
     (measured at 3a8074fc: CLAIMED and CONTENT_RESOLVED summarised to CONTENT_RESOLVED). The digest
-    object and the resolver still never make this function raise; the switch is the caller's own
+    object and the resolver never make this function raise past that one refusal; the switch is the caller's own
     argument, not the evidence under classification.
 
     ``evidence_resolver``, when supplied, is called with ``digest_obj`` and must return True iff the
@@ -201,7 +207,9 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     INDEPENDENTLY_ATTESTED ≈ RECEIVER_CORROBORATED — "a THIRD PARTY attests the same content" is exactly
     what a receiver/observer corroboration IS).
 
-    Never raises on the digest, the resolvers or the key material: a raising
+    Never raises on the digest, the resolvers or the key material, past the one refusal at the call that
+    :func:`classify_digest_evidence` names (a digest object holding a key whose hash would be the caller's code):
+    a raising
     ``independent_attestation_resolver`` is fail-closed (treated as False, the base
     ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
     ``evidence_resolver`` contract). ``applicable`` is a switch and must be a bool; anything else raises
@@ -367,7 +375,8 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     ``evidenceRefs[]`` — ``evidence_bound`` is only meaningful when EVERY ref is bound). Non-applicable
     (``level=None``) fields are ignored, never silently counted as CLAIMED. When no field is applicable,
     returns ``level=None`` (mirrors the existing ``evidence_bound=None`` "nothing to bind" convention —
-    never a vacuous strong verdict over an empty set)."""
+    never a vacuous strong verdict over an empty set). A field that is a dict holding a key whose hash would be the
+    caller's code is refused at the call (`canonical._StandUnkopierbar`), as at :func:`classify_digest_evidence`."""
     # adversarial re-audit: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
     applicable = [f for f in fields if _has_level(f)]
@@ -383,7 +392,8 @@ def evidence_ladder_best(*fields: dict) -> dict:
     of several alternative digest fields needs to hold for the claim to be satisfied (e.g.
     ``outcome.py``'s ``effectDigest`` OR ``actualActionDigest`` — the existing boolean
     ``outcome_execution_proven`` is exactly this OR). Picks the STRONGEST applicable field. When no field
-    is applicable, returns ``level=None``."""
+    is applicable, returns ``level=None``. A field that is a dict holding a key whose hash would be the caller's code
+    is refused at the call (`canonical._StandUnkopierbar`), as at :func:`classify_digest_evidence`."""
     # adversarial re-audit: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
     applicable = [f for f in fields if _has_level(f)]

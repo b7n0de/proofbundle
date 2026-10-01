@@ -1078,6 +1078,12 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any
     every other argument, and every other place of such an argument, holds the copy of the reading and no object of
     the caller (`_gelesen`).
 
+    THE READING CAN REFUSE THE CALL BEFORE THE BODY, at every function it stands on: with `_StandUnkopierbar` for a
+    container it recognises and cannot copy and for an iterator or a generator no contract takes, and with
+    `_StandGestoert` for a value that changed during each of its readings, both a ``ProofBundleError``. So where a docstring of this package says a function never raises, it
+    speaks of the body; the two refusals come first, also at a function that otherwise answers every input with a
+    verdict. JSON, the CLI and files build no such value.
+
     A CALL FROM INSIDE is not read again: when this thread is in the body of a public function whose arguments
     were read at its call, and the function that calls is this package's own code, what it passes is that
     reading or was made from it (a value a caller's callable returns is read where it returns, `_stand`, and the

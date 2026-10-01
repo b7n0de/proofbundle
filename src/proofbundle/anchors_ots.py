@@ -65,8 +65,12 @@ def ots_binding_held(result) -> bool:
 
     The status is read with `dict.get`, not with the object's own `get`: a dict subclass that overrides
     `get` can neither raise out of here nor name a status its contents do not hold (gate run 3, 229-3-02).
-    STATED LIMIT, the line `_membership.is_member` draws: a key or a status whose own `__eq__` or
-    `__hash__` raises anything but TypeError still raises here. Only a caller can build such an object;
+    STATED LIMIT, since the fix of deep gate run 6 at fda55f98 the one of the reading at the call
+    (`canonical._ein_stand`): a status of the caller's own class reaches here as a stand-in that holds nothing of
+    the caller, which is no member of the statuses that say the binding held, so it is not bound and none of its
+    code runs; a dict holding a key whose hash would be the caller's code is refused at the call with
+    `canonical._StandUnkopierbar`, a `ProofBundleError`. Until then such a key or status raised what its own
+    `__eq__` or `__hash__` raised, the line `_membership.is_member` draws. Only a caller can build such an object;
     parsed JSON cannot, and `verify_opentimestamps` returns literal dicts with string keys."""
     return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)
 

@@ -79,7 +79,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `bytes`, `int` or `float` subclass becomes what it stores, in a class of this package whose methods are the base
     type's own (`canonical._fremdwert`), so the one rule for a number still refuses an `int` or `float` subclass where
     it did. An iterator or a generator outside an argument whose contract takes one refuses the call. A container the
-    reading recognises and cannot copy refuses the call (`canonical._StandUnkopierbar`, a `ProofBundleError`): a dict
+    reading recognises and cannot copy refuses the call (`canonical._StandUnkopierbar`, a `ProofBundleError`), also at
+    a function that otherwise answers every input with a verdict, such as `classify_digest_evidence`: a dict
     or set with a key or item whose hash would be the caller's code, or whose keys or items meet as one in the copy,
     an OrderedDict whose own order cannot be read without hashing, a view of an OrderedDict or of a mapping that is no
     dict, a memoryview no view of private bytes can take, and an object of this package with an attribute name that is
