@@ -425,11 +425,11 @@ def _kanten_urteil(relationships: Any, gelesen: tuple[str | None, list[tuple[str
     # wenn das Objekt selbst gar keine Kante hat. Die Richtung ist monoton: der Schluessel kann eine
     # Politik-Verletzung nur HINZUFUEGEN, nie eine entfernen.
     #
-    # Die Aufrufer, die ihn selbst setzten, ueberschrieben ihn — und das war KEIN No-Op, wie hier bis
-    # d388ed3d stand (deep gate Lauf 5, L4-620v5-T5-SECOND-READING-01, zwei von drei Juroren P1): `successor_warning` las das
-    # `related` des Aufrufers ein zweites Mal, und ein Aufrufer, der seine Tabelle zwischen den beiden
-    # Lesungen leerte, verlor die angehaengte Ruecknahme aus genau diesem Schluessel. Die Aufrufer lesen
-    # den Schluessel jetzt aus dieser Rueckgabe und setzen ihn nicht mehr.
+    # The callers that set it themselves overwrote it, and that was NOT a no-op, as this comment said up
+    # to d388ed3d (deep gate run 5, L4-620v5-T5-SECOND-READING-01, two of three jurors P1):
+    # `successor_warning` read the caller's `related` a second time, and a caller that emptied its map
+    # between the two readings lost the attached retraction from exactly this key. The callers now read
+    # the key from this return value and no longer set it.
     _sba = _successor_warning_over(attached_entries, subject_hex)
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": [],
