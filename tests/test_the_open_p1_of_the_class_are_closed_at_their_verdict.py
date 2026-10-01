@@ -1,10 +1,9 @@
 """The gate before run 7, part four: the open P1 of the class and the findings of deep gate run 6, each measured at
 the verdict it promoted.
 
-SOURCE. Owner choice 1 of 2026-10-01 (card OA-73db31053a, the form of the addendum
-DER-BAU-FUER-LAUF-7-FOLGT-DER-RUECKMELDUNG-DES-PRUEFERS-01): the entries of RESTRISIKO_620.md that stood as open P1
-with a workaround are closed in 6.2.0, each shown closed at the final head, and the exception with a workaround of
-OA-ff64386f8d is lifted: a memoryview the copy cannot rebuild (V8-F2), an iterator or a generator handed in as an
+SOURCE. Owner choice 1 of 2026-10-01 (card OA-73db31053a, the form of the owner's addendum of 2026-10-01,
+18:45 UTC): the entries of RESTRISIKO_620.md that stood as open P1 with a workaround are closed in 6.2.0, each
+shown closed at the final head, and the exception with a workaround of OA-ff64386f8d is lifted: a memoryview the copy cannot rebuild (V8-F2), an iterator or a generator handed in as an
 argument (V10-F1), and a value of the caller's own class inside a copied container that decided
 `decision.action_outcome_proven` (V8, E10). Beside them the findings of deep gate run 6 at fda55f98 that change a
 verdict or a bound: a related map whose keys meet as one, read at body time (L4-620v6-T15-LIVE-RELATED-01, P1), a

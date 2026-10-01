@@ -8,9 +8,9 @@ RESTRISIKO_620.md carried three more of the same class as open P1 with a workaro
 rebuild (V8-F2), an iterator or a generator read by the body after the other arguments were copied (V10-F1), and a value
 of the caller's own class inside a copied container that decided `decision.action_outcome_proven` through its own
 methods (V8, E10). The review before run 7 named the common cause: the reading falls back to handing on what it does
-not know. The owner's choices of 2026-10-01 (card OA-73db31053a, form of the addendum
-DER-BAU-FUER-LAUF-7-FOLGT-DER-RUECKMELDUNG-DES-PRUEFERS-01): those entries are closed in 6.2.0, the forms each argument
-takes are set per argument and recursively, bytes and callbacks stay where they are meant, a form 6.2.0 promises (a
+not know. The owner's choices of 2026-10-01 (card OA-73db31053a, form of the owner's addendum of 2026-10-01,
+18:45 UTC): those entries are closed in 6.2.0, the forms each argument takes are set per argument and recursively,
+bytes and callbacks stay where they are meant, a form 6.2.0 promises (a
 tuple, a subclass of str, bytes, dict or list read by what it stores) stays unless it promotes a verdict, and check and
 copy use the same captured representation.
 

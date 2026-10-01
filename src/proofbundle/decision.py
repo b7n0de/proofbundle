@@ -408,11 +408,11 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     root* is defined over the RFC-8785 (JCS) canonical form (Fix 3 / proofbundle#7 consensus), so both emit
     and the hash_binding check use a REAL JCS canonicalizer rather than the bundle path's
     ``json.dumps(sort_keys=True)`` — which is not full JCS (it does not normalize number formatting or string
-    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``, the ``[eval]`` extra)
-    is imported lazily inside the shared primitive, so the base install and the plain no-anchor verify path
-    stay dependency-free; a missing extra surfaces there as ``CanonicalizerUnavailable`` which we re-raise as
-    the predicate-local ``DecisionReceiptError`` with the SAME message (never a raw ImportError — no
-    behaviour change)."""
+    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``) is a dependency of the
+    core install since 3.6.1 and is imported lazily inside the shared primitive; an install that lacks it surfaces
+    there as ``CanonicalizerUnavailable``, which we re-raise as the predicate-local ``DecisionReceiptError`` with
+    the SAME message (never a raw ImportError). Until deep gate run 6 at fda55f98 this said the base install
+    stays dependency-free."""
     from . import canonical  # noqa: PLC0415 — lazy: only the canonical/emit path pulls the JCS dependency
     try:
         return canonical.canonicalize_statement(obj)
@@ -568,7 +568,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     signed. The CLI gates its exit code on `crypto_ok` first (and reports `ok`).
 
     hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
-    fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
+    fail-closed error. ``rfc8785`` is a dependency of the core install since 3.6.1, and an install that lacks it
+    refuses every receipt (``canonical.CanonicalizerUnavailable``); until deep gate run 6 at fda55f98 this said the
+    check runs only when rfc8785 is importable.
 
     Subject binding (Finding 05, mirrors outcome.py): `build_decision_statement` allows a caller to
     OVERRIDE `subject_sha256`, self-attested and NOT cross-checked there. This verify path now classifies

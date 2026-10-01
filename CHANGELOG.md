@@ -42,12 +42,108 @@ wherever a function read a caller's value at more than one time, so every public
 arguments in one reading at its call; and they found the second one level down, in a policy file with nothing in it
 the command evaluates. The verify lanes on the second fix found what its reading left out and what its pause of the
 collector cost, so the reading copies those values too and reads twice instead of pausing.
+The deep gate at fda55f98 (run 6) found what that reading still handed on and a rule a policy set that its command
+did not apply, the second in the released 6.0.0 and 6.1.0 as well; with the review before run 7 and the owner's choices of 2026-10-01, nothing of the caller reaches a
+body now but what an argument's contract names, and every rule a policy sets is applied or the policy is refused.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
 
-- **A public function reads a caller's values once, at its call, as one state, and a file whose content reads as
-  absent is refused like the empty value** (deep gate of the 6.2.0 release preparation at d388ed3d: two P1 findings,
+- **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
+  applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:
+  two P1 findings, L4-620v6-T15-LIVE-RELATED-01 and L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01, each confirmed by
+  three of three blind jurors; then the review before run 7 and the owner's choices of 2026-10-01 on card
+  OA-73db31053a). The second is present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured on 2026-10-01 by
+  running measurement 1 against the source of both tags: under a policy whose only rule is `reject_retracted`, and
+  beside a rule the command applies, `outcome verify` printed `POLICY: OK` over an attached, verified retraction, and
+  `decision verify` ended like no policy. The first came in this form with the reading at the call of this release
+  (the entry below); both tags carry its earlier form, the map read twice, which that entry closes.
+  - The reading at the call copied what it could read and handed on everything else as the caller's object. A
+    `related` map whose keys meet as one in the copy (a `str` subclass beside the `str` it spells) was such a value:
+    the body read it at body time, and a gc callback of the caller gave `verify_decision_receipt` `ok` True and
+    `safeForAutomation` True at 11 of 1065 collection starts of a call where both states give False. RESTRISIKO_620.md
+    carried three more of that class as open P1 with a workaround (owner exception OA-ff64386f8d): a memoryview no view
+    of private bytes can take, read at two times by `merkle.verify_inclusion` (V8-F2); an iterator or a generator,
+    read by the body after the other arguments were copied (`evaluate_public_transparency` PASS where each state fails,
+    `emit_bundle` signing the payload of one state over the leaves of another, V10-F1); and a `str` subclass value
+    whose `__ne__` decided `decision.action_outcome_proven` (V8, E10). The review named the common cause, a reading
+    that falls back to handing on what it does not know, and the owner lifted the exception: each of them is closed in
+    this release and shown closed at the final head.
+  - So the reading decides what reaches a body by the kind of the value, never by its methods, and each argument may
+    name by contract the objects of the caller it takes as they are (`canonical._ein_stand`, `aussen`: a callback, a
+    signer, a dict of signers by name, a path, a clock, the class of a classmethod). A container it reads is copied as
+    before. A value that cannot
+    change and whose methods are the interpreter's, the standard library's or this package's is handed on (an exact
+    complex, range, Decimal, date, timedelta, a datetime or time without a tzinfo or with the standard library's
+    `timezone`, a path of `pathlib`, a frozenset of exact scalars, an object or a class of this package). A `str`,
+    `bytes`, `int` or `float` subclass becomes what it stores, in a class of this package whose methods are the base
+    type's own (`canonical._fremdwert`), so the one rule for a number still refuses an `int` or `float` subclass where
+    it did. An iterator or a generator outside an argument whose contract takes one refuses the call. A container the
+    reading recognises and cannot copy refuses the call (`canonical._StandUnkopierbar`, a `ProofBundleError`): a dict
+    or set with a key or item whose hash would be the caller's code, or whose keys or items meet as one in the copy,
+    an OrderedDict whose own order cannot be read without hashing, a view of an OrderedDict or of a mapping that is no
+    dict, a memoryview no view of private bytes can take, and an object of this package with an attribute name that is
+    no exact `str`. Every other value (an object of the caller's class, a Mapping that is no dict where no named
+    reader reads one, a frozenset holding any other value, a datetime with a tzinfo of the caller's, a buffer that is
+    no memoryview, a class of the caller's where no contract takes it) reaches the body as a stand-in that holds nothing of the caller and carries the name of its type
+    (`canonical._fremdkoerper`), so a refusal names the type it named before. The check and the copy use this one
+    reading.
+  - Every rule a policy sets is applied by the command or the function it is given to, or the policy is refused
+    (`policy._regelfehler`; the property of the review, owner point 4: "for every verify command each policy rule it is
+    given is handled by the contract of that command"). At fda55f98 a command applied the rules it knew and dropped
+    the others: `outcome verify` printed `POLICY: OK` over an attached, verified retraction under a policy whose only
+    rule was `reject_retracted`, which only `relation-statement verify` applies, and beside a rule it applies the same
+    policy passed `outcome verify` and ended `decision verify` like no policy. Each verify path names the rules it
+    applies (`policy.ANGEWANDTE_REGELN`): a rule set anywhere else refuses the policy with exit 2 at `verify`,
+    `decision verify`, `outcome verify` and `relation-statement verify`, and with `policy_ok` False and the reason at
+    `evaluate_policy`, `evaluate_decision_policy`, `verify_decision_receipt`, `verify_outcome_receipt` and
+    `verify_relation_statement`. Absence, an allowed deactivation (`false`, an empty list or object, `policyPurpose:
+    null`) and the metadata (`schema`, `policy_id`, `deploymentReady`, `generatedFromTemplate`) set no rule; an
+    applied rule that is broken fails the policy, and `POLICY: OK` requires that no rule given is left unattended.
+  - The shared fields are part of every receipt command's contract (owner point 6): `outcome verify` and
+    `relation-statement verify` passed an expired policy, one not yet valid, one for another verify path and a raw
+    template (`requiresIdentityOverlay: true`), where `verify` and `decision verify` fail each; both fail them now,
+    and `decision verify` fails them without a `decision_receipt` section too. A relation statement has no purpose of
+    its own among the registered ones, so a policy that declares any purpose is for another path there. An invalid
+    restriction is refused where the policy is read: `decision_receipt.accepted_predicate_types: []` admitted no
+    predicate type and failed every receipt (exit 3), while its three sibling lists read an empty list as no rule.
+  - `evaluate_decision_policy` hashed a signed `relation` of an evidence reference that is a list or an object into a
+    set and let a raw TypeError escape under any policy with `required_evidence_relations`, the shipped strict example
+    included, at v6.1.0 as well (RT-04, judged P2); only a relation that is text is one a reference names now. A key
+    built of shared frozensets was read once per path before any budget (L2-620v6-KEY-GRAPH-EXPONENTIAL-01, P2:
+    `verify_bundle` 11.37 s at six levels, 266 s at seven); each part is read once per level now, and the plain copy a
+    serializer writes, which writes a shared part once per place, stops at the structural budget's `json_nodes`. Both
+    bounds are counted by the tests, not timed.
+  - The double collect stays, and it is no full closure (owner point 5). A change made and undone between the two reads
+    of one container is not seen, and that reaches a public verdict: measured on 2026-10-01, a gc callback of the
+    caller that changed two entries of an anchor list at the reads of the two collects gave `verify_anchors` PASS
+    over a list that never held two good entries. The closed type boundary keeps unsupported values from being handed
+    on as objects of the caller. It does not yet prove a joint state of mutable inputs. That needs a separate proof,
+    in particular for ABA between two reads. RESTRISIKO_620.md names it as R620-ABA-1, and the closed type boundary
+    for every argument comes with 7.0 (R620-TYPE-BOUNDARY-70).
+  What a caller sees differently, each a break of the Python API that the owner's choice 2 names: an iterator or a
+  generator in an argument refuses the call where the body read it (pass a list or a tuple); a container the copy
+  cannot hold refuses the call where it stayed the caller's object; an object of the caller's class, a Mapping that is
+  no dict and the other values above reach the body as a stand-in, which a function judges as a value of a type it
+  does not accept, where it judged the caller's object through its own methods; a `str`, `bytes`, `int` or `float`
+  subclass reaches the body as what it stores. A policy that sets a rule its command does not apply is refused (exit
+  2, or `policy_ok` False), `outcome verify` and `relation-statement verify` fail a policy whose shared fields fail,
+  `relation-statement verify` fails a policy that declares a purpose, an empty `accepted_predicate_types` is refused
+  when the policy is read, and a value whose plain copy would write more than `json_nodes` values (a part held in
+  several places counted in each) is refused by the copy.
+  Tests: the gate before run 7, in five files: `tests/test_no_object_of_the_caller_reaches_a_body.py` (every hostile
+  form at every parameter of every public function, with a planted control),
+  `tests/test_a_verdict_surface_holds_its_verdict_at_every_argument.py` (each verdict surface and argument from a valid
+  base case to its expected verdict, the check shown reached, and a promised form of each argument as the positive
+  control), `tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py` (callback answers changed after they returned,
+  copies handed out again, two arguments changed together, ABA up to the public verdict, and threads),
+  `tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py` (the three open P1, the findings of run 6 and
+  the counted bounds) and `tests/test_every_rule_of_a_policy_is_handled_by_the_command.py` (each rule alone and beside
+  an applied one, at the CLI and in the library, measurement 1 of 2026-10-01, the shared fields and the invalid
+  restriction). Measured at fda55f98 before the fix: 22 failed and 29 passed, as pytest counts them; here all pass.
+
+- **A public function reads a caller's values once, at its call, in one reading, and a file whose content reads
+  as absent is refused like the empty value** (deep gate of the 6.2.0 release preparation at d388ed3d: two P1 findings,
   L4-620v5-T5-SECOND-READING-01 and L3-620v5-T14-ANCHORS-NULL-FILE-01, each confirmed by two of three blind jurors;
   then three verify lanes on the first fix, 6d674973, and three on the second, 8f2fa980, before either was pushed).
   Both findings are present at v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`), measured on 2026-09-30 by executing them
@@ -104,15 +200,21 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     it stores and an OrderedDict in its own order, of a memoryview and of a view of a dict (`keys()`, `values()`,
     `items()`, a `MappingProxyType`), and of every object of a dataclass of this package field by field, read through the base
     types' own methods, so no method of the caller runs and no object of the caller's classes is made. An iterator
-    or a generator cannot be read twice, so it is handed on and the body reads it when it reads it, as it reads a value
+    or a generator cannot be read twice, so it was handed on and the body read it when it read it, as it read a value
     of the caller's own class and a memoryview in a format no view of private bytes can take (all three named in
-    RESTRISIKO_620.md). A key of a
+    RESTRISIKO_620.md as open P1 with a workaround, and closed by the fix of deep gate run 6, the entry above: the
+    first and the third refuse the call, the second reaches the body as a stand-in or as what it stores). A key of a
     `str` or `bytes` subclass is copied as what it stores, in a class of this package that hashes and compares as the
     base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
     promoted by the copy. The reading collects every container twice and keeps the first collect only when the
     second finds each of the same type and holding the same objects (the double collect of the atomic snapshot, Afek, Attiya, Dolev, Gafni,
     Merritt and Shavit, J. ACM 40(4), 1993): then there is one instant at which the value held what was read, unless a
-    container was changed and changed back between its two reads, the limit RESTRISIKO_620.md names. A
+    container was changed and changed back between its two reads, the limit RESTRISIKO_620.md names (R620-ABA-1).
+    That limit reaches a public verdict, measured on 2026-10-01: a gc callback of the caller that changed two entries
+    of an anchor list at the reads of the two collects gave `verify_anchors` PASS over a list that never held two good
+    entries. The closed type boundary keeps unsupported values from being handed on as objects of the caller. It does
+    not yet prove a joint state of mutable inputs. That needs a separate proof, in particular for ABA between two
+    reads. A
     container that changed between the two collects, or changed its size while it was read, makes both be made again,
     and after three readings in each of which the value changed the call is refused with `canonical._StandGestoert`,
     a `ProofBundleError`. Nothing of the process is touched, and no module of the package switches the collector. A
@@ -127,7 +229,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     any other value built anew, an object of the caller's class among them, is a change, named in RESTRISIKO_620.md),
     so what it reads is part of the one reading. A RecursionError
     raised while the arguments are read is raised as it is, not refused as a change. A value a caller's callable returns into a verdict (an evidence or attestation resolver, a
-    registered anchor verifier) is read as one state where it returns, the callable runs as the caller's code
+    registered anchor verifier) is read where it returns by the same reading, the callable runs as the caller's code
     (`canonical._draussen`), so a public function it calls reads its arguments whatever frame calls it, and a
     registered verifier gets its own copy of `frozen` and `rp_trust`. A public function that the package's own code
     calls from inside the body of another reads nothing again: what it is passed is that reading or was made from it
@@ -149,7 +251,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     scan of calls, which looked for the parameter's own name, did not see it. The reader is part of both collects
     now, a deque, an array and a view are copied, a RecursionError passes as it is, the anchor verifier runs as the
     caller's code, and the scans follow a name bound to a parameter. A memoryview whose format no view of private
-    bytes can take stays the caller's view (named in RESTRISIKO_620.md, the same at every earlier tree).
+    bytes can take stayed the caller's view (named in RESTRISIKO_620.md, the same at every earlier tree; refused since
+    the fix of deep gate run 6, the entry above).
   - The fourth form (d58be0b8, not pushed) had the verify lanes V10 and V11. V10 measured the class closed at every
     shape the lanes V7 and V8 found (0 mixed verdicts at d58be0b8 against 173 of 1080 at 085869313 for two Mappings),
     and three things left: a Mapping that builds a new set, frozenset, bytearray or deque on each read was refused as
@@ -162,8 +265,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     test, which the lane V12 found incomplete. V10
     also measured that an iterator or a generator handed in as an argument is read by the body after the other
     arguments were copied, at every tree since d388ed3d (`evaluate_public_transparency` passed witness keys in 297 of
-    968 runs where each state fails); it cannot be read twice, and RESTRISIKO_620.md names it as open. Pass a list or
-    a tuple, not an iterator, a generator, `map`, `chain` or `reversed`: with a list the same sweeps give 0.
+    968 runs where each state fails); it cannot be read twice, and RESTRISIKO_620.md named it as open. With a list
+    the same sweeps give 0. Since the fix of deep gate run 6 (the entry above) such an argument refuses the call.
   - The fifth form (d1c39ae3, not pushed) had the verify lane V12, and it found the comparison of a reader's two
     answers wrong both ways. It called answers the same whose copies differ: `{1}` and `{True}`, two NaNs of another
     sign or payload, two naive datetimes of another `fold`. And it called equal values a
@@ -256,7 +359,12 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     section and, beside `--anchors`, no anchor trust in its `anchors` section; at the other two one with no rule in a
     `relations` section. An empty `relations` section sets no rule: `decision verify` under it ended like no
     `--policy`, and `outcome verify` and `relation-statement verify` printed `POLICY: OK` over a policy that holds no
-    rule they evaluate. An empty `decision_receipt` section applies its default rules and is evaluated. And
+    rule they evaluate. An empty `decision_receipt` section applies its default rules and is evaluated. A rule here
+    had to be one the command applies, and this fix did not hold that: a section holding only `reject_retracted:
+    true`, which only `relation-statement verify` applies, counted as a rule at the other two, and `outcome verify`
+    printed `POLICY: OK` over an attached, verified retraction (deep gate run 6 at fda55f98,
+    L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01; closed by the entry above, under which every rule a policy sets must
+    be one the command applies). And
     `emit --key K --new-key ''` signed with K and exited 0, `--key '' --new-key N` wrote N: the two signer options were
     read by their truth. Both are read by `is not None` now, both given is refused, and a key or payload file that
     cannot be read or written is exit 2, not a raw traceback (`emit --payload-file ''` ended in one).
@@ -270,9 +378,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   own order; a keys, values or items view of an OrderedDict as the caller's view),
   and a dict with a key that is none of these (no exact str, int, float, bool, bytes or None, no subclass
   of str or bytes and no tuple or frozenset of exact str, int, float, bool, bytes or None values), or whose keys meet
-  as one in the copy, stays
-  the caller's object, as does a memoryview whose format no view of private bytes can take; an iterator or a
-  generator is read by the body as before; a function never changes
+  as one in the copy, stayed
+  the caller's object, as did a memoryview whose format no view of private bytes can take, and an iterator or a
+  generator was read by the body as before (each refuses the call since the fix of deep gate run 6, the entry
+  above, which names what a caller sees differently there); a function never changes
   the caller's object (none but `attach` did); `canonical_es256_signature` returns a value of a mutable type that is
   no signature as an equal copy, not as the object itself, `renewal.last_ats` returns an equal copy of the newest
   ArchiveTimeStamp, and the sequences `renew_timestamp` and `renew_hashtree` return hold equal copies of the
@@ -345,8 +454,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     whitespace, over 24 option and `--pub` sites at 99f76ceb and over the 16 inputs the CLI itself normalises
     (`bytes.fromhex`, `strip`, base64, a file's content) at this commit, found no other site that reads
     whitespace like an absent option.
-    Eleven truth reads of an option stay in `cli.py`, each refusing an empty value itself (`--pub`, `--key`,
-    `--new-key`) or on an emit or output path (`--out`, `--output`, `--policy-uri`, `--policy-sha256`).
+    Nine truth reads of an option stay in `cli.py`, each refusing an empty value itself (`--pub`) or on an emit or
+    output path (`--out`, `--output`, `--policy-uri`, `--policy-sha256`); `--key` and `--new-key` are read with
+    `is not None` since the second fix of the gate at d388ed3d (this sentence said eleven and named both until deep
+    gate run 6 at fda55f98, L3-620v6-T11-ELEVEN-TRUTH-READS-TEXT-01).
     `outcome verify --decision-maker-id ''` is unchanged: the library reads it with `is not None`, and an empty maker
     id cannot equal an executor id, so role separation is checked and holds.
   Tests: `tests/test_a_subject_state_is_read_closed_world.py` (the state corpus at the engine's edge and hop and at the
@@ -5123,7 +5234,9 @@ verify surface, never a correctness change.
 - `_verify_signature_for_alg` returns a fail-closed `False` when ML-DSA verification is unavailable
   (no FIPS-204 build) instead of leaking `PQUnavailable`.
 - The CLI bounds every file read at the `input_bytes` budget, so a huge/streaming input (`/dev/zero`)
-  maps to a clean exit-2 instead of memory exhaustion.
+  maps to a clean exit-2 instead of memory exhaustion. _Correction of 2026-10-01: not every file read;
+  `policy instantiate --issuer-key` and `--expected-root-file` read their file without the cap since 3.1.1
+  (deep gate run 6 of 6.2.0 at fda55f98, L3-620v6-INSTANTIATE-UNBOUNDED-READ-01, RESTRISIKO_620.md R620-R6-5)._
 - **Never-raise closed as a CLASS, not point fixes (four iterated adversarial re-audits).** Successive
   adversarial re-gates (6 falsification lenses, each finding refuted by 3 independent skeptics, plus a
   completeness critic) proved the sibling-escape was systemic across the whole public verify surface, not a

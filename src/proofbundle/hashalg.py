@@ -194,13 +194,16 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     # `items()`, and each id and digest through its own `__hash__`, `__eq__` and `lower()`. A
     # `Mapping` that is no dict can only be read through its own `items()`, once.
     #
-    # AND AS ONE STATE (a verify lens of the fix of the gate at d388ed3d, the class of
+    # AND IN THE ONE READING OF THE CALL (a verify lens of the fix of the gate at d388ed3d, the class of
     # L4-620v5-T5-SECOND-READING-01): `list(dict.items(...))` builds one pair tuple after another, and a process
     # with no free pair tuples allocates each of them, so a gc callback of the caller that rewrote three entries
     # at once while the list was between them gave pairs no state of the map holds, and a map whose every
     # state fails passed (reported by a verify lane at d388ed3d; a later lane, V4 on 8f2fa980, did not reproduce
-    # the window in its process). A dict of digests is the one reading of the call
-    # (`canonical._stand`); a Mapping that is no dict is read here through its own `items()`, once.
+    # the window in its process). A dict of digests is the one reading of the call (`canonical._stand`, which
+    # proves no joint state of mutable inputs across a change made and undone between its two reads, R620-ABA-1).
+    # A Mapping that is no dict and no `MappingProxyType` over a dict (which the reading copies as a view of the
+    # dict's copy) reaches this body from a caller as a stand-in that holds no pairs (the fix of deep gate run 6,
+    # `canonical._fremdkoerper`) and fails here; any other Mapping is read through its own `items()`, once.
     gespeichert: Any = digests
     paare: list
     if issubclass(type(gespeichert), dict):

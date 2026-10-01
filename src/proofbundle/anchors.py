@@ -348,7 +348,8 @@ def _wurzeln_lesen(target_roots) -> dict:
     that is absent is absent here; a root that is no bytes-like value is `_KEIN_PUFFER`, which matches nothing, as
     the comparison with ``None`` did before. The three targets come from the one reading of the call
     (`canonical._stand`), so a gc callback of the caller cannot pair the root of one target from before a change with
-    the root of another from after it (the class of L4-620v5-T5-SECOND-READING-01)."""
+    the root of another from after it (the class of L4-620v5-T5-SECOND-READING-01), up to a change made and undone
+    between the two reads of that reading (the ABA case, R620-ABA-1 in RESTRISIKO_620.md)."""
     wurzeln: dict = {}
     for ziel in ANCHOR_TARGETS:
         wert = _feld_von(target_roots, ziel)
@@ -438,9 +439,9 @@ def _eintrag_pruefen(anchor: dict, *, wurzeln: dict, now: Optional[int], rp_trus
     if not isinstance(_frozen, dict):
         _frozen = {}
     # A registered verifier is the caller's code: it gets its own copy of `frozen` and `rp_trust`, so what it does to
-    # them reaches no other reading of this call, and its result is read as one state (`canonical._stand`), so
-    # what it does to that result after it returned reaches nothing either (verify lane V2 on 6d674973: a value a
-    # caller's callable returns is a caller's value too).
+    # them reaches no other reading of this call, and its result is read where it returns by the one reading
+    # (`canonical._stand`, up to the limit it names), so what it does to that result after it returned reaches nothing
+    # either (verify lane V2 on 6d674973: a value a caller's callable returns is a caller's value too).
     try:
         res = _stand(_call_verifier(pruefer[atype], proof, canonical_root,
                                     frozen=_stand(_frozen), now=now, rp_trust=_stand(rp_trust)))
@@ -568,10 +569,14 @@ def _anker_lesen(anchors, rp_trust) -> tuple:
     `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one and ``ok`` and
     ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran.
 
-    ALL OF IT IS ONE STATE (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
+    ALL OF IT IS ONE READING (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
     were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
-    between them gave a list the caller never held. Both callers read their arguments as one state at their call
-    (`canonical._stand`), and this reads that copy."""
+    between them gave a list the caller never held. Both callers read their arguments in one reading at their call
+    (`canonical._stand`), and this reads that copy. The closed type boundary keeps unsupported values from being
+    handed on as objects of the caller. It does not yet prove a joint state of mutable inputs. That needs a separate
+    proof, in particular for ABA between two reads: measured on 2026-10-01, a gc callback that changed two entries at
+    the reads of the two collects gave `verify_anchors` PASS over a list that never held two good entries
+    (R620-ABA-1 in RESTRISIKO_620.md)."""
     if anchors is None:
         return [], None, None
     if not issubclass(type(anchors), list):

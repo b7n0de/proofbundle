@@ -194,10 +194,12 @@ def _read_attached_entries(related: Any) -> list[tuple[str, Any, str | None]]:
     if not issubclass(type(related), dict):
         return []
     entries: list[tuple[str, Any, str | None]] = []
-    # ONE STATE OF THE MAP (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
+    # ONE READING OF THE MAP (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
     # were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
     # between them gave a map the caller never held. The map is the one reading of the call of the public function
-    # that passes it (`canonical._stand`).
+    # that passes it (`canonical._stand`). The closed type boundary keeps unsupported values from being handed on as
+    # objects of the caller. It does not yet prove a joint state of mutable inputs. That needs a separate proof, in
+    # particular for ABA between two reads (R620-ABA-1 in RESTRISIKO_620.md).
     for key, value in list(dict.items(related)):
         label = _zeichen_von(key)
         if label is None:

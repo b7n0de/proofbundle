@@ -316,10 +316,15 @@ MUTATIONS = [
      '    return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)',
      '    return isinstance(result, dict) and not is_member(dict.get(result, "status"), _BINDING_NOT_HELD)',
      "anchors_ots: binding read by a list of refusals again (an unknown status reads as bound)", True),
+    # Documented-equivalent mutant since the reading at the call (the fix of the gate at d388ed3d): the public
+    # `ots_binding_held` reads its argument at its call, so a dict subclass reaches this line as a plain dict, and the
+    # package's own callers pass the plain dicts of `verify_opentimestamps`; the object's own `get` is then `dict.get`.
+    # It survived at fda55f98 against the "Killed by" above (deep gate run 6, L6b-620v6-T9-OP56-EQUIVALENT-01) and
+    # must keep SURVIVING; the reading itself is held by tests/test_a_verifier_reads_a_callers_value_once.py.
     ("src/proofbundle/anchors_ots.py",
      'is_member(dict.get(result, "status"), _BINDING_HELD)',
      'is_member(result.get("status"), _BINDING_HELD)',
-     "anchors_ots: binding read through the object's own get (a dict subclass names the status)", True),
+     "anchors_ots: binding read through the object's own get (a dict subclass names the status)", False),
     ("src/proofbundle/anchors_rfc3161.py",
      '"ok": False, "status": "needs_rp_trust"',
      '"ok": True, "status": "needs_rp_trust"',

@@ -748,7 +748,11 @@ not listed.
 - **`verify_dual_hash` runs a non-dict Mapping's own `items()` unguarded** (P2): `hashalg.py:196-197`, so a raw
   `RuntimeError`, `KeyError` or `TypeError` escapes an exported never-raise surface. Nothing is promoted, since the
   structural budget refuses every non-dict Mapping afterwards. It came with pull request 300 (a1e9774e) and is a new
-  site of the class under "a caller's own Python objects can make a never-raise surface raise" below.
+  site of the class under "a caller's own Python objects can make a never-raise surface raise" below. Closed by the
+  fix of deep gate run 6 for every call from outside the package: such a Mapping reaches the body as a stand-in that
+  holds no pairs, and the surface answers `ok` False ("digests must be a non-empty mapping"); measured by the filer
+  on 2026-10-01 with a Mapping whose every method raises. A `MappingProxyType` over a dict is copied as a view and
+  refused by the budget, as before.
 - **`witness_quorum` frames the whole note once per roster entry** (P2): an in-budget tlog proof of 8 MiB with 510
   signature lines and 256 witnesses costs tens of seconds of CPU with a correct `ok` True (the jurors measured 40
   to 62 s, a verify lane on 6d674973 31.0 s on another machine load; the cost is the machine's). Each cap holds; their
@@ -796,16 +800,21 @@ does not change. Each carries its lane's measurement unless it says otherwise.
 - **At `decision verify` a passing `relations` section reads as no policy** (P2, V6-F2, the same at d388ed3d):
   `verify_decision_receipt` sets `policy_ok` from the `decision_receipt` section only, so a policy whose only section
   is `relations` makes the verify fail when one of its rules is broken (exit 3), and when every rule holds leaves
-  `policy_ok` None and prints `POLICY: NOT_EVALUATED (no decision policy supplied)`: with `reject_retracted: true` or
-  `reject_superseded: false` and no attached target the output is byte-identical to a verify without the policy.
-  The section is applied; its verdict on a pass is not shown. A `relations` section that sets no rule is refused now
-  (the CHANGELOG entry). The fix shows the relations verdict, in `policy_ok` or in a line of its own, after 6.2.0.
+  `policy_ok` None and prints `POLICY: NOT_EVALUATED (no decision policy supplied)`, as a verify without the policy
+  does. The rules of the section that `decision verify` applies (`require_relation_resolution`, `reject_superseded`,
+  `relation_signer`, `require_relation_target`) are applied, and their verdict on a pass is not shown. This line said
+  "The section is applied", which did not hold for `reject_retracted`: `decision verify` does not apply it, and a
+  policy that set it was read without it (deep gate run 6 at fda55f98, L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01,
+  P1). Since the fix of that run a policy that sets a rule the command does not apply is refused with exit 2, at every
+  verify command and in the library (`policy._regelfehler`), and a `relations` section that sets no rule is refused
+  as before. The fix of this line shows the relations verdict, in `policy_ok` or in a line of its own, after 6.2.0.
 - **`verify --policy` reports `POLICY: OK` for a policy with nothing in it `verify` evaluates** (P3, V6-F13): a policy
-  with only its schema and id, or only a `relations` or a `decision_receipt` section, gives `policy_ok` True with the
-  warning that it attributes to nobody and `safeForAutomation` False, where the three receipt verify commands refuse
-  such a policy. Its output is not that of no policy, and the warning is the documented answer of `verify` to a
-  vacuous policy (P0-B of the audit of 2026-07-13); the rule of the receipt commands would change that contract, an
-  item after 6.2.0.
+  with only its schema and id gives `policy_ok` True with the warning that it attributes to nobody and
+  `safeForAutomation` False, where the three receipt verify commands refuse such a policy. Its output is not that of no
+  policy, and the warning is the documented answer of `verify` to a vacuous policy (P0-B of the audit of 2026-07-13);
+  the rule of the receipt commands would change that contract, an item after 6.2.0. A policy with a `relations` or a
+  `decision_receipt` rule, which this line also named, is refused with exit 2 since the fix of deep gate run 6 (a rule
+  `verify` does not apply).
 - **An empty or unwritable `--out` escapes a signing command as a raw exception** (P3, V6-F11, the same at d388ed3d):
   `emit`, `emit-eval`, `intoto`, `svr` and the three `emit` subcommands open `--out` after they signed, and
   `FileNotFoundError` or another `OSError` leaves `main()` with a traceback. Nothing is signed that should not be; the
@@ -827,12 +836,24 @@ these lines are what the lanes found that the fix does not change.
   `merkle.verify_inclusion` read the proof first and the leaf later from two such views and gave True in 8 of 533
   runs where each state gives False. `memoryview.cast` takes none of these formats, and a view of the same bytes in
   format `B` would be another value to a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`
-  reads `<u` as text and `B` as bytes), so the copy keeps the caller's view. A buffer object that is no memoryview (a
-  ctypes array, an mmap, a NumPy array) is handed on as the caller's object as well. The reach is the Python API,
+  reads `<u` as text and `B` as bytes), so the copy kept the caller's view. A buffer object that is no memoryview (a
+  ctypes array, an mmap, a NumPy array) was handed on as the caller's object as well. The reach was the Python API,
   with such a buffer that the caller's own code changes during the call.
-- **A value of the caller's own class inside a copied container decides through its own methods** (V8, E10, within
-  the named limit above): a `str` subclass value whose `__ne__` depends on state gave `decision.action_outcome_proven`
-  True in 62 of 183 runs where the states give None and False.
+  CLOSED in 6.2.0 by the fix of deep gate run 6 at fda55f98 (owner choice 1 of 2026-10-01 on card OA-73db31053a,
+  which lifted the exception with a workaround of OA-ff64386f8d): the reading at the call refuses such a view, and
+  one that is not C-contiguous or released, with `_StandUnkopierbar` before the body runs, and a buffer object that is
+  no memoryview reaches the body as a stand-in that holds nothing of the caller (`canonical._fremdkoerper`), so no
+  body reads a buffer the caller's code can change. Measured by
+  `tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py`, `AMemoryviewTheCopyCannotRebuildDecidesNoVerdict`
+  (red at fda55f98, green at the head that carries this line). What a caller sees differently is named in the
+  CHANGELOG entry of that fix: such a view, where 6.1.0 took it, is refused now.
+- **A value of the caller's own class inside a copied container decided through its own methods** (V8, E10): a `str`
+  subclass value whose `__ne__` depends on state gave `decision.action_outcome_proven` True in 62 of 183 runs where
+  the states give None and False. CLOSED in 6.2.0 by the same fix (owner choice 1): the copy holds a `str`, `bytes`,
+  `int` or `float` subclass as what it stores, in a class of this package whose methods are the base type's own
+  (`canonical._fremdwert`), and any other value of the caller's class as a stand-in, so no method of the caller's class
+  decides a verdict the body reaches. Measured by the same file, `AValueOfTheCallersClassDecidesNoVerdict` (red at
+  fda55f98).
 - **What the lanes did not run:** 123 public functions without a recorded call pair (V8, `not_swept_head.txt`), the
   corpus sweep with the free list drained, keys of a `bytes` subclass in a verdict sweep, a caller's `tzinfo`, a
   collection of the package's dataclasses racing a module import, fork, signal handlers and `sys.settrace`, and the
@@ -849,9 +870,13 @@ below names; these lines are what the lanes found that the fix does not change.
   signed the payload of one state over the leaves of the other in 110 of 533; a list gives 0. `verify_anchors`, whose
   body reads the iterator at once, gave 0. The reach is the Python API, with an iterator over state the caller's own
   code changes during the call; the command line passes lists. Reading it at the call would consume the caller's
-  iterator where the body refused before reading it and would not close the window; refusing it would change what a
-  caller with a generator gets. Pass a list or a tuple instead, not an iterator, a generator, `map`, `chain` or
-  `reversed`: with a list the same sweeps give 0 mixed verdicts. A fix comes after 6.2.0 as an item of its own.
+  iterator where the body refused before reading it and would not close the window.
+  CLOSED in 6.2.0 by the fix of deep gate run 6 at fda55f98 (owner choice 1 of 2026-10-01 on card OA-73db31053a): an
+  iterator or a generator anywhere in an argument refuses the call with `_StandUnkopierbar` before the body runs,
+  unless the contract of that argument takes the caller's object as it is (a signer's own object, `canonical._ein_stand`,
+  ``aussen``). Measured by `tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py`,
+  `AnIteratorDecidesNoVerdict` (red at fda55f98). This changes what a caller with a generator gets, a break named in
+  the CHANGELOG entry of that fix: pass a list or a tuple.
 
 From the verify lane V12 on d1c39ae3, the fifth form of that fix, before it was pushed. Its findings F2 to F4 are
 closed by the fix and named in its CHANGELOG entry; these lines are what the lane found that the fix does not change.
@@ -950,6 +975,67 @@ file; these lines are its other findings.
   released, a mapping proxy over an OrderedDict that stays the caller's, and the tuple that closes a circle of tuples
   stay the caller's objects without a name in the docstring. No verdict is affected. Workaround: none is needed by a
   caller; the wording is narrowed after the tag.
+
+From deep gate run 6 at fda55f98, the head of pull request 311 that carried the pre-tag receipt signed over a1d5a815,
+which ended FIX_FIRST for two P1: L4-620v6-T15-LIVE-RELATED-01, closed by the reading at the call (the first line of
+the limits below), and L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01, closed by the rule that every rule a policy sets is
+applied by the command or the function it is given to, or the policy is refused (`policy._regelfehler`, exit 2 at the
+command line, `policy_ok` False in the library). These lines enter with the iteration that fixes them, before run 7
+(owner decision of 2026-10-01 on card OA-73db31053a, in the form of the owner's addendum of 2026-10-01, 18:45 UTC).
+Each was judged real by at least two of three blind jurors; lines are as at fda55f98 and carry the lens's measurement unless they say otherwise.
+- **R620-R6-1, P2, closed here. A key of shared frozensets was walked once per path** (L2-620v6-KEY-GRAPH-EXPONENTIAL-01):
+  `canonical._schluessel_von` and `_typisiert` read a key built of shared frozensets once per path before the budget
+  ran, and the filer measured `verify_bundle` at 0.03, 0.17, 0.81 and 11.37 s for three to six levels. Each part is
+  read once per level now, and the plain copy a serializer writes stops at the structural budget's `json_nodes`; the
+  work is counted, not timed (the reading line below).
+- **R620-R6-2, P2, closed here. A relation of an evidence reference that is no text was hashed** (RT-04, lens L8, judged
+  P2 by the jury and measured again by the filer): `evaluate_decision_policy` put a signed `relation` that is a list or
+  an object into a set and let a raw TypeError escape under any policy with `required_evidence_relations`, the shipped
+  strict example included, at v6.1.0 as well; the command line ended with exit 2. Only a relation that is text is one
+  a reference names now (`tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py`,
+  `ARelationThatIsNoTextIsJudgedNotRaised`).
+- **R620-R6-3, P2. The pre-tag gate reads open P0 and P1 from RESTRISIKO_600.md only**
+  (L5-620v6-RT10-OPEN-P1-NOT-IN-REGISTER-01; P1 only where C12.2 is read as covering this file): C12.2 passed with
+  "0 open P0/P1" while this file named two open P1 with a workaround (V8-F2 and V10-F1, closed now) and the signed
+  findings register, generated on 2026-09-29 at 18:02:55Z, named neither. This file names one P1 that stays by owner
+  choice, R620-ABA-1. Workaround: the signature card names the open lines of this file. The fix reads the RESTRISIKO
+  file of the release in C12.2, after the tag; a new signature of the register is the owner's.
+- **R620-R6-4, P2. A mutation operator became equivalent through the reading at the call**
+  (L6b-620v6-T9-OP56-EQUIVALENT-01): operator 56 of `scripts/mutation_check.py` (`ots_binding_held` reads the status
+  through the object's own `get`) survived at fda55f98, where d388ed3d killed it, because the public function now
+  reads its argument at the call and hands the line a plain dict. Its comment said "Killed by"; it is a documented
+  equivalent mutant now, expected to survive. Other operators whose guard the reading made unreachable are named by
+  the canonical mutation run at the final head, which is still to come. Workaround: none is needed by a caller.
+- **R620-R6-5, P3. `policy instantiate` reads two files without the `input_bytes` cap**
+  (L3-620v6-INSTANTIATE-UNBOUNDED-READ-01): `--issuer-key` and `--expected-root-file` read their file whole, and a
+  FIFO blocks the command; under a limit of 1.5 GB `/dev/zero` gave exit 2 with a MemoryError, and without a limit the
+  process was killed (the lens's run on 2026-10-01). The 3.6.2 entry of CHANGELOG.md, "The CLI bounds every file
+  read", did not hold for these two since 3.1.1; it carries a correction now. Workaround: pass regular files of the
+  expected size. The fix reads both through the capped reader, after 6.2.0.
+- **R620-R6-6, P3. The readers of the findings register and of the pre-tag receipt do not bind the signed bytes**
+  (L5-620v6-RT10-SIGNED-BYTES-NOT-BOUND-01): both parse with `json.loads`, where a duplicate key takes its last value,
+  and the gate decodes with `errors="ignore"`, so two byte strings that differ can read as one. Reaching it needs a
+  file signed by a trusted key; the tools are in the sdist only. Workaround: none is needed by a caller; the fix
+  parses strictly, after 6.2.0.
+- **R620-R6-7, P3, text. "Eleven truth reads"** (L3-620v6-T11-ELEVEN-TRUTH-READS-TEXT-01, L5-620v6-T13-ELEVEN-TRUTH-READS-01):
+  the CHANGELOG entry of pull request 311 counted eleven truth reads of an option in `cli.py` and named `--key` and
+  `--new-key`; the named list of the class guard has held nine since the second fix of the gate at d388ed3d. The
+  sentence is corrected there.
+- **R620-R6-8, P3, text. Three sentences said the base install needs no RFC 8785 canonicalizer** (lens L1, found by
+  reading): the module head of `canonical.py` and two docstrings of `decision.py` (the content root and the hash
+  binding); `rfc8785` is a dependency of the core install since 3.6.1, and an install that lacks it refuses every
+  receipt. All three are corrected.
+- The rows above on `render_release` binding `release_commit` by its length and not binding the tags to `--version`
+  were measured again at fda55f98 by the lens L6 (L6-620v6-T7-RELEASE-COMMIT-BY-LENGTH-01 and
+  L6-620v6-T7-TAG-FIELD-UNCHECKED-01), both P3 there as here.
+- **R620-TYPE-BOUNDARY-70, carried to 7.0 by owner choice 2 of 2026-10-01. The closed type boundary for every argument.**
+  6.2.0 refuses the dangerous forms that were never promised (an iterator or a generator outside an argument whose
+  contract takes one, a container the copy cannot hold, a view or buffer that is no one private copy) and keeps what
+  was promised (a tuple, a subclass where documented), and a value the reading does not read reaches a body as a
+  stand-in, never as the caller's object. 7.0 sets the allowed forms of every argument, recursively for keys, values,
+  the fields of the package's objects and the returns of allowed callbacks, and refuses every other form at the call;
+  that changes what a caller may pass, so it belongs to a major version (SemVer, rule 8). A promised form that
+  promoted a verdict is refused in 6.2.0 already, and its break is named in the CHANGELOG entry of the fix of run 6.
 
 ## Open — named limits carried by the fixes themselves
 
@@ -1050,40 +1136,76 @@ those on a verify, emit or release path:
   a path outside `release_notes/` and `audit_artifacts/`, the only two the tag chain writes (owner decision of
   2026-09-29). Whether the sdist and the wheel of 6.2.0 on PyPI equal the digests
   bound at the receipt head is measured after the release and recorded then.
-- The fix of the gate at d388ed3d names these limits, none a promoted verdict but the first line of the block of
-  the lanes V7 and V8 below. The reading at the call copies every dict, list, tuple, set, bytearray, deque and array
-  and their subclasses, every memoryview it can rebuild, every view of a dict and every object of a dataclass of this
-  package; a value of the caller's own class that is none (an object, a Mapping that is no dict, an object of a
-  caller's subclass of such a dataclass) is read through its own methods by a named reader where a function reads one
-  (`rp_trust`, `frozen`, the result of `automation_summary`, the consistency result of
-  `evaluate_public_transparency`), before the first collect and after the second, and the two answers must be the
-  same value; it is otherwise handed on as the caller's object. The items of a frozenset, a keys, values or items
-  view of an OrderedDict (also `dict.keys(od)`), an iterator and a generator are handed on as they are (the last two: the first line of the block of the lanes V10
-  and V11 below). The public instance methods of the package's classes do not take the reading. A dict with a key
-  that is no exact str, int, float, bool, bytes or None, no `str` or `bytes` subclass and no tuple or frozenset of exact
-  str, int, float, bool, bytes or None values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
-  items, and an OrderedDict whose own order cannot be read without hashing stay the caller's object inside the copy:
-  a copy would run the key's own hash, or lose a key. The reading touches no state of the process: it reads every
-  container twice and keeps the first reading when the second finds each of the same type and holding the same
-  objects (the type since the Codex review of pull request 311, thread 4151141239: up to 6b02d9f7 a change of class
-  between the collects was not seen, and a `VerificationResult` made a `Check` gave a copy of a state the value never
-  held). A change that is made and undone between the two reads of one container, a change of its class included, is
-  not seen (the ABA case of the double collect), and a change
-  another thread makes in several steps is read in one of the states it passes through. After three readings in each
-  of which the value changed, the function raises `_StandGestoert`, a `ProofBundleError`, also where a never-raise
-  surface would otherwise answer. Two readings that are no one value cause it: code that changes the value while it
-  is read, the caller's own or another thread's, or a Mapping or result object whose reader answers two reads with
-  values that are no one value. Two answers are one value when the copies made from them would hold the same
-  (`canonical._derselbe`): equal contents, in any order for a set, a frozenset, a dict that is no OrderedDict and the
-  fields of an object of this package (up to keys that only their stored order pairs: R620-V13-1, R620-V14-1 and
-  R620-V14-2 above), a caller's object only as itself, and an exact str, bytes, int, bool, a float
-  of the same bits, a complex of the same bits, a range of the same start, stop and step, a Decimal of the same sign,
-  digits and exponent, a date, a timedelta or a naive time or datetime of equal value and fold. Any other value built anew on
-  each read is a change even when it is equal: the first line of the block of the lane V12 above. A RecursionError raised while the arguments are read is raised as it is, before
-  the body runs, also at a never-raise surface. The reading costs two reads and one copy of the arguments per call
-  from outside the package, linear in their size, and two runs of a named reader with one comparison of their two answers (the line on its cost above). A public function that the package's own code calls from inside the body of another
-  reads nothing again, because what it is passed is that reading or was made from it, and a value the package hands
-  on uncopied (a value of the caller's class under the limit above) is read by the inner function as the outer one
+- The fix of the gate at d388ed3d names these limits. This line said "none a promoted verdict but the first line of
+  the block of the lanes V7 and V8 above"; the lanes V8 and V10 had measured two more (E10 and V10-F1, above), and deep
+  gate run 6 at fda55f98 a fourth: a `related` map whose keys meet as one in the copy stayed the caller's object, and
+  a gc callback of the caller gave `verify_decision_receipt` ok True and safeForAutomation True where both states give
+  False (L4-620v6-T15-LIVE-RELATED-01, three of three jurors P1). The four are closed by the fix of run 6 (owner
+  choices 1 and 2 of 2026-10-01 on card OA-73db31053a), and what follows is the reading that fix makes. The reading
+  at the call copies every dict, list, tuple, set, bytearray, deque and array and their subclasses, every memoryview
+  it can rebuild, every view of a dict and every object of a dataclass of this package. Nothing else reaches a body as
+  the caller's object unless the contract of its argument names it (`canonical._ein_stand`, ``aussen``: a callback, a
+  signer, a dict of signers by name, a path, a clock, the class of a classmethod): a value that cannot change and whose methods are the
+  interpreter's, the standard library's or this package's is handed on (an exact complex, range, Decimal, date,
+  timedelta, a datetime or time without a tzinfo or with the standard library's `timezone`, a path of `pathlib`, a
+  frozenset of exact str, int, float, bool, bytes or None values, an object or a class of this package); a `str`,
+  `bytes`, `int` or `float` subclass becomes what it stores, in a class of this package whose methods are the base
+  type's own (`canonical._fremdwert`); an iterator or a generator refuses the call; any other value (an object of the
+  caller's class, a Mapping that is no dict, a frozenset holding another value, a datetime with a tzinfo of the
+  caller's, a buffer object that is no memoryview) becomes a stand-in that holds nothing of the caller and carries the
+  name of its type (`canonical._fremdkoerper`). A Mapping that is no dict is read through its own methods by a named
+  reader where a function reads one (`rp_trust`, `frozen`, the result of `automation_summary`, the consistency result
+  of `evaluate_public_transparency`), before the first collect and after the second, and the two answers must be the
+  same value. A container the reading recognises and cannot copy refuses the call with `_StandUnkopierbar`, a
+  `ProofBundleError`, before the body runs: a dict or a set with a key or item whose hash would be the caller's code,
+  or whose keys or items meet as one in the copy (a `str` subclass beside the `str` it spells), an OrderedDict whose
+  own order cannot be read without hashing, a keys, values or items view of an OrderedDict (also `dict.keys(od)`) or a
+  view of a mapping that is no dict, a memoryview no view of private bytes can take, and an object of this package
+  with an attribute name that is no exact `str`. The boundary is set by kind of value for every argument, and by
+  contract for the arguments that take the caller's objects; the closed type boundary for every argument comes with
+  7.0 (R620-TYPE-BOUNDARY-70 above). The public instance methods of the package's classes do not take the
+  reading. The reading touches no state of the process: it reads every container twice and keeps the first reading
+  when the second finds each of the same type and holding the same objects (the type since the Codex review of pull
+  request 311, thread 4151141239: up to 6b02d9f7 a change of class between the collects was not seen, and a
+  `VerificationResult` made a `Check` gave a copy of a state the value never held).
+- **R620-ABA-1, the limit of the double collect.** A change that is made and undone between the two reads of one
+  container, a change of its class included, is not seen (the ABA case), and the copy can then hold that container
+  from before the change beside another from its middle. Measured up to the public verdict on 2026-10-01
+  (`tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py`, `ABAIsMeasuredUpToThePublicVerdict`): a gc callback
+  of the caller that changed two entries of an anchor list at the reads of the two collects gave `verify_anchors` PASS
+  over a list that never held two good entries, where every state the list held fails. That is a promoted verdict, so
+  P1 by the line of 2026-09-27; the double collect stays in 6.2.0 by owner choice 5 of 2026-10-01, and nowhere as a
+  full closure. The closed type boundary keeps unsupported values from being handed on as objects of the caller. It
+  does not yet prove a joint state of mutable inputs. That needs a separate proof, in particular for ABA between two
+  reads. The snapshot algorithms close it with a counter in each register; a caller's container has none, and neither
+  a lock nor switching the collector off closes it against the caller's own code. Reach: the Python API, with code of
+  the caller that changes its own value during the call and changes it back between two reads (a gc callback, a
+  signal handler, another thread). Workaround: hand a verifier values that no other code changes during the call; the
+  command line passes values no other code holds.
+- A change another thread makes in several steps is read in one of the states it passes through, up to R620-ABA-1.
+  After three readings in each of which the value changed, the function raises `_StandGestoert`, a
+  `ProofBundleError`, also where a never-raise surface would otherwise answer. Two readings that are no one value cause
+  it: code that changes the value while it is read, the caller's own or another thread's, or a Mapping or result
+  object whose reader answers two reads with values that are no one value. Two answers are one value when the copies
+  made from them would hold the same (`canonical._derselbe`): equal contents, in any order for a set, a frozenset, a
+  dict that is no OrderedDict and the fields of an object of this package (up to keys that only their stored order
+  pairs: R620-V13-1, R620-V14-1 and R620-V14-2 above), a caller's object only as itself, and an exact str, bytes, int,
+  bool, a float of the same bits, a complex of the same bits, a range of the same start, stop and step, a Decimal of
+  the same sign, digits and exponent, a date, a timedelta or a naive time or datetime of equal value and fold. Any
+  other value built anew on each read is a change even when it is equal: the first line of the block of the lane V12
+  above. A RecursionError raised while the arguments are read is raised as it is, before the body runs, also at a
+  never-raise surface. The reading costs two reads and one copy of the arguments per call from outside the package,
+  and two runs of a named reader with one comparison of their two answers (the line on its cost above). Its work is
+  bounded by what the value holds, not by how often a part is shared: each container is read once per collect
+  whatever number of places hold it, a key or set item of shared tuples or frozensets once per part and level (at
+  most 16 levels), and the copy is built once per container. This line said "linear in their size" until deep gate
+  run 6 at fda55f98, which measured a key of shared frozensets walked once per path (L2-620v6-KEY-GRAPH-EXPONENTIAL-01,
+  P2: seven levels of 44 objects took `verify_bundle` 266 s before its budget). The plain copy a serializer writes
+  (`canonical._plain_for_jcs`) writes a shared part once per place, as a serializer does, and stops at the structural
+  budget's `json_nodes`; both bounds are counted by `tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py`,
+  `TheWorkOfAReadingIsBoundedByWhatItHolds`, not timed. A public function that the package's own code calls from
+  inside the body of another reads nothing again, because what it is passed is that reading or was made from it, and
+  a value the contract of an argument hands on (a callback, a signer) is read by the inner function as the outer one
   would. A caller's code that names a module of this package as its own and runs while the package's code runs, as a
   gc callback can, is not read again at such a call; what it computes reaches no verdict of that call. The sweep
   reaches a window only if a tracked object is allocated in it. `verifier_block.attach` fills the caller's predicate
@@ -1104,7 +1226,13 @@ lets the exception escape at 60 surfaces in 24 modules (the predicate validators
 `evalclaim` helpers; 23 of them at one shared read in the structural budget walk, `_strict_json.py:91`). The same holds
 on main. JSON, the CLI and files cannot produce such objects; only a caller's own Python objects reach these
 surfaces, and no promotion was measured at any of them. The branch closed the two sites where the same class did
-promote (a registered anchor verifier's result, and the evidence ladder's digest object).
+promote (a registered anchor verifier's result, and the evidence ladder's digest object). Since the fix of deep gate
+run 6 at fda55f98 such a value reaches no body from a call outside the package: a value of the caller's class
+becomes a stand-in that holds nothing of the caller, and a dict with a key whose hash or comparison is the caller's
+code refuses the call with `_StandUnkopierbar`, a `ProofBundleError` raised before the body, also at a surface that
+otherwise answers every input with a verdict. The 133 surfaces were not swept again for this line; the gate before
+run 7 (`tests/test_no_object_of_the_caller_reaches_a_body.py`) holds the rule at every parameter of every public
+function.
 
 The shared reader of the producers (`_plain_value.plain_json`, small-order branch, pull request 293) belongs to the same
 class (Codex, thread 4119391971, measured on 2026-09-28 at 068cd349): a value whose metaclass answers `__name__` by
