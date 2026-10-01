@@ -721,7 +721,19 @@ def root_authenticity_summary(result: VerificationResult, *,
     passes, its own methods never run, and the result then carries ``notBooleanInputs``, the names
     of those values (absent when every input is a bool, so the shape is unchanged for them).
     """
-    by = {c.name: c.ok for c in result.checks}
+    # The checks by name, read as `_checks_passed` reads them, never by attribute access that can raise: since
+    # deep gate run 6 a value of the caller's own class reaches this body as a stand-in that holds nothing
+    # (`canonical._fremdkoerper`), a check or a result among them, and `c.name` raised AttributeError out of
+    # this summary for a caller's check object (tests/test_a_caller_verdict_counts_only_as_a_bool.py). A check
+    # without a text name names no row and fails the crypto verdict in `_checks_passed`.
+    roh: Any = getattr(result, "checks", None)
+    gelistet = (list(list.__iter__(roh)) if issubclass(type(roh), list)
+                else list(tuple.__iter__(roh)) if issubclass(type(roh), tuple) else [])
+    by = {}
+    for c in gelistet:
+        name = getattr(c, "name", None)
+        if type(name) is str:
+            by[name] = getattr(c, "ok", None)
     crypto_passed, not_bool = _checks_passed(result)
     for _name, _value in (("policy_authenticated_root", policy_authenticated_root), ("policy_ok", policy_ok),
                           ("anchor_ok", anchor_ok), ("signer_trusted", signer_trusted),

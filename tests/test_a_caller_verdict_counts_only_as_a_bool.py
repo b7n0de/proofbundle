@@ -1272,12 +1272,21 @@ class TestTheCryptoVerdictComesFromOneReadOfEachCheck(unittest.TestCase):
         self.assertIn("CRYPTO_FAILED", r["automationBlockers"])
 
     def test_control_a_check_that_always_answers_true_still_passes(self):
+        """The rule of `_checks_passed` reads a steady answer as it is. Through the public summary a check of the
+        caller's own class reaches the body as a stand-in since deep gate run 6 (`canonical._fremdkoerper`), which
+        holds no `ok`, so it blocks automation; the same checks as this package's `Check` pass."""
         from proofbundle.bundle import _checks_passed  # noqa: PLC0415
         steady = _FlippingCheck("merkle-inclusion", [True, True, True, True])
         result = VerificationResult([Check("ed25519-signature", True), steady,
                                      Check("root-authenticity", True)])
         self.assertEqual(_checks_passed(result), (True, []))
-        self.assertIs(_summary(list(result.checks))["safeForAutomation"], True)
+        vorher = steady.reads
+        r = _summary(list(result.checks))
+        self.assertIs(r["safeForAutomation"], False)
+        self.assertIn("CRYPTO_FAILED", r["automationBlockers"])
+        self.assertEqual(steady.reads, vorher, "the public summary read the caller's check")
+        self.assertIs(_summary([Check("ed25519-signature", True), Check("merkle-inclusion", True),
+                                Check("root-authenticity", True)])["safeForAutomation"], True)
 
 
 #: Why a switch is left as it is, by class. Every bool keyword of every public function must stand in

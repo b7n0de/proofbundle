@@ -1232,11 +1232,17 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # turn a result that records a check once per signer or per anchor into an error on a surface
     # whose output lists passing properties only, where withholding is already the fail-closed
     # answer. A name is compared by its characters (`canonical._zeichen_von`).
+    # The checks read without attribute access that can raise: since deep gate run 6 a result of the caller's
+    # own class reaches this body as a stand-in that holds nothing (`canonical._fremdkoerper`), and
+    # `result.checks` raised AttributeError for it; such a result earns no property.
     verdikte: dict = {}
-    for check in result.checks:
-        name = _zeichen_von(check.name)
+    roh: Any = getattr(result, "checks", None)
+    gelistet = (list(list.__iter__(roh)) if issubclass(type(roh), list)
+                else list(tuple.__iter__(roh)) if issubclass(type(roh), tuple) else [])
+    for check in gelistet:
+        name = _zeichen_von(getattr(check, "name", None))
         if name is not None:
-            verdikte.setdefault(name, []).append(check.ok)
+            verdikte.setdefault(name, []).append(getattr(check, "ok", None))
 
     def _verdient(name: str) -> bool:
         oks = verdikte.get(name, [])

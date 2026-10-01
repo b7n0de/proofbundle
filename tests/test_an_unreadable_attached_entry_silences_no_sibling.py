@@ -215,7 +215,15 @@ class AnUnreadableEntryIsNamedAndPromotesNothing(unittest.TestCase):
 
         related = {TARGET: {"verified": True}, _Text(TARGET): {"verified": True}}
         self.assertEqual(len(dict.keys(related)), 2, "precondition: the map stores two keys")
-        res = verify_relationship_edges([_edge(TARGET)], related, subject_hex=SUBJ)
+        # Since deep gate run 6 at fda55f98 (L4-620v6-T15-LIVE-RELATED-01) such a map does not reach the body:
+        # its keys meet as one in the copy of the reading at the call, which refuses the call before the body
+        # runs (`canonical._StandUnkopierbar`); until then it stayed the caller's object, read at body time. The
+        # rule of the body for a map it is handed is still held by calling the engine on the reading's output.
+        from proofbundle.canonical import _StandUnkopierbar  # noqa: PLC0415
+        with self.assertRaises(_StandUnkopierbar):
+            verify_relationship_edges([_edge(TARGET)], related, subject_hex=SUBJ)
+        from proofbundle.relation import _kanten_urteil, _related_lesen  # noqa: PLC0415
+        res = _kanten_urteil([_edge(TARGET)], _related_lesen(related), subject_hex=SUBJ)
         self.assertEqual(res["lineage"], LINEAGE_FAIL)
         self.assertTrue(any("attached_target_malformed" in e for e in res["errors"]), res["errors"])
 

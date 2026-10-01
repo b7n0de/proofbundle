@@ -134,6 +134,7 @@ _SIGNIERER = "signer"    # a signing key or a signer object: its own `sign` is t
 _SIGNIERER_JE_NAME = "signer map"   # a dict whose values are signers
 _PFAD = "path"           # an operating system path: a str or an `os.PathLike`
 _UHR = "clock"           # a `datetime` the body reads once (`canonical._zeitpunkt_von`)
+_PFAD_ODER_LOG = "path or loaded log"   # a path, or the library object the file holds once loaded (an EvalLog)
 
 #: (function, parameter) -> the kind of object of the caller its contract hands to the body as it is. Every other
 #: parameter takes the copy of a reading and no object of the caller.
@@ -178,7 +179,7 @@ _VERTRAG: "dict[tuple[str, str], str]" = {
     ("renewal.renew_timestamp", "signers"): _SIGNIERER_JE_NAME,
     ("trust_pack.sign_trust_pack", "signers"): _SIGNIERER_JE_NAME,
     ("adapters.eee.from_eee_dataset", "source"): _PFAD,
-    ("adapters.inspect_ai.from_inspect_ai_log", "path"): _PFAD,
+    ("adapters.inspect_ai.from_inspect_ai_log", "path"): _PFAD_ODER_LOG,
     ("adapters.lm_eval.from_lm_eval_results", "path"): _PFAD,
     ("adapters.promptfoo.from_promptfoo_results", "path"): _PFAD,
     ("adapters.samples.samples_from_lm_eval_jsonl", "path"): _PFAD,
@@ -346,6 +347,9 @@ _ERLAUBT = {
     _SIGNIERER_JE_NAME: {("a value of a dict", k) for k in ("object", "callable", "iterator", "mapping", "datetime")},
     _PFAD: set(),
     _UHR: {("the argument", "datetime")},
+    # The adapter reads a loaded inspect_ai log by its own model, a producer's source (`canonical`, contract kind
+    # `pfad_oder_objekt`): an object or a mapping of the caller's reaches it as it is, a callable or an iterator does not.
+    _PFAD_ODER_LOG: {("the argument", k) for k in ("object", "mapping")},
 }
 
 #: Types whose values are immutable and run only the interpreter's own code: shared between the caller and the copy

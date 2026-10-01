@@ -1056,6 +1056,14 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   reading): the module head of `canonical.py` and two docstrings of `decision.py` (the content root and the hash
   binding); `rfc8785` is a dependency of the core install since 3.6.1, and an install that lacks it refuses every
   receipt. All three are corrected.
+- **R620-R6-9, P2. A stand-in can make a body that reads an attribute raise** (found by the class tests while the fix of
+  run 6 was built): a body that reads an attribute of an argument value (`result.checks`, `c.name`) raised
+  AttributeError where that value is now a stand-in (`canonical._fremdkoerper`), out of `root_authenticity_summary`
+  and `svr_properties`, which answer with a verdict or a property list. Both read such a value fail-closed now (the
+  crypto verdict fails, no property is earned). Other bodies were not swept for this form; a stand-in holds nothing
+  of the caller, so such a raise promotes no verdict, and it is a site of the class under "a caller's own Python
+  objects can make a never-raise surface raise" below. Workaround: pass the package's own types (`VerificationResult`,
+  `Check`); a caller's own class is outside the contract of these arguments.
 - The rows above on `render_release` binding `release_commit` by its length and not binding the tags to `--version`
   were measured again at fda55f98 by the lens L6 (L6-620v6-T7-RELEASE-COMMIT-BY-LENGTH-01 and
   L6-620v6-T7-TAG-FIELD-UNCHECKED-01), both P3 there as here.

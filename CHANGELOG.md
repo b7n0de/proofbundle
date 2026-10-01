@@ -130,7 +130,18 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   2, or `policy_ok` False), `outcome verify` and `relation-statement verify` fail a policy whose shared fields fail,
   `relation-statement verify` fails a policy that declares a purpose, an empty `accepted_predicate_types` is refused
   when the policy is read, and a value whose plain copy would write more than `json_nodes` values (a part held in
-  several places counted in each) is refused by the copy.
+  several places counted in each) is refused by the copy. The AGT verifiers read a `trusted_authorizer_keys` that the
+  reading does not copy itself (a numpy or ctypes array of keys, another iterable of the caller's) at the call through a
+  named reader that runs their list rule before the first collect and after the second and compares the answers
+  (`adapters.agt_receipt._liste_stand`), so such a list is judged as before, and a list or tuple is copied as every
+  other container; an iterator or a generator there is refused unread with the refusal of a list that cannot be read
+  (exit 2, no exception), and a receipt dict holding a key whose hash would be the caller's code refuses the call. The shipped template `decision-receipt-template-v1` and
+  `examples/trust_policy_decision_strict.json` no longer carry `allowed_schema_versions` and `signature`, rules of the
+  eval bundle path that `decision verify` never applied: a decision policy instantiated from the 6.1.0 template carries
+  them and is refused by `decision verify` with exit 2, naming them, until they are removed. `from_inspect_ai_log`
+  takes a path or a loaded log as before. A check or a result of the caller's own class reaches
+  `root_authenticity_summary` and `svr_properties` as a stand-in, which fails the crypto verdict or earns no property,
+  where both read the caller's object.
   Tests: the gate before run 7, in five files: `tests/test_no_object_of_the_caller_reaches_a_body.py` (every hostile
   form at every parameter of every public function, with a planted control),
   `tests/test_a_verdict_surface_holds_its_verdict_at_every_argument.py` (each verdict surface and argument from a valid

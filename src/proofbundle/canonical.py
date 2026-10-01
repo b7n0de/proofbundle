@@ -1050,7 +1050,7 @@ class _draussen:
 #: kind of the argument: the forms of `_art_des_blatts` it hands on. A callback is called as the caller's code
 #: (`_draussen`) and its answer read where it returns; a signer's own ``sign`` is the caller's code by contract; a path
 #: is opened by the operating system; a clock is read once (`_zeitpunkt_von`); a class is the ``cls`` of a classmethod,
-#: which the classmethod calls to build its answer.
+#: which the classmethod calls to build its answer; a path or a loaded log is the source an adapter reads.
 _AUSSEN_ERLAUBT = {
     "rueckruf": frozenset({"aufrufbar"}),
     "signierer": frozenset({"fremd", "aufrufbar", "iterator", "zeit", "pfadartig"}),
@@ -1058,6 +1058,9 @@ _AUSSEN_ERLAUBT = {
     "pfad": frozenset({"pfadartig"}),
     "uhr": frozenset({"zeit"}),
     "klasse": frozenset({"klasse"}),
+    # A path to a file, or the object of a library that the file holds once it is loaded (an inspect_ai
+    # EvalLog): a producer reads it as the source of what it writes, by the library's own model.
+    "pfad_oder_objekt": frozenset({"pfadartig", "fremd"}),
 }
 
 
@@ -1096,8 +1099,10 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any
         if fremd:
             raise TypeError(f"_ein_stand: {', '.join(fremd)} is no parameter of {f.__qualname__}")
         vertrag = dict(aussen or {})
-        fremd = sorted(set(vertrag) - set(namen[1]))
-        falsch = sorted(k for k, art in vertrag.items() if art not in _AUSSEN_ERLAUBT)
+        # In the order the decorator names them (tests/test_ablehnungstext_rendert_beschraenkt.py: no sorted()
+        # over a set of keys in the package); the names are this package's own.
+        fremd = [k for k in vertrag if k not in namen[1]]
+        falsch = [k for k, art in vertrag.items() if art not in _AUSSEN_ERLAUBT]
         if fremd or falsch:
             raise TypeError(f"_ein_stand: {', '.join(fremd + falsch)} is no parameter of {f.__qualname__} or names no "
                             "kind of contract")
