@@ -109,9 +109,10 @@ in `ci/README.md` (D22).
 the tree as it was, writes the unsigned statement a bundle signs: the tree digest of HEAD and a record
 of the run (the command, the program and its sha256, the exit code, the counts from the JUnit report,
 the digests before and after, the time and the platform). A dirty tree, a run that changes the tree or
-moves HEAD, a red run, a run without tests or a timeout gives no statement. The command must be pytest,
-and the report must carry a name this call set, so a program that is not pytest and a replayed report
-give no statement. It runs the repository's tests, so it runs the repository's code: the gate checks the
+moves HEAD, a red run, a run without tests or a timeout gives no statement. The command must have a
+supported pytest form, and the report must carry this invocation's random suite name. This rejects
+unsupported command forms and an unchanged report from another invocation; it does not authenticate the
+executable or the reported test activity. It runs the repository's tests, so it runs the repository's code: the gate checks the
 signed record, not whether the reported tests actually executed, and ignored files, external
 dependencies and temporary changes during the run are outside this binding.
 

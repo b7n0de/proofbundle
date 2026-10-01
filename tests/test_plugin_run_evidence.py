@@ -496,6 +496,25 @@ def test_a_wrong_call_exits_2_without_a_report(env, repo, args):
     assert not (repo / "x.json").exists()
 
 
+#: The reviewer's replacement for the run-evidence sentence (review section 3, Befund 2), verbatim.
+BEFUND2_SENTENCE = ("The command must have a supported pytest form, and the report must carry this "
+                    "invocation's random suite name. This rejects unsupported command forms and an "
+                    "unchanged report from another invocation; it does not authenticate the executable or "
+                    "the reported test activity.")
+
+
+def test_the_run_evidence_sentence_is_the_reviewers_replacement():
+    """Befund 2: the command name and the report's suite nonce do not authenticate pytest. The reviewer's
+    sentence, verbatim, stands in D23, the README and the _pytest_command docstring, and the overclaim it
+    replaces ('rejects a program that is not pytest') is gone. Red against 3026924e, which carried it."""
+    sources = {"README": (PLUGIN / "README.md").read_text(encoding="utf-8"),
+               "DECISIONS": (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8"),
+               "docstring": gate._pytest_command.__doc__}
+    for where, text in sources.items():
+        assert BEFUND2_SENTENCE in " ".join(text.split()), where
+        assert "rejects a program that is not pytest" not in text, where
+
+
 def test_the_readme_and_the_decisions_describe_the_route():
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
     assert "run-evidence --repo . --out" in readme

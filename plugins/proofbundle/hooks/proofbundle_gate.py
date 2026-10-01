@@ -1571,8 +1571,11 @@ _PYTHON_NAME = re.compile(r"python(?:3(?:\.\d+)*)?")
 
 def _pytest_command(command: list[str]) -> bool:
     """Whether the command is a supported pytest form: an executable named pytest or py.test, or a Python
-    interpreter with `-m pytest`. This keeps out a program that is not pytest; it does not authenticate the
-    executable (review F7, N7)."""
+    interpreter with `-m pytest`. The run-evidence binding, stated verbatim (review F6, F7, N7, Befund 2):
+    "The command must have a supported pytest form, and the report must carry this invocation's random suite
+    name. This rejects unsupported command forms and an unchanged report from another invocation; it does
+    not authenticate the executable or the reported test activity."
+    """
     name = os.path.basename(command[0])
     if name in ("pytest", "py.test"):
         return True

@@ -578,11 +578,11 @@ Chosen (smallest variant, 2026-09-30; the report binding tightened after the rev
 - `proofbundle_gate.py run-evidence --repo DIR --out FILE [--timeout S] -- COMMAND...` runs a named
   pytest command in the repository, without a shell, with `-p no:cacheprovider --junitxml=<a file outside
   the repository>` added and PYTHONDONTWRITEBYTECODE=1 set.
-- The command must have a supported pytest form, and every testsuite in the report must carry the name set
-  for this call (a fresh random `junit_suite_name`). This rejects a program that is not pytest and an
-  unchanged report from another invocation. It does not authenticate the executable or the reported test
-  activity: code of the repository that runs under pytest (a conftest.py, a plugin) can still write the
-  report itself; see the limit below (review F6, F7, N7).
+- The command must have a supported pytest form, and the report must carry this invocation's random suite
+  name. This rejects unsupported command forms and an unchanged report from another invocation; it does not
+  authenticate the executable or the reported test activity. Code of the repository that runs under pytest
+  (a conftest.py, a plugin) can still write the report itself; see the limit below (review F6, F7, N7,
+  Befund 2).
 - Before the run the working tree, as `git add -A` would stage it on top of HEAD through a temporary index,
   must have the tree digest of HEAD. After the run HEAD must be the same commit and the working tree must
   still have that digest. Files git ignores are not compared, and they can influence the run.
