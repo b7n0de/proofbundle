@@ -289,15 +289,52 @@ def test_the_workflow_template_takes_the_requirement_from_its_caller():
     assert checked["ref"] == "${{ github.event.pull_request.head.sha || github.sha }}"
     (gate_checkout,) = [c for c in checkouts if c.get("repository") == "b7n0de/proofbundle"]
     assert gate_checkout["ref"] == "${{ inputs.proofbundle-ref }}"
+    # Review N8: the gate checkout brings the whole history and the tags, so the containment check can see
+    # which release tags hold the gate ref.
+    assert gate_checkout["fetch-depth"] == 0 and gate_checkout["fetch-tags"] is True
     runs = [s for s in steps if "run" in s]
     pin = runs[0]
     assert pin["env"] == {"GATE_REF": "${{ inputs.proofbundle-ref }}"}
     assert "^[0-9a-f]{40}$" in pin["run"] and "exit 1" in pin["run"]
+    (tag_step,) = [s for s in steps if s.get("name", "").startswith("The gate commit is in a released tag")]
+    assert tag_step["working-directory"] == "gate" and tag_step["env"] == {"GATE_REF": "${{ inputs.proofbundle-ref }}"}
+    assert "git tag --list 'v*' --contains" in tag_step["run"] and "exit 1" in tag_step["run"]
     last = runs[-1]
     assert last["env"] == {"REQUIRE_DECLARATION": "${{ inputs.require-declaration }}"}
     assert "gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check" in last["run"]
     assert '--repo checked --require-declaration "$REQUIRE_DECLARATION"' in last["run"]
+    assert "python -I " in last["run"], "review N4: the gate runs isolated in CI too"
     assert "${{" not in "".join(s["run"] for s in runs), "inputs reach the shell through env only"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is not installed")
+def test_the_tag_containment_step_requires_a_release_tag(tmp_path):
+    """Review N8: the workflow's tag step passes only when the gate ref is contained in a v* tag of the
+    gate checkout, and exits non-zero otherwise, before the gate runs. The step's own shell is run here
+    against a throwaway gate repository, as the workflow would run it in the `gate` checkout."""
+    yaml = pytest.importorskip("yaml")
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    (job,) = workflow["jobs"].values()
+    (tag_step,) = [s for s in job["steps"] if s.get("name", "").startswith("The gate commit is in a released tag")]
+    script = tag_step["run"]
+    gate = tmp_path / "gate"
+    _init(gate)
+    tagged = subprocess.run(["git", "-C", str(gate), "rev-parse", "HEAD"], capture_output=True, text=True,
+                            check=True).stdout.strip()
+    _git(gate, "tag", "v6.2.0")
+    _write(gate / "later.txt", "a commit after the tag")
+    _commit(gate)
+    untagged = subprocess.run(["git", "-C", str(gate), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+    def run_step(ref: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=str(gate),
+                              env=dict(os.environ, GATE_REF=ref), capture_output=True, text=True)
+
+    contained = run_step(tagged)
+    assert contained.returncode == 0 and "v6.2.0" in contained.stdout
+    missing = run_step(untagged)
+    assert missing.returncode != 0 and "no v* release tag" in missing.stderr
 
 
 def test_the_workflow_template_calls_the_ci_mode_with_both_options():
@@ -312,7 +349,9 @@ def test_the_codeowners_template_covers_the_rules_the_workflows_and_itself():
              if line.strip() and not line.lstrip().startswith("#")]
     paths = {parts[0] for parts in lines}
     assert all(len(parts) >= 2 for parts in lines)
-    assert {"/.proofbundle/", "/.github/workflows/proofbundle-evidence.yml", "/.github/CODEOWNERS"} <= paths
+    # Review N9: the whole of .github/workflows/ and .github/actions/, not only named files, so a pull
+    # request cannot add a workflow with a matching job name outside the review.
+    assert {"/.proofbundle/", "/.github/workflows/", "/.github/actions/", "/.github/CODEOWNERS"} <= paths
 
 
 def test_the_ci_readme_names_every_outcome_and_exit_code():

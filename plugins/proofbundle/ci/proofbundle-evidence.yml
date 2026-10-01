@@ -4,12 +4,12 @@ name: proofbundle-evidence
 # proofbundle itself. Copy it to .github/workflows/proofbundle-evidence.yml of the repository whose
 # evidence it checks, and call it from a workflow that runs on pull requests and pushes (ci/README.md).
 #
-# It runs the CI mode of the plugin gate on the commit under review: the same evaluation as the gate
-# before a push, with two differences. Every NOT MEASURED fails, and whether the repository must
-# declare evidence is the input require-declaration of this workflow, not anything in the declaration,
-# so deleting the declaration cannot switch the check off. The push range the gate compares before a
-# push is not read here; changes to the evidence rules and to this workflow are the review of the
-# CODEOWNERS template beside it.
+# It runs the CI mode of the plugin gate on the commit under review: the gate's evaluation of HEAD,
+# without the rules comparison a push makes (that review is CODEOWNERS' part here). CI fails every
+# required check that is NOT MEASURED. With require-declaration false and no declaration it returns
+# not_required, not verified. Whether the repository must declare evidence is the input
+# require-declaration of this workflow, not anything in the declaration, so deleting the declaration
+# cannot switch the check off. The gate code is taken from a released tag of b7n0de/proofbundle.
 #
 # Exit 0: every declared item verified and names the tree of the commit, or nothing is declared and
 # require-declaration is false. Exit 1: everything else. Exit 2: the gate was called wrongly.
@@ -66,6 +66,24 @@ jobs:
           ref: ${{ inputs.proofbundle-ref }}
           path: gate
           persist-credentials: false
+          fetch-depth: 0       # the whole history and
+          fetch-tags: true     # the tags, so the containment check below can see them
+
+      # The gate code must come from a released tag of b7n0de/proofbundle, not from any commit that
+      # happens to carry that SHA. `git tag --contains` lists the release tags the ref is an ancestor of
+      # (owner's choice); a non-empty set is required, so an unreleased or unknown SHA stops the check
+      # before the gate runs. It does not prove the SHA is itself the tagged commit.
+      - name: The gate commit is in a released tag of b7n0de/proofbundle
+        working-directory: gate
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+        run: |
+          tags="$(git tag --list 'v*' --contains "$GATE_REF")"
+          if [ -z "$tags" ]; then
+            echo "proofbundle-ref $GATE_REF is in no v* release tag of b7n0de/proofbundle; refusing to run it" >&2
+            exit 1
+          fi
+          printf 'gate ref is contained in: %s\n' "$tags"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -80,5 +98,5 @@ jobs:
         env:
           REQUIRE_DECLARATION: ${{ inputs.require-declaration }}
         run: |
-          python gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check \
+          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check \
             --repo checked --require-declaration "$REQUIRE_DECLARATION"

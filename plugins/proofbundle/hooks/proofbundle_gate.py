@@ -1255,10 +1255,12 @@ def ci_check(repo: str, require_declaration: bool, deadline: float | None = None
     """The CI mode (DECISIONS.md, D22): the gate's own evaluation of HEAD, stricter than at a push.
 
     Exit 0 only when every declared item verified and is bound to the tree of the commit, or when nothing
-    is declared and the workflow says the repository need not declare. Every NOT MEASURED, every deny and a
-    missing declaration where one is required exit 1. Whether a declaration is required comes from the
-    workflow, not from the declaration, so deleting the declaration cannot switch the check off. The push
-    range of D20 is not read: in CI the reviewed state of the evidence rules is CODEOWNERS' part.
+    is declared and the workflow says the repository need not declare (`not_required`, which is a waiver,
+    not a verified result). CI fails every required check that is NOT MEASURED; with require-declaration
+    false and no declaration it returns not_required, not verified. Every deny and a missing declaration
+    where one is required exit 1. Whether a declaration is required comes from the workflow, not from the
+    declaration, so deleting the declaration cannot switch the check off. The push range of D20 is not read:
+    in CI the reviewed state of the evidence rules is CODEOWNERS' part.
     """
     deadline = time.monotonic() + DEADLINE_SECONDS if deadline is None else deadline
     try:

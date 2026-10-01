@@ -7,11 +7,11 @@
 # The evidence rules: the declaration, the trust policies and the evidence files.
 /.proofbundle/ @OWNER
 
-# The workflows that decide whether a declaration is required and which gate checks it. A pull request
-# can change the workflow it runs under, so a change here needs the same review. Add the workflow that
-# calls proofbundle-evidence.yml under its own name.
-/.github/workflows/proofbundle-evidence.yml @OWNER
-/.github/workflows/evidence.yml @OWNER
+# The workflows and composite actions that decide whether a declaration is required and which gate checks
+# it. A pull request can change the workflow it runs under, or add one with a matching job name, so the
+# whole of each directory needs the same review, not only the files named here.
+/.github/workflows/ @OWNER
+/.github/actions/ @OWNER
 
 # This file, so the owners above cannot be removed without their review.
 /.github/CODEOWNERS @OWNER
