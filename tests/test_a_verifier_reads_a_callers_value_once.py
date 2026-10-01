@@ -2112,8 +2112,11 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
                               "dauer": datetime.timedelta(seconds=5)}}
         r = automation_summary(_NeuGebaut(ergebnis), required_checks=_NeuGebaut({"crypto": "crypto_ok"}))
         self.assertIs(r["cryptoValid"], True)
+        # A verdict, not a refusal as changed: the reading of `rp_trust` happens at the call and before the import
+        # guard, so it runs with and without the [anchors] extra; only the verdict differs (the import guard's
+        # `ok` False without it, a failed chain with it), and both carry `ok`, where `status` exists only past the guard.
         v = verify_rfc3161(b"proof", b"root", frozen={}, rp_trust=_NeuGebaut({"trusted_tsa_roots": ["QUJD"]}))
-        self.assertIn("status", v)
+        self.assertIs(v["ok"], False)
 
     def test_a_mapping_that_parses_its_values_anew_gives_a_verdict(self):
         """V12 F1: a Mapping that is never changed but parses its values anew on each read, as a configuration read with
