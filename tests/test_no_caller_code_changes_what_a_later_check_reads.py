@@ -559,13 +559,19 @@ class AnEntryThatRaisesWhenReadFailsTheAnchorStep(unittest.TestCase):
     anchor step (`raise _anker_fehler`), where its two arms turn it into a failed anchor verdict. Codex round two on
     PR 313 at 37fc3cac asked whether an entry whose type check raises escapes there. Measured, it does not, and no
     case held the path; this one does (owner order of 2026-09-29): ok False, anchors_ok False, no exception, and an
-    exception of caller code is named by its type only, never rendered."""
+    exception of caller code is named by its type only, never rendered.
+
+    Since the fix of deep gate run 6 the entry no longer reaches the body: the reading at the call
+    (`canonical._ein_stand`) judges it by its type, never asks it its class, and holds it as a stand-in
+    (`canonical._fremdkoerper`), which the anchor step refuses as malformed input (owner choice 8 on OA-73db31053a: the
+    old expectation became the refusal). The arm for an exception of caller code stays for a registered verifier."""
 
     def test_an_entry_whose_type_check_raises(self) -> None:
         from proofbundle.decision import emit_decision_receipt, verify_decision_receipt  # noqa: PLC0415
         umschlag = emit_decision_receipt(_beispiel("decision_receipt_deny.json"), _A, strict=True)
         self.assertIs(verify_decision_receipt(umschlag, _raw(_A), strict=True, anchors=[])["ok"], True)   # control
         gerendert = []
+        gefragt = []
 
         class _Fehler(Exception):
             def __str__(self) -> str:
@@ -576,18 +582,20 @@ class AnEntryThatRaisesWhenReadFailsTheAnchorStep(unittest.TestCase):
             class _Eintrag:
                 @property
                 def __class__(self):
+                    gefragt.append(1)
                     raise ausnahme
             return _Eintrag()
 
-        for ausnahme, text in ((RuntimeError("x"), "failed on an error of type RuntimeError (fail-closed)"),
-                               (_Fehler(), "failed on an error of type _Fehler (fail-closed)"),
-                               (TypeError("x"), "refused malformed anchor input (fail-closed)")):
+        for ausnahme in (RuntimeError("x"), _Fehler(), TypeError("x")):
             with self.subTest(error=type(ausnahme).__name__):
                 r = verify_decision_receipt(umschlag, _raw(_A), strict=True, anchors=[feindlich(ausnahme)])
                 self.assertIs(r["ok"], False)
                 self.assertIs(r["anchors_ok"], False)
                 self.assertIs(r["automation"]["safeForAutomation"], False)
-                self.assertIn(text, " ".join(r["errors"]))
+                fehler = " ".join(r["errors"])
+                self.assertIn("refused malformed anchor input (fail-closed)", fehler)
+                self.assertIn("each anchor must be a JSON object", fehler)
+        self.assertEqual(gefragt, [], "the reading or the anchor step asked an entry of the caller its class")
         self.assertEqual(gerendert, [], "the anchor step rendered an exception of caller code")
 
 
