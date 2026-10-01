@@ -1,0 +1,79 @@
+{
+ "schema": "proofbundle.scitt-ccf.replay-build-choice.v1",
+ "chosen": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "5a973bb3af8a0c506923c501d4e2aeb508867105",
+   "commit_date": "2026-09-14T23:01:09Z",
+   "commit_subject": "Clarify and enforce container image reproducibility (#433)",
+   "dockerfile_ccf_version": "7.0.10",
+   "base_image": "mcr.microsoft.com/azurelinux/base/core:3.0.20260909@sha256:34a22db497ff34a0f35ca5fc54bd38711d04238a2c1b2f65d35dc9d45dd82584"
+  },
+  "ccf": {
+   "version": "7.0.14",
+   "set_by": "docker build --build-arg CCF_VERSION=7.0.14 (ARG CCF_VERSION in docker/Dockerfile)",
+   "release": "https://github.com/microsoft/CCF/releases/tag/ccf-7.0.14",
+   "release_published": "2026-09-07T15:23:13Z",
+   "reproduce_json": "https://github.com/microsoft/CCF/releases/download/ccf-7.0.14/reproduce.json",
+   "reproduce_json_sha256": "1022713e535bae1fe24f8c0a89acbcb538f57dc1e5dd8e08fccb90cd171057c4",
+   "tdnf_snapshottime": 1788790797,
+   "rpm": "ccf_devel_7.0.14_x86_64.rpm",
+   "rpm_sha256": "5939a48f33de90d26e35aa2197cd50539c05b3a7dcd949a9f8aac2395d36bc10",
+   "rpm_bytes": 14041715
+  },
+  "why": [
+   "No scitt-ccf-ledger commit pins CCF 7.0.14 (measured over the history of docker/Dockerfile on 2026-10-01): it moves from 7.0.10 at 5a973bb3 (2026-09-14) to 7.0.16 at 2e67dc93 (2026-09-18) and 7.0.17 at 00101f76 (2026-09-24). An upstream pairing with 7.0.14 does not exist.",
+   "5a973bb3 is the last ledger commit before CCF's API breaks of 7.0.15 (the evercbor target removed, #8297) and 7.0.16 (SNP attestation through TAV). Its test binaries still link evercbor, and it uses the pre-TAV SNP API; 7.0.14 provides both.",
+   "Its registration code equals the pinned one: `git diff 5a973bb3 00101f76 -- app/` touches only the SNP attestation code in app/src/verifier.h and app/src/verified_details.h, the evercbor link and C++23 in app/CMakeLists.txt, and the member acknowledgement in app/constitution/actions.js. The refusal texts of rounds 1 to 3 stand at the same places (\"must contain CWT_Claims with at least an issuer\" in app/src/verifier.h, \"Signature verification failed\" in app/src/cose.h line 984), and the did:x509 issuer is resolved with `true /* Do not validate time */` in both.",
+   "So the replay changes CCF and keeps the ledger's registration logic: a difference in an outcome points to CCF, not to the ledger."
+  ]
+ },
+ "fallback": {
+  "when": "if 5a973bb3 does not build cleanly with CCF_VERSION=7.0.14",
+  "service_commit": "5a973bb3af8a0c506923c501d4e2aeb508867105",
+  "ccf": {
+   "version": "7.0.10",
+   "set_by": "the commit's own pin, no build argument",
+   "release_published": "2026-07-16T13:54:41Z",
+   "reproduce_json_sha256": "49abb909abeae9abc5481be641513fd3644b5623fdc8769889de95f5489c11c8",
+   "tdnf_snapshottime": 1784205407,
+   "rpm_sha256": "4c7f31109aba8893015f4466071d5d964f7117ae0233dd074c96e47eadafe1bc",
+   "rpm_bytes": 14065961
+  },
+  "why": "the upstream pairing of that commit, also before 7.0.15; the reason the first choice failed is recorded beside the run"
+ },
+ "original": {
+  "service_commit": "00101f769d872711356e080fbb089ac48589c60a",
+  "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+  "ccf": "ccf-7.0.17",
+  "reproduce_json_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+  "rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+  "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c"
+ },
+ "ccf_changelog_7_0_15": {
+  "source": "https://github.com/microsoft/CCF/blob/ccf-7.0.17/CHANGELOG.md",
+  "source_sha256": "0f94f72b1b4e4c3362feabe4c5e36b52a945dc870338046e81d0559f1d093739",
+  "retrieved": "2026-10-01",
+  "release": "https://github.com/microsoft/CCF/releases/tag/ccf-7.0.15",
+  "release_published": "2026-09-11T12:22:02Z",
+  "entries": [
+   "CBOR parsing now rejects composite (array or map) and tagged values used as map keys anywhere in the decoded document, including nested maps in optional COSE headers (#8297).",
+   "Removed the exported `evercbor` CMake target and installed `libevercbor.a` library. Applications using CCF's public APIs that explicitly depend on this target or link this library directly must remove that dependency. No further build changes are necessary: the replacement CBOR implementation is linked transitively by CCF (#8297)."
+  ],
+  "what_it_means_for_the_nine": "None of the nine requests carries a map key that is not an integer, in the protected header, in its nested CWT Claims map or in the unprotected map (measured with the oracle's reader). The first entry does not reach them; the second changes the CBOR implementation under them."
+ },
+ "configuration": {
+  "target": {"authentication": {"allowUnauthenticated": true}, "policy": {"policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"}},
+  "target_sha256_as_in_round_3": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+  "how": "one node, virtual mode, attestation Insecure_Virtual, opened with the repository's own `scitt governance local_development`, as in rounds 1 to 3"
+ },
+ "expected_configuration_deltas": [
+  "CCF 7.0.14 instead of the commit's 7.0.10 (build argument), a pairing upstream never shipped.",
+  "The ledger is built as C++20 and its test binaries link evercbor, against 00101f76's C++23 without that link (app/CMakeLists.txt).",
+  "The constitution records a member acknowledgement with the state digest of the latest signature (5a973bb3) where 00101f76 deletes the acknowledgement entry; this touches opening the service, not registration.",
+  "The SNP attestation code differs; virtual mode does not run it.",
+  "The image digest, the build-inputs.json and the tdnf snapshot differ from rounds 1 to 3.",
+  "The build sandbox's proxy CA trusted in the base stage, as in rounds 1 to 3, if the cloud needs it; recorded with its patch digest.",
+  "Whether the configuration digest equals round 3's is to be measured: the same JSON is applied, the digest is read back from /configuration."
+ ]
+}

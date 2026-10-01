@@ -1,0 +1,113 @@
+{
+ "schema": "proofbundle.scitt-ccf.replay-vectors.v1",
+ "purpose": "the nine request bodies of the replay on an earlier CCF build, byte for byte as stored, with their origin",
+ "vectors": [
+  {
+   "name": "r3-control",
+   "request_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+   "request_length": 1150,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/control/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r3-r-a10-cwt-claims-unprotected",
+   "request_sha256": "1565059345b3e5424af8ccd839104ee7ab88626daa79813231dfc01a3cda61fe",
+   "request_length": 1173,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/r-a10-cwt-claims-unprotected/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r3-m-u15",
+   "request_sha256": "bae0467d702873b556c55d755d8f751c88db71607411cc0e36bb22ba2b624795",
+   "request_length": 1150,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/m-u15/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r2-g03-alg-1-byte-argument",
+   "request_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+   "request_length": 1151,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round2/vectors/g03-alg-1-byte-argument/request.hex",
+    "added_in": "f5034b860e77af4a5cc9194999bc65b1d4afb5d4",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r3-x-pa-ub-sig-a",
+   "request_sha256": "72edfc65e9eeede2730de644b61ad478d12658d16fdcb462726ab35a727e4bb0",
+   "request_length": 2023,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/x-pa-ub-sig-a/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r3-x-pa-ub-sig-b",
+   "request_sha256": "7013f32bfed8432e19274f2faaa872d7c68b0407db3b8a724bb45b0613e59fb3",
+   "request_length": 2023,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/x-pa-ub-sig-b/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r3-x-pb-ua-sig-a",
+   "request_sha256": "add014e1ec3efc279a2abfb386050965a1e73eb101d0b69b258284700cf1d369",
+   "request_length": 2023,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/x-pb-ua-sig-a/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "r3-x-pb-ua-sig-b",
+   "request_sha256": "5d6deebfb237cccaa006627f81eb2a114a15499e1ed4caeda462fe5eae590678",
+   "request_length": 2023,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/differential_corpus_round3/vectors/x-pb-ua-sig-b/request.hex",
+    "added_in": "a38494dc943cb290bbce73ded3ce88a2348fbb32",
+    "frozen_at": "c5ff0a72e28aa087eecd3e2b426577be3cf2a80f"
+   }
+  },
+  {
+   "name": "pr299-es256-protected-x5chain",
+   "request_sha256": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb",
+   "request_length": 1149,
+   "source": {
+    "repository": "https://github.com/b7n0de/proofbundle",
+    "path": "tools/scitt_ccf_external/producer_crosscheck.json",
+    "json_pointer": "/statements/es256/statement_hex",
+    "commit": "60ad959554363d6fe1f8ad28920514c8fabb6669",
+    "pull_request": 299,
+    "producer_commit": "7451bd8c6ca9cd8e057f4aa9af28dd9ffd78b89a",
+    "registered_before": {
+     "service_commit": "00101f769d872711356e080fbb089ac48589c60a",
+     "ccf": "ccf-7.0.17",
+     "post_status": 202,
+     "txid": "2.41"
+    }
+   }
+  }
+ ]
+}
