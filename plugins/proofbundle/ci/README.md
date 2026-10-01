@@ -59,10 +59,20 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 
 ## Where the check stops
 
-- **This template is not measured on GitHub Actions.** It protects only with a required code owner review
-  of `.proofbundle/` and of `.github/workflows/`, the job as a required status check, dismissal of stale
-  approvals, and `require-declaration: true` in the caller. The CODEOWNERS template covers `/.proofbundle/`,
+- **This template is not measured on GitHub Actions.** The Actions run of this check, including a merged
+  pull request and a following waiver push, is a separate step still to be done; the template says NOT
+  MEASURED here. It protects only with a required code owner review of `.proofbundle/` and of
+  `.github/workflows/`, the job as a required status check, dismissal of stale approvals, and
+  `require-declaration: true` in the caller. The CODEOWNERS template covers `/.proofbundle/`,
   `/.github/workflows/`, `/.github/actions/` and `/.github/CODEOWNERS`.
+- CODEOWNERS protects a pull request only when it is already in effect on the branch the pull request
+  targets. GitHub reads CODEOWNERS from the base branch, so a CODEOWNERS added or widened in the same pull
+  request does not require the review for that pull request; the file must be merged into the base first.
+- Dismissing stale approvals is a setting the repository must turn on; recommending it here is no statement
+  that it is configured. The same holds for who may bypass the required review: a repository or
+  organization admin, a user or team on a ruleset's bypass list, or a push that a branch protection rule
+  does not apply to admins can merge without the code owner review. These exceptions are GitHub settings,
+  not verified by this template.
 - A pull request can change the workflow it runs under, including `require-declaration`, or add a workflow
   with a matching job name. The protection holds only with the review and dismissal rules above, and, where
   available, an organization ruleset that pins the required workflow (a `workflow_call` reusable workflow is

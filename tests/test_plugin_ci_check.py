@@ -359,3 +359,15 @@ def test_the_ci_readme_names_every_outcome_and_exit_code():
     for outcome in ("verified", "not_required", "declaration_required", "not_measured", "failed"):
         assert f"`{outcome}`" in text, outcome
     assert "D22" in (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
+
+
+def test_the_ci_readme_names_the_codeowners_and_bypass_limits():
+    """Befund 4: the README says CODEOWNERS must already be in effect on the target branch, which bypass
+    exceptions apply, and that dismissing stale approvals is no statement about configured repository rules;
+    the Actions probe stays a separate owner step the template calls NOT MEASURED."""
+    collapsed = " ".join((CI / "README.md").read_text(encoding="utf-8").split())
+    assert "GitHub reads CODEOWNERS from the base branch" in collapsed
+    assert "added or widened in the same pull request does not require the review for that pull request" in collapsed
+    assert "Dismissing stale approvals is a setting the repository must turn on" in collapsed
+    assert "may bypass the required review" in collapsed
+    assert "a separate step still to be done; the template says NOT MEASURED" in collapsed
