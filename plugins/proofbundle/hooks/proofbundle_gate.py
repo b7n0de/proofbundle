@@ -768,14 +768,52 @@ def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
     return len(push_urls) == 1 and len(fetch_urls) == 1 and push_urls[0] == fetch_urls[0]
 
 
+def _refspec_apply(src: str, dst: str, ref: str) -> str | None:
+    """The ref `src:dst` maps `ref` to, or None when it does not match. Both sides are full refs, wildcard
+    only as a trailing `*` on both sides. A negative or malformed spec matches nothing."""
+    if src.startswith("^") or dst.startswith("^") or not dst:
+        return None
+    if src.endswith("*") and dst.endswith("*"):
+        return dst[:-1] + ref[len(src) - 1:] if ref.startswith(src[:-1]) else None
+    if "*" in src or "*" in dst:
+        return None
+    return dst if ref == src else None
+
+
+def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadline: float) -> bool:
+    """Whether the remote's fetch refspecs map the destination branch `dest` to exactly the tracking ref
+    `tracking`, and map nothing else onto `tracking`. Otherwise the tracking ref does not record the state
+    of `dest` on the remote (a remapped or colliding refspec), so the comparison the gate would make is
+    against the wrong state and the target is NOT MEASURED (review R3-2)."""
+    out = _git(repo, "config", "--get-all", f"remote.{remote}.fetch", deadline=deadline)
+    if out.returncode not in (0, 1):
+        return False
+    specs = [line for line in out.stdout.decode().splitlines() if line.strip()]
+    dest_maps_to, maps_to_tracking = set(), set()
+    for spec in specs:
+        src, sep, dst = spec.lstrip("+").partition(":")
+        if not sep:
+            continue  # a fetch spec with no destination writes FETCH_HEAD, not a tracking ref
+        forward = _refspec_apply(src, dst, dest)
+        if forward is not None:
+            dest_maps_to.add(forward)
+        reverse = _refspec_apply(dst, src, tracking)
+        if reverse is not None:
+            maps_to_tracking.add(reverse)
+    return dest_maps_to == {tracking} and maps_to_tracking == {dest}
+
+
 def _tracking_ref(repo: str, remote: str, dest: str, deadline: float) -> str | None:
     """The one local remote-tracking ref for `dest` on `remote`, or None. A tag writes no per-remote
-    tracking ref, so a tag push has no locally known target state and stays NOT MEASURED (N1)."""
+    tracking ref, so a tag push has no locally known target state and stays NOT MEASURED (N1). The ref must
+    both exist and be the one the remote's fetch refspecs map `dest` to (review R3-2)."""
     if not dest.startswith("refs/heads/"):
         return None
     candidate = f"refs/remotes/{remote}/{dest[len('refs/heads/'):]}"
     out = _git(repo, "rev-parse", "--verify", "--quiet", candidate + "^{commit}", deadline=deadline)
-    return candidate if out.returncode == 0 and out.stdout.strip() else None
+    if not (out.returncode == 0 and out.stdout.strip()):
+        return None
+    return candidate if _fetch_maps_cleanly(repo, remote, dest, candidate, deadline) else None
 
 
 def _qualify_dest(value: str) -> str | None:

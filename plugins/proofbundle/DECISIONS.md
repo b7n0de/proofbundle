@@ -87,7 +87,8 @@ MEASURED. The remote itself is not read.
   `--git-dir`, `--work-tree`) is NOT MEASURED.
 - A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
   the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
-  remote with a uniquely mapped local remote-tracking ref. There is no default-branch fallback: a new
+  remote with a local remote-tracking ref that the remote's fetch refspecs map that branch to and nothing
+  else, so the ref records the state of that branch and not another (review R3-2). There is no default-branch fallback: a new
   branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
   MEASURED (N1). `--all`, `--mirror`, `--tags`, a wildcard or negative refspec, a configured
   `remote.<name>.push`, a mirror remote or `push.followTags` add updates the command does not name, so the

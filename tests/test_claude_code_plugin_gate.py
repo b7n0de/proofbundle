@@ -956,6 +956,25 @@ def _resolve(repo, *args):
     return gate.resolve_push_targets(str(repo), list(args), gate.time.monotonic() + 30)
 
 
+def test_a_fetch_refspec_that_does_not_map_the_target_is_not_measured(shim, repo):
+    """R3-2: the remote-tracking ref name is not proof of what it tracks. A fetch refspec that maps another
+    remote branch onto refs/remotes/origin/main means that ref records 'other', not 'main', so a push to
+    main is judged against the wrong state. NOT MEASURED. Red against 3026924e, which checked only the
+    name. The reviewer's reproduction: a force push to main stayed inactive and removed the declaration."""
+    assert _resolve(repo, "origin", "main") is not None  # the standard refspec maps main cleanly
+    _git(repo, "config", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/main")
+    assert _resolve(repo, "origin", "main") is None, "main no longer maps to origin/main"
+    answer = run_gate(shim, repo, "git push --force origin main")
+    assert decision(answer) == "ask" and reason(answer).startswith("NOT MEASURED: ")
+
+
+def test_a_fetch_refspec_collision_on_the_tracking_ref_is_not_measured(repo):
+    """R3-2: if two remote branches both map onto refs/remotes/origin/main, the ref's state is whichever
+    fetched last. NOT MEASURED even though the expected name exists and main still maps."""
+    _git(repo, "config", "--add", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/main")
+    assert _resolve(repo, "origin", "main") is None
+
+
 def test_options_after_a_double_dash_are_the_remote_and_refspec(repo):
     """R3-1: `--` ends options; what follows is <remote> <refspec>, not more refspecs for a default push.
     Measured red against 3026924e, where `-- origin zzz` fell through to the default push target."""
