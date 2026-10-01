@@ -30,14 +30,17 @@ The earlier build is the primary choice and built cleanly on the first attempt; 
 
 The cloud agent proxy (http://127.0.0.1:37457) intercepts HTTPS, and BuildKit `RUN` steps run in an isolated
 network namespace. Two changes were needed to reach github and the Azure Linux package server from inside the
-build, both recorded here and nowhere in the final image:
+build. The proxy settings reach only the build, not the final image; the CA file the second change adds is carried
+into the final image, as the paragraph below this list records:
 
 1. `docker build --network=host` with the proxy passed as build args (`HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`), so the
-   `RUN` steps can reach the localhost proxy.
+   `RUN` steps can reach the localhost proxy. These settings reach only the build.
 2. A base-stage patch to `docker/Dockerfile`: copy the proxy CA bundle to `/etc/ssl/scitt-proxy-ca.crt` and set
-   `CURL_CA_BUNDLE`/`GIT_SSL_CAINFO` to it, so `curl`/`git` trust the intercepting proxy. It applies to the build
-   stages (all `FROM base`) only; the final image is `FROM scratch`. `.dockerignore` gets one `!scitt-proxy-ca.crt`
-   line so the CA is in the build context.
+   `CURL_CA_BUNDLE`/`GIT_SSL_CAINFO` to it, so `curl`/`git` trust the intercepting proxy. The `ENV` settings apply to
+   the build stages (all `FROM base`) and do not survive the final `FROM scratch`; the CA file, however, is carried
+   into the final image, because `docker/Dockerfile` (at `5a973bb3`, lines 150 to 169) copies the whole runtime
+   filesystem into the `FROM scratch` image. `.dockerignore` gets one `!scitt-proxy-ca.crt` line so the CA is in the
+   build context.
 
 - proxy CA file: `scitt-proxy-ca.crt`, 234366 bytes, sha256 `ee2787e5fcd4384f2fa6f9f7e0a2f2eda06772d28a7405049b472b3f9a835212`
 - Dockerfile patch (at 5a973bb3), `git diff docker/Dockerfile` sha256 `a1536ed43fdd62e3db75092ed0e56caf7dc6b47e8b53723b928f5ea0d80ee4dc`
@@ -45,8 +48,9 @@ build, both recorded here and nowhere in the final image:
 
 Because the patch adds a file to the build stages, the final image carries `/etc/ssl/scitt-proxy-ca.crt`, so the
 image digests above differ from the unpatched reference image (`build_choice.json` `original.image_id`
-`sha256:b6f6aaf0...`). The downloaded content — reproduce.json, the RPM, the tdnf snapshot — is unchanged, which the
-build-inputs hashes above confirm.
+`sha256:b6f6aaf0...`). The downloaded CCF inputs — reproduce.json, the RPM, the tdnf snapshot — each equal their pin
+in `build_choice.json`, which the build-inputs hashes above confirm. That is all these hashes establish; they do not
+show that every build input, or the two builds as a whole, are otherwise equal.
 
 ## Node, configuration
 
@@ -60,17 +64,28 @@ issuer" policy). On BOTH builds the configuration read back from `/configuration
 ## Result
 
 All nine vectors on both builds: predicted == measured (6 registered, 3 refused). Every registered data-hash
-equals the committed prediction and the oracle's rebuilt C(n); every receipt signature verified; every rebuilt C(n)
-equals the returned statement minus label 394. Across the two builds no outcome and no registered data-hash
-differs. The returned-statement digest differs between builds only through the receipt's per-run transaction id and
-timestamp; the data-hash, the drift-relevant invariant, is identical. See `results_table.md`.
+equals the committed prediction and the SHA-256 of the oracle's rebuilt C(n); every receipt signature verified;
+every rebuilt C(n) equals the returned statement without label 394. Across the two builds no outcome and no
+registered data-hash differs. The returned statement without label 394 is equal to C(n) on both builds, so the
+returned-statement digest differs between the two builds only in label 394, the receipt (its per-run transaction id
+and timestamp); the data-hash, the drift-relevant invariant, is identical. See `results_table.md`.
 
 ## Limits
 
-One node, virtual mode, no TEE, two builds in one session. A difference between the runs would point to CCF between
-7.0.14 and 7.0.17, because the ledger's registration code is the same; there was none. The run measures the
-service's answer (accepted or refused); it makes no claim about SCITT conformance. The host runs the registrations;
-"whether the build runs and each registration" is this session's measurement, the predictions were predictions.
+One node, virtual mode, no TEE, two builds in one session. The two builds differ in both the service commit
+(`5a973bb3` vs `00101f76`) and the CCF version (7.0.14 vs 7.0.17) at once, so a difference between the runs would
+not by itself say which of the two changes caused it; across these nine vectors there was no difference in the
+outcomes or the registered data-hashes. The run measures the service's answer (accepted or refused) for these nine
+vectors; it makes no claim about SCITT conformance. The host runs the registrations; "whether the build runs and
+each registration" is this session's measurement, the predictions were predictions.
+
+## Errata
+
+`README.md` (sections THE BUILD and LIMITS) and `build_choice.json` state that the registration code of `5a973bb3`
+equals that of `00101f76`. What is established here is narrower: the `app/` diff between the two commits touches four
+files — the C++ standard, the evercbor test link, the SNP attestation, and the constitution. Full semantic equality
+of the registration code does not follow from that. `README.md` and `build_choice.json` are left unchanged here,
+because they were committed before the first registration and this correction touches only `RUN_NOTES.md`.
 
 ---
 
