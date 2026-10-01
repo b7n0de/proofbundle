@@ -12,6 +12,9 @@ Properties checked:
 - there is no statement when the working tree differs from HEAD before the run (a changed or an
   untracked file; an ignored file is not compared), when the run changes the tree or moves HEAD, when it
   fails, finds no test, times out or writes no report, or when the file already exists;
+- the command must be a pytest form and the report must carry the name this call set, so a program that
+  is not pytest and a replayed or stale report give no statement; a conftest.py that forges the current
+  name is the named limit of F6, measured so it stays true;
 - signed with `proofbundle emit` and declared, the statement passes the gate and the CI mode; a signed
   run record that does not show a green run on the subject's tree is denied, whoever made it, as is a
   run record signed for another tree;
@@ -156,8 +159,10 @@ def test_a_green_run_on_a_clean_tree_writes_a_statement_bound_to_that_tree(env, 
     assert run["program"] == {"path": os.path.abspath(program),
                               "sha256": hashlib.sha256(pathlib.Path(program).read_bytes()).hexdigest()}
     assert run["command"][:len(PYTEST)] == [os.path.abspath(program), *PYTEST[1:]]
-    assert run["command"][len(PYTEST):-1] == ["-p", "no:cacheprovider"]
-    assert run["command"][-1].startswith("--junitxml=")
+    added = run["command"][len(PYTEST):]
+    assert added[:2] == ["-p", "no:cacheprovider"]
+    assert added[2].startswith("--junitxml=")
+    assert added[3] == "-o" and added[4].startswith("junit_suite_name=proofbundle-run-")
     assert gate.run_record_problem(run, digest) is None
     assert b"s3cr3t-value-7f" not in raw and "s3cr3t-value-7f" not in json.dumps(report)
     assert _git(repo, "status", "--porcelain", "--untracked-files=all") == ""
@@ -213,7 +218,7 @@ def test_a_run_that_changes_the_tree_or_moves_head_gives_no_evidence(env, repo, 
     ("import pytest\n\n@pytest.fixture\ndef broken():\n    raise RuntimeError('x')\n\n"
      "def test_error(broken):\n    pass\n", (), "run_failed"),
     (None, (sys.executable, "-m", "pytest", "-q", "tests/", "-k", "no_such_test"), "run_failed"),
-    (None, ("true",), "no_report"),
+    (None, ("true",), "not_pytest"),
     (None, ("no-such-program-for-run-evidence",), "no_program"),
 ], ids=["red-test", "fixture-error", "nothing-selected", "not-pytest", "no-program"])
 def test_a_run_that_is_not_green_gives_no_evidence(env, repo, tmp_path, body, command, reason_id):
@@ -224,6 +229,60 @@ def test_a_run_that_is_not_green_gives_no_evidence(env, repo, tmp_path, body, co
     assert report["reason_id"] == reason_id
     if reason_id == "run_failed":
         assert gate.run_record_problem(report["run"], report["run"]["tree_before"]) is not None
+
+
+FAKE_PYTEST = """import sys
+report = next(a for a in sys.argv if a.startswith("--junitxml=")).split("=", 1)[1]
+open(report, "w", encoding="utf-8").write('<testsuite name="pytest" tests="1" failures="0" errors="0" skipped="0"/>')
+"""
+
+
+@pytest.mark.parametrize("command", [
+    ("python",),  # a Python interpreter without -m pytest
+    (sys.executable, "script.py"),
+    ("true",),
+], ids=["python-no-m", "python-a-script", "not-a-runner"])
+def test_a_program_that_is_not_pytest_gives_no_evidence(env, repo, tmp_path, command):
+    """Review F7, N7: a replay program named like a runner, or a Python interpreter running a script that
+    writes a green report, is not pytest and does not count, even though the report would read as green."""
+    script = repo.parent / "script.py"
+    script.write_text(FAKE_PYTEST, encoding="utf-8")
+    resolved = tuple(str(script) if part == "script.py" else part for part in command)
+    report = refused(env, repo, tmp_path / "statement.json", *resolved)
+    assert report["reason_id"] in ("not_pytest", "no_program")
+
+
+def test_a_pytest_plugin_that_replaces_the_report_with_a_stale_one_gives_no_evidence(env, repo, tmp_path):
+    """Review F7, N7: a conftest.py that overwrites the report with one from another invocation (a name
+    this call did not set) does not count; the report must carry the name this run wrote."""
+    _write(repo / "conftest.py", "import pytest\n\n\n"
+           "@pytest.hookimpl(trylast=True)\n"
+           "def pytest_sessionfinish(session, exitstatus):\n"
+           "    path = session.config.option.xmlpath\n"
+           "    if path:\n"
+           "        with open(path, 'w', encoding='utf-8') as handle:\n"
+           "            handle.write('<testsuite name=\"pytest\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\"/>')\n")
+    _commit(repo)
+    report = refused(env, repo, tmp_path / "statement.json")
+    assert report["reason_id"] == "stale_report"
+
+
+def test_a_pytest_plugin_that_forges_the_current_name_is_the_named_limit(env, repo, tmp_path):
+    """Review F6, N7, the honest limit: a conftest.py that reads the name this call set and writes its own
+    green report with it does produce evidence. The gate checks the signed record, not that the tests ran;
+    this is the boundary D23 states, measured so it stays true if the behaviour changes."""
+    _write(repo / "conftest.py", "import pytest\n\n\n"
+           "@pytest.hookimpl(trylast=True)\n"
+           "def pytest_sessionfinish(session, exitstatus):\n"
+           "    name = session.config.getini('junit_suite_name')\n"
+           "    path = session.config.option.xmlpath\n"
+           "    if path:\n"
+           "        with open(path, 'w', encoding='utf-8') as handle:\n"
+           "            handle.write(f'<testsuite name=\"{name}\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\"/>')\n")
+    _commit(repo)
+    out = tmp_path / "statement.json"
+    code, report, _ = run_evidence(env, repo, out)
+    assert (code, report["reason_id"]) == (0, "green_run"), "repository code under pytest can write the report"
 
 
 def test_a_run_that_does_not_finish_in_time_gives_no_evidence(env, repo, tmp_path):
@@ -248,37 +307,44 @@ def test_outside_a_repository_there_is_no_evidence(env, tmp_path):
     assert report["reason_id"] == "not_a_work_tree"
 
 
-FAKE_RUNNER = """import sys
-report = next(a for a in sys.argv if a.startswith("--junitxml=")).split("=", 1)[1]
-open(report, "w", encoding="utf-8").write(sys.argv[1])
-"""
+@pytest.mark.parametrize("xml, parses", [
+    ('<testsuites><testsuite name="N" tests="2" failures="0" errors="0" skipped="0"/></testsuites>', True),
+    ('<testsuite name="N" tests="2" failures="0" errors="0" skipped="1"/>', True),
+    ('<testsuites><testsuite name="N" tests="2" failures="0" errors="1" skipped="0"/></testsuites>', True),
+    ('<testsuites><testsuite name="N" tests="2" failures="1" errors="0" skipped="0"/></testsuites>', True),
+    ('<testsuites><testsuite name="N" tests="0" failures="0" errors="0" skipped="0"/></testsuites>', True),
+    ('<testsuites><testsuite name="N" tests="1" failures="0" errors="2" skipped="0"/></testsuites>', False),
+    ('<testsuites><testsuite name="N" tests="two" failures="0" errors="0" skipped="0"/></testsuites>', False),
+    ('<testsuites><testsuite name="N" tests="-2" failures="0" errors="0" skipped="0"/></testsuites>', False),
+    ('<!DOCTYPE t [<!ENTITY x "2">]><testsuite name="N" tests="2"/>', False),
+    ('<!DOCTYPE testsuite><testsuite name="N" tests="2"/>', False),
+    ('<testsuites/>', False),
+    ('<other tests="2"/>', False),
+    ('not xml', False),
+], ids=["testsuites", "testsuite", "with-error", "with-failure", "no-tests", "counts-do-not-add-up",
+        "count-not-a-number", "negative-count", "entity", "doctype", "no-testsuite", "other-root", "not-xml"])
+def test_junit_counts_reads_the_report_or_refuses_it(tmp_path, xml, parses):
+    """_junit_counts takes the counts from the report when it is well formed and carries the call's name,
+    and raises otherwise. The green/red judgement on those counts is run_record_problem's, tested below."""
+    report = tmp_path / "report.xml"
+    report.write_text(xml, encoding="utf-8")
+    if parses:
+        counts, sha = gate._junit_counts(str(report), "N")
+        assert set(counts) == {"tests", "passed", "failed", "errors", "skipped"}
+        assert counts["passed"] == counts["tests"] - counts["failed"] - counts["errors"] - counts["skipped"]
+        assert len(sha) == 64
+    else:
+        with pytest.raises(gate.GateError):
+            gate._junit_counts(str(report), "N")
 
 
-@pytest.mark.parametrize("xml, reason_id", [
-    ('<testsuites><testsuite tests="2" failures="0" errors="0" skipped="0"/></testsuites>', "green_run"),
-    ('<testsuite tests="2" failures="0" errors="0" skipped="1"/>', "green_run"),
-    ('<testsuites><testsuite tests="2" failures="0" errors="1" skipped="0"/></testsuites>', "run_failed"),
-    ('<testsuites><testsuite tests="2" failures="1" errors="0" skipped="0"/></testsuites>', "run_failed"),
-    ('<testsuites><testsuite tests="1" failures="0" errors="0" skipped="1"/></testsuites>', "run_failed"),
-    ('<testsuites><testsuite tests="0" failures="0" errors="0" skipped="0"/></testsuites>', "run_failed"),
-    ('<testsuites><testsuite tests="1" failures="0" errors="2" skipped="0"/></testsuites>', "no_report"),
-    ('<testsuites><testsuite tests="two" failures="0" errors="0" skipped="0"/></testsuites>', "no_report"),
-    ('<testsuites><testsuite tests="-2" failures="0" errors="0" skipped="0"/></testsuites>', "no_report"),
-    ('<!DOCTYPE t [<!ENTITY x "2">]><testsuite tests="2" failures="0" errors="0" skipped="0"/>', "no_report"),
-    ('<!DOCTYPE testsuite><testsuite tests="2" failures="0" errors="0" skipped="0"/>', "no_report"),
-    ('<testsuites/>', "no_report"),
-    ('<other tests="2"/>', "no_report"),
-    ('not xml', "no_report"),
-], ids=["green-testsuites", "green-testsuite", "report-error", "report-failure", "only-skipped", "no-tests", "counts-do-not-add-up", "count-not-a-number", "negative-count", "entity", "doctype", "no-testsuite", "other-root", "not-xml"])
-def test_the_counts_come_from_the_report_and_not_from_the_exit_code(env, repo, tmp_path, xml, reason_id):
-    """A runner that exits 0 and writes the given report: the record takes the counts from the report."""
-    runner = tmp_path / "fake_runner.py"
-    runner.write_text(FAKE_RUNNER, encoding="utf-8")
-    out = tmp_path / "statement.json"
-    code, report, stderr = run_evidence(env, repo, out, sys.executable, str(runner), xml)
-    assert report["reason_id"] == reason_id, (report, stderr)
-    assert code == (0 if reason_id == "green_run" else 1)
-    assert out.exists() is (reason_id == "green_run")
+def test_junit_counts_rejects_a_report_that_does_not_carry_the_call_name(tmp_path):
+    """Review F7, N7: a well-formed report whose testsuite name is not the one this call set is a replay."""
+    report = tmp_path / "report.xml"
+    report.write_text('<testsuite name="another-run" tests="1" failures="0" errors="0" skipped="0"/>',
+                      encoding="utf-8")
+    with pytest.raises(gate.StaleReport):
+        gate._junit_counts(str(report), "proofbundle-run-abc")
 
 
 # --- signed and declared -------------------------------------------------------------------------------

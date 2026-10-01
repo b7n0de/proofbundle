@@ -109,8 +109,11 @@ in `ci/README.md` (D22).
 the tree as it was, writes the unsigned statement a bundle signs: the tree digest of HEAD and a record
 of the run (the command, the program and its sha256, the exit code, the counts from the JUnit report,
 the digests before and after, the time and the platform). A dirty tree, a run that changes the tree or
-moves HEAD, a red run, a run without tests or a timeout gives no statement. It runs the repository's
-tests, so it runs the repository's code.
+moves HEAD, a red run, a run without tests or a timeout gives no statement. The command must be pytest,
+and the report must carry a name this call set, so a program that is not pytest and a replayed report
+give no statement. It runs the repository's tests, so it runs the repository's code: the gate checks the
+signed record, not whether the reported tests actually executed, and ignored files, external
+dependencies and temporary changes during the run are outside this binding.
 
 ```sh
 python3 <plugin folder>/hooks/proofbundle_gate.py run-evidence --repo . --out /tmp/run.json -- python -m pytest -q
@@ -118,8 +121,9 @@ proofbundle emit --payload-file /tmp/run.json --out .proofbundle/tests.bundle.js
 ```
 
 Signing is experimental and only for when you mean to vouch for the run. The gate checks every signed run
-record: a record that does not show a green run on the subject's tree is denied. The record shows what
-the run reported, not that the tests test anything (D23).
+record: a supplied run record must report a green run on the subject's tree, or it is denied. Subject-only
+evidence remains accepted and does not attest a test run. The record shows what the run reported, not that
+the tests test anything (D23).
 
 ### The tree digest
 

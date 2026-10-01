@@ -546,10 +546,16 @@ names no commit, no tree and no command, and signs passed true for a run that ex
 meets the threshold. The Inspect receipt names Inspect's 7-character short commit and drops the dirty
 state its own log records. Neither names the tree digest the gate checks.
 
-Chosen (smallest variant, 2026-09-30, for the owner's review):
+Chosen (smallest variant, 2026-09-30; the report binding tightened after the review's F6, F7, N7 on
+2026-10-01):
 - `proofbundle_gate.py run-evidence --repo DIR --out FILE [--timeout S] -- COMMAND...` runs a named
   pytest command in the repository, without a shell, with `-p no:cacheprovider --junitxml=<a file outside
   the repository>` added and PYTHONDONTWRITEBYTECODE=1 set.
+- The command must have a supported pytest form, and every testsuite in the report must carry the name set
+  for this call (a fresh random `junit_suite_name`). This rejects a program that is not pytest and an
+  unchanged report from another invocation. It does not authenticate the executable or the reported test
+  activity: code of the repository that runs under pytest (a conftest.py, a plugin) can still write the
+  report itself; see the limit below (review F6, F7, N7).
 - Before the run the working tree, as `git add -A` would stage it on top of HEAD through a temporary index,
   must have the tree digest of HEAD. After the run HEAD must be the same commit and the working tree must
   still have that digest. Files git ignores are not compared, and they can influence the run.
@@ -567,11 +573,14 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
 - The gate accepts a bundle payload with the keys `subject` and `run` beside the plain subject statement,
   and asks every run record the same questions, whoever made it: the schema and its exact keys, both digests
   equal to the subject, exit code 0, no failure, no error, at least one passed, counts that add up, and a
-  command. Otherwise it answers deny `not_bound` and names what the record shows. A signed record of a red
-  run never binds.
-- What the record proves is what the gate proves: who signed it and which tree it names. The counts are
-  what the run reported; the record does not show that the tests test anything, and a test can edit a file
-  and restore it before the run ends.
+  command. Otherwise it answers deny `not_bound` and names what the record shows. A signed record that
+  reports a red run never binds; the gate reads the recorded values, not the run. A supplied run record
+  must report a green run. Subject-only evidence remains accepted and does not attest a test run.
+- What the record proves is what the gate proves: who signed it and which tree it names. The runner records
+  the process exit code, the JUnit counts and matching repository digests before and after the run. The
+  gate checks the signed record, not whether the reported tests actually executed. Ignored files, external
+  dependencies and temporary changes during the run are outside this binding: a test can edit a file and
+  restore it before the run ends, and repository code under pytest can write the report.
 
 Options:
 - A. The tool above and the gate's check of a run record (chosen).

@@ -51,6 +51,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import shlex
 import shutil
 import signal
@@ -1383,8 +1384,26 @@ def _working_tree_digest(repo: str, deadline: float) -> str:
         return tree_digest(repo, output.decode().strip(), deadline)
 
 
-def _junit_counts(path: str) -> tuple[dict, str]:
-    """Counts from the JUnit XML report the run wrote, and the report's sha256."""
+_PYTHON_NAME = re.compile(r"python(?:3(?:\.\d+)*)?")
+
+
+def _pytest_command(command: list[str]) -> bool:
+    """Whether the command is a supported pytest form: an executable named pytest or py.test, or a Python
+    interpreter with `-m pytest`. This keeps out a program that is not pytest; it does not authenticate the
+    executable (review F7, N7)."""
+    name = os.path.basename(command[0])
+    if name in ("pytest", "py.test"):
+        return True
+    return _PYTHON_NAME.fullmatch(name) is not None and command[1:3] == ["-m", "pytest"]
+
+
+class StaleReport(GateError):
+    """The JUnit report does not carry the name this run set, so it is not the report this call wrote."""
+
+
+def _junit_counts(path: str, suite_name: str) -> tuple[dict, str]:
+    """Counts from the JUnit XML report the run wrote, and the report's sha256. Every testsuite must carry
+    the name this call set, so a report left from another invocation is rejected (review F7, N7)."""
     import xml.etree.ElementTree as ElementTree  # only this subcommand reads XML
 
     try:
@@ -1403,6 +1422,9 @@ def _junit_counts(path: str) -> tuple[dict, str]:
     suites = [root] if root.tag == "testsuite" else root.findall("testsuite") if root.tag == "testsuites" else []
     if not suites:
         raise GateError("the report has no testsuite")
+    if any(suite.get("name") != suite_name for suite in suites):
+        raise StaleReport("the report was not written by this run (a testsuite does not carry the name this "
+                          "call set); a replayed or stale report does not count")
     totals = dict.fromkeys(("tests", "failures", "errors", "skipped"), 0)
     for suite in suites:
         for name in totals:
@@ -1465,10 +1487,15 @@ def run_evidence(directory: str, out: str, command: list[str],
         program = shutil.which(command[0])
         if program is None:
             return refuse("no_program", f"{command[0]!r} is not an executable file on PATH")
+        if not _pytest_command(command):
+            return refuse("not_pytest", f"{command[0]!r} is not a pytest command; run-evidence runs only pytest "
+                                        "(an executable named pytest, or a Python interpreter with -m pytest)")
         program = os.path.abspath(program)
         with tempfile.TemporaryDirectory(prefix="proofbundle-run-") as scratch:
             junit = os.path.join(scratch, "report.xml")
-            argv = [program, *command[1:], "-p", "no:cacheprovider", f"--junitxml={junit}"]
+            suite_name = "proofbundle-run-" + secrets.token_hex(16)
+            argv = [program, *command[1:], "-p", "no:cacheprovider", f"--junitxml={junit}",
+                    "-o", f"junit_suite_name={suite_name}"]
             started = _now()
             try:
                 proc = subprocess.Popen(argv, cwd=repo, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
@@ -1494,7 +1521,9 @@ def run_evidence(directory: str, out: str, command: list[str],
                 return refuse("tree_changed", f"the run changed the working tree of {repo}, so it did not run on "
                                               f"the tree it would name")
             try:
-                counts, report_sha256 = _junit_counts(junit)
+                counts, report_sha256 = _junit_counts(junit, suite_name)
+            except StaleReport as exc:
+                return refuse("stale_report", str(exc))
             except GateError as exc:
                 return refuse("no_report", str(exc))
         import platform  # only this subcommand names the platform
