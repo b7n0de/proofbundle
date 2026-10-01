@@ -343,17 +343,20 @@ def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
 
 
 def _bauen(gelesen: dict, wurzel: Any) -> Any:
-    """The copy `_stand` returns: a private plain copy of every container the reading read, built only from what it
-    read, so nothing the caller does afterwards to a container the reading copied reaches it, and no object of the
-    caller's classes is made. A value the reading hands on as it is (an object of the caller's own class, an item of a
-    frozenset, and the objects named at the end) is the caller's object in the copy too, and a change the caller makes
-    to it later reaches the copy. The classes of this package are not copied: an object of one of its dataclasses becomes a new
-    object of that same class, so code that rebinds an attribute of such a class in the process (a property such as
-    `VerificationResult.ok`) changes what the copy answers, as it can change any verdict; such code is outside the
-    reading (Codex review of pull request 311, thread 4153247939, outside the threat model of 6.2.0). A subclass
-    of dict, list, tuple, set, bytearray, deque or array becomes the base type holding what it stores (a deque with its
-    ``maxlen``, an array with its type code), as `_plain_for_jcs` copies a subclass; an OrderedDict becomes a dict in
-    its own order; a view of a dict becomes the same view of the dict's copy; an object of a dataclass of this package
+    """The copy `_stand` returns, built only from what the reading read: a private plain copy of each container the
+    reading read, except the values that stay the caller's objects, and no object of the caller's classes is made.
+    Where the copy holds a private copy of a container, nothing the caller does afterwards to that container reaches
+    it. Where a value stays the caller's object, a change the caller makes to it later reaches the copy; among such
+    values are an object of the caller's own class, a frozenset and its items, an iterator or a generator, the values
+    named at the end of this docstring with everything they hold, and the other values RESTRISIKO_620.md names among
+    the limits of the reading at the call. The classes of this package are not copied: an object of one of its
+    dataclasses becomes a new object of that same class, so code that rebinds an attribute of such a class in the
+    process (a property such as `VerificationResult.ok`) changes what the copy answers, as it can change any verdict;
+    such code is outside the reading (Codex review of pull request 311, thread 4153247939, outside the threat model of
+    6.2.0). A subclass of dict, list, tuple, set, bytearray, deque or array becomes the base type holding what it
+    stores (a deque with its ``maxlen``, an array with its type code), as `_plain_for_jcs` copies a subclass; an
+    OrderedDict becomes a dict in its own order, unless it is one RESTRISIKO_620.md names as staying the caller's
+    object; a view of a dict becomes the same view of the dict's copy; an object of a dataclass of this package
     becomes a new object of that class holding copies of what its ``__dict__`` stores, made without its ``__init__``. A
     key is taken as `_schluessel_von` gives it. A dict or set whose key would be the caller's code, or whose keys meet
     as one in the copy (a ``str`` subclass beside the ``str`` it spells), an object of this package with an attribute

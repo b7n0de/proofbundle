@@ -923,10 +923,12 @@ file; these lines are its other findings.
   80 pairs of answers of the same contents but another class (the 72 pairs of the package's dataclasses and 8 kinds)
   were judged the same. At 6f485214 the comparison is in place: 0 of 1349, and none of the 80 judged the same. No verdict is affected. Workaround: none is needed by a caller; a case that falls
   without the comparison follows after the tag.
-- **R620-F16-1, P3. "Every tuple is copied as a plain tuple" holds for a tuple the reading reaches as a value** (text
-  lens on 2f858cce and cf5e1799, F-2): a tuple subclass used as a key of a dict or as an item of a set is not copied,
-  because that dict or set stays the caller's object by the rule for keys that `canonical._bauen` names. The sentence
-  stands in the docstring of `canonical._gleich_gelesen`, in CHANGELOG.md for 6f485214 and in the head of
+- **R620-F16-1, P3. "Every tuple is copied as a plain tuple" holds for a tuple the reading copies, not for one that
+  stays the caller's object** (text lens on 2f858cce and cf5e1799, F-2, and on abe3a915): a tuple subclass is not
+  copied where it is a key of a dict, an item of a set or of a frozenset, or held by a value that stays the caller's
+  object (a dict with a key of the caller's class, an OrderedDict whose own order cannot be read, an object of this
+  package with an attribute name that is no exact `str`), as `canonical._bauen` names them. The sentence stands in the
+  docstring of `canonical._gleich_gelesen`, in CHANGELOG.md for 6f485214 and in the head of
   `test_the_second_collect_sees_a_change_of_class_of_each_kind`. No verdict is affected. Workaround: none is needed by a
   caller; the sentences are narrowed after the tag.
 - **R620-F16-2, P3. The tuple case of the class generator holds the plain copy for a tuple in a list, not for a tuple
