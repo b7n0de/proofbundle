@@ -2628,11 +2628,13 @@ class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
         """Codex review of pull request 311 (thread 4151141239, P1): the second collect did not compare a container's
         type, and a dataclass of this package is copied as the type the first collect read. Over every kind `_lies`
         reads, taken from its own source: a kind whose class the caller can assign is read again when its class changes
-        and nothing it holds does. For a view and a memoryview the interpreter refuses the assignment, and so it does for
-        the tuple subclass here, which has an instance dict; one without (a namedtuple) can be given another such class,
-        and the second collect leaves a tuple's class alone because every tuple is copied as a plain tuple. And over
-        every pair of this package's dataclasses whose layouts let one become the other, the frozen ones assigned past
-        their own `__setattr__`."""
+        and nothing it holds does. For a view, a mapping proxy and a memoryview the interpreter refuses the assignment. A
+        tuple subclass takes the class of another tuple subclass where the interpreter allows it, one without an instance
+        dict on 3.10 and 3.11, and one with an instance dict on 3.12 but not on 3.10 and 3.11 (measured, the second in
+        hermetic-cleanroom at 238b23b7), and the second collect leaves a tuple's class alone because every tuple is
+        copied as a plain tuple; the copy is asserted after the change, made or refused. And over every pair of this
+        package's dataclasses whose layouts let one become the other, the frozen ones assigned past their own
+        `__setattr__`."""
         import array
         import importlib
         import inspect
@@ -2665,14 +2667,30 @@ class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
                 eins, zwei = type("Eins", (basis,), {}), type("Zwei", (basis,), {})
                 self.assertFalse(gesehen(mache(eins), zwei), f"a change of class of a {name} was not seen")
         d = {"a": [1]}
-        fest = {"tuple": (type("Eins", (tuple,), {})((1,)), type("Zwei", (tuple,), {})),
-                "view": (d.keys(), type(d.values())), "proxy": (types.MappingProxyType(d), dict),
+        fest = {"view": (d.keys(), type(d.values())), "proxy": (types.MappingProxyType(d), dict),
                 "memoryview": (memoryview(bytearray(b"ab")), bytearray)}
         for name, (wert, ziel) in fest.items():
             with self.subTest(kind=name):
                 gedeckt.add(canonical._lies(wert)[0])
                 with self.assertRaises(TypeError):
                     object.__setattr__(wert, "__class__", ziel)
+        # Whether a tuple subclass takes another one's class depends on the interpreter (with an instance dict 3.12
+        # allows it, 3.10 and 3.11 refuse it), so the case asserts what holds either way: the copy is a plain tuple
+        # holding a private copy of what the first collect read.
+        for name, raum in (("tuple", {}), ("tuple without an instance dict", {"__slots__": ()})):
+            with self.subTest(kind=name):
+                wert = type("Eins", (tuple,), dict(raum))(([1],))
+                wurzel = [wert]
+                gelesen = canonical._lesen_einmal(wurzel)
+                gedeckt.add(canonical._lies(wert)[0])
+                try:
+                    object.__setattr__(wert, "__class__", type("Zwei", (tuple,), dict(raum)))
+                except TypeError:
+                    pass
+                kopie = canonical._bauen(gelesen, wurzel)[0]
+                self.assertIs(type(kopie), tuple, f"the class of a {name} reached the copy")
+                self.assertEqual(kopie, ([1],))
+                self.assertIsNot(kopie[0], wert[0], f"the copy of a {name} shares a list with the caller's value")
 
         for info in pkgutil.walk_packages(proofbundle.__path__, "proofbundle."):
             if info.name.rsplit(".", 1)[-1] == "__main__":
