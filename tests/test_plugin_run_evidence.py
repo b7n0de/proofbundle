@@ -389,6 +389,30 @@ def test_a_signed_green_run_passes_the_gate_and_the_ci_mode(env, repo, tmp_path)
     assert json.loads(proc.stdout)["outcome"] == "verified"
 
 
+def test_the_pass_text_distinguishes_a_run_record_from_subject_only_evidence(env, repo, tmp_path):
+    """F8: the pass message names whether the verified evidence carries a run record, and that a run record
+    attests only what it reports, not that the tests ran. A subject-only pass says it attests no run. At
+    cc2604dd the pass carried neither sentence, so a text test of this was red there."""
+    out = tmp_path / "statement.json"
+    assert run_evidence(env, repo, out)[0] == 0
+    counts = json.loads(out.read_text())["run"]["counts"]
+    digest = json.loads(out.read_text())["subject"]["digest"]
+    _sign_and_declare(env, repo, out, tmp_path)
+    with_record = _evaluate(repo, env)
+    assert with_record.reason_id == "verified", with_record.text()
+    assert (f"The signed run record reports {counts['passed']} of {counts['tests']} tests passed with exit 0; "
+            "the gate checked the record, not the run.") in with_record.text()
+    # The .proofbundle/ folder is outside the tree digest, so a subject-only statement over the same digest
+    # still binds to this commit after the re-declaration.
+    subject_only = tmp_path / "subject-only.json"
+    subject_only.write_bytes(gate.subject_statement(digest))
+    _sign_and_declare(env, repo, subject_only, tmp_path)
+    plain = _evaluate(repo, env)
+    assert plain.reason_id == "verified", plain.text()
+    assert " No run record: this evidence does not attest a test run." in plain.text()
+    assert "run record reports" not in plain.text()
+
+
 def test_a_signed_run_for_an_older_tree_is_denied(env, repo, tmp_path):
     out = tmp_path / "statement.json"
     assert run_evidence(env, repo, out)[0] == 0

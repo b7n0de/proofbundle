@@ -920,9 +920,15 @@ def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tai
                        failed="; ".join(why for _, _, why in unbound),
                        next_step="sign a statement that names the tree digest of the pushed commit and commit it",
                        digests=digests, repo=repo, head=commit)
+    counts = next((c for item, content in zip(items, contents)
+                   if (c := signed_run_counts(item["kind"], content)) is not None), None)
+    run_note = (" No run record: this evidence does not attest a test run." if counts is None else
+                f" The signed run record reports {counts['passed']} of {counts['tests']} tests passed with exit 0; "
+                "the gate checked the record, not the run.")
     return Verdict("pass", f"proofbundle gate: {len(items)} of {len(items)} declared items verified at {where} "
                            f"for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves who signed the "
-                           f"recorded bytes and which tree they name, not that the recorded values are true.{pass_tail}",
+                           f"recorded bytes and which tree they name, not that the recorded values are "
+                           f"true.{run_note}{pass_tail}",
                    "verified", digests=tuple(digests), repo=repo, head=commit)
 
 
@@ -1361,6 +1367,22 @@ def signed_run_problem(kind: str, content: bytes) -> str | None:
         return None
     subject = statement.get("subject")
     return run_record_problem(statement["run"], subject.get("digest") if isinstance(subject, dict) else None)
+
+
+def signed_run_counts(kind: str, content: bytes):
+    """The counts of a bundle's signed run record, or None when its payload carries none. Meaningful only
+    once the item has verified and run_record_problem returned None, so the counts describe a green run."""
+    if kind != "bundle":
+        return None
+    try:
+        document = json.loads(content.decode("utf-8"))
+        statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):
+        return None
+    if not isinstance(statement, dict) or not isinstance(statement.get("run"), dict):
+        return None
+    counts = statement["run"].get("counts")
+    return counts if isinstance(counts, dict) and {"passed", "tests"} <= set(counts) else None
 
 
 def _working_tree_digest(repo: str, deadline: float) -> str:
