@@ -24,8 +24,8 @@ The tag chain of 6.2.0 files these records, each in its own commit, in this orde
    `--out` (the tool's default name carries no `v`). It is produced from a fresh checkout of the
    commit before it by `scripts/pre_tag_receipt.py --version 6.2.0`, which runs the audit command
    itself and records the command and its exit status. That was the register commit at first; since
-   the closing round at 99f76ceb ended FIX_FIRST, it is the commit after the fix that binds the
-   notes to it. It binds the tree
+   the closing rounds from 99f76ceb on ended FIX_FIRST, it is the commit after the latest fix that
+   binds the notes to it. It binds the tree
    without itself and without the mutable evidence paths, so its arrival changes no digest another
    record of the chain binds.
 3. The closing round runs at the receipt commit. Its verdict is not written into this directory:
