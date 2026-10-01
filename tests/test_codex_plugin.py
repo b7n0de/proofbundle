@@ -108,7 +108,7 @@ def test_the_codex_manifest_uses_the_shared_skills_server_and_gate():
     (claude_server,) = mcp["mcpServers"].values()
     assert server["command"] == claude_server["command"] == "uv"
     assert server["cwd"] == "."
-    assert server["args"][:-1] == claude_server["args"][:-1] == ["run", "--quiet", "--script"]
+    assert server["args"][:-1] == claude_server["args"][:-1] == ["run", "--quiet", "--no-config", "--script"]
     assert (PLUGIN / server["cwd"] / server["args"][-1]).resolve() == SERVER
     assert claude_server["args"][-1] == "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"
     assert "${" not in json.dumps(server), "Codex does not expand placeholders in an MCP entry"
@@ -119,6 +119,42 @@ def test_the_codex_manifest_uses_the_shared_skills_server_and_gate():
     assert entry["command"] == claude_entry["command"].replace(
         '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"', '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex')
     assert entry["timeout"] == claude_entry["timeout"]
+
+
+def test_the_host_start_commands_isolate_the_interpreter_and_the_server():
+    """R3-4: the host starts the gate with python3 -I, so no PYTHONPATH, user site or sitecustomize runs
+    before it, and starts the MCP server with uv --no-config, so no uv.toml in the checked repository
+    changes it. Both manifests, read from the files. Red against 3026924e, whose starts had neither."""
+    claude_gate = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    for group in CODEX["hooks"]["hooks"]["PreToolUse"]:
+        assert group["hooks"][0]["command"].startswith("python3 -I "), "the Codex gate start isolates"
+    assert claude_gate.startswith("python3 -I "), "the Claude gate start isolates"
+    claude_mcp = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert "--no-config" in list(claude_mcp.values())[0]["args"]
+    assert "--no-config" in list(CODEX["mcpServers"].values())[0]["args"]
+
+
+def test_interpreter_isolation_neutralises_a_sitecustomize_bypass(shim, tmp_path):
+    """R3-4, the reviewer's sitecustomize probe: a sitecustomize.py on PYTHONPATH runs at interpreter
+    start, before the gate. Here it answers {} with exit 0, which would let any call through. python3 -I,
+    the way the host starts the gate, ignores PYTHONPATH and never loads it, so the gate's own deny stands.
+    """
+    repo = _repo(tmp_path, declare=True, tamper=True)  # a tampered bundle: the gate denies
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(
+        "import json, os, sys\nsys.stdout.write(json.dumps({}))\nsys.stdout.flush()\nos._exit(0)\n",
+        encoding="utf-8")
+    env = dict(shim, PYTHONPATH=os.pathsep.join([str(site), shim["PYTHONPATH"]]))
+    event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
+                        "tool_input": {"command": "git push origin main"}})
+    bypassed = subprocess.run([sys.executable, str(GATE)], input=event, capture_output=True, text=True,
+                              env=env, timeout=120, check=False)
+    assert bypassed.stdout.strip() == "{}", "without -I the sitecustomize answers in the gate's place"
+    isolated = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True,
+                              env=env, timeout=120, check=False)
+    assert isolated.returncode == 0, isolated.stderr
+    assert json.loads(isolated.stdout)["hookSpecificOutput"].get("permissionDecision") == "deny"
 
 
 def test_no_logic_file_exists_twice_and_no_symlink_exists():

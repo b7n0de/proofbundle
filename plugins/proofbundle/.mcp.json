@@ -2,7 +2,7 @@
   "mcpServers": {
     "proofbundle": {
       "command": "uv",
-      "args": ["run", "--quiet", "--script", "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"]
+      "args": ["run", "--quiet", "--no-config", "--script", "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"]
     }
   }
 }

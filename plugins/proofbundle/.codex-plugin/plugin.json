@@ -17,6 +17,7 @@
       "args": [
         "run",
         "--quiet",
+        "--no-config",
         "--script",
         "server/proofbundle_mcp.py"
       ],
@@ -34,7 +35,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
               "timeout": 120
             }
           ]
@@ -44,7 +45,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --host codex || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
               "timeout": 120
             }
           ]

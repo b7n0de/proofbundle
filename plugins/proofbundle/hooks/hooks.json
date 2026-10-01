@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
             "timeout": 120
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
             "timeout": 120
           }
         ]
