@@ -344,7 +344,11 @@ def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
 
 def _bauen(gelesen: dict, wurzel: Any) -> Any:
     """The copy `_stand` returns: a private plain copy of every container the reading read, built only from what it
-    read, so nothing the caller does afterwards reaches it, and no object of the caller's classes is made. A subclass
+    read, so nothing the caller does afterwards to the value it passed reaches it, and no object of the caller's
+    classes is made. The classes of this package are not copied: an object of one of its dataclasses becomes a new
+    object of that same class, so code that rebinds an attribute of such a class in the process (a property such as
+    `VerificationResult.ok`) changes what the copy answers, as it can change any verdict; such code is outside the
+    reading (Codex review of pull request 311, thread 4153247939, outside the threat model of 6.2.0). A subclass
     of dict, list, tuple, set, bytearray, deque or array becomes the base type holding what it stores (a deque with its
     ``maxlen``, an array with its type code), as `_plain_for_jcs` copies a subclass; an OrderedDict becomes a dict in
     its own order; a view of a dict becomes the same view of the dict's copy; an object of a dataclass of this package
