@@ -82,9 +82,22 @@ from each pushed source relative to that target's locally known remote-tracking 
 set of updates, a target's comparison state, or the required history cannot be resolved, the push is NOT
 MEASURED. The remote itself is not read.
 
-- The repository is the hook's working directory, changed by a literal `cd <dir>`, `pushd <dir>` or
-  `git -C <dir>` in the same command. A directory the gate cannot resolve literally (a variable, `popd`,
-  `--git-dir`, `--work-tree`) is NOT MEASURED.
+- The gate judges the repository that the working directory, a literal `cd`, `pushd` or `popd` outside a
+  subshell, and `git -C <dir>` give; any other determination of the repository, work tree, objects or
+  configuration in the command is NOT MEASURED (review Nachtrag 11). A directory the gate cannot resolve
+  literally (a variable, `popd`, `--git-dir`, `--work-tree`) is NOT MEASURED, and so is a `cd` whose effect
+  the gate cannot model: inside a subshell `( ... )` a `cd` does not persist past the closing parenthesis,
+  a `cd` in a pipeline or background component does not persist, and a bare `cd name` under a set `CDPATH`
+  (measured to redirect it) is unresolved. A command-level assignment, by prefix, by `export`,
+  `declare -x` or `typeset -x`, or through `env`/`sudo`, of a variable that chooses the repository, work
+  tree or objects (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES`, and any other non-neutral `GIT_*`) makes the directory NOT MEASURED;
+  an `env`/`sudo` option the gate does not model (`env -C`, `sudo -D`, measured) does the same. Only a
+  narrow list of `GIT_*` names is target-neutral (`GIT_TERMINAL_PROMPT`, `GIT_PAGER`, `GIT_EDITOR`,
+  `GIT_TRACE*`). A command-level assignment of the configuration (`GIT_CONFIG_*`, `GIT_CONFIG_GLOBAL`,
+  `GIT_CONFIG_SYSTEM`, `HOME`, `XDG_CONFIG_HOME`) is NOT MEASURED, because the gate's reads inherit only the
+  host process's own environment, never a configuration assigned in the command (review Nachtrag 11,
+  Befund 2). No protection beyond what is measured here is claimed.
 - A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
   the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
   remote with a local remote-tracking ref that the remote's fetch refspecs map that branch to and nothing

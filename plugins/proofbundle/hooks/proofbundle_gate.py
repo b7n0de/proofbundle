@@ -143,10 +143,12 @@ _PUSH_OPTS_NEUTRAL_VALUE = frozenset({"-o", "--push-option", "--receive-pack", "
 #: Target-neutral options accepted in the inline `--opt=value` form.
 _PUSH_OPTS_NEUTRAL_INLINE = frozenset({"--push-option", "--receive-pack", "--exec", "--force-with-lease",
                                        "--signed"})
-#: Prepended to the resolved push arguments when a `git -c` or `--config-env` option set a configuration key
-#: that can change the push target and that the gate's separate reads never see; resolve_push_targets then
-#: reports NOT MEASURED (review R3-1). A GIT_CONFIG_* injection in the environment needs no sentinel: the
-#: gate's reads inherit the same environment, so git applies it to them as it would to the push.
+#: Prepended to the resolved push arguments when the configuration is set in the command and the gate's
+#: separate reads never see it, so resolve_push_targets reports NOT MEASURED: a `git -c` or `--config-env`
+#: option with a target key (review R3-1), or a command-level assignment of GIT_CONFIG_*, GIT_CONFIG_GLOBAL,
+#: GIT_CONFIG_SYSTEM, HOME or XDG_CONFIG_HOME, by prefix, export or env (review Nachtrag 11, Befund 2). Only
+#: the host process's own environment is inherited by the gate's reads; a configuration assigned in the
+#: command reaches only the push, never those reads, so it cannot be resolved.
 _GIT_CONFIG_SENTINEL = "\x00config-injected"
 #: The last component of a config key, by section, for keys that can change a push's endpoint, target refs
 #: or range. url.<base>.insteadof is included because, injected only into the push, it would rewrite the
@@ -227,6 +229,91 @@ def _gh_call(words: list[str]) -> str | None:
     return None
 
 
+#: Environment names set in the command that choose the repository, work tree or objects of a git call;
+#: set as a prefix assignment, an export, or through env/sudo, they make the directory UNKNOWN, so the gate
+#: judges no repository rather than the wrong one (review Nachtrag 11, Befund 1). CDPATH, measured to
+#: redirect a bare `cd name`, is handled where a cd is read, not here, so a push with no cd still resolves.
+_ENV_DIR_VARS = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                           "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_FILE", "GIT_NAMESPACE"})
+#: Environment names set in the command that choose the git configuration; set in the command they make the
+#: push NOT MEASURED (review Nachtrag 11, Befund 2). Only the host process's own environment is inherited by
+#: the gate's reads, never a configuration assigned in the command (D3).
+_ENV_CONFIG_VARS = frozenset({"HOME", "XDG_CONFIG_HOME"})
+#: GIT_* names the gate reads as target-neutral; every other GIT_ name is unresolved, like a push option.
+_ENV_NEUTRAL = frozenset({"GIT_TERMINAL_PROMPT", "GIT_PAGER", "GIT_EDITOR", "GIT_ASKPASS"})
+#: Commands that run the rest in a chosen directory or environment; the gate does not model their options,
+#: so any option on them is unresolved (sudo -D/--chdir/-R, env -C/--chdir/-S/-i, measured in Nachtrag 11).
+_DIR_WRAPPERS = frozenset({"env", "sudo"})
+
+
+def _subshell_op(op: str) -> bool:
+    """Whether an operator token starts a subshell: a pipe or a background `&`, where a `cd` does not
+    persist into the next command. The sequential `&&`, `||` and `;` run in the same shell and do not."""
+    return "|" in op.replace("||", "") or "&" in op.replace("&&", "")
+
+
+def _env_var_class(name: str) -> str:
+    """How an environment assignment of `name` bears on a gated call: 'config' (the git configuration),
+    'dir' (the repository, work tree or objects), or 'neutral' (neither)."""
+    if name in _ENV_CONFIG_VARS or name.startswith("GIT_CONFIG"):
+        return "config"
+    if name in _ENV_DIR_VARS:
+        return "dir"
+    if name in _ENV_NEUTRAL or name.startswith("GIT_TRACE"):
+        return "neutral"
+    return "dir" if name.startswith("GIT_") else "neutral"
+
+
+def _prefix_contamination(words: list[str]) -> tuple[bool, bool, str]:
+    """For a segment's words, whether a prefix assignment or an env/sudo wrapper sets, before the gated
+    call, the repository/work-tree/objects ('dir' -> UNKNOWN) or the configuration ('config' -> NOT
+    MEASURED), and whether a CDPATH assignment is in effect for a later bare `cd`. Returns
+    (dir_unknown, config_injected, cdpath_set)."""
+    dir_unknown = config_injected = cdpath_set = False
+    i = 0
+    while i < len(words) and _ASSIGNMENT.match(words[i]):
+        name = words[i].split("=", 1)[0]
+        cls = _env_var_class(name)
+        dir_unknown |= cls == "dir"
+        config_injected |= cls == "config"
+        cdpath_set |= name == "CDPATH"
+        i += 1
+    if i < len(words) and os.path.basename(words[i]) in _DIR_WRAPPERS:
+        for token in words[i + 1:]:
+            base = os.path.basename(token)
+            if base in ("git", "git-push", "gh") or token == "--":
+                break
+            if token.startswith("-"):
+                dir_unknown = True  # an option on env/sudo the gate does not model (e.g. env -C, sudo -D)
+                break
+            if _ASSIGNMENT.match(token):  # env VAR=val
+                cls = _env_var_class(token.split("=", 1)[0])
+                dir_unknown |= cls == "dir"
+                config_injected |= cls == "config"
+                cdpath_set |= token.split("=", 1)[0] == "CDPATH"
+                continue
+            break  # the wrapped command
+    return dir_unknown, config_injected, cdpath_set
+
+
+def _export_classes(words: list[str]) -> set[str]:
+    """The classes ('dir', 'config') a segment exports so later commands inherit them: `export`,
+    `declare -x` or `typeset -x` of a repository/work-tree/objects or configuration variable."""
+    head = [w for w in words if not _ASSIGNMENT.match(w)]
+    if not head or os.path.basename(head[0]) not in ("export", "declare", "typeset"):
+        return set()
+    if os.path.basename(head[0]) in ("declare", "typeset") and "-x" not in words:
+        return set()
+    classes = set()
+    for token in words[words.index(head[0]) + 1:]:
+        if token.startswith("-") or os.path.basename(token) in ("export", "declare", "typeset"):
+            continue
+        cls = _env_var_class(token.split("=", 1)[0])
+        if cls in ("dir", "config"):
+            classes.add(cls)
+    return classes
+
+
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> list[tuple[str, str | None, list[str] | None]]:
     """Every gated call in a shell command: its name, the directory it acts in (UNKNOWN when not literal),
     and for `git push` the words after `push` (its remote and refspecs), None for the other calls.
@@ -239,32 +326,56 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> li
     if tokens is None or depth > MAX_NESTING:
         return [("unparsed command", UNKNOWN, None)] if _FALLBACK.search(command) else []
     calls: list[tuple[str, str | None, list[str] | None]] = []
-    segments: list[list[str]] = [[]]
+    segments: list[tuple[str, list[str]]] = []  # (the operator token before the segment, its words)
+    op, cur = "", []
     for token in tokens:
         if _OPERATOR.match(token):
-            segments.append([])
+            segments.append((op, cur))
+            op, cur = token, []
         else:
-            segments[-1].append(token)
-    for words in segments:
+            cur.append(token)
+    segments.append((op, cur))
+    dir_stack: list = []
+    cdpath = exported_dir = exported_config = False
+    for idx, (sep, words) in enumerate(segments):
+        for ch in sep:  # a subshell ( ... ) saves and restores the directory, so a cd in it does not leak
+            if ch == "(":
+                dir_stack.append((directory, cdpath))
+            elif ch == ")":
+                directory, cdpath = dir_stack.pop() if dir_stack else (UNKNOWN, cdpath)
+        subshell = _subshell_op(sep) or (idx + 1 < len(segments) and _subshell_op(segments[idx + 1][0]))
+        prefix_dir, prefix_config, cdpath_now = _prefix_contamination(words)
+        exported = _export_classes(words)
+        exported_dir = exported_dir or "dir" in exported
+        exported_config = exported_config or "config" in exported
+        cdpath = cdpath or cdpath_now
         head = [w for w in words if not _ASSIGNMENT.match(w)][:2]
         if head and head[0] in ("cd", "pushd"):
-            directory = _join(directory, head[1]) if len(head) > 1 else _join(directory, "~")
+            target = head[1] if len(head) > 1 else "~"
+            bare = not target.startswith(("/", "./", "../", "~"))
+            directory = UNKNOWN if (subshell or (cdpath and bare)) else _join(directory, target)
         elif head and head[0] == "popd":
             directory = UNKNOWN
+        eff_dir = UNKNOWN if (prefix_dir or exported_dir) else directory
+        cfg = prefix_config or exported_config
         for i, word in enumerate(words):
             name = os.path.basename(word)
             if name == "git":
-                found = _git_call(words[i + 1:], directory)
+                found = _git_call(words[i + 1:], eff_dir)
                 if found:
-                    calls.append(found)
+                    gname, gdir, gdetail = found
+                    if cfg and gname == "git push":
+                        gdetail = [_GIT_CONFIG_SENTINEL] + (gdetail or [])
+                    calls.append((gname, gdir, gdetail))
             elif name == "git-push":
-                calls.append(("git push", directory, words[i + 1:]))
+                detail = words[i + 1:]
+                calls.append(("git push", eff_dir, [_GIT_CONFIG_SENTINEL] + detail if cfg else detail))
             elif name == "gh":
                 found_gh = _gh_call(words[i + 1:])
                 if found_gh:
-                    calls.append((found_gh, directory, None))
+                    calls.append((found_gh, eff_dir, [_GIT_CONFIG_SENTINEL] if cfg else None))
             if any(c in word for c in " \t;&|"):
-                calls.extend(gated_calls(word, directory, depth + 1))
+                calls.extend(gated_calls(word, eff_dir, depth + 1))
     return calls
 
 
@@ -1278,7 +1389,7 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
     if name == "git push":
         return evaluate_push(directory, detail, deadline)
     if name.startswith("gh "):
-        return evaluate_push(directory, None, deadline)
+        return evaluate_push(directory, detail, deadline)
     return evaluate_repository(directory, deadline)
 
 

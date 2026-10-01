@@ -956,6 +956,83 @@ def _resolve(repo, *args):
     return gate.resolve_push_targets(str(repo), list(args), gate.time.monotonic() + 30)
 
 
+def _repo_with_remote(tmp_path, name, *, stale):
+    """A repository with a bare remote and a tracking ref for main, one commit ahead of the remote. With
+    stale=True its declaration names a subject no tree matches, so a push to it denies; otherwise it
+    declares nothing and a push is inactive."""
+    path = tmp_path / name
+    path.mkdir()
+    _git(path, "init", "-q", "-b", "main")
+    _write(path / "f.txt", name + "\n")
+    if stale:
+        _write(path / BUNDLE, "{}")
+        _write(path / POLICY, "{}")
+        _declare(path, {"kind": "bundle", "path": BUNDLE, "policy": POLICY, "subject": _subject("0" * 64)})
+    _commit(path)
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / f"{name}.git"))
+    _git(path, "remote", "add", "origin", str(tmp_path / f"{name}.git"))
+    _git(path, "push", "-q", "origin", "HEAD:refs/heads/main")
+    _write(path / "f.txt", name + " more\n")
+    _commit(path, "more")  # one commit ahead, so there is something to push
+    return path
+
+
+def _remote_head(tmp_path, name):
+    out = subprocess.run(["git", "--git-dir", str(tmp_path / f"{name}.git"), "rev-parse", "--verify",
+                          "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False)
+    return out.stdout.strip()
+
+
+@pytest.mark.parametrize("command, cwd, expect", [
+    ("(cd ../good && true) ; git push origin main", "bad", "deny"),   # cd confined to the subshell -> bad
+    ("GIT_DIR=../bad/.git git push origin main", "good", "ask"),      # prefix GIT_DIR -> NOT MEASURED
+    ("env -C ../bad git push origin main", "good", "ask"),            # env -C -> NOT MEASURED
+    ("export GIT_DIR=../bad/.git ; git push origin main", "good", "ask"),  # exported GIT_DIR -> NOT MEASURED
+])
+def test_a_command_that_moves_the_repository_is_resolved_or_not_measured(shim, tmp_path, command, cwd, expect):
+    """Befund 1: a cd in a subshell, a GIT_DIR prefix, env -C and an exported GIT_DIR each make the push act
+    on `bad` while the gate, at 78132534, judged `good` or the cwd as inactive. The gate now resolves the
+    subshell correctly to bad (deny) and marks the others NOT MEASURED. Executing the command shows the
+    push really reaches bad's remote. Red against 78132534, where every form was inactive."""
+    bad = _repo_with_remote(tmp_path, "bad", stale=True)
+    _repo_with_remote(tmp_path, "good", stale=False)
+    answer = run_gate(shim, tmp_path / cwd, command)
+    assert decision(answer) == expect, (command, reason(answer))
+    if expect == "ask":
+        assert reason(answer).startswith("NOT MEASURED: ") and "cannot tell which repository" in reason(answer)
+    subprocess.run(command, shell=True, cwd=str(tmp_path / cwd), check=True, capture_output=True,
+                   env=dict(os.environ, **{k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")},
+                            **{k: "t@e" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")}))
+    bad_head = subprocess.run(["git", "-C", str(bad), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+    assert _remote_head(tmp_path, "bad") == bad_head, "the push really acted on bad, not on what the gate judged"
+
+
+def test_an_unmodelled_git_env_var_is_not_measured_but_a_neutral_one_resolves(shim, tmp_path):
+    """Befund 1: only a narrow list of GIT_* names is target-neutral; every other is unresolved, like a
+    push option. GIT_TERMINAL_PROMPT=0 still resolves; GIT_OBJECT_DIRECTORY does not."""
+    _repo_with_remote(tmp_path, "r", stale=False)
+    assert decision(run_gate(shim, tmp_path / "r", "GIT_TERMINAL_PROMPT=0 git push origin main")) == "inactive"
+    answer = run_gate(shim, tmp_path / "r", "GIT_OBJECT_DIRECTORY=/tmp/x git push origin main")
+    assert decision(answer) == "ask" and "cannot tell which repository" in reason(answer)
+
+
+@pytest.mark.parametrize("command", [
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.https://e.invalid/.pushInsteadOf GIT_CONFIG_VALUE_0=x git push origin main",
+    "HOME=/tmp/elsewhere git push origin main",
+    "GIT_CONFIG_GLOBAL=/tmp/x.gitconfig git push origin main",
+    "env HOME=/tmp/elsewhere git push origin main",
+])
+def test_config_assigned_in_the_command_is_not_measured(shim, tmp_path, command):
+    """Befund 2: a configuration assigned in the command (GIT_CONFIG_*, HOME, XDG_CONFIG_HOME, through a
+    prefix or env) is seen only by the push, not by the gate's separate reads, so the push is NOT MEASURED.
+    Red against 78132534, which inherited only the host environment and resolved these to main."""
+    _repo_with_remote(tmp_path, "r", stale=False)
+    answer = run_gate(shim, tmp_path / "r", command)
+    assert decision(answer) == "ask"
+    assert "cannot resolve what this push sends" in reason(answer)
+
+
 def test_a_fetch_refspec_that_does_not_map_the_target_is_not_measured(shim, repo):
     """R3-2: the remote-tracking ref name is not proof of what it tracks. A fetch refspec that maps another
     remote branch onto refs/remotes/origin/main means that ref records 'other', not 'main', so a push to

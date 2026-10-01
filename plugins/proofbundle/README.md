@@ -67,6 +67,11 @@ not compare with that tree. At those calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
+The gate judges the repository that the working directory, `cd`, `pushd` and `popd` outside a subshell, and
+`git -C` give; any other way the command sets the repository, work tree or configuration (a `GIT_DIR` or
+`GIT_CONFIG_*` assignment, `env -C`, `sudo -D`, a `cd` inside a subshell) is NOT MEASURED, and the gate
+claims no protection it has not measured.
+
 | What the gate finds | Answer |
 |---|---|
 | Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies, and a message names what was verified. |
