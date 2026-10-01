@@ -939,6 +939,16 @@ file; these lines are its other findings.
   an instance dict only** (same lens, F-5): on Python 3.12 a tuple subclass with an instance dict takes another one's
   class too (hermetic-cleanroom at 238b23b7), where 3.10.12 and 3.11.15 refuse it. The copy is a plain tuple either
   way. No verdict is affected. Workaround: none is needed by a caller.
+- **R620-F19-1, P3. Four wordings of the docstring of `canonical._bauen` are wider or narrower than what the reading
+  does** (third text lens, on 0e66150e, which found no sentence false): "an object of the caller's own class" among the
+  values that stay the caller's also matches a caller's subclass of a built-in container, which the next sentences name
+  as copied to its base type; "reaches it" means the private copy, while a container of the caller reached both from a
+  copied place and from a value that stays the caller's appears in the copy once as a copy and once as the caller's
+  object; the list in R620-F16-1 omits places where a tuple subclass measured as staying the caller's (in an object of
+  the caller's class, in a dict whose keys meet as one, inside a tuple that is a key); and a memoryview with strides or
+  released, a mapping proxy over an OrderedDict that stays the caller's, and the tuple that closes a circle of tuples
+  stay the caller's objects without a name in the docstring. No verdict is affected. Workaround: none is needed by a
+  caller; the wording is narrowed after the tag.
 
 ## Open — named limits carried by the fixes themselves
 
