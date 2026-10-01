@@ -305,6 +305,15 @@ def test_the_selftest_is_not_measurable_without_a_recorded_base_oid(env, tmp_pat
     assert checked["target_changed"] is None
 
 
+def test_the_selftest_base_oid_must_be_exactly_40_or_64_hex(env, tmp_path):
+    """Nachtrag 11, Befund 3: a stored base of 41 to 63 hex characters is no object id. It is NOT
+    MEASURABLE, not read as a comparison value. Red against 78132534, where 40..64 was accepted."""
+    checked = _run_selftest(env, tmp_path, hook=True, data=tmp_path / "data", run_push=False,
+                            before_check=lambda parent: (parent / "base_oid").write_text("a" * 48, encoding="utf-8"))
+    assert checked["result"] == "NOT MEASURABLE"
+    assert checked["target_changed"] is None
+
+
 def test_the_selftest_is_not_measurable_with_no_base_oid_and_no_target(env, tmp_path):
     """R3-5, the reviewer's second case: deleting the base and the throwaway remote's main left the gate
     reporting 'test target unchanged' (empty equals empty). It is NOT MEASURABLE."""

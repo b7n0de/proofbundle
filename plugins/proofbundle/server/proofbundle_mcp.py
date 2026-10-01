@@ -426,7 +426,7 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
     # A missing, empty or invalid base OID is not a comparison value (review R3-5): without it the target
     # cannot be compared, so target_changed is null and the result is NOT MEASURABLE, never 'unchanged' or
     # 'changed' from an empty string.
-    valid_base = 40 <= len(base_oid) <= 64 and all(c in "0123456789abcdef" for c in base_oid)
+    valid_base = len(base_oid) in (40, 64) and all(c in "0123456789abcdef" for c in base_oid)
     remote = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
                              "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False)
     remote_main = remote.stdout.strip()
