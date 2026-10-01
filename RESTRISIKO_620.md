@@ -247,7 +247,8 @@ Their test files were run on 2026-09-29 against the source of the tagged trees v
   and `audit-challenge --nonce ''` (measured at both tags by a verify lens of pull request 311). 6.2.0 reads these
   options with `is not None`; `tests/test_an_option_given_an_empty_value_is_not_dropped.py` checks each site and
   holds every truth read of a one-value option in `cli.py`, in the forms it reads, to a named list with its reason
-  (eleven, each refusing an empty value itself or on an emit or output path).
+  (nine, each refusing an empty value itself or on an emit or output path; this said eleven until deep gate run 6 at
+  fda55f98, R620-R6-7 below).
   `outcome verify --decision-maker-id ''` is unchanged on purpose: the library reads it with `is not None`, an
   empty maker id cannot equal an executor id, and `role_separation_ok` reports the check as run.
 - The fix of that option was incomplete at `audit-challenge --nonce` (deep gate at 99f76ceb, L3-620v4-T11-NONCE-WS-01
@@ -314,6 +315,36 @@ new release commit. Measured on 2026-09-30 by executing each against the source 
 
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade (owner decision of
 2026-09-28). A security advisory is a separate outward act and is not part of this file.
+
+## Open — the released 6.0.0 and 6.1.0 drop a policy rule the command does not apply
+
+Deep gate run 6 at fda55f98 (pull request 311, the head that carried the pre-tag receipt over a1d5a815) ended
+FIX_FIRST for two P1 findings, each confirmed by three of three blind jurors; the second of them is in the released
+versions. A receipt verify command took a policy, applied the rules it knows and dropped the others in silence
+(L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01): `reject_retracted` judges a relation statement's own assertion and is
+applied by `relation-statement verify` only. Measured on 2026-10-01 by running measurement 1 of that day (an outcome
+or decision receipt without edges, an attached and verified retraction of its content root, signed by the same key)
+against the source of the tagged trees v6.0.0 (`4e32e83b`) and v6.1.0 (`dcac5aee`) and at fda55f98 (Python 3.10.12):
+- under a policy whose `relations` section holds only `reject_retracted: true`, `outcome verify` printed `POLICY: OK`
+  with exit 0, and `decision verify` printed `POLICY: NOT_EVALUATED (no decision policy supplied)` with exit 0, as a
+  verify without the policy does;
+- beside a rule the command applies (`relation_signer` in mode `same-key`, which this receipt meets), the same held:
+  the rule that would have refused the retracted receipt was dropped;
+- the control `reject_superseded: true` failed the policy with exit 3 at both commands and every tree.
+At fda55f98 the guard of pull request 311 refused a policy with no rule the command applies, and still counted
+`reject_retracted` as one at `outcome verify` and `decision verify`. 6.2.0 refuses every policy that sets a rule the
+command or function it is given to does not apply (`policy._regelfehler`, `policy.ANGEWANDTE_REGELN`): exit 2 at
+`verify`, `decision verify`, `outcome verify` and `relation-statement verify`, and `policy_ok` False with the reason
+at `evaluate_policy`, `evaluate_decision_policy`, `verify_decision_receipt`, `verify_outcome_receipt` and
+`verify_relation_statement`. Absence, an allowed deactivation and the metadata set no rule. The shared fields
+(validity, purpose, the raw-template flag) apply at every receipt command since the same fix: `outcome verify` and
+`relation-statement verify` passed an expired policy, one not yet valid, one for another path and a raw template at
+fda55f98. `tests/test_every_rule_of_a_policy_is_handled_by_the_command.py` holds each rule alone and beside an
+applied one at the command line and in the library, measurement 1 as a case, the shared fields and an invalid
+restriction; at fda55f98 it fails 5 of its 10 cases. The reach is the command line and the Python API.
+
+The release notes of 6.2.0 name the affected versions, the effect and the upgrade. A security advisory is a separate
+outward act and is not part of this file.
 
 ## Open — findings of the last rounds judged not to block
 
@@ -1018,9 +1049,9 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   file signed by a trusted key; the tools are in the sdist only. Workaround: none is needed by a caller; the fix
   parses strictly, after 6.2.0.
 - **R620-R6-7, P3, text. "Eleven truth reads"** (L3-620v6-T11-ELEVEN-TRUTH-READS-TEXT-01, L5-620v6-T13-ELEVEN-TRUTH-READS-01):
-  the CHANGELOG entry of pull request 311 counted eleven truth reads of an option in `cli.py` and named `--key` and
-  `--new-key`; the named list of the class guard has held nine since the second fix of the gate at d388ed3d. The
-  sentence is corrected there.
+  the CHANGELOG entry of pull request 311 and the section of this file on the empty CLI option counted eleven truth
+  reads of an option in `cli.py`, and the CHANGELOG named `--key` and `--new-key`; the named list of the class guard
+  has held nine since the second fix of the gate at d388ed3d. Both sentences are corrected.
 - **R620-R6-8, P3, text. Three sentences said the base install needs no RFC 8785 canonicalizer** (lens L1, found by
   reading): the module head of `canonical.py` and two docstrings of `decision.py` (the content root and the hash
   binding); `rfc8785` is a dependency of the core install since 3.6.1, and an install that lacks it refuses every
