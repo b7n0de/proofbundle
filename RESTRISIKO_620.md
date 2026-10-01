@@ -923,6 +923,20 @@ file; these lines are its other findings.
   80 pairs of answers of the same contents but another class (the 72 pairs of the package's dataclasses and 8 kinds)
   were judged the same. At 6f485214 the comparison is in place: 0 of 1349, and none of the 80 judged the same. No verdict is affected. Workaround: none is needed by a caller; a case that falls
   without the comparison follows after the tag.
+- **R620-F16-1, P3. "Every tuple is copied as a plain tuple" holds for a tuple the reading reaches as a value** (text
+  lens on 2f858cce and cf5e1799, F-2): a tuple subclass used as a key of a dict or as an item of a set is not copied,
+  because that dict or set stays the caller's object by the rule for keys that `canonical._bauen` names. The sentence
+  stands in the docstring of `canonical._gleich_gelesen`, in CHANGELOG.md for 6f485214 and in the head of
+  `test_the_second_collect_sees_a_change_of_class_of_each_kind`. No verdict is affected. Workaround: none is needed by a
+  caller; the sentences are narrowed after the tag.
+- **R620-F16-2, P3. The tuple case of the class generator holds the plain copy for a tuple in a list, not for a tuple
+  inside a tuple** (same lens, F-3): a plant that keeps the class of a tuple subclass only where it sits inside another
+  tuple passes the case (1 passed, 13 subtests). No verdict is affected. Workaround: none is needed by a caller; a case
+  for the nested tuple follows after the tag.
+- **R620-F16-3, P3. CHANGELOG.md and `canonical._gleich_gelesen` name the change of class for a tuple subclass without
+  an instance dict only** (same lens, F-5): on Python 3.12 a tuple subclass with an instance dict takes another one's
+  class too (hermetic-cleanroom at 238b23b7), where 3.10.12 and 3.11.15 refuse it. The copy is a plain tuple either
+  way. No verdict is affected. Workaround: none is needed by a caller.
 
 ## Open — named limits carried by the fixes themselves
 

@@ -344,8 +344,10 @@ def _schluessel_von(wert: Any, tiefe: int = 0) -> Any:
 
 def _bauen(gelesen: dict, wurzel: Any) -> Any:
     """The copy `_stand` returns: a private plain copy of every container the reading read, built only from what it
-    read, so nothing the caller does afterwards to the value it passed reaches it, and no object of the caller's
-    classes is made. The classes of this package are not copied: an object of one of its dataclasses becomes a new
+    read, so nothing the caller does afterwards to a container the reading copied reaches it, and no object of the
+    caller's classes is made. A value the reading hands on as it is (an object of the caller's own class, an item of a
+    frozenset, and the objects named at the end) is the caller's object in the copy too, and a change the caller makes
+    to it later reaches the copy. The classes of this package are not copied: an object of one of its dataclasses becomes a new
     object of that same class, so code that rebinds an attribute of such a class in the process (a property such as
     `VerificationResult.ok`) changes what the copy answers, as it can change any verdict; such code is outside the
     reading (Codex review of pull request 311, thread 4153247939, outside the threat model of 6.2.0). A subclass
