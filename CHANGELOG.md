@@ -129,8 +129,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   subclass reaches the body as what it stores. A policy that sets a rule its command does not apply is refused (exit
   2, or `policy_ok` False), `outcome verify` and `relation-statement verify` fail a policy whose shared fields fail,
   `relation-statement verify` fails a policy that declares a purpose, an empty `accepted_predicate_types` is refused
-  when the policy is read, and a value whose plain copy would write more than `json_nodes` values (a part held in
-  several places counted in each) is refused by the copy. The AGT verifiers read a `trusted_authorizer_keys` that the
+  when the policy is read, and a value whose plain copy would write more than `json_nodes` entries (each item of a
+  list and each value of a dict, as the parse budget counts a document; a part held in several places counted in each)
+  is refused by the copy. The AGT verifiers read a `trusted_authorizer_keys` that the
   reading does not copy itself (a numpy or ctypes array of keys, another iterable of the caller's) at the call through a
   named reader that runs their list rule before the first collect and after the second and compares the answers
   (`adapters.agt_receipt._liste_stand`), so such a list is judged as before, and a list or tuple is copied as every

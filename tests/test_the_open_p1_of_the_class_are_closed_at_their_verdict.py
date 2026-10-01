@@ -335,6 +335,38 @@ class TheWorkOfAReadingIsBoundedByWhatItHolds(unittest.TestCase):
             return 1 + sum(je_pfad(t) for t in (wert if type(wert) is list else ()))
         self.assertGreater(je_pfad(_geteilt(18)), DEFAULT_BUDGET.json_nodes + 64)
 
+    def test_the_copy_refuses_exactly_what_the_parse_budget_refuses(self) -> None:
+        """The copy's budget is the parse budget's (`_strict_json._enforce_structural_budget`, the independent oracle
+        here): a value of exactly ``json_nodes`` entries is taken by both, and one more entry is refused by both, for a
+        list, a dict and a nested value. Until the review of the run 7 preparation the copy counted the root as an entry
+        and refused the value of exactly ``json_nodes`` entries the parser takes."""
+        from proofbundle import _strict_json, canonical
+        from proofbundle.budget import DEFAULT_BUDGET
+        n = DEFAULT_BUDGET.json_nodes
+
+        def parser_nimmt(wert: Any) -> bool:
+            try:
+                _strict_json._enforce_structural_budget(wert, n, DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.string_len)
+            except ProofBundleError:
+                return False
+            return True
+
+        def kopie_nimmt(wert: Any) -> bool:
+            try:
+                canonical._plain_for_jcs(wert, ValueError)
+            except ValueError:
+                return False
+            return True
+
+        for name, bauen in (("list", lambda k: list(range(k))),
+                            ("dict", lambda k: {f"k{i}": i for i in range(k)}),
+                            ("nested", lambda k: {"a": [0] * (k - 2), "b": None})):
+            for k, erwartet in ((n, True), (n + 1, False)):
+                with self.subTest(form=name, entries=k):
+                    wert = bauen(k)
+                    self.assertIs(parser_nimmt(wert), erwartet, "the oracle")
+                    self.assertIs(kopie_nimmt(wert), erwartet, "the copy")
+
 
 def _teile_eines_schluessels(wert: Any) -> int:
     gesehen: set = set()

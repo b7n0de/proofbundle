@@ -1295,13 +1295,17 @@ def _plain_for_jcs(value: Any, key_error: Callable[[str], BaseException], wurzel
     of 2026-10-01: work and size budgets bound the reading, the keys and the rebuild). A container held in several
     places is copied once per place, as a serializer writes it, so a value of a few shared lists can hold exponentially
     many values as written: measured at fda55f98, a policy holding a list whose two items are one list, 14 levels deep,
-    took 49160 calls of the copy at `evaluate_decision_policy`. The copy counts every value it writes and refuses with
-    ``key_error`` past the structural budget's ``json_nodes`` (`budget.DEFAULT_BUDGET`), the bound a parsed document
-    has, so no value costs more than that bound however its parts are shared.
+    took 49160 calls of the copy at `evaluate_decision_policy`. The copy counts every entry it writes, each item of a
+    list or tuple and each value of a dict, as the parse budget counts a parsed document (`_strict_json`: the sum of
+    all container lengths, the root not counted), and refuses with ``key_error`` past the structural budget's
+    ``json_nodes`` (`budget.DEFAULT_BUDGET`), so it refuses exactly the documents the parse budget refuses and no value
+    costs more than that bound however its parts are shared. Until the review of the run 7 preparation it counted the
+    root as well, and refused a document of exactly ``json_nodes`` entries the parser takes.
     """
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - budget imports this module
     try:
-        return _plain_value(value, set(), [DEFAULT_BUDGET.json_nodes, DEFAULT_BUDGET.json_nodes])
+        # The root is no entry of a container: one call more than the bound, so the count is the parse budget's.
+        return _plain_value(value, set(), [DEFAULT_BUDGET.json_nodes + 1, DEFAULT_BUDGET.json_nodes])
     except _Abweisung as abweisung:
         ort = wurzel + "".join(reversed(abweisung.pfad))
         if ort.startswith("."):
@@ -1713,7 +1717,8 @@ def _plain_value(value: Any, offen: set, budget: Any = None) -> Any:
     """One level of `_plain_for_jcs`. `offen` holds the ids of the containers being copied above
     this one, so a container met again on its own path is a circle, and one met again beside
     itself (the same list twice in one object) is copied twice, as a serializer writes it.
-    ``budget`` is ``[values left, the bound]``: each call spends one, and the copy refuses when none is left.
+    ``budget`` is ``[calls left, the bound]``: each call spends one, and the copy refuses when none is left; it starts
+    one above the bound, because the root is no entry of a container.
 
     Each type is asked with its own `issubclass` call and not with a tuple of types: a tuple costs
     one more level of recursion depth per call (measured on Python 3.10.12: from the same caller, a
@@ -1723,7 +1728,7 @@ def _plain_value(value: Any, offen: set, budget: Any = None) -> Any:
     if budget is not None:
         budget[0] -= 1
         if budget[0] < 0:
-            raise _Abweisung(f"the value holds more than {budget[1]} values as it is written (a part held in several "
+            raise _Abweisung(f"the value holds more than {budget[1]} entries as it is written (a part held in several "
                              "places counts in each); the copy stops at the structural budget json_nodes")
     typ = type(value)
     if issubclass(typ, str):
