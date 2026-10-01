@@ -259,17 +259,22 @@ def _gleich_gelesen(gelesen: dict) -> bool:
 
     The type is compared because the copy is built from it: an object of a dataclass of this package becomes a new
     object of the type the first collect read (`_bauen`). From 085869313 to 6b02d9f7 it was not compared (Codex review
-    of pull request 311, thread 4151141239, P1): a gc callback that, between the two collects, made a
-    `VerificationResult` a `Check` and put a passing check into its list gave a copy that is a `VerificationResult`
-    holding the passing check, a state the value never held, and `root_authenticity_summary` gave `safeForAutomation`
-    True in 3 of 299 runs at 6b02d9f7 where both states give False. Every kind whose class the caller can assign (a
-    subclass of dict, OrderedDict, list, set, bytearray, deque or array, and a dataclass of this package) is compared
-    by its type, though only the dataclass is copied as that type. A tuple, a view and a memoryview cannot change their
-    class. The extra of a reading (a deque's ``maxlen``, a memoryview's format and shape) cannot change on one object,
-    so it is not compared."""
+    of pull request 311, thread 4151141239, P1): a gc callback that ran during the first collect, after it had read an
+    object's type, made a `VerificationResult` a `Check` and put a passing check into its list, so the first collect
+    recorded the old type beside contents read after the change, the second collect found the same contents, and the
+    copy was a `VerificationResult` holding the passing check, a state the value never held. The sweep of
+    `test_a_result_object_that_changes_its_class_is_read_as_one_state` gives `root_authenticity_summary` a
+    `safeForAutomation` that neither state gives at 46 of its 961 collection starts at 6b02d9f7. Every kind whose class
+    the caller can assign and that the second collect reads again (a subclass of dict, OrderedDict, list, set,
+    bytearray, deque or array, and a dataclass of this package) is compared by its type, though only the dataclass is
+    copied as that type; a memoryview is compared too and cannot change its class. A tuple and a view are not read
+    again: a view cannot change its class or the mapping it shows, and a tuple subclass without an instance dict, a
+    namedtuple among them, can be given another such class, but every tuple is copied as a plain tuple, so its class
+    reaches no copy. The extra of a reading (a deque's ``maxlen``, a memoryview's format and shape) cannot change on
+    one object, so it is not compared."""
     for art, typ, inhalt, _, wert in gelesen.values():
         if art == "tuple" or art == "sicht":
-            continue   # a tuple cannot change its class or what it holds, nor a view its class or the mapping it shows
+            continue   # a tuple holds what it held and is copied as a plain tuple; a view keeps its class and mapping
         satz = _lies(wert)
         if satz is None or satz[0] != art or satz[1] is not typ:
             return False
@@ -446,7 +451,8 @@ def _stand(wurzel: Any, leser: Any = None) -> Any:
     "Atomic snapshots of shared memory", J. ACM 40(4), 1993). Every container is read (`_lesen_einmal`), and then every
     container of that reading is read again the same way (`_gleich_gelesen`). When each is still of the same type and
     holds the same objects, there is one instant, the end of the first collect, at which each held what the first
-    collect read, so the copy is the value's state at that instant. When one differs, or one changed its size while it was read, both collects
+    collect read, so the copy is the value's state at that instant, unless a container was changed and changed back
+    between its two reads (THE LIMIT below). When one differs, or one changed its size while it was read, both collects
     are made again; after `_VERSUCHE` readings in each of which the value changed, `_StandGestoert` is raised. Nothing
     of the process is touched: the collector runs as the caller left it, and a gc callback, a signal handler or another
     thread that changes the value between two reads of a container is seen by the second collect. A change another

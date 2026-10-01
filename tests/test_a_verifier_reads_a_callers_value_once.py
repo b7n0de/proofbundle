@@ -23,8 +23,9 @@ WHY THE READING IS READ TWICE. The reading of 8f2fa980 paused the collector for 
 verify lanes V5 and V6 on that commit found what a switch of the process costs: the collector starved under threads, a
 thread that collected made calls refuse, a fork or an exception at the wrong line left it off. And the reading left
 out what it did not copy: the dataclasses of this package and a dict keyed by a `str` subclass. So the reading now reads
-every container twice and keeps the first reading when the second found the same objects (the double collect of the
-atomic snapshot, `canonical._stand`), touching nothing of the process, and copies those values too.
+every container twice and keeps the first reading when the second found each container of the same type and holding
+the same objects (the double collect of the atomic snapshot, `canonical._stand`), touching nothing of the process, and
+copies those values too.
 
 THE PROPERTY, measured with the caller's own gc callback rather than with a list of known readers. Each case hands
 the function a value in a first state, and at the k-th start of a garbage collection during the call the caller's
@@ -886,9 +887,10 @@ class EveryVerdictIsTheVerdictOverOneState(unittest.TestCase):
     def test_a_result_object_that_changes_its_class_is_read_as_one_state(self):
         """Codex review of pull request 311 (thread 4151141239, P1): the second collect compared what each container
         holds but not its type, and a dataclass of this package is copied as the type the first collect read. A callback
-        that made a `VerificationResult` a `Check` between the two collects and put a passing check into its list gave a
-        copy of a `VerificationResult` holding the passing check, a state the value never held: `safeForAutomation` True
-        in 3 of 299 runs at 6b02d9f7, where both states give False."""
+        that ran during the first collect, after it had read the object's type, made a `VerificationResult` a `Check` and
+        put a passing check into its list, and the copy was a `VerificationResult` holding the passing check, a state the
+        value never held: this sweep gives `safeForAutomation` True at 46 of its 961 collection starts at 6b02d9f7, where
+        both states give False."""
         from proofbundle.bundle import root_authenticity_summary
         from proofbundle.errors import Check, VerificationResult
 
@@ -2626,9 +2628,11 @@ class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
         """Codex review of pull request 311 (thread 4151141239, P1): the second collect did not compare a container's
         type, and a dataclass of this package is copied as the type the first collect read. Over every kind `_lies`
         reads, taken from its own source: a kind whose class the caller can assign is read again when its class changes
-        and nothing it holds does; for a tuple, a view and a memoryview the interpreter refuses the assignment, which is
-        why the second collect leaves their class alone. And over every pair of this package's dataclasses whose layouts
-        let one become the other, the frozen ones assigned past their own `__setattr__`."""
+        and nothing it holds does. For a view and a memoryview the interpreter refuses the assignment, and so it does for
+        the tuple subclass here, which has an instance dict; one without (a namedtuple) can be given another such class,
+        and the second collect leaves a tuple's class alone because every tuple is copied as a plain tuple. And over
+        every pair of this package's dataclasses whose layouts let one become the other, the frozen ones assigned past
+        their own `__setattr__`."""
         import array
         import importlib
         import inspect

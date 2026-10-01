@@ -111,7 +111,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
     promoted by the copy. The reading collects every container twice and keeps the first collect only when the
     second finds each of the same type and holding the same objects (the double collect of the atomic snapshot, Afek, Attiya, Dolev, Gafni,
-    Merritt and Shavit, J. ACM 40(4), 1993): then there is one instant at which the value held what was read. A
+    Merritt and Shavit, J. ACM 40(4), 1993): then there is one instant at which the value held what was read, unless a
+    container was changed and changed back between its two reads, the limit RESTRISIKO_620.md names. A
     container that changed between the two collects, or changed its size while it was read, makes both be made again,
     and after three readings in each of which the value changed the call is refused with `canonical._StandGestoert`,
     a `ProofBundleError`. Nothing of the process is touched, and no module of the package switches the collector. A
@@ -215,13 +216,17 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     workaround, and follow after the tag.
   - A Codex review of pull request 311 at 110cdad9 (thread 4151141239, P1) found that the second collect compared what
     each container holds but not its type, while an object of a dataclass of this package is copied as the type the
-    first collect read. A gc callback that, between the two collects, made a `VerificationResult` a `Check` and put a
-    passing check into its list gave a copy that is a `VerificationResult` holding the passing check, a state the
-    value never held: `root_authenticity_summary` gave `safeForAutomation` True in 3 of 299 runs at 6b02d9f7, where
-    both states give False. The double collect came with 085869313, so no released version carries this. The second
-    collect compares each container's type now. Every kind whose class the caller can assign is compared, a subclass
-    of dict, OrderedDict, list, set, bytearray, deque or array and a dataclass of this package, though only the
-    dataclass is copied as that type; a tuple, a view and a memoryview cannot change their class.
+    first collect read. A gc callback that ran during the first collect, after it had read an object's type, made a
+    `VerificationResult` a `Check` and put a passing check into its list; the first collect recorded the old type beside
+    contents read after the change, the second collect found the same contents, and the copy was a `VerificationResult`
+    holding the passing check, a state the value never held. The sweep of the new case gives `root_authenticity_summary`
+    a `safeForAutomation` that neither state gives at 46 of its 961 collection starts at 6b02d9f7, and at none here.
+    The double collect came with 085869313, so no released version carries this. The second collect compares the type
+    of each container it reads again: a subclass of dict, OrderedDict, list, set, bytearray, deque or array, a dataclass
+    of this package, whose class the caller can assign, and a memoryview, whose class cannot change. Only the dataclass
+    is copied as that type. A tuple and a view are not read again: a view cannot change its class or the mapping it
+    shows, and a tuple subclass without an instance dict, a namedtuple among them, can be given another such class,
+    but every tuple is copied as a plain tuple, so its class reaches no copy.
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
     beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and

@@ -907,6 +907,13 @@ file; these lines are its other findings.
   needed by a caller; the cases follow after the tag.
 - **What the lane did not run:** Python 3.12 and later, `sys.settrace`, fork and signals, plants in `_ein_stand`,
   `_abbild_stand` and `_bauen`, and the end-to-end cost of `automation_summary`.
+- **R620-F12-1, P3. The generator of dataclass pairs skips a module that fails to import** (text lens on 6f485214,
+  B-07): `test_the_second_collect_sees_a_change_of_class_of_each_kind` collects the dataclasses of the modules it can
+  import and asserts only the measured pair `VerificationResult` to `Check`, so a dataclass in a module that fails to
+  import is paired with none, and the case still passes (the lane planted `renewal.py` not to import: 30 pairs instead
+  of 72). Measured at 6f485214 with the optional extras blocked: all nine dataclasses are found, and only the two
+  `inspect_ai` modules, which define none, fail to import. No verdict is affected. Workaround: none is needed by a
+  caller; the case will name the modules it could not import after the tag.
 
 ## Open — named limits carried by the fixes themselves
 
