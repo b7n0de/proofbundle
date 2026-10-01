@@ -1703,6 +1703,44 @@ class TheReadingAtTheCallIsOneState(unittest.TestCase):
         self.assertIsInstance(ersatz, Fremdkoerper)
         self.assertEqual(type_name(ersatz), "Eigen")
 
+    def test_a_class_is_handed_on_only_as_a_class_of_this_package_or_by_contract(self):
+        """A class as a value (the ``cls`` of a classmethod) was read by the methods of its metaclass while the stand-in
+        rule of deep gate run 6 was built, and ``type.__call__`` made every class "aufrufbar": `RenewalPolicy.from_dict`
+        got a stand-in as its ``cls`` (found by this file, not by the gate before run 7). A class of this package is an
+        atom, any other class a stand-in unless the argument's contract takes it (``"klasse"``), and the classmethod
+        builds an object of the class it is called on."""
+        from proofbundle import canonical
+        from proofbundle._membership import Fremdkoerper
+        from proofbundle.renewal import RenewalPolicy
+        from proofbundle.errors import Check, VerificationResult
+        canonical._paket_gesammelt()
+        klassen = [k for k in canonical._PAKETTYPEN.values() if issubclass(type(k), type)]
+        for erwartet in (RenewalPolicy, VerificationResult, Check):
+            self.assertIn(erwartet, klassen, "the classes of the loaded modules of this package were not collected")
+        for klasse in klassen:
+            with self.subTest(klasse=klasse.__qualname__):
+                self.assertEqual(canonical._art_des_blatts(klasse, type(klasse)), "atom")
+
+        class Eigene(RenewalPolicy):
+            pass
+        self.assertEqual(canonical._art_des_blatts(Eigene, type(Eigene)), "klasse")
+        self.assertIs(type(RenewalPolicy.from_dict({"strictness": "fail"})), RenewalPolicy)
+        self.assertIs(type(Eigene.from_dict({"strictness": "fail"})), Eigene)
+        # Outside a contract the caller's class is a stand-in, as any other value of the caller's.
+        args, _ = canonical._gelesen((("wert",), ("wert",)), {}, ([Eigene],), {}, {})
+        self.assertIsInstance(args[0][0], Fremdkoerper)
+        # The control: with a class read by its metaclass's methods again, the classmethod gets no class.
+        alt = canonical._art_des_blatts
+
+        def wie_vorher(wert, typ):
+            return "aufrufbar" if issubclass(typ, type) else alt(wert, typ)
+        canonical._art_des_blatts = wie_vorher
+        try:
+            with self.assertRaises(TypeError):
+                RenewalPolicy.from_dict({"strictness": "fail"})
+        finally:
+            canonical._art_des_blatts = alt
+
     def test_a_tuple_of_tuples_is_copied_in_linear_time(self):
         """V6-F3 on 8f2fa980: the parts of a tuple were scanned again after each part was built, and a tuple of 16000
         tuples took 55 s. Measured as CPU time of two sizes: sixteen times the tuples may cost at most 64 times."""
