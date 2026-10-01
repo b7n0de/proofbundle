@@ -230,7 +230,8 @@ def reason(answer: dict) -> str:
 @pytest.mark.parametrize("command, expected", [
     ("git push", [("git push", ".", [])]),
     ("git push origin main --tags", [("git push", ".", ["origin", "main", "--tags"])]),
-    ("git -c push.default=simple push", [("git push", ".", [])]),
+    ("git -c push.default=simple push", [("git push", ".", [gate._GIT_CONFIG_SENTINEL])]),
+    ("git -c http.proxy=http://p push origin main", [("git push", ".", ["origin", "main"])]),
     ("git --no-pager push", [("git push", ".", [])]),
     ("/usr/bin/git push", [("git push", ".", [])]),
     ("git-push origin", [("git push", ".", ["origin"])]),
@@ -949,6 +950,79 @@ def test_a_graft_does_not_hide_a_commit_the_push_sends(shim, tmp_path):
     (path / ".git" / "info" / "grafts").write_text(f"{c} {a}\n", encoding="utf-8")  # reparent C past X
     answer = run_gate(shim, path, "git push origin main")
     assert decision(answer) == "deny", "the gate must evaluate X, which the push still sends"
+
+
+def _resolve(repo, *args):
+    return gate.resolve_push_targets(str(repo), list(args), gate.time.monotonic() + 30)
+
+
+def test_options_after_a_double_dash_are_the_remote_and_refspec(repo):
+    """R3-1: `--` ends options; what follows is <remote> <refspec>, not more refspecs for a default push.
+    Measured red against 3026924e, where `-- origin zzz` fell through to the default push target."""
+    assert _resolve(repo, "--", "origin", "zzz") is None  # zzz has no tracking ref: NOT MEASURED
+    assert _resolve(repo, "--", "origin", "main") == _resolve(repo, "origin", "main")
+
+
+def test_an_option_the_gate_does_not_model_is_not_measured(repo):
+    """R3-1: --repo and -c change the endpoint; an abbreviation like --mir is --mirror; an unknown option
+    may do anything. Only a narrow list of target-neutral options is allowed literally. Red against
+    3026924e, where these fell through to a resolved default target."""
+    for args in (["--repo=other", "--force"], ["--repo", "other"], ["--mir", "origin"],
+                 ["--yet-unknown", "origin", "main"], ["origin", "main", "--exec=/x", "--unknown"]):
+        assert _resolve(repo, *args) is None, args
+    # the narrow allowlist still resolves a plain force push and a push option
+    assert _resolve(repo, "--force", "origin", "main") is not None
+    assert _resolve(repo, "-o", "ci.skip", "origin", "main") is not None
+    assert _resolve(repo, "origin", "main", "--force-with-lease") is not None
+
+
+def test_a_git_true_bool_in_the_push_config_is_not_measured(repo):
+    """R3-3: git reads 1, yes, on as true. A mirror remote or push.followTags set to such a value adds
+    refs the command does not name. Red against 3026924e, where only the literal 'true' was caught."""
+    for key, value in (("remote.origin.mirror", "1"), ("push.followTags", "on"),
+                       ("remote.origin.mirror", "yes")):
+        _git(repo, "config", key, value)
+        assert _resolve(repo, "origin", "main") is None, (key, value)
+        _git(repo, "config", "--unset-all", key)
+
+
+def test_a_malformed_git_bool_in_the_push_config_is_not_measured(repo):
+    """R3-3: a value git cannot read as a boolean is NOT MEASURED, not silently false."""
+    _git(repo, "config", "remote.origin.mirror", "notabool")
+    assert _resolve(repo, "origin", "main") is None
+
+
+def test_a_rewritten_or_multiple_push_endpoint_is_not_measured(repo, tmp_path):
+    """Befund 1: pushInsteadOf and a second remote URL send the push to a different or further endpoint
+    than the remote-tracking ref records. Red against 3026924e, which checked only remote.<name>.pushurl."""
+    url = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True,
+                         text=True, check=True).stdout.strip()
+    _git(repo, "config", f"url.https://example.invalid/.pushInsteadOf", url)
+    assert _resolve(repo, "origin", "main") is None, "pushInsteadOf rewrites the push endpoint"
+    _git(repo, "config", "--unset-all", "url.https://example.invalid/.pushInsteadOf")
+    assert _resolve(repo, "origin", "main") is not None, "without a rewrite it resolves again"
+    _git(repo, "config", "--add", "remote.origin.url", str(tmp_path / "second.git"))
+    assert _resolve(repo, "origin", "main") is None, "a second remote URL sends the push to both"
+
+
+def test_config_injected_through_the_environment_is_not_measured(repo, monkeypatch):
+    """R3-1: the gate reads git configuration in the push's own environment, so a GIT_CONFIG_* injection
+    reaches its endpoint read as it reaches the push. An injected pushurl makes the push endpoint differ
+    from the fetch endpoint the tracking ref records, so the push is NOT MEASURED. Red against 3026924e,
+    where remote.<name>.pushurl was read only from the committed configuration."""
+    assert _resolve(repo, "origin", "main") is not None
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "remote.origin.pushurl")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://example.invalid/x.git")
+    assert _resolve(repo, "origin", "main") is None
+
+
+def test_config_injected_on_the_command_line_is_not_measured(shim, repo):
+    """R3-1: `git -c <key>=<value> push` injects configuration the gate's separate reads never see. The
+    push is NOT MEASURED. Red against 3026924e, where -c was consumed and ignored."""
+    answer = run_gate(shim, repo, "git -c remote.origin.pushurl=/tmp/elsewhere.git push origin main")
+    assert decision(answer) == "ask"
+    assert "cannot resolve what this push sends" in reason(answer)
 
 
 def test_a_force_push_that_drops_a_declaration_on_another_branch_is_resolved_or_not_measured(shim, repo, tmp_path):

@@ -127,6 +127,46 @@ _FALLBACK = re.compile(r"\bgit-push\b|\bgit\b.*\bpush\b|\bgh\b.*\b(?:pr|release)
                        re.DOTALL)
 UNKNOWN = None
 
+#: `git push` options the gate models as target-neutral: they change neither the endpoint, the refs nor
+#: the commits a push sends. Every other option — an abbreviation (git takes --mir for --mirror), a
+#: target option (--all, --mirror, --tags, --delete, --repo), or anything unknown — makes the target NOT
+#: MEASURED, so the gate never resolves a push it does not fully model (review R3-1).
+_PUSH_FLAGS_NEUTRAL = frozenset({
+    "-f", "--force", "--no-force", "-u", "--set-upstream", "-q", "--quiet", "-v", "--verbose",
+    "--progress", "--no-progress", "--porcelain", "-n", "--dry-run", "--no-dry-run",
+    "--no-verify", "--verify", "--atomic", "--no-atomic", "--thin", "--no-thin",
+    "-4", "--ipv4", "-6", "--ipv6", "--force-with-lease", "--no-force-with-lease",
+    "--force-if-includes", "--no-force-if-includes", "--signed", "--no-signed",
+})
+#: Target-neutral options taking a value as `--opt value` (or the short `-o value`).
+_PUSH_OPTS_NEUTRAL_VALUE = frozenset({"-o", "--push-option", "--receive-pack", "--exec"})
+#: Target-neutral options accepted in the inline `--opt=value` form.
+_PUSH_OPTS_NEUTRAL_INLINE = frozenset({"--push-option", "--receive-pack", "--exec", "--force-with-lease",
+                                       "--signed"})
+#: Prepended to the resolved push arguments when a `git -c` or `--config-env` option set a configuration key
+#: that can change the push target and that the gate's separate reads never see; resolve_push_targets then
+#: reports NOT MEASURED (review R3-1). A GIT_CONFIG_* injection in the environment needs no sentinel: the
+#: gate's reads inherit the same environment, so git applies it to them as it would to the push.
+_GIT_CONFIG_SENTINEL = "\x00config-injected"
+#: The last component of a config key, by section, for keys that can change a push's endpoint, target refs
+#: or range. url.<base>.insteadof is included because, injected only into the push, it would rewrite the
+#: endpoint the gate's reads cannot see (review R3-1, Befund 1).
+_TARGET_CONFIG_EXACT = frozenset({"push.default", "push.followtags", "push.recursesubmodules",
+                                  "remote.pushdefault"})
+_TARGET_CONFIG_BY_SECTION = {"remote": frozenset({"url", "pushurl", "push", "mirror", "fetch"}),
+                             "branch": frozenset({"remote", "pushremote", "merge"}),
+                             "url": frozenset({"insteadof", "pushinsteadof"})}
+
+
+def _key_affects_push_target(key: str) -> bool:
+    """Whether a git config key can change which endpoint, refs or commits a push sends. Used for the keys a
+    `git -c` or `--config-env` option injects, which the gate's separate reads never see (review R3-1)."""
+    k = key.strip().lower()
+    if k in _TARGET_CONFIG_EXACT:
+        return True
+    parts = k.split(".")
+    return len(parts) >= 3 and parts[-1] in _TARGET_CONFIG_BY_SECTION.get(parts[0], frozenset())
+
 
 class GateError(Exception):
     """The gate cannot reach a verdict. Answered as deny."""
@@ -152,7 +192,7 @@ def _join(directory: str | None, target: str) -> str | None:
 
 
 def _git_call(words: list[str], directory: str | None) -> tuple[str, str | None, list[str] | None] | None:
-    i = 0
+    i, config_injected = 0, False
     while i < len(words) and words[i].startswith("-"):
         option, _, inline = words[i].partition("=")
         value = inline if inline else (words[i + 1] if option in _GIT_OPTIONS_WITH_VALUE
@@ -161,9 +201,14 @@ def _git_call(words: list[str], directory: str | None) -> tuple[str, str | None,
             directory = _join(directory, value)
         elif option in ("--git-dir", "--work-tree"):
             directory = UNKNOWN
+        elif option in ("-c", "--config-env"):
+            # -c <key>=<value> / --config-env=<key>=<envvar>: the config key is the part before the first =.
+            if not value or _key_affects_push_target(value.partition("=")[0]):
+                config_injected = True  # per-command config the gate's separate reads never see (R3-1)
         i += 2 if (option in _GIT_OPTIONS_WITH_VALUE and not inline) else 1
     if i < len(words) and words[i] == "push":
-        return "git push", directory, words[i + 1:]
+        args = words[i + 1:]
+        return "git push", directory, ([_GIT_CONFIG_SENTINEL] + args if config_injected else args)
     return None
 
 
@@ -228,22 +273,20 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> li
 #: Options that make every gate read see the objects a push would transfer, not a local rewrite of them
 #: (DECISIONS.md, D20; review R3-8). --no-replace-objects turns off refs/replace/*; the environment names
 #: turn off replace refs and the deprecated .git/info/grafts for any git the gate starts, including the
-#: cat-file batch reader. The gate's own config reads are also kept clear of an injected configuration
-#: (review R3-1): GIT_CONFIG_* would otherwise rewrite what `git config` reports to the gate.
+#: cat-file batch reader.
 _READ_ONLY_GIT = ("--no-replace-objects",)
-_CONFIG_INJECTING_ENV = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
 
 
 def _read_env() -> dict:
-    """The environment for the gate's own git reads: the host's, minus the names that inject configuration,
-    plus GIT_NO_REPLACE_OBJECTS so no git honours a replace ref and GIT_GRAFT_FILE set to the empty device
-    so none honours a .git/info/grafts rewrite of the parent chain. Replace refs and grafts both rewrite
-    the view git reads while the pack transfer sends the originals, so the range or tree the gate judges
-    would otherwise differ from what the push sends (review R3-8). Measured: a graft that reparents the tip
-    hid a middle commit from the gate's rev-list until GIT_GRAFT_FILE was emptied; object alternates cannot
-    change what an object id resolves to, so they are not such a rewrite."""
-    env = {k: v for k, v in os.environ.items()
-           if not (k in _CONFIG_INJECTING_ENV or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")))}
+    """The environment for the gate's own git reads: the host's own (so the gate reads the same git
+    configuration the push will use, including a GIT_CONFIG_* injection the push would honour), plus
+    GIT_NO_REPLACE_OBJECTS so no git honours a replace ref and GIT_GRAFT_FILE set to the empty device so
+    none honours a .git/info/grafts rewrite of the parent chain. Replace refs and grafts both rewrite the
+    view git reads while the pack transfer sends the originals, so the range or tree the gate judges would
+    otherwise differ from what the push sends (review R3-8). Measured: a graft that reparents the tip hid a
+    middle commit from the gate's rev-list until GIT_GRAFT_FILE was emptied; object alternates cannot change
+    what an object id resolves to, so they are not such a rewrite."""
+    env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
     return env
@@ -678,6 +721,53 @@ def _config(repo: str, key: str, deadline: float) -> str | None:
     return out.stdout.decode().strip() if out.returncode == 0 else None
 
 
+def _config_bool(repo: str, key: str, deadline: float) -> bool:
+    """A git boolean config value, normalised by git itself (so 1, yes and on read as true). False when the
+    key is unset. A value git cannot read as a boolean, or a multi-valued key, raises GateError, which the
+    caller turns into NOT MEASURED (review R3-3)."""
+    out = _git(repo, "config", "--bool", "--get", key, deadline=deadline)
+    if out.returncode == 1 and not out.stdout.strip():
+        return False
+    if out.returncode != 0:
+        raise GateError(f"git could not read {key} as a boolean")
+    return out.stdout.decode().strip() == "true"
+
+
+def _config_present(repo: str, key: str, deadline: float) -> bool:
+    """Whether a (possibly multi-valued) config key has any value. A git error other than 'not set' raises
+    GateError (NOT MEASURED)."""
+    out = _git(repo, "config", "--get-all", key, deadline=deadline)
+    if out.returncode in (0, 1):
+        return out.returncode == 0
+    raise GateError(f"git could not read {key}")
+
+
+def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
+    """Whether the remote's configuration adds ref updates a plain push to it does not name: a configured
+    remote.<name>.push, a mirror remote, or push.followTags. Each is a git boolean or a value list; a value
+    the gate cannot read raises GateError (NOT MEASURED, review R3-3). A pushurl is covered by the endpoint
+    check below."""
+    return (_config_present(repo, f"remote.{remote}.push", deadline)
+            or _config_bool(repo, f"remote.{remote}.mirror", deadline)
+            or _config_bool(repo, "push.followTags", deadline))
+
+
+def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
+    """Whether the remote resolves to exactly one push endpoint equal to its one fetch endpoint. git's
+    `remote get-url` applies pushurl and url.<base>.insteadOf / pushInsteadOf and lists every value, so this
+    catches a pushInsteadOf rewrite, a pushurl, or a second URL that would send the push to a different or a
+    further endpoint than the remote-tracking ref records (Befund 1). A git error raises GateError (NOT
+    MEASURED). A symmetric insteadOf rewrites fetch and push alike, so the tracking ref still records the
+    push endpoint and the two URLs stay equal."""
+    push = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)
+    fetch = _git(repo, "remote", "get-url", "--all", remote, deadline=deadline)
+    if push.returncode != 0 or fetch.returncode != 0:
+        raise GateError(f"git could not read the URLs of remote {remote}")
+    push_urls = [u for u in push.stdout.decode().splitlines() if u.strip()]
+    fetch_urls = [u for u in fetch.stdout.decode().splitlines() if u.strip()]
+    return len(push_urls) == 1 and len(fetch_urls) == 1 and push_urls[0] == fetch_urls[0]
+
+
 def _tracking_ref(repo: str, remote: str, dest: str, deadline: float) -> str | None:
     """The one local remote-tracking ref for `dest` on `remote`, or None. A tag writes no per-remote
     tracking ref, so a tag push has no locally known target state and stays NOT MEASURED (N1)."""
@@ -716,24 +806,28 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     """
     if args is None:
         args = []
+    if _GIT_CONFIG_SENTINEL in args:
+        return None  # a `-c`/`--config-env` key that can change the target and the gate's reads cannot see
     remotes = _remote_names(repo, deadline)
-    remote, refspecs, i = None, [], 0
+    remote, refspecs, i, options_done = None, [], 0, False
     while i < len(args):
         word = args[i]
-        if word == "--":
-            refspecs.extend(args[i + 1:])
-            break
-        if word in ("--all", "--mirror", "--tags", "--prune", "--delete", "-d", "--follow-tags"):
-            return None
-        if word.startswith("-"):
-            if word in ("--repo", "-o", "--push-option", "--receive-pack", "--exec", "--force-with-lease=",):
-                i += 2
-                continue
-            if word.startswith(("--repo=", "--push-option=", "-o", "--force-with-lease=", "--receive-pack=")):
+        if not options_done and word == "--":  # end of options; what follows is <remote> <refspec>...
+            options_done = True
+            i += 1
+            continue
+        if not options_done and word.startswith("-") and word != "-":
+            opt, eq, _ = word.partition("=")
+            if word in _PUSH_FLAGS_NEUTRAL:
                 i += 1
                 continue
-            i += 1  # a flag the gate need not model for target resolution (e.g. -f, --force, -u, -q, -v)
-            continue
+            if eq and opt in _PUSH_OPTS_NEUTRAL_INLINE:
+                i += 1
+                continue
+            if not eq and word in _PUSH_OPTS_NEUTRAL_VALUE:
+                i += 2
+                continue
+            return None  # an abbreviation, a target option (--all/--mirror/--tags/--delete/--repo), unknown
         if remote is None:
             remote = word
         else:
@@ -743,11 +837,11 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         return _default_targets(repo, deadline, remotes)
     if remote not in remotes:  # a URL or a filesystem path, not a configured remote name
         return None
-    if (_config(repo, f"remote.{remote}.push", deadline) is not None
-            or _config(repo, f"remote.{remote}.pushurl", deadline) is not None
-            or (_config(repo, f"remote.{remote}.mirror", deadline) or "").lower() == "true"
-            or (_config(repo, "push.followTags", deadline) or "").lower() == "true"):
-        return None
+    try:
+        if _push_adds_unnamed_refs(repo, remote, deadline) or not _endpoint_consistent(repo, remote, deadline):
+            return None
+    except GateError:
+        return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
     if not refspecs:
         return _default_targets(repo, deadline, remotes, remote=remote)
     targets = []
@@ -789,11 +883,11 @@ def _default_targets(repo: str, deadline: float, remotes: set, remote: str | Non
                   or ("origin" if "origin" in remotes else None))
     if remote is None or remote not in remotes:
         return None
-    if (_config(repo, f"remote.{remote}.push", deadline) is not None
-            or _config(repo, f"remote.{remote}.pushurl", deadline) is not None
-            or (_config(repo, f"remote.{remote}.mirror", deadline) or "").lower() == "true"
-            or (_config(repo, "push.followTags", deadline) or "").lower() == "true"):
-        return None
+    try:
+        if _push_adds_unnamed_refs(repo, remote, deadline) or not _endpoint_consistent(repo, remote, deadline):
+            return None
+    except GateError:
+        return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
     default = (_config(repo, "push.default", deadline) or "simple").lower()
     if default not in ("simple", "current", "upstream", "tracking"):
         return None  # matching, or anything the gate does not model, pushes more than the current branch

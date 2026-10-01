@@ -90,13 +90,26 @@ MEASURED. The remote itself is not read.
   remote with a uniquely mapped local remote-tracking ref. There is no default-branch fallback: a new
   branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
   MEASURED (N1). `--all`, `--mirror`, `--tags`, a wildcard or negative refspec, a configured
-  `remote.<name>.push`, a `pushurl`, a mirror remote or `push.followTags` add updates the command does not
-  name, so the push is NOT MEASURED (N2). A bare `git push` resolves only under a push configuration the
-  gate can model faithfully (`push.default` simple/current/upstream, no extra ref updates).
+  `remote.<name>.push`, a mirror remote or `push.followTags` add updates the command does not name, so the
+  push is NOT MEASURED (N2). Only a narrow list of target-neutral options is read; `--` ends option
+  parsing; an abbreviation (git takes `--mir` for `--mirror`), `--repo`, or any option the gate does not
+  model is NOT MEASURED (review R3-1). Git booleans are read as git reads them (`1`, `yes`, `on` are true),
+  and a value git cannot read is NOT MEASURED (R3-3). A bare `git push` resolves only under a push
+  configuration the gate can model faithfully (`push.default` simple/current/upstream, no extra ref
+  updates).
+- The push endpoint must be one URL, equal for fetch and push, so the remote-tracking ref records the state
+  of the endpoint the push updates. A `pushurl`, a `url.<base>.pushInsteadOf` rewrite, or a second
+  `remote.<name>.url` sends the push elsewhere or to a further endpoint and is NOT MEASURED (Befund 1); a
+  symmetric `insteadOf` rewrites fetch and push alike and is faithful. Configuration the gate's separate
+  reads cannot see is refused: a `git -c <key>=…` or `--config-env` whose key can change the target is NOT
+  MEASURED (R3-1); a `GIT_CONFIG_*` injection in the environment is read by the gate as the push reads it,
+  because the gate's git runs in the push's own environment.
 - For each target the gate evaluates the evidence at every commit the push newly sends, not only the tip,
   so a valid tip cannot heal an intermediate commit that removes the declaration or carries evidence that
-  does not verify (N3). A shallow clone, or a range longer than the gate can evaluate inside its deadline,
-  is NOT MEASURED.
+  does not verify (N3). A shallow clone, or a range of more than 64 commits (the gate cannot evaluate it
+  inside its deadline), is NOT MEASURED. Every gate read runs with replace refs and `.git/info/grafts`
+  turned off, so the gate judges the objects and ancestors the push transfers, not a local rewrite of them
+  (review R3-8).
 - A `gh pr create` or `gh release create` is judged as a push of the current branch to its upstream.
 - An unresolved push is asked under Claude Code and denied under Codex (D12). The D5 inactive shortcut
   applies only when the push resolves and every sent commit and the target's state declare nothing; an
