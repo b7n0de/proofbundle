@@ -485,6 +485,29 @@ and every gap as sentence, measurement and question, are in `SECTION4_WGLC.md`.
 `fetch_external.py` exits 1 on a digest mismatch and 2 when a source is unreachable; the other
 two exit 2 when the fetched files are missing.
 
+## CORPUS FREEZE, ROUNDS 1 TO 3
+
+`CORPUS_FREEZE_rounds_1_to_3.sha256` freezes the three rounds as stored at `578a4f65`: one line per tracked
+file of `differential_corpus/`, `differential_corpus_round2/` and `differential_corpus_round3/`, 450 files,
+in sha256sum form, paths relative to the repository root, sorted bytewise by path (`LC_ALL=C`), LF line
+ends. It lies outside the three directories and does not list itself. No corpus file changed when it was
+added. Its SHA-256:
+
+    10149f72d1eb4e9ea8f70463c0a1eca1cb70d0688e98a82fa32299aeea29dfe1
+
+The check, from the repository root at the freeze commit, with Python's standard library and git only,
+offline:
+
+    python3 tools/scitt_ccf_external/check_corpus_freeze.py --expect 10149f72d1eb4e9ea8f70463c0a1eca1cb70d0688e98a82fa32299aeea29dfe1
+
+It compares the file's SHA-256 with the argument, then the listed paths with exactly the files
+`git ls-files` reports under the three directories (nothing missing, nothing extra, no duplicate), then
+every file with its line, and stops with exit 1 at the first deviation, which it names. Without
+`--expect` it stops with exit 2 and does not fall back to the value above: a hash read from the same tree
+would pass when both were replaced together. `LC_ALL=C sha256sum -c` over the same file is a second,
+independent check of the lines, not of the coverage. `tests/test_scitt_ccf_corpus_freeze.py` holds the
+check to that contract with one planted deviation per case.
+
 ## FILES
 
 | file | |
@@ -510,6 +533,8 @@ two exit 2 when the fetched files are missing.
 | `preimage_candidates.py` | ten candidates for the preimage of the receipt's data-hash, with named variants, the added variant 4-deep-tagged and the added candidate 11, per accepted corpus vector. It writes `candidate_hashes.json` next to each `record.json`, and `preimage_summary.json` |
 | `differential_corpus_round2.py` | the corpus's second round: protected-header encodings, duplicate and both-bucket labels, crit, and the control again after a configuration change and a restart |
 | `differential_corpus_round2/` | the recorded second round of 2026-09-26, in the first round's stored form, pinned per vector and phase |
+| `check_corpus_freeze.py` | checks the freeze of rounds 1 to 3 against the SHA-256 given with `--expect`; `--write` made the file |
+| `CORPUS_FREEZE_rounds_1_to_3.sha256` | the freeze: one sha256sum line per tracked file of the three corpus directories |
 | `.gitignore` | keeps `fetched/` out of the repository |
 
 ---
