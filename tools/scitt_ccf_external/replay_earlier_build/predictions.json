@@ -1,0 +1,118 @@
+{
+ "schema": "proofbundle.scitt-ccf.replay-predictions.v1",
+ "build": {
+  "service_commit": "5a973bb3af8a0c506923c501d4e2aeb508867105",
+  "ccf": "7.0.14",
+  "fallback": "the same predictions hold for the fallback, 5a973bb3 with CCF 7.0.10"
+ },
+ "basis": [
+  "The outcome of each vector on 00101f76 with CCF 7.0.17, as measured in rounds 2 and 3 and for PR 299 on the round 3 build.",
+  "The ledger's registration code is the same in 5a973bb3 and 00101f76 (build_choice.json); a difference can only come from CCF.",
+  "CCF 7.0.15's #8297 rejects composite and tagged map keys; none of the nine has a map key that is not an integer.",
+  "Each request's outer structure is already in preferred framing, so C(n) differs from the request only by the emptied unprotected map, whichever CBOR implementation re-emits it.",
+  "The ledger resolves the did:x509 issuer without validating time, so the expired signer certificates of rounds 2 and 3 do not change an outcome."
+ ],
+ "what_would_refute_it": "Any measured outcome, refusal text or data-hash that differs from a row here. A refusal never carries a data-hash; cn_sha256 is the oracle's rebuilt object for every row and is a commitment only where a receipt exists.",
+ "fixed_before": "the first registration of the replay: this file is committed on its own, before the run, and the run refuses to register without it",
+ "vectors": [
+  {
+   "name": "r3-control",
+   "request_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+   "cn_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+   "predicted": {
+    "outcome": "registered",
+    "why": "the v1 shape, registered in every round",
+    "expected_data_hash": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32"
+   }
+  },
+  {
+   "name": "r3-r-a10-cwt-claims-unprotected",
+   "request_sha256": "1565059345b3e5424af8ccd839104ee7ab88626daa79813231dfc01a3cda61fe",
+   "cn_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+   "predicted": {
+    "outcome": "registered",
+    "why": "registered in rounds 1 and 3; the ledger reads CWT Claims from the protected header only, and the unprotected map is emptied before hashing, so the data-hash is the control's",
+    "expected_data_hash": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32"
+   }
+  },
+  {
+   "name": "r3-m-u15",
+   "request_sha256": "bae0467d702873b556c55d755d8f751c88db71607411cc0e36bb22ba2b624795",
+   "cn_sha256": "4fd2125fd28e8ec321f22274838f6e52d2d84075662b606ae75617bf0e63b3e2",
+   "predicted": {
+    "outcome": "refused",
+    "why": "refused in round 3 with this text from app/src/verifier.h, unchanged in 5a973bb3; the issuer is read from the protected header, which no longer carries CWT Claims",
+    "refusal_stage": "POST /entries",
+    "api_status": 400,
+    "expected_error_text": "Signed statement protected header must contain CWT_Claims with at least an issuer",
+    "expected_data_hash": null
+   }
+  },
+  {
+   "name": "r2-g03-alg-1-byte-argument",
+   "request_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+   "cn_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+   "predicted": {
+    "outcome": "registered",
+    "why": "registered in round 2; the non-preferred head 38 06 lies inside the protected bstr, which the service copies as submitted and the ledger's QCBOR reads",
+    "expected_data_hash": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21"
+   }
+  },
+  {
+   "name": "r3-x-pa-ub-sig-a",
+   "request_sha256": "72edfc65e9eeede2730de644b61ad478d12658d16fdcb462726ab35a727e4bb0",
+   "cn_sha256": "430b308746d924aa83a4287ac944e32ab2c0d843891cf43b10a6999f1078e96e",
+   "predicted": {
+    "outcome": "registered",
+    "why": "registered in round 3: the key is the protected x5chain's (A), and the statement is signed with A",
+    "expected_data_hash": "430b308746d924aa83a4287ac944e32ab2c0d843891cf43b10a6999f1078e96e"
+   }
+  },
+  {
+   "name": "r3-x-pa-ub-sig-b",
+   "request_sha256": "7013f32bfed8432e19274f2faaa872d7c68b0407db3b8a724bb45b0613e59fb3",
+   "cn_sha256": "c32eaf59848e5e4b465a7bc72e70dc6bd7c10a246867d3be8783903a00a5d77a",
+   "predicted": {
+    "outcome": "refused",
+    "why": "refused in round 3: signed with B, verified with the protected x5chain's key A (app/src/cose.h line 984)",
+    "refusal_stage": "POST /entries",
+    "api_status": 400,
+    "expected_error_text": "Signature verification failed",
+    "expected_data_hash": null
+   }
+  },
+  {
+   "name": "r3-x-pb-ua-sig-a",
+   "request_sha256": "add014e1ec3efc279a2abfb386050965a1e73eb101d0b69b258284700cf1d369",
+   "cn_sha256": "fa73cf9758abf94bba52efcaaed0d791bcc67f92534fb1d6354d335a99984e3e",
+   "predicted": {
+    "outcome": "refused",
+    "why": "refused in round 3: signed with A, verified with the protected x5chain's key B",
+    "refusal_stage": "POST /entries",
+    "api_status": 400,
+    "expected_error_text": "Signature verification failed",
+    "expected_data_hash": null
+   }
+  },
+  {
+   "name": "r3-x-pb-ua-sig-b",
+   "request_sha256": "5d6deebfb237cccaa006627f81eb2a114a15499e1ed4caeda462fe5eae590678",
+   "cn_sha256": "722eb69ef107cb13cd572a2d9d8a6757a5b7a1b6b8e55d4896e7eabd83087656",
+   "predicted": {
+    "outcome": "registered",
+    "why": "registered in round 3: the key is the protected x5chain's (B), and the statement is signed with B",
+    "expected_data_hash": "722eb69ef107cb13cd572a2d9d8a6757a5b7a1b6b8e55d4896e7eabd83087656"
+   }
+  },
+  {
+   "name": "pr299-es256-protected-x5chain",
+   "request_sha256": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb",
+   "cn_sha256": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb",
+   "predicted": {
+    "outcome": "registered",
+    "why": "registered on the round 3 build (POST 202, txid 2.41); ES256 with a protected x5chain and CWT Claims iss and sub",
+    "expected_data_hash": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb"
+   }
+  }
+ ]
+}
