@@ -362,9 +362,11 @@ def _bauen(gelesen: dict, wurzel: Any) -> Any:
     as one in the copy (a ``str`` subclass beside the ``str`` it spells), an object of this package with an attribute
     name that is no exact ``str``, a view of such a dict, and a memoryview whose format and shape a view of private
     bytes cannot take (a format with a byte order such as ``<H``, a record ``T{...}``, ``u``: `memoryview.cast` takes
-    none of them) stay the caller's objects. Such a view is read by both collects, so the reading is one state, but
-    the body reads the caller's view when it reads it; a view of private bytes in format ``B`` would be another value to
-    a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`)."""
+    none of them) stay the caller's objects. Such a memoryview is read by both collects, so the reading is one state,
+    but the body reads the caller's view when it reads it; a view of private bytes in format ``B`` would be another
+    value to a reader that judges a buffer by its format (`adapters.agt_receipt._puffer`). A view of such a dict is
+    read by the first collect only, and the dict it shows by both (Codex review of pull request 311, thread
+    4154348678), so its reading is one state as well."""
     kopie: dict = {}
     schluessel_je: dict = {}
     for schluessel, (art, typ, inhalt, extra, _) in gelesen.items():

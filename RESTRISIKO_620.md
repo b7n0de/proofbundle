@@ -940,7 +940,8 @@ file; these lines are its other findings.
   class too (hermetic-cleanroom at 238b23b7), where 3.10.12 and 3.11.15 refuse it. The copy is a plain tuple either
   way. No verdict is affected. Workaround: none is needed by a caller.
 - **R620-F19-1, P3. Four wordings of the docstring of `canonical._bauen` are wider or narrower than what the reading
-  does** (third text lens, on 0e66150e, which found no sentence false): "an object of the caller's own class" among the
+  does** (third text lens, on 0e66150e, which found none of the sentences that commit added or changed false): "an
+  object of the caller's own class" among the
   values that stay the caller's also matches a caller's subclass of a built-in container, which the next sentences name
   as copied to its base type; "reaches it" means the private copy, while a container of the caller reached both from a
   copied place and from a value that stays the caller's appears in the copy once as a copy and once as the caller's
