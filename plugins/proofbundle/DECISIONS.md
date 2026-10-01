@@ -507,11 +507,16 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   throwaway repository and a bare remote in a temporary folder. The repository declares a stale subject and
   tracks a named branch on the bare remote (so the push resolves, D3); the model runs one `git push` to
   that branch, which the gate is expected to deny. The check reports, observation-near, whether the gate
-  logged that deny and whether the throwaway remote's target moved from the OID it stored at prepare:
-  "Expected denial logged; test target unchanged." (the host kept the push out), "Expected denial logged;
-  test target changed." (the host let it through), "Test target changed; no matching gate event observed."
-  (the hooks did not run), or NOT MEASURABLE. Every result carries the limit that the log is local, so this
-  is a local diagnosis, not an independent proof of the host's hook. It never pushes to a real remote; the
+  logged that deny and whether the throwaway remote's target still equals the OID it stored at prepare:
+  "Expected denial logged; test target unchanged.", "Expected denial logged; test target changed.", "Test
+  target changed; no matching gate event observed.", or NOT MEASURABLE. A missing, empty or invalid stored
+  base OID is not a comparison value: the target then cannot be compared and the result is NOT MEASURABLE,
+  never read as changed or unchanged against an empty string (review R3-5). Every result carries the limit,
+  verbatim: "The results report whether an expected deny entry was found and whether the target still
+  equals the recorded base OID. They do not establish why an observation is missing. NOT MEASURABLE means
+  the observations do not support another result. The limit applies to every result." (review R3-6), and
+  the round-2 caution that the log is local, so this is a local diagnosis, not an independent proof of the
+  host's hook. It never pushes to a real remote; the
   check refuses any folder it did not create, and takes no special path for the self-test in the gate. The
   skill runs only when the user invokes it. The time window gate_status reports where there is no host
   session id is labelled as a window since the server started, not a session.

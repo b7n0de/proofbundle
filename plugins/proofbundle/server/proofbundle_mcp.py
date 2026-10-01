@@ -347,10 +347,13 @@ def _run_git(*args: str, cwd: str | None = None) -> None:
                    env=dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0"))
 
 
-#: Every self-test result carries this, because the log is a local file any local process can write
-#: (DECISIONS.md, D21; review N5).
-SELFTEST_LIMIT = ("The log is a local file that any local process can write; this result is a local "
-                  "diagnosis, not an independent proof of the host's hook.")
+#: Every self-test result carries this. The first four sentences are the reviewer's limit (review R3-6),
+#: verbatim; the last is the round-2 caution that the log is local (DECISIONS.md, D21; review N5).
+SELFTEST_LIMIT = ("The results report whether an expected deny entry was found and whether the target still "
+                  "equals the recorded base OID. They do not establish why an observation is missing. NOT "
+                  "MEASURABLE means the observations do not support another result. The limit applies to "
+                  "every result. The log is a local file that any local process can write, so this result "
+                  "is a local diagnosis, not an independent proof of the host's hook.")
 _ZERO_SUBJECT = {"algorithm": "proofbundle-tree-sha256/v1", "digest": "0" * 64}
 
 
@@ -420,14 +423,23 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
             base_oid = handle.read().strip()
     except OSError:
         base_oid = ""
+    # A missing, empty or invalid base OID is not a comparison value (review R3-5): without it the target
+    # cannot be compared, so target_changed is null and the result is NOT MEASURABLE, never 'unchanged' or
+    # 'changed' from an empty string.
+    valid_base = 40 <= len(base_oid) <= 64 and all(c in "0123456789abcdef" for c in base_oid)
     remote = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
                              "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False)
-    # The target moved only if the throwaway remote's main is no longer the base the push was measured from.
-    target_changed = None if remote.returncode not in (0, 1) else (remote.stdout.strip() != base_oid)
+    remote_main = remote.stdout.strip()
+    target_changed = (remote_main != base_oid) if (valid_base and remote.returncode in (0, 1)) else None
     path, source = _log_path()
     result: dict = {"plugin_version": SERVER_VERSION, "work": work, "target_changed": target_changed,
-                    "base_oid": base_oid, "remote_main": remote.stdout.strip() or None,
+                    "base_oid": base_oid, "remote_main": remote_main or None,
                     "log_path": path, "log_source": source, "limit": SELFTEST_LIMIT}
+    if not valid_base:
+        result.update(result="NOT MEASURABLE",
+                      reason="NOT MEASURED: the recorded base OID is missing, empty or invalid, so the "
+                             "target cannot be compared")
+        return result, False
     if path is None:
         result.update(result="NOT MEASURABLE", reason="NOT MEASURED: " + source)
         return result, False
@@ -442,21 +454,26 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
               and any(os.path.realpath(r.get("path") or "") == work and r.get("reason_id") == "stale_subject"
                       for r in e.get("repos") or [])]
     result["log_entries"] = denied[-3:]
+    # The reasons state the two observations only, not why one is missing (review R3-6).
     if denied and target_changed is False:
         result.update(result="Expected denial logged; test target unchanged.",
-                      reason="the gate denied the self-test push and the throwaway remote did not receive it")
+                      reason="an expected deny for this push was found in the log, and the target still "
+                             "equals the recorded base OID")
     elif denied and target_changed is True:
         result.update(result="Expected denial logged; test target changed.",
-                      reason="the gate denied the self-test push, yet it reached the throwaway remote")
+                      reason="an expected deny for this push was found in the log, and the target no longer "
+                             "equals the recorded base OID")
     elif denied:
         result.update(result="NOT MEASURABLE",
-                      reason="the gate denied the push, but the throwaway remote's state could not be read")
+                      reason="an expected deny was found, but the target state could not be read")
     elif target_changed is True:
         result.update(result="Test target changed; no matching gate event observed.",
-                      reason="the push reached the throwaway remote and the gate logged no deny for it")
+                      reason="the target no longer equals the recorded base OID, and no matching deny for "
+                             "this push was found in the log")
     else:
         result.update(result="NOT MEASURABLE",
-                      reason="no matching gate deny was logged and the push did not reach the throwaway remote")
+                      reason="no matching deny for this push was found in the log, and the target still "
+                             "equals the recorded base OID")
     return result, False
 
 

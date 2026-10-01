@@ -24,6 +24,7 @@ import base64
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -220,7 +221,7 @@ def test_gate_status_says_not_measured_where_it_cannot_read_the_log(env):
 
 
 def _run_selftest(env: dict, tmp_path: pathlib.Path, *, hook: bool, data: pathlib.Path | None,
-                  run_push: bool = True, stray: bool = False) -> dict:
+                  run_push: bool = True, stray: bool = False, before_check=None) -> dict:
     """Prepare the self-test, optionally run the gate hook over its push (logging a deny), optionally let
     the push reach the throwaway remote (run_push, as a host that ignores the deny would), then check. The
     gate denies the push for a stale subject, reached without the verifier, so no uv shim is needed."""
@@ -244,9 +245,12 @@ def _run_selftest(env: dict, tmp_path: pathlib.Path, *, hook: bool, data: pathli
         assert answer["hookSpecificOutput"].get("permissionDecision") == "deny"
     if run_push:  # a host that does not honour the deny lets the push reach the remote
         subprocess.run(prepared["command"], shell=True, check=True, capture_output=True)
+    if before_check is not None:  # tamper with the recorded base or the remote between prepare and check
+        before_check(pathlib.Path(prepared["work"]).parent)
     (checked,) = _server(server_env, [("gate_selftest_check", {"work": prepared["work"],
                                                                "started_at": prepared["started_at"]})])
-    assert checked["limit"].startswith("The log is a local file")
+    assert checked["limit"].startswith("The results report whether an expected deny entry was found")
+    assert "The log is a local file" in checked["limit"]
     shutil.rmtree(pathlib.Path(prepared["work"]).parent)
     return checked
 
@@ -271,6 +275,46 @@ def test_the_selftest_reports_a_push_with_no_gate_event(env, tmp_path):
 def test_the_selftest_counts_only_the_gate_deny_for_its_own_push(env, tmp_path):
     checked = _run_selftest(env, tmp_path, hook=False, data=tmp_path / "data", run_push=False, stray=True)
     assert checked["result"] == "NOT MEASURABLE", "a deny for another repo is not the self-test's own"
+
+
+#: The reviewer's limit for the self-test results (review R3-6), verbatim.
+R3_6_LIMIT = ("The results report whether an expected deny entry was found and whether the target still "
+              "equals the recorded base OID. They do not establish why an observation is missing. NOT "
+              "MEASURABLE means the observations do not support another result. The limit applies to every "
+              "result.")
+
+
+def test_the_selftest_limit_sentence_is_the_reviewers_and_stands_everywhere():
+    """R3-6: the self-test reports two observations and does not explain a missing one. The reviewer's
+    limit stands verbatim in the server's SELFTEST_LIMIT, the selftest skill and D21."""
+    server_limit = re.search(r'SELFTEST_LIMIT = \((.*?)\)\n', SERVER.read_text(encoding="utf-8"), re.S).group(1)
+    skill = (PLUGIN / "skills" / "selftest" / "SKILL.md").read_text(encoding="utf-8")
+    decisions = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
+    sources = {"SELFTEST_LIMIT": server_limit.replace('"', "").replace("\n", " "),
+               "skill": skill, "D21": decisions}
+    for where, text in sources.items():
+        assert R3_6_LIMIT in " ".join(text.split()), where
+
+
+def test_the_selftest_is_not_measurable_without_a_recorded_base_oid(env, tmp_path):
+    """R3-5: a missing base OID must not be read as a comparison value. After a real deny with no executed
+    push, deleting the recorded base left the gate reporting 'test target changed'. It is NOT MEASURABLE."""
+    checked = _run_selftest(env, tmp_path, hook=True, data=tmp_path / "data", run_push=False,
+                            before_check=lambda parent: (parent / "base_oid").unlink())
+    assert checked["result"] == "NOT MEASURABLE"
+    assert checked["target_changed"] is None
+
+
+def test_the_selftest_is_not_measurable_with_no_base_oid_and_no_target(env, tmp_path):
+    """R3-5, the reviewer's second case: deleting the base and the throwaway remote's main left the gate
+    reporting 'test target unchanged' (empty equals empty). It is NOT MEASURABLE."""
+    def tamper(parent):
+        (parent / "base_oid").unlink()
+        subprocess.run(["git", "--git-dir", str(parent / "remote.git"), "update-ref", "-d", "refs/heads/main"],
+                       check=True, capture_output=True)
+    checked = _run_selftest(env, tmp_path, hook=True, data=tmp_path / "data", run_push=False, before_check=tamper)
+    assert checked["result"] == "NOT MEASURABLE"
+    assert checked["target_changed"] is None
 
 
 def test_the_selftest_is_not_measurable_without_a_readable_log(env, tmp_path):
