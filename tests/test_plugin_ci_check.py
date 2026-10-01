@@ -238,7 +238,7 @@ def test_the_check_does_not_read_the_push_range(env, repo, tmp_path, monkeypatch
     _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
     _git(repo, "push", "-q", "origin", "HEAD~1:refs/heads/main")
     _git(repo, "fetch", "-q", "origin")
-    verdict = gate.evaluate_repository(str(repo), gate.time.monotonic() + gate.DEADLINE_SECONDS)
+    verdict = gate.evaluate_push(str(repo), ["origin", "main"], gate.time.monotonic() + gate.DEADLINE_SECONDS)
     assert (verdict.decision, verdict.reason_id) == ("ask", "rules_changed")
     code, report = check(env, repo, True)
     assert (code, report["outcome"]) == (0, "verified")

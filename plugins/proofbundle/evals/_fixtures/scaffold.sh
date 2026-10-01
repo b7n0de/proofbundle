@@ -57,11 +57,12 @@ case "$mode" in
     fi
     git add -A
     git commit -q -m release
-    if [ "$mode" != repo-nodecl ] && [ "$mode" != repo-worktree-only ]; then
-      # The reviewed state of the evidence rules, as the remote holds it (DECISIONS.md, D20): pushed to
-      # another branch, so remote.git/refs/heads/main still tells whether the case's push went through.
-      git push -q origin HEAD:refs/heads/published
-    fi
+    # The reviewed state of the evidence rules for the branch these cases push, as this repository is known
+    # to track it (DECISIONS.md, D3, D20). Only the local remote-tracking ref is set; refs/heads/main is left
+    # off the bare remote, so remote.git/refs/heads/main still tells whether the case's own push went through.
+    # The gate reads local refs and never contacts the remote, so this tracking ref is all it compares
+    # against. For repo-rules-changed this records the state before the second-issuer commit added next.
+    git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
     if [ "$mode" = repo-rules-changed ]; then
       python3 - "$data/foreign.pub" <<'PY'
 import json, sys

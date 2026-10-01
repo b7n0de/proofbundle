@@ -75,17 +75,38 @@ Options:
 - B. Each item names a subject digest equal to a digest of the pushed tree (chosen).
 - C. Verify at every commit in the pushed range, not only at HEAD.
 
-## D3. Which head
+## D3. Which commits a push is judged by
 
-Chosen: HEAD of the repository the call acts on. That repository is the hook's working directory,
-changed by a literal `cd <dir>`, `pushd <dir>` or `git -C <dir>` in the same command. A directory the
-gate cannot resolve literally (a variable, `popd`, `--git-dir`, `--work-tree`) is NOT MEASURED. The
-refspec is not read: `git push origin other-branch` is judged by the evidence at HEAD.
+Chosen (option B, after the external review's N1, N2 and N3, 2026-10-01): every commit newly reachable
+from each pushed source relative to that target's locally known remote-tracking state. If the complete
+set of updates, a target's comparison state, or the required history cannot be resolved, the push is NOT
+MEASURED. The remote itself is not read.
+
+- The repository is the hook's working directory, changed by a literal `cd <dir>`, `pushd <dir>` or
+  `git -C <dir>` in the same command. A directory the gate cannot resolve literally (a variable, `popd`,
+  `--git-dir`, `--work-tree`) is NOT MEASURED.
+- A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
+  the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
+  remote with a uniquely mapped local remote-tracking ref. There is no default-branch fallback: a new
+  branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
+  MEASURED (N1). `--all`, `--mirror`, `--tags`, a wildcard or negative refspec, a configured
+  `remote.<name>.push`, a `pushurl`, a mirror remote or `push.followTags` add updates the command does not
+  name, so the push is NOT MEASURED (N2). A bare `git push` resolves only under a push configuration the
+  gate can model faithfully (`push.default` simple/current/upstream, no extra ref updates).
+- For each target the gate evaluates the evidence at every commit the push newly sends, not only the tip,
+  so a valid tip cannot heal an intermediate commit that removes the declaration or carries evidence that
+  does not verify (N3). A shallow clone, or a range longer than the gate can evaluate inside its deadline,
+  is NOT MEASURED.
+- A `gh pr create` or `gh release create` is judged as a push of the current branch to its upstream.
+- An unresolved push is asked under Claude Code and denied under Codex (D12). The D5 inactive shortcut
+  applies only when the push resolves and every sent commit and the target's state declare nothing; an
+  unresolved push never switches the gate off (N2).
 
 Options:
-- A. HEAD only (chosen).
-- B. Resolve each pushed refspec and verify at each pushed commit.
-- C. Treat a push whose refspec is not the current branch as NOT MEASURED.
+- A. HEAD only, refspec not read (the pre-review behaviour; a push of another branch was judged at HEAD).
+- B. Every newly reachable commit per resolved target, unresolved is NOT MEASURED (chosen).
+- C. Treat a push whose refspec is not the current branch as NOT MEASURED (too coarse: it would miss a
+  bare push of a branch the gate can resolve).
 
 ## D4. What a pass does
 
@@ -395,29 +416,41 @@ Options:
 
 ## D20. A push that changes the evidence rules is reported
 
-Chosen (smallest variant that fails closed, 2026-09-30, for the owner's review):
+Chosen (smallest variant that fails closed, 2026-09-30; the range tightened after the review's N1, N2, N3
+on 2026-10-01):
 - The evidence rules are the declaration's items without their per-release `subject` (`kind`, `path`,
   `policy`, `public_key`), whether a declaration exists at all, and the bytes of every declared policy.
   An evidence file, the declared subject and any other file under `.proofbundle/` are not rules, so a
-  release that brings new evidence for a new tree is no rules change.
-- The range is what the push adds: `git rev-list HEAD --not --remotes`, the commits no remote-tracking ref
-  holds. Its boundary is the predecessor, what the remote is known to have. The gate compares the rules at
-  every boundary commit with the rules at HEAD. It reads local refs only and never fetches, so a stale
-  remote-tracking ref gives a stale predecessor.
+  release that brings new evidence for a new tree is no rules change. No rule is a path to a key: a
+  decision item's `public_key` is the key itself in base64, and a bundle pins its signer inside its
+  policy, whose bytes are compared at both commits. Outside these rules stand the plugin's hook
+  configuration, the settings of the host and of the user (a setting that turns hooks off, for example),
+  the proofbundle version the plugin pins, and the programs on PATH that run the check (git, uv, python).
+- The gate compares the evidence rules of each commit a push sends to a branch or tag with the rules at
+  that target's remote-tracking ref (`refs/remotes/<remote>/<branch>`), resolved by D3. A deletion compares
+  an absent declaration with the target. A push whose targets the gate cannot resolve, or a target without
+  such a ref, is NOT MEASURED (there is no default-branch fallback, N1). The gate reads local refs only; a
+  fetch updates its view of the remote and proves no rules check.
 - A difference is asked under Claude Code and denied under Codex, with the change named and the note that
-  changes to the evidence rules need a review. Once the remote holds the change, the push is plain.
-- With no remote-tracking ref at all, the range is NOT MEASURED: a repository that declares evidence is
-  asked (denied under Codex) even when the evidence verifies. A repository that declares nothing stays
-  inactive (D5); a push that removes a declaration the remote holds is a rules change.
-- A deny for failed evidence comes first; the rules are compared only after the evidence verified.
+  changes to the evidence rules need a review. Once the target's remote-tracking ref holds the change, a
+  push to that target is plain; the same change held by another branch or another remote is still a change
+  for this target.
+- The D5 inactive shortcut (a repository that declares nothing) applies only to a resolved push whose sent
+  commits and target all declare nothing. An unresolved push never switches the gate off, even when HEAD
+  declares nothing, because it may send another branch the gate did not see (N2).
+- A deny for failed evidence at any sent commit comes first; the rules are compared only after the evidence
+  verified.
 
-Price: the first push of a fresh clone without fetched remote refs, or of a repository whose remote was
-never fetched, is asked (denied under Codex) until `git fetch` makes the remote's state known.
+Price: a push to a target for which this repository has no remote-tracking ref (a remote given as a URL, a
+remote never fetched, a brand-new branch or tag) is asked (denied under Codex). An ordinary fresh clone has
+these refs for the branches it tracks and is not affected.
 
 Options:
-- A. Compare against the remote-tracking refs, NOT MEASURED without them (chosen).
-- B. Compare only against the upstream of the current branch; a new branch has none.
-- C. Read the remote over the network before each push.
+- A. Compare `git rev-list HEAD --not --remotes` against every remote-tracking ref (the pre-review
+  behaviour; the review showed it reads the wrong target and lets an unresolved push through, N1/N2).
+- B. Resolve the push targets and compare every sent commit against each target's own tracking ref,
+  unresolved is NOT MEASURED (chosen).
+- C. Read the remote over the network before each push (rejected: the gate never fetches).
 
 ## D21. A local log shows whether the gate ran
 

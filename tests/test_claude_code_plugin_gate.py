@@ -31,9 +31,11 @@ Properties checked:
   own deadline, so a host that lets a timed-out hook pass never gets the chance;
 - every deny and every ask names the evidence it concerns, what failed and the next step, and carries the
   rule never to weaken the declaration, a policy or a key to get past the gate (D19);
-- a push that changes the evidence rules under .proofbundle/ against what the remote is known to hold is
-  asked, a change of an evidence file or of the per-release subject is not a rules change, and without
-  any remote-tracking ref the range is NOT MEASURED (D20).
+- a push is resolved to its targets and the commits it newly sends to each (D3, D20): a change of the
+  evidence rules at any sent commit against the target's tracked state is asked, a change of an evidence
+  file or of the per-release subject is not, an intermediate commit that removes the declaration or whose
+  evidence does not verify is caught even behind a valid tip, and a push the gate cannot resolve (no
+  tracking ref, --all, a URL remote, an untracked branch) is NOT MEASURED, never inactive (N1, N2, N3).
 """
 from __future__ import annotations
 
@@ -126,13 +128,18 @@ def _publish(repo: pathlib.Path) -> None:
     _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
 
 
-def _plain(tmp_path: pathlib.Path, name: str = "plain") -> pathlib.Path:
-    """A repository with one commit that never declared anything and has no remote."""
+def _plain(tmp_path: pathlib.Path, name: str = "plain", *, remote: bool = False) -> pathlib.Path:
+    """A repository with one commit that never declared anything. With remote=True it has a bare remote and
+    a remote-tracking ref for main, so a bare push resolves to a target this repository already tracks."""
     path = tmp_path / name
     path.mkdir()
     _git(path, "init", "-q", "-b", "main")
     _write(path / "README.md", "never declared\n")
     _commit(path)
+    if remote:
+        _git(tmp_path, "init", "-q", "--bare", str(tmp_path / f"{name}.git"))
+        _git(path, "remote", "add", "origin", str(tmp_path / f"{name}.git"))
+        _git(path, "push", "-q", "origin", "HEAD:refs/heads/main")
     return path
 
 
@@ -221,31 +228,31 @@ def reason(answer: dict) -> str:
 # --- which calls are gated ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("command, expected", [
-    ("git push", [("git push", ".")]),
-    ("git push origin main --tags", [("git push", ".")]),
-    ("git -c push.default=simple push", [("git push", ".")]),
-    ("git --no-pager push", [("git push", ".")]),
-    ("/usr/bin/git push", [("git push", ".")]),
-    ("git-push origin", [("git push", ".")]),
-    ("FOO=1 sudo command git push", [("git push", ".")]),
-    ("make && git push", [("git push", ".")]),
-    ("git status\ngit push", [("git push", ".")]),
-    ("x=$(git push)", [("git push", ".")]),
-    ("`git push`", [("git push", ".")]),
-    ("bash -c 'git push'", [("git push", ".")]),
-    ("echo 'git push'", [("git push", ".")]),
-    ("gh pr create --fill", [("gh pr create", ".")]),
-    ("gh pr new", [("gh pr new", ".")]),
-    ("gh -R owner/repo pr create", [("gh pr create", ".")]),
-    ("gh release create v1.0.0", [("gh release create", ".")]),
-    ("gh release new v1", [("gh release new", ".")]),
-    ("cd sub && git push", [("git push", "sub")]),
-    ("sh -c 'cd sub; git push'", [("git push", "sub")]),
-    ("git -C ../other push", [("git push", "../other")]),
-    ("cd $HOME && git push", [("git push", gate.UNKNOWN)]),
-    ("git --git-dir=x push", [("git push", gate.UNKNOWN)]),
-    ("popd; git push", [("git push", gate.UNKNOWN)]),
-    ("git commit -m 'no closing quote; git push", [("unparsed command", gate.UNKNOWN)]),
+    ("git push", [("git push", ".", [])]),
+    ("git push origin main --tags", [("git push", ".", ["origin", "main", "--tags"])]),
+    ("git -c push.default=simple push", [("git push", ".", [])]),
+    ("git --no-pager push", [("git push", ".", [])]),
+    ("/usr/bin/git push", [("git push", ".", [])]),
+    ("git-push origin", [("git push", ".", ["origin"])]),
+    ("FOO=1 sudo command git push", [("git push", ".", [])]),
+    ("make && git push", [("git push", ".", [])]),
+    ("git status\ngit push", [("git push", ".", [])]),
+    ("x=$(git push)", [("git push", ".", [])]),
+    ("`git push`", [("git push", ".", [])]),
+    ("bash -c 'git push'", [("git push", ".", [])]),
+    ("echo 'git push'", [("git push", ".", [])]),
+    ("gh pr create --fill", [("gh pr create", ".", None)]),
+    ("gh pr new", [("gh pr new", ".", None)]),
+    ("gh -R owner/repo pr create", [("gh pr create", ".", None)]),
+    ("gh release create v1.0.0", [("gh release create", ".", None)]),
+    ("gh release new v1", [("gh release new", ".", None)]),
+    ("cd sub && git push", [("git push", "sub", [])]),
+    ("sh -c 'cd sub; git push'", [("git push", "sub", [])]),
+    ("git -C ../other push", [("git push", "../other", [])]),
+    ("cd $HOME && git push", [("git push", gate.UNKNOWN, [])]),
+    ("git --git-dir=x push", [("git push", gate.UNKNOWN, [])]),
+    ("popd; git push", [("git push", gate.UNKNOWN, [])]),
+    ("git commit -m 'no closing quote; git push", [("unparsed command", gate.UNKNOWN, None)]),
 ])
 def test_a_gated_call_is_found_in_every_shell_form(command, expected):
     assert gate.gated_calls(command) == expected
@@ -481,33 +488,47 @@ def test_a_malformed_declaration_is_denied(shim, repo):
     assert decision(run_gate(shim, repo, "git push")) == "deny"
 
 
-def test_a_repository_without_a_declaration_is_not_measured_and_the_gate_is_not_active(shim, tmp_path):
-    repo = _plain(tmp_path)
-    answer = run_gate(shim, repo, "git push")
+def test_a_repository_that_declares_nothing_but_whose_push_resolves_is_inactive(shim, tmp_path):
+    """D5 still holds where the push resolves: a repository that declares nothing, pushing a tracked
+    branch whose base also declares nothing, is inactive (no permission decision)."""
+    repo = _plain(tmp_path, remote=True)
+    answer = run_gate(shim, repo, "git push origin main")
     assert decision(answer) == "inactive"
     assert reason(answer).startswith("NOT MEASURED:")
-    assert "neither at HEAD" in reason(answer) and "nor in the working tree" in reason(answer)
+    assert "not active in this repository" in reason(answer)
 
 
-def test_a_declaration_only_in_the_working_tree_is_not_measured_and_asks(shim, repo):
-    _git(repo, "rm", "-q", "-r", ".proofbundle")
-    _commit(repo)
-    _declare(repo, GOOD_BUNDLE)
-    answer = run_gate(shim, repo, "git push")
+@pytest.mark.parametrize("command", ["git push", "git push --all", "git push https://example/x main",
+                                      "git push origin HEAD:release"])
+def test_an_unresolved_push_is_not_measured_even_when_nothing_is_declared(shim, tmp_path, command):
+    """N1, N2: with no tracking ref for the target, with --all, with a URL remote, or with a destination
+    this repository does not track, the gate cannot see everything the push sends. It does not switch off
+    because HEAD declares nothing; it asks (deny under Codex). There is no default-branch fallback."""
+    repo = _plain(tmp_path, remote=(command != "git push"))  # a remote exists, but the target is untracked
+    answer = run_gate(shim, repo, command)
+    assert decision(answer) == "ask"
+    assert "cannot resolve what this push sends" in reason(answer)
+
+
+def test_a_declaration_only_in_the_working_tree_is_not_measured_and_asks(shim, tmp_path):
+    """The gate reads the pushed commit, not the working tree: an uncommitted declaration over a base that
+    also declares nothing is NOT MEASURED, and the ask says it is not committed (D5)."""
+    repo = _plain(tmp_path, remote=True)
+    _declare(repo, GOOD_BUNDLE)  # written to the working tree only, never committed
+    answer = run_gate(shim, repo, "git push origin main")
     assert decision(answer) == "ask"
     assert reason(answer).startswith("NOT MEASURED:")
     assert "not committed" in reason(answer)
     _git(repo, "add", "-A")
-    answer = run_gate(shim, repo, "git push")
-    assert decision(answer) == "ask", "staged is not committed; the gate reads HEAD"
+    answer = run_gate(shim, repo, "git push origin main")
+    assert decision(answer) == "ask", "staged is not committed; the gate reads the commit"
 
 
 @pytest.mark.parametrize("plant", ["file", "dangling-link", "folder"])
-def test_anything_at_the_declaration_path_of_the_working_tree_keeps_the_ask(shim, repo, plant):
+def test_anything_at_the_declaration_path_of_the_working_tree_keeps_the_ask(shim, tmp_path, plant):
     """Only "no such file" measures absence; a file where the folder should be, a dangling link or a
     folder at the declaration's path is something, and the gate does not switch itself off for it."""
-    _git(repo, "rm", "-q", "-r", ".proofbundle")
-    _commit(repo)
+    repo = _plain(tmp_path, remote=True)
     target = repo / gate.DECLARATION
     if plant == "file":
         (repo / ".proofbundle").write_text("not a folder\n", encoding="utf-8")
@@ -516,7 +537,7 @@ def test_anything_at_the_declaration_path_of_the_working_tree_keeps_the_ask(shim
         target.symlink_to(repo / "nowhere.json")
     else:
         target.mkdir(parents=True)
-    answer = run_gate(shim, repo, "git push")
+    answer = run_gate(shim, repo, "git push origin main")
     assert decision(answer) == "ask"
     assert reason(answer).startswith("NOT MEASURED:")
 
@@ -554,12 +575,15 @@ def test_deleting_the_declaration_is_a_rules_change_while_the_remote_is_known(sh
     assert changed.splitlines() == [f"D\t{gate.DECLARATION}"]
 
 
-def test_without_a_known_remote_deleting_the_declaration_still_switches_the_gate_off(shim, repo):
-    """The price of D5, C that remains: with no remote-tracking ref, the gate cannot see the deletion."""
+def test_without_a_known_remote_a_push_is_not_measured(shim, repo):
+    """N1, N2: with no remote at all, the gate cannot resolve the target, so it does not switch off even
+    though the push removes the committed declaration; it asks."""
     _git(repo, "remote", "remove", "origin")
     _git(repo, "rm", "-q", gate.DECLARATION)
     _commit(repo, "drop the declaration")
-    assert decision(run_gate(shim, repo, "git push")) == "inactive"
+    answer = run_gate(shim, repo, "git push")
+    assert decision(answer) == "ask"
+    assert "cannot resolve what this push sends" in reason(answer)
 
 
 def test_an_empty_declaration_is_not_measured_and_asks(shim, repo):
@@ -589,25 +613,18 @@ def test_a_call_whose_repository_cannot_be_resolved_is_not_measured(shim, repo):
 
 
 def test_the_repository_a_directory_change_names_is_the_one_checked(shim, repo, tmp_path):
-    other = tmp_path / "other"
-    other.mkdir()
-    _git(other, "init", "-q", "-b", "main")
-    _commit(other)
+    other = _plain(tmp_path, "other", remote=True)
     assert decision(run_gate(shim, repo, "git push")) == "pass"
     assert decision(run_gate(shim, repo, f"cd {other} && git push")) == "inactive"
     assert decision(run_gate(shim, other, f"git -C {repo} push")) == "pass"
 
 
 def test_an_undeclared_repository_next_to_others_gives_way_to_their_answers(shim, repo, tmp_path):
-    other = tmp_path / "other"
-    other.mkdir()
-    _git(other, "init", "-q", "-b", "main")
-    _commit(other)
+    other = _plain(tmp_path, "other", remote=True)
     both = run_gate(shim, repo, f"git push && git -C {other} push")
     assert decision(both) == "inactive", "no decision: one verified, one not active"
     assert "1 of 1 declared items verified" in reason(both) and INACTIVE in reason(both)
-    plain = tmp_path / "plain"
-    plain.mkdir()
+    plain = _plain(tmp_path, "plain")  # no remote: its push is NOT MEASURED, so the whole call asks
     assert decision(run_gate(shim, other, f"git push && git -C {plain} push")) == "ask"
     tampered = tmp_path / "tampered"
     shutil.copytree(repo, tampered)
@@ -823,6 +840,69 @@ def test_a_changed_key_or_item_is_a_rules_change(shim, repo):
     assert "the declared items change" in reason(answer)
 
 
+def test_an_intermediate_commit_that_changes_the_rules_is_caught(shim, tmp_path):
+    """D3 B, N3: a valid tip does not heal a bad middle commit. origin/main = A (declared), B removes the
+    declaration, C restores the identical rules (same pinned key) for a new tree; the tip's rules match the
+    base, yet the push still reports B's rules change, because every sent commit is compared."""
+    path = tmp_path / "chain"
+    path.mkdir()
+    _git(path, "init", "-q", "-b", "main")
+    _write(path / "src" / "app.py", "print('A')\n")
+    _commit(path)
+    signer = generate_signer()  # held here, so C can restore A's exact policy and key
+
+    def sign(message: str) -> None:
+        digest = _head_digest(path)
+        _write(path / BUNDLE, emit_bundle(_statement(digest), signer))
+        _write(path / POLICY, _pinned_policy(signer))
+        _declare(path, {"kind": "bundle", "path": BUNDLE, "policy": POLICY, "subject": _subject(digest)})
+        _commit(path, message)
+
+    sign("A: declare")  # A
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "chain.git"))
+    _git(path, "remote", "add", "origin", str(tmp_path / "chain.git"))
+    _git(path, "push", "-q", "origin", "main")
+    _git(path, "rm", "-q", "-r", ".proofbundle")
+    _commit(path, "B: remove the declaration")  # B
+    _write(path / "src" / "app.py", "print('C')\n")
+    _commit(path, "C code")
+    sign("C: restore the identical rules for a new tree")  # C, same key and policy as A
+    answer = run_gate(shim, path, "git push origin main")
+    assert decision(answer) == "ask"
+    assert "the push removes the declaration" in reason(answer)
+
+
+def test_an_intermediate_commit_with_invalid_evidence_is_caught(shim, repo):
+    """D3 B, N3: an intermediate commit whose evidence does not verify denies the push, even though the
+    tip verifies. origin/main = A; B tampers the bundle for B's tree; C restores a valid tip."""
+    _write(repo / "src" / "app.py", "print('B and C')\n")
+    _commit(repo, "B: change code, keep A's evidence (now stale for B's tree)")  # B: stale subject -> deny
+    b_commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True,
+                              text=True, check=True).stdout.strip()
+    digest_c = _head_digest(repo)  # C changes only .proofbundle, so C's tree digest equals B's
+    fresh = generate_signer()
+    _write(repo / BUNDLE, emit_bundle(_statement(digest_c), fresh))
+    _write(repo / POLICY, _pinned_policy(fresh))
+    declaration = json.loads((repo / gate.DECLARATION).read_text())
+    declaration["evidence"][0]["subject"] = _subject(digest_c)
+    _write(repo / gate.DECLARATION, declaration)
+    _commit(repo, "C: valid evidence for the tip")  # C verifies and is bound; B in the range does not
+    answer = run_gate(shim, repo, "git push origin main")
+    assert decision(answer) == "deny"
+    assert b_commit[:12] in reason(answer) and "does not match the tree" in reason(answer)
+
+
+def test_a_force_push_that_drops_a_declaration_on_another_branch_is_resolved_or_not_measured(shim, repo, tmp_path):
+    """N1: a push to a branch this repository tracks is judged against that branch's state, not the default
+    branch. Pushing a declaration-free HEAD onto a tracked `release` that declared is a rules change."""
+    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/release")  # release = A (declared), now tracked
+    _git(repo, "rm", "-q", "-r", ".proofbundle")
+    _commit(repo, "drop the declaration")
+    answer = run_gate(shim, repo, "git push --force origin HEAD:release")
+    assert decision(answer) == "ask"
+    assert "the push removes the declaration" in reason(answer)
+
+
 def test_new_evidence_for_a_new_tree_is_no_rules_change(shim, repo):
     """A release changes the code, the evidence file and the declared subject; the rules stay."""
     _write(repo / "src" / "app.py", "print('release 2')\n")
@@ -840,16 +920,20 @@ def test_new_evidence_for_a_new_tree_is_no_rules_change(shim, repo):
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "deny", "signed by a key the unchanged policy does not pin"
     assert "evidence rules" not in reason(answer)
-    status, what = gate.rules_change(str(repo), subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                                     capture_output=True, text=True, check=True).stdout.strip(),
-                                     gate.time.monotonic() + 30)
-    assert (status, what) == ("unchanged", "")
+    # the rules themselves did not change: the base the remote holds and the pushed commit agree.
+    targets = gate.resolve_push_targets(str(repo), ["origin", "main"], gate.time.monotonic() + 30)
+    assert targets is not None and len(targets) == 1
+    base = gate._rules_at(str(repo), targets[0].tracking, gate.time.monotonic() + 30)
+    head = gate._rules_at(str(repo), targets[0].source, gate.time.monotonic() + 30)
+    assert base == head and base[0] == "declared"
 
 
-def test_a_push_the_remote_already_holds_is_no_rules_change(shim, repo):
-    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
-                          check=True).stdout.strip()
-    assert gate.rules_change(str(repo), head, gate.time.monotonic() + 30) == ("unchanged", "")
+def test_a_push_the_remote_already_holds_adds_no_commits(shim, repo):
+    targets = gate.resolve_push_targets(str(repo), ["origin", "main"], gate.time.monotonic() + 30)
+    assert targets is not None and len(targets) == 1
+    assert gate._newly_reachable(str(repo), targets[0].source, targets[0].tracking,
+                                 gate.time.monotonic() + 30) == []
+    assert decision(run_gate(shim, repo, "git push origin main")) == "pass"
 
 
 def test_without_a_remote_tracking_ref_the_range_is_not_measured(shim, repo):
@@ -857,7 +941,7 @@ def test_without_a_remote_tracking_ref_the_range_is_not_measured(shim, repo):
     answer = run_gate(shim, repo, "git push")
     assert decision(answer) == "ask"
     assert reason(answer).startswith("NOT MEASURED: ")
-    assert "no remote-tracking ref is known locally" in reason(answer)
+    assert "cannot resolve what this push sends" in reason(answer)
 
 
 def test_adding_a_declaration_to_a_repository_the_remote_knows_is_a_rules_change(shim, tmp_path):

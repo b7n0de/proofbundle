@@ -208,9 +208,12 @@ def _repo(tmp_path: pathlib.Path, *, declare: bool, tamper: bool = False) -> pat
                           "subject": subject}]}), encoding="utf-8")
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "-m", "evidence")
-        _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
-        _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
-        _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+    # A bare remote and a remote-tracking ref for main, so `git push origin main` resolves to a target this
+    # repository already tracks (DECISIONS.md, D3); an undeclared repository then resolves to inactive, not
+    # to the NOT MEASURED of an unresolved push.
+    _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
+    _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
     return repo
 
 

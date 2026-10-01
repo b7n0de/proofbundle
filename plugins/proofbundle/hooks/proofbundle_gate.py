@@ -2,8 +2,10 @@
 
 Before a shell call that pushes (`git push`), opens a pull request (`gh pr create`) or creates a
 release (`gh release create`), and before an MCP tool that opens a pull request, a merge request or a
-release, pushes files, writes a file or merges a pull request, the gate verifies the evidence the repository declares for its current head, with the plugin's
-own MCP server, and answers the host in its hook format:
+release, pushes files, writes a file or merges a pull request, the gate verifies the evidence the
+repository declares, with the plugin's own MCP server, and answers the host in its hook format. A
+`git push` is judged at every commit it newly sends to each target it can resolve (DECISIONS.md, D3);
+a `gh` call and an MCP tool, whose remote target the gate cannot read, are judged at HEAD:
 
 - every declared item verifies: the gate makes no permission decision, so the host's normal
   permission flow applies, and a message names what was verified; the gate never grants a call;
@@ -43,6 +45,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import collections
 import hashlib
 import json
 import os
@@ -147,7 +150,7 @@ def _join(directory: str | None, target: str) -> str | None:
     return os.path.normpath(os.path.join(directory, os.path.expanduser(target)))
 
 
-def _git_call(words: list[str], directory: str | None) -> tuple[str, str | None] | None:
+def _git_call(words: list[str], directory: str | None) -> tuple[str, str | None, list[str] | None] | None:
     i = 0
     while i < len(words) and words[i].startswith("-"):
         option, _, inline = words[i].partition("=")
@@ -159,7 +162,7 @@ def _git_call(words: list[str], directory: str | None) -> tuple[str, str | None]
             directory = UNKNOWN
         i += 2 if (option in _GIT_OPTIONS_WITH_VALUE and not inline) else 1
     if i < len(words) and words[i] == "push":
-        return "git push", directory
+        return "git push", directory, words[i + 1:]
     return None
 
 
@@ -178,16 +181,18 @@ def _gh_call(words: list[str]) -> str | None:
     return None
 
 
-def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> list[tuple[str, str | None]]:
-    """Every gated call in a shell command, with the directory it acts in (UNKNOWN when not literal).
+def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> list[tuple[str, str | None, list[str] | None]]:
+    """Every gated call in a shell command: its name, the directory it acts in (UNKNOWN when not literal),
+    and for `git push` the words after `push` (its remote and refspecs), None for the other calls.
 
     Over-matching is deliberate: a word `git` followed by `push` anywhere in a simple command counts,
-    and so does any quoted argument that itself contains one (as in `bash -c "git push"`).
+    and so does any quoted argument that itself contains one (as in `bash -c "git push"`). An over-matched
+    push carries no literal arguments, so the gate resolves no target and the push is NOT MEASURED.
     """
     tokens = _tokens(command)
     if tokens is None or depth > MAX_NESTING:
-        return [("unparsed command", UNKNOWN)] if _FALLBACK.search(command) else []
-    calls: list[tuple[str, str | None]] = []
+        return [("unparsed command", UNKNOWN, None)] if _FALLBACK.search(command) else []
+    calls: list[tuple[str, str | None, list[str] | None]] = []
     segments: list[list[str]] = [[]]
     for token in tokens:
         if _OPERATOR.match(token):
@@ -207,11 +212,11 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> li
                 if found:
                     calls.append(found)
             elif name == "git-push":
-                calls.append(("git push", directory))
+                calls.append(("git push", directory, words[i + 1:]))
             elif name == "gh":
                 found_gh = _gh_call(words[i + 1:])
                 if found_gh:
-                    calls.append((found_gh, directory))
+                    calls.append((found_gh, directory, None))
             if any(c in word for c in " \t;&|"):
                 calls.extend(gated_calls(word, directory, depth + 1))
     return calls
@@ -615,33 +620,176 @@ def _rules_difference(base: tuple, head: tuple) -> str:
     return "; ".join(parts)
 
 
-def rules_change(repo: str, commit: str, deadline: float) -> tuple[str, str]:
-    """('unmeasured' | 'unchanged' | 'changed', what) for a push of commit, from local refs only.
+#: A push the gate resolves to more commits than this against one target is NOT MEASURED: the gate cannot
+#: evaluate the whole range inside its deadline, and a tip alone does not vouch for what it hides (D3, N3).
+MAX_RANGE_COMMITS = 64
 
-    What the push adds is `git rev-list commit --not --remotes`: the commits no remote-tracking ref holds.
-    Their boundary is what the remote is known to have, the predecessor. The rules at every boundary
-    commit are compared with the rules at commit. Without any remote-tracking ref the gate cannot tell what
-    the push adds, and says so. The gate never fetches.
+#: One ref update a `git push` performs: the pushed commit (None for a deletion), the ref it writes on the
+#: remote, and the local remote-tracking ref that records that ref's last known state (None when there is
+#: none, which makes the whole push NOT MEASURED, N1).
+PushTarget = collections.namedtuple("PushTarget", "source dest tracking")
+
+_TRACKABLE = ("refs/heads/", "refs/tags/")
+
+
+def _remote_names(repo: str, deadline: float) -> set:
+    out = _git(repo, "remote", deadline=deadline)
+    return set(out.stdout.decode().split()) if out.returncode == 0 else set()
+
+
+def _config(repo: str, key: str, deadline: float) -> str | None:
+    out = _git(repo, "config", "--get", key, deadline=deadline)
+    return out.stdout.decode().strip() if out.returncode == 0 else None
+
+
+def _tracking_ref(repo: str, remote: str, dest: str, deadline: float) -> str | None:
+    """The one local remote-tracking ref for `dest` on `remote`, or None. A tag writes no per-remote
+    tracking ref, so a tag push has no locally known target state and stays NOT MEASURED (N1)."""
+    if not dest.startswith("refs/heads/"):
+        return None
+    candidate = f"refs/remotes/{remote}/{dest[len('refs/heads/'):]}"
+    out = _git(repo, "rev-parse", "--verify", "--quiet", candidate + "^{commit}", deadline=deadline)
+    return candidate if out.returncode == 0 and out.stdout.strip() else None
+
+
+def _qualify_dest(value: str) -> str | None:
+    """The full ref a push destination names, or None when it is not a literal branch or tag ref.
+    A bare name is a branch (git may also match a tag, which the gate treats as unresolved by returning
+    the branch form only when it is unambiguous here; a tag destination must be given in full)."""
+    if not value or "*" in value or value.startswith("^") or "$" in value:
+        return None
+    if value.startswith("refs/"):
+        return value if value.startswith(_TRACKABLE) else None
+    if "/" in value or value in ("HEAD",):
+        return None
+    return "refs/heads/" + value
+
+
+def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> list[PushTarget] | None:
+    """The ref updates a `git push` performs, each with its locally known target state, or None when the
+    gate cannot resolve them completely (DECISIONS.md, D3 option B; N1, N2, N3).
+
+    None (NOT MEASURED) for: an over-matched push with no literal arguments; a remote given as a URL or a
+    path rather than a configured name; --all, --mirror, --tags, --prune, a delete flag, a wildcard or
+    negative refspec, or any option the gate does not model; a configured remote.<name>.push, a pushurl, a
+    mirror remote, or push.followTags, all of which add ref updates the command does not name; a bare push
+    whose current branch has no tracking ref under the chosen remote; a destination that is not a literal
+    branch or tag, or a branch with no uniquely mapped remote-tracking ref. There is no default-branch
+    fallback: an unknown target state is NOT MEASURED, never 'unchanged' (N1). args is None for a
+    `gh pr/release create`, read as a bare push of the current branch to its upstream.
     """
-    remotes = _git(repo, "for-each-ref", "--format=%(objectname)", "refs/remotes", deadline=deadline)
-    if remotes.returncode != 0 or not remotes.stdout.strip():
-        return "unmeasured", "no remote-tracking ref is known locally, so the gate cannot tell what the push adds"
-    listing = _git(repo, "rev-list", "--boundary", commit, "--not", "--remotes", deadline=deadline)
+    if args is None:
+        args = []
+    remotes = _remote_names(repo, deadline)
+    remote, refspecs, i = None, [], 0
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            refspecs.extend(args[i + 1:])
+            break
+        if word in ("--all", "--mirror", "--tags", "--prune", "--delete", "-d", "--follow-tags"):
+            return None
+        if word.startswith("-"):
+            if word in ("--repo", "-o", "--push-option", "--receive-pack", "--exec", "--force-with-lease=",):
+                i += 2
+                continue
+            if word.startswith(("--repo=", "--push-option=", "-o", "--force-with-lease=", "--receive-pack=")):
+                i += 1
+                continue
+            i += 1  # a flag the gate need not model for target resolution (e.g. -f, --force, -u, -q, -v)
+            continue
+        if remote is None:
+            remote = word
+        else:
+            refspecs.append(word)
+        i += 1
+    if remote is None:  # a bare `git push`: the current branch to its chosen remote, same name
+        return _default_targets(repo, deadline, remotes)
+    if remote not in remotes:  # a URL or a filesystem path, not a configured remote name
+        return None
+    if (_config(repo, f"remote.{remote}.push", deadline) is not None
+            or _config(repo, f"remote.{remote}.pushurl", deadline) is not None
+            or (_config(repo, f"remote.{remote}.mirror", deadline) or "").lower() == "true"
+            or (_config(repo, "push.followTags", deadline) or "").lower() == "true"):
+        return None
+    if not refspecs:
+        return _default_targets(repo, deadline, remotes, remote=remote)
+    targets = []
+    for spec in refspecs:
+        spec = spec[1:] if spec.startswith("+") else spec
+        if "*" in spec or spec.startswith("^"):
+            return None
+        src, sep, dst = spec.partition(":")
+        if not sep:  # `name` pushes the ref `name` to the same ref on the remote
+            dst = src
+        dest = _qualify_dest(dst)
+        if dest is None:
+            return None
+        tracking = _tracking_ref(repo, remote, dest, deadline)
+        if tracking is None:  # no uniquely mapped local target state: NOT MEASURED, no fallback (N1)
+            return None
+        if src == "":  # `:dst` deletes the destination ref
+            targets.append(PushTarget(source=None, dest=dest, tracking=tracking))
+            continue
+        commit = _git(repo, "rev-parse", "--verify", "--quiet", src + "^{commit}", deadline=deadline)
+        if commit.returncode != 0 or not commit.stdout.strip():
+            return None
+        targets.append(PushTarget(source=commit.stdout.decode().strip(), dest=dest, tracking=tracking))
+    return targets or None
+
+
+def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None) -> list[PushTarget] | None:
+    """A push with no refspec: the current branch to the chosen remote under the same name, but only when
+    git's push configuration makes that faithful. push.default matching, a configured remote.push, a
+    pushurl, a mirror or push.followTags add updates the gate cannot name, so those are NOT MEASURED."""
+    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", deadline=deadline)
+    if branch.returncode != 0 or not branch.stdout.strip():
+        return None  # a detached HEAD names no branch to push
+    name = branch.stdout.decode().strip()
+    if remote is None:
+        remote = (_config(repo, f"branch.{name}.pushRemote", deadline)
+                  or _config(repo, "remote.pushDefault", deadline)
+                  or _config(repo, f"branch.{name}.remote", deadline)
+                  or ("origin" if "origin" in remotes else None))
+    if remote is None or remote not in remotes:
+        return None
+    if (_config(repo, f"remote.{remote}.push", deadline) is not None
+            or _config(repo, f"remote.{remote}.pushurl", deadline) is not None
+            or (_config(repo, f"remote.{remote}.mirror", deadline) or "").lower() == "true"
+            or (_config(repo, "push.followTags", deadline) or "").lower() == "true"):
+        return None
+    default = (_config(repo, "push.default", deadline) or "simple").lower()
+    if default not in ("simple", "current", "upstream", "tracking"):
+        return None  # matching, or anything the gate does not model, pushes more than the current branch
+    if default in ("upstream", "tracking"):
+        merge = _config(repo, f"branch.{name}.merge", deadline)
+        dest = merge if merge and merge.startswith("refs/heads/") else None
+    else:  # simple, current: the branch of the same name on the remote
+        dest = "refs/heads/" + name
+    if dest is None:
+        return None
+    tracking = _tracking_ref(repo, remote, dest, deadline)
+    if tracking is None:
+        return None
+    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+    if head.returncode != 0 or not head.stdout.strip():
+        return None
+    return [PushTarget(source=head.stdout.decode().strip(), dest=dest, tracking=tracking)]
+
+
+def _newly_reachable(repo: str, source: str, tracking: str, deadline: float) -> list[str] | None:
+    """Every commit reachable from the pushed source but not from the target's known remote-tracking ref,
+    newest first, or None when git cannot list them, the repository is shallow, or there are too many to
+    evaluate inside the deadline. A shallow clone hides ancestors, so the range is NOT MEASURED (N3)."""
+    shallow = _git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline)
+    if shallow.returncode != 0 or shallow.stdout.decode().strip() != "false":
+        return None
+    listing = _git(repo, "rev-list", f"--max-count={MAX_RANGE_COMMITS + 1}", source, "--not", tracking,
+                   deadline=deadline)
     if listing.returncode != 0:
-        return "unmeasured", "git could not list the commits the push adds"
-    lines = listing.stdout.decode().split()
-    added = [line for line in lines if not line.startswith("-")]
-    bases = [line[1:] for line in lines if line.startswith("-")]
-    if not added:
-        return "unchanged", ""
-    head_rules = _rules_at(repo, commit, deadline)
-    changes = []
-    for base in bases or [None]:
-        base_rules = ("absent",) if base is None else _rules_at(repo, base, deadline)
-        if base_rules != head_rules:
-            where = f"against {base[:12]}" if base else "against nothing, as the pushed history has no known base"
-            changes.append(f"{_rules_difference(base_rules, head_rules)} ({where})")
-    return ("changed", "; ".join(dict.fromkeys(changes))) if changes else ("unchanged", "")
+        return None
+    commits = listing.stdout.decode().split()
+    return None if len(commits) > MAX_RANGE_COMMITS else commits
 
 
 _RULES_NEXT = ("have a person review the change to the evidence rules, then push; the gate reports every "
@@ -649,73 +797,50 @@ _RULES_NEXT = ("have a person review the change to the evidence rules, then push
 
 
 def _rules_verdict(repo: str, commit: str, what: str, digests: tuple = ()) -> Verdict:
-    return Verdict("ask", f"proofbundle gate: the push changes the evidence rules under {EVIDENCE_DIR} at HEAD "
+    return Verdict("ask", f"proofbundle gate: the push changes the evidence rules under {EVIDENCE_DIR} at "
                           f"{commit[:12]}: {what}. Changes to the evidence rules need a review.",
                    "rules_changed", evidence=f"the evidence rules under {EVIDENCE_DIR} ({DECLARATION} and its policies)",
                    failed=what, next_step=_RULES_NEXT, digests=digests, repo=repo, head=commit)
 
 
-# --- one repository ----------------------------------------------------------------------------------
+def _unresolved_verdict(repo: str, head: str | None, why: str) -> Verdict:
+    return Verdict("ask", f"NOT MEASURED: the gate cannot resolve what this push sends, so it checked nothing: "
+                          f"{why}.", "push_not_measured",
+                   evidence="the commits and refs this push would send",
+                   failed=why, next_step="push with an explicit remote name and refspec whose target this "
+                                         "repository already tracks, or have a person review the push",
+                   repo=repo, head=head)
 
-def evaluate_repository(directory: str, deadline: float, check_range: bool = True) -> Verdict:
-    """The verdict for the repository that contains directory: pass, inactive, deny or ask.
 
-    'inactive' is the one NOT MEASURED answer without a permission decision: the gate measured that the
-    repository declares nothing, neither at HEAD nor in the working tree (DECISIONS.md, D5), and it cannot
-    see a push that removes a declaration the remote holds (D20). check_range False skips the comparison of
-    the evidence rules with the remote (D20), for the CI mode (D22).
+# --- one tree ----------------------------------------------------------------------------------------
+
+def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tail: str) -> Verdict:
+    """The verdict for the evidence a single commit's tree declares: pass, inactive, ask (empty list) or
+    deny. No working-tree read and no range comparison; `where` names the commit in every message and
+    `pass_tail` is appended to a pass. parse_declaration and _blob raise GateError, which the caller turns
+    into a deny, so a tree whose declaration cannot be read is never silently treated as declaring nothing.
     """
-    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
-    if top.returncode != 0:
-        return Verdict("ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked.",
-                       "not_a_work_tree", evidence=f"none, {directory} is not inside a git work tree",
-                       failed="there is no repository to check",
-                       next_step="run the call inside the repository it acts on, or confirm it yourself",
-                       repo=directory)
-    repo = top.stdout.decode().strip()
-    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
-    if head.returncode != 0:
-        return Verdict("ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked.",
-                       "no_commit", evidence=f"the declaration {DECLARATION}", failed="the repository has no commit",
-                       next_step="commit first, then retry", repo=repo)
-    commit = head.stdout.decode().strip()
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
     if raw is None:
-        if _absent_at_head(repo, commit, deadline) and _absent_in_working_tree(repo):
-            status, what = rules_change(repo, commit, deadline) if check_range else ("unchanged", "")
-            if status == "changed":
-                return _rules_verdict(repo, commit, what)
-            return Verdict("inactive", f"NOT MEASURED: {repo} declares no evidence, neither at HEAD {commit[:12]} "
-                                       f"nor in the working tree ({DECLARATION} is absent). The gate is not active in "
-                                       "this repository, because nothing is declared. Nothing was verified.",
-                           "nothing_declared", repo=repo, head=commit)
-        in_tree = os.path.exists(os.path.join(repo, DECLARATION))
-        hint = " A declaration exists in the working tree but is not committed; the gate reads HEAD." if in_tree else ""
-        return Verdict("ask", f"NOT MEASURED: {repo} declares no evidence at HEAD {commit[:12]} "
-                              f"({DECLARATION} is absent). Nothing was verified.{hint}",
-                       "declaration_uncommitted" if in_tree else "absence_not_measured",
-                       evidence=f"the declaration {DECLARATION}" + (" (working tree only)" if in_tree else ""),
-                       failed=("the declaration is not committed, and the gate reads HEAD" if in_tree
-                               else "the gate could not confirm that nothing is declared"),
-                       next_step=("commit the declaration and the evidence it names, then retry" if in_tree
-                                  else f"check what stands at {DECLARATION} in the working tree and at HEAD"),
-                       repo=repo, head=commit)
+        return Verdict("inactive", f"NOT MEASURED: no evidence is declared at {where} ({DECLARATION} is absent).",
+                       "nothing_declared", repo=repo, head=commit)
     items = parse_declaration(raw)
     if not items:
-        return Verdict("ask", f"NOT MEASURED: {DECLARATION} at HEAD {commit[:12]} declares an empty evidence "
-                              "list. Nothing was verified.", "empty_declaration",
+        return Verdict("ask", f"NOT MEASURED: {DECLARATION} at {where} declares an empty evidence list. "
+                              "Nothing was verified.", "empty_declaration",
                        evidence=f"the declaration {DECLARATION}", failed="its evidence list is empty",
                        next_step="declare the evidence this tree needs and commit it", repo=repo, head=commit)
     tree = tree_digest(repo, commit, deadline)
     stale = [(n, item) for n, item in enumerate(items) if item["subject"]["digest"] != tree]
     if stale:
-        return Verdict("deny", f"proofbundle gate: the declared subject does not match the tree at HEAD "
-                               f"{commit[:12]}, which is {TREE_ALGORITHM} {tree}. "
+        return Verdict("deny", f"proofbundle gate: the declared subject does not match the tree at {where}, "
+                               f"which is {TREE_ALGORITHM} {tree}. "
                                + " | ".join(f"evidence[{n}] {i['path']} names {i['subject']['digest']}" for n, i in stale)
                                + ". The evidence speaks for another tree.", "stale_subject",
                        evidence=", ".join(_item(n, i) for n, i in stale),
-                       failed=f"its subject is not the tree digest of HEAD ({TREE_ALGORITHM} {tree})",
-                       next_step="build and sign the evidence for the tree at HEAD, then commit it under .proofbundle/",
+                       failed=f"its subject is not the tree digest of {where} ({TREE_ALGORITHM} {tree})",
+                       next_step="build and sign the evidence for the tree at the pushed commit, then commit it "
+                                 "under .proofbundle/",
                        repo=repo, head=commit)
     requests, contents, digests = [], [], []
     with tempfile.TemporaryDirectory(prefix="proofbundle-gate-") as scratch:
@@ -728,9 +853,9 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Tru
                 content = _blob(repo, commit, item[field], deadline, limit)
                 if content is None:
                     return Verdict("deny", f"proofbundle gate: declared {field} {item[field]} of evidence[{n}] is "
-                                           f"missing at HEAD {commit[:12]}. Nothing may be published without it.",
+                                           f"missing at {where}. Nothing may be published without it.",
                                    "missing_file", evidence=f"{field} {item[field]} of {_item(n, item)}",
-                                   failed="the file is missing at HEAD",
+                                   failed=f"the file is missing at {where}",
                                    next_step="obtain the declared file and commit it under .proofbundle/",
                                    digests=digests, repo=repo, head=commit)
                 digests.append(f"{item[field]} sha256:{hashlib.sha256(content).hexdigest()}")
@@ -761,7 +886,7 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Tru
             why = result.get("error") or f"exit {result.get('exit_code')}: {result.get('meaning')}"
             failed.append((n, item, why))
     if failed:
-        return Verdict("deny", f"proofbundle gate: verification failed at HEAD {commit[:12]} (proofbundle {version}). "
+        return Verdict("deny", f"proofbundle gate: verification failed at {where} (proofbundle {version}). "
                                + " | ".join(f"evidence[{n}] {i['kind']} {i['path']}: {why}" for n, i, why in failed),
                        "verification_failed", evidence=", ".join(_item(n, i) for n, i, _ in failed),
                        failed="; ".join(why for _, _, why in failed),
@@ -779,28 +904,158 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Tru
             unbound.append((n, item, f"the signed evidence names {', '.join(named)}, not the declared subject "
                                      f"{item['subject']['digest']}"))
     if unbound:
-        return Verdict("deny", f"proofbundle gate: the evidence verified but is not bound to the tree at HEAD "
-                               f"{commit[:12]}. " + " | ".join(f"evidence[{n}] {i['path']}: {why}" for n, i, why in unbound),
+        return Verdict("deny", f"proofbundle gate: the evidence verified but is not bound to the tree at {where}. "
+                               + " | ".join(f"evidence[{n}] {i['path']}: {why}" for n, i, why in unbound),
                        "not_bound", evidence=", ".join(_item(n, i) for n, i, _ in unbound),
                        failed="; ".join(why for _, _, why in unbound),
-                       next_step="sign a statement that names the tree digest of HEAD and commit it",
+                       next_step="sign a statement that names the tree digest of the pushed commit and commit it",
                        digests=digests, repo=repo, head=commit)
-    status, what = rules_change(repo, commit, deadline) if check_range else ("unchanged", "")
-    if status == "changed":
-        return _rules_verdict(repo, commit, what, tuple(digests))
-    if status == "unmeasured":
-        return Verdict("ask", f"NOT MEASURED: the declared evidence verified at HEAD {commit[:12]}, but {what}. "
-                              f"The gate cannot tell whether the push changes the evidence rules under {EVIDENCE_DIR}.",
-                       "range_not_measured",
-                       evidence=f"the evidence rules under {EVIDENCE_DIR} ({DECLARATION} and its policies)",
-                       failed=what, next_step="fetch the remote, so its branches are known locally, then retry",
-                       digests=tuple(digests), repo=repo, head=commit)
-    return Verdict("pass", f"proofbundle gate: {len(items)} of {len(items)} declared items verified at HEAD "
-                           f"{commit[:12]} for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves "
-                           "who signed the recorded bytes and which tree they name, not that the recorded values "
-                           "are true. " + ("The push leaves the evidence rules as the remote holds them." if check_range
-                                           else "The evidence rules were not compared with any earlier state."),
+    return Verdict("pass", f"proofbundle gate: {len(items)} of {len(items)} declared items verified at {where} "
+                           f"for {TREE_ALGORITHM} {tree} with proofbundle {version}. This proves who signed the "
+                           f"recorded bytes and which tree they name, not that the recorded values are true.{pass_tail}",
                    "verified", digests=tuple(digests), repo=repo, head=commit)
+
+
+def _absence_nuance(repo: str, commit: str, deadline: float) -> Verdict | None:
+    """When the committed tree declares nothing, say whether that is a measured absence (None, so the gate
+    is inactive) or a NOT MEASURED ask: git could not confirm the path is empty, or an uncommitted
+    declaration sits in the working tree and the gate reads the commit (DECISIONS.md, D5)."""
+    if _absent_at_head(repo, commit, deadline) and _absent_in_working_tree(repo):
+        return None
+    in_tree = os.path.exists(os.path.join(repo, DECLARATION))
+    hint = " A declaration exists in the working tree but is not committed; the gate reads the commit." if in_tree else ""
+    return Verdict("ask", f"NOT MEASURED: {repo} declares no evidence at {commit[:12]} ({DECLARATION} is absent). "
+                          f"Nothing was verified.{hint}",
+                   "declaration_uncommitted" if in_tree else "absence_not_measured",
+                   evidence=f"the declaration {DECLARATION}" + (" (working tree only)" if in_tree else ""),
+                   failed=("the declaration is not committed, and the gate reads the commit" if in_tree
+                           else "the gate could not confirm that nothing is declared"),
+                   next_step=("commit the declaration and the evidence it names, then retry" if in_tree
+                              else f"check what stands at {DECLARATION} in the working tree and at the commit"),
+                   repo=repo, head=commit)
+
+
+# --- one repository at HEAD (CI mode and MCP tools) --------------------------------------------------
+
+def evaluate_repository(directory: str, deadline: float, check_range: bool = False) -> Verdict:
+    """The verdict for the repository at directory, judged at HEAD, with no range comparison (DECISIONS.md,
+    D22 for CI; decide_mcp for an MCP tool whose remote target the gate cannot read). A shell `git push`
+    does not use this path; it resolves its targets through evaluate_push. check_range is accepted for
+    compatibility and ignored: the range is never read at HEAD alone."""
+    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
+    if top.returncode != 0:
+        return Verdict("ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked.",
+                       "not_a_work_tree", evidence=f"none, {directory} is not inside a git work tree",
+                       failed="there is no repository to check",
+                       next_step="run the call inside the repository it acts on, or confirm it yourself",
+                       repo=directory)
+    repo = top.stdout.decode().strip()
+    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+    if head.returncode != 0:
+        return Verdict("ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked.",
+                       "no_commit", evidence=f"the declaration {DECLARATION}", failed="the repository has no commit",
+                       next_step="commit first, then retry", repo=repo)
+    commit = head.stdout.decode().strip()
+    verdict = _evaluate_tree(repo, commit, deadline, f"HEAD {commit[:12]}",
+                             " The evidence rules were not compared with any earlier state.")
+    if verdict.decision == "inactive":
+        nuance = _absence_nuance(repo, commit, deadline)
+        if nuance is not None:
+            return nuance
+        return Verdict("inactive", f"NOT MEASURED: {repo} declares no evidence, neither at HEAD {commit[:12]} "
+                                   f"nor in the working tree ({DECLARATION} is absent). The gate is not active in "
+                                   "this repository, because nothing is declared. Nothing was verified.",
+                       "nothing_declared", repo=repo, head=commit)
+    return verdict
+
+
+# --- a push, resolved to its targets and the commits it sends (DECISIONS.md, D3 option B, D20) --------
+
+def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) -> Verdict:
+    """The verdict for a `git push` (push_args) or a `gh pr/release create` (push_args None, the current
+    branch to its upstream): the evidence at every commit the push newly sends to each target, and whether
+    those commits change the evidence rules against the target's locally known state. An unresolved push,
+    or one whose range or comparison state the gate cannot determine, is NOT MEASURED (N1, N2, N3)."""
+    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
+    if top.returncode != 0:
+        return Verdict("ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked.",
+                       "not_a_work_tree", evidence=f"none, {directory} is not inside a git work tree",
+                       failed="there is no repository to check",
+                       next_step="run the call inside the repository it acts on, or confirm it yourself",
+                       repo=directory)
+    repo = top.stdout.decode().strip()
+    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+    if head.returncode != 0:
+        return Verdict("ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked.",
+                       "no_commit", evidence=f"the declaration {DECLARATION}", failed="the repository has no commit",
+                       next_step="commit first, then retry", repo=repo)
+    head_commit = head.stdout.decode().strip()
+    targets = resolve_push_targets(repo, push_args, deadline)
+    if targets is None:
+        return _unresolved_verdict(repo, head_commit,
+                                   "the remote, a refspec, or the push configuration names updates the gate cannot "
+                                   "map to a locally tracked target (a URL or path remote, --all/--mirror/--tags, a "
+                                   "wildcard refspec, a configured remote push list, or a branch this repository does "
+                                   "not track)")
+
+    def where(commit: str) -> str:
+        return f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
+
+    # Every commit the push newly sends, across all targets, with the source tip always evaluated so a push
+    # the remote already holds still has its evidence verified (its range is otherwise empty).
+    order: list[str] = []
+    for t in targets:
+        if t.source is None:
+            continue
+        reachable = _newly_reachable(repo, t.source, t.tracking, deadline)
+        if reachable is None:
+            return _unresolved_verdict(repo, head_commit,
+                                       f"the gate cannot list the commits this push adds to {t.dest} (a shallow "
+                                       "clone, too long a range, or git could not resolve it)")
+        for commit in [t.source, *reachable]:
+            if commit not in order:
+                order.append(commit)
+
+    verdicts = {commit: _evaluate_tree(repo, commit, deadline, where(commit), "") for commit in order}
+    for commit in order:  # a deny at any sent commit denies the whole push (a valid tip cannot heal it, N3)
+        if verdicts[commit].decision == "deny":
+            return verdicts[commit]
+    for commit in order:
+        if verdicts[commit].decision == "ask":  # an empty declared list at a sent commit
+            return verdicts[commit]
+
+    # The evidence rules must be the same at the target's known state and at every commit the push adds.
+    for t in targets:
+        base = _rules_at(repo, t.tracking, deadline) if t.tracking else ("absent",)
+        if t.source is None:  # a deletion removes the ref; its rules go to absent
+            if base != ("absent",) and _rules_difference(base, ("absent",)):
+                return _rules_verdict(repo, head_commit, f"the push removes the declaration (deletes {t.dest}, "
+                                      f"against {t.tracking})")
+            continue
+        reachable = _newly_reachable(repo, t.source, t.tracking, deadline)
+        for commit in dict.fromkeys([*reachable, t.source]):
+            head_rules = _rules_at(repo, commit, deadline)
+            if base != head_rules:
+                digests = verdicts[t.source].digests if verdicts[t.source].decision == "pass" else ()
+                against = t.tracking or "nothing, as this repository tracks no earlier state of the target"
+                return _rules_verdict(repo, head_commit, f"{_rules_difference(base, head_rules)} "
+                                      f"(at {commit[:12]}, against {against})", digests)
+
+    declared = [verdicts[c] for c in order if verdicts[c].decision == "pass"]
+    if not declared:  # every sent commit declares nothing
+        nuance = _absence_nuance(repo, head_commit, deadline) if head_commit in order else None
+        if nuance is not None:
+            return nuance
+        where_all = ", ".join(c[:12] for c in order) or head_commit[:12]
+        return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}, {DECLARATION} is "
+                                   "absent). The gate is not active in this repository, because nothing is declared. "
+                                   "Nothing was verified.", "nothing_declared", repo=repo, head=head_commit)
+    tip = (verdicts[targets[0].source] if targets[0].source and verdicts[targets[0].source].decision == "pass"
+           else declared[0])
+    tail = (f" The push sends {len(order)} commit(s) to {', '.join(dict.fromkeys(t.dest for t in targets))}; "
+            "the evidence rules match the target's last known state in this repository, which was not read "
+            "from the remote.")
+    return Verdict("pass", tip.detail + tail, "verified", digests=tip.digests, repo=repo, head=head_commit)
 
 
 class Outcome:
@@ -835,35 +1090,49 @@ def decide_mcp(tool: str, cwd: str, deadline: float) -> Outcome | None:
     """
     if not mcp_gated(tool):
         return None
-    outcome = _judge([(f"MCP {tool}", ".")], cwd, deadline)
+    outcome = _judge([(f"MCP {tool}", ".", None)], cwd, deadline)
     unseen = _MCP_UNSEEN.get(tool.rsplit("__", 1)[-1], "it cannot see the branch the tool publishes")
     outcome.text += (f" (MCP tool {tool}: the gate checked the local repository at {cwd}, at its HEAD; "
                      f"{unseen}.)")
     return outcome
 
 
-def _judge(calls: list[tuple[str, str | None]], cwd: str, deadline: float) -> Outcome:
+def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float) -> Verdict:
+    """The verdict for one gated call: a shell `git push` resolves its targets and the commits it sends; a
+    `gh pr/release create` is judged as a push of the current branch to its upstream; an MCP tool, whose
+    remote target the gate cannot read, is judged at HEAD with no range comparison."""
+    if name == "git push":
+        return evaluate_push(directory, detail, deadline)
+    if name.startswith("gh "):
+        return evaluate_push(directory, None, deadline)
+    return evaluate_repository(directory, deadline)
+
+
+def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float) -> Outcome:
     verdicts = []
-    for directory in dict.fromkeys(d if d is UNKNOWN else os.path.normpath(os.path.join(cwd, d))
-                                   for _, d in calls):
-        names = ", ".join(sorted({c for c, d in calls
-                                  if (d if d is UNKNOWN else os.path.normpath(os.path.join(cwd, d))) == directory}))
-        if directory is UNKNOWN:
-            verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {names} acts on "
+    seen = set()
+    for name, directory, detail in calls:
+        resolved = directory if directory is UNKNOWN else os.path.normpath(os.path.join(cwd, directory))
+        key = (name, resolved, tuple(detail) if detail is not None else None)
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved is UNKNOWN:
+            verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {name} acts on "
                                            "(a directory change or a git option it does not resolve).",
-                                    "directory_unresolved", evidence=f"unknown, the repository {names} acts on",
+                                    "directory_unresolved", evidence=f"unknown, the repository {name} acts on",
                                     failed="the gate cannot resolve the directory",
                                     next_step="run the call in the repository's directory, with a literal path"))
             continue
         try:
-            verdicts.append(evaluate_repository(directory, deadline))
+            verdicts.append(_evaluate_call(name, resolved, detail, deadline))
         except GateError as exc:
             verdicts.append(Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached "
                                             "no verdict.", "gate_error",
-                                    evidence=f"the declaration {DECLARATION} and the evidence it names at HEAD",
+                                    evidence=f"the declaration {DECLARATION} and the evidence it names",
                                     failed=str(exc),
                                     next_step="fix the cause named here; the gate denies until it reaches a verdict",
-                                    repo=directory))
+                                    repo=resolved))
     for decision in ("deny", "ask"):
         chosen = [v for v in verdicts if v.decision == decision]
         if chosen:
@@ -1305,7 +1574,7 @@ def main(argv: list[str] | None = None) -> int:
             verdict = decide_mcp(tool, cwd if isinstance(cwd, str) and cwd else os.getcwd(), deadline)
         else:
             command, cwd = _command_from_event(event)
-            actions = sorted({name for name, _ in gated_calls(command)})
+            actions = sorted({name for name, _, _ in gated_calls(command)})
             verdict = decide(command, cwd, deadline)
     except GateError as exc:
         failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",

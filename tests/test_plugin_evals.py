@@ -320,12 +320,14 @@ def test_the_rules_change_case_changes_the_policy_and_its_counterpart_does_not(t
     valid.mkdir()
     _scaffold(changed, "repo-rules-changed")
     _scaffold(valid, "repo-valid")
-    diff = subprocess.run(["git", "diff", "--name-only", "origin/published", "HEAD"], cwd=changed, capture_output=True,
-                          text=True, check=True).stdout.split()
+    # The scaffold records the reviewed state as the local remote-tracking ref of main (D3), without a main
+    # on the bare remote. rules-changed adds one commit over it that changes only the policy.
+    diff = subprocess.run(["git", "diff", "--name-only", "refs/remotes/origin/main", "HEAD"], cwd=changed,
+                          capture_output=True, text=True, check=True).stdout.split()
     assert diff == [".proofbundle/policy.json"]
-    same = subprocess.run(["git", "rev-list", "HEAD", "--not", "--remotes"], cwd=valid, capture_output=True, text=True,
-                          check=True).stdout
-    assert same == ""
+    same = subprocess.run(["git", "rev-list", "HEAD", "--not", "refs/remotes/origin/main"], cwd=valid,
+                          capture_output=True, text=True, check=True).stdout
+    assert same == "", "repo-valid's HEAD is the reviewed state the tracking ref records"
     assert not (changed / "remote.git" / "refs" / "heads" / "main").exists()
 
 
