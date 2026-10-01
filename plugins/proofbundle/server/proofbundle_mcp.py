@@ -101,7 +101,6 @@ LOG_NAME = "gate-log.jsonl"
 LOG_DIR_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
 SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 SELFTEST_PREFIX = "proofbundle-selftest-"
-SELFTEST_BRANCH = "refs/heads/proofbundle-selftest"
 
 
 def _log_path() -> tuple[str | None, str]:
@@ -348,6 +347,13 @@ def _run_git(*args: str, cwd: str | None = None) -> None:
                    env=dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0"))
 
 
+#: Every self-test result carries this, because the log is a local file any local process can write
+#: (DECISIONS.md, D21; review N5).
+SELFTEST_LIMIT = ("The log is a local file that any local process can write; this result is a local "
+                  "diagnosis, not an independent proof of the host's hook.")
+_ZERO_SUBJECT = {"algorithm": "proofbundle-tree-sha256/v1", "digest": "0" * 64}
+
+
 def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     if args:
         raise ToolInputError("gate_selftest_prepare takes no arguments")
@@ -357,17 +363,48 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     bare, work = os.path.join(root, "remote.git"), os.path.join(root, "work")
     _run_git("init", "-q", "--bare", bare)
     _run_git("init", "-q", "-b", "main", work)
+    identity = ("-c", "user.name=selftest", "-c", "user.email=selftest@invalid", "-c", "commit.gpgsign=false")
+
+    def commit(message: str) -> None:
+        _run_git("-C", work, "add", "-A")
+        _run_git(*identity, "-C", work, "commit", "-q", "-m", message)
+
+    # The reviewed base: a declaration whose rules are well formed. Its subject is a fixed non-matching
+    # digest, so the push of the next commit is denied for a stale subject, a deny the gate reaches without
+    # the verifier, under both hosts. The base is pushed to a named branch the work repository then tracks,
+    # so the test push goes to a target the gate resolves (DECISIONS.md, D3; review N6).
+    os.makedirs(os.path.join(work, ".proofbundle"))
     with open(os.path.join(work, "README.md"), "w", encoding="utf-8") as handle:
         handle.write("A throwaway repository for the proofbundle gate self-test.\n")
-    _run_git("-C", work, "add", "-A")
-    _run_git("-c", "user.name=selftest", "-c", "user.email=selftest@invalid", "-c", "commit.gpgsign=false",
-             "-C", work, "commit", "-q", "-m", "selftest file")
-    command = f"git -C {shlex.quote(work)} push {shlex.quote(bare)} HEAD:{SELFTEST_BRANCH}"
+    with open(os.path.join(work, ".proofbundle", "policy.json"), "w", encoding="utf-8") as handle:
+        json.dump({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "selftest",
+                   "allowed_issuers": [{"public_key_b64": base64.b64encode(bytes(32)).decode()}],
+                   "signature": {"require_expected_signer": True}}, handle)
+    with open(os.path.join(work, ".proofbundle", "build.bundle.json"), "w", encoding="utf-8") as handle:
+        handle.write("{}\n")
+    with open(os.path.join(work, ".proofbundle", "evidence.json"), "w", encoding="utf-8") as handle:
+        json.dump({"schema": "proofbundle-plugin/evidence/v0.2",
+                   "evidence": [{"kind": "bundle", "path": ".proofbundle/build.bundle.json",
+                                 "policy": ".proofbundle/policy.json", "subject": _ZERO_SUBJECT}]}, handle)
+    commit("selftest base")
+    _run_git("-C", work, "remote", "add", "origin", bare)
+    _run_git(*identity, "-C", work, "push", "-q", "origin", "HEAD:refs/heads/main")
+    base_oid = subprocess.run(["git", "-C", work, "rev-parse", "refs/remotes/origin/main"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    with open(os.path.join(root, "base_oid"), "w", encoding="utf-8") as handle:
+        handle.write(base_oid + "\n")
+    # One more commit with the identical evidence rules and a changed tree, so its declared subject is now
+    # stale. Pushing it to main is what the gate must deny.
+    with open(os.path.join(work, "CHANGES.md"), "w", encoding="utf-8") as handle:
+        handle.write("A change after the declaration was written, so the declared subject is stale.\n")
+    commit("selftest change with a stale subject")
+    command = f"git -C {shlex.quote(work)} push origin main"
     return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "note": ("Run exactly this command once with the shell tool. It pushes to a throwaway local bare "
-                     "repository in a temporary folder, never to a real remote. Then call gate_selftest_check "
-                     "with work and started_at.")}, False
+                     "repository in a temporary folder, never to a real remote. The gate is expected to deny "
+                     "it (a stale subject). Never change the throwaway repository or its declaration. Then "
+                     "call gate_selftest_check with work and started_at.")}, False
 
 
 def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
@@ -378,11 +415,19 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
             and os.path.dirname(parent) == os.path.realpath(tempfile.gettempdir())
             and os.path.basename(work) == "work"):
         raise ToolInputError("work must be the folder gate_selftest_prepare returned")
-    pushed = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
-                             "--quiet", SELFTEST_BRANCH], capture_output=True, text=True, check=False).returncode == 0
+    try:
+        with open(os.path.join(parent, "base_oid"), encoding="utf-8") as handle:
+            base_oid = handle.read().strip()
+    except OSError:
+        base_oid = ""
+    remote = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
+                             "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False)
+    # The target moved only if the throwaway remote's main is no longer the base the push was measured from.
+    target_changed = None if remote.returncode not in (0, 1) else (remote.stdout.strip() != base_oid)
     path, source = _log_path()
-    result: dict = {"plugin_version": SERVER_VERSION, "work": work, "pushed_to_the_throwaway_remote": pushed,
-                    "log_path": path, "log_source": source}
+    result: dict = {"plugin_version": SERVER_VERSION, "work": work, "target_changed": target_changed,
+                    "base_oid": base_oid, "remote_main": remote.stdout.strip() or None,
+                    "log_path": path, "log_source": source, "limit": SELFTEST_LIMIT}
     if path is None:
         result.update(result="NOT MEASURABLE", reason="NOT MEASURED: " + source)
         return result, False
@@ -391,13 +436,27 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
     except OSError as exc:
         result.update(result="NOT MEASURABLE", reason=f"NOT MEASURED: the log cannot be read ({exc})")
         return result, False
-    real = work
-    hits = [e for e in entries if isinstance(e.get("ts"), str) and e["ts"] >= started
-            and "git push" in (e.get("actions") or [])
-            and any(os.path.realpath(r.get("path") or "") == real for r in e.get("repos") or [])]
-    result.update(result="hooks take effect" if hits else "hooks do not take effect", log_entries=hits[-3:],
-                  reason=("the gate logged the self-test push" if hits else
-                          "the gate logged no call for the self-test push since started_at"))
+    denied = [e for e in entries if isinstance(e.get("ts"), str) and e["ts"] >= started
+              and "git push" in (e.get("actions") or [])
+              and e.get("decision") == "deny"
+              and any(os.path.realpath(r.get("path") or "") == work and r.get("reason_id") == "stale_subject"
+                      for r in e.get("repos") or [])]
+    result["log_entries"] = denied[-3:]
+    if denied and target_changed is False:
+        result.update(result="Expected denial logged; test target unchanged.",
+                      reason="the gate denied the self-test push and the throwaway remote did not receive it")
+    elif denied and target_changed is True:
+        result.update(result="Expected denial logged; test target changed.",
+                      reason="the gate denied the self-test push, yet it reached the throwaway remote")
+    elif denied:
+        result.update(result="NOT MEASURABLE",
+                      reason="the gate denied the push, but the throwaway remote's state could not be read")
+    elif target_changed is True:
+        result.update(result="Test target changed; no matching gate event observed.",
+                      reason="the push reached the throwaway remote and the gate logged no deny for it")
+    else:
+        result.update(result="NOT MEASURABLE",
+                      reason="no matching gate deny was logged and the push did not reach the throwaway remote")
     return result, False
 
 
@@ -448,12 +507,14 @@ TOOLS = {
     }),
     "gate_selftest_prepare": (tool_gate_selftest_prepare, {
         "description": "Create a throwaway local repository and bare remote in a temporary folder, and return the "
-                       "one git push command whose gate call the self-test looks for. Never a real remote.",
+                       "one git push command the self-test runs. The repository declares a stale subject, so the "
+                       "gate is expected to deny the push. Never a real remote.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     }),
     "gate_selftest_check": (tool_gate_selftest_check, {
-        "description": "After the returned command ran, report whether the gate logged exactly that push: hooks "
-                       "take effect, hooks do not take effect, or NOT MEASURABLE.",
+        "description": "After the returned command ran, report, observation-near, whether the gate logged the "
+                       "expected deny and whether the throwaway remote's target moved; the log is local, so it "
+                       "is a local diagnosis, not an independent proof of the host's hook.",
         "inputSchema": {"type": "object", "properties": {
             "work": {"type": "string", "description": "the work folder gate_selftest_prepare returned"},
             "started_at": {"type": "string", "description": "the started_at gate_selftest_prepare returned"},

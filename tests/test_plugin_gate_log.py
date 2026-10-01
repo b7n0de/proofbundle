@@ -11,9 +11,12 @@ Properties checked:
 - gate_status reads the log the host names in the server's environment, says whether the gate ran in
   this session (by the host's session id, or since the server started), and says NOT MEASURED where it
   cannot read the log, with the gate note under Codex;
-- the self-test pushes only to a throwaway local bare repository and reports "hooks take effect" when
-  the gate logged exactly that push, "hooks do not take effect" when it did not, and "NOT MEASURABLE"
-  when the log cannot be read; it refuses a work folder it did not create.
+- the self-test pushes a stale-subject commit to a throwaway local bare remote on a tracked branch, which
+  the gate denies; the check reports, observation-near, whether the gate logged that deny and whether the
+  remote target moved ("Expected denial logged; test target unchanged." when the push was blocked, "...
+  test target changed." when it was not, "Test target changed; no matching gate event observed." when the
+  gate did not run, NOT MEASURABLE otherwise), with the limit that the log is local; it counts only its own
+  deny, and refuses a work folder it did not create.
 """
 from __future__ import annotations
 
@@ -217,11 +220,14 @@ def test_gate_status_says_not_measured_where_it_cannot_read_the_log(env):
 
 
 def _run_selftest(env: dict, tmp_path: pathlib.Path, *, hook: bool, data: pathlib.Path | None,
-                  stray: bool = False) -> dict:
+                  run_push: bool = True, stray: bool = False) -> dict:
+    """Prepare the self-test, optionally run the gate hook over its push (logging a deny), optionally let
+    the push reach the throwaway remote (run_push, as a host that ignores the deny would), then check. The
+    gate denies the push for a stale subject, reached without the verifier, so no uv shim is needed."""
     server_env = dict(env) if data is None else dict(env, CLAUDE_PLUGIN_DATA=str(data))
     (prepared,) = _server(server_env, [("gate_selftest_prepare", {})])
     if stray:
-        # A push the gate logged for another repository, and an entry for this work folder from before
+        # A deny the gate logged for another repository, and an entry for this work folder from before
         # started_at: neither is the self-test push.
         other = tmp_path / "other"
         other.mkdir()
@@ -229,37 +235,46 @@ def _run_selftest(env: dict, tmp_path: pathlib.Path, *, hook: bool, data: pathli
         _gate(server_env, other, "git push")
         data.mkdir(exist_ok=True)
         with open(data / gate.LOG_NAME, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"ts": "2000-01-01T00:00:00Z", "actions": ["git push"],
-                                     "repos": [{"path": prepared["work"]}]}) + "\n")
-    assert prepared["command"].startswith("git -C ") and " push " in prepared["command"]
+            handle.write(json.dumps({"ts": "2000-01-01T00:00:00Z", "actions": ["git push"], "decision": "deny",
+                                     "repos": [{"path": prepared["work"], "reason_id": "stale_subject"}]}) + "\n")
+    assert prepared["command"].startswith("git -C ") and " push origin main" in prepared["command"]
     assert pathlib.Path(prepared["remote"]).name == "remote.git"
     if hook:
-        _gate(server_env, tmp_path, prepared["command"])
-    subprocess.run(prepared["command"], shell=True, check=True, capture_output=True)
+        answer, _ = _gate(server_env, tmp_path, prepared["command"])
+        assert answer["hookSpecificOutput"].get("permissionDecision") == "deny"
+    if run_push:  # a host that does not honour the deny lets the push reach the remote
+        subprocess.run(prepared["command"], shell=True, check=True, capture_output=True)
     (checked,) = _server(server_env, [("gate_selftest_check", {"work": prepared["work"],
                                                                "started_at": prepared["started_at"]})])
+    assert checked["limit"].startswith("The log is a local file")
     shutil.rmtree(pathlib.Path(prepared["work"]).parent)
     return checked
 
 
-def test_the_selftest_sees_the_gate_when_the_hook_runs(env, tmp_path):
-    checked = _run_selftest(env, tmp_path, hook=True, data=tmp_path / "data")
-    assert (checked["result"], checked["pushed_to_the_throwaway_remote"]) == ("hooks take effect", True)
-    assert checked["log_entries"][0]["actions"] == ["git push"]
+def test_the_selftest_reports_a_blocked_push_as_denial_logged_and_target_unchanged(env, tmp_path):
+    """The host honours the deny, so the throwaway remote never receives the push (N5, N6)."""
+    checked = _run_selftest(env, tmp_path, hook=True, data=tmp_path / "data", run_push=False)
+    assert (checked["result"], checked["target_changed"]) == ("Expected denial logged; test target unchanged.", False)
+    assert checked["log_entries"][0]["reason_ids"] == ["stale_subject"]
 
 
-def test_the_selftest_reports_hooks_that_do_not_run(env, tmp_path):
-    checked = _run_selftest(env, tmp_path, hook=False, data=tmp_path / "data")
-    assert (checked["result"], checked["pushed_to_the_throwaway_remote"]) == ("hooks do not take effect", True)
+def test_the_selftest_reports_a_denial_the_host_did_not_enforce(env, tmp_path):
+    checked = _run_selftest(env, tmp_path, hook=True, data=tmp_path / "data", run_push=True)
+    assert (checked["result"], checked["target_changed"]) == ("Expected denial logged; test target changed.", True)
 
 
-def test_the_selftest_counts_only_the_gate_call_for_its_own_push(env, tmp_path):
-    checked = _run_selftest(env, tmp_path, hook=False, data=tmp_path / "data", stray=True)
-    assert checked["result"] == "hooks do not take effect"
+def test_the_selftest_reports_a_push_with_no_gate_event(env, tmp_path):
+    checked = _run_selftest(env, tmp_path, hook=False, data=tmp_path / "data", run_push=True)
+    assert checked["result"] == "Test target changed; no matching gate event observed."
+
+
+def test_the_selftest_counts_only_the_gate_deny_for_its_own_push(env, tmp_path):
+    checked = _run_selftest(env, tmp_path, hook=False, data=tmp_path / "data", run_push=False, stray=True)
+    assert checked["result"] == "NOT MEASURABLE", "a deny for another repo is not the self-test's own"
 
 
 def test_the_selftest_is_not_measurable_without_a_readable_log(env, tmp_path):
-    checked = _run_selftest(env, tmp_path, hook=True, data=None)
+    checked = _run_selftest(env, tmp_path, hook=True, data=None, run_push=False)
     assert checked["result"] == "NOT MEASURABLE"
 
 

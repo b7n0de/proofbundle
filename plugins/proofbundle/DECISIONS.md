@@ -482,10 +482,17 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   the answer names which. Under Codex the server's entry of `.codex-plugin/plugin.json` gets neither
   variable, so the server cannot read the log and says NOT MEASURED; the `gate_note` stays.
 - The self-test (skill `selftest`, tools `gate_selftest_prepare` and `gate_selftest_check`) makes a
-  throwaway repository and a bare remote in a temporary folder, has the model run one `git push` to that
-  local path, and then looks for exactly that gate call in the log: hooks take effect, hooks do not take
-  effect, or NOT MEASURABLE. It never pushes to a real remote; the check refuses any folder it did not
-  create. The skill runs only when the user invokes it.
+  throwaway repository and a bare remote in a temporary folder. The repository declares a stale subject and
+  tracks a named branch on the bare remote (so the push resolves, D3); the model runs one `git push` to
+  that branch, which the gate is expected to deny. The check reports, observation-near, whether the gate
+  logged that deny and whether the throwaway remote's target moved from the OID it stored at prepare:
+  "Expected denial logged; test target unchanged." (the host kept the push out), "Expected denial logged;
+  test target changed." (the host let it through), "Test target changed; no matching gate event observed."
+  (the hooks did not run), or NOT MEASURABLE. Every result carries the limit that the log is local, so this
+  is a local diagnosis, not an independent proof of the host's hook. It never pushes to a real remote; the
+  check refuses any folder it did not create, and takes no special path for the self-test in the gate. The
+  skill runs only when the user invokes it. The time window gate_status reports where there is no host
+  session id is labelled as a window since the server started, not a session.
 
 Options:
 - A. A local log per host data directory, read by the server where the host names it (chosen).
