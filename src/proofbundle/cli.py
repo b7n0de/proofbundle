@@ -379,6 +379,101 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_es256_signer(key_path: str, chain_path: str) -> tuple:
+    """The user's P-256 private key (PEM) and certificate chain (PEM, end-entity first) for the ES256
+    path of `scitt sign` (owner decision B). The key's curve is checked here; the chain's fit to the
+    key by the producer."""
+    from cryptography import x509  # noqa: PLC0415
+    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+    with _open_input(key_path, binary=True) as handle:
+        raw_key = _read_capped_bytes(handle)
+    try:
+        key = serialization.load_pem_private_key(raw_key, password=None)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"--ec-key {key_path!r}: not an unencrypted PEM private key") from exc
+    if not isinstance(key, ec.EllipticCurvePrivateKey) or key.curve.name != "secp256r1":
+        raise ValueError(f"--ec-key {key_path!r}: not a P-256 private key")
+    with _open_input(chain_path, binary=True) as handle:
+        raw_chain = _read_capped_bytes(handle)
+    try:
+        certs = x509.load_pem_x509_certificates(raw_chain)
+    except ValueError as exc:
+        raise ValueError(f"--x5chain {chain_path!r}: not PEM certificates") from exc
+    return key, [c.public_bytes(serialization.Encoding.DER) for c in certs]
+
+
+def _cmd_scitt_sign(args: argparse.Namespace) -> int:
+    """`scitt sign` (EXPERIMENTAL, 6.4.0): a SCITT Signed Statement over a receipt that verifies.
+
+    Exit 0 written, 1 the receipt does not verify (nothing written), 2 unusable input or arguments."""
+    from .bundle import load_bundle, verify_bundle  # noqa: PLC0415
+    from .scitt_ccf import ScittUnavailable  # noqa: PLC0415
+    from .scitt_statement import ScittStatementError, sign_statement  # noqa: PLC0415
+    # Checked before a --new-key file is written: a refused call leaves nothing behind.
+    if args.ec_key is not None and (args.key is not None or args.new_key is not None):
+        print("ERROR: use --key / --new-key (EdDSA) or --ec-key with --x5chain (ES256), not both",
+              file=sys.stderr)
+        return 2
+    if (args.ec_key is None) != (args.x5chain is None):
+        print("ERROR: --ec-key and --x5chain belong together (the P-256 key and its certificate chain)",
+              file=sys.stderr)
+        return 2
+    for name in ("issuer", "subject", "kid", "location"):
+        value = getattr(args, name, None)
+        if value is not None and not value:
+            print(f"ERROR: --{name} must not be empty", file=sys.stderr)
+            return 2
+    try:
+        bundle = load_bundle(args.receipt)
+        result = verify_bundle(bundle)
+    except (ProofBundleError, OSError, ValueError, RecursionError) as exc:
+        _err(exc)
+        return 2
+    if not result.ok:
+        failed = ", ".join(_safe_line(str(c.name)) for c in result.checks if not c.ok)
+        print(f"ERROR: the receipt does not verify (failed: {failed}); no statement written", file=sys.stderr)
+        return 1
+    try:
+        kid = None if args.kid is None else args.kid.encode("utf-8")
+    except UnicodeEncodeError:
+        print("ERROR: --kid is not valid UTF-8 text", file=sys.stderr)
+        return 2
+    x5chain = None
+    if args.ec_key is not None:
+        try:
+            signer, x5chain = _load_es256_signer(args.ec_key, args.x5chain)
+        except (OSError, ValueError, ProofBundleError) as exc:
+            _err(exc)
+            return 2
+    else:
+        signer = _resolve_signer(args)
+        if signer is None:
+            return 2
+    try:
+        data = sign_statement(bundle, signer, issuer=args.issuer, subject=args.subject, kid=kid,
+                              location=args.location, x5chain=x5chain)
+    except (ScittStatementError, ScittUnavailable) as exc:
+        _err(exc)
+        return 2
+    from .scitt_ccf import decode_cose_sign1  # noqa: PLC0415
+    written = decode_cose_sign1(data).protected
+    with open(args.out, "wb") as handle:
+        handle.write(data)
+    print(f"wrote SCITT signed statement {args.out} ({len(data)} bytes, "
+          f"{'ES256, protected x5chain' if x5chain is not None else 'EdDSA'})")
+    if 4 in written:
+        print(f"kid {_safe_line(written[4].decode('utf-8', 'replace'))}")
+    if args.public_key_out:
+        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+        pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
+                                               serialization.PublicFormat.SubjectPublicKeyInfo)
+        with open(args.public_key_out, "wb") as handle:
+            handle.write(pem)
+        print(f"wrote the statement's public key {args.public_key_out}")
+    return 0
+
+
 def _cmd_show_eval(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
@@ -555,6 +650,92 @@ def _build_rp_trust(args: argparse.Namespace) -> dict | None:
     return rp or None
 
 
+_SCITT_FLAGS = ("scitt_statement_key", "scitt_statement_kid", "scitt_service_keys", "scitt_service_issuer")
+
+
+def _pem_or_der(raw: bytes, what: str) -> bytes:
+    """The DER bytes of a PEM ``PUBLIC KEY`` block, or ``raw`` itself. The key is not built here: the
+    check builds it by its own type, and a key of another type is absent trust there."""
+    if b"-----BEGIN" not in raw:
+        return raw
+    import binascii  # noqa: PLC0415
+    text = raw.decode("ascii", "replace")
+    begin, end = "-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----"
+    if text.count(begin) != 1 or text.count(end) != 1 or text.index(begin) > text.index(end):
+        raise ValueError(f"{what}: not one PEM PUBLIC KEY block")
+    body = "".join(text.split(begin, 1)[1].split(end, 1)[0].split())
+    try:
+        return decode_b64(body)      # canonical standard base64, the one wire form (_wire_b64)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(f"{what}: the PEM body is not canonical base64") from exc
+
+
+def _load_scitt_inputs(args: argparse.Namespace):
+    """The statement bytes and trust material for ``verify --scitt-statement``, or None without it.
+    A trust flag without a statement is a usage error (exit 2): the question would silently not be asked."""
+    path = getattr(args, "scitt_statement", None)
+    if path is None:
+        if any(getattr(args, name, None) for name in _SCITT_FLAGS):
+            raise ValueError("--scitt-statement-key, --scitt-statement-kid, --scitt-service-keys and "
+                             "--scitt-service-issuer only apply together with --scitt-statement")
+        return None
+    service_keys = getattr(args, "scitt_service_keys", None)
+    service_issuer = getattr(args, "scitt_service_issuer", None)
+    if bool(service_keys) != bool(service_issuer):
+        raise ValueError("--scitt-service-keys and --scitt-service-issuer belong together (the key set "
+                         "and the issuer it is trusted for)")
+    with _open_input(path, binary=True) as handle:
+        data = _read_capped_bytes(handle)
+    kid = getattr(args, "scitt_statement_kid", None)
+    if kid is not None:
+        if not kid:
+            raise ValueError("--scitt-statement-kid must not be empty")
+        kid = kid.encode("utf-8")
+    keys: list = []
+    for key_path in getattr(args, "scitt_statement_key", None) or []:
+        with _open_input(key_path, binary=True) as handle:
+            der = _pem_or_der(_read_capped_bytes(handle), f"--scitt-statement-key {key_path!r}")
+        keys.append({"spki": der, "kid": kid} if kid is not None else der)
+    rp_trust = None
+    if service_keys:
+        from .scitt_ccf import ScittFormatError, load_cose_keyset  # noqa: PLC0415
+        with _open_input(service_keys, binary=True) as handle:
+            keyset = _read_capped_bytes(handle)
+        try:
+            rp_trust = {"scitt_ccf_services": {service_issuer: load_cose_keyset(keyset)}}
+        except ScittFormatError as exc:
+            raise ValueError(f"--scitt-service-keys {service_keys!r}: {exc}") from exc
+    return {"data": data, "statement_keys": keys, "rp_trust": rp_trust}
+
+
+def _check_scitt_statement(bundle: dict, scitt_input: dict):
+    from .anchors import receipt_canonical_root  # noqa: PLC0415
+    from .scitt_statement import check_signed_statement  # noqa: PLC0415
+    try:
+        root = receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
+    except (ProofBundleError, ValueError, RecursionError):
+        root = None      # no receipt root: the statement cannot be bound, and the check says so
+    return check_signed_statement(scitt_input["data"], canonical_root=root,
+                                  statement_keys=scitt_input["statement_keys"],
+                                  rp_trust=scitt_input["rp_trust"])
+
+
+#: Statement and registration statuses that are a relying-party requirement not met (exit 3); every
+#: other status but confirmed and the two registration states below is a failed check (exit 1).
+_SCITT_EXIT_3 = ("needs_rp_trust", "no_lib")
+_SCITT_REGISTRATION_NEUTRAL = ("confirmed", "not_registered", "not_evaluated")
+
+
+def _with_scitt_exit(rc: int, check) -> int:
+    """Fold the statement's verdict into the verify exit code: 1 dominates 3, 3 dominates 0."""
+    codes = [rc]
+    if check.status != "confirmed":
+        codes.append(3 if check.status in _SCITT_EXIT_3 else 1)
+    if check.registration not in _SCITT_REGISTRATION_NEUTRAL:
+        codes.append(3 if check.registration in _SCITT_EXIT_3 else 1)
+    return 1 if 1 in codes else (3 if 3 in codes else rc)
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .policy import (  # noqa: PLC0415
@@ -581,6 +762,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # --trusted-tsa-root / --bitcoin-header is a clean exit 2 (not a raw traceback), like every other
         # malformed flag. Built once, used at the anchor-requirement site (which is outside this try).
         rp_trust_material = _build_rp_trust(args)
+        # 6.4.0: the SCITT statement and its trust material, read inside the try so an unreadable or
+        # malformed file is a clean exit 2; None when no --scitt-statement was given.
+        scitt_input = _load_scitt_inputs(args)
         # A-P0-2 §6.3: historical verification only via an EXPLICIT instant — never silent backdating.
         verification_time = None
         if getattr(args, "verification_time", None) is not None:
@@ -766,6 +950,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             bundle, require=require_anchor, allow_pending=allow_pending,
             require_target=anchor_target, rp_trust=rp_trust_material)
         anchor_required_ok = anchor_report["ok"]
+    # 6.4.0: the SCITT statement, checked ONLY when crypto passed (like --policy and --require-anchor).
+    # It is a verdict of its own; it never enters anchor_required_ok, so a statement without a receipt
+    # can never satisfy --require-anchor.
+    scitt_check = None
+    if scitt_input is not None and crypto_ok:
+        scitt_check = _check_scitt_statement(bundle, scitt_input)
     # ASSURANCE is a verbatim display read, only meaningful (and only attempted) for a receipt that
     # cryptographically verified — a crypto FAIL means the level cannot be trusted, so show n/a.
     assurance = _assurance_from_bundle(bundle) if crypto_ok else None
@@ -934,6 +1124,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         fields["anchor_detail"] = anchor_report["detail"]
         fields["anchor_results"] = anchor_report["results"]
 
+    if scitt_input is not None:
+        fields["scitt_statement"] = (scitt_check.to_dict() if scitt_check is not None else
+                                     {"status": "not_evaluated", "detail": "crypto failed"})
+
     if args.json:
         out = result.as_dict()
         if roots is not None:
@@ -1026,7 +1220,18 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                     print(f"ANCHOR: OK ({_safe_line(anchor_report['detail'])})")
                 else:
                     print(f"ANCHOR: REQUIRED_NOT_MET ({_safe_line(anchor_report['detail'])})")
-    return _verify_exit_code(crypto_ok, policy_ok, anchor_required_ok)
+        if scitt_input is not None:
+            if scitt_check is None:
+                print("SCITT-STATEMENT: NOT_EVALUATED (crypto failed — the statement is not checked)")
+            else:
+                detail = f" ({_safe_line(scitt_check.detail)})" if scitt_check.detail else ""
+                print(f"SCITT-STATEMENT: {scitt_check.status.upper()}{detail}")
+                print(f"SCITT-REGISTRATION: {scitt_check.registration.upper()} "
+                      f"({_safe_line(scitt_check.registration_detail)})")
+    rc = _verify_exit_code(crypto_ok, policy_ok, anchor_required_ok)
+    if scitt_check is not None:
+        rc = _with_scitt_exit(rc, scitt_check)
+    return rc
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:
@@ -2713,6 +2918,24 @@ def build_parser() -> argparse.ArgumentParser:
                              "(internal/node byte order, as bitcoind returns it), repeatable. The ONLY "
                              "trust source that CONFIRMS an OpenTimestamps anchor — the bundle's frozen "
                              "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
+    verify.add_argument("--scitt-statement", dest="scitt_statement", default=None, metavar="FILE",
+                        help="(EXPERIMENTAL, 6.4.0) also check a SCITT Signed Statement over this receipt "
+                             "(from `scitt sign`), offline: header rules, payload = the receipt's anchor "
+                             "root, signature under --scitt-statement-key. A statement without a receipt "
+                             "under label 394 reads SCITT-REGISTRATION: NOT_REGISTERED, a named state that "
+                             "changes no exit code and never satisfies --require-anchor. A failed statement "
+                             "is exit 1, no usable statement key exit 3")
+    verify.add_argument("--scitt-statement-key", dest="scitt_statement_key", action="append", default=None,
+                        metavar="FILE", help="the statement signer's Ed25519 public key (PEM or DER "
+                                             "SubjectPublicKeyInfo), supplied by the relying party; repeatable")
+    verify.add_argument("--scitt-statement-kid", dest="scitt_statement_kid", default=None, metavar="TEXT",
+                        help="the kid the relying party pairs with --scitt-statement-key; default: the "
+                             "hex SHA-256 of each key's SubjectPublicKeyInfo")
+    verify.add_argument("--scitt-service-keys", dest="scitt_service_keys", default=None, metavar="FILE",
+                        help="a COSE_KeySet of the Transparency Service (as served at "
+                             "/.well-known/scitt-keys), to evaluate a receipt under label 394")
+    verify.add_argument("--scitt-service-issuer", dest="scitt_service_issuer", default=None, metavar="ISS",
+                        help="the service's CWT issuer, exact string; belongs with --scitt-service-keys")
     verify.set_defaults(func=_cmd_verify)
 
     emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
@@ -3155,6 +3378,36 @@ def build_parser() -> argparse.ArgumentParser:
     a_in.add_argument("path", help="path to a detached OTS proof (.ots) or an evidence pack JSON")
     a_in.add_argument("--json", action="store_true", help="machine readable output")
     a_in.set_defaults(func=_cmd_anchor_inspect)
+
+    scitt = sub.add_parser(
+        "scitt",
+        help="SCITT Signed Statements over receipts (EXPERIMENTAL, 6.4.0): sign one offline")
+    scsub = scitt.add_subparsers(dest="scitt_command", required=True)
+    sc_sign = scsub.add_parser(
+        "sign",
+        help="sign a COSE_Sign1 hash envelope (RFC 9995) over a receipt's anchor root, EdDSA with a "
+             "protected kid by default, ES256 with a protected x5chain on request; the receipt must "
+             "verify. Offline; registration is a separate step")
+    sc_sign.add_argument("receipt", help="path to the receipt bundle JSON")
+    sc_sign.add_argument("--out", required=True, help="path to write the statement (binary COSE_Sign1)")
+    sc_sign.add_argument("--issuer", required=True, help="CWT iss (RFC 9943 section 6)")
+    sc_sign.add_argument("--subject", required=True, help="CWT sub (RFC 9943 section 6)")
+    sc_sign.add_argument("--kid", default=None,
+                         help="protected kid as text; default: the hex SHA-256 of the key's "
+                              "SubjectPublicKeyInfo")
+    sc_sign.add_argument("--location", default=None, help="payload location, label 260 (only if given)")
+    sc_sign.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
+    sc_sign.add_argument("--new-key", dest="new_key", help="generate a signing key and save it to this file")
+    sc_sign.add_argument("--ec-key", dest="ec_key", default=None,
+                         help="ES256 instead of EdDSA (owner decision B): the user's P-256 private key, PEM; "
+                              "only for statements that must pass the scitt-ccf/v1 reader, register with "
+                              "scitt-ccf-ledger or cross-verify with scitt-verifier. Needs --x5chain")
+    sc_sign.add_argument("--x5chain", default=None,
+                         help="with --ec-key: the certificate chain, PEM, the end-entity certificate (which "
+                              "must carry the key) first; written as the protected x5chain")
+    sc_sign.add_argument("--public-key-out", dest="public_key_out", default=None,
+                         help="also write the statement's public key (PEM SubjectPublicKeyInfo)")
+    sc_sign.set_defaults(func=_cmd_scitt_sign)
 
     return parser
 

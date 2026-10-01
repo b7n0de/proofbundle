@@ -78,6 +78,11 @@ _MODULES = [
     # BundleFormatError) or ScittUnavailable without the [scitt] extra; the two verify_ surfaces
     # return a status for every input and never raise.
     "scitt_ccf",
+    # 2026-09-27: the producer side of scitt-ccf/v1 (6.4.0). The population guard reported
+    # `check_signed_statement` the moment it existed. It reads a statement from outside (a file a
+    # relying party was handed, or one a Transparency Service returned) and returns a status for every
+    # input; `sign_statement` is a producer and raises ScittStatementError (a BundleFormatError).
+    "scitt_statement",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -217,6 +222,11 @@ def _discover_surfaces():
 # WER EINE DIESER FUNKTIONEN ZU EINEM VERBRAUCHER MACHT (untrusted Eingabe), nimmt sie hier heraus
 # und in den Nenner — genau diese Bewegung war bei `cosign_*` faellig und fand nie statt.
 _OUT_OF_SCOPE = frozenset({
+    # 2026-09-27, 6.4.0 producer: `scitt_statement.sign_statement` is an ERZEUGER in the sense of the
+    # family rule above. It takes our own receipt and key and refuses loudly (ScittStatementError)
+    # rather than write a statement it cannot back; its reading counterpart,
+    # `check_signed_statement`, is in the denominator.
+    "sign_statement",
     # 2026-09-18, P19 (6.1.0), `proofbundle.verifier_block` — ELEVEN producers, one decision each:
     #   `measure_build`, `measure_vector_set`, `measure_verifier_block` MEASURE the local tree and
     #       corpus on the producer's side and raise `VerifierBlockError` on a tree they cannot

@@ -13,8 +13,8 @@ and both verify. Two owner decisions of 2026-09-26, the second refining the firs
    computed over the form in which EVERY ES256 signature carries the low s, the issuer JWT's and a
    KB-JWT's, so twins have one identity. The cost is stated in the CHANGELOG: a receipt and its twin
    are two token strings with one identity;
-4. a low s is required only of signatures proofbundle makes itself (it makes no ES256 signature
-   today); eip191 refuses a high s (``tests/test_anchors_rootcommit.py``).
+4. a low s is required only of signatures proofbundle makes itself (its one ES256 signature is the
+   SCITT statement's ES256 path, 6.4.0); eip191 refuses a high s (``tests/test_anchors_rootcommit.py``).
 
 Each class says whether it was red on f536af50 and on 126ed1dc, measured by running this file
 against those trees. A case that was green there says so, because a case that cannot fall is a
@@ -601,8 +601,8 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
 class OwnSignaturesHaveOneSpelling(unittest.TestCase):
     """Owner decision, point 4: a low s is required of the signatures proofbundle makes itself.
-    proofbundle makes no ES256 signature (the inventory below keeps that true); the signatures it
-    makes on the D1 surfaces are EdDSA: the bundle's own ``signature.sig_b64`` (``emit_bundle``), the
+    proofbundle makes one ES256 signature, the SCITT statement's ES256 path (6.4.0, owner decision B;
+    the inventory below keeps it the only one); the signatures it makes on the D1 surfaces are EdDSA: the bundle's own ``signature.sig_b64`` (``emit_bundle``), the
     issuer JWT of ``issue_sd_jwt`` and the KB-JWT of ``present_with_key_binding``. A pb1 token carries
     no signature of its own. Each signature is checked by the rule for the alg it declares: ES256
     must carry s <= n / 2, EdDSA must carry S < L, which leaves it one spelling. An alg without a rule
@@ -645,9 +645,42 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
             jwt = issued.split("~", 1)[0]
             self._assert_one_spelling(json.loads(_unb64u(jwt.split(".")[0]))["alg"],
                                       _unb64u(jwt.split(".")[2]), f"round {i}: issued SD-JWT")
+            for alg, sig in self._scitt_statement_signatures(i):
+                self._assert_one_spelling(alg, sig, f"round {i}: SCITT statement")
         # both halves of the FOREIGN s occurred, and none of them changed what proofbundle signs
         self.assertGreater(halves["low"], 0, halves)
         self.assertGreater(halves["high"], 0, halves)
+
+    def _scitt_statement_signatures(self, i: int) -> list:
+        """The statements of scitt_statement.sign_statement (6.4.0), EdDSA and ES256 (owner decision B):
+        the ES256 one is the first ECDSA signature proofbundle makes, and it must carry the low s.
+        Needs the [scitt] extra and the RFC 8785 canonicalizer; without them there is no statement."""
+        import importlib.util  # noqa: PLC0415
+        if importlib.util.find_spec("cbor2") is None or importlib.util.find_spec("rfc8785") is None:
+            return []
+        import cbor2  # noqa: PLC0415
+        from cryptography import x509  # noqa: PLC0415
+        from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+        from cryptography.x509.oid import NameOID  # noqa: PLC0415
+
+        from proofbundle.scitt_statement import sign_statement  # noqa: PLC0415
+        if not hasattr(self, "_scitt"):
+            import datetime  # noqa: PLC0415
+            now = datetime.datetime.now(datetime.timezone.utc)
+            key = ec.generate_private_key(ec.SECP256R1())
+            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "one spelling")])
+            leaf = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+                    .serial_number(1).not_valid_before(now).not_valid_after(now + datetime.timedelta(days=1))
+                    .sign(key, hashes.SHA256()).public_bytes(serialization.Encoding.DER))
+            bundle = emit_bundle(b'{"scitt": true}', generate_signer())
+            self._scitt = (key, leaf, bundle)
+        key, leaf, bundle = self._scitt
+        out = []
+        for alg, signer, chain in (("EdDSA", generate_signer(), None), ("ES256", key, [leaf])):
+            data = sign_statement(bundle, signer, issuer="https://issuer.example", subject=f"s{i}", x5chain=chain)
+            out.append((alg, bytes(cbor2.loads(data).value[3])))
+        return out
 
     def test_no_other_ecdsa_signing_path_exists_in_src(self):
         """An inventory, GREEN on 126ed1dc as well. The only ECDSA machinery in the package is the
@@ -660,7 +693,10 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
         keys of others and signs nothing, so it joins the verifiers here."""
         allowed = {("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
                    ("anchors_rootcommit.py", "SECP256k1"),
-                   ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1")}
+                   ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1"),
+                   # 6.4.0, owner decision B: the ES256 path of the SCITT producer SIGNS, with the low s,
+                   # and joins test_every_signature_proofbundle_makes_has_one_spelling above.
+                   ("scitt_statement.py", "ECDSA"), ("scitt_statement.py", "SECP256R1")}
         watched = {"ECDSA", "SECP256R1", "SECP256K1", "SECP256k1", "SigningKey", "sign_digest",
                    "sign_deterministic", "sign_digest_deterministic"}
         found = set()
