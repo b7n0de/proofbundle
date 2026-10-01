@@ -444,6 +444,168 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
         self.assertEqual(_beobachte(basis), erster)
 
 
+class ARelationsSectionIsHeldOnlyWhenTheCommandAppliesARuleOfIt(unittest.TestCase):
+    """THE PROPERTY (deep gate run 6 at fda55f98, L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01, three of three jurors
+    P1): for each receipt verify command and each policy whose only section is `relations`, the command refuses the
+    policy with exit 2 exactly when no rule of the section can change what the command answers. The guard counted a
+    section as held when it held any key, so `reject_retracted: true` at `decision verify` and `outcome verify`, which
+    never apply it, and `reject_superseded: false`, an empty `relation_signer` or an empty `require_relation_target`
+    were accepted: `decision verify` ended byte-identical to no `--policy`, and `outcome verify` printed POLICY: OK
+    over an attached, verified retraction of its receipt.
+
+    THE ORACLE does not ask the guards. With both switched off, `cli._policy_ohne_abschnitt` and the rule that every
+    rule a policy sets is one the command applies (`policy._regelfehler`, T16 after the review before run 7), a
+    section counts as applied when, in one of the scenarios below, the run with the policy ends with another exit
+    code than the run without it. The scenarios are
+    built so that every kind of rule fails in one of them: an attached, verified retraction of the receipt
+    (`reject_superseded`), an edge to a target that is not attached (`require_relation_resolution`), an edge to a
+    target signed by another key (`relation_signer` in both modes, `require_relation_target`), and a statement that
+    retracts an attached, verified target (`reject_retracted` at `relation-statement verify`). With the guard on, the
+    case asserts refusal exactly for the sections the oracle found applying nothing. The generator takes every
+    section built from the values that set no rule, and each value that sets one alone and beside all of them."""
+
+    _V2 = "proofbundle/trust-policy/v0.2"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from proofbundle import anchors as _anchors
+        from proofbundle._wire_b64 import decode_b64
+        cls._td = tempfile.TemporaryDirectory(prefix="pb_relations_rule_")
+        d = Path(cls._td.name)
+        haupt, fremd, dritt = generate_signer(), generate_signer(), generate_signer()
+
+        def b64(s) -> str:
+            return base64.b64encode(s.public_key().public_bytes_raw()).decode("ascii")
+        cls.pub, cls.fremd_pub, cls.dritt_pub = b64(haupt), b64(fremd), b64(dritt)
+        zaehler = [0]
+
+        def schreibe(obj) -> str:
+            zaehler[0] += 1
+            p = d / f"beleg_{zaehler[0]}.json"
+            p.write_text(json.dumps(obj), encoding="utf-8")
+            return str(p)
+
+        def wurzel(env) -> str:
+            return _anchors.statement_content_root(decode_b64(env["payload"])).hex()
+
+        def kante(relation: str, ziel: str, aussage: bool = False) -> dict:
+            k = {"relation": relation, "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": ziel}}
+            if aussage:
+                k.update({"reasonCode": "withdrawal", "reason": "x", "declaredAt": "2026-09-29T00:00:00Z"})
+            return k
+
+        dpred = json.loads((REPO / "examples" / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+        opred = {"schemaVersion": "0.1.0", "outcomeId": "o1", "decisionRef": {"sha256": "e" * 64},
+                 "executor": {"id": "executor:x", "keyId": "kid"}, "requestedActionDigest": {"sha256": "b" * 64},
+                 "status": "executed", "performedAt": "2026-07-14T10:00:00Z", "effectDigest": {"sha256": "c" * 64}}
+
+        def beleg(befehl: str, kanten: list | None, signer=haupt):
+            if befehl == "decision":
+                pred = dict(dpred, **({"relationships": kanten} if kanten else {}))
+                return emit_decision_receipt(pred, signer, strict=True)
+            if befehl == "outcome":
+                return emit_outcome_receipt(dict(opred, **({"relationships": kanten} if kanten else {})), signer)
+            stmt = {"schemaVersion": "0.1.0", "statementId": f"urn:uuid:rel-{zaehler[0]}",
+                    "relationships": kanten or [kante("retracts", "a" * 64, aussage=True)]}
+            return emit_relation_statement(stmt, signer)
+
+        # The target an edge names in scenarios 3 and 4: a receipt signed by another key, attached with its key.
+        ziel_env = emit_decision_receipt(dpred, fremd, strict=True)
+        ziel_datei, ziel_wurzel = schreibe(ziel_env), wurzel(ziel_env)
+        anhang_fremd = ["--with-related", ziel_datei, "--related-pub", cls.fremd_pub]
+        cls.szenarien: dict = {}
+        for befehl in ("decision", "outcome", "relation-statement"):
+            aussage = befehl == "relation-statement"
+            basis = [befehl, "verify"] if befehl != "relation-statement" else ["relation-statement", "verify"]
+            ohne_kante = beleg(befehl, None)
+            ruecknahme = emit_relation_statement(
+                {"schemaVersion": "0.1.0", "statementId": f"urn:uuid:retract-{befehl}",
+                 "relationships": [kante("retracts", wurzel(ohne_kante), aussage=True)]}, haupt)
+            cls.szenarien[befehl] = [
+                basis + [schreibe(ohne_kante), "--pub", cls.pub],
+                basis + [schreibe(ohne_kante), "--pub", cls.pub, "--with-related", schreibe(ruecknahme)],
+                basis + [schreibe(beleg(befehl, [kante("supersedes", "c" * 64, aussage)])), "--pub", cls.pub],
+                basis + [schreibe(beleg(befehl, [kante("supersedes", ziel_wurzel, aussage)])), "--pub", cls.pub]
+                + anhang_fremd,
+                basis + [schreibe(beleg(befehl, [kante("retracts", ziel_wurzel, aussage)])), "--pub", cls.pub]
+                + anhang_fremd,
+            ]
+        leer = {"reject_superseded": [False], "reject_retracted": [False, True], "relation_signer": [{}],
+                "require_relation_target": [{}]}
+        setzend = {"require_relation_resolution": [["supersedes"]], "reject_superseded": [True],
+                   "relation_signer": [{"supersedes": {"mode": "same-key"}},
+                                       {"supersedes": {"mode": "pinned", "keys": [cls.dritt_pub]}}],
+                   "require_relation_target": [{"supersedes": "d" * 64}]}
+        import itertools
+        ohne_regel: list = []
+        for wahl in itertools.product(*[[None] + werte for werte in leer.values()]):
+            ohne_regel.append({k: v for k, v in zip(leer, wahl) if v is not None})
+        cls.abschnitte = list(ohne_regel)
+        for schluessel, werte in setzend.items():
+            for wert in werte:
+                cls.abschnitte.append({schluessel: wert})
+                cls.abschnitte.append({**{k: v[0] for k, v in leer.items() if k != schluessel}, schluessel: wert})
+        cls.dateien = []
+        for i, abschnitt in enumerate(cls.abschnitte):
+            p = d / f"policy_{i}.json"
+            p.write_text(json.dumps({"schema": cls._V2, "policy_id": f"org/relations-{i}-v1", "relations": abschnitt}),
+                         encoding="utf-8")
+            cls.dateien.append(str(p))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._td.cleanup()
+
+    @staticmethod
+    def _lauf(argv: list[str]) -> tuple:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def _angewendet(self, befehl: str, datei: str) -> bool:
+        """The oracle: with the guards off, does the policy change one scenario's exit code? A rule the command applies
+        fails in one scenario and ends it with exit 3. The stdout is not compared: `outcome verify` and `relation-statement
+        verify` print POLICY: OK for any policy they accept, so a line that names a passing policy is no rule applied,
+        and that line over a policy of nothing is the defect itself."""
+        from unittest import mock
+        with mock.patch("proofbundle.cli._policy_ohne_abschnitt", lambda *a, **k: False), \
+                mock.patch("proofbundle.policy._regelfehler", lambda *a, **k: None):
+            for argv in self.szenarien[befehl]:
+                if self._lauf(argv + ["--policy", datei])[0] != self._lauf(argv)[0]:
+                    return True
+        return False
+
+    def test_a_section_is_refused_exactly_when_no_rule_of_it_applies(self) -> None:
+        for befehl in self.szenarien:
+            for abschnitt, datei in zip(self.abschnitte, self.dateien):
+                with self.subTest(command=befehl, relations=abschnitt):
+                    angewendet = self._angewendet(befehl, datei)
+                    rc, _, err = self._lauf(self.szenarien[befehl][0] + ["--policy", datei])
+                    abgewiesen = rc == 2 and "cannot use --policy" in err
+                    self.assertEqual(abgewiesen, not angewendet,
+                                     f"{befehl} verify {'refused' if abgewiesen else 'accepted'} a relations section "
+                                     f"that {'changes' if angewendet else 'changes nothing of'} what it answers")
+
+    def test_control_each_kind_of_rule_applies_in_a_scenario(self) -> None:
+        # The oracle has to be able to find a rule: each value that sets one changes a scenario at every command
+        # that applies it, so a scenario set that no rule fails would read every section as applying nothing.
+        for befehl in self.szenarien:
+            for abschnitt, datei in zip(self.abschnitte, self.dateien):
+                if len(abschnitt) != 1 or next(iter(abschnitt.values())) in ([], {}, False):
+                    continue
+                if abschnitt == {"reject_retracted": True}:
+                    continue   # applied by relation-statement verify only; the property case holds the rest
+                with self.subTest(command=befehl, relations=abschnitt):
+                    self.assertTrue(self._angewendet(befehl, datei), f"no scenario of {befehl} verify fails {abschnitt}")
+
+    def test_control_reject_retracted_applies_where_a_statement_is_judged(self) -> None:
+        datei = self.dateien[self.abschnitte.index({"reject_retracted": True})]
+        self.assertTrue(self._angewendet("relation-statement", datei))
+        self.assertFalse(self._angewendet("decision", datei))
+        self.assertFalse(self._angewendet("outcome", datei))
+
+
 #: Every file option without a generator case, with the reason no content of it can read as its absence.
 #: Measured on the tree of this change for the optional ones: without the option the command is refused
 #: (exit 2), and so is every content of `_DATEI_INHALTE`.

@@ -422,12 +422,21 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     elif richtlinie is not None:
         # The loader's rule over the whole policy, as in outcome.verify_outcome_receipt (verify lens on the
         # cross-check fix at bc3d275f): a top-level typo such as "relationz" read as no relations rule.
-        from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+        from .policy import _abgelehnt_vom_loader, _gemeinsame_fehler, _regelfehler  # noqa: PLC0415
         _grund = _abgelehnt_vom_loader(richtlinie)
         if _grund is not None:
             r["policy_ok"] = False
             r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
                                f"load_policy applies): {_grund}")
+        elif r["crypto_ok"]:
+            # Every rule the policy sets is one this verifier applies (T16), and the shared fields apply here too
+            # (owner point 6), as in outcome.verify_outcome_receipt. A relation statement has no purpose of its own
+            # among the registered ones, so a policy that declares one is for another path.
+            _regel = _regelfehler(richtlinie, "relation_statement")
+            _fehler = ([_regel] if _regel is not None else []) + _gemeinsame_fehler(richtlinie, None)
+            if _fehler:
+                r["policy_ok"] = False
+                r["errors"].extend(_fehler)
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

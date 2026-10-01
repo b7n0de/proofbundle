@@ -1123,12 +1123,21 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # verifier judges only the relations section, so a top-level typo such as "relationz" read as no
             # relations rule and an attached retraction passed, where load_policy and the decision verifier
             # refuse the policy. A policy the loader refuses is refused here with its message.
-            from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+            from .policy import _abgelehnt_vom_loader, _gemeinsame_fehler, _regelfehler  # noqa: PLC0415
             _grund = _abgelehnt_vom_loader(richtlinie)
             if _grund is not None:
                 r["policy_ok"] = False
                 r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
                                    f"load_policy applies): {_grund}")
+            elif r["crypto_ok"]:
+                # Every rule the policy sets is one this verifier applies (T16, `policy._regelfehler`), and the
+                # shared fields apply here as on every receipt path (owner point 6): an expired policy, one not yet
+                # valid, one for another path and a raw template fail it. Measured at fda55f98: each passed here.
+                _regel = _regelfehler(richtlinie, "outcome")
+                _fehler = ([_regel] if _regel is not None else []) + _gemeinsame_fehler(richtlinie, "outcome")
+                if _fehler:
+                    r["policy_ok"] = False
+                    r["errors"].extend(_fehler)
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

@@ -154,7 +154,27 @@ _VERIFY_NULLABLE_FIELDS = (
     "root_authenticity")
 
 
-def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple) -> bool:
+def _relations_regel(abschnitt: dict, eigene_aussage: bool) -> bool:
+    """Whether a loaded ``relations`` section sets a rule the verify command applies (`_policy_ohne_abschnitt`).
+
+    A rule is set by a ``require_relation_resolution`` that names a relation, a ``reject_superseded`` that is true, a
+    ``relation_signer`` or ``require_relation_target`` that names a relation, and a ``reject_retracted`` that is true
+    where the command judges a statement's own assertion (``relation-statement verify``, ``eigene_aussage``): the decision
+    and outcome verify commands never apply it (`relation.evaluate_relations_policy`, "standalone-only"). Deep gate run 6
+    at fda55f98, L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01: a section holding only ``reject_retracted: true``, or only
+    ``reject_superseded: false``, ``relation_signer: {}`` or ``require_relation_target: {}``, counted as held, and
+    `outcome verify` printed POLICY: OK over an attached, verified retraction of its receipt."""
+    from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
+    for name in ("require_relation_resolution", "relation_signer", "require_relation_target"):
+        wert = _feld_von(abschnitt, name, _FEHLT)
+        if wert is not _FEHLT and not ((type(wert) is list or type(wert) is dict) and not wert):
+            return True
+    if _feld_von(abschnitt, "reject_superseded", _FEHLT) is True:
+        return True
+    return eigene_aussage and _feld_von(abschnitt, "reject_retracted", _FEHLT) is True
+
+
+def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple, eigene_aussage: bool = False) -> bool:
     """True when a loaded ``--policy`` holds none of the sections this command evaluates, or holds them with nothing
     in them that applies.
 
@@ -178,7 +198,7 @@ def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple) -> bool:
         wert = _feld_von(policy, name, _FEHLT)
         if wert is _FEHLT:
             continue
-        if name == "relations" and type(wert) is dict and not wert:
+        if name == "relations" and type(wert) is dict and not _relations_regel(wert, eigene_aussage):
             continue
         if name == "anchors" and not policy_anchor_trust(policy):
             continue
@@ -755,6 +775,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         effective_aud = flag_aud
         if getattr(args, "policy", None) is not None:   # `--policy ''` is a policy that cannot be read
             policy = load_policy(resolve_policy_source(args.policy))
+            # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): a decision or
+            # relations section is refused here, exit 2, never dropped.
+            from .policy import PolicyError, _regelfehler  # noqa: PLC0415
+            _regel = _regelfehler(policy, "verify")
+            if _regel is not None:
+                raise PolicyError(_regel)
             pol_aud = policy_expected_aud(policy)
             if pol_aud is not None and flag_aud is not None and pol_aud != flag_aud:
                 from .policy import PolicyError  # noqa: PLC0415
@@ -822,10 +848,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (Lens-2/3/4/6 review: a not-yet-valid policy or an expired-today checkpoint must never read
         # automation-safe just because a past instant was supplied). We therefore evaluate TWICE in historical
         # mode; in current mode the two coincide (one evaluation, no behaviour change).
-        policy_result = evaluate_policy(bundle, result, policy, now=verification_time)
+        # The anchors section was applied above (the requirement and the trust material), so the evaluator gets the
+        # policy without it; it refuses any rule it does not apply itself (T16).
+        _ohne_anker = {k: v for k, v in policy.items() if k != "anchors"}
+        policy_result = evaluate_policy(bundle, result, _ohne_anker, now=verification_time)
         policy_ok = policy_result["policy_ok"]
         policy_result_now = (policy_result if verification_time is None
-                             else evaluate_policy(bundle, result, policy, now=None))
+                             else evaluate_policy(bundle, result, _ohne_anker, now=None))
     # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
     # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
     # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
@@ -2105,6 +2134,14 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
                  "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
             return 2
+    # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): the decision section, the
+    # relations rules but `reject_retracted`, the shared fields, and beside `--anchors` the anchor trust material.
+    if policy is not None:
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "decision verify --anchors" if anchors is not None else "decision verify")
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
     # A policy the command reads as nothing is refused like the empty value (`_policy_ohne_abschnitt`). Its
     # `anchors` section gives the relying party's trust for the anchors of `--anchors` (`policy_anchor_trust`), so it
     # applies when anchors are checked, and only then (verify lane V4 on 8f2fa980: a policy with only that section
@@ -2134,8 +2171,11 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             for e in rel_errs:
                 _err(e)
             return 2
+        # The anchors section was applied above as the relying party's trust, so the verifier gets the policy
+        # without it; it refuses any rule it does not apply itself (T16).
+        _politik = None if policy is None else {k: v for k, v in policy.items() if k != "anchors"}
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
-                                         expected_nonce=args.nonce, policy=policy, anchors=anchors,
+                                         expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
                                          related=related or None)
@@ -2329,6 +2369,11 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         except PolicyError as exc:
             _err(exc)
             return 2
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "outcome")   # T16: every rule the policy sets is one this command applies
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
         if _policy_ohne_abschnitt(policy, ("relations",)):
             _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
                  "receipt is judged by; a verify without a policy omits the option")
@@ -2497,7 +2542,12 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         except PolicyError as exc:
             _err(exc)
             return 2
-        if _policy_ohne_abschnitt(policy, ("relations",)):
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "relation_statement")   # T16, as at outcome verify
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+        if _policy_ohne_abschnitt(policy, ("relations",), eigene_aussage=True):
             _err("cannot use --policy: the policy holds no relations rule, the only part of a policy a relation "
                  "statement is judged by; a verify without a policy omits the option")
             return 2

@@ -968,11 +968,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
             import base64  # noqa: PLC0415
-            from .policy import evaluate_decision_policy  # noqa: PLC0415
-            # The plain copy when there is one; otherwise the refusal taken at entry (`_ablehnung`).
-            pe = _ablehnung if _ablehnung is not None else evaluate_decision_policy(
-                statement, r, richtlinie, signer_public_key_b64=base64.b64encode(schluessel).decode(),
-                anchor_status=anchor_status)
+            from .policy import _regelfehler, evaluate_decision_policy  # noqa: PLC0415
+            # Every rule the policy sets is one this verifier applies (T16, `policy._regelfehler`): the decision
+            # section, the relations rules (the gate below) and the shared fields. Any other rule, an eval, anchors or
+            # `reject_retracted` rule, refuses the policy. The decision section and the shared fields are judged by
+            # `evaluate_decision_policy`, which gets the policy without the relations section judged below.
+            _regel = _regelfehler(richtlinie, "verify_decision_receipt") if richtlinie is not None else None
+            if _ablehnung is not None:   # the plain copy is missing: the refusal taken at entry
+                pe = _ablehnung
+            elif _regel is not None:
+                pe = {"policy_ok": False, "signer_trusted": None, "errors": [_regel]}
+            else:
+                pe = evaluate_decision_policy(
+                    statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
+                    signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])
