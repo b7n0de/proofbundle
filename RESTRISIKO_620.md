@@ -914,6 +914,15 @@ file; these lines are its other findings.
   of 72). Measured at 6f485214 with the optional extras blocked: all nine dataclasses are found, and only the two
   `inspect_ai` modules, which define none, fail to import. No verdict is affected. Workaround: none is needed by a
   caller; the case will name the modules it could not import after the tag.
+- **R620-F12-2, P2. The type comparison of a reader's two answers is held by no case for containers** (adversarial
+  lens on 6f485214, F1): `canonical._derselbe` compares the type of two answers before it reads them
+  (`typ is not type(b)`). The class tests hold that comparison for leaves (`1` against `True`), not for containers.
+  With it kept for leaves and taken out for containers, the class test file passes (93 passed, 176 subtests), and a
+  Mapping read through its own methods whose values are `Check` objects in one answer and `VerificationResult` objects
+  with the same fields in the next gave a copy holding one of each, a state it never held, in 45 of 1349 swept calls;
+  80 pairs of answers of the same contents but another class (the 72 pairs of the package's dataclasses and 8 kinds)
+  were judged the same. At 6f485214 the comparison is in place: 0 of 1349, and none of the 80 judged the same. No verdict is affected. Workaround: none is needed by a caller; a case that falls
+  without the comparison follows after the tag.
 
 ## Open — named limits carried by the fixes themselves
 
