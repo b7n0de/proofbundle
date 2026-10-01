@@ -46,7 +46,10 @@ defect of the lanes V7 and V10 showed untested (the second collect of each kind,
 warning's frame, the prefix of a module name) has a test that falls on that plant; the lane V12 on d1c39ae3 found 24
 rules of the same value that no test held, and the lane V13 on 95c9f82a 18 more; each of these has a case now that
 falls without it (the guard against a circle by a hang of the ring case). The lane V14 on 6723bf24 found 33 further
-single defects of these rules that no case catches (RESTRISIKO_620.md, R620-V14-3).
+single defects of these rules that no case catches (RESTRISIKO_620.md, R620-V14-3). A Codex review of 110cdad9 (pull
+request 311, thread 4151141239) found the second collect blind to a container's class: section 1 sweeps that finding at
+`root_authenticity_summary`, and section 7 changes the class of every kind `_lies` reads and of every pair of this
+package's dataclasses whose layouts let one become the other; both fall without the comparison of the type.
 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
@@ -879,6 +882,25 @@ class EveryVerdictIsTheVerdictOverOneState(unittest.TestCase):
                 ersetzt(lambda: [Check(c.name, c.name != erste, "") for c in echt.checks
                                  if c.name != "root-authenticity"] + [Check("root-authenticity", True, "")]),
                 lambda d: d["policy_ok"], phasen=True)
+
+    def test_a_result_object_that_changes_its_class_is_read_as_one_state(self):
+        """Codex review of pull request 311 (thread 4151141239, P1): the second collect compared what each container
+        holds but not its type, and a dataclass of this package is copied as the type the first collect read. A callback
+        that made a `VerificationResult` a `Check` between the two collects and put a passing check into its list gave a
+        copy of a `VerificationResult` holding the passing check, a state the value never held: `safeForAutomation` True
+        in 3 of 299 runs at 6b02d9f7, where both states give False."""
+        from proofbundle.bundle import root_authenticity_summary
+        from proofbundle.errors import Check, VerificationResult
+
+        def change(r):
+            r.__class__ = Check
+            r.checks[0] = Check("root-authenticity", True)
+        self._assert_one_state(
+            "root_authenticity_summary, a change of class",
+            lambda r: root_authenticity_summary(r, policy_authenticated_root=True, policy_ok=True, signer_trusted=True,
+                                                tree_context_authenticated=True),
+            lambda: VerificationResult([Check("root-authenticity", False)]), change,
+            lambda d: d["safeForAutomation"], first=False, second=False, phasen=True)
 
     def test_the_signatures_of_an_archive_timestamp_are_read_as_one_state(self):
         """V5-03: an `ArchiveTimeStamp` kept its `signatures` list as the caller's object; `verify_sequence` read it
@@ -2599,6 +2621,89 @@ class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
                 self.assertTrue(canonical._gleich_gelesen(gelesen), "an unchanged value read as changed")
                 aendern(wert)
                 self.assertFalse(canonical._gleich_gelesen(gelesen), f"a change of the {name} was not seen")
+
+    def test_the_second_collect_sees_a_change_of_class_of_each_kind(self):
+        """Codex review of pull request 311 (thread 4151141239, P1): the second collect did not compare a container's
+        type, and a dataclass of this package is copied as the type the first collect read. Over every kind `_lies`
+        reads, taken from its own source: a kind whose class the caller can assign is read again when its class changes
+        and nothing it holds does; for a tuple, a view and a memoryview the interpreter refuses the assignment, which is
+        why the second collect leaves their class alone. And over every pair of this package's dataclasses whose layouts
+        let one become the other, the frozen ones assigned past their own `__setattr__`."""
+        import array
+        import importlib
+        import inspect
+        import pkgutil
+        import types
+        from collections import OrderedDict, deque
+        import proofbundle
+        from proofbundle import canonical
+        from proofbundle.errors import Check, VerificationResult
+
+        arten = {k.value for r in ast.walk(ast.parse(inspect.getsource(canonical._lies))) if isinstance(r, ast.Return)
+                 and isinstance(r.value, ast.Tuple) for k in r.value.elts[:1] if isinstance(k, ast.Constant)}
+        gedeckt: set = set()
+
+        def gesehen(wert, ziel):
+            gelesen = canonical._lesen_einmal([wert])
+            self.assertTrue(canonical._gleich_gelesen(gelesen), "an unchanged value read as changed")
+            gedeckt.add(canonical._lies(wert)[0])
+            object.__setattr__(wert, "__class__", ziel)
+            return canonical._gleich_gelesen(gelesen)
+
+        class K(str):
+            pass
+        bauen = {"dict": (dict, lambda t: t(a=[1])), "OrderedDict": (OrderedDict, lambda t: t(a=[1])),
+                 "kept OrderedDict": (OrderedDict, lambda t: t([(K("a"), [1])])), "list": (list, lambda t: t([[1]])),
+                 "set": (set, lambda t: t({1})), "bytearray": (bytearray, lambda t: t(b"ab")),
+                 "deque": (deque, lambda t: t([[1]], 3)), "array": (array.array, lambda t: t("b", [1]))}
+        for name, (basis, mache) in bauen.items():
+            with self.subTest(kind=name):
+                eins, zwei = type("Eins", (basis,), {}), type("Zwei", (basis,), {})
+                self.assertFalse(gesehen(mache(eins), zwei), f"a change of class of a {name} was not seen")
+        d = {"a": [1]}
+        fest = {"tuple": (type("Eins", (tuple,), {})((1,)), type("Zwei", (tuple,), {})),
+                "view": (d.keys(), type(d.values())), "proxy": (types.MappingProxyType(d), dict),
+                "memoryview": (memoryview(bytearray(b"ab")), bytearray)}
+        for name, (wert, ziel) in fest.items():
+            with self.subTest(kind=name):
+                gedeckt.add(canonical._lies(wert)[0])
+                with self.assertRaises(TypeError):
+                    object.__setattr__(wert, "__class__", ziel)
+
+        for info in pkgutil.walk_packages(proofbundle.__path__, "proofbundle."):
+            if info.name.rsplit(".", 1)[-1] == "__main__":
+                continue   # importing it would run the command line
+            try:
+                importlib.import_module(info.name)
+            except (Exception, SystemExit):  # noqa: BLE001 - a module whose extra is missing defines no class here
+                pass
+        canonical._paketklasse(type("Unbekannt", (), {}))   # collects the classes of every module loaded now
+        klassen = []
+        for k in list(canonical._PAKETKLASSEN.values()):
+            try:
+                satz = canonical._lies(object.__new__(k))
+            except TypeError:   # a class `object.__new__` cannot make
+                continue
+            if satz is not None and satz[0] == "daten":
+                klassen.append(k)
+        paare, blind = [], []
+        for a in klassen:
+            for b in klassen:
+                if a is b:
+                    continue
+                wert = object.__new__(a)
+                gelesen = canonical._lesen_einmal([wert])
+                try:
+                    object.__setattr__(wert, "__class__", b)
+                except TypeError:
+                    continue
+                paare.append((a, b))
+                gedeckt.add("daten")
+                if canonical._gleich_gelesen(gelesen):
+                    blind.append(f"{a.__qualname__} -> {b.__qualname__}")
+        self.assertIn((VerificationResult, Check), paare, "the generator did not reach the measured pair")
+        self.assertEqual(blind, [], f"a change of class unseen, of {len(paare)} pairs")
+        self.assertEqual(arten - gedeckt, set(), "a kind `_lies` reads has no case here")
 
     def test_a_deque_an_array_and_a_view_are_copied(self):
         """V8 F3: a deque, an array and a view of a dict were handed on as the caller's objects, and the body read

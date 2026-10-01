@@ -253,14 +253,25 @@ def _lesen_einmal(wurzel: Any) -> dict:
 
 
 def _gleich_gelesen(gelesen: dict) -> bool:
-    """The second collect of `_stand`: every container of the first, read again through `_lies`. True when each still
-    holds the same objects (compared by identity; a set as the ids it holds) and each byte buffer and array the same
-    bytes."""
-    for art, _, inhalt, _, wert in gelesen.values():
+    """The second collect of `_stand`: every container of the first, read again through `_lies`. True when each is still
+    of the type the first collect read and holds the same objects (compared by identity; a set as the ids it holds), and
+    each byte buffer and array the same bytes.
+
+    The type is compared because the copy is built from it: an object of a dataclass of this package becomes a new
+    object of the type the first collect read (`_bauen`). From 085869313 to 6b02d9f7 it was not compared (Codex review
+    of pull request 311, thread 4151141239, P1): a gc callback that, between the two collects, made a
+    `VerificationResult` a `Check` and put a passing check into its list gave a copy that is a `VerificationResult`
+    holding the passing check, a state the value never held, and `root_authenticity_summary` gave `safeForAutomation`
+    True in 3 of 299 runs at 6b02d9f7 where both states give False. Every kind whose class the caller can assign (a
+    subclass of dict, OrderedDict, list, set, bytearray, deque or array, and a dataclass of this package) is compared
+    by its type, though only the dataclass is copied as that type. A tuple, a view and a memoryview cannot change their
+    class. The extra of a reading (a deque's ``maxlen``, a memoryview's format and shape) cannot change on one object,
+    so it is not compared."""
+    for art, typ, inhalt, _, wert in gelesen.values():
         if art == "tuple" or art == "sicht":
-            continue   # a tuple cannot change what it holds, nor a view the mapping it shows
+            continue   # a tuple cannot change its class or what it holds, nor a view its class or the mapping it shows
         satz = _lies(wert)
-        if satz is None or satz[0] != art:
+        if satz is None or satz[0] != art or satz[1] is not typ:
             return False
         neu = satz[2]
         if art == "bytearray" or art == "memoryview":
@@ -433,9 +444,9 @@ def _stand(wurzel: Any, leser: Any = None) -> Any:
 
     HOW IT IS KNOWN: the double collect of the atomic snapshot (Afek, Attiya, Dolev, Gafni, Merritt and Shavit,
     "Atomic snapshots of shared memory", J. ACM 40(4), 1993). Every container is read (`_lesen_einmal`), and then every
-    container of that reading is read again the same way (`_gleich_gelesen`). When each still holds the same objects,
-    there is one instant, the end of the first collect, at which each held what the first collect read, so the copy
-    is the value's state at that instant. When one differs, or one changed its size while it was read, both collects
+    container of that reading is read again the same way (`_gleich_gelesen`). When each is still of the same type and
+    holds the same objects, there is one instant, the end of the first collect, at which each held what the first
+    collect read, so the copy is the value's state at that instant. When one differs, or one changed its size while it was read, both collects
     are made again; after `_VERSUCHE` readings in each of which the value changed, `_StandGestoert` is raised. Nothing
     of the process is touched: the collector runs as the caller left it, and a gc callback, a signal handler or another
     thread that changes the value between two reads of a container is seen by the second collect. A change another

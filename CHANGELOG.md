@@ -110,7 +110,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `str` or `bytes` subclass is copied as what it stores, in a class of this package that hashes and compares as the
     base type and is no exact `str` or `bytes` either, so a reader that counts only an exact `str` as a key is not
     promoted by the copy. The reading collects every container twice and keeps the first collect only when the
-    second finds the same objects in each (the double collect of the atomic snapshot, Afek, Attiya, Dolev, Gafni,
+    second finds each of the same type and holding the same objects (the double collect of the atomic snapshot, Afek, Attiya, Dolev, Gafni,
     Merritt and Shavit, J. ACM 40(4), 1993): then there is one instant at which the value held what was read. A
     container that changed between the two collects, or changed its size while it was read, makes both be made again,
     and after three readings in each of which the value changed the call is refused with `canonical._StandGestoert`,
@@ -213,6 +213,15 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     for these. By owner decision of 2026-09-30 a finding that gives no wrong verdict no longer blocks this release:
     the refusals and the missing cases are named in RESTRISIKO_620.md, each with an identifier, a severity and a
     workaround, and follow after the tag.
+  - A Codex review of pull request 311 at 110cdad9 (thread 4151141239, P1) found that the second collect compared what
+    each container holds but not its type, while an object of a dataclass of this package is copied as the type the
+    first collect read. A gc callback that, between the two collects, made a `VerificationResult` a `Check` and put a
+    passing check into its list gave a copy that is a `VerificationResult` holding the passing check, a state the
+    value never held: `root_authenticity_summary` gave `safeForAutomation` True in 3 of 299 runs at 6b02d9f7, where
+    both states give False. The double collect came with 085869313, so no released version carries this. The second
+    collect compares each container's type now. Every kind whose class the caller can assign is compared, a subclass
+    of dict, OrderedDict, list, set, bytearray, deque or array and a dataclass of this package, though only the
+    dataclass is copied as that type; a tuple, a view and a memoryview cannot change their class.
   - The readings the first fix made stay, and they closed a second thing on the way: a `str` or `bytes` subclass is
     read by what it stores, not through its own methods, at `verify_enclave_attestation` (a `count` that answered 2
     beside a `split` into four parts escaped as a raw `ValueError`, measured at d388ed3d), `verify_chia_datalayer` and
@@ -281,7 +290,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   changes its size while it is read, a Mapping read before the first collect and after the second, a thread that
   collects all the time, and a guard that the package uses the module `gc` only as `gc.get_referents`; and what the
   lanes V7 and V8 found: two Mappings changed together, a deque, an array and a view copied and read as one state, a
-  RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length, the depth
+  RecursionError, a Mapping that builds its values anew, the second collect of each kind at its length and at a
+  change of its class (every kind `_lies` reads and every pair of the package's dataclasses whose layouts let one
+  become the other, and the sweep of the Codex finding at `root_authenticity_summary`), the depth
   after an exception, the frame of a warning, the prefix of a module name, and a partial as an anchor verifier; and
   what the lane V10 found: the rules of the comparison of a reader's two answers its plants showed untested, a
   RecursionError inside a reader
@@ -295,7 +306,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   out of its comparison, the policy with nothing the command
   evaluates, the signer options, and a guard that every option whose value names a file a command reads is a case of
   the generator or named with its reason). Two surfaces the lanes named have no sweep of their own: the pair tuples of
-  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them (each failed case of a test with cases counts once): at d388ed3d 97 failed in the first file and 23 in the second; at 6d674973, 85 and 17; at 8f2fa980, 53 and 4 (a count that moves by one or two between runs there, because two tests depend on the load at that tree, the copy of nested tuples in linear time and a thread that collects all the time); at 085869313, 56 and 0; at d58be0b8, 40 and 0; at d1c39ae3, 36 and 0; at 95c9f82a, 16 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
+  `verify_dual_hash`, whose window a later lane did not reproduce, and `verifier_block.report`. Measured by copying the two files into a tree of each commit and running pytest there, as it counts them (each failed case of a test with cases counts once): at d388ed3d 98 failed in the first file and 23 in the second; at 6d674973, 86 and 17; at 8f2fa980, 53 and 4 (a count that moves by one or two between runs there, because two tests depend on the load at that tree, the copy of nested tuples in linear time and a thread that collects all the time); at 085869313, 68 and 0; at d58be0b8, 50 and 0; at d1c39ae3, 46 and 0; at 95c9f82a, 26 and 0; here both pass. At the first three trees some of these are an import of a name the tree does not have yet. An earlier text of this entry gave 42 and 29 for the first file at the first two trees, which a verify lane counted as 45 and 32 for the file of that time.
 
 - **A subject state outside the four words of the resolver is malformed, and a restricting CLI option given an empty
   value is no longer read as absent** (deep gate of the 6.2.0 release preparation at d97de8e5: two P1 findings, each

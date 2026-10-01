@@ -1021,8 +1021,11 @@ those on a verify, emit or release path:
   str, int, float, bool, bytes or None values, a dict whose keys meet as one in the copy (a `str` subclass beside the `str` it spells), a set of such
   items, and an OrderedDict whose own order cannot be read without hashing stay the caller's object inside the copy:
   a copy would run the key's own hash, or lose a key. The reading touches no state of the process: it reads every
-  container twice and keeps the first reading when the second finds the same objects. A change that is made and
-  undone between the two reads of one container is not seen (the ABA case of the double collect), and a change
+  container twice and keeps the first reading when the second finds each of the same type and holding the same
+  objects (the type since the Codex review of pull request 311, thread 4151141239: up to 6b02d9f7 a change of class
+  between the collects was not seen, and a `VerificationResult` made a `Check` gave a copy of a state the value never
+  held). A change that is made and undone between the two reads of one container, a change of its class included, is
+  not seen (the ABA case of the double collect), and a change
   another thread makes in several steps is read in one of the states it passes through. After three readings in each
   of which the value changed, the function raises `_StandGestoert`, a `ProofBundleError`, also where a never-raise
   surface would otherwise answer. Two readings that are no one value cause it: code that changes the value while it
