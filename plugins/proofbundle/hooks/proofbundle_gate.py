@@ -121,7 +121,11 @@ _GIT_OPTIONS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--
 _GH_OPTIONS_WITH_VALUE = frozenset({"-R", "--repo"})
 _GH_GATED = frozenset({("pr", "create"), ("pr", "new"), ("release", "create"), ("release", "new")})
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_OPERATOR = re.compile(r"^[;&|()<>]+$")
+#: A redirection operator at a token start, with an optional leading file-descriptor number. `<<` and
+#: `<<<` (here-document, here-string) match too; the caller treats them as unknown-forcing. Every other
+#: redirection and its target word are consumed and dropped, so they never become words of a call
+#: (`git push origin main 2>&1` keeps only `origin main`; review Nachtrag 12).
+_REDIR = re.compile(r"&>>|&>|<<<|<<|\d*(?:>>|>&|>\||<>|<&|>|<)")
 #: Used only when the command cannot be tokenised: any mention of a gated call counts as one.
 _FALLBACK = re.compile(r"\bgit-push\b|\bgit\b.*\bpush\b|\bgh\b.*\b(?:pr|release)\b.*\b(?:create|new)\b",
                        re.DOTALL)
@@ -176,15 +180,134 @@ class GateError(Exception):
 
 # --- which calls are gated, and in which directory ---------------------------------------------------
 
-def _tokens(command: str) -> list[str] | None:
-    lexer = shlex.shlex(command.replace("`", " ; ").replace("\n", " ; "), posix=True,
-                        punctuation_chars=";&|()<>")
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    try:
-        return list(lexer)
-    except ValueError:
+def _consume_subst(s: str, i: int) -> int | None:
+    """From a `$` at index `i`, the index just past the substitution it begins (`$(...)`, `${...}` or
+    `$name`), or None if a `$(` or `${` is never closed."""
+    n = len(s)
+    if i + 1 >= n:
+        return i + 1
+    c = s[i + 1]
+    if c == "(":
+        depth, j = 0, i + 1
+        while j < n:
+            if s[j] == "(":
+                depth += 1
+            elif s[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+            j += 1
         return None
+    if c == "{":
+        j = s.find("}", i + 2)
+        return j + 1 if j >= 0 else None
+    j = i + 1
+    if s[j].isalpha() or s[j] == "_":
+        j += 1
+        while j < n and (s[j].isalnum() or s[j] == "_"):
+            j += 1
+        return j
+    return i + 2
+
+
+def _lex(command: str) -> list | None:
+    """Scan a shell command into tokens for the closed grammar, or None if a quote or `$(`/`${` is not
+    closed (the caller then falls back to the over-matching regex). A token is ('op', <operator>) for a
+    control operator (';', '&&', '||', '|', '&', '(', ')', '{', '}', '<<') or ('word', <value>, <has_subst>,
+    <raw>), where <value> is the word with its quotes removed, <has_subst> says whether an unquoted or
+    double-quoted parameter or command substitution appeared in it, and <raw> is the original slice. A
+    newline is a ';'. Output redirections are consumed with their target and dropped; a here-document or
+    here-string is reported as '<<'. A bare `{` or `}` word is reported as that operator."""
+    s = command
+    i, n = 0, len(s)
+    toks: list = []
+    drop_target = False  # the next word is the target of a redirection just read, and is dropped
+    while i < n:
+        c = s[i]
+        if c in " \t":
+            i += 1
+            continue
+        if c == "\n":
+            toks.append(("op", ";")); i += 1; continue
+        if s.startswith("&&", i):
+            toks.append(("op", "&&")); i += 2; continue
+        if s.startswith("||", i):
+            toks.append(("op", "||")); i += 2; continue
+        if s.startswith(";;", i):
+            toks.append(("op", ";")); i += 2; continue
+        m = _REDIR.match(s, i)
+        if m:
+            i = m.end()
+            if m.group().startswith("<<"):
+                toks.append(("op", "<<"))  # here-document / here-string: unknown-forcing
+            else:
+                drop_target = True
+            continue
+        if c in ";|&":
+            toks.append(("op", c)); i += 1; continue
+        if c in "()":
+            toks.append(("op", c)); i += 1; continue
+        start = i
+        buf: list = []
+        has_subst = False
+        while i < n:
+            c = s[i]
+            if c in " \t\n" or c in ";&|()<>":
+                break
+            if c == "'":
+                j = s.find("'", i + 1)
+                if j < 0:
+                    return None
+                buf.append(s[i + 1:j]); i = j + 1; continue
+            if c == '"':
+                i += 1
+                while i < n and s[i] != '"':
+                    d = s[i]
+                    if d == "\\" and i + 1 < n and s[i + 1] in '"\\$`':
+                        buf.append(s[i + 1]); i += 2; continue
+                    if d == "$":
+                        has_subst = True
+                        e = _consume_subst(s, i)
+                        if e is None:
+                            return None
+                        buf.append(s[i:e]); i = e; continue
+                    if d == "`":
+                        j = s.find("`", i + 1)
+                        if j < 0:
+                            return None
+                        has_subst = True; buf.append(s[i:j + 1]); i = j + 1; continue
+                    buf.append(d); i += 1
+                if i >= n:
+                    return None
+                i += 1; continue
+            if c == "\\":
+                if i + 1 < n:
+                    if s[i + 1] != "\n":
+                        buf.append(s[i + 1])
+                    i += 2
+                else:
+                    i += 1
+                continue
+            if c == "$":
+                has_subst = True
+                e = _consume_subst(s, i)
+                if e is None:
+                    return None
+                buf.append(s[i:e]); i = e; continue
+            if c == "`":
+                j = s.find("`", i + 1)
+                if j < 0:
+                    return None
+                has_subst = True; buf.append(s[i:j + 1]); i = j + 1; continue
+            buf.append(c); i += 1
+        raw = s[start:i]
+        if raw in ("{", "}"):
+            toks.append(("op", raw))
+        elif drop_target:
+            drop_target = False
+        else:
+            toks.append(("word", "".join(buf), has_subst, raw))
+    return toks
 
 
 def _join(directory: str | None, target: str) -> str | None:
@@ -229,153 +352,192 @@ def _gh_call(words: list[str]) -> str | None:
     return None
 
 
-#: Environment names set in the command that choose the repository, work tree or objects of a git call;
-#: set as a prefix assignment, an export, or through env/sudo, they make the directory UNKNOWN, so the gate
-#: judges no repository rather than the wrong one (review Nachtrag 11, Befund 1). CDPATH, measured to
-#: redirect a bare `cd name`, is handled where a cd is read, not here, so a push with no cd still resolves.
-_ENV_DIR_VARS = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
-                           "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_FILE", "GIT_NAMESPACE"})
-#: Environment names set in the command that choose the git configuration; set in the command they make the
-#: push NOT MEASURED (review Nachtrag 11, Befund 2). Only the host process's own environment is inherited by
-#: the gate's reads, never a configuration assigned in the command (D3).
-_ENV_CONFIG_VARS = frozenset({"HOME", "XDG_CONFIG_HOME"})
-#: GIT_* names the gate reads as target-neutral; every other GIT_ name is unresolved, like a push option.
-_ENV_NEUTRAL = frozenset({"GIT_TERMINAL_PROMPT", "GIT_PAGER", "GIT_EDITOR", "GIT_ASKPASS"})
-#: Commands that run the rest in a chosen directory or environment; the gate does not model their options,
-#: so any option on them is unresolved (sudo -D/--chdir/-R, env -C/--chdir/-S/-i, measured in Nachtrag 11).
-_DIR_WRAPPERS = frozenset({"env", "sudo"})
+#: Environment names a prefix assignment (or an `env NAME=value` carrier) may set and still leave the
+#: repository and push target resolvable. Every other name, GIT_* or not — `PATH` included — makes the
+#: directory NOT MEASURED, so the gate judges no repository rather than the wrong one (review Nachtrag 11,
+#: Nachtrag 12).
+_NEUTRAL_ASSIGN = frozenset({"GIT_TERMINAL_PROMPT", "GIT_PAGER", "GIT_EDITOR", "GIT_ASKPASS"})
+#: Names whose command-level assignment sets the git configuration the gate's separate reads never see, so
+#: the push is NOT MEASURED through the configuration sentinel. The gate's reads inherit only the host
+#: process's own environment, never a configuration assigned in the command (review Nachtrag 11, Befund 2).
+_CONFIG_ASSIGN = frozenset({"HOME", "XDG_CONFIG_HOME"})
+#: Shell keywords, builtins and wrappers whose presence before or at a gated call takes the command outside
+#: the modeled grammar, so the directory is NOT MEASURED (review Nachtrag 12). `env` is handled separately,
+#: as a carrier of prefix assignments; `cd`, `pushd` and `popd` are handled by the directory resolver.
+_UNMODELLED = frozenset({
+    "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until", "do", "done", "select",
+    "function", "eval", "source", ".", "exec", "set", "shopt", "alias", "export", "declare", "typeset",
+    "local", "readonly", "sudo", "command", "builtin",
+})
 
 
-def _subshell_op(op: str) -> bool:
-    """Whether an operator token starts a subshell: a pipe or a background `&`, where a `cd` does not
-    persist into the next command. The sequential `&&`, `||` and `;` run in the same shell and do not."""
-    return "|" in op.replace("||", "") or "&" in op.replace("&&", "")
-
-
-def _env_var_class(name: str) -> str:
-    """How an environment assignment of `name` bears on a gated call: 'config' (the git configuration),
-    'dir' (the repository, work tree or objects), or 'neutral' (neither)."""
-    if name in _ENV_CONFIG_VARS or name.startswith("GIT_CONFIG"):
+def _assign_class(name: str) -> str:
+    """How a command-level assignment of `name` bears on a gated call: 'config' (the git configuration the
+    gate's reads never see), 'neutral' (neither the repository nor the configuration), or 'other'
+    (everything else, which makes the repository NOT MEASURED)."""
+    if name in _CONFIG_ASSIGN or name.startswith("GIT_CONFIG"):
         return "config"
-    if name in _ENV_DIR_VARS:
-        return "dir"
-    if name in _ENV_NEUTRAL or name.startswith("GIT_TRACE"):
+    if name in _NEUTRAL_ASSIGN or name.startswith("GIT_TRACE"):
         return "neutral"
-    return "dir" if name.startswith("GIT_") else "neutral"
+    return "other"
 
 
-def _prefix_contamination(words: list[str]) -> tuple[bool, bool, str]:
-    """For a segment's words, whether a prefix assignment or an env/sudo wrapper sets, before the gated
-    call, the repository/work-tree/objects ('dir' -> UNKNOWN) or the configuration ('config' -> NOT
-    MEASURED), and whether a CDPATH assignment is in effect for a later bare `cd`. Returns
-    (dir_unknown, config_injected, cdpath_set)."""
-    dir_unknown = config_injected = cdpath_set = False
-    i = 0
-    while i < len(words) and _ASSIGNMENT.match(words[i]):
-        name = words[i].split("=", 1)[0]
-        cls = _env_var_class(name)
-        dir_unknown |= cls == "dir"
-        config_injected |= cls == "config"
-        cdpath_set |= name == "CDPATH"
+def _subst_bodies(raw: str) -> list[str]:
+    """The command bodies inside a word's command substitutions (`$(...)`, `` `...` ``); single quotes
+    suppress substitution, and `$((...))` arithmetic is not a command body."""
+    bodies, i, n = [], 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "'":
+            j = raw.find("'", i + 1)
+            if j < 0:
+                break
+            i = j + 1; continue
+        if c == "`":
+            j = raw.find("`", i + 1)
+            if j < 0:
+                break
+            bodies.append(raw[i + 1:j]); i = j + 1; continue
+        if c == "$" and i + 1 < n and raw[i + 1] == "(":
+            depth, j = 0, i + 1
+            while j < n:
+                if raw[j] == "(":
+                    depth += 1
+                elif raw[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            if j >= n:
+                break
+            if not raw[i + 2:j].startswith("("):  # not $(( )) arithmetic
+                bodies.append(raw[i + 2:j])
+            i = j + 1; continue
         i += 1
-    if i < len(words) and os.path.basename(words[i]) in _DIR_WRAPPERS:
-        for token in words[i + 1:]:
-            base = os.path.basename(token)
-            if base in ("git", "git-push", "gh") or token == "--":
-                break
-            if token.startswith("-"):
-                dir_unknown = True  # an option on env/sudo the gate does not model (e.g. env -C, sudo -D)
-                break
-            if _ASSIGNMENT.match(token):  # env VAR=val
-                cls = _env_var_class(token.split("=", 1)[0])
-                dir_unknown |= cls == "dir"
-                config_injected |= cls == "config"
-                cdpath_set |= token.split("=", 1)[0] == "CDPATH"
-                continue
-            break  # the wrapped command
-    return dir_unknown, config_injected, cdpath_set
+    return bodies
 
 
-def _export_classes(words: list[str]) -> set[str]:
-    """The classes ('dir', 'config') a segment exports so later commands inherit them: `export`,
-    `declare -x` or `typeset -x` of a repository/work-tree/objects or configuration variable."""
-    head = [w for w in words if not _ASSIGNMENT.match(w)]
-    if not head or os.path.basename(head[0]) not in ("export", "declare", "typeset"):
-        return set()
-    if os.path.basename(head[0]) in ("declare", "typeset") and "-x" not in words:
-        return set()
-    classes = set()
-    for token in words[words.index(head[0]) + 1:]:
-        if token.startswith("-") or os.path.basename(token) in ("export", "declare", "typeset"):
-            continue
-        cls = _env_var_class(token.split("=", 1)[0])
-        if cls in ("dir", "config"):
-            classes.add(cls)
-    return classes
+def _recurse_bodies(value: str, has_subst: bool, raw: str) -> list[str]:
+    """The sub-commands to scan inside a word: the bodies of its command substitutions, or, for a quoted
+    word with no substitution, the word itself when it could carry a command (`bash -c '...'`)."""
+    if has_subst:
+        return _subst_bodies(raw)
+    if any(ch in value for ch in " \t;&|`"):
+        return [value]
+    return []
 
 
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> list[tuple[str, str | None, list[str] | None]]:
-    """Every gated call in a shell command: its name, the directory it acts in (UNKNOWN when not literal),
-    and for `git push` the words after `push` (its remote and refspecs), None for the other calls.
+    """Every gated call in a shell command: its name, the directory it acts in, and for `git push` the
+    words after `push` (its remote and refspecs), None for the other calls.
 
-    Over-matching is deliberate: a word `git` followed by `push` anywhere in a simple command counts,
-    and so does any quoted argument that itself contains one (as in `bash -c "git push"`). An over-matched
-    push carries no literal arguments, so the gate resolves no target and the push is NOT MEASURED.
+    The gate determines the directory only when the command up to the call stands in a small, closed
+    grammar — a sequence of simple commands joined by `;`, a newline or `&&`, with a literal `cd`/`pushd`
+    certain to have run (unconditional, or `&&`-chained directly into the call) and prefix assignments from
+    a narrow neutral list. Everything else leaves the directory NOT MEASURED (UNKNOWN): `||`, `|`, `&`,
+    `{ }`, a shell keyword or an unmodeled builtin, a function definition, a command or parameter
+    substitution before or in the call, a here-document, a non-neutral assignment (`PATH` included), and a
+    `git` invoked by a path. A subshell `( ... )` confines its own `cd` and environment; a configuration
+    assignment the gate cannot see marks the push through the configuration sentinel (review Nachtrag 12).
+
+    Over-matching is deliberate: a word `git` followed by `push` counts, and so does a gated call inside a
+    quoted argument or a command substitution. An over-matched or path-invoked push the gate cannot place
+    carries the UNKNOWN directory, so it is NOT MEASURED rather than silently inactive.
     """
-    tokens = _tokens(command)
-    if tokens is None or depth > MAX_NESTING:
+    toks = _lex(command)
+    if toks is None or depth > MAX_NESTING:
         return [("unparsed command", UNKNOWN, None)] if _FALLBACK.search(command) else []
-    calls: list[tuple[str, str | None, list[str] | None]] = []
-    segments: list[tuple[str, list[str]]] = []  # (the operator token before the segment, its words)
+    # A function definition `name() …` turns `()` into a definition, not a subshell: the command defines a
+    # function the gate does not model, so no call in it resolves its directory.
+    func_def = any(toks[k] == ("op", "(") and k and toks[k - 1][0] == "word" for k in range(len(toks)))
+    segments: list[tuple[str, list]] = []  # (the operator before the segment, its word tokens)
     op, cur = "", []
-    for token in tokens:
-        if _OPERATOR.match(token):
-            segments.append((op, cur))
-            op, cur = token, []
+    for t in toks:
+        if t[0] == "op":
+            segments.append((op, cur)); op, cur = t[1], []
         else:
-            cur.append(token)
+            cur.append(t[1:])  # (value, has_subst, raw)
     segments.append((op, cur))
-    dir_stack: list = []
-    cdpath = exported_dir = exported_config = False
-    for idx, (sep, words) in enumerate(segments):
-        for ch in sep:  # a subshell ( ... ) saves and restores the directory, so a cd in it does not leak
-            if ch == "(":
-                dir_stack.append((directory, cdpath))
-            elif ch == ")":
-                directory, cdpath = dir_stack.pop() if dir_stack else (UNKNOWN, cdpath)
-        subshell = _subshell_op(sep) or (idx + 1 < len(segments) and _subshell_op(segments[idx + 1][0]))
-        prefix_dir, prefix_config, cdpath_now = _prefix_contamination(words)
-        exported = _export_classes(words)
-        exported_dir = exported_dir or "dir" in exported
-        exported_config = exported_config or "config" in exported
-        cdpath = cdpath or cdpath_now
-        head = [w for w in words if not _ASSIGNMENT.match(w)][:2]
-        if head and head[0] in ("cd", "pushd"):
-            target = head[1] if len(head) > 1 else "~"
-            bare = not target.startswith(("/", "./", "../", "~"))
-            directory = UNKNOWN if (subshell or (cdpath and bare)) else _join(directory, target)
-        elif head and head[0] == "popd":
-            directory = UNKNOWN
-        eff_dir = UNKNOWN if (prefix_dir or exported_dir) else directory
-        cfg = prefix_config or exported_config
-        for i, word in enumerate(words):
-            name = os.path.basename(word)
-            if name == "git":
-                found = _git_call(words[i + 1:], eff_dir)
-                if found:
-                    gname, gdir, gdetail = found
-                    if cfg and gname == "git push":
-                        gdetail = [_GIT_CONFIG_SENTINEL] + (gdetail or [])
-                    calls.append((gname, gdir, gdetail))
-            elif name == "git-push":
-                detail = words[i + 1:]
-                calls.append(("git push", eff_dir, [_GIT_CONFIG_SENTINEL] + detail if cfg else detail))
-            elif name == "gh":
-                found_gh = _gh_call(words[i + 1:])
-                if found_gh:
-                    calls.append((found_gh, eff_dir, [_GIT_CONFIG_SENTINEL] if cfg else None))
-            if any(c in word for c in " \t;&|"):
-                calls.extend(gated_calls(word, eff_dir, depth + 1))
+    calls: list[tuple[str, str | None, list[str] | None]] = []
+    cwd = directory       # the directory after every cd certain to have run (subshell-aware)
+    run_dir = directory   # cwd plus the literal cds of the current &&-run
+    run_cond_cd = False   # the current &&-run holds a cd whose running is conditional
+    tainted = func_def    # the command has left the modeled grammar; the directory is NOT MEASURED
+    stack: list = []      # saved (cwd, run_dir, run_cond_cd, tainted) for each open subshell
+    for sep, words in segments:
+        if sep == "(":
+            stack.append((cwd, run_dir, run_cond_cd, tainted)); run_dir, run_cond_cd = cwd, False
+        elif sep == ")":
+            cwd, run_dir, run_cond_cd, tainted = stack.pop() if stack else (UNKNOWN, UNKNOWN, False, True)
+        elif sep in ("||", "|", "&", "{", "}", "<<"):
+            tainted = True
+        elif sep == ";":
+            if run_cond_cd:
+                tainted = True  # after `;`, a conditional cd leaves the next run's base directory uncertain
+            run_dir, run_cond_cd = cwd, False
+        elif sep == "":
+            run_dir, run_cond_cd = cwd, False
+        # classify the segment's leading prefix assignments and an optional `env` carrier
+        i, cfg_seg, dir_seg = 0, False, False
+        while i < len(words) and _ASSIGNMENT.match(words[i][0]):
+            cls = _assign_class(words[i][0].split("=", 1)[0])
+            cfg_seg |= cls == "config"; dir_seg |= cls == "other"
+            i += 1
+        if i < len(words) and os.path.basename(words[i][0]) == "env" and not words[i][1]:
+            j = i + 1
+            while j < len(words):
+                tok = words[j][0]
+                if tok == "--":
+                    j += 1; break
+                if tok.startswith("-"):
+                    dir_seg = True; break  # an env option the gate does not model (env -C, env -i)
+                if _ASSIGNMENT.match(tok):
+                    cls = _assign_class(tok.split("=", 1)[0])
+                    cfg_seg |= cls == "config"; dir_seg |= cls == "other"
+                    j += 1; continue
+                break
+            i = j
+        head = words[i] if i < len(words) else None
+        hbase = os.path.basename(head[0]) if head else ""
+        if hbase in ("cd", "pushd"):
+            rest = words[i + 1:]
+            target = rest[0] if rest else None
+            literal = target is not None and len(rest) == 1 and not target[1] and not target[0].startswith("-")
+            moved = _join(cwd if sep in ("", ";", "(") else run_dir, target[0]) if literal else UNKNOWN
+            if moved is UNKNOWN:
+                tainted = True
+            elif sep in ("", ";", "("):
+                cwd = run_dir = moved
+            else:  # sep == "&&": conditional, so it counts only for a push in this same &&-run
+                run_dir, run_cond_cd = moved, True
+        elif hbase == "popd":
+            tainted = True
+        elif hbase in _UNMODELLED:
+            tainted = True
+        base_dir = UNKNOWN if tainted else run_dir              # a nested command inherits this directory
+        cmd_dir = UNKNOWN if (tainted or dir_seg) else run_dir  # this segment's own command acts here
+        for k, (value, has_subst, raw) in enumerate(words):
+            name = os.path.basename(value)
+            if k >= i and name in ("git", "git-push", "gh"):
+                call_dir = cmd_dir if value in ("git", "git-push", "gh") else UNKNOWN  # a path git: NOT MEASURED
+                rest = [w[0] for w in words[k + 1:]]
+                if name == "git":
+                    found = _git_call(rest, call_dir)
+                    if found:
+                        gname, gdir, gdetail = found
+                        if cfg_seg and gname == "git push":
+                            gdetail = [_GIT_CONFIG_SENTINEL] + (gdetail or [])
+                        calls.append((gname, gdir, gdetail))
+                elif name == "git-push":
+                    calls.append(("git push", call_dir,
+                                  [_GIT_CONFIG_SENTINEL] + rest if cfg_seg else rest))
+                else:
+                    found_gh = _gh_call(rest)
+                    if found_gh:
+                        calls.append((found_gh, call_dir, [_GIT_CONFIG_SENTINEL] if cfg_seg else None))
+            inner_dir = base_dir if (k < i and _ASSIGNMENT.match(value)) else cmd_dir
+            for body in _recurse_bodies(value, has_subst, raw):
+                calls.extend(gated_calls(body, inner_dir, depth + 1))
     return calls
 
 

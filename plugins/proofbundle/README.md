@@ -67,10 +67,15 @@ not compare with that tree. At those calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
-The gate judges the repository that the working directory, `cd`, `pushd` and `popd` outside a subshell, and
-`git -C` give; any other way the command sets the repository, work tree or configuration (a `GIT_DIR` or
-`GIT_CONFIG_*` assignment, `env -C`, `sudo -D`, a `cd` inside a subshell) is NOT MEASURED, and the gate
-claims no protection it has not measured.
+The gate determines the repository of a call only when the command up to that call stands in a small,
+closed grammar: a sequence of simple commands joined by `;`, a newline or `&&`, with a literal `cd` or
+`pushd` certain to have run (unconditional, or `&&`-chained into the call) or `git -C`, and prefix
+assignments from a narrow neutral list. A subshell `( … )` confines its own `cd`. Every other construct
+leaves the repository, work tree or configuration NOT MEASURED: `||`, `|`, `&`, a brace group `{ … }`, a
+shell keyword or an unmodeled builtin, a function definition, a command or parameter substitution before
+or in the call, a here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOME`
+included), `env -C` or `sudo`, and a `git` run by a path. The gate claims no protection it has not
+measured (DECISIONS.md, D3).
 
 | What the gate finds | Answer |
 |---|---|

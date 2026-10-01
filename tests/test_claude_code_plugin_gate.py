@@ -233,10 +233,12 @@ def reason(answer: dict) -> str:
     ("git -c push.default=simple push", [("git push", ".", [gate._GIT_CONFIG_SENTINEL])]),
     ("git -c http.proxy=http://p push origin main", [("git push", ".", ["origin", "main"])]),
     ("git --no-pager push", [("git push", ".", [])]),
-    ("/usr/bin/git push", [("git push", ".", [])]),
+    ("/usr/bin/git push", [("git push", gate.UNKNOWN, [])]),  # N12: a path git is NOT MEASURED, not the host's
     ("git-push origin", [("git push", ".", ["origin"])]),
-    ("FOO=1 sudo command git push", [("git push", ".", [])]),
+    ("FOO=1 sudo command git push", [("git push", gate.UNKNOWN, [])]),  # N12: sudo, command, PATH-class prefix
     ("make && git push", [("git push", ".", [])]),
+    ("cd a && cd b && git push", [("git push", "a/b", [])]),  # N12 counter-case: the && cd chain still resolves
+    ("git push origin main 2>&1", [("git push", ".", ["origin", "main"])]),  # N12 counter-case: redirection dropped
     ("git status\ngit push", [("git push", ".", [])]),
     ("x=$(git push)", [("git push", ".", [])]),
     ("`git push`", [("git push", ".", [])]),
@@ -1031,6 +1033,130 @@ def test_config_assigned_in_the_command_is_not_measured(shim, tmp_path, command)
     answer = run_gate(shim, tmp_path / "r", command)
     assert decision(answer) == "ask"
     assert "cannot resolve what this push sends" in reason(answer)
+
+
+# --- Nachtrag 12: the closed grammar for the directory --------------------------------------------------
+
+def _exec_env() -> dict:
+    """An environment that lets `git push` run in a test without a configured identity or a prompt."""
+    return dict(os.environ, GIT_TERMINAL_PROMPT="0",
+                **{k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")},
+                **{k: "t@e" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")})
+
+
+#: The eleven forms the reviewer measured on 2026-10-01 (Nachtrag 12). At 90c4208b each was judged
+#: inactive while the push really reached `bad`; the closed grammar now leaves the directory NOT MEASURED.
+#: Each entry is (command, the working directory it runs in). `{script}` is filled with a path in tmp_path.
+_CLOSED_FORMS = [
+    ("false && cd ../good ; git push origin main", "bad"),
+    ("true || cd ../good ; git push origin main", "bad"),
+    ("[ -d /nowhere ] && cd ../good ; git push origin main", "bad"),
+    ("set -a ; GIT_DIR=../bad/.git ; git push origin main", "good"),
+    ("eval 'export GIT_DIR=../bad/.git' ; git push origin main", "good"),
+    ("declare -gx GIT_DIR=../bad/.git ; git push origin main", "good"),
+    ("{ cd ../bad ; } ; git push origin main", "good"),
+    ("if true ; then cd ../bad ; fi ; git push origin main", "good"),
+    ("for d in ../bad ; do cd $d ; done ; git push origin main", "good"),
+    ("f() { cd ../bad ; } ; f ; git push origin main", "good"),
+    ("printf 'cd ../bad\\n' > {script} ; . {script} ; git push origin main", "good"),
+]
+
+
+@pytest.mark.parametrize("command, cwd", _CLOSED_FORMS)
+def test_a_closed_grammar_form_is_not_measured_and_the_push_still_reaches_bad(shim, tmp_path, command, cwd):
+    """Nachtrag 12: a conditional `cd`, an environment set through `set -a`/`eval`/`declare`, and a `cd`
+    inside a brace group, an `if`, a `for`, a function or a sourced file all leave the command outside the
+    modeled grammar, so the gate says NOT MEASURED instead of the wrong inactive. Executing the command
+    shows the push really reaches `bad`. Red against 90c4208b, where every form resolved to the cwd or to
+    `good` and was inactive."""
+    bad = _repo_with_remote(tmp_path, "bad", stale=True)
+    _repo_with_remote(tmp_path, "good", stale=False)
+    command = command.replace("{script}", str(tmp_path / "s.sh"))
+    answer = run_gate(shim, tmp_path / cwd, command)
+    assert decision(answer) == "ask", (command, reason(answer))
+    assert reason(answer).startswith("NOT MEASURED: ") and "cannot tell which repository" in reason(answer)
+    subprocess.run(["bash", "-c", command], cwd=str(tmp_path / cwd), check=True, capture_output=True,
+                   env=_exec_env())  # bash, as the reviewer measured: `declare`, `set -a`, `function` are bash
+    bad_head = subprocess.run(["git", "-C", str(bad), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+    assert _remote_head(tmp_path, "bad") == bad_head, "the push really acted on bad, not on what the gate judged"
+
+
+#: The differential set of Nachtrag 12, point 2: short commands built from the grammar's pieces, each with
+#: the repository the gate must resolve it to ('a', 'b') or None when the grammar leaves it NOT MEASURED.
+#: `s.sh` and `u` stand for a sourced script and an unset variable, filled per run.
+_DIFFERENTIAL = [
+    ("git push origin main", "a"),
+    ("git push --force origin main", "a"),
+    ("true && git push origin main", "a"),
+    ("GIT_TERMINAL_PROMPT=0 git push origin main", "a"),
+    ("git push origin main 2>/dev/null", "a"),
+    ("cd ../b && git push origin main", "b"),
+    ("cd ../b ; git push origin main", "b"),
+    ("cd ../b && cd ../a && git push origin main", "a"),
+    ("cd ../b && git push origin main 2>&1", "b"),
+    ("git -C ../b push origin main", "b"),
+    ("(cd ../b) ; git push origin main", "a"),
+    ("(cd ../b && true) ; git push origin main", "a"),
+    ("false && cd ../b ; git push origin main", None),
+    ("true || cd ../b ; git push origin main", None),
+    ("cd ../b ; cd ../a && git push origin main", "a"),  # two certain cds compose; the push comes from a
+    ("{ cd ../b ; } ; git push origin main", None),
+    ("if true ; then cd ../b ; fi ; git push origin main", None),
+    ("for d in ../b ; do cd $d ; done ; git push origin main", None),
+    ("set -a ; GIT_DIR=../b/.git ; git push origin main", None),
+    ("eval 'cd ../b' ; git push origin main", None),
+    ("GIT_DIR=../b/.git git push origin main", None),
+    ("HOME=/nowhere git push origin main", "a"),  # config-class prefix: directory stays a, push still from a
+    ("cd $U && git push origin main", None),
+    ("command git push origin main", None),
+    ("printf 'cd ../b\\n' > {script} ; . {script} ; git push origin main", None),
+]
+
+
+def test_the_differential_property_holds_the_push_comes_from_the_resolved_repository(tmp_path, capsys):
+    """Nachtrag 12, point 2: for every command the gate either resolves one repository and the push really
+    comes from it, or it says NOT MEASURED. Each command is judged by the gate and then run in bash; the
+    repository whose bare remote advances is the real source. The property is that a resolved directory
+    always matches the real source. Prints the set size and the number of violations for the report."""
+    a = _repo_with_remote(tmp_path, "a", stale=False)
+    b = _repo_with_remote(tmp_path, "b", stale=False)
+    heads = {name: subprocess.run(["git", "-C", str(tmp_path / name), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True, check=True).stdout.strip()
+             for name in ("a", "b")}
+    base = {name: _remote_head(tmp_path, name) for name in ("a", "b")}  # one commit behind each HEAD
+    assert all(base[n] and base[n] != heads[n] for n in ("a", "b"))
+    violations, measured = [], 0
+    for raw, expect in _DIFFERENTIAL:
+        command = raw.replace("{script}", str(tmp_path / "s.sh"))
+        for name in ("a", "b"):  # reset each bare remote to one commit behind its HEAD
+            subprocess.run(["git", "--git-dir", str(tmp_path / f"{name}.git"), "update-ref",
+                            "refs/heads/main", base[name]], check=True, capture_output=True)
+        calls = gate.gated_calls(command)
+        assert len(calls) == 1, (command, calls)
+        _, gdir, _ = calls[0]
+        subprocess.run(["bash", "-c", command], cwd=str(a), capture_output=True, env=_exec_env())
+        pushed = [n for n in ("a", "b") if _remote_head(tmp_path, n) == heads[n]]
+        source = pushed[0] if len(pushed) == 1 else None
+        if gdir is gate.UNKNOWN:
+            resolved = None
+        else:
+            resolved = "a" if os.path.realpath(os.path.join(str(a), gdir)) == os.path.realpath(str(a)) else \
+                       ("b" if os.path.realpath(os.path.join(str(a), gdir)) == os.path.realpath(str(b)) else "?")
+            measured += 1
+            if source != resolved:
+                violations.append((command, resolved, source))
+        if expect is None:
+            if gdir is not gate.UNKNOWN:
+                violations.append((command, "expected NOT MEASURED", gdir))
+        elif source != expect:
+            violations.append((command, f"expected source {expect}", source))
+    with capsys.disabled():
+        print(f"\n[N12 differential] commands={len(_DIFFERENTIAL)} resolved={measured} "
+              f"violations={len(violations)}")
+        for v in violations:
+            print("  VIOLATION", v)
+    assert violations == []
 
 
 def test_a_fetch_refspec_that_does_not_map_the_target_is_not_measured(shim, repo):

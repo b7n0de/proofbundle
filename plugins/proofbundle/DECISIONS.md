@@ -82,22 +82,42 @@ from each pushed source relative to that target's locally known remote-tracking 
 set of updates, a target's comparison state, or the required history cannot be resolved, the push is NOT
 MEASURED. The remote itself is not read.
 
-- The gate judges the repository that the working directory, a literal `cd`, `pushd` or `popd` outside a
-  subshell, and `git -C <dir>` give; any other determination of the repository, work tree, objects or
-  configuration in the command is NOT MEASURED (review Nachtrag 11). A directory the gate cannot resolve
-  literally (a variable, `popd`, `--git-dir`, `--work-tree`) is NOT MEASURED, and so is a `cd` whose effect
-  the gate cannot model: inside a subshell `( ... )` a `cd` does not persist past the closing parenthesis,
-  a `cd` in a pipeline or background component does not persist, and a bare `cd name` under a set `CDPATH`
-  (measured to redirect it) is unresolved. A command-level assignment, by prefix, by `export`,
-  `declare -x` or `typeset -x`, or through `env`/`sudo`, of a variable that chooses the repository, work
-  tree or objects (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
-  `GIT_ALTERNATE_OBJECT_DIRECTORIES`, and any other non-neutral `GIT_*`) makes the directory NOT MEASURED;
-  an `env`/`sudo` option the gate does not model (`env -C`, `sudo -D`, measured) does the same. Only a
-  narrow list of `GIT_*` names is target-neutral (`GIT_TERMINAL_PROMPT`, `GIT_PAGER`, `GIT_EDITOR`,
-  `GIT_TRACE*`). A command-level assignment of the configuration (`GIT_CONFIG_*`, `GIT_CONFIG_GLOBAL`,
-  `GIT_CONFIG_SYSTEM`, `HOME`, `XDG_CONFIG_HOME`) is NOT MEASURED, because the gate's reads inherit only the
-  host process's own environment, never a configuration assigned in the command (review Nachtrag 11,
-  Befund 2). No protection beyond what is measured here is claimed.
+- The gate determines the repository of a gated call only when the command up to that call stands in a
+  small, **closed grammar**; everything else is NOT MEASURED (review Nachtrag 12). An enumeration of bad
+  forms never closes the class, so the gate names the shapes it models and refuses the rest, the same turn
+  from an open to a closed world the external reviewer asked of 6.2.0. The modeled grammar:
+  - A sequence of simple commands joined by `;`, a newline or `&&`. The separators `||`, `|`, `&`, a brace
+    group `{ … }` and a here-document (`<<`) are not part of it and make the directory NOT MEASURED.
+  - A literal `cd` or `pushd` counts only where it is certain to have run: unconditional (the start, or
+    after `;`/newline) it moves the directory for the commands that follow; `&&`-chained directly into the
+    gated call it moves the directory for that call (if the call runs, the chained `cd` ran). A `cd` whose
+    running is conditional in any other way — behind `&&`/`||` but reaching the call only across a `;`, or
+    in a `||` branch — leaves the directory NOT MEASURED, because the gate cannot tell whether it ran.
+    `git -C <dir>` is read as before. A `cd`/`pushd` with a non-literal target (a variable, a substitution,
+    `-`), a `cd` with no argument, `popd`, and `--git-dir`/`--work-tree` are NOT MEASURED. (Deviation, with
+    a test: a `cd` after `;` counts when it is certain; it does not when it feeds the call only across a
+    `;`, since then its effect on the process directory is not guaranteed for the push. A literal `cd` is
+    assumed to succeed; a `cd` that fails at runtime is not modeled, as before.)
+  - A subshell `( … )` runs in a child shell, so a `cd` in it does not persist past the closing
+    parenthesis; the gate keeps this one modeled construct, saving and restoring the directory across it.
+  - Prefix assignments only from a narrow neutral list (`GIT_TERMINAL_PROMPT`, `GIT_PAGER`, `GIT_EDITOR`,
+    `GIT_ASKPASS`, `GIT_TRACE*`), also when carried by `env NAME=value`. Every other command-level
+    assignment — by prefix or `env` — of any name, `PATH` and every non-neutral `GIT_*` (`GIT_DIR`,
+    `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, …) included, makes the directory NOT MEASURED. A command-level
+    assignment of the configuration (`GIT_CONFIG_*`, `HOME`, `XDG_CONFIG_HOME`) marks the push NOT MEASURED
+    through the configuration sentinel, because the gate's reads inherit only the host process's own
+    environment, never a configuration assigned in the command (review Nachtrag 11, Befund 2).
+  - A shell keyword (`if`, `then`, `for`, `while`, `case`, `function`, …), a function definition `name() …`,
+    and an unmodeled builtin or wrapper (`eval`, `source`/`.`, `exec`, `set`, `shopt`, `alias`, `export`,
+    `declare`, `typeset`, `local`, `readonly`, `sudo`, `command`, `builtin`) each take the command outside
+    the grammar, so the directory is NOT MEASURED. A command or parameter substitution before or in the
+    call does the same.
+  - `git` counts only as a bare word; a `git` invoked by a path (`./git`, `/usr/bin/git`) is NOT MEASURED.
+    Output redirections at the call (`2>&1`, `> f`) are read and dropped, and never become its words.
+  - A command nested in a quoted argument (`bash -c "…"`, `sh -c "…"`) and a command substitution are
+    scanned by the same grammar from the same directory, or they are NOT MEASURED.
+
+  No protection beyond what is measured here is claimed.
 - A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
   the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
   remote with a local remote-tracking ref that the remote's fetch refspecs map that branch to and nothing
