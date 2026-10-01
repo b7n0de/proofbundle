@@ -71,7 +71,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     this release and shown closed at the final head.
   - So the reading decides what reaches a body by the kind of the value, never by its methods, and each argument may
     name by contract the objects of the caller it takes as they are (`canonical._ein_stand`, `aussen`: a callback, a
-    signer, a dict of signers by name, a path, a clock, the class of a classmethod). A container it reads is copied as
+    signer, a dict of signers by name, a path, a clock, the class of a classmethod, a path or a loaded log). A container it reads is copied as
     before. A value that cannot
     change and whose methods are the interpreter's, the standard library's or this package's is handed on (an exact
     complex, range, Decimal, date, timedelta, a datetime or time without a tzinfo or with the standard library's

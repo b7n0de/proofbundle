@@ -17,7 +17,7 @@ copy use the same captured representation.
 THE PROPERTY. After the reading at the call (`canonical._ein_stand`), the arguments the body receives hold no object of
 the caller: every container is a private copy, a promised subclass is its stored contents in a class of this package,
 and every other object is refused with a typed error before the body runs. The one exception is an argument whose
-contract hands the body an object of the caller as it is: a callback, a signer, a path, a clock (`_VERTRAG`). The test
+contract hands the body an object of the caller as it is: a callback, a signer, a path, a clock, a class, a path or a loaded log (`_VERTRAG`). The test
 reads the arguments the body would receive and stops the call there, so the body never runs: no placeholder argument
 can end a call before the check it is meant to reach (F3 of the review), because the check measured here is the reading
 itself.

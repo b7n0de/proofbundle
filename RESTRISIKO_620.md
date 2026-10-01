@@ -1184,7 +1184,7 @@ those on a verify, emit or release path:
   at the call copies every dict, list, tuple, set, bytearray, deque and array and their subclasses, every memoryview
   it can rebuild, every view of a dict and every object of a dataclass of this package. Nothing else reaches a body as
   the caller's object unless the contract of its argument names it (`canonical._ein_stand`, ``aussen``: a callback, a
-  signer, a dict of signers by name, a path, a clock, the class of a classmethod): a value that cannot change and whose methods are the
+  signer, a dict of signers by name, a path, a clock, the class of a classmethod, a path or a loaded log): a value that cannot change and whose methods are the
   interpreter's, the standard library's or this package's is handed on (an exact complex, range, Decimal, date,
   timedelta, a datetime or time without a tzinfo or with the standard library's `timezone`, a path of `pathlib`, a
   frozenset of exact str, int, float, bool, bytes or None values, an object or a class of this package); a `str`,
@@ -1195,7 +1195,9 @@ those on a verify, emit or release path:
   name of its type (`canonical._fremdkoerper`). A Mapping that is no dict is read through its own methods by a named
   reader where a function reads one (`rp_trust`, `frozen`, the result of `automation_summary`, the consistency result
   of `evaluate_public_transparency`), before the first collect and after the second, and the two answers must be the
-  same value. A container the reading recognises and cannot copy refuses the call with `_StandUnkopierbar`, a
+  same value; so is the `trusted_authorizer_keys` of the AGT verifiers, whose contract reads a buffer of keys by its
+  format (`adapters.agt_receipt._liste_stand`, which walks a container by its base type and refuses an iterator
+  unread). A container the reading recognises and cannot copy refuses the call with `_StandUnkopierbar`, a
   `ProofBundleError`, before the body runs: a dict or a set with a key or item whose hash would be the caller's code,
   or whose keys or items meet as one in the copy (a `str` subclass beside the `str` it spells), an OrderedDict whose
   own order cannot be read without hashing, a keys, values or items view of an OrderedDict (also `dict.keys(od)`) or a

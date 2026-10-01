@@ -58,9 +58,11 @@ package's dataclasses whose layouts let one become the other; both fall without 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
 reader reads it before the first collect and after the second, and the two answers must be the same
-(`canonical._abbild_stand`, `public_transparency._konsistenz_stand`); any other such object reaches the body as a
+(`canonical._abbild_stand`, `public_transparency._konsistenz_stand`, and `adapters.agt_receipt._liste_stand`, which
+reads a buffer of keys by its format); any other such object reaches the body as a
 stand-in that holds nothing of the caller (`canonical._fremdkoerper`, since the fix of deep gate run 6), unless the
-argument's contract takes the caller's object (a callback, a signer, a path, a clock). The public instance methods of
+argument's contract takes the caller's object (a callback, a signer, a path, a clock, the class of a classmethod, a
+path or a loaded log). The public instance methods of
 this package's classes are not read at their call. An iterator or a generator refuses the call outside such a
 contract, and a frozenset that holds a value other than an exact scalar becomes a stand-in. A
 container the reading recognises and cannot copy is refused before the body runs (`canonical._StandUnkopierbar`, deep
@@ -2031,7 +2033,8 @@ _AUFRUFE_VON_PARAMETERN = {
     ("canonical.py", "_plain_for_jcs", "key_error"): "the error type its callers in this package pass",
     ("canonical.py", "_eine_kopie", "fehler"): "the error type its callers in this package pass",
     ("sdjwt_issue.py", "_fehler", "art"): "the error type its callers in this package pass",
-    ("canonical.py", "_stand", "leser"): ("a boundary reader of this package (`_abbild_stand`, `_konsistenz_stand`), "
+    ("canonical.py", "_stand", "leser"): ("a boundary reader of this package (`_abbild_stand`, `_konsistenz_stand`, "
+                                          "`_liste_stand`), "
                                           "run before the first collect and after the second and compared"),
     ("renewal.py", "verify_sequence", "anchor_verifier"): _NUR_WAHR,
     ("canonical.py", "verpacken", "f"): "the decorated function of this package itself",

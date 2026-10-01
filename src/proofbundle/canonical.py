@@ -738,8 +738,9 @@ def _stand(wurzel: Any, leser: Any = None, ersetzt: Any = None) -> Any:
     keeps unsupported values from being handed on as objects of the caller. It does not yet prove a joint state of
     mutable inputs. That needs a separate proof, in particular for ABA between two reads.
 
-    ``leser`` is the reader of the arguments that are read through their own methods (`_abbild_stand`,
-    `public_transparency._konsistenz_stand`). It runs before the first collect, and what it returns is collected
+    ``leser`` is the reader of the arguments that a named reader reads (`_abbild_stand` and
+    `public_transparency._konsistenz_stand` through their own methods, `adapters.agt_receipt._liste_stand` a buffer
+    of keys by its format). It runs before the first collect, and what it returns is collected
     with the rest; it runs again after the second collect, and the reading counts only when the second answer is
     the first place by place (`_derselbe`). So the reader's reading is part of both collects: what it read held
     from before the first collect to after the second, and each container held what the first collect read from
@@ -1067,11 +1068,12 @@ _AUSSEN_ERLAUBT = {
 def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any:
     """Every argument of a public function, read at its call by one reading (`_stand`, whose double collect sees every
     change but one made and undone between two reads, THE LIMIT there), before its body reads any of them.
-    ``leser`` names arguments that are read through their own methods and the reader for each. An argument of an
+    ``leser`` names arguments that a named reader reads and the reader for each. An argument of an
     exact type that cannot change is handed on without a reading.
 
     ``aussen`` names the arguments whose contract hands the body an object of the caller as it is, each with its kind
-    (`_AUSSEN_ERLAUBT`): a callback, a signer, a dict of signers by name, a path, a clock, the class of a classmethod.
+    (`_AUSSEN_ERLAUBT`): a callback, a signer, a dict of signers by name, a path, a clock, the class of a classmethod,
+    a path or a loaded object.
     Such an object is handed on where the argument stands (a signer of a dict of signers as a value of that dict);
     every other argument, and every other place of such an argument, holds the copy of the reading and no object of
     the caller (`_gelesen`).
