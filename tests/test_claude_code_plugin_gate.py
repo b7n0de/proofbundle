@@ -911,6 +911,46 @@ def test_an_intermediate_commit_with_invalid_evidence_is_caught(shim, repo):
     assert b_commit[:12] in reason(answer) and "does not match the tree" in reason(answer)
 
 
+def test_a_git_replacement_does_not_change_the_evidence_the_gate_reads(shim, tmp_path):
+    """R3-8: git reads replacement objects but transfers the originals, so a replacement must not change
+    the gate's view. origin/main and HEAD are A (no declaration); branch `bad` is B with a malformed
+    declaration. `git push --force origin bad:main` sends B; the gate must judge B, not a replacement of
+    it. Measured red against 3026924e: `git replace B A` turned the deny into inactive."""
+    path = _plain(tmp_path, "rep", remote=True)  # A: README only, origin/main = A
+    _git(path, "checkout", "-q", "-b", "bad")
+    _write(path / gate.DECLARATION, "{ not valid json\n")  # a malformed declaration at B
+    _commit(path, "B: malformed declaration")
+    b = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
+                       check=True).stdout.strip()
+    a = subprocess.run(["git", "-C", str(path), "rev-parse", "refs/remotes/origin/main"], capture_output=True,
+                       text=True, check=True).stdout.strip()
+    _git(path, "checkout", "-q", "main")
+    assert decision(run_gate(shim, path, "git push --force origin bad:main")) == "deny", "no replacement yet"
+    _git(path, "replace", b, a)  # a replace-aware read of B now returns A, which declares nothing
+    answer = run_gate(shim, path, "git push --force origin bad:main")
+    assert decision(answer) == "deny", "the gate must read the transferred object B, not its replacement A"
+    assert "malformed" in reason(answer) or "could not be read" in reason(answer) or "declaration" in reason(answer)
+
+
+def test_a_graft_does_not_hide_a_commit_the_push_sends(shim, tmp_path):
+    """R3-8 (grafts): .git/info/grafts rewrites the parent chain git reads, but the push sends the real
+    ancestors. A graft that reparents the tip past a malformed middle commit must not hide it. Measured red
+    against 3026924e, where --no-replace-objects left grafts in force; GIT_GRAFT_FILE emptied fixes it."""
+    path = _plain(tmp_path, "graft", remote=True)  # A: no declaration, origin/main = A
+    _write(path / gate.DECLARATION, "{ not valid json\n")
+    _commit(path, "X: malformed declaration")  # X, a child of A
+    _git(path, "rm", "-q", "-r", ".proofbundle")
+    _commit(path, "C: clean tip")  # C, a child of X; its tree declares nothing
+    a = subprocess.run(["git", "-C", str(path), "rev-parse", "refs/remotes/origin/main"], capture_output=True,
+                       text=True, check=True).stdout.strip()
+    c = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
+                       check=True).stdout.strip()
+    assert decision(run_gate(shim, path, "git push origin main")) == "deny", "X is in the range, no graft yet"
+    (path / ".git" / "info" / "grafts").write_text(f"{c} {a}\n", encoding="utf-8")  # reparent C past X
+    answer = run_gate(shim, path, "git push origin main")
+    assert decision(answer) == "deny", "the gate must evaluate X, which the push still sends"
+
+
 def test_a_force_push_that_drops_a_declaration_on_another_branch_is_resolved_or_not_measured(shim, repo, tmp_path):
     """N1: a push to a branch this repository tracks is judged against that branch's state, not the default
     branch. Pushing a declaration-free HEAD onto a tracked `release` that declared is a rules change."""

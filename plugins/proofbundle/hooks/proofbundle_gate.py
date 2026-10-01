@@ -225,12 +225,37 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> li
 
 # --- the declaration and the evidence at HEAD --------------------------------------------------------
 
+#: Options that make every gate read see the objects a push would transfer, not a local rewrite of them
+#: (DECISIONS.md, D20; review R3-8). --no-replace-objects turns off refs/replace/*; the environment names
+#: turn off replace refs and the deprecated .git/info/grafts for any git the gate starts, including the
+#: cat-file batch reader. The gate's own config reads are also kept clear of an injected configuration
+#: (review R3-1): GIT_CONFIG_* would otherwise rewrite what `git config` reports to the gate.
+_READ_ONLY_GIT = ("--no-replace-objects",)
+_CONFIG_INJECTING_ENV = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+
+
+def _read_env() -> dict:
+    """The environment for the gate's own git reads: the host's, minus the names that inject configuration,
+    plus GIT_NO_REPLACE_OBJECTS so no git honours a replace ref and GIT_GRAFT_FILE set to the empty device
+    so none honours a .git/info/grafts rewrite of the parent chain. Replace refs and grafts both rewrite
+    the view git reads while the pack transfer sends the originals, so the range or tree the gate judges
+    would otherwise differ from what the push sends (review R3-8). Measured: a graft that reparents the tip
+    hid a middle commit from the gate's rev-list until GIT_GRAFT_FILE was emptied; object alternates cannot
+    change what an object id resolves to, so they are not such a rewrite."""
+    env = {k: v for k, v in os.environ.items()
+           if not (k in _CONFIG_INJECTING_ENV or k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")))}
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    env["GIT_GRAFT_FILE"] = os.devnull
+    return env
+
+
 def _git(repo: str, *args: str, deadline: float) -> subprocess.CompletedProcess:
     left = deadline - time.monotonic()
     if left <= 0:
         raise GateError("the gate ran out of time")
     try:
-        return subprocess.run(["git", "-C", repo, *args], capture_output=True, timeout=left, check=False)
+        return subprocess.run(["git", *_READ_ONLY_GIT, "-C", repo, *args], capture_output=True,
+                              timeout=left, check=False, env=_read_env())
     except FileNotFoundError as exc:
         raise GateError("git is not on PATH") from exc
     except subprocess.TimeoutExpired as exc:
@@ -269,8 +294,9 @@ def _blob_sha256s(repo: str, oids: list[bytes], deadline: float) -> list[str]:
     if left <= 0:
         raise GateError("the gate ran out of time")
     try:
-        proc = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(["git", *_READ_ONLY_GIT, "-C", repo, "cat-file", "--batch"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                env=_read_env())
     except FileNotFoundError as exc:
         raise GateError("git is not on PATH") from exc
     timer = threading.Timer(left, proc.kill)
