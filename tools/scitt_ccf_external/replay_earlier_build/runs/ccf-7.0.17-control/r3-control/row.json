@@ -1,0 +1,69 @@
+{
+ "vector": "r3-control",
+ "request_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+ "service_commit": "00101f769d872711356e080fbb089ac48589c60a",
+ "image_id": "sha256:55afdad62d33b21a73b8f0e2971b9a315bd6bca7dd978a7d7b6090725fcd57cc",
+ "ccf_version": "ccf-7.0.17",
+ "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+ "predicted": {
+  "outcome": "registered",
+  "why": "the v1 shape, registered in every round",
+  "expected_data_hash": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32"
+ },
+ "measured_outcome": "registered",
+ "refusal_stage": null,
+ "raw_service_error": null,
+ "api_status": 202,
+ "txid": "2.15",
+ "returned_statement_sha256": "387824f617fc0ab3f3d37c822c432b805029c2d7f42595a6ecb6d7811991af65",
+ "receipt_data_hash": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+ "rebuilt_cn_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+ "data_hash_match": true,
+ "receipt_signature_valid": true,
+ "rebuilt_equals_returned_minus_394": true,
+ "started": "2026-10-01T22:56:32Z",
+ "http": [
+  {
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 202,
+   "body_sha256": "b2e8e31c324827e50f053d7d12d4daded02a7938388c080e0777f96367a16399"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.15",
+   "status": 202,
+   "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.15",
+   "status": 200,
+   "body_sha256": "0fe889f8d659a9859ba30ef2b0692cc54416b5e89e051f3486e4e6acbfdd6012"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.15",
+   "status": 503,
+   "body_sha256": "fc1a441d736abeb592472850524b2f04b3355647e4e968501da62e71fd9f7c0d"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.15",
+   "status": 200,
+   "body_sha256": "5a97a9669f1276d5cd459f9e4bd532bff83d730fbf8e57ad729664e474837984"
+  },
+  {
+   "step": "statement",
+   "method": "GET",
+   "path": "/entries/2.15/statement",
+   "status": 200,
+   "body_sha256": "387824f617fc0ab3f3d37c822c432b805029c2d7f42595a6ecb6d7811991af65"
+  }
+ ]
+}

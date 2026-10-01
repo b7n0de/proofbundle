@@ -1,0 +1,69 @@
+{
+ "vector": "r3-x-pa-ub-sig-a",
+ "request_sha256": "72edfc65e9eeede2730de644b61ad478d12658d16fdcb462726ab35a727e4bb0",
+ "service_commit": "5a973bb3af8a0c506923c501d4e2aeb508867105",
+ "image_id": "sha256:cc6ad97487bc3e288c49c2f4659fa04ca91ae3ddd9b659b947ddfe6704fe174f",
+ "ccf_version": "ccf-7.0.14",
+ "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+ "predicted": {
+  "outcome": "registered",
+  "why": "registered in round 3: the key is the protected x5chain's (A), and the statement is signed with A",
+  "expected_data_hash": "430b308746d924aa83a4287ac944e32ab2c0d843891cf43b10a6999f1078e96e"
+ },
+ "measured_outcome": "registered",
+ "refusal_stage": null,
+ "raw_service_error": null,
+ "api_status": 202,
+ "txid": "2.22",
+ "returned_statement_sha256": "609cae398af538eaf6a25367d608dd85106f95df073d5f0808103b607f4ada5a",
+ "receipt_data_hash": "430b308746d924aa83a4287ac944e32ab2c0d843891cf43b10a6999f1078e96e",
+ "rebuilt_cn_sha256": "430b308746d924aa83a4287ac944e32ab2c0d843891cf43b10a6999f1078e96e",
+ "data_hash_match": true,
+ "receipt_signature_valid": true,
+ "rebuilt_equals_returned_minus_394": true,
+ "started": "2026-10-01T22:41:47Z",
+ "http": [
+  {
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 202,
+   "body_sha256": "dd84fb6109e124e9bd8d57ceff3a2c2cac9e70204ab28000eba1612b90fac243"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.22",
+   "status": 202,
+   "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.22",
+   "status": 200,
+   "body_sha256": "61ee01fca6a4f79bfe10c34d73d5d138ad4d09640253128c95a1867cfab1f1bb"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.22",
+   "status": 503,
+   "body_sha256": "2dde449ed34979b000b35a3d5aed795f19ff3c7df193e5dbec478520c42bb50a"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.22",
+   "status": 200,
+   "body_sha256": "d13a720dbd36d2c5414e8179390fc841a552b9cc00468bd105e92809f14bcff3"
+  },
+  {
+   "step": "statement",
+   "method": "GET",
+   "path": "/entries/2.22/statement",
+   "status": 200,
+   "body_sha256": "609cae398af538eaf6a25367d608dd85106f95df073d5f0808103b607f4ada5a"
+  }
+ ]
+}

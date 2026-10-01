@@ -1,0 +1,37 @@
+{
+ "vector": "r3-m-u15",
+ "request_sha256": "bae0467d702873b556c55d755d8f751c88db71607411cc0e36bb22ba2b624795",
+ "service_commit": "00101f769d872711356e080fbb089ac48589c60a",
+ "image_id": "sha256:55afdad62d33b21a73b8f0e2971b9a315bd6bca7dd978a7d7b6090725fcd57cc",
+ "ccf_version": "ccf-7.0.17",
+ "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+ "predicted": {
+  "outcome": "refused",
+  "why": "refused in round 3 with this text from app/src/verifier.h, unchanged in 5a973bb3; the issuer is read from the protected header, which no longer carries CWT Claims",
+  "refusal_stage": "POST /entries",
+  "api_status": 400,
+  "expected_error_text": "Signed statement protected header must contain CWT_Claims with at least an issuer",
+  "expected_data_hash": null
+ },
+ "measured_outcome": "refused",
+ "refusal_stage": "POST /entries",
+ "raw_service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signed statement protected header must contain CWT_Claims with at least an issuer\"}",
+ "api_status": 400,
+ "txid": null,
+ "returned_statement_sha256": null,
+ "receipt_data_hash": null,
+ "rebuilt_cn_sha256": "4fd2125fd28e8ec321f22274838f6e52d2d84075662b606ae75617bf0e63b3e2",
+ "data_hash_match": null,
+ "receipt_signature_valid": null,
+ "rebuilt_equals_returned_minus_394": null,
+ "started": "2026-10-01T22:56:34Z",
+ "http": [
+  {
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 400,
+   "body_sha256": "6fa6337146c833008e00118bdc119bc88d962dda8bdc1b140223ed0fe095f973"
+  }
+ ]
+}

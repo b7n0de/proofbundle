@@ -1,0 +1,69 @@
+{
+ "vector": "r3-r-a10-cwt-claims-unprotected",
+ "request_sha256": "1565059345b3e5424af8ccd839104ee7ab88626daa79813231dfc01a3cda61fe",
+ "service_commit": "00101f769d872711356e080fbb089ac48589c60a",
+ "image_id": "sha256:55afdad62d33b21a73b8f0e2971b9a315bd6bca7dd978a7d7b6090725fcd57cc",
+ "ccf_version": "ccf-7.0.17",
+ "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+ "predicted": {
+  "outcome": "registered",
+  "why": "registered in rounds 1 and 3; the ledger reads CWT Claims from the protected header only, and the unprotected map is emptied before hashing, so the data-hash is the control's",
+  "expected_data_hash": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32"
+ },
+ "measured_outcome": "registered",
+ "refusal_stage": null,
+ "raw_service_error": null,
+ "api_status": 202,
+ "txid": "2.17",
+ "returned_statement_sha256": "b5c7ad4e94b6029228d9876d75d0ca6a826cebc15fdb99a638fee42e99bc3918",
+ "receipt_data_hash": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+ "rebuilt_cn_sha256": "843726911977736ebdfe6d11f36d3c86098acd6e67624764de61d64a00deeb32",
+ "data_hash_match": true,
+ "receipt_signature_valid": true,
+ "rebuilt_equals_returned_minus_394": true,
+ "started": "2026-10-01T22:56:33Z",
+ "http": [
+  {
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 202,
+   "body_sha256": "d6cf4f591e78ab80095c09b1bba5413f98141526fbb6a94eecbf818e3370ed99"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.17",
+   "status": 202,
+   "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.17",
+   "status": 200,
+   "body_sha256": "85461c16cefdfd88d13fc057a3790a6a1bf462ddd3d7a399c53921532a0595f1"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.17",
+   "status": 503,
+   "body_sha256": "15eeed06ca425a39d12ae11721bd4740cd66d12c0d33f3a9370c7007a7a661d0"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.17",
+   "status": 200,
+   "body_sha256": "9e214a607ee942143487b2fefbe68b6b9d7769a0541486c8da6752b16f134f29"
+  },
+  {
+   "step": "statement",
+   "method": "GET",
+   "path": "/entries/2.17/statement",
+   "status": 200,
+   "body_sha256": "b5c7ad4e94b6029228d9876d75d0ca6a826cebc15fdb99a638fee42e99bc3918"
+  }
+ ]
+}

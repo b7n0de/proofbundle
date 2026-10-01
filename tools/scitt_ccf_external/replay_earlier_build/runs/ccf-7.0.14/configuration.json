@@ -1,0 +1,1 @@
+{"authentication":{"allowUnauthenticated":true},"policy":{"policyScript":"export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"}}

@@ -1,0 +1,69 @@
+{
+ "vector": "r2-g03-alg-1-byte-argument",
+ "request_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+ "service_commit": "00101f769d872711356e080fbb089ac48589c60a",
+ "image_id": "sha256:55afdad62d33b21a73b8f0e2971b9a315bd6bca7dd978a7d7b6090725fcd57cc",
+ "ccf_version": "ccf-7.0.17",
+ "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+ "predicted": {
+  "outcome": "registered",
+  "why": "registered in round 2; the non-preferred head 38 06 lies inside the protected bstr, which the service copies as submitted and the ledger's QCBOR reads",
+  "expected_data_hash": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21"
+ },
+ "measured_outcome": "registered",
+ "refusal_stage": null,
+ "raw_service_error": null,
+ "api_status": 202,
+ "txid": "2.19",
+ "returned_statement_sha256": "f1b8ca650a2139693a0e88d1254db4b0bb7ca0f362a5f11a057b53a1a68a74cc",
+ "receipt_data_hash": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+ "rebuilt_cn_sha256": "59fbb36f28858206eff07c6ab83b95a4ac385cae2baa9425ec35f62b72a6ad21",
+ "data_hash_match": true,
+ "receipt_signature_valid": true,
+ "rebuilt_equals_returned_minus_394": true,
+ "started": "2026-10-01T22:56:34Z",
+ "http": [
+  {
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 202,
+   "body_sha256": "c3675a17141496485558ba9656fb96fd427d12a92cc66dfc854a45cbdb2a372e"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.19",
+   "status": 202,
+   "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "step": "operation",
+   "method": "GET",
+   "path": "/operations/2.19",
+   "status": 200,
+   "body_sha256": "d1ae0541a71ef174c5b7e1e043fd08bce83f98023ef13e2493438ac8e3900983"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.19",
+   "status": 503,
+   "body_sha256": "7e2d2f827a6febe7a46e9282aefe31c52345e50331ac5e879d9190670a2bb9ad"
+  },
+  {
+   "step": "receipt",
+   "method": "GET",
+   "path": "/entries/2.19",
+   "status": 200,
+   "body_sha256": "ba411bd3d04434dd47a34a8da98fb4d7f9e02af3caa45a0c92994e8d96bc0e37"
+  },
+  {
+   "step": "statement",
+   "method": "GET",
+   "path": "/entries/2.19/statement",
+   "status": 200,
+   "body_sha256": "f1b8ca650a2139693a0e88d1254db4b0bb7ca0f362a5f11a057b53a1a68a74cc"
+  }
+ ]
+}

@@ -1,0 +1,37 @@
+{
+ "vector": "r3-x-pb-ua-sig-a",
+ "request_sha256": "add014e1ec3efc279a2abfb386050965a1e73eb101d0b69b258284700cf1d369",
+ "service_commit": "5a973bb3af8a0c506923c501d4e2aeb508867105",
+ "image_id": "sha256:cc6ad97487bc3e288c49c2f4659fa04ca91ae3ddd9b659b947ddfe6704fe174f",
+ "ccf_version": "ccf-7.0.14",
+ "configuration_sha256": "6593529c599a0b94b93bc7afe5cf4846068c7fda704b10441ee763f16005529c",
+ "predicted": {
+  "outcome": "refused",
+  "why": "refused in round 3: signed with A, verified with the protected x5chain's key B",
+  "refusal_stage": "POST /entries",
+  "api_status": 400,
+  "expected_error_text": "Signature verification failed",
+  "expected_data_hash": null
+ },
+ "measured_outcome": "refused",
+ "refusal_stage": "POST /entries",
+ "raw_service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+ "api_status": 400,
+ "txid": null,
+ "returned_statement_sha256": null,
+ "receipt_data_hash": null,
+ "rebuilt_cn_sha256": "fa73cf9758abf94bba52efcaaed0d791bcc67f92534fb1d6354d335a99984e3e",
+ "data_hash_match": null,
+ "receipt_signature_valid": null,
+ "rebuilt_equals_returned_minus_394": null,
+ "started": "2026-10-01T22:41:48Z",
+ "http": [
+  {
+   "step": "register",
+   "method": "POST",
+   "path": "/entries",
+   "status": 400,
+   "body_sha256": "622ab1b292d56974e3b6d3d20db044876cc6cfd46801dab262531d9e8bcc429e"
+  }
+ ]
+}
