@@ -22,8 +22,10 @@ PER SURFACE AND ARGUMENT:
   for (`_luegner`) must not get the base verdict: the verdict is that of what the object stores, or a typed refusal.
 
 WHAT IS VISIBLY OPEN. A verdict surface without a base case is named in `_OHNE_GRUNDFALL` with its reason, an argument
-that no change reaches is listed by the reach case, and a surface whose base verdict is not stable is listed. The
-report test prints all three with their counts; none of them counts as passed.
+that no change reaches is named in `_NICHT_ERREICHT`, and a surface whose base verdict is not stable is listed. The
+report test prints all three with their counts; none of them counts as passed. The reach is pinned both ways: an
+argument that falls out of reach and is not named is red, and a named one that is reached now is red, so the executed
+denominator of this part cannot shrink or grow in silence.
 
 Correlated changes of several arguments, answers of callbacks, private copies handed to callbacks, ABA and controlled
 thread switches are part three (tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py).
@@ -556,6 +558,105 @@ _KONTROLLE_AUSNAHMEN: "dict[tuple[str, str], str]" = {
 }
 
 
+#: The arguments no change of `_stoerungen` reaches, measured on 2026-10-02 at 69e5b69f in the audit venv with every
+#: extra (328 of 406 reached). Part two holds nothing for them: for run 7 they count as not executed, never as held.
+#: Without an extra (`_fehlende_extras`) a base case can change with the environment, so an argument that falls out
+#: of reach there and is not named here is printed as NOT MEASURED instead of red; with every extra the list is exact.
+_NICHT_ERREICHT: "frozenset[str]" = frozenset({
+    "adapters.agt_receipt.verify_agt_receipt(now)",
+    "agent_review.emit_agent_review(signer)",
+    "agent_review.validate_statement_shape(predicate)",
+    "anchors.verify_anchor(now)",
+    "anchors.verify_anchor(rp_trust)",
+    "anchors.verify_anchors(now)",
+    "anchors.verify_anchors(rp_trust)",
+    "anchors_chia.verify_chia_datalayer(frozen)",
+    "anchors_chia.verify_chia_datalayer(now)",
+    "anchors_markovian.verify_markovian(frozen)",
+    "anchors_markovian.verify_markovian(now)",
+    "anchors_ots.verify_opentimestamps(frozen)",
+    "anchors_ots.verify_opentimestamps(now)",
+    "anchors_rfc3161.verify_rfc3161(now)",
+    "anchors_rootcommit.verify_rootcommit_v1(frozen)",
+    "anchors_rootcommit.verify_rootcommit_v1(rp_trust)",
+    "anchors_rootcommit.verify_rootcommit_v2sig(frozen)",
+    "anchors_rootcommit.verify_rootcommit_v2sig(rp_trust)",
+    "assurance.classify_receiver_corroboration(evidence_resolver)",
+    "assurance.classify_receiver_corroboration(executor_key_id)",
+    "assurance.classify_receiver_corroboration(independent_attestation_resolver)",
+    "assurance.classify_receiver_corroboration(receiver_key_id)",
+    "checkpoint.cosign_checkpoint(witness_signer)",
+    "checkpoint.sign_checkpoint(signer)",
+    "checkpoint.witness_quorum(log_key_material)",
+    "decision.emit_decision_receipt(signer)",
+    "decision.verify_decision_receipt(expected_audience)",
+    "decision.verify_decision_receipt(expected_nonce)",
+    "decision.verify_decision_receipt(rp_trust)",
+    "decision.verify_decision_receipt_or_raise(expected_audience)",
+    "decision.verify_decision_receipt_or_raise(expected_nonce)",
+    "dsse.sign_envelope(signer)",
+    "emit.emit_bundle(signer)",
+    "evalclaim.check_freshness(now)",
+    "evalclaim.classify_eval_claim(expected_context)",
+    "evalclaim.decode_eval_claim(bundle)",
+    "evalclaim.decode_eval_claim(expected_context)",
+    "evalclaim.emit_eval_receipt(signer)",
+    "evalclaim.sd_jwt_hidden_count(bundle)",
+    "evidence_pack.verify_evidence_pack(now)",
+    "evidence_pack.verify_evidence_pack(rp_trust)",
+    "intoto.export_eval_result_dsse(signer)",
+    "intoto.export_intoto_dsse(signer)",
+    "intoto.export_svr_dsse(signer)",
+    "intoto.svr_properties(result)",
+    "outcome.emit_outcome_receipt(signer)",
+    "outcome.verify_outcome_receipt(decision_maker_id)",
+    "outcome.verify_outcome_receipt(expected_audience)",
+    "outcome.verify_outcome_receipt(expected_nonce)",
+    "policy.evaluate_decision_policy(statement)",
+    "policy.evaluate_decision_policy(verify_result)",
+    "policy.evaluate_policy(result)",
+    "pqsig.verify_hybrid(classical_pub)",
+    "pqsig.verify_hybrid(classical_sig)",
+    "pqsig.verify_hybrid(message)",
+    "pqsig.verify_hybrid(pq_level)",
+    "pqsig.verify_hybrid(pq_pub)",
+    "pqsig.verify_hybrid(pq_sig)",
+    "pqsig.verify_mldsa(level)",
+    "pqsig.verify_mldsa(message)",
+    "pqsig.verify_mldsa(public_key)",
+    "pqsig.verify_mldsa(signature)",
+    "relation.evaluate_relations_policy(successor_key_b64)",
+    "relation.verify_relationship_edges(max_depth)",
+    "relation.verify_relationship_edges(subject_hex)",
+    "relation_statement.emit_relation_statement(signer)",
+    "renewal.evaluate_renewal_policy(policy)",
+    "renewal.verify_sequence(rp_trust)",
+    "run_ledger.emit_run_ledger(signer)",
+    "sdjwt_issue.present_with_key_binding(holder_signer)",
+    "sdjwt_vc.check_vc_profile(offline_metadata)",
+    "sdjwt_vc.verify_sdjwt_vc(holder_pubkey)",
+    "sdjwt_vc.verify_sdjwt_vc(offline_metadata)",
+    "statuslist.issue_status_list_token(signer)",
+    "subject_binding.subject_cardinality(statement)",
+    "trust_pack.verify_trust_pack(now)",
+    "trust_pack.verify_trust_pack(prev_version_digest)",
+    "verification_summary.emit_verification_summary(signer)",
+})
+
+
+def _fehlende_extras() -> "list[str]":
+    """The extras of this package whose absence can change a base case here: the modules of [anchors], [eval] and
+    [rootcommit], and an ML-DSA build for [pq]."""
+    import importlib.util
+    fehlt = [m for m in ("opentimestamps", "rfc3161_client", "rfc8785", "ecdsa") if importlib.util.find_spec(m) is None]
+    try:
+        from proofbundle import pqsig
+        pqsig.generate_mldsa("mldsa44")
+    except Exception:  # noqa: BLE001 - this build has no ML-DSA
+        fehlt.append("pq")
+    return fehlt
+
+
 # ── the changes that prove the reach ────────────────────────────────────────────────────────────────────────────────
 
 def _ersetzt(wert: Any, pfad: tuple, neu: Any) -> Any:
@@ -727,12 +828,15 @@ class EveryVerdictSurfaceAndArgumentIsHeld(_Mit):
 
     def test_every_argument_reaches_the_verdict(self) -> None:
         """THE REACH: for each argument some change of its value changes the verdict, so the base case reaches the
-        check that judges it. An argument no change reaches is listed (visibly open, not held)."""
+        check that judges it. An argument no change reaches is named in `_NICHT_ERREICHT` (visibly open, not held), and
+        the set is exact."""
         nicht_erreicht = []
+        gemessen = set()
         gesamt = 0
         for fall in self.faelle:
             for p, wert in fall.argumente.items():
                 gesamt += 1
+                gemessen.add(f"{fall.name}({p})")
                 erreicht = False
                 for _, neu in _stoerungen(wert):
                     argumente = {k: _kopie(v) for k, v in fall.argumente.items()}
@@ -742,10 +846,17 @@ class EveryVerdictSurfaceAndArgumentIsHeld(_Mit):
                         break
                 if not erreicht:
                     nicht_erreicht.append(f"{fall.name}({p})")
-        print(f"\nREACH: {gesamt - len(nicht_erreicht)} of {gesamt} arguments reach the verdict; not reached: "
-              f"{nicht_erreicht}")
+        fehlt = _fehlende_extras()
+        neu = sorted(set(nicht_erreicht) - _NICHT_ERREICHT)
+        wieder = sorted(n for n in _NICHT_ERREICHT & gemessen if n not in nicht_erreicht)
+        print(f"\nREACH: {gesamt - len(nicht_erreicht)} of {gesamt} arguments reach the verdict; not reached "
+              f"({len(nicht_erreicht)}): {nicht_erreicht}")
         self.assertGreater(gesamt, 200)
-        self.assertLessEqual(len(nicht_erreicht), gesamt, "")
+        self.assertEqual(wieder, [], "a named argument is reached now: take it off _NICHT_ERREICHT")
+        if fehlt and neu:
+            print(f"NOT MEASURED without {fehlt}: {len(neu)} arguments out of reach in this environment: {neu}")
+            return
+        self.assertEqual(neu, [], f"{len(neu)} arguments fell out of reach and are not named in _NICHT_ERREICHT")
 
     def test_control_a_promised_form_of_each_argument_gives_the_base_verdict(self) -> None:
         """THE CONTROL: each argument as recording subclasses of dict, list, str and bytes (`_aufgezeichnet` of the
