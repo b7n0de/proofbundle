@@ -52,6 +52,7 @@ for _p in (str(REPO / "src"), str(REPO / "tests")):
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
 from proofbundle.cli import main  # noqa: E402
+from proofbundle.errors import ProofBundleError  # noqa: E402
 
 _V2 = "proofbundle/trust-policy/v0.2"
 _HAUPT = Ed25519PrivateKey.from_private_bytes(b"\x51" * 32)
@@ -390,6 +391,51 @@ class EveryRuleIsHandledByTheCommand(unittest.TestCase):
                 regeln.update(regel)
                 if self.w.bibliothek(ziel, _politik(regeln))["policy_ok"] is not False:
                     befunde.append(f"{ziel}: {name} -> policy_ok not False")
+        self.assertEqual(befunde, [], "\n".join(befunde))
+
+    def test_a_near_miss_of_the_purpose_of_the_path_fails_or_is_refused(self) -> None:
+        """Ledger class 48 (an expected identifier is compared exactly, and the corpus holds a near miss of each
+        loosening): the purpose case above uses a wholly foreign purpose. Here each target gets near misses of its own
+        purpose (trailing and leading space, upper case, a zero-width character, one character short, one more), and
+        each must fail the policy or refuse it: exit 2 or 3 at the CLI, policy_ok False or a typed refusal in the
+        library. A loosened comparison (strip, casefold, a prefix match) would let one through."""
+        def beinahe(zweck: str) -> "list[str]":
+            return [zweck + " ", " " + zweck, zweck.upper(), zweck + "​", zweck[:-1], zweck + "s"]
+        befunde = []
+        for ziel in _CLI:
+            for wert in beinahe(_aktiv(ziel, (None, "policyPurpose"))):
+                regeln = dict(self.w.anker(ziel))
+                regeln[(None, "policyPurpose")] = wert
+                rc, _ = self.w.cli(ziel, _politik(regeln))
+                if rc not in (2, 3):
+                    befunde.append(f"{ziel}: policyPurpose {wert!r} -> exit {rc}")
+        for ziel in _BIB:
+            for wert in beinahe(_aktiv(ziel, (None, "policyPurpose"))):
+                regeln = dict(self.w.anker(ziel))
+                regeln[(None, "policyPurpose")] = wert
+                try:
+                    urteil = self.w.bibliothek(ziel, _politik(regeln))["policy_ok"]
+                except ProofBundleError:
+                    continue
+                if urteil is not False:
+                    befunde.append(f"{ziel}: policyPurpose {wert!r} -> policy_ok {urteil!r}")
+        self.assertEqual(befunde, [], "\n".join(befunde))
+
+    def test_control_the_purpose_of_the_path_itself_passes(self) -> None:
+        """The control of the near misses: the exact purpose of each path that has one passes beside the passing rule
+        of the command, so the near-miss case above cannot pass by failing everything."""
+        befunde = []
+        for ziel in [z for z in _CLI if _ZWECK.get(z)]:
+            regeln = dict(self.w.anker(ziel))
+            regeln[(None, "policyPurpose")] = _ZWECK[ziel]
+            rc, _ = self.w.cli(ziel, _politik(regeln))
+            if rc != 0:
+                befunde.append(f"{ziel}: policyPurpose {_ZWECK[ziel]!r} -> exit {rc}")
+        for ziel in [z for z in _BIB if _ZWECK.get(z)]:
+            regeln = dict(self.w.anker(ziel))
+            regeln[(None, "policyPurpose")] = _ZWECK[ziel]
+            if self.w.bibliothek(ziel, _politik(regeln))["policy_ok"] is not True:
+                befunde.append(f"{ziel}: policyPurpose {_ZWECK[ziel]!r} -> policy_ok not True")
         self.assertEqual(befunde, [], "\n".join(befunde))
 
     def test_measurement_1_the_mixed_policy(self) -> None:
