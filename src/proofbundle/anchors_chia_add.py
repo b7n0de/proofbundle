@@ -190,7 +190,7 @@ def _wait_confirmed(store_id: str, prev_root: Optional[str], *, timeout: int = 1
     raise ChiaRpcError("timed out waiting for the batch_update root to confirm on-chain")
 
 
-@_ein_stand
+@_ein_stand(aussen={"lock_path": "pfad"})
 def anchor_add(canonical_root_hex: str, *, store_id: str, value_digest_hex: Optional[str] = None,
                target: str = "receipt", network: str = "mainnet", fee: int = 100_000_000,
                wait: bool = True, lock_path: Optional[str] = None) -> dict:

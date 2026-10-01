@@ -229,7 +229,7 @@ def _require_hash_alg(mk: dict) -> str:
     return hash_alg
 
 
-@_ein_stand
+@_ein_stand(aussen={"path": "pfad"})
 def load_bundle(path: str) -> dict:
     """Read and JSON-parse a bundle file. Deeply-nested JSON overflows the parser's C-recursion; that
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than

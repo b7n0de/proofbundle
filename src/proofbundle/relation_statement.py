@@ -156,7 +156,7 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_relation_statement(predicate: dict, signer, *, subject_name: str | None = None,
                             subject_sha256: str | None = None, keyid: str | None = None) -> dict:
     """Sign a relation-statement as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical.

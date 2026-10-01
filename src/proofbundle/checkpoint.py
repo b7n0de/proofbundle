@@ -286,7 +286,7 @@ def vkey(keyname: str, pubkey: bytes) -> str:
     return f"{name}+{kid_hex}+{keymat}"
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: str) -> str:
     """Produce a signed C2SP checkpoint note. ``signer`` is an Ed25519 private key whose public key must
     correspond to ``keyname``. The signature is over the RAW note-text bytes (including the trailing
@@ -768,7 +768,7 @@ def _cosigned_message(note_text: str, timestamp: int) -> bytes:
     return (_COSIG_V1_PREFIX + f"time {timestamp}\n" + note_text).encode("utf-8")
 
 
-@_ein_stand
+@_ein_stand(aussen={"witness_signer": "signierer"})
 def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, timestamp: int) -> str:
     """Append a witness cosignature line to a signed checkpoint note (Ed25519 cosignature/v1).
 
@@ -875,7 +875,7 @@ def _mldsa_cosigned_message(cosigner_name: str, timestamp: int, origin: str,
             + root)
 
 
-@_ein_stand
+@_ein_stand(aussen={"witness_signer": "signierer"})
 def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
                             timestamp: int) -> str:
     """Append an ML-DSA-44 witness cosignature line (C2SP type 0x06 — the spec's SHOULD for new

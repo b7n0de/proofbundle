@@ -436,7 +436,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     }, content_root_alg)
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
                        harness: Optional[dict] = None, url: Optional[str] = None,
                        keyid: Optional[str] = None,
@@ -1073,7 +1073,7 @@ def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[s
     }, content_root_alg)
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "receipt",
                             subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
                             root_b64: Optional[str] = None, harness: Optional[dict] = None,
@@ -1258,7 +1258,7 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     return props
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
                     anchor_verified: bool = False, keyid: Optional[str] = None,

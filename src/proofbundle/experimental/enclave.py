@@ -187,7 +187,7 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     return result
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
                               ueid: Optional[str] = None, iat: Optional[int] = None,
                               exp: Optional[int] = None) -> str:

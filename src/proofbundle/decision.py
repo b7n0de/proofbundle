@@ -469,7 +469,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                           subject_sha256: str | None = None, keyid: str | None = None,
                           strict: bool = True) -> dict:
@@ -528,7 +528,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
-@_ein_stand(rp_trust=_abbild_stand)
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
 def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                      expected_audience: str | None = None,
                                      expected_nonce: str | None = None, policy: dict | None = None,
@@ -548,7 +548,7 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         related=related, _raise_on_malformed=True)
 
 
-@_ein_stand(rp_trust=_abbild_stand)
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,

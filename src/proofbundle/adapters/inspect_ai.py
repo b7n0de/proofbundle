@@ -37,7 +37,7 @@ def _score_str(value) -> str:
     return str(value)
 
 
-@_ein_stand
+@_ein_stand(aussen={"path": "pfad"})
 def from_inspect_ai_log(path, metric: str, *, comparator: str, threshold: str, timestamp: str,
                         model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None,
                         capture: str = "persisted_log_reader"):

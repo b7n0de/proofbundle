@@ -397,7 +397,7 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signers": "signierer_je_name"})
 def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, strict: bool = True) -> dict:
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
@@ -524,7 +524,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     return verify_ed25519_pinned(pub, sig, msg)
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,
                       prev_version: int | None = None, prev_version_digest: str | None = None,
                       prev_root_keys: dict | None = None, prev_root_threshold: int | None = None,

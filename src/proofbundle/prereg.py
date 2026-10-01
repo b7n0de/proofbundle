@@ -31,7 +31,7 @@ from .canonical import _ein_stand
 __all__ = ["prereg_hash", "verify_prereg"]
 
 
-@_ein_stand
+@_ein_stand(aussen={"protocol_path": "pfad"})
 def prereg_hash(protocol_path) -> str:
     """Return the lowercase-hex sha256 over the RAW bytes of the protocol file — the value to
     place in a claim's ``prereg_sha256`` BEFORE running the eval.
@@ -81,7 +81,7 @@ def prereg_hash(protocol_path) -> str:
     return h.hexdigest()
 
 
-@_ein_stand
+@_ein_stand(aussen={"protocol_path": "pfad"})
 def verify_prereg(protocol_path, claim: dict) -> dict:
     """Check that ``claim['prereg_sha256']`` matches the sha256 of the protocol file.
 

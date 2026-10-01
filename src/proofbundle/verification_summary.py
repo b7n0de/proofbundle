@@ -191,7 +191,7 @@ def build_summary_statement(predicate: dict, *, subject_name: str | None = None,
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_verification_summary(predicate: dict, signer, *, subject_name: str | None = None,
                               subject_sha256: str | None = None, keyid: str | None = None,
                               strict: bool = True) -> dict:

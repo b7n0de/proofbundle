@@ -253,7 +253,7 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:

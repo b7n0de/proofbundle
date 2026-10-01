@@ -537,7 +537,7 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                          subject_sha256: str | None = None, keyid: str | None = None,
                          strict: bool = True) -> dict:
@@ -598,7 +598,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
-@_ein_stand
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                     expected_decision_ref: str | None = None,
                                     decision_maker_id: str | None = None,
@@ -622,7 +622,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         _raise_on_malformed=True)
 
 
-@_ein_stand
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,

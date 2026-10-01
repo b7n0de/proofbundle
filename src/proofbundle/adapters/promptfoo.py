@@ -35,7 +35,7 @@ def _pass_rate(successes: int, failures: int, errors: int) -> "tuple[str, int]":
     return f"{rate:.{_SCALE}f}", total
 
 
-@_ein_stand
+@_ein_stand(aussen={"path": "pfad"})
 def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: str,
                            model_salt: Optional[bytes] = None,
                            dataset_salt: Optional[bytes] = None):

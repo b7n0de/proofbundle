@@ -89,7 +89,7 @@ class EvalClaimError(ValueError):
     """Raised for a malformed eval claim (float in payload, non-NFC string, unsafe int, …)."""
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def issuer_fingerprint(signer: Ed25519PrivateKey) -> str:
     """The `issuer` field value: ed25519:<base64 of the 32-byte raw public key>."""
     raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -708,7 +708,7 @@ def _claim_read_back(claim, *, profile: bool) -> tuple:
     return read_back, payload
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: Sequence[bytes] = (),
                       sd_jwt: Optional[dict] = None) -> dict:
     """Emit a proofbundle/v0.1 bundle whose payload is the canonical eval claim.
@@ -1113,7 +1113,7 @@ def verify_commitment(identifier: str, salt: bytes, commitment: str) -> bool:
     return hmac.compare_digest(expected.encode("ascii"), zusage.encode("ascii"))
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None) -> dict:
     """Replay check (v1.1): parse the claim's timestamp and report its age. A receipt carries a timestamp but
     verify never judged it — an old receipt could be replayed as new. Returns

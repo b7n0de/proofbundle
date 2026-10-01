@@ -290,7 +290,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     return result
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits: int = 1,
                             exp: Optional[int] = None, ttl: Optional[int] = None) -> str:
     """Issue a Status List Token (emit side, for tests/self-hosted lists). ``statuses`` is a list

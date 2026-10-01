@@ -68,7 +68,7 @@ def _make_disclosure(name: str, value, salt_b64: str) -> tuple[str, str]:
     return disclosure_b64, digest
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                  exact_score: Optional[str] = None, ci95: Optional[Sequence[str]] = None,
                  model_id_opening: Optional[Sequence] = None,
@@ -320,7 +320,7 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     return "~".join([jwt, *disclosures]) + "~"
 
 
-@_ein_stand
+@_ein_stand(aussen={"holder_signer": "signierer"})
 def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
                              aud: str, nonce: str, iat: int) -> str:
     """Append a Key Binding JWT to a compact SD-JWT presentation (RFC 9901 §4.3, v1.2).
@@ -371,7 +371,7 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     return compact + signing_input + "." + _b64url(signature)
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def issuer_matches(claim: dict, signer: Ed25519PrivateKey) -> bool:
     """True iff the claim's issuer fingerprint equals the signer's public key (bundle↔SD-JWT same key)."""
     raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)

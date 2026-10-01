@@ -742,7 +742,7 @@ def _ats_wie_gespeichert(a: "ArchiveTimeStamp") -> "ArchiveTimeStamp | None":
     return ArchiveTimeStamp(**werte)
 
 
-@_ein_stand
+@_ein_stand(aussen={"signers": "signierer_je_name"})
 def build_initial_sequence(data_digests: Sequence[str], *, hash_alg: str, time: int,
                            anchor_status: str = _CONFIRMED, sig_alg: str = "",
                            signers: Optional[dict] = None) -> list[list[ArchiveTimeStamp]]:
@@ -827,7 +827,7 @@ def _require_int_time(time, prior: "ArchiveTimeStamp") -> None:
             raise RenewalError(f"{label} time must be an int, got {type(t).__name__} (fail-closed)")
 
 
-@_ein_stand
+@_ein_stand(aussen={"signers": "signierer_je_name"})
 def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
                     anchor_status: str = _CONFIRMED, sig_alg: Optional[str] = None,
                     signers: Optional[dict] = None,
@@ -865,7 +865,7 @@ def renew_timestamp(sequence: list[list[ArchiveTimeStamp]], *, time: int,
     return out
 
 
-@_ein_stand
+@_ein_stand(aussen={"signers": "signierer_je_name"})
 def renew_hashtree(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                    new_hash_alg: str, time: int, anchor_status: str = _CONFIRMED,
                    sig_alg: Optional[str] = None,
@@ -906,7 +906,7 @@ def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
     return _newest(sequence)
 
 
-@_ein_stand(rp_trust=_abbild_stand)
+@_ein_stand(aussen={"anchor_verifier": "rueckruf"}, rp_trust=_abbild_stand)
 @_never_raise_verdict("renewal:internal_fail_closed")
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
                     authority_keys: Optional[dict] = None,
@@ -1342,7 +1342,7 @@ class RenewalPolicy:
     strictness: str = "warn"
 
     @classmethod
-    @_ein_stand
+    @_ein_stand(aussen={"cls": "klasse"})
     def from_dict(cls, obj: dict) -> "RenewalPolicy":
         strictness = obj.get("strictness", "warn")
         if strictness not in ("warn", "fail"):

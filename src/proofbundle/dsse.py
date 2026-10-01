@@ -60,7 +60,7 @@ def pae(payload_type: str, body: bytes) -> bytes:
             + str(len(body)).encode("ascii") + b" " + body)
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str] = None) -> dict:
     """Sign the RAW `body` bytes into a DSSE envelope. `signer` is an Ed25519 private key (its `.sign`
     signs PAE(payload_type, body)). Returns {payload, payloadType, signatures:[{sig[, keyid]}]}.

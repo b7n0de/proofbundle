@@ -204,7 +204,7 @@ def _source_tree_rows(package_dir: Path) -> list[str]:
     return rows
 
 
-@_ein_stand
+@_ein_stand(aussen={"package_dir": "pfad"})
 def measure_build(package_dir: "Path | None" = None) -> dict:
     """The identity of the running build, measured, with its ``source`` stated.
 
@@ -225,7 +225,7 @@ def measure_build(package_dir: "Path | None" = None) -> dict:
 
 
 # ── measuring the vector set ──────────────────────────────────────────────────────────────────
-@_ein_stand
+@_ein_stand(aussen={"conformance_dir": "pfad"})
 def measure_vector_set(conformance_dir: "Path | str") -> dict:
     """The conformance corpus as bytes: manifest AND every file of every case directory it names.
 
@@ -414,7 +414,7 @@ def build_verifier_block(*, build: dict, version: str, vector_set: "dict | None"
     return block
 
 
-@_ein_stand
+@_ein_stand(aussen={"conformance_dir": "pfad", "package_dir": "pfad"})
 def measure_verifier_block(*, conformance_dir: "Path | str | None" = None,
                            test_result_statement: "dict | None" = None,
                            package_dir: "Path | None" = None) -> dict:
@@ -698,7 +698,7 @@ def join_test_result(block: dict, statement: dict) -> dict:
     return r
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def sign_test_result_statement(statement: dict, signer, *, keyid: "str | None" = None) -> dict:
     """Wrap the statement in a DSSE envelope -- the same primitive every receipt of this package
     uses, no new crypto. The statement is validated first; an invalid one is not signed. It is read

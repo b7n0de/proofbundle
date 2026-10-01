@@ -161,7 +161,7 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
-@_ein_stand
+@_ein_stand(aussen={"verifier": "rueckruf"})
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,

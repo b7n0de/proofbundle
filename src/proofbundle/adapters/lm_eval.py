@@ -35,7 +35,7 @@ def _find_metric(res: dict, metric: str):
     return None, None, None
 
 
-@_ein_stand
+@_ein_stand(aussen={"path": "pfad"})
 def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, threshold: str,
                          timestamp: str, model_salt: Optional[bytes] = None,
                          dataset_salt: Optional[bytes] = None):

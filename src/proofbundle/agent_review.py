@@ -1484,7 +1484,7 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
     }
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
                       strict: bool = True, legacy_v01: bool = False,
@@ -3292,7 +3292,7 @@ def standard_policy_path() -> Path:
     return Path(str(ref))
 
 
-@_ein_stand
+@_ein_stand(aussen={"pfad": "pfad"})
 def load_policy(pfad=None) -> dict:
     """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""

@@ -113,7 +113,7 @@ def _is_key_material(value: Any) -> TypeGuard[Union[bytes, bytearray]]:
     return type(value) is bytes or type(value) is bytearray
 
 
-@_ein_stand
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"})
 def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
                              evidence_resolver: Optional[Callable[[Any], bool]] = None) -> dict:
     """Classify ONE digest-bound field (e.g. an ``effectDigest``, a ``decisionRef``, one
@@ -178,7 +178,7 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     return {"level": level, "level_name": level.name, "detail": detail}
 
 
-@_ein_stand
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "independent_attestation_resolver": "rueckruf"})
 def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     evidence_resolver: Optional[Callable[[Any], bool]] = None,
                                     independent_attestation_resolver: Optional[Callable[[Any], bool]] = None,

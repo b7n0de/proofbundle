@@ -944,7 +944,7 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     return rp or None
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """Evaluate a trust policy OVER a completed crypto verification.
 
@@ -1480,7 +1480,7 @@ def _gelesene_richtlinie(policy):
         return {}
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
     in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
@@ -1498,7 +1498,7 @@ def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     return current > parsed
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def policy_not_yet_valid(policy: dict, *, now=None) -> Union[bool, None]:
     """A-P0-2 §6: True iff the policy carries a ``valid_from`` still in the FUTURE, False iff it
     carries one already reached, None iff it carries none. Mirrors :func:`policy_expired`; both are
@@ -1567,7 +1567,7 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     return True, "checkpoint signature verified"
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     """Lint a policy for WIRKUNGSLOSIGKEIT (vacuous pass), fail-closed style.
 

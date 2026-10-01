@@ -68,7 +68,7 @@ def _pfad_boden(path) -> None:
         raise _BFE(f"signer key path must be a path string, got {type(path).__name__} (fail-closed)")
 
 
-@_ein_stand
+@_ein_stand(aussen={"key": "signierer", "path": "pfad"})
 def save_signer(key: Ed25519PrivateKey, path: str) -> None:
     """Write the 32 byte raw Ed25519 private seed to ``path``, mode 0600.
 
@@ -87,7 +87,7 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
         handle.write(raw)
 
 
-@_ein_stand
+@_ein_stand(aussen={"path": "pfad"})
 def load_signer(path: str) -> Ed25519PrivateKey:
     """Load an Ed25519 signing key from a 32 byte raw seed file."""
     # TYPE FLOOR, same invariant as evalcard/prereg (L1-01) — applied here only on 2026-08-16, because
@@ -104,7 +104,7 @@ def load_signer(path: str) -> Ed25519PrivateKey:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 
 
-@_ein_stand
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_bundle(
     payload: bytes,
     signer: Ed25519PrivateKey,

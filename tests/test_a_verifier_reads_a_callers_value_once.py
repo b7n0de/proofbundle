@@ -36,10 +36,13 @@ the gate and the verify lanes measured, each with a sweep of its own but the two
 neighbours that are a split in reader (a subclass read through its own methods and by what it stores). Section 4
 holds the guard: every public function of a public module, and every public classmethod and staticmethod of a public
 class there, carries the reading at its call, once; every call of a caller's callable is named, and each whose answer
-enters a verdict runs as the caller's code. Section 5 holds the one reading itself: a private copy of one state,
+enters a verdict runs as the caller's code. Section 5 holds the one reading itself: a private copy made by one reading,
 sharing none of the containers it copies with the caller, running no method of the caller, copying this package's
-dataclasses and a key of a `str` subclass, in linear time, and a sweep over the copy that falls when the second collect
-is taken away. Section 6 holds the second collect: a change between the two collects is seen and the value read again,
+dataclasses and a key of a `str` subclass, a tuple of tuples in linear time, and a sweep over the copy that falls when
+the second collect is taken away. (This said "in linear time" for the whole reading until deep gate run 6 at fda55f98,
+which measured a key of shared frozensets walked once per path, L2-620v6-KEY-GRAPH-EXPONENTIAL-01; the work of a key
+is counted once per part and level now, in this file and in
+tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py.) Section 6 holds the second collect: a change between the two collects is seen and the value read again,
 three readings before a refusal, and nothing of the process is touched. Section 7 holds what the verify lanes V7 and V8
 on 085869313 found: the reader of a Mapping is part of both collects, a deque, an array and a view of a dict are copied,
 a RecursionError is no change, a Mapping that builds or parses its values anew is read, and each edge a planted
@@ -55,17 +58,22 @@ package's dataclasses whose layouts let one become the other; both fall without 
 WHAT THIS DOES NOT SEE. A value of the caller's own class that is no built-in container and no dataclass of this
 package (an object, a Mapping that is no dict) is read through its own methods; where a function reads one, a named
 reader reads it before the first collect and after the second, and the two answers must be the same
-(`canonical._abbild_stand`, `public_transparency._konsistenz_stand`); any other such object is handed on as the caller's
-object. The public instance methods of this package's classes are not read at their call. A dict with a key that is no
-str, int, float, bool, bytes or None, no subclass of str or bytes and no tuple or frozenset of exact such values stays
-the caller's object (its hash can be the caller's code), and so do a dict whose keys meet as one in the copy, an
-OrderedDict whose own order cannot be read without hashing, a keys, values or items view of an OrderedDict, the items of a frozenset, an iterator or a generator
-(it cannot be read twice, and the body reads it when it reads it), and a memoryview whose format a view of private
-bytes cannot take (read by both collects, then read by the body as the caller's view) or that is not C-contiguous (not
-read at all). A value of a type the comparison of a reader's two answers does not read (`canonical._derselbe` names
+(`canonical._abbild_stand`, `public_transparency._konsistenz_stand`); any other such object reaches the body as a
+stand-in that holds nothing of the caller (`canonical._fremdkoerper`, since the fix of deep gate run 6), unless the
+argument's contract takes the caller's object (a callback, a signer, a path, a clock). The public instance methods of
+this package's classes are not read at their call. An iterator or a generator refuses the call outside such a
+contract, and a frozenset that holds a value other than an exact scalar becomes a stand-in. A
+container the reading recognises and cannot copy is refused before the body runs (`canonical._StandUnkopierbar`, deep
+gate run 6 at fda55f98, L4-620v6-T15-LIVE-RELATED-01, section 8): a dict or set whose key or item would be the caller's
+code to hash or whose keys meet as one in the copy, an OrderedDict whose own order cannot be read without hashing, a
+keys, values or items view of an OrderedDict or of such a dict, a mapping proxy over a mapping that is no dict, and a
+memoryview no view of private bytes can take or that is no one buffer; until then each stayed the caller's object and
+the body read it at body time. A value of a type the comparison of a reader's two answers does not read (`canonical._derselbe` names
 them), built anew on each read, is a change, and the call is refused. A change that is made and undone between the two
-reads of one container is not seen. And the sweep reaches a window only where a
-tracked object is allocated in it.
+reads of one container is not seen, and it reaches a public verdict (R620-ABA-1 in RESTRISIKO_620.md, measured by
+tests/test_a_verdict_is_that_of_a_state_the_inputs_held.py): the closed type boundary keeps unsupported values from
+being handed on as objects of the caller, and it does not yet prove a joint state of mutable inputs. And the sweep
+reaches a window only where a tracked object is allocated in it.
 """
 from __future__ import annotations
 
@@ -1353,9 +1361,9 @@ class EveryPublicFunctionReadsItsArgumentsAtItsCall(unittest.TestCase):
         gezaehlt = []
         original = canonical._stand
 
-        def zaehlend(wurzel, leser=None):
+        def zaehlend(wurzel, leser=None, *weiter):
             gezaehlt.append(1)
-            return original(wurzel, leser)
+            return original(wurzel, leser, *weiter)
         canonical._stand = zaehlend
         try:
             verify_decision_receipt(f.decision, f.pub, related=_related_full(f.subject["decision"]), policy=_POLICY)
@@ -1384,9 +1392,9 @@ class EveryPublicFunctionReadsItsArgumentsAtItsCall(unittest.TestCase):
         gezaehlt = []
         original = canonical._stand
 
-        def zaehlend(wurzel, leser=None):
+        def zaehlend(wurzel, leser=None, *weiter):
             gezaehlt.append(1)
-            return original(wurzel, leser)
+            return original(wurzel, leser, *weiter)
         canonical._stand = zaehlend
         try:
             classify_digest_evidence({"sha256": "a" * 64}, evidence_resolver=functools.partial(verify_dual_hash, b"x"))
@@ -1631,10 +1639,12 @@ class TheReadingAtTheCallIsOneState(unittest.TestCase):
         self.assertIs(type(next(iter(kopie["roh"]))), canonical._FremdeBytes)
         self.assertEqual(classify_digest_evidence(werte)["level"], EvidenceLevel.CLAIMED)
 
-    def test_keys_that_meet_in_the_copy_and_a_key_of_another_class_stay_the_callers_objects(self):
-        """The named limit: a `str` subclass beside the `str` it spells would be one key in the copy, and a key of any
-        other class cannot enter a copy without its own hash. Neither dict is copied, and no method of the keys runs."""
-        from proofbundle.canonical import _stand
+    def test_keys_that_meet_in_the_copy_and_a_key_of_another_class_are_refused(self):
+        """A `str` subclass beside the `str` it spells would be one key in the copy, and a key of any other class cannot
+        enter a copy without its own hash. Until deep gate run 6 at fda55f98 neither dict was copied and both stayed the
+        caller's objects, which the body read at body time (L4-620v6-T15-LIVE-RELATED-01); each is refused now, and no
+        method of the keys runs."""
+        from proofbundle.canonical import _StandUnkopierbar, _stand
         gerufen = []
 
         class Anders(str):
@@ -1652,16 +1662,19 @@ class TheReadingAtTheCallIsOneState(unittest.TestCase):
                 return int.__hash__(self)
         begegnen = {"a": 1, Anders("a"): 2}
         fremd = {Zahl(5): 1}
-        gerufen.clear()
-        kopie = _stand({"begegnen": begegnen, "fremd": fremd, "liste": [1]})
-        self.assertEqual(gerufen, [])
-        self.assertIs(kopie["begegnen"], begegnen)
-        self.assertIs(kopie["fremd"], fremd)
+        for name, wert in (("keys that meet", begegnen), ("a key of another class", fremd)):
+            with self.subTest(case=name):
+                gerufen.clear()
+                with self.assertRaises(_StandUnkopierbar):
+                    _stand({name: wert, "liste": [1]})
+                self.assertEqual(gerufen, [])
 
     def test_a_dataclass_of_this_package_is_copied_field_by_field(self):
         """V5-02 and V5-03 on 8f2fa980: a `VerificationResult` with its `Check` objects, and an `ArchiveTimeStamp` whose
         `signatures` is a list, were handed on as the caller's objects. They are new objects of the same class now,
-        holding copies of what they store; an object of a caller's subclass stays the caller's object."""
+        holding copies of what they store. An object of a caller's subclass stayed the caller's object until deep gate run
+        6 at fda55f98; it reaches a body as a stand-in now, which holds nothing of the caller and carries its type's
+        name (`canonical._fremdkoerper`)."""
         import dataclasses
         from proofbundle.canonical import _stand
         from proofbundle.errors import Check, VerificationResult
@@ -1684,7 +1697,11 @@ class TheReadingAtTheCallIsOneState(unittest.TestCase):
         class Eigen(VerificationResult):
             pass
         eigen = Eigen([Check("a", True)])
-        self.assertIs(_stand(eigen), eigen)
+        from proofbundle._membership import Fremdkoerper, type_name
+        ersatz = _stand(eigen)
+        self.assertIsNot(ersatz, eigen)
+        self.assertIsInstance(ersatz, Fremdkoerper)
+        self.assertEqual(type_name(ersatz), "Eigen")
 
     def test_a_tuple_of_tuples_is_copied_in_linear_time(self):
         """V6-F3 on 8f2fa980: the parts of a tuple were scanned again after each part was built, and a tuple of 16000
@@ -2178,7 +2195,9 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
                 "fk": {float(k): v for k, v in reihe([(1.5, "a"), (2.5, "b")])},
                 "tk": {tuple(k): v for k, v in reihe([((1,), "a"), ((2, 3), "b")])},
                 "datum": {k: v for k, v in reihe([(tag, 1), ((tag, 1), 2), (float("nan"), 3)])},
-                "geteilt": {geteilt},
+                # The same object of the caller's class in both answers, in a list: a set of such objects cannot be
+                # copied without their hash and is refused (section 8).
+                "geteilt": [geteilt],
             }
             return {"crypto_ok": True, "structure_ok": True, "policy_ok": True, "extra": werte}
 
@@ -2485,29 +2504,30 @@ class TheReaderIsPartOfBothCollects(unittest.TestCase):
                 self.assertIs(antwort, erwartet)
                 self.assertEqual(gerufen, [], "a method of the caller's object ran while it was judged")
 
-    def test_the_reading_hands_on_what_its_copy_cannot_hold_as_it_is(self):
+    def test_the_reading_refuses_what_its_copy_cannot_hold(self):
         """Verify lane V12 on d1c39ae3, F4 and the plant of the memoryview shape: `dict.keys(od)` lists the storage
         order and was copied as a view of the OrderedDict's copy, which lists its own order; a memoryview of two
-        dimensions must keep them."""
+        dimensions must keep them. Such a view, and a memoryview that is not C-contiguous, were handed on as the
+        caller's objects until deep gate run 6 at fda55f98; they are refused now (`_StandUnkopierbar`)."""
         import types
         from collections import OrderedDict
-        from proofbundle.canonical import _stand
+        from proofbundle.canonical import _StandUnkopierbar, _stand
         od = OrderedDict([("b", 1), ("a", 2)])
         od.move_to_end("b")
         sicht = dict.keys(od)
         self.assertEqual(list(sicht), ["b", "a"])
-        self.assertIs(_stand([sicht])[0], sicht)
 
         class Nachfahr(OrderedDict):
             pass
         nachfahr = Nachfahr([("b", 1), ("a", 2)])
         nachfahr.move_to_end("b")
-        for weitergereicht in (dict.values(od), dict.items(od), dict.keys(nachfahr), dict.items(nachfahr)):
-            with self.subTest(view=type(weitergereicht).__name__):
-                self.assertIs(_stand([weitergereicht])[0], weitergereicht)
         gesprungen = memoryview(b"abcd")[::2]
         self.assertFalse(gesprungen.contiguous)
-        self.assertIs(_stand([gesprungen])[0], gesprungen, "a view that is not C-contiguous is not read at all")
+        for abgewiesen in (sicht, dict.values(od), dict.items(od), dict.keys(nachfahr), dict.items(nachfahr),
+                           gesprungen):
+            with self.subTest(value=type(abgewiesen).__name__):
+                with self.assertRaises(_StandUnkopierbar):
+                    _stand([abgewiesen])
         proxy = types.MappingProxyType(od)
         kopie_proxy = _stand([proxy])[0]
         self.assertIsNot(kopie_proxy, proxy, "a proxy reads the OrderedDict through its own order, as its copy does")
@@ -2794,20 +2814,23 @@ class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
             lambda: (bytearray(b"payload-state-0"), deque([b"leaf-a0", b"leaf-b0"])), change,
             lambda b: (b["payload_b64"], b["merkle"]["root_b64"]), phasen=True)
 
-    def test_a_memoryview_the_copy_cannot_rebuild_stays_the_callers_view(self):
-        """The named limit (V8 F2): a view whose format no view of private bytes can take (``<H`` of a ctypes array)
-        stays the caller's view, read by both collects. A copy in format ``B`` would be another value to a reader that
-        judges a buffer by its format (`adapters.agt_receipt._puffer`). Pinned, so a change of it is seen."""
+    def test_a_memoryview_the_copy_cannot_rebuild_is_refused(self):
+        """V8 F2: a view whose format no view of private bytes can take (``<H`` of a ctypes array) stayed the caller's
+        view, read by both collects and then by the body; `merkle.verify_inclusion` gave True in 8 of 533 runs where each
+        state gives False. A copy in format ``B`` would be another value to a reader that judges a buffer by its format
+        (`adapters.agt_receipt._puffer`), so the view is refused since deep gate run 6 at fda55f98, not rewritten."""
         import ctypes
-        from proofbundle.canonical import _stand
+        from proofbundle.canonical import _StandUnkopierbar, _stand
         sicht = memoryview((ctypes.c_uint16 * 2)(1, 2))
         self.assertEqual(sicht.format, "<H")
-        self.assertIs(_stand([sicht])[0], sicht)
+        with self.assertRaises(_StandUnkopierbar):
+            _stand([sicht])
         self.assertIsNot(_stand([memoryview(bytearray(b"ab"))])[0].obj, None)
 
-    def test_a_set_whose_items_meet_in_the_copy_stays_the_callers_object(self):
-        """V7 plant p05b: with the check that two items meet as one taken out for a set, no test fell."""
-        from proofbundle.canonical import _stand
+    def test_a_set_whose_items_meet_in_the_copy_is_refused(self):
+        """V7 plant p05b: with the check that two items meet as one taken out for a set, no test fell. Such a set stayed
+        the caller's object until deep gate run 6 at fda55f98 and is refused now."""
+        from proofbundle.canonical import _StandUnkopierbar, _stand
         gerufen = []
 
         class K(str):
@@ -2821,20 +2844,23 @@ class TheReadingCopiesEachKindAndSeesEachChange(unittest.TestCase):
         menge = {K("a"), "a"}
         self.assertEqual(len(menge), 2)
         gerufen.clear()
-        self.assertIs(_stand([menge])[0], menge)
+        with self.assertRaises(_StandUnkopierbar):
+            _stand([menge])
         self.assertEqual(gerufen, [])
 
-    def test_an_object_of_this_package_with_an_attribute_name_that_is_no_str_stays_the_callers(self):
+    def test_an_object_of_this_package_with_an_attribute_name_that_is_no_str_is_refused(self):
         """V7 plant p26: with the check of an attribute name taken out, a dataclass of this package was copied with a
-        name of the caller's class in its instance dict, and no test fell."""
-        from proofbundle.canonical import _stand
+        name of the caller's class in its instance dict, and no test fell. Such an object stayed the caller's until deep
+        gate run 6 at fda55f98 and is refused now."""
+        from proofbundle.canonical import _StandUnkopierbar, _stand
         from proofbundle.errors import Check, VerificationResult
 
         class K(str):
             pass
         ergebnis = VerificationResult([Check("a", True)])
         object.__getattribute__(ergebnis, "__dict__")[K("fremd")] = 1
-        self.assertIs(_stand([ergebnis])[0], ergebnis)
+        with self.assertRaises(_StandUnkopierbar):
+            _stand([ergebnis])
 
 
 class TheEdgesOfTheReadingAtTheCall(unittest.TestCase):
@@ -2844,9 +2870,9 @@ class TheEdgesOfTheReadingAtTheCall(unittest.TestCase):
         gezaehlt: list = []
         original = canonical._stand
 
-        def zaehlend(wurzel, leser=None):
+        def zaehlend(wurzel, leser=None, *weiter):
             gezaehlt.append(1)
-            return original(wurzel, leser)
+            return original(wurzel, leser, *weiter)
         return canonical, original, zaehlend, gezaehlt
 
     def test_a_call_from_the_callers_frame_inside_a_body_is_read(self):
@@ -2947,6 +2973,216 @@ class TheEdgesOfTheReadingAtTheCall(unittest.TestCase):
         finally:
             canonical._stand = original
         self.assertEqual(len(gezaehlt), 2, "the call the partial made was not read")
+
+
+# ── 8. a container the reading cannot copy is refused at every surface ─────────────────────────────
+
+def _unkopierbare_formen() -> "list[tuple[str, Any]]":
+    """One value of each form the reading at the call recognises as a container and cannot copy (deep gate run 6 at
+    fda55f98, L4-620v6-T15-LIVE-RELATED-01, the class)."""
+    import collections
+    import ctypes
+    import enum
+    import types
+    from collections import OrderedDict
+    from proofbundle.errors import Check
+
+    class Zahl(enum.IntEnum):
+        EINS = 1
+
+    class Spiegel(str):
+        # Its own hash, so the caller's dict and set hold it beside the `str` it spells; the copy reads it as that
+        # `str` (`_schluessel_von`), where the two meet as one.
+        def __hash__(self):
+            return 12345
+    paar = collections.namedtuple("Paar", "a")
+    od = OrderedDict(a=1)
+    frei = memoryview(bytearray(b"ab"))
+    frei.release()
+    fremd_benannt = Check("a", True)
+    object.__getattribute__(fremd_benannt, "__dict__")[Spiegel("fremd")] = 1
+    return [
+        ("a dict keyed by a namedtuple", {paar(1): [1]}),
+        ("a dict keyed by an IntEnum", {Zahl.EINS: [1]}),
+        ("a dict whose keys meet as one", {"a": [1], Spiegel("a"): [2]}),
+        ("a set of an object of the caller's class", {_Spur()}),
+        ("a set whose items meet as one", {"a", Spiegel("a")}),
+        ("an OrderedDict keyed by an int", OrderedDict([(1, [1])])),
+        ("a keys view of an OrderedDict", dict.keys(od)),
+        ("an items view of an OrderedDict", dict.items(od)),
+        ("a keys view of a dict the copy cannot hold", {paar(1): 1}.keys()),
+        ("a mapping proxy over a Mapping that is no dict", types.MappingProxyType(_Sicht({"a": 1}))),
+        ("a memoryview in format <H", memoryview((ctypes.c_uint16 * 2)(1, 2))),
+        ("a memoryview that is not C-contiguous", memoryview(b"abcd")[::2]),
+        ("a released memoryview", frei),
+        ("a dataclass of this package with an attribute name that is no str", fremd_benannt),
+    ]
+
+
+def _oeffentliche_flaechen() -> "list[tuple[str, Callable]]":
+    """Every public function, classmethod and staticmethod that carries the reading at its call, from the modules that
+    import in this environment, as (name, callable)."""
+    import importlib
+    flaechen = []
+    for modul in sorted(_oeffentliche_module()):
+        if modul in _AUSSERHALB:
+            continue
+        try:
+            m = importlib.import_module(modul)
+        except Exception:  # noqa: BLE001 - a module whose extra is missing is reported by the count below
+            continue
+        for name, wert in sorted(vars(m).items()):
+            if name.startswith("_"):
+                continue
+            if callable(wert) and getattr(wert, "__ein_stand__", False) and getattr(wert, "__module__", None) == modul:
+                flaechen.append((f"{modul}.{name}", wert))
+            elif isinstance(wert, type) and wert.__module__ == modul:
+                for mname, roh in sorted(vars(wert).items()):
+                    if mname.startswith("_") or not isinstance(roh, (classmethod, staticmethod)):
+                        continue
+                    if getattr(roh.__func__, "__ein_stand__", False):
+                        flaechen.append((f"{modul}.{name}.{mname}", getattr(wert, mname)))
+    return flaechen
+
+
+class AContainerTheReadingCannotCopyIsRefusedAtEverySurface(unittest.TestCase):
+    """THE PROPERTY (deep gate run 6 at fda55f98, L4-620v6-T15-LIVE-RELATED-01, three of three jurors P1): no container
+    the reading recognises and cannot copy reaches a body as the caller's object. A `related` map whose keys met as one
+    stayed the caller's object, `relation._read_attached_entries` copied its entries one at a time, and a gc callback
+    between two of them gave `verify_decision_receipt` ok True and safeForAutomation True where both states give False.
+    The refusal sits in the reading itself, so every function that carries it refuses each form, whatever its body
+    reads; the generator calls every such function once per form, with the form inside the first argument."""
+
+    def test_every_surface_refuses_every_form(self):
+        from proofbundle.canonical import _StandUnkopierbar
+        flaechen = _oeffentliche_flaechen()
+        self.assertGreater(len(flaechen), 120, f"the generator reached {len(flaechen)} surfaces only")
+        formen = _unkopierbare_formen()
+        durchgelassen = []
+        for name, fn in flaechen:
+            for form_name, form in formen:
+                try:
+                    fn([form])
+                except _StandUnkopierbar:
+                    continue
+                except BaseException as exc:  # noqa: BLE001 - anything else means the body ran on the caller's value
+                    durchgelassen.append(f"{name} <- {form_name}: {type(exc).__name__}")
+                    continue
+                durchgelassen.append(f"{name} <- {form_name}: answered")
+        self.assertEqual(durchgelassen, [], f"{len(durchgelassen)} of {len(flaechen) * len(formen)} calls")
+
+    def test_control_a_plain_value_of_each_shape_is_read(self):
+        """The refusal is about the form, not the shape: a plain dict, set, OrderedDict, view and memoryview are
+        copied."""
+        import types
+        from collections import OrderedDict
+        from proofbundle.canonical import _stand
+        d = {"a": [1]}
+        for wert in ({"a": [1]}, {1, "a"}, OrderedDict(a=[1]), d.keys(), types.MappingProxyType(d),
+                     types.MappingProxyType(OrderedDict(a=1)), memoryview(bytearray(b"ab")),
+                     memoryview(bytearray(6)).cast("B", (2, 3))):
+            with self.subTest(value=type(wert).__name__):
+                self.assertIsNot(_stand([wert])[0], wert)
+
+    def test_the_related_map_of_the_finding_is_refused_at_the_four_relation_surfaces(self):
+        """The finding's own shapes: a related map whose keys meet as one, or keyed by a namedtuple, at the decision,
+        outcome and relation statement verifiers and at `verify_relationship_edges`. Each is refused before the body
+        runs, so no callback of the caller can reach a reading of it; a plain map gives a verdict."""
+        import collections
+        from proofbundle.canonical import _StandUnkopierbar
+        from proofbundle.decision import verify_decision_receipt
+        from proofbundle.outcome import verify_outcome_receipt
+        from proofbundle.relation import verify_relationship_edges
+        from proofbundle.relation_statement import verify_relation_statement
+
+        class Spiegel(str):
+            def __hash__(self):
+                return 12345
+        paar = collections.namedtuple("Paar", "a")
+        f = fx()
+        pruefer = {"outcome": lambda rel: verify_outcome_receipt(f.outcome, f.pub, related=rel, policy=_POLICY),
+                   "statement": lambda rel: verify_relation_statement(f.statement, f.pub, related=rel, policy=_POLICY),
+                   "edges": lambda rel: verify_relationship_edges([_edge(_A, "derivedFrom")], rel)}
+        if f.decision is not None:
+            pruefer["decision"] = lambda rel: verify_decision_receipt(f.decision, f.pub, related=rel, policy=_POLICY)
+        for name, aufruf in pruefer.items():
+            sh = f.subject.get(name, "9" * 64)
+            for form, zusatz in (("keys that meet", {"zz": {}, Spiegel("zz"): {}}), ("a namedtuple key", {paar(1): {}})):
+                with self.subTest(surface=name, form=form):
+                    with self.assertRaises(_StandUnkopierbar):
+                        aufruf({**_related_full(sh), **zusatz})
+            with self.subTest(surface=name, control="a plain map"):
+                aufruf(_related_full(sh))
+
+
+class AKeyOfSharedPartsIsReadOncePerPart(unittest.TestCase):
+    """Deep gate run 6 at fda55f98, L2-620v6-KEY-GRAPH-EXPONENTIAL-01 (P2, three of three jurors): `_schluessel_von` and
+    `_typisiert` walked a tuple or frozenset key once per path, so a key of shared frozensets of 44 objects took
+    `verify_bundle` 266 s before its budget refused the value in 0.1 s. Each now answers each part once per depth; the
+    cases count the calls, which no load changes."""
+
+    @staticmethod
+    def _schluessel(ebenen: int, breite: int = 4) -> Any:
+        f = frozenset(f"s{j}" for j in range(breite))
+        for _ in range(ebenen):
+            f = frozenset(((f,) * breite) + (j,) for j in range(breite))
+        return f
+
+    def _zaehle(self, name: str, aufruf: Callable[[], Any]) -> int:
+        from proofbundle import canonical
+        original = getattr(canonical, name)
+        zahl = [0]
+
+        def zaehlend(*a, **k):
+            zahl[0] += 1
+            return original(*a, **k)
+        setattr(canonical, name, zaehlend)
+        try:
+            aufruf()
+        finally:
+            setattr(canonical, name, original)
+        return zahl[0]
+
+    def test_the_copy_reads_each_part_of_a_key_once_per_depth(self):
+        from proofbundle import canonical
+        schluessel = self._schluessel(6)
+        aufrufe = self._zaehle("_schluessel_von", lambda: canonical._stand({schluessel: 1}))
+        teile = len(_knoten_eines_schluessels(schluessel))
+        self.assertLessEqual(aufrufe, teile * 17 + 1, f"{aufrufe} calls for a key of {teile} parts")
+
+    def test_the_comparison_types_each_part_of_a_key_once_per_depth(self):
+        from proofbundle import canonical
+        schluessel = self._schluessel(6)
+        aufrufe = self._zaehle("_typisiert", lambda: canonical._derselbe({schluessel: 1}, {schluessel: 1}))
+        teile = len(_knoten_eines_schluessels(schluessel))
+        self.assertLessEqual(aufrufe, 2 * (teile * 17 + 1), f"{aufrufe} calls for a key of {teile} parts")
+
+    def test_a_shared_frozenset_pair_is_compared_once(self):
+        from proofbundle import canonical
+        a, b = self._schluessel(6), self._schluessel(6)
+        aufrufe = self._zaehle("_paarweise", lambda: self.assertTrue(canonical._derselbe(a, b)))
+        self.assertLessEqual(aufrufe, len(_knoten_eines_schluessels(a)) + 1)
+
+    def test_control_the_count_falls_without_the_memo(self):
+        """The count can fail: the same key walked once per path, as the reading did at fda55f98."""
+        def je_pfad(wert: Any) -> int:
+            return 1 + sum(je_pfad(t) for t in (tuple(wert) if type(wert) in (tuple, frozenset) else ()))
+        schluessel = self._schluessel(6)
+        self.assertGreater(je_pfad(schluessel), 100 * len(_knoten_eines_schluessels(schluessel)))
+
+
+def _knoten_eines_schluessels(wert: Any) -> "set[int]":
+    """The ids of every tuple, frozenset and leaf a key is built from, each once."""
+    gesehen: set = set()
+    stapel = [wert]
+    while stapel:
+        w = stapel.pop()
+        if id(w) in gesehen:
+            continue
+        gesehen.add(id(w))
+        if type(w) in (tuple, frozenset):
+            stapel.extend(w)
+    return gesehen
 
 
 if __name__ == "__main__":

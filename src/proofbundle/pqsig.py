@@ -143,7 +143,7 @@ def generate_mldsa(level: str = "mldsa65") -> Any:
     return priv_cls.generate()
 
 
-@_ein_stand
+@_ein_stand(aussen={"private_key": "signierer"})
 def sign_mldsa(private_key: Any, message: bytes) -> bytes:
     """Sign ``message`` with an ML-DSA private key (test/demo helper)."""
     return bytes(private_key.sign(message))
