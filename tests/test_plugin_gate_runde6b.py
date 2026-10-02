@@ -33,9 +33,15 @@ sys.dont_write_bytecode = _bytecode
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
 
+#: The program-selecting variables the gate reads from the hook's environment; the host running these tests
+#: may set some of them (a CI runner or a cloud container often sets GIT_ASKPASS or GIT_EDITOR).
+_PROGRAM_ENV = ["EDITOR", "GIT_ASKPASS", "GIT_EDITOR", "GIT_EXEC_PATH", "GIT_EXTERNAL_DIFF", "GIT_PAGER",
+                "GIT_PROXY_COMMAND", "GIT_SSH", "GIT_SSH_COMMAND", "PAGER", "SSH_ASKPASS", "VISUAL"]
+
+
 @pytest.fixture(autouse=True)
 def _clean_git_config(monkeypatch):
-    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")]:
+    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")] + _PROGRAM_ENV:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
@@ -286,3 +292,145 @@ def test_the_hook_matcher_covers_the_file_tools():
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         assert any(re.fullmatch(m, tool) for m in matchers), (tool, matchers)
     assert not any(re.fullmatch(m, "Read") for m in matchers)
+
+
+# --- siblings found while writing the per-entry table of D3 (Nachtrag 19b, Punkt 9) --------------------------
+
+def test_git_init_left_the_allow_list(tmp_path):
+    """git init writes the configuration and copies hooks from a template directory (git-init(1) TEMPLATE
+    DIRECTORY), so a later call in the repository runs them; its list is not justified, so it left (A)."""
+    repo = _repo(tmp_path)
+    for command in ("git init", "git init fresh"):
+        decision, text = _decision(command, repo)
+        assert decision == "ask" and text.startswith("NOT MEASURED:"), (command, text)
+
+
+@pytest.mark.parametrize("command", ["git rev-parse :a.txt", "git cat-file -p :a.txt", "git grep a",
+                                     "git log --oneline -n 1", "git check-attr diff a.txt",
+                                     "git check-ignore a.txt", "git ls-tree HEAD", "git show HEAD", "git branch",
+                                     "git config --get user.name"])
+def test_a_fsmonitor_hook_counts_for_every_entry_because_any_index_read_queries_it(tmp_path, command):
+    """read-cache.c post_read_index_from calls tweak_fsmonitor, which queries the hook (fsmonitor.c), and a
+    revision :<path> reads the index; the gate does not try to tell which entry reads the index."""
+    repo = _repo(tmp_path)
+    _git(repo, "config", "core.fsmonitor", _helper(tmp_path))
+    decision, text = _decision(command, repo)
+    assert decision == "ask", (command, text)
+    assert "core.fsmonitor" in text, text
+
+
+def test_the_built_in_fsmonitor_daemon_is_a_boolean_and_selects_no_configured_program(tmp_path):
+    repo = _repo(tmp_path)
+    _git(repo, "config", "core.fsmonitor", "true")
+    assert _decision("git rev-parse HEAD", repo) == (None, "")
+    assert _decision("git status", repo) == (None, "")
+
+
+@pytest.mark.parametrize("command", ["git log --format=%G?", "git log --pretty=format:%GS",
+                                     "git show -s --format=%GK HEAD",
+                                     "git for-each-ref --format='%(signature:grade)'",
+                                     "git for-each-ref --format '%(signature)'", "git branch --sort=signature",
+                                     "git tag -l --sort signature", "git branch --format='%(signature:signer)'"])
+def test_a_format_or_sort_value_that_verifies_signatures_is_not_measured(tmp_path, command):
+    """%G… (pretty.c) and the ref-filter atom signature (ref-filter.c) run gpg.program, gpg or ssh-keygen;
+    the value may be attached or the next word."""
+    repo = _repo(tmp_path)
+    assert _decision(command, repo)[0] == "ask", command
+
+
+@pytest.mark.parametrize("command", ["git log --format=%h", "git log --pretty=oneline",
+                                     "git for-each-ref --format='%(refname)'", "git branch --sort=-committerdate",
+                                     "git tag -l --sort=version:refname"])
+def test_a_format_or_sort_value_without_a_signature_stays_free(tmp_path, command):
+    repo = _repo(tmp_path)
+    assert _decision(command, repo) == (None, ""), command
+
+
+@pytest.mark.parametrize("key, value, command", [
+    ("format.pretty", "%G? %h", "git log"), ("pretty.sig", "format:%GS", "git show"),
+    ("tag.sort", "signature", "git tag -l"), ("branch.sort", "signature:grade", "git branch")])
+def test_a_configured_default_format_or_sort_that_verifies_signatures_counts(tmp_path, key, value, command):
+    repo = _repo(tmp_path)
+    _git(repo, "config", key, value)
+    decision, text = _decision(command, repo)
+    assert decision == "ask" and key in text, (command, text)
+    assert _decision("git status", repo) == (None, "")
+
+
+def test_a_default_format_without_a_signature_stays_free(tmp_path):
+    repo = _repo(tmp_path)
+    _git(repo, "config", "format.pretty", "oneline")
+    assert _decision("git log", repo) == (None, "")
+
+
+@pytest.mark.parametrize("args, output", [
+    (("config", "--list"), b"local\0file:.git/config\0core.bare\nfalse\0local\0file:.git/config"),
+    (("rev-parse", "--path-format=absolute", "--git-common-dir"), b"/x/.git\n/x/.git\n")])
+def test_git_output_the_gate_cannot_read_is_not_measured_not_a_partial_read(tmp_path, monkeypatch, args, output):
+    """A check that branches on the shape of git's output has an else branch: an unexpected shape is
+    unreadable, never a shorter list of keys or paths."""
+    repo = _repo(tmp_path)
+    real = gate._git
+
+    def fake(directory, *a, deadline):
+        if a[:len(args)] == args:
+            return subprocess.CompletedProcess(["git", *a], 0, output, b"")
+        return real(directory, *a, deadline=deadline)
+
+    monkeypatch.setattr(gate, "_git", fake)
+    decision, text = _decision("git status", repo)
+    assert decision == "ask" and "cannot read" in text, text
+
+
+def test_a_write_to_the_system_file_git_var_names_asks(tmp_path, monkeypatch):
+    """git var GIT_CONFIG_SYSTEM names the file git itself would read (a build with another prefix has another
+    path than /etc/gitconfig); a write that would create it is NOT MEASURED."""
+    repo = _repo(tmp_path)
+    system = tmp_path / "prefix" / "etc" / "gitconfig"
+    monkeypatch.delenv("GIT_CONFIG_SYSTEM", raising=False)
+    real = gate._git
+
+    def fake(directory, *a, deadline):
+        if a == ("var", "GIT_CONFIG_SYSTEM"):
+            return subprocess.CompletedProcess(["git", *a], 0, f"{system}\n".encode(), b"")
+        return real(directory, *a, deadline=deadline)
+
+    monkeypatch.setattr(gate, "_git", fake)
+    outcome = gate.decide_write("Write", {"file_path": str(system), "content": "x"}, str(repo), _deadline())
+    assert outcome is not None and outcome.decision == "ask", outcome
+
+
+def test_a_write_into_a_submodule_git_directory_asks(tmp_path):
+    repo = _repo(tmp_path)
+    _git(repo, "init", "-q", "--bare", str(repo / ".git" / "modules" / "sub"))
+    for target in (".git/modules/sub/config", ".git/modules/sub/hooks/post-checkout"):
+        answer = _run(_file_event("Write", repo / target, repo))
+        assert _decision_of(answer) == "ask", (target, answer)
+
+
+@pytest.mark.parametrize("name, value, command", [
+    ("GIT_EXTERNAL_DIFF", "HELPER", "git diff"), ("GIT_ASKPASS", "HELPER", "git fetch origin"),
+    ("SSH_ASKPASS", "HELPER", "git ls-remote origin"), ("GIT_SSH_COMMAND", "HELPER", "git fetch origin"),
+    ("GIT_EDITOR", "HELPER", "git commit"), ("EDITOR", "vim", "git commit"), ("PAGER", "less", "git log"),
+    ("GIT_PAGER", "HELPER", "git show HEAD"), ("GIT_EXEC_PATH", "DIR", "git rev-parse HEAD")])
+def test_a_program_selecting_variable_in_the_hooks_environment_counts_like_its_key(tmp_path, monkeypatch, name,
+                                                                                  value, command):
+    """Point 1: the hook's own environment is read; the command inherits it from the same host."""
+    repo = _repo(tmp_path)
+    monkeypatch.setenv(name, {"HELPER": _helper(tmp_path), "DIR": str(tmp_path)}.get(value, value))
+    decision, text = _decision(command, repo)
+    assert decision == "ask" and f"${name}" in text, (command, text)
+
+
+@pytest.mark.parametrize("name, value, command", [
+    ("GIT_EDITOR", "true", "git commit"), ("GIT_EDITOR", ":", "git commit"), ("PAGER", "cat", "git log"),
+    ("GIT_PAGER", "", "git log"), ("GIT_EXTERNAL_DIFF", "HELPER", "git status"), ("GIT_ASKPASS", "HELPER", "git log")])
+def test_a_neutral_value_or_a_variable_the_entry_does_not_use_stays_free(tmp_path, monkeypatch, name, value, command):
+    repo = _repo(tmp_path)
+    monkeypatch.setenv(name, {"HELPER": _helper(tmp_path)}.get(value, value))
+    assert _decision(command, repo) == (None, ""), (name, command)
+
+
+def test_the_gate_reads_exactly_the_program_selecting_variables_these_tests_clean():
+    read = {n for names, _ in gate._ENV_FAMILIES.values() for n in names} | set(gate._ENV_EVERY_ENTRY)
+    assert read == set(_PROGRAM_ENV)

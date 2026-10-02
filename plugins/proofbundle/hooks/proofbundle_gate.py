@@ -307,12 +307,15 @@ _GIT_GLOBAL_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namesp
 #: merge-file, mktag, mktree, notes, pack-objects, pack-refs, patch-id, prune, pull, range-diff, read-tree,
 #: reflog, remote, repack, rerere, revert, sparse-checkout, stripspace, unpack-objects, update-index,
 #: update-ref, verify-commit, verify-pack, verify-tag, worktree, write-tree, and the exec-capable rebase,
-#: bisect and submodule. `config` is here; a `config core.hooksPath` is denied earlier. The list closes no
+#: bisect and submodule; and `init`, which writes the repository's configuration and copies hooks from a
+#: template directory chosen by --template, $GIT_TEMPLATE_DIR, init.templateDir or the compiled-in default
+#: (git-init(1) TEMPLATE DIRECTORY; setup.c copy_templates, lines 1794-1844), so a later call runs them.
+#: `config` is here; a `config core.hooksPath` is denied earlier. The list closes no
 #: indirect push it does not name, and is not offered as a complete boundary (review Runde 5, Punkt 5/8).
 _GIT_LOCAL_SUBCOMMANDS = frozenset({
     "add", "annotate", "blame", "branch", "cat-file", "check-attr", "check-ignore", "check-mailmap",
     "check-ref-format", "checkout", "cherry", "commit", "config", "count-objects", "describe", "diff",
-    "diff-files", "diff-index", "diff-tree", "fetch", "for-each-ref", "grep", "init", "log", "ls-files",
+    "diff-files", "diff-index", "diff-tree", "fetch", "for-each-ref", "grep", "log", "ls-files",
     "ls-remote", "ls-tree", "merge-base", "mv", "name-rev", "reset", "restore", "rev-list", "rev-parse", "rm",
     "shortlog", "show", "show-branch", "show-ref", "stash", "status", "switch", "symbolic-ref", "tag", "var",
     "whatchanged",
@@ -440,6 +443,14 @@ def _config_inert(args: list[str]) -> bool:
     return bool(positionals) and positionals[0].lower() in _CONFIG_INERT_KEYS
 
 
+#: A format or sort value can make git verify signatures, which runs gpg.program (or gpg, or ssh-keygen):
+#: the pretty-formats placeholders %G… (pretty.c, lines 1631-1633) and the ref-filter atom signature
+#: (ref-filter.c, line 1749). The value may be attached (`--format=…`) or the next word (`--sort signature`),
+#: so any word of these entries carrying the marker makes the invocation NOT MEASURED (Nachtrag 19b).
+_SIGNATURE_WORDS = {"log": "%G", "show": "%G", "whatchanged": "%G",
+                    "for-each-ref": "signature", "branch": "signature", "tag": "signature"}
+
+
 def _options_inert(sub: str, args: list[str]) -> bool:
     """True iff every OPTION word in args is vetted inert for this subcommand (see _GIT_VETTED_OPTIONS).
     A word that does not begin with '-' is a positional (pathspec, ref, pattern) and never selects a
@@ -449,6 +460,9 @@ def _options_inert(sub: str, args: list[str]) -> bool:
     per-entry check."""
     if sub == "config":
         return _config_inert(args)
+    marker = _SIGNATURE_WORDS.get(sub)
+    if marker is not None and any(marker in a for a in args):
+        return False
     vetted = _GIT_VETTED_OPTIONS.get(sub, frozenset())
     seen_ddash = False
     for a in args:
@@ -518,6 +532,12 @@ _KEY_FAMILIES = {
                  else (v or "").strip().lower() != "never",
                  "git-config(1) protocol.allow, protocol.<name>.allow (ext:: runs a command)"),
     "pager": (r"core\.pager", None, "git-config(1) core.pager"),
+    "signature-format": (r"format\.pretty|pretty\..+", lambda k, v: "%G" in (v or ""),
+                         "git-config(1) format.pretty, pretty.<name>; pretty-formats %G placeholders verify the "
+                         "signature (pretty.c, lines 1631-1633, check_commit_signature runs gpg.program or gpg)"),
+    "signature-sort": (r"(branch|tag)\.sort", lambda k, v: "signature" in (v or ""),
+                       "git-config(1) branch.sort, tag.sort; the ref-filter atom signature verifies "
+                       "(ref-filter.c, line 1749)"),
 }
 #: Keys that make git run its default program for one subcommand (value true): signature display or signing.
 _TRIGGER_SOURCES = {
@@ -525,6 +545,23 @@ _TRIGGER_SOURCES = {
     "commit.gpgsign": "git-config(1) commit.gpgSign (runs gpg.program or gpg)",
     "tag.gpgsign": "git-config(1) tag.gpgSign (runs gpg.program or gpg, and the editor)",
 }
+#: The environment is configuration by another name (D3): a program-selecting variable in the hook's own
+#: environment, which the command inherits from the same host, counts like its key, with the neutral values
+#: D3 names for a command-level assignment (an editor of `true` or `:`, a pager of `cat` or empty). Sources:
+#: git(1) ENVIRONMENT VARIABLES (GIT_EXTERNAL_DIFF, GIT_PAGER, GIT_EDITOR, GIT_SSH, GIT_SSH_COMMAND,
+#: GIT_ASKPASS; GIT_EXEC_PATH under --exec-path), git-var(1) GIT_EDITOR and GIT_PAGER (then VISUAL, EDITOR,
+#: PAGER), git-config(1) core.askPass (then SSH_ASKPASS) and core.gitProxy (GIT_PROXY_COMMAND). An
+#: environment a session command exported later is not the hook's and is not seen (D3, named limit).
+_ENV_FAMILIES = {
+    "editor": (("GIT_EDITOR", "VISUAL", "EDITOR"), lambda v: v.strip() not in ("", "true", ":")),
+    "pager": (("GIT_PAGER", "PAGER"), lambda v: v.strip() not in ("", "cat")),
+    "diff-driver": (("GIT_EXTERNAL_DIFF",), lambda v: v.strip() != ""),
+    "transport": (("GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND"),
+                  lambda v: v.strip() != ""),
+}
+#: GIT_EXEC_PATH chooses where git finds every program it runs as git-<name> and is put first on PATH for
+#: them (git(1) --exec-path), so it counts for every entry.
+_ENV_EVERY_ENTRY = ("GIT_EXEC_PATH",)
 _INDEX = frozenset({"post-index-change"})   # githooks(5): invoked when the index is written
 _REFS = frozenset({"reference-transaction"})  # githooks(5): invoked by any command that updates references
 _ALL = "all"
@@ -536,6 +573,11 @@ def _profile(keys=(), hooks=frozenset(), pages=False, triggers=(), submodules=Fa
 
 
 _READ_ONLY = _profile(sources="reads objects, refs or attributes only; runs no driver, editor or hook")
+#: core.fsmonitor counts for every entry, not only those that compare the worktree: any read of the index
+#: queries the fsmonitor hook (read-cache.c post_read_index_from, line 1971, calls tweak_fsmonitor;
+#: fsmonitor.c, lines 551-614, refresh_fsmonitor), and a revision of the form :<path> reads the index
+#: (gitrevisions(7)), so a mapping per entry would not be sure (Nachtrag 19b, Punkt 3).
+_EVERY_ENTRY = frozenset({"fsmonitor"})
 _WORKTREE = ("filter", "fsmonitor")
 #: Per allow-listed subcommand: the key families and trigger keys that select a program for it, the hooks it
 #: starts (githooks(5)), whether it pages by default (then core.pager counts; pager.<subcommand> counts for
@@ -547,15 +589,15 @@ _WORKTREE = ("filter", "fsmonitor")
 _REPO_PROFILE = {
     **{sub: _READ_ONLY for sub in ("rev-parse", "show-ref", "for-each-ref", "cat-file", "ls-tree", "merge-base",
                                    "rev-list", "name-rev", "count-objects", "var", "check-ref-format",
-                                   "check-attr", "check-ignore", "check-mailmap", "init", "config")},
+                                   "check-attr", "check-ignore", "check-mailmap", "config")},
     "symbolic-ref": _profile(sources="githooks(5) reference-transaction does not cover symbolic references"),
     "cherry": _profile(sources="git-cherry(1): patch ids by the internal diff, no driver"),
-    "log": _profile(("diff-driver", "gpg"), pages=True, triggers=("log.showsignature",),
-                    sources="git-log(1), git-config(1) diff.*, log.showSignature, gpg.*"),
-    "show": _profile(("diff-driver", "gpg"), pages=True, triggers=("log.showsignature",),
+    "log": _profile(("diff-driver", "gpg", "signature-format"), pages=True, triggers=("log.showsignature",),
+                    sources="git-log(1), git-config(1) diff.*, log.showSignature, gpg.*, format.pretty, pretty.*"),
+    "show": _profile(("diff-driver", "gpg", "signature-format"), pages=True, triggers=("log.showsignature",),
                      sources="git-show(1), as git log"),
-    "whatchanged": _profile(("diff-driver", "gpg"), pages=True, triggers=("log.showsignature",),
-                            sources="git-whatchanged(1), as git log"),
+    "whatchanged": _profile(("diff-driver", "gpg", "signature-format"), pages=True,
+                            triggers=("log.showsignature",), sources="git-whatchanged(1), as git log"),
     "shortlog": _profile(pages=True, sources="git-shortlog(1)"),
     "show-branch": _profile(pages=True, sources="git-show-branch(1)"),
     "blame": _profile(("diff-driver", "filter"), pages=True, sources="git-blame(1): textconv, the worktree file"),
@@ -570,9 +612,10 @@ _REPO_PROFILE = {
     "ls-files": _profile(_WORKTREE, sources="git-ls-files(1) -m/-d compare the worktree"),
     "status": _profile(_WORKTREE, _INDEX, submodules=True,
                        sources="git-status(1) BACKGROUND REFRESH writes the index; submodules"),
-    "branch": _profile((), _REFS, pages=True, sources="git-branch(1): creating a branch updates a reference"),
-    "tag": _profile(("editor", "gpg"), _REFS, pages=True, triggers=("tag.gpgsign",),
-                    sources="git-tag(1), tag.gpgSign"),
+    "branch": _profile(("gpg", "signature-sort"), _REFS, pages=True,
+                       sources="git-branch(1): creating a branch updates a reference; branch.sort"),
+    "tag": _profile(("editor", "gpg", "signature-sort"), _REFS, pages=True, triggers=("tag.gpgsign",),
+                    sources="git-tag(1), tag.gpgSign, tag.sort"),
     "ls-remote": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"),
                           sources="git-ls-remote(1): talks to the remote"),
     "fetch": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"), _ALL, submodules=True,
@@ -605,8 +648,10 @@ def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
         why = out.stderr.decode("utf-8", "replace").strip().splitlines()
         return None, (why[-1] if why else f"git config exited {out.returncode}")
     parts = out.stdout.split(b"\0")
+    if parts[-1] != b"" or (len(parts) - 1) % 3:
+        return None, "git config --list --null --show-origin --show-scope gave output the gate cannot read"
     entries = []
-    for i in range(0, len(parts) - 2, 3):
+    for i in range(0, len(parts) - 1, 3):
         scope, origin, kv = (x.decode("utf-8", "replace") for x in parts[i:i + 3])
         key, nl, value = kv.partition("\n")
         entries.append((scope, origin, key, value if nl else None))
@@ -621,7 +666,10 @@ def _repo_paths(directory: str, deadline: float) -> tuple[dict | None, str]:
         if b"not a git repository" in out.stderr:
             return {"hooks": None, "common": None, "gitdir": None, "toplevel": None}, ""
         return None, out.stderr.decode("utf-8", "replace").strip() or f"git rev-parse exited {out.returncode}"
-    common, gitdir, hooks = out.stdout.decode("utf-8", "replace").splitlines()[:3]
+    lines = out.stdout.decode("utf-8", "replace").splitlines()
+    if len(lines) != 3:
+        return None, "git rev-parse gave output the gate cannot read"
+    common, gitdir, hooks = lines
     top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
     toplevel = top.stdout.decode("utf-8", "replace").strip() if top.returncode == 0 else None
     return {"hooks": hooks, "common": common, "gitdir": gitdir, "toplevel": toplevel}, ""
@@ -641,7 +689,7 @@ def _repo_state(directory: str, sub: str, deadline: float) -> tuple[str, list[st
     prof, hits = _REPO_PROFILE[sub], []
     for scope, origin, key, value in entries:
         k = key.lower()
-        for family in prof["keys"] | ({"pager"} if prof["pages"] else set()):
+        for family in prof["keys"] | _EVERY_ENTRY | ({"pager"} if prof["pages"] else set()):
             pattern, test, _source = _KEY_FAMILIES[family]
             if re.fullmatch(pattern, k) and (test is None or test(k, value)):
                 hits.append(f"{key} ({scope} configuration, {family})")
@@ -651,6 +699,15 @@ def _repo_state(directory: str, sub: str, deadline: float) -> tuple[str, list[st
             hits.append(f"{key} ({scope} configuration, runs the signature program)")
         if prof["submodules"] and k.startswith("submodule."):
             hits.append(f"{key} ({scope} configuration, submodules whose configuration the gate does not read)")
+    environment = _read_env()
+    for family in sorted(prof["keys"] | ({"pager"} if prof["pages"] else set())):
+        names, test = _ENV_FAMILIES.get(family, ((), None))
+        for name in names:
+            if name in environment and test(environment[name]):
+                hits.append(f"${name} (the hook's environment, {family})")
+    for name in _ENV_EVERY_ENTRY:
+        if environment.get(name, "").strip():
+            hits.append(f"${name} (the hook's environment, chooses the programs git runs)")
     if prof["submodules"] and paths["toplevel"] and os.path.isfile(os.path.join(paths["toplevel"], ".gitmodules")):
         hits.append(".gitmodules (submodules whose configuration the gate does not read)")
     if paths["hooks"] and prof["hooks"]:
@@ -2438,6 +2495,10 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
             if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
                 files.add(os.path.join(os.path.dirname(source), os.path.expanduser(value)))
     home = os.path.expanduser("~")
+    for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):   # git-var(1): the files git itself would use
+        named = _git(directory, "var", name, deadline=deadline)
+        if named.returncode == 0:
+            files.update(p for p in named.stdout.decode("utf-8", "replace").splitlines() if p and p != os.devnull)
     for name, default in (("GIT_CONFIG_GLOBAL", None), ("GIT_CONFIG_SYSTEM", "/etc/gitconfig")):
         value = os.environ.get(name)
         if value and value != os.devnull:
