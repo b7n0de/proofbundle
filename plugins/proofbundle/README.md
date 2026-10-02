@@ -67,15 +67,32 @@ not compare with that tree. At those calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
-The gate determines the repository of a call only when the command up to that call stands in a small,
-closed grammar: a sequence of simple commands joined by `;`, a newline or `&&`, with a literal `cd` or
-`pushd` certain to have run (unconditional, or `&&`-chained into the call) or `git -C`, and prefix
-assignments from a narrow neutral list. A subshell `( … )` confines its own `cd`. Every other construct
-leaves the repository, work tree or configuration NOT MEASURED: `||`, `|`, `&`, a brace group `{ … }`, a
-shell keyword or an unmodeled builtin, a function definition, a command or parameter substitution before
-or in the call, a here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOME`
-included), `env -C` or `sudo`, and a `git` run by a path. The gate claims no protection it has not
-measured (DECISIONS.md, D3).
+The verification runs at three levels, which see different things and which the design keeps apart
+(DECISIONS.md, D3, D22, D24).
+
+**Level 1, this `PreToolUse` gate, is not a security boundary.** It reads the shell command before it
+runs, and it resolves the repository a push acts on only when the whole command is one strict simple
+command headed by a bare `git`/`git-push`/`gh`: at most one literal `git -C` (resolved physically through
+symlinks), only prefix assignments from a narrow neutral list, trailing redirections with a literal
+target, and no expansion anywhere. Every other form is NOT MEASURED, never passed off as checked: any
+`;`/`&&`/`||`/`|`/`&`/newline chain, a `cd`, a subshell or a brace group, a shell keyword, a function, a
+wrapper such as `env`/`sudo`, a nested shell (`bash -lc`, `sh -c`, and the `-lc`/`-cl` bundles), `eval`,
+`source`, a command or parameter substitution, a here-document, a non-neutral assignment (`PATH`,
+`GIT_DIR`, `GIT_CONFIG_*`, `HOME` included), and a `git` run by a path. A command that would turn off the
+real-push check — `git push --no-verify`, or a command-level `core.hooksPath` override, or a `git config
+core.hooksPath` — is denied. Because Level 1 cannot see through the shell, a push it leaves NOT MEASURED
+is not one it has checked: a NOT MEASURED answer asks (and on Codex, or under `claude -p`, denies), so it
+blocks rather than passes, but it is not proof the push is sound.
+
+**Level 2 (prototype, D24) is the pre-push hook.** A git `pre-push` hook reaches a verdict from git's own
+ref lines, so it sees the exact commits and the remote's own state whatever shell form launched the push,
+and verifies the evidence there. It is the layer that closes what Level 1 leaves NOT MEASURED. It is
+measured in test fixtures only and is not installed or wired to `core.hooksPath` by the plugin; `git push
+--no-verify` skips it, which is why Level 1 denies that form.
+
+**Level 3 is the CI check (D22).** It evaluates the evidence at HEAD in the pull request, off the
+contributor's machine, and is the enforcement point a maintainer relies on. The gate claims no protection
+it has not measured.
 
 | What the gate finds | Answer |
 |---|---|

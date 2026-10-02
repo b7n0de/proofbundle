@@ -82,42 +82,40 @@ from each pushed source relative to that target's locally known remote-tracking 
 set of updates, a target's comparison state, or the required history cannot be resolved, the push is NOT
 MEASURED. The remote itself is not read.
 
-- The gate determines the repository of a gated call only when the command up to that call stands in a
-  small, **closed grammar**; everything else is NOT MEASURED (review Nachtrag 12). An enumeration of bad
-  forms never closes the class, so the gate names the shapes it models and refuses the rest, the same turn
-  from an open to a closed world the external reviewer asked of 6.2.0. The modeled grammar:
-  - A sequence of simple commands joined by `;`, a newline or `&&`. The separators `||`, `|`, `&`, a brace
-    group `{ … }` and a here-document (`<<`) are not part of it and make the directory NOT MEASURED.
-  - A literal `cd` or `pushd` counts only where it is certain to have run: unconditional (the start, or
-    after `;`/newline) it moves the directory for the commands that follow; `&&`-chained directly into the
-    gated call it moves the directory for that call (if the call runs, the chained `cd` ran). A `cd` whose
-    running is conditional in any other way — behind `&&`/`||` but reaching the call only across a `;`, or
-    in a `||` branch — leaves the directory NOT MEASURED, because the gate cannot tell whether it ran.
-    `git -C <dir>` is read as before. A `cd`/`pushd` with a non-literal target (a variable, a substitution,
-    `-`), a `cd` with no argument, `popd`, and `--git-dir`/`--work-tree` are NOT MEASURED. (Deviation, with
-    a test: a `cd` after `;` counts when it is certain; it does not when it feeds the call only across a
-    `;`, since then its effect on the process directory is not guaranteed for the push. A literal `cd` is
-    assumed to succeed; a `cd` that fails at runtime is not modeled, as before.)
-  - A subshell `( … )` runs in a child shell, so a `cd` in it does not persist past the closing
-    parenthesis; the gate keeps this one modeled construct, saving and restoring the directory across it.
-  - Prefix assignments only from a narrow neutral list (`GIT_TERMINAL_PROMPT`, `GIT_PAGER`, `GIT_EDITOR`,
-    `GIT_ASKPASS`, `GIT_TRACE*`), also when carried by `env NAME=value`. Every other command-level
-    assignment — by prefix or `env` — of any name, `PATH` and every non-neutral `GIT_*` (`GIT_DIR`,
-    `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`, …) included, makes the directory NOT MEASURED. A command-level
-    assignment of the configuration (`GIT_CONFIG_*`, `HOME`, `XDG_CONFIG_HOME`) marks the push NOT MEASURED
-    through the configuration sentinel, because the gate's reads inherit only the host process's own
-    environment, never a configuration assigned in the command (review Nachtrag 11, Befund 2).
-  - A shell keyword (`if`, `then`, `for`, `while`, `case`, `function`, …), a function definition `name() …`,
-    and an unmodeled builtin or wrapper (`eval`, `source`/`.`, `exec`, `set`, `shopt`, `alias`, `export`,
-    `declare`, `typeset`, `local`, `readonly`, `sudo`, `command`, `builtin`) each take the command outside
-    the grammar, so the directory is NOT MEASURED. A command or parameter substitution before or in the
-    call does the same.
-  - `git` counts only as a bare word; a `git` invoked by a path (`./git`, `/usr/bin/git`) is NOT MEASURED.
-    Output redirections at the call (`2>&1`, `> f`) are read and dropped, and never become its words.
-  - A command nested in a quoted argument (`bash -c "…"`, `sh -c "…"`) and a command substitution are
-    scanned by the same grammar from the same directory, or they are NOT MEASURED.
+- The verification runs at **three levels** (Nachtrag 15), which see different things and stay apart:
+  - **Level 1, this `PreToolUse` gate, is not a security boundary.** It reads the shell command before it
+    runs and resolves the repository a push acts on only for one **strict simple command** headed by a bare
+    `git`/`git-push`/`gh`; everything else is NOT MEASURED. The earlier closed grammar (Nachtrag 12) still
+    resolved a `cd`/`&&` chain and a subshell; the reviewer showed (Runde 4) that a shell interpretation is
+    not a safe basis for a boundary, so Level 1 narrows to the one form whose repository is certain. The
+    modeled form:
+    - No control operator and no expansion anywhere: a `;`, `&&`, `||`, `|`, `&`, newline, a subshell `( … )`,
+      a brace group `{ … }`, a here-document, and any `$…`/`` `…` `` substitution each make it NOT MEASURED.
+      There is no `cd`: a directory change is NOT MEASURED, because the gate no longer tracks it (Punkt 6).
+    - At most one literal `git -C <dir>`, joined onto the working directory and resolved **physically**
+      (`realpath`, so a symlinked `-C` names the same repository git walks to, review R4-2). A second `-C`,
+      `--git-dir`, `--work-tree`, `--namespace`, `--exec-path`, `--no-pager`, or any other git global option
+      is NOT MEASURED (R4-6).
+    - Prefix assignments only from a narrow neutral list (`GIT_TERMINAL_PROMPT`, `GIT_PAGER`, `GIT_EDITOR`,
+      `GIT_ASKPASS`, `GIT_TRACE*`). Every other command-level assignment — `PATH`, every non-neutral `GIT_*`,
+      and the configuration names (`GIT_CONFIG_*`, `HOME`, `XDG_CONFIG_HOME`) — makes it NOT MEASURED.
+    - `git` counts only as a bare word; a `git` by a path (`/usr/bin/git`) is NOT MEASURED. A wrapper
+      (`env`, `sudo`, `command`, …), a shell keyword, a function, `eval`/`source`, and a nested shell
+      (`bash -lc`, `sh -c`, the `-lc`/`-cl`/`-ilc` bundles) are NOT MEASURED — but the scan still SEES the
+      push inside them, so a nested push is NOT MEASURED, never passed off as checked. Trailing output
+      redirections (`2>&1`, `> f`) are read and dropped.
+    - A command that would turn off the real-push check is **denied**, not resolved: `git push --no-verify`,
+      a command-level `core.hooksPath` override (`git -c core.hooksPath=…`), or `git config core.hooksPath …`
+      (Punkt 5). The deny holds whatever the directory, so it holds inside a chain too.
 
-  No protection beyond what is measured here is claimed.
+    Because Level 1 cannot see through the shell, a push it leaves NOT MEASURED is not one it has checked. A
+    NOT MEASURED answer asks (and on Codex, or under `claude -p`, denies), so Level 1 blocks rather than
+    passes; it is a convenience and a record, not a boundary. No protection beyond what is measured here is
+    claimed.
+  - **Level 2 (prototype, D24)** is the git `pre-push` hook: it judges git's own ref lines, so it sees the
+    real push whatever shell form launched it, and verifies the evidence there. It is what closes Level 1's
+    NOT MEASURED. Measured in test fixtures only; not installed by the plugin.
+  - **Level 3 (D22)** is the CI check at HEAD, off the contributor's machine: the enforcement point.
 - A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
   the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
   remote with a local remote-tracking ref that the remote's fetch refspecs map that branch to and nothing
@@ -132,12 +130,16 @@ MEASURED. The remote itself is not read.
   configuration the gate can model faithfully (`push.default` simple/current/upstream, no extra ref
   updates).
 - The push endpoint must be one URL, equal for fetch and push, so the remote-tracking ref records the state
-  of the endpoint the push updates. A `pushurl`, a `url.<base>.pushInsteadOf` rewrite, or a second
-  `remote.<name>.url` sends the push elsewhere or to a further endpoint and is NOT MEASURED (Befund 1); a
-  symmetric `insteadOf` rewrites fetch and push alike and is faithful. Configuration the gate's separate
-  reads cannot see is refused: a `git -c <key>=…` or `--config-env` whose key can change the target is NOT
-  MEASURED (R3-1); a `GIT_CONFIG_*` injection in the environment is read by the gate as the push reads it,
-  because the gate's git runs in the push's own environment.
+  of the endpoint the push updates. A `pushurl` or a second `remote.<name>.url` sends the push elsewhere or
+  to a further endpoint and is NOT MEASURED (Befund 1); a symmetric `insteadOf` rewrites fetch and push
+  alike and is faithful. A `url.<base>.pushInsteadOf` rewrite, though, is applied at the transport layer and
+  rewrites only the push, so string equality of the URLs `git remote get-url` displays is not a proof the
+  push reaches the comparison-state origin (review R4-7): whenever any `pushInsteadOf` rule is configured the
+  push is NOT MEASURED, conservatively, never resolved on displayed equality alone. Under Level 1 any
+  `git -c`/`--config-env` global option already makes the directory NOT MEASURED before the target is read
+  (the configuration the gate's separate reads cannot see can no longer reach `resolve_push_targets`); a
+  `GIT_CONFIG_*` injection in the environment is read by the gate as the push reads it, because the gate's
+  git runs in the push's own environment.
 - For each target the gate evaluates the evidence at every commit the push newly sends, not only the tip,
   so a valid tip cannot heal an intermediate commit that removes the declaration or carries evidence that
   does not verify (N3). A shallow clone, or a range of more than 64 commits (the gate cannot evaluate it
@@ -657,3 +659,42 @@ Options:
   that imports the working tree; more code for a partial gain.
 - E. An MCP tool that runs the command. A new execution surface over MCP; Bash already runs commands.
 - F. Inspect evals. Not in this variant; they need their own runner and log reading.
+
+## D24. The pre-push hook is the second level (prototype)
+
+Measured (Nachtrag 15, Runde 4): Level 1, the `PreToolUse` gate, reads the shell command, and the reviewer
+showed across rounds 1 to 4 that no shell interpretation is a safe basis for a boundary — a chain, a
+subshell, a wrapper, a nested shell (`bash -lc`), a `cd`, an expansion each move or hide the repository.
+Level 1 answers those NOT MEASURED, which blocks under Codex and `claude -p` but is not proof. A git
+`pre-push` hook runs at the push itself: git hands it, on stdin, one `<local ref> <local sha> <remote ref>
+<remote sha>` line per ref, in the repository being pushed. From those lines the hook knows the exact
+commits and the remote's own current state without parsing any command, so it reaches a verdict for every
+form Level 1 leaves NOT MEASURED.
+
+Chosen (a prototype, measured in test fixtures only):
+- `proofbundle_gate.py pre-push <remote> <url>` reads the ref lines on stdin, builds one target per line
+  (source = the local sha, None when all-zero for a deletion; dest = the remote ref; tracking = the remote
+  sha, None when the remote has no such ref), and runs the same evidence core as a resolved shell push
+  (`_evaluate_targets`). It exits 1, denying the push, on a deny verdict, and 0 otherwise.
+- It is a prototype. The plugin does not install it and sets no `core.hooksPath`, in the repository or
+  globally; it is exercised only by a test that installs it in a throwaway repository's local
+  `core.hooksPath`. Shipping it needs an install story a maintainer owns (where the hook lives, how it is
+  trusted, how a contributor without the plugin is handled), which is out of scope here.
+- `git push --no-verify` skips every pre-push hook, so Level 2 cannot see that form; that is why Level 1
+  denies `--no-verify` and a command-level `core.hooksPath` override outright (Ebene 1, Punkt 5).
+- Limit: the prototype judges the repository of the process it runs in (`git rev-parse --show-toplevel`
+  from the hook's own working directory). A push driven from another directory with `GIT_DIR` set is not
+  the modeled case; the realistic deployment is a hook in the repository the push runs from. The hook
+  verifies the evidence at the pushed commits; like every level it proves what the evidence proves, not
+  that any recorded value is true.
+- Level 3 (D22, the CI check) stays the enforcement point a maintainer relies on, off the contributor's
+  machine. The three levels see different things and are not substitutes for one another.
+
+Options:
+- A. A pre-push hook prototype, measured in tests, not installed (chosen).
+- B. Ship and install the hook via `core.hooksPath`. Rejected here: it needs the maintainer's install and
+  trust story, and a `core.hooksPath` the plugin sets is itself a surface (D should a plugin write git
+  config). The owner decides.
+- C. Rely on Level 1 alone. Rejected: the reviewer showed a shell gate is not a boundary.
+- D. Rely on Level 3 (CI) alone. The honest fallback, but it catches a bad push only after it reaches the
+  remote; Level 2 catches it at the contributor's machine.
