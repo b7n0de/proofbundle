@@ -394,10 +394,25 @@ class _FremdesKomma(float):
     __slots__ = ()
 
 
-#: id of a caller's type -> (a weak reference to it, the stand-in class made for it): one class per type.
+#: id of a caller's type -> (a weak reference to it, the stand-in class made for it): one class per type. Each entry
+#: goes when the type dies (`_schwach`), and with it the class, once no stand-in of it is alive.
 _FREMDKOERPER_JE_TYP: dict = {}
 #: (id of a caller's type, the class of this package it derives from) -> (a weak reference to the type, the class).
 _FREMDWERT_JE_TYP: dict = {}
+
+
+def _schwach(cache: dict, schluessel: Any, ziel: Any) -> Any:
+    """A weak reference to ``ziel`` whose death takes the entry ``schluessel`` out of ``cache``, the first item of that
+    entry being this reference. Codex on pull request 311 at 4ecfb1ed (P2): the caches of the reading, keyed by the id
+    of a caller's type, held the class made for each type for the life of the process, so fresh types of a caller grew
+    them without bound (20000 types kept 20000 stand-in classes and 37.1 MB after the collector ran), though every one
+    of those inputs was refused. The entry goes only while it is still the one this reference belongs to, so an entry
+    made later under a reused id stays."""
+    def weg(ref: Any) -> None:
+        eintrag = cache.get(schluessel)
+        if eintrag is not None and eintrag[0] is ref:
+            del cache[schluessel]
+    return weakref.ref(ziel, weg)
 
 
 def _fremdwert(basis: Any, typ: Any, gespeichert: Any) -> Any:
@@ -413,7 +428,7 @@ def _fremdwert(basis: Any, typ: Any, gespeichert: Any) -> Any:
             klasse = type(roh, (basis,), {"__slots__": (), "__module__": __name__})
         except (ValueError, UnicodeError):   # a name that holds a NUL or cannot be encoded is no name of a class
             klasse = basis
-        eintrag = (weakref.ref(typ), klasse)
+        eintrag = (_schwach(_FREMDWERT_JE_TYP, (id(typ), basis), typ), klasse)
         _FREMDWERT_JE_TYP[(id(typ), basis)] = eintrag
     return eintrag[1](gespeichert)
 
@@ -431,8 +446,9 @@ def _fremdkoerper(typ: Any) -> Any:
         except (ValueError, UnicodeError):   # a name that holds a NUL or cannot be encoded is no name of a class
             roh = _UNBENANNT
             klasse = type(roh, (Fremdkoerper,), {"__slots__": (), "__module__": __name__})
-        FREMDKOERPER_KLASSEN[id(klasse)] = (klasse, roh, _EINGEBAUT.get(roh) is typ)
-        eintrag = (weakref.ref(typ), klasse)   # every type takes a weak reference
+        FREMDKOERPER_KLASSEN[id(klasse)] = (_schwach(FREMDKOERPER_KLASSEN, id(klasse), klasse), roh,
+                                            _EINGEBAUT.get(roh) is typ)
+        eintrag = (_schwach(_FREMDKOERPER_JE_TYP, id(typ), typ), klasse)   # every type takes a weak reference
         _FREMDKOERPER_JE_TYP[id(typ)] = eintrag
     return eintrag[1]()
 
@@ -480,7 +496,7 @@ def _methoden_von(typ: Any) -> frozenset:
     except TypeError:
         gefunden = set()
     antwort = frozenset(gefunden)
-    _METHODEN_JE_TYP[id(typ)] = (weakref.ref(typ), antwort)
+    _METHODEN_JE_TYP[id(typ)] = (_schwach(_METHODEN_JE_TYP, id(typ), typ), antwort)
     return antwort
 
 
@@ -1399,7 +1415,7 @@ def _type_name(typ: type) -> str:
     A type that carries the name of a built-in type and is not that type is named as such: a NumPy
     boolean's name is ``bool``, and a refusal read "a value of type bool is not a JSON value"."""
     eintrag = FREMDKOERPER_KLASSEN.get(id(typ))
-    if eintrag is not None and eintrag[0] is typ:
+    if eintrag is not None and eintrag[0]() is typ:
         # A stand-in of the reading (`_fremdkoerper`): the name of the caller's type it stands for.
         name = eintrag[1]
         if not eintrag[2] and _EINGEBAUT.get(name) is not None:

@@ -61,9 +61,10 @@ class Fremdkoerper:
     __slots__ = ()
 
 
-#: id of each stand-in class -> (the class, the name the caller's type holds, whether that type was the built-in type of
-#: that name). Filled by `canonical._fremdkoerper`; looked up by identity, so a class the caller derives from
-#: `Fremdkoerper` is no entry.
+#: id of each stand-in class -> (a weak reference to the class, the name the caller's type holds, whether that type was
+#: the built-in type of that name). Filled by `canonical._fremdkoerper`; looked up by identity, so a class the caller
+#: derives from `Fremdkoerper` is no entry. The reference is weak and its death takes the entry out
+#: (`canonical._schwach`), so a stand-in class lives no longer than its stand-ins and the caller's type.
 FREMDKOERPER_KLASSEN: dict = {}
 
 
@@ -182,7 +183,7 @@ def type_name(value: Any) -> str:
     explain nothing."""
     typ = type(value)
     eintrag = FREMDKOERPER_KLASSEN.get(id(typ))
-    if eintrag is not None and eintrag[0] is typ:
+    if eintrag is not None and eintrag[0]() is typ:
         # A stand-in of the reading: the name of the caller's type it stands for, read when the class was made, and
         # whether that type was the built-in one of that name.
         name, eingebaut = eintrag[1], eintrag[2]
