@@ -169,7 +169,10 @@ def _es_number(x: float) -> str:
         return "0"
     if x < 0:
         return "-" + _es_number(-x)
-    _sign, digits, exp = decimal.Decimal(repr(x)).as_tuple()   # repr: the shortest round-trip digits
+    _sign, digits, exponent = decimal.Decimal(repr(x)).as_tuple()   # repr: the shortest round-trip digits
+    if not isinstance(exponent, int):   # 'n', 'N' and 'F' stand for NaN and infinity, refused above
+        raise ValueError("a number that is not finite has no RFC 8785 form")
+    exp = exponent
     ds = "".join(map(str, digits))
     while len(ds) > 1 and ds.endswith("0"):
         ds, exp = ds[:-1], exp + 1
@@ -405,13 +408,13 @@ def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     Section 6. Never raises. Each argument is read once, as the bytes it stores
     (``signature.plain_bytes``): a receipt that is no bytes value fails at step 1, a key that is no
     32-byte value fails rule 1 of the profile (its decoding cannot succeed)."""
-    receipt, key = plain_bytes(receipt), plain_bytes(key)
-    if receipt is None:
+    raw, pin = plain_bytes(receipt), plain_bytes(key)
+    if raw is None:
         return ReceiptVerdict(False, 1, None, "the receipt is not a bytes value")
-    if key is None or len(key) != 32:
+    if pin is None or len(pin) != 32:
         return ReceiptVerdict(False, 11, "profile 1, key", "the verification key is not 32 bytes")
     try:
-        b = _procedure(receipt, key)
+        b = _procedure(raw, pin)
     except _Fail as f:
         return ReceiptVerdict(False, f.step, f.rule, f.reason)
     return ReceiptVerdict(True, None, None, "every step of Section 6 succeeds", b)
@@ -458,7 +461,7 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *,
     returned, so this producer never hands out a receipt its own verifier refuses."""
     # The switch first: it changes what is published (the unsigned key hint), so only an exact bool is
     # read, before anything is computed or signed (`_membership.require_switch`).
-    key_hint = require_switch(key_hint, "key_hint")
+    require_switch(key_hint, "key_hint")
     if not isinstance(signer, Ed25519PrivateKey):
         raise TypeError("signer must be an Ed25519PrivateKey")
     b = payload_bytes(payload)
