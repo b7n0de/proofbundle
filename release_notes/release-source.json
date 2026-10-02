@@ -4,7 +4,7 @@
  "version": "6.2.0",
  "vorheriger_tag": "v6.1.0",
  "tag": "v6.2.0",
- "release_commit": "44c068190fa32483856593c4448d503412bb11d3",
+ "release_commit": "f1256bcae787e8533536727e102c667e42d00c5d",
  "kopfsatz": "Stricter input checks at verification boundaries, hardened Ed25519 trust-anchor handling, and offline AGT receipt verification. **Beta. Locations of the closing records are listed under Audit status.**",
  "sicherheit": {
   "titel": "Findings addressed in 6.2.0",
@@ -77,55 +77,55 @@
     "behoben": "Every rule a policy sets is applied by the command it is given to, or the policy is refused with exit 2 (`policy_ok` False in the library); validity, purpose and the raw-template flag apply at every receipt command ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
    }
   ],
-  "schluss": "The measurements behind each row are in [RESTRISIKO_620.md](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/RESTRISIKO_620.md). A security advisory is a separate outward act."
+  "schluss": "The measurements behind each row are in [RESTRISIKO_620.md](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/RESTRISIKO_620.md). A security advisory is a separate outward act."
  },
  "was_sich_aenderte": [
   {
    "bereich": "Verify boundary",
    "aenderung": "The affected verify paths reject malformed inputs or read fixed copies of their stored values.",
-   "beleg": "[#300](https://github.com/b7n0de/proofbundle/pull/300) · [#312](https://github.com/b7n0de/proofbundle/pull/312) · [#313](https://github.com/b7n0de/proofbundle/pull/313) · [Detail](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)"
+   "beleg": "[#300](https://github.com/b7n0de/proofbundle/pull/300) · [#312](https://github.com/b7n0de/proofbundle/pull/312) · [#313](https://github.com/b7n0de/proofbundle/pull/313) · [Detail](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)"
   },
   {
    "bereich": "Keys",
    "aenderung": "Ed25519 trust-anchor paths reject low-order and non-canonical keys; the core §4a verification profile remains unchanged.",
-   "beleg": "[#280](https://github.com/b7n0de/proofbundle/pull/280) · [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)"
+   "beleg": "[#280](https://github.com/b7n0de/proofbundle/pull/280) · [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)"
   },
   {
    "bereich": "Callbacks",
    "aenderung": "Truthy non-boolean callback results no longer grant success; documented key-returning resolver results remain supported.",
-   "beleg": "[#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)"
+   "beleg": "[#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)"
   },
   {
    "bereich": "Relation timestamps",
    "aenderung": "An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does.",
-   "beleg": "[#300](https://github.com/b7n0de/proofbundle/pull/300) · [Detail](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)"
+   "beleg": "[#300](https://github.com/b7n0de/proofbundle/pull/300) · [Detail](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)"
   },
   {
    "bereich": "AGT receipts",
    "aenderung": "Offline verification of Agent Governance Toolkit (AGT) governance receipts.",
-   "beleg": "[#255](https://github.com/b7n0de/proofbundle/pull/255) · [Detail](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)"
+   "beleg": "[#255](https://github.com/b7n0de/proofbundle/pull/255) · [Detail](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)"
   },
   {
    "bereich": "Build timestamp",
    "aenderung": "The release build's default timestamp is the commit time of the first commit `git log` finds from HEAD back that changes a path outside `audit_artifacts/` and `release_notes/`. It skips commits confined to those two paths and a merge whose tree outside them equals one of its parents. 6.1.0 used HEAD's commit time.",
-   "beleg": "[#311](https://github.com/b7n0de/proofbundle/pull/311) · [Detail](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)"
+   "beleg": "[#311](https://github.com/b7n0de/proofbundle/pull/311) · [Detail](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)"
   }
  ],
  "vor_dem_upgrade": [
   {
    "titel": "Stricter verify boundary.",
-   "text": "Some inputs accepted by 6.1.0 are now refused. Review the affected API and input rules before upgrading. [Details](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)."
+   "text": "Some inputs accepted by 6.1.0 are now refused. Review the affected API and input rules before upgrading. [Details](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)."
   },
   {
    "titel": "Python API and CLI.",
-   "text": "The CLI passes no callbacks and builds plain values; of the findings of pull request 313 it reaches only a falsy `anchors` from `--anchors <file>`. A restricting option given an empty value, such as `--policy ''`, is refused or applied where 6.1.0 exited 0. A file given to `decision verify --anchors` that holds `null` or an empty list is refused with exit 2, a policy given to `decision verify`, `outcome verify` or `relation-statement verify` that holds nothing the command evaluates is refused with exit 2, and so is an empty `--key` or `--new-key` beside the other. A policy that sets a rule the command does not apply is refused with exit 2 at every verify command, a decision policy instantiated from the 6.1.0 template among them: it carries `allowed_schema_versions` and `signature`, two rules of the eval bundle path that `decision verify` never applied, and the 6.2.0 template no longer carries them. The AGT verifiers refuse an iterator or a generator as `trusted_authorizer_keys` (exit 2); a list, a tuple or a numpy or ctypes array of keys is read as before. From Python, an argument reaches a public function as a private copy of one reading: a subclass of a built-in container is read as what it stores, a deque, an array or a view of a dict as a copy of the same type, an object of a dataclass of the package as a new object of that class, and a key of a `str` or `bytes` subclass as what it stores; a value of the caller's own class reaches it as a stand-in that holds nothing of the caller, and an iterator or a generator, a memoryview no copy can take and a container the copy cannot hold are refused with a `ProofBundleError`, except where an argument's contract takes the caller's object (a callback, a signer, a path, a clock, the class of a classmethod, a path or a loaded log); the reading does not yet prove a joint state of mutable inputs, since a change made and undone between its two reads is not seen (named in `RESTRISIKO_620.md`); an argument that changes during each of three readings raises a `ProofBundleError`, and so does a Mapping read through its own methods whose two answers are no one value, such as a value of a type the comparison does not read built anew on each read (named in `RESTRISIKO_620.md`); and apart from `verifier_block.attach`, which fills the caller's predicate by contract, no function changes the caller's own mutable object or returns it. The package's own classes and functions are not part of that reading, and code in the same process that rebinds one of them, such as a property of `VerificationResult`, is outside the threat model of this release. [Details](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)."
+   "text": "The CLI passes no callbacks and builds plain values; of the findings of pull request 313 it reaches only a falsy `anchors` from `--anchors <file>`. A restricting option given an empty value, such as `--policy ''`, is refused or applied where 6.1.0 exited 0. A file given to `decision verify --anchors` that holds `null` or an empty list is refused with exit 2, a policy given to `decision verify`, `outcome verify` or `relation-statement verify` that holds nothing the command evaluates is refused with exit 2, and so is an empty `--key` or `--new-key` beside the other. A policy that sets a rule the command does not apply is refused with exit 2 at every verify command, a decision policy instantiated from the 6.1.0 template among them: it carries `allowed_schema_versions` and `signature`, two rules of the eval bundle path that `decision verify` never applied, and the 6.2.0 template no longer carries them. The AGT verifiers refuse an iterator or a generator as `trusted_authorizer_keys` (exit 2); a list, a tuple or a numpy or ctypes array of keys is read as before. From Python, an argument reaches a public function as a private copy of one reading: a subclass of a built-in container is read as what it stores, a deque, an array or a view of a dict as a copy of the same type, an object of a dataclass of the package as a new object of that class, and a key of a `str` or `bytes` subclass as what it stores; a value of the caller's own class reaches it as a stand-in that holds nothing of the caller, and an iterator or a generator, a memoryview no copy can take and a container the copy cannot hold are refused with a `ProofBundleError`, except where an argument's contract takes the caller's object (a callback, a signer, a path, a clock, the class of a classmethod, a path or a loaded log); the reading does not yet prove a joint state of mutable inputs, since a change made and undone between its two reads is not seen (named in `RESTRISIKO_620.md`); an argument that changes during each of three readings raises a `ProofBundleError`, and so does a Mapping read through its own methods whose two answers are no one value, such as a value of a type the comparison does not read built anew on each read (named in `RESTRISIKO_620.md`); and apart from `verifier_block.attach`, which fills the caller's predicate by contract, no function changes the caller's own mutable object or returns it. The package's own classes and functions are not part of that reading, and code in the same process that rebinds one of them, such as a property of `VerificationResult`, is outside the threat model of this release. [Details](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)."
   },
   {
    "titel": "Keys a producer writes.",
-   "text": "Ed25519 holder-key, log-vkey and witness-vkey producers reject the weak encodings their verifiers reject. [Details](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/CHANGELOG.md)."
+   "text": "Ed25519 holder-key, log-vkey and witness-vkey producers reject the weak encodings their verifiers reject. [Details](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/CHANGELOG.md)."
   }
  ],
- "auditstatus": "These notes describe the package-source commit linked above; the closing record identifies the head actually checked. In the `v6.2.0` tagged tree, consult `gate_zeile.head` and `gate_zeile.verdict` in `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`; the separate `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result. A short soak does not satisfy C6.3's full 24-hour requirement; a full run after the tag is planned.\n\n[Residual risks](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/RESTRISIKO_620.md) · [README status](https://github.com/b7n0de/proofbundle/blob/44c068190fa32483856593c4448d503412bb11d3/README.md#current-release)\n\nThe published package and a passed closing audit are separate facts.",
+ "auditstatus": "These notes describe the package-source commit linked above; the closing record identifies the head actually checked. In the `v6.2.0` tagged tree, consult `gate_zeile.head` and `gate_zeile.verdict` in `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`; the separate `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result. A short soak does not satisfy C6.3's full 24-hour requirement; a full run after the tag is planned.\n\n[Residual risks](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/RESTRISIKO_620.md) · [README status](https://github.com/b7n0de/proofbundle/blob/f1256bcae787e8533536727e102c667e42d00c5d/README.md#current-release)\n\nThe published package and a passed closing audit are separate facts.",
  "gruppen": [
   {
    "name": "Verifier and receipt formats",
