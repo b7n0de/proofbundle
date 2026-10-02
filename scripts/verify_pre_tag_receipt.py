@@ -52,16 +52,50 @@ Exit codes: 0 VERIFIED · 1 NOT VERIFIED (absent, rejected, or bound to another 
 2 not measurable (no git, malformed commit id, checkout not at the named commit, or an object of
 the clone that is not the object its id names).
 """
-from __future__ import annotations
-
-import argparse
-import contextlib
-import hashlib
-import json
+# NO `from __future__ import` HERE, AND THE FIRST IMPORTS ARE THE TWO THE INTERPRETER HAS ALREADY LOADED.
+# Deep gate run 7 at 1a3cd672 (L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, three of three jurors P1): run as
+# `python scripts/verify_pre_tag_receipt.py`, this script's own directory is the first entry of `sys.path`, ahead of
+# the standard library, so an untracked `scripts/contextlib/` that hides itself with its own `.gitignore` ran at the
+# first `import contextlib`, before any check, and a tampered receipt came back VERIFIED. `__future__` is not loaded
+# at interpreter start either (measured on 3.10.12, system and venv), so its import would have been the first one
+# to take a planted module. `os` and `sys` are loaded at start, so they are read before the judged tree's entries
+# leave the path below.
 import os
-import re
 import sys
-from pathlib import Path
+
+
+def _remove_the_judged_tree_from_sys_path() -> None:
+    """Drop every `sys.path` entry that lies in this checkout's `scripts/` or `src/` before any further import.
+
+    The judged tree is code under judgement, not a library this script may import by name: the receipt library and
+    the gate are loaded by path (`_lib`, `_gate`), and `src/` goes back on the path only after the checkout has been
+    compared with the commit (`_measure`). An entry that cannot be resolved stays, as it can name no directory of the
+    checkout."""
+    eigene = os.path.dirname(os.path.realpath(__file__))
+    wurzel = os.path.dirname(eigene)
+    beurteilt = [os.path.join(wurzel, "scripts"), os.path.join(wurzel, "src")]
+    behalten = []
+    for eintrag in sys.path:
+        try:
+            ort = os.path.realpath(eintrag or os.getcwd())
+        except (OSError, ValueError, TypeError):
+            behalten.append(eintrag)
+            continue
+        if any(ort == b or ort.startswith(b + os.sep) for b in beurteilt):
+            continue
+        behalten.append(eintrag)
+    sys.path[:] = behalten
+
+
+if __name__ == "__main__":
+    _remove_the_judged_tree_from_sys_path()
+
+import argparse  # noqa: E402 - after the path is cleaned, see above
+import contextlib  # noqa: E402 - after the path is cleaned, see above
+import hashlib  # noqa: E402 - after the path is cleaned, see above
+import json  # noqa: E402 - after the path is cleaned, see above
+import re  # noqa: E402 - after the path is cleaned, see above
+from pathlib import Path  # noqa: E402 - after the path is cleaned, see above
 
 _HEX40 = re.compile(r"\A[0-9a-f]{40}\Z")
 
@@ -453,6 +487,61 @@ def _kein_objekt_grund(exc: Exception) -> str:
             "afresh and run again")
 
 
+def _code_on_disk_that_is_not_the_commit(repo: Path, baum: dict) -> list:
+    """Every path under `scripts/` or `src/` at which the checkout is not the commit, by name and reason.
+
+    `git status` answers through the index and the ignore rules, and both live outside the committed tree. Deep gate
+    run 7 at 1a3cd672 (L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, P1): an untracked package that carries its own
+    `.gitignore` with `*` hides itself from `git status --porcelain --untracked-files=all`, and Python imports a
+    package directory ahead of a module of the same name, so `src/proofbundle/signature/` ran as the judge and a
+    tampered receipt came back VERIFIED. The neighbour of the same class is the index: a modified committed file whose
+    `skip-worktree` or `assume-unchanged` bit is set is not listed either. So the property is computed from the bytes,
+    as the producer does (`pre_tag_receipt._baumzustand_oder_stop`), on this file's code alone:
+
+      a committed entry     its bytes on disk (the target of a symbolic link) hashed as a git blob and compared with
+                            the id the commit names; a committed file that is missing or no file refuses;
+      an uncommitted path   a file Python could import (any suffix of `importlib.machinery.all_suffixes()`) or a
+                            symbolic link refuses, whatever rule hides it. Other files (a `*.egg-info` of an
+                            editable install, notes) cannot be imported and stay allowed.
+
+    `__pycache__` is not read: this run keeps its bytecode in a fresh directory (`_bytecode_cache_elsewhere`), and no
+    import names a package of that name."""
+    import importlib.machinery  # noqa: PLC0415 - the standard library, after the path was cleaned
+    suffixe = tuple(importlib.machinery.all_suffixes())
+    wurzel = repo.resolve()
+    funde: list = []
+    for rel, (typ, oid) in sorted(baum.items()):
+        if typ != "blob" or not any(rel.startswith(p + "/") for p in _CODE_PFADE):
+            continue
+        pfad = wurzel / rel
+        try:
+            if os.path.islink(pfad):
+                inhalt = os.fsencode(os.readlink(pfad))
+            elif pfad.is_file():
+                inhalt = pfad.read_bytes()
+            else:
+                funde.append(f"{rel}: committed, but no file in the checkout")
+                continue
+        except OSError as exc:
+            funde.append(f"{rel}: cannot be read ({type(exc).__name__})")
+            continue
+        h = hashlib.new(_ID_ALGORITHMUS[len(oid)])
+        h.update(b"blob " + str(len(inhalt)).encode("ascii") + b"\0" + inhalt)
+        if h.hexdigest() != oid:
+            funde.append(f"{rel}: its bytes in the checkout are not the committed blob")
+    for teil in _CODE_PFADE:
+        for ordner, unterordner, dateien in os.walk(wurzel / teil, followlinks=False):
+            unterordner[:] = [d for d in unterordner if d != "__pycache__"]
+            rel_ordner = Path(ordner).relative_to(wurzel).as_posix()
+            for name in sorted(unterordner) + sorted(dateien):
+                rel = f"{rel_ordner}/{name}"
+                if rel in baum:
+                    continue
+                if os.path.islink(os.path.join(ordner, name)) or (name in dateien and name.endswith(suffixe)):
+                    funde.append(f"{rel}: not in the commit, and Python could import it or follow it")
+    return funde
+
+
 def _version_token(version: str) -> str:
     return version.replace(".", "")
 
@@ -523,6 +612,15 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                          f"{'/'.join(_CODE_PFADE)} ({zeilen[0].strip()[:80]}{' …' if len(zeilen) > 1 else ''}); "
                          "the verifier and the library it calls run from these files, so a modified "
                          "checkout cannot judge the commit -- `git stash` or clone afresh, then run again")
+        return out
+    # WHAT `git status` CANNOT SEE: a path its ignore rules or index bits hide (deep gate run 7, P1; see
+    # `_code_on_disk_that_is_not_the_commit`). Same refusal, same exit 2.
+    funde = _code_on_disk_that_is_not_the_commit(repo, baum)
+    if funde:
+        out["reason"] = (f"the checkout under {'/'.join(_CODE_PFADE)} is not the commit at {len(funde)} path(s) that "
+                         f"git status does not list ({funde[0][:120]}{' …' if len(funde) > 1 else ''}); the "
+                         "verifier and the library it calls run from these files, so this checkout cannot judge "
+                         "the commit -- clone afresh, then run again")
         return out
 
     lib = _lib()

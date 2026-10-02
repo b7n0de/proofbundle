@@ -397,3 +397,179 @@ class TestBytecodeNextToTheSourceIsNotCode:
         rc, res, raw = _verify(repo, env, commit)
         assert rc == 1 and res["verdict"] == "NOT_VERIFIED", (rc, res, raw[-300:])
         assert "signature" in res["reason"].lower()
+
+
+class TestNoUncommittedCodeJudges:
+    """Deep gate run 7 at 1a3cd672, L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01 (three of three jurors P1): an untracked
+    package that hides itself with its own `.gitignore` (`*`) was invisible to the verifier's `git status`, and a
+    package directory is imported ahead of a module of the same name, so `src/proofbundle/signature/` judged in place of
+    the committed `signature.py`; from `scripts/`, the script's own directory on `sys.path`, `scripts/contextlib/` ran at
+    the first import, before any check. Both gave `0 VERIFIED` for a tampered receipt.
+
+    THE PROPERTY, as the generator below states it: for every position at which Python would take a planted package
+    for a module the verifier imports, a self-hidden plant refuses the measurement (exit 2), and a plant in `scripts/`
+    is never imported at all. The positions are read from a real run (`python -X importtime`), not typed: every
+    `proofbundle` submodule and every top-level module the verifier process imports. The controls: unplanted, the
+    tampered receipt is NOT_VERIFIED (exit 1); planted without the hiding `.gitignore`, `git status` already refuses."""
+
+    @staticmethod
+    def _tamper(repo):
+        pfad = _receipt_path(repo)
+        r = json.loads(pfad.read_text())
+        r["audit_command"] = "tampered after signing, no re-sign"
+        pfad.write_text(json.dumps(r, indent=2))
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "tamper"], repo)
+        return _head(repo)
+
+    @staticmethod
+    def _imported_modules(repo, env, commit):
+        """Every module name the verifier process imports, read from `-X importtime` of a real run."""
+        r = _run([sys.executable, "-X", "importtime", "scripts/" + VERIFIER, "--repo", ".", "--commit", commit,
+                  "--version", "5.0.0", "--json"], repo, env)
+        namen = set()
+        for zeile in r.stderr.splitlines():
+            if zeile.startswith("import time:") and zeile.count("|") == 2:
+                name = zeile.rsplit("|", 1)[1].strip()
+                if name and name != "package":
+                    namen.add(name)
+        return namen
+
+    @staticmethod
+    def _plant(ort, marker):
+        """A package at `ort` that writes `marker` when imported, hidden by its own `.gitignore`."""
+        ort.mkdir(parents=True)
+        (ort / "__init__.py").write_text(f"open({str(marker)!r}, 'w').write('imported')\n")
+        (ort / ".gitignore").write_text("*\n")
+
+    def _positions(self, repo, env, commit):
+        namen = self._imported_modules(repo, env, commit)
+        unter = sorted({n.split(".")[1] for n in namen if n.startswith("proofbundle.") and n.count(".") == 1})
+        oben = sorted({n.split(".")[0] for n in namen} - set(sys.builtin_module_names) - {"proofbundle"})
+        return ([("src", repo / "src" / "proofbundle" / u) for u in unter]
+                + [("scripts", repo / "scripts" / o) for o in oben])
+
+    def test_control_the_tampered_receipt_is_not_verified_without_a_plant(self, welt):
+        repo, env, _priv, _kand, _commit = welt
+        commit = self._tamper(repo)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+
+    def test_the_positions_are_read_from_a_real_run_and_are_many(self, welt):
+        """Anti-vacuity of the generator: the run names the signature module and the standard modules the script
+        imports at its top, so the positions below are the ones a planted package would take."""
+        repo, env, _priv, _kand, commit = welt
+        orte = {(teil, p.name) for teil, p in self._positions(repo, env, commit)}
+        assert ("src", "signature") in orte
+        for name in ("argparse", "hashlib", "json"):
+            assert ("scripts", name) in orte, sorted(orte)
+        assert len(orte) >= 20, len(orte)
+
+    def test_every_self_hidden_plant_refuses_the_measurement(self, welt):
+        """In process, through `measure`, one plant at a time: the refusal is the verifier's comparison of the checkout
+        with the commit, which runs before any judged code is imported."""
+        repo, env, _priv, _kand, _commit = welt
+        commit = self._tamper(repo)
+        sys.path.insert(0, str(SCRIPTS))
+        import importlib  # noqa: PLC0415
+        verifier = importlib.import_module("verify_pre_tag_receipt")
+        befunde = []
+        positionen = self._positions(repo, env, commit)
+        for teil, ort in positionen:
+            marker = repo.parent / f"_marker_{teil}_{ort.name}"
+            self._plant(ort, marker)
+            try:
+                st = _run(["git", "status", "--porcelain", "--untracked-files=all", "--", "scripts", "src"], repo)
+                res = verifier.measure(repo, commit, "5.0.0")
+                if st.stdout.strip() != "":
+                    befunde.append(f"{teil}/{ort.name}: the plant is not hidden from git status, the case proves nothing")
+                if res["verdict"] != "NOT_MEASURABLE" or "is not the commit" not in (res["reason"] or ""):
+                    befunde.append(f"{teil}/{ort.name}: {res['verdict']} {str(res['reason'])[:120]}")
+            finally:
+                shutil.rmtree(ort)
+        assert befunde == [], "\n".join(befunde)
+        assert positionen
+
+    def test_a_plant_in_scripts_is_never_imported_by_the_script(self, welt):
+        """As a reader runs it (`python scripts/verify_pre_tag_receipt.py`): every standard module the script imports at
+        its top, planted under `scripts/` and hidden, writes a marker when imported. No marker may appear, and the
+        verdict is exit 2. The anti-vacuity half: without the path cleaning, a plain script run from `scripts/` would
+        take the plant for each module the interpreter has not loaded at its start."""
+        repo, env, _priv, _kand, _commit = welt
+        commit = self._tamper(repo)
+        namen = [o.name for teil, o in self._positions(repo, env, commit)
+                 if teil == "scripts" and o.name in ("argparse", "hashlib", "json", "re", "pathlib", "tempfile",
+                                                       "subprocess", "contextlib", "__future__")]
+        assert namen
+        befunde, lebendig = [], []
+        for name in namen:
+            ort, marker = repo / "scripts" / name, repo.parent / f"_marker_scripts_{name}"
+            self._plant(ort, marker)
+            try:
+                rc, res, roh = _verify(repo, env, commit)
+                if marker.exists():
+                    befunde.append(f"scripts/{name} was imported")
+                    marker.unlink()
+                if rc != 2:
+                    befunde.append(f"scripts/{name}: exit {rc}")
+                probe = repo / "scripts" / "_probe_plain.py"
+                probe.write_text(f"import {name}\n")
+                _run([sys.executable, "scripts/_probe_plain.py"], repo, {"PATH": env["PATH"]})
+                probe.unlink()
+                if marker.exists():
+                    lebendig.append(name)
+                    marker.unlink()
+            finally:
+                shutil.rmtree(ort)
+        assert befunde == [], "\n".join(befunde)
+        assert lebendig, "no plant was live for a plain script run; the case would prove nothing"
+
+    def test_a_modified_file_hidden_by_an_index_bit_refuses_the_measurement(self, welt):
+        """The neighbour of the same class: `git status` reads the index, and a modified committed file whose
+        `skip-worktree` or `assume-unchanged` bit is set is not listed. The verifier compares the bytes."""
+        repo, env, _priv, _kand, _commit = welt
+        commit = self._tamper(repo)
+        ziel = repo / "src" / "proofbundle" / "signature.py"
+        original = ziel.read_bytes()
+        for bit in ("--skip-worktree", "--assume-unchanged"):
+            ziel.write_bytes(original + b"\n# modified\n")
+            _git(["update-index", bit, "src/proofbundle/signature.py"], repo)
+            try:
+                st = _run(["git", "status", "--porcelain", "--untracked-files=all", "--", "scripts", "src"], repo)
+                assert st.stdout.strip() == "", f"{bit}: git status lists the change, the case proves nothing"
+                rc, res, roh = _verify(repo, env, commit)
+                assert rc == 2 and "is not the commit" in res["reason"], (bit, roh)
+            finally:
+                _git(["update-index", bit.replace("--", "--no-"), "src/proofbundle/signature.py"], repo)
+                ziel.write_bytes(original)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+
+    def test_an_uncommitted_symbolic_link_refuses_the_measurement(self, welt):
+        """A symbolic link Python follows is code from outside the commit, wherever it points."""
+        repo, env, _priv, _kand, _commit = welt
+        commit = self._tamper(repo)
+        fremd = repo.parent / "_outside_pkg"
+        fremd.mkdir()
+        (fremd / "__init__.py").write_text("x = 1\n")
+        link = repo / "src" / "proofbundle" / "signature_link"
+        link.symlink_to(fremd, target_is_directory=True)
+        (repo / "src" / "proofbundle" / ".gitignore").write_text("signature_link\n.gitignore\n")
+        try:
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 2 and "is not the commit" in res["reason"], roh
+        finally:
+            link.unlink()
+            (repo / "src" / "proofbundle" / ".gitignore").unlink()
+
+    def test_an_editable_install_record_does_not_refuse(self, welt):
+        """The counter-direction: a file Python cannot import (the `*.egg-info` an editable install writes under
+        `src/`) is no code, and a reader with such a record must still be able to verify."""
+        repo, env, _priv, _kand, commit = welt
+        info = repo / "src" / "proofbundle.egg-info"
+        info.mkdir()
+        (info / "PKG-INFO").write_text("Name: proofbundle\n")
+        (info / "SOURCES.txt").write_text("src/proofbundle/__init__.py\n")
+        (repo / ".git" / "info" / "exclude").write_text("*.egg-info/\n")
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
