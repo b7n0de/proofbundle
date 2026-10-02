@@ -77,13 +77,22 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `src/proofbundle/signature/` made a receipt changed after signing exit 0 VERIFIED; `scripts/contextlib/`
     shadowed the standard library under the project's venv. The verifier now compares every committed file under
     `scripts/` and `src/` with its blob (the bytes, or a symlink's target), refuses every untracked module or symlink
-    there whatever a `.gitignore` says, also behind skip-worktree or assume-unchanged, and takes the judged
-    `scripts/` and `src/` off its import path before it imports the standard library. Its test plants a hidden
-    package at every position a real run imports. `scripts/pre_tag_audit_gate.py` has no such guard and runs on the
-    fresh checkout of the tag; RESTRISIKO_620.md names the limit.
+    there whatever a `.gitignore` says, also behind skip-worktree or assume-unchanged, and takes every directory
+    of the checkout off its import path before it imports the standard library, its top level included, keeping
+    only the interpreter's own installation (a `.venv/` in the clone). Taking only `scripts/` and `src/` off, as
+    the first fix did, left the top level: Codex measured on pull request 311 that with `PYTHONPATH=.` an
+    untracked top-level `contextlib.py` ran before any check, and `python -m` puts the working directory on the
+    path the same way. A run in which a module of the checkout was already loaded at start, such as a
+    `sitecustomize.py` reached through `PYTHONPATH`, is refused with exit 2 where the module stays visible; the
+    documented command is now `python -I scripts/verify_pre_tag_receipt.py`, which reads no `PYTHONPATH`, so
+    such a module does not run at all. Its tests plant a hidden package
+    at every position a real run imports and a module at every position of three entries into the checkout,
+    read from real runs. `scripts/pre_tag_audit_gate.py` has no such guard and runs on the fresh checkout of the
+    tag; RESTRISIKO_620.md names the limit.
   - What a caller sees differently: a policy or flag that was accepted with no effect is refused with exit 2;
     `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify or names another
-    audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/`.
+    audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/`, and on a run
+    in which a module of the checkout was loaded before its first line.
 
 - **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
   applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:

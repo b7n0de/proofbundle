@@ -193,7 +193,7 @@ installed from PyPI, you never received the receipt at all.
 ```bash
 git clone https://github.com/b7n0de/proofbundle && cd proofbundle
 git checkout <the source commit named by the attestation>
-python scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
+python -I scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
 ```
 
 It reads the receipt, the pinned key and the gate source **from the commit**, never from the
@@ -216,6 +216,14 @@ lists ignored paths, so the checkout guard above cannot see one. The verifier th
 Python's cache at a fresh temporary directory for the whole run: nothing under the judged tree's
 `__pycache__` is read or written. What stays trusted, and is not measured: the interpreter you
 run and its standard library.
+
+`-I` runs Python in isolated mode: it reads no `PYTHONPATH` and does not put the script's directory
+on the import path, so no file of the checkout can run before the verifier's first line. Without it
+the verifier still takes every directory of the checkout off its import path before its next import,
+keeping only the interpreter's own installation (a `.venv/` inside the clone), and it refuses with
+exit 2 a run in which a module of the checkout was already loaded at start, such as a
+`sitecustomize.py` reached through `PYTHONPATH`. Code that runs before the first line and then hides
+itself is beyond what a check inside the script can see; `-I` is what keeps it from running.
 
 This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
 It is written here so that "I verified the release" means what it actually means — the artifact's

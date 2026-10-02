@@ -12,7 +12,13 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
 
     git clone https://github.com/b7n0de/proofbundle && cd proofbundle
     git checkout <commit named by the attestation>
-    python scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
+    python -I scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
+
+``-I`` (isolated mode) keeps ``PYTHONPATH``, the user's site directory and the script's own directory off the import
+path, so no file of the checkout can run before the script's first line. Without it the script still takes every
+directory of the checkout off its path before its first further import, and it refuses a run in which a module of the
+checkout was already loaded at start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the
+first line and hides itself is beyond what any check inside the script can see.
 
 THE EVIDENCE IS READ FROM THE COMMIT; THE CODE RUNS FROM THE CHECKOUT, SO THE CHECKOUT MUST BE
 THE COMMIT. The receipt, the trust anchor and the gate source whose digest the receipt binds are
@@ -63,17 +69,46 @@ the clone that is not the object its id names).
 import os
 import sys
 
+# THE WHOLE CHECKOUT, NOT ONLY `scripts/` AND `src/` (Codex on PR 311 at 3f598b5b, P1, re-measured at 1e189f89). The
+# first fix took only those two directories off the path. Run with the top level on `sys.path` (`PYTHONPATH=.`, or
+# `python -m`, which puts the working directory first), an untracked `contextlib.py`, `argparse.py` or `json.py` at the
+# top level ran before any check, and so did `tests/contextlib.py` with `PYTHONPATH=tests`. Every directory of the
+# checkout is judged code. What stays is the interpreter's own installation, also when it lies in the checkout (a
+# reader's `.venv/`, measured: `/home/konrad/proofbundle/.venv/lib/python3.10/site-packages` is on the path of that
+# reader's run); its standard library and its packages are trusted, as `_bytecode_cache_elsewhere` says.
+
+
+def _checkout_root() -> str:
+    """The top level of the checkout this script lies in: the parent of its own directory, resolved."""
+    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+
+def _judged_location(ort: str, wurzel: str) -> bool:
+    """True iff the resolved path `ort` lies in the checkout `wurzel` and not in the interpreter's own installation.
+
+    The installation is every prefix of the running interpreter that lies strictly inside the checkout (a virtual
+    environment created in the clone). A prefix equal to the top level is no exemption: then the whole checkout
+    would count as the interpreter."""
+    if not (ort == wurzel or ort.startswith(wurzel + os.sep)):
+        return False
+    for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
+        try:
+            praefix = os.path.realpath(getattr(sys, name))
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        if praefix.startswith(wurzel + os.sep) and (ort == praefix or ort.startswith(praefix + os.sep)):
+            return False
+    return True
+
 
 def _remove_the_judged_tree_from_sys_path() -> None:
-    """Drop every `sys.path` entry that lies in this checkout's `scripts/` or `src/` before any further import.
+    """Drop every `sys.path` entry that lies in this checkout, its top level included, before any further import.
 
     The judged tree is code under judgement, not a library this script may import by name: the receipt library and
     the gate are loaded by path (`_lib`, `_gate`), and `src/` goes back on the path only after the checkout has been
     compared with the commit (`_measure`). An entry that cannot be resolved stays, as it can name no directory of the
-    checkout."""
-    eigene = os.path.dirname(os.path.realpath(__file__))
-    wurzel = os.path.dirname(eigene)
-    beurteilt = [os.path.join(wurzel, "scripts"), os.path.join(wurzel, "src")]
+    checkout; an empty entry is the working directory."""
+    wurzel = _checkout_root()
     behalten = []
     for eintrag in sys.path:
         try:
@@ -81,13 +116,56 @@ def _remove_the_judged_tree_from_sys_path() -> None:
         except (OSError, ValueError, TypeError):
             behalten.append(eintrag)
             continue
-        if any(ort == b or ort.startswith(b + os.sep) for b in beurteilt):
+        if _judged_location(ort, wurzel):
             continue
         behalten.append(eintrag)
     sys.path[:] = behalten
 
 
+def _checkout_code_that_ran_before_this_script() -> list:
+    """Every module loaded before this script's first line from a file of the checkout, as `name (path)`.
+
+    Python imports `sitecustomize` (and, outside a virtual environment, `usercustomize`) at start from the first
+    `sys.path` entry that holds one, and `PYTHONPATH` entries come before the standard library. Measured at 1e189f89:
+    `PYTHONPATH=<clone>` and an untracked `sitecustomize.py` at the top level, and that file ran before this script.
+    Nothing this script does afterwards can undo what such code did, so its presence refuses the measurement. This
+    is a tripwire, not a boundary: a startup module that removes itself from `sys.modules` is not seen. The boundary is
+    `python -I`, which reads no `PYTHONPATH` and does not put the script's directory on the path."""
+    wurzel = _checkout_root()
+    funde = []
+    for name, modul in list(sys.modules.items()):
+        if name == "__main__":
+            continue
+        # The file a module ran from: `__file__`, and the spec's origin only where the spec says it is a location. A
+        # built-in or frozen module's origin is the word `built-in` or `frozen`, which resolved against a working
+        # directory inside the checkout would name a path in it (measured: every run was refused through `sys`). A
+        # namespace package has no file and runs no code.
+        try:
+            spec = getattr(modul, "__spec__", None)
+            orte = [getattr(modul, "__file__", None)]
+            if getattr(spec, "has_location", False) is True:
+                orte.append(getattr(spec, "origin", None))
+        except Exception:  # noqa: BLE001 - a module that cannot be read is no location
+            continue
+        for ort in orte:
+            if not isinstance(ort, str) or not ort:
+                continue
+            try:
+                aufgeloest = os.path.realpath(ort)
+            except (OSError, ValueError, TypeError):
+                continue
+            if _judged_location(aufgeloest, wurzel):
+                funde.append(f"{name} ({aufgeloest})")
+                break
+    return funde
+
+
+#: Filled only when this file runs as a script (see below); a caller that imports the module measures in its own
+#: process, whose start this script did not see.
+_CODE_BEFORE_THIS_SCRIPT: list = []
+
 if __name__ == "__main__":
+    _CODE_BEFORE_THIS_SCRIPT = _checkout_code_that_ran_before_this_script()
     _remove_the_judged_tree_from_sys_path()
 
 import argparse  # noqa: E402 - after the path is cleaned, see above
@@ -567,6 +645,14 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     if not isinstance(commit, str) or not _HEX40.match(commit):
         out["reason"] = ("--commit must be the full 40-hex commit id named by the attestation; an "
                          "abbreviated id is a search query, not a subject")
+        return out
+    if _CODE_BEFORE_THIS_SCRIPT:
+        # CODE OF THE CHECKOUT RAN BEFORE THIS SCRIPT (see `_checkout_code_that_ran_before_this_script`): whatever it
+        # changed in this process is not measurable from here, so no verdict is given.
+        out["reason"] = (f"code of this checkout ran before the verifier's first line "
+                         f"({_CODE_BEFORE_THIS_SCRIPT[0][:160]}{' …' if len(_CODE_BEFORE_THIS_SCRIPT) > 1 else ''}); "
+                         "Python loads such a module at start when PYTHONPATH names a directory of the checkout -- run "
+                         "`python -I scripts/verify_pre_tag_receipt.py ...`, which reads no PYTHONPATH")
         return out
     rc, head, err = _git(repo, "rev-parse", "--verify", "HEAD")
     if rc != 0:

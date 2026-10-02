@@ -1146,6 +1146,15 @@ that the rule alone turns the verdict of its path (`tests/test_every_applied_rul
 L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, closed by the receipt verifier comparing every committed file under
 `scripts/` and `src/` with its blob, refusing every untracked module or symlink there whatever a `.gitignore` says, and
 taking the judged tree off its import path before the standard library is imported (`scripts/verify_pre_tag_receipt.py`).
+Codex on pull request 311 at 3f598b5b found that last step incomplete (P1, reproduced at 1e189f89): it took only
+`scripts/` and `src/` off, and with the top level on the path (`PYTHONPATH=.`, or the working directory under
+`python -m`) an untracked top-level `contextlib.py` ran before any check. The verifier now takes every directory of
+the checkout off its path except the interpreter's own installation, refuses with exit 2 a run in which a module of
+the checkout was loaded before its first line, and documents `python -I` as its command. Named limit: a module of
+the checkout that Python loads at start, through `PYTHONPATH` or under `python -m`, runs before the script can act;
+the refusal sees it only while it stays in `sys.modules`, and only `-I` keeps it from running. Measured on 3.10.12:
+of 24 such positions, 4 were refused and 20 broke the interpreter before any verdict; on 3.11.15, of 16, 4 were
+refused, 11 broke it and 1 did not run when planted alone.
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.
@@ -1199,7 +1208,12 @@ they say otherwise.
   tree with an untracked or ignored module under `src/proofbundle/`, its verdict comes from code the commit does not
   hold. P3, a named limit of local runs; the gate makes no claim about a checkout it did not get fresh. The fix, after
   6.2.0, gives the gate the guard of the receipt verifier (`_code_on_disk_that_is_not_the_commit`); it is not changed
-  here, because a change to its source changes the gate digest every receipt binds.
+  here, because a change to its source changes the gate digest every receipt binds. The sweep of the top-level
+  neighbour (Codex on pull request 311) adds two more places of the same limit: the gate run by hand with a
+  directory of the checkout on `PYTHONPATH` or under `python -m`, and the producer `scripts/pre_tag_receipt.py`,
+  which puts its own directory first and is started with `PYTHONPATH=src`, so a planted startup module there runs
+  before its tree check. Both are owner-side; the receipt run of this release starts the producer on a fresh
+  worktree whose `git status --porcelain --ignored` is checked empty first. P3 each, after 6.2.0 with the gate.
 - The row above on a null relationships list (Python VERIFIED and exit 0, Rust `malformed_ancestor` and exit 2) holds
   at 1a3cd672 for a decision, a statement, a hop and an outcome (L4-620v7-NULL-RELATIONSHIPS-ANCESTOR-PARITY-01).
 - The rows above on readers of receipts and the register that catch only decode errors, and on

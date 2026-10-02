@@ -573,3 +573,247 @@ class TestNoUncommittedCodeJudges:
         (repo / ".git" / "info" / "exclude").write_text("*.egg-info/\n")
         rc, res, roh = _verify(repo, env, commit)
         assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+
+class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
+    """Codex on pull request 311 at 3f598b5b (P1), reproduced at 1e189f89: the fix above took only `scripts/` and `src/`
+    off the path. With the top level on `sys.path` (`PYTHONPATH=.`), an untracked `contextlib.py` there ran before any
+    check, and so did `argparse.py` and `json.py`, `tests/contextlib.py` through `PYTHONPATH=tests`, a top-level module
+    under `python -m scripts.verify_pre_tag_receipt`, and a top-level `sitecustomize.py`, which Python loads at start.
+
+    THE PROPERTY, per entry through which Python finds modules in the checkout. The positions are read, not typed: every
+    top-level module a real run imports, every module loaded when a script started the same way runs its first line,
+    and the two startup hooks. Each is planted, and a probe started the same way shows which of them Python takes
+    before the first line (repeated until no new one runs, as a plant that breaks the start hides the ones after it).
+    A position after the first line is never taken from the checkout. A position before it is code the script cannot
+    keep from running: its plant does not run, or the run is refused with exit 2, or it gives no verdict at all. In
+    isolated mode (`-I`, the documented command) no plant runs. The counter-direction: the interpreter's own
+    installation inside the checkout (a reader's `.venv/`) stays usable."""
+
+    #: How a reader may put a directory of the checkout on the path: (label, PYTHONPATH below the top level or None,
+    #: started with `-m`, directory the plants go to, relative to the top level).
+    _EINTRAEGE = (("the top level through PYTHONPATH", ".", False, "."),
+                  ("a subdirectory through PYTHONPATH", "tests", False, "tests"),
+                  ("the working directory under python -m", None, True, "."))
+
+    @staticmethod
+    def _plant_module(ordner, name, marker_dir):
+        """`<ordner>/<name>.py` that leaves a marker when imported. It writes through `posix`, which is built in, so
+        no plant stands in for it, and which works before the interpreter has set up `open` at start."""
+        ordner.mkdir(parents=True, exist_ok=True)
+        marker = marker_dir / f"{ordner.name}__{name}"
+        (ordner / f"{name}.py").write_text(
+            f"import posix\nposix.close(posix.open({str(marker)!r}, posix.O_WRONLY | posix.O_CREAT, 0o644))\n")
+
+    @staticmethod
+    def _ausreissen(ordner, namen, marker_dir):
+        for name in namen:
+            (ordner / f"{name}.py").unlink(missing_ok=True)
+        shutil.rmtree(ordner / "__pycache__", ignore_errors=True)
+        for p in marker_dir.iterdir():
+            p.unlink()
+
+    @staticmethod
+    def _umgebung(repo, eintrag):
+        env = {"PATH": "/usr/bin:/bin"}
+        if eintrag[1] is not None:
+            env["PYTHONPATH"] = str((repo / eintrag[1]).resolve())
+        return env
+
+    def _aufruf(self, repo, eintrag, commit):
+        start = [sys.executable] + (["-m", "scripts.verify_pre_tag_receipt"] if eintrag[2] else ["scripts/" + VERIFIER])
+        return (start + ["--repo", ".", "--commit", commit, "--version", "5.0.0", "--json"],
+                self._umgebung(repo, eintrag))
+
+    def _probe(self, repo, eintrag, inhalt):
+        """Runs `inhalt` as a script started the way `eintrag` starts the verifier. -> CompletedProcess"""
+        probe = repo / "scripts" / "_probe_first_line.py"
+        probe.write_text(inhalt)
+        start = [sys.executable] + (["-m", "scripts._probe_first_line"] if eintrag[2] else ["scripts/_probe_first_line.py"])
+        try:
+            return _run(start, repo, self._umgebung(repo, eintrag))
+        finally:
+            probe.unlink()
+
+    def _kandidaten(self, repo, env, commit, eintrag):
+        namen = {n.split(".")[0] for n in TestNoUncommittedCodeJudges._imported_modules(repo, env, commit)}
+        r = self._probe(repo, eintrag, "import sys\nprint('\\n'.join(sorted(sys.modules)))\n")
+        assert r.returncode == 0, r.stderr
+        namen |= {z.split(".")[0] for z in r.stdout.split()}
+        return sorted((namen | {"sitecustomize", "usercustomize"}) - set(sys.builtin_module_names)
+                      - {"proofbundle", "__main__"})
+
+    def _vor_der_ersten_zeile(self, repo, eintrag, kandidaten, marker_dir):
+        """The candidates Python takes from the entry before a script's first line, by planting all and probing."""
+        ordner = (repo / eintrag[3]).resolve()
+        rest, vorher = set(kandidaten), set()
+        while True:
+            for name in rest:
+                self._plant_module(ordner, name, marker_dir)
+            self._probe(repo, eintrag, "pass\n")
+            neu = {p.name.split("__", 1)[1] for p in marker_dir.iterdir()}
+            self._ausreissen(ordner, rest, marker_dir)
+            if not neu:
+                return vorher
+            vorher |= neu
+            rest -= neu
+
+    def test_no_module_after_the_first_line_is_taken_from_an_entry_into_the_checkout(self, welt):
+        repo, env, _priv, _kand, _commit = welt
+        commit = TestNoUncommittedCodeJudges._tamper(repo)
+        marker_dir = repo.parent / "_marker_eintrag"
+        marker_dir.mkdir()
+        befunde, gemessen = [], 0
+        for eintrag in self._EINTRAEGE:
+            label, pp, mit_m, ordner_rel = eintrag
+            kandidaten = self._kandidaten(repo, env, commit, eintrag)
+            nach = sorted(set(kandidaten) - self._vor_der_ersten_zeile(repo, eintrag, kandidaten, marker_dir))
+            # `python -m` loads `contextlib` before the first line (runpy imports it): a position of the next test.
+            for name in ("argparse", "hashlib", "json", "re", "pathlib") + (() if mit_m else ("contextlib",)):
+                assert name in nach, (label, name, nach)
+            ordner = (repo / ordner_rel).resolve()
+            for name in nach:
+                self._plant_module(ordner, name, marker_dir)
+            try:
+                # ANTI-VACUITY: through this entry a plain import takes the plant (the case of the first fix).
+                _run([sys.executable, "-c", "import argparse"], repo if pp is None else repo.parent,
+                     self._umgebung(repo, eintrag))
+                lebendig = marker_dir / f"{ordner.name}__argparse"
+                assert lebendig.exists(), f"{label}: the plant is not live for a plain import, the case proves nothing"
+                lebendig.unlink()
+                cmd, run_env = self._aufruf(repo, eintrag, commit)
+                r = _run(cmd, repo, run_env)
+                gelaufen = sorted(p.name for p in marker_dir.iterdir())
+                if gelaufen:
+                    befunde.append(f"{label}: imported from the checkout {gelaufen[:6]}")
+                if r.returncode != 1 or '"NOT_VERIFIED"' not in r.stdout:
+                    befunde.append(f"{label}: exit {r.returncode} {(r.stdout + r.stderr)[-200:]}")
+                gemessen += len(nach)
+            finally:
+                self._ausreissen(ordner, nach, marker_dir)
+        assert befunde == [], "\n".join(befunde)
+        assert gemessen >= 3 * 20, gemessen
+
+    def test_a_module_of_the_checkout_loaded_before_the_first_line_never_yields_an_unrefused_verdict(self, welt):
+        repo, env, _priv, _kand, _commit = welt
+        commit = TestNoUncommittedCodeJudges._tamper(repo)
+        marker_dir = repo.parent / "_marker_start"
+        marker_dir.mkdir()
+        positionen = []
+        for eintrag in (self._EINTRAEGE[0], self._EINTRAEGE[2]):
+            kandidaten = self._kandidaten(repo, env, commit, eintrag)
+            positionen += [(eintrag, n) for n in sorted(self._vor_der_ersten_zeile(repo, eintrag, kandidaten,
+                                                                                     marker_dir))]
+        befunde, verweigert, ohne_urteil = [], [], []
+        for eintrag, name in positionen:
+            ordner = (repo / eintrag[3]).resolve()
+            self._plant_module(ordner, name, marker_dir)
+            try:
+                cmd, run_env = self._aufruf(repo, eintrag, commit)
+                r = _run(cmd, repo, run_env)
+                lief = (marker_dir / f"{ordner.name}__{name}").exists()
+                try:
+                    res = json.loads(r.stdout)
+                except ValueError:
+                    res = None
+                if not lief:
+                    if r.returncode != 1 or not res or res.get("verdict") != "NOT_VERIFIED":
+                        befunde.append(f"{eintrag[0]}, {name}: did not run, yet exit {r.returncode}")
+                elif res is None:
+                    ohne_urteil.append(name)
+                elif r.returncode == 2 and "before the verifier's first line" in str(res.get("reason")):
+                    verweigert.append(name)
+                else:
+                    befunde.append(f"{eintrag[0]}, {name}: ran before the first line and the verdict stands: "
+                                   f"exit {r.returncode} {res.get('verdict')}")
+            finally:
+                self._ausreissen(ordner, [name], marker_dir)
+        assert befunde == [], "\n".join(befunde)
+        assert "sitecustomize" in verweigert, ("no startup plant was refused, the case would prove nothing",
+                                              verweigert, ohne_urteil)
+        # From 3.11 on most start modules are frozen and no plant stands in for them, so the count depends on the
+        # version (24 on 3.10.12, 16 on 3.11.15); `sitecustomize` through PYTHONPATH and `scripts` under `-m` are
+        # not frozen on any version, so they stay positions.
+        assert len(positionen) >= 2, positionen
+
+    def test_in_isolated_mode_no_planted_module_runs_and_a_good_receipt_verifies(self, welt):
+        """The documented command, `python -I`: every position of the two tests above, planted at the top level and in
+        `tests/`, both on PYTHONPATH, and not one of them runs; a good receipt verifies with it."""
+        repo, env, _priv, _kand, good = welt
+        cmd, run_env = self._aufruf(repo, self._EINTRAEGE[0], good)
+        r = _run([sys.executable, "-I", *cmd[1:]], repo, run_env)
+        assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+        commit = TestNoUncommittedCodeJudges._tamper(repo)
+        namen = set()
+        for eintrag in self._EINTRAEGE:
+            namen |= set(self._kandidaten(repo, env, commit, eintrag))
+        marker_dir = repo.parent / "_marker_isoliert"
+        marker_dir.mkdir()
+        orte = (repo, repo / "tests")
+        for ordner in orte:
+            for name in namen:
+                self._plant_module(ordner, name, marker_dir)
+        try:
+            run_env = {"PATH": "/usr/bin:/bin", "PYTHONPATH": f"{repo}:{repo / 'tests'}"}
+            r = _run([sys.executable, "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", commit,
+                      "--version", "5.0.0", "--json"], repo, run_env)
+            gelaufen = sorted(p.name for p in marker_dir.iterdir())
+            assert gelaufen == [], gelaufen[:10]
+            assert r.returncode == 1 and '"NOT_VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+            # ANTI-VACUITY: without -I the same plants run.
+            _run([sys.executable, "scripts/" + VERIFIER, "--repo", ".", "--commit", commit, "--version", "5.0.0",
+                  "--json"], repo, run_env)
+            assert any(marker_dir.iterdir()), "no plant ran without -I either, the case proves nothing"
+        finally:
+            for ordner in orte:
+                self._ausreissen(ordner, namen, marker_dir)
+        assert len(namen) >= 30, len(namen)
+
+    def test_the_interpreters_installation_inside_the_checkout_stays_on_the_path(self, welt, monkeypatch, tmp_path):
+        """The counter-direction, at the function: a prefix of the interpreter strictly inside the checkout keeps its
+        entries; every other entry in the checkout goes, the top level included; a prefix equal to the top level is
+        no exemption."""
+        repo, _env, _priv, _kand, _commit = welt
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_t6_root_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        aussen = tmp_path / "outside_stdlib"
+        aussen.mkdir()
+        venv_sp = repo / ".venv" / "lib" / "python3" / "site-packages"
+        venv_sp.mkdir(parents=True)
+        (repo / "tests").mkdir(exist_ok=True)
+        monkeypatch.chdir(tmp_path)
+        pfad = [str(repo), str(repo / "tests"), str(repo / "scripts"), str(venv_sp), str(repo / "src"), str(aussen), ""]
+        monkeypatch.setattr(sys, "path", list(pfad))
+        monkeypatch.setattr(sys, "prefix", str(repo / ".venv"))
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(venv_sp), str(aussen), ""], sys.path
+        monkeypatch.setattr(sys, "path", list(pfad))
+        monkeypatch.setattr(sys, "prefix", str(repo))
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(aussen), ""], sys.path
+        monkeypatch.chdir(repo)
+        monkeypatch.setattr(sys, "path", ["", str(aussen)])
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(aussen)], "the empty entry is the working directory, here the checkout"
+
+    def test_a_virtual_environment_inside_the_checkout_verifies(self, welt):
+        """End to end, as a reader with `python -m venv .venv` in the clone runs it: a module the environment loads at
+        start (here through a `.pth`, as an editable install or setuptools does) is the interpreter's, not the
+        checkout's, and the good receipt verifies."""
+        repo, _env, _priv, _kand, good = welt
+        r = _run([sys.executable, "-m", "venv", "--without-pip", str(repo / ".venv")], repo.parent)
+        assert r.returncode == 0, r.stderr
+        innen = repo / ".venv" / "bin" / "python"
+        r = _run([str(innen), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"], repo.parent)
+        assert r.returncode == 0, r.stderr
+        sp = Path(r.stdout.strip())
+        aussen = sorted({p for p in sys.path if p.endswith(("site-packages", "dist-packages")) and Path(p).is_dir()})
+        marker = repo.parent / "_marker_installation"
+        (sp / "pb_installation_probe.py").write_text(f"open({str(marker)!r}, 'w').write('loaded')\n")
+        (sp / "pb_outer.pth").write_text("".join(p + "\n" for p in aussen) + "import pb_installation_probe\n")
+        r = _run([str(innen), "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0", "--json"],
+                 repo, {"PATH": "/usr/bin:/bin"})
+        assert marker.exists(), "the environment's start module did not load, the case proves nothing"
+        assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
