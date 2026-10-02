@@ -320,10 +320,104 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: push the gate never sees): `rebase -x/--exec`, `bisect run`, `submodule foreach`. The predicate decides
 #: whether this invocation is NOT MEASURED (review Runde 5, Punkt 6).
 _GIT_EXEC_WHEN = {
-    "rebase": lambda args: any(a in ("-x", "--exec") or a.startswith("--exec=") for a in args),
+    # `-x`/`--exec` run an arbitrary command; the short option also takes an ATTACHED argument (`-x<cmd>`),
+    # so any word beginning `-x` counts, not only the separated `-x` and `--exec`/`--exec=` forms (R6-2).
+    "rebase": lambda args: any(a.startswith("-x") or a == "--exec" or a.startswith("--exec=") for a in args),
     "bisect": lambda args: bool(args) and args[0] == "run",
     "submodule": lambda args: "foreach" in args,
 }
+
+#: Per-subcommand options checked against the git documentation to take no value, or a value that is a
+#: number, a format string, a ref, a pattern or a pathspec — never a program, a file to execute, an
+#: editor, a pager, a filter, a transport helper or a configuration key. An allow-listed subcommand is
+#: free (Ebene 1 returns None) only when every option word it carries is vetted here for that entry; any
+#: other option, and any NOT MEASURED already established earlier in the parse (for example from a `-c`),
+#: makes the whole invocation NOT MEASURED. A subcommand name alone does not establish that an invocation
+#: cannot execute other programs; options and Git configuration can select helpers, filters, hooks or
+#: editors (review Runde 6, R6-2; D3). Four single exceptions would not close that class, so each entry
+#: is checked positively and the bare invocation is always a checked form. An entry absent here, or
+#: present with an empty set, is free only in its bare form (options -> NOT MEASURED). Deliberately NOT
+#: vetted anywhere: --open-files-in-pager / -O (grep), --upload-pack / --receive-pack / --exec (fetch,
+#: pull, ls-remote, clone), --ext-diff / --output / -O<orderfile> (diff, log, show), -i / --edit /
+#: --edit-description (editor), and every value-taking transport, pager, filter or config option.
+_GIT_VETTED_OPTIONS = {
+    "status": frozenset({"-s", "--short", "--porcelain", "--long", "-b", "--branch", "--show-stash",
+                         "-v", "--verbose", "-z", "--ignored", "-u", "--untracked-files",
+                         "--no-untracked-files", "--no-color", "--color"}),
+    "log": frozenset({"--oneline", "--pretty", "--format", "--abbrev-commit", "--no-abbrev-commit",
+                     "--graph", "--decorate", "--no-decorate", "-n", "--max-count", "--skip",
+                     "--stat", "--numstat", "--shortstat", "--summary", "--name-only", "--name-status",
+                     "--reverse", "--since", "--until", "--author", "--committer", "--grep",
+                     "--date", "--all", "--branches", "--tags", "--remotes", "--no-color", "--color",
+                     "--first-parent", "-p", "--patch", "--no-patch", "-m", "--merges", "--no-merges"}),
+    "show": frozenset({"--oneline", "--pretty", "--format", "--abbrev-commit", "-s", "--stat",
+                      "--numstat", "--name-only", "--name-status", "--no-color", "--color", "-p",
+                      "--patch", "--no-patch"}),
+    "diff": frozenset({"--stat", "--numstat", "--shortstat", "--summary", "--name-only", "--name-status",
+                      "--cached", "--staged", "-p", "--patch", "--no-patch", "-U", "--unified",
+                      "--no-color", "--color", "-w", "--ignore-all-space", "-b", "--ignore-space-change",
+                      "--raw", "--check", "-M", "--find-renames", "-C", "--find-copies"}),
+    "diff-tree": frozenset({"-r", "--stat", "--name-only", "--name-status", "--no-color", "-p",
+                           "--root", "--abbrev"}),
+    "diff-index": frozenset({"--cached", "--stat", "--name-only", "--name-status", "-p"}),
+    "diff-files": frozenset({"--stat", "--name-only", "--name-status", "-p"}),
+    "grep": frozenset({"-n", "--line-number", "-i", "--ignore-case", "-l", "--files-with-matches",
+                      "-L", "--files-without-match", "-c", "--count", "-w", "--word-regexp",
+                      "-e", "-E", "--extended-regexp", "-F", "--fixed-strings", "-P", "--perl-regexp",
+                      "-G", "--basic-regexp", "--cached", "--no-index", "-h", "-H", "-v", "--invert-match",
+                      "-A", "--after-context", "-B", "--before-context", "-C", "--context",
+                      "--color", "--no-color", "--heading", "--break", "--line-number", "--untracked"}),
+    "branch": frozenset({"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l",
+                        "--merged", "--no-merged", "--contains", "--no-contains", "--points-at",
+                        "--format", "--show-current", "--no-color", "--color", "--sort"}),
+    "tag": frozenset({"-l", "--list", "-n", "--contains", "--no-contains", "--points-at", "--merged",
+                     "--no-merged", "--format", "--sort", "--color", "--no-color"}),
+    "describe": frozenset({"--tags", "--all", "--long", "--abbrev", "--always", "--contains",
+                          "--match", "--exclude", "--dirty"}),
+    "rev-parse": frozenset({"--abbrev-ref", "--short", "--verify", "--quiet", "-q", "--symbolic",
+                          "--symbolic-full-name", "--is-inside-work-tree", "--is-bare-repository",
+                          "--show-toplevel", "--git-dir", "--git-common-dir", "--all", "--branches",
+                          "--tags", "--remotes", "--default"}),
+    "show-ref": frozenset({"--head", "--heads", "--tags", "-d", "--dereference", "--hash", "-s",
+                         "--abbrev", "--verify", "-q", "--quiet"}),
+    "for-each-ref": frozenset({"--format", "--sort", "--count", "--points-at", "--merged",
+                             "--no-merged", "--contains", "--no-contains", "--color", "--no-color"}),
+    "rev-list": frozenset({"--count", "--max-count", "-n", "--all", "--branches", "--tags", "--remotes",
+                         "--reverse", "--first-parent", "--no-walk", "--oneline", "--left-right",
+                         "--merges", "--no-merges"}),
+    "ls-files": frozenset({"--cached", "-c", "--deleted", "-d", "--modified", "-m", "--others", "-o",
+                         "--stage", "-s", "--unmerged", "-u", "-z", "--full-name", "--error-unmatch"}),
+    "ls-tree": frozenset({"-r", "-d", "-t", "-l", "--long", "--name-only", "--name-status", "-z",
+                        "--full-name", "--full-tree", "--abbrev"}),
+    "cat-file": frozenset({"-t", "-s", "-p", "-e", "--batch-check", "--batch-all-objects"}),
+    "shortlog": frozenset({"-n", "--numbered", "-s", "--summary", "-e", "--email", "--all", "--no-color"}),
+    "blame": frozenset({"-l", "-s", "-e", "--show-email", "-w", "--line-porcelain", "--porcelain",
+                      "-L", "--abbrev", "--date", "--no-color", "--color-lines"}),
+    "name-rev": frozenset({"--tags", "--all", "--name-only", "--stdin", "--refs"}),
+    "merge-base": frozenset({"--all", "--is-ancestor", "--independent", "--octopus", "--fork-point"}),
+    "symbolic-ref": frozenset({"-q", "--quiet", "--short", "-d", "--delete"}),
+    "count-objects": frozenset({"-v", "--verbose", "-H", "--human-readable"}),
+}
+
+
+def _options_inert(sub: str, args: list[str]) -> bool:
+    """True iff every OPTION word in args is vetted inert for this subcommand (see _GIT_VETTED_OPTIONS).
+    A word that does not begin with '-' is a positional (pathspec, ref, pattern) and never selects a
+    program; a lone '--' ends option parsing. Any option whose bare name (before '=') is not vetted for
+    this entry returns False, so the invocation is NOT MEASURED: an unchecked option can select a helper,
+    filter, hook or editor (R6-2). Four fixed exceptions would not close that class, hence this positive
+    per-entry check."""
+    vetted = _GIT_VETTED_OPTIONS.get(sub, frozenset())
+    seen_ddash = False
+    for a in args:
+        if seen_ddash or not a.startswith("-"):
+            continue
+        if a == "--":
+            seen_ddash = True
+            continue
+        if a.split("=", 1)[0] not in vetted:
+            return False
+    return True
 
 
 def _expansion_present(command: str) -> bool:
@@ -401,10 +495,18 @@ def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | Non
         return (f"git {sub}" if sub else "git"), UNKNOWN, [_MAYBE_PUSH]
     if sub is None:
         return None  # a bare `git` with only options and no subcommand transfers nothing
+    # An allow-listed subcommand is free only in a checked invocation form: a NOT MEASURED already
+    # established in the global-option parse (e.g. a `-c`) is never lost, and every option word must be
+    # vetted inert for this entry. Otherwise the invocation is NOT MEASURED, because an unchecked option
+    # or configuration can select a helper, filter, hook or editor (review Runde 6, R6-2).
     if sub in _GIT_LOCAL_SUBCOMMANDS:
+        if not_measured or not _options_inert(sub, args):
+            return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
         return None
     if sub in _GIT_EXEC_WHEN:
-        return (f"git {sub}", UNKNOWN, [_MAYBE_PUSH]) if _GIT_EXEC_WHEN[sub](args) else None
+        if _GIT_EXEC_WHEN[sub](args) or not_measured or not _options_inert(sub, args):
+            return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
+        return None
     return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]  # unknown subcommand, send-pack, any unmodelled transport
 
 

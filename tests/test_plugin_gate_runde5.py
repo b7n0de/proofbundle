@@ -126,10 +126,18 @@ def test_an_alias_configured_in_the_repo_is_a_not_measured_possible_push():
 
 @pytest.mark.parametrize("command", [
     "git status", "git log --oneline", "git diff origin/main", "git fetch origin",
-    "git rebase main", "git bisect start", "git submodule update --init", "git config user.name t",
+    "git rebase main", "git bisect start", "git config user.name t",
 ])
 def test_a_local_subcommand_is_still_left_alone(command):
     assert gate.gated_calls(command) == []
+
+
+def test_submodule_update_with_an_unchecked_option_is_not_measured():
+    # Runde 6, R6-2: `submodule` is in the exec-when class (it can run a configured `!command`), and
+    # `--init` is not a vetted inert option for it, so the invocation is NOT MEASURED rather than left
+    # alone. A bare `git submodule status` (no option) stays free.
+    assert gate.gated_calls("git submodule update --init") == [("git submodule", gate.UNKNOWN, [gate._MAYBE_PUSH])]
+    assert gate.gated_calls("git submodule status") == []
 
 
 def test_a_not_measured_transfer_asks_under_claude_and_denies_under_codex(tmp_path):

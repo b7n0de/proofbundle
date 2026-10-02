@@ -108,12 +108,27 @@ MEASURED. The remote itself is not read.
       a command-level `core.hooksPath` override (`git -c core.hooksPath=…`), or `git config core.hooksPath …`
       (Punkt 5). The deny holds whatever the directory, so it holds inside a chain too.
     - The git subcommand must be on a short allow-list of local built-ins that, per the git documentation,
-      neither transfer objects to a remote nor run an arbitrary command. A subcommand off that list is NOT
-      MEASURED as a possible transfer, never resolved and never inactive (`_MAYBE_PUSH`). Off-list, and so
-      NOT MEASURED: `send-pack`, an unknown subcommand, `rebase --exec`/`-x`, `bisect run`, `submodule
-      foreach`. On-list: `fetch`, `pull`, `clone`, `ls-remote` (they receive, they do not publish) and
-      `config` (but `git config core.hooksPath` is denied earlier, before the list is consulted). This is not
-      a complete transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8).
+      neither transfer objects to a remote nor run an arbitrary command, **and every option it carries must
+      be vetted inert for that entry.** A subcommand name alone does not establish that an invocation cannot
+      execute other programs; options and Git configuration can select helpers, filters, hooks or editors
+      (Runde 6, R6-2). The allow-list is therefore a positive, per-entry check: an on-list subcommand is free
+      only in a checked invocation form — its bare form, plus the options enumerated for that entry in
+      `_GIT_VETTED_OPTIONS` in the gate, each checked against the git documentation to take no value or a
+      value that is a number, a format string, a ref, a pattern or a pathspec, never a program, a file to
+      execute, an editor, a pager, a filter, a transport helper or a config key. Any other option, and any
+      NOT MEASURED already established earlier in the parse (for example a `-c`, which is never lost
+      afterwards), makes the whole invocation NOT MEASURED. Four single exceptions would not close that
+      class, so each entry is checked positively and an entry whose option space is not vetted is free only
+      in its bare form. Reproduced and now NOT MEASURED (Runde 6): `git grep --open-files-in-pager=…`,
+      `git fetch --upload-pack=…`, `git -c diff.external=… diff`, and `git rebase -x…` (the attached short
+      form of `--exec`). Git-documentation sources for the option semantics: git-grep, git-fetch, git-diff,
+      and git-config (URL rewrites and the per-command `-c`). A subcommand off the list is NOT MEASURED as a
+      possible transfer, never resolved and never inactive (`_MAYBE_PUSH`). Off-list, and so NOT MEASURED:
+      `send-pack`, an unknown subcommand, `rebase --exec`/`-x`, `bisect run`, `submodule foreach`, and any
+      allow-listed subcommand carrying an unvetted option. On-list (bare, or with their vetted options):
+      `fetch`, `pull`, `clone`, `ls-remote` (they receive, they do not publish) and `config` (but
+      `git config core.hooksPath` is denied earlier, before the list is consulted). This is not a complete
+      transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8; Runde 6, R6-2).
     - A per-command `git -c alias.*` (or `--config-env` of an alias) is NOT MEASURED even when the word
       `push` is absent and the subcommand is otherwise allow-listed, because the alias may name any command,
       a push included (Runde 5, Punkt 7).
