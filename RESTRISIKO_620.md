@@ -1078,22 +1078,34 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   caller did not expect for a value JSON, the CLI and files cannot build. Workaround: catch `ProofBundleError` beside
   the function's own class. The fix is the closed type boundary of 7.0 (R620-TYPE-BOUNDARY-70), which names the class
   of every refusal.
-- **R620-R6-11, P2. 27 test guards of the optional backends read a failure inside an installed backend as its absence**
+- **R620-R6-11, P2. 31 test guards of the optional backends read a failure inside an installed backend as its absence**
   (Codex on pull request 311 at 53bbb94c, thread 4163347099, reproduced by the filer; the answer to thread 4163240548
-  named the same guards as not changed by 8c7c761c): 26 test files hold 27 guards of their own on ML-DSA or OpenTimestamps,
-  counted by their syntax tree at 53bbb94c on 2026-10-02 (23 catch `ImportError`, 3 `ImportError` and `AttributeError`,
-  1 any exception), so an `ImportError` raised while an installed module executes skips the case as a missing extra.
+  named the same guards as not changed by 8c7c761c; the count corrected after Codex at b4888df9, thread 4164188079):
+  27 test files hold 28 guards of their own on ML-DSA or OpenTimestamps (23 catch `ImportError`, 3 `ImportError` and
+  `AttributeError`, 2 any exception), so an `ImportError` raised while an installed module executes skips the case as a
+  missing extra, and 3 more guards catch `pqsig.PQUnavailable`, which `pqsig._mldsa_classes` raises for every
+  `ImportError` of the ML-DSA module, a found one included: two in a file counted above and one in a 28th file,
+  `tests/test_trust_anchor_keys_refused_on_every_surface.py`. Counted on 2026-10-02 at b4888df9 by the
+  syntax tree of every `try` whose body names either backend by import, attribute, helper or literal, with a planted
+  control; a guard through a helper whose names carry neither backend is outside that count. This line first said 27
+  guards in 26 files: that count read import statements only and missed `tests/test_note_rahmung_kanonisch.py:522`,
+  whose `setUp` calls `checkpoint._mldsa_module()` and skips on any exception.
   Measured at 53bbb94c with OpenTimestamps installed and a loader raising `ImportError` while it executes
   `opentimestamps.core.notary` and `opentimestamps.core.serialize`: the two guarded cases of
   `tests/test_a_verifier_reads_a_callers_value_once.py` were skipped with the reason that the extra is not installed.
   With the extra intact, as in every CI job that installs it, both run. No shipped code reads these guards and no
   verdict of the package changes; a broken install of an extra turns cases into skips instead of failures, which shows
-  in the skip count. The gate before run 7 reads each backend through a probe that takes only a module that cannot be
+  in the skip count. The same reading stands at seven places in six modules of the shipped code, each failing closed by
+  reading of the code: `pqsig._mldsa_classes` (`PQUnavailable`), `checkpoint._mldsa_module` (`UnsupportedError`), the
+  registration of the OpenTimestamps verifier in `anchors._ensure_builtin_types` (left unregistered),
+  `anchors_markovian.verify_markovian` (`no_lib`), `anchors_ots._calendar_uris_of` (no calendars) and
+  `cli._detect_features` twice (not listed); a broken install there reads as an absent extra, and no verdict is
+  promoted. The gate before run 7 reads each backend through a probe that takes only a module that cannot be
   found, or the ML-DSA module without its classes, as absent and raises every other failure (`_backend_da` and
   `_ots_vorhanden`, 8c7c761c). A neighbour of the line above on a shipped test that drops every module that does not
   import. Workaround: none is needed by a caller; read the skip reasons of a run with the extras installed. The fix is
-  one shared probe for both backends in `tests/` and a syntax-tree check that no test file guards either backend with a
-  handler of its own, after the tag.
+  one shared probe for both backends in `tests/` and in the package, and a syntax-tree check over every `try` that names
+  either backend, after the tag.
 - The rows above on `render_release` binding `release_commit` by its length and not binding the tags to `--version`
   were measured again at fda55f98 by the lens L6 (L6-620v6-T7-RELEASE-COMMIT-BY-LENGTH-01 and
   L6-620v6-T7-TAG-FIELD-UNCHECKED-01), both P3 there as here.
