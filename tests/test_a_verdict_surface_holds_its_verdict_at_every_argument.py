@@ -507,15 +507,20 @@ _BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTim
 
 
 def _backend_da(backend: str) -> bool:
-    """Whether this environment has ``backend``: an ML-DSA key can be generated (``pq``), or OpenTimestamps imports
-    (``anchors``). The one check every conditional base case here goes through."""
+    """Whether this environment has ``backend``: the ML-DSA module of cryptography imports (``pq``), or OpenTimestamps
+    imports (``anchors``). The one check every conditional base case here goes through.
+
+    ONLY THE ABSENCE OF THE BACKEND COUNTS: its module failing to import with ``ImportError``, as every other probe
+    of these backends in this suite reads it. The first form generated an ML-DSA key and read ANY exception as a
+    missing backend, so a regression of ``pqsig.generate_mldsa`` turned this part from red to green with the three
+    surfaces reported as not measured (Codex thread 4163183345 at 52c7e634). Now nothing is generated here, and a
+    failure of the key generation is raised where the base case builds the key."""
     if backend == "anchors":
         return _sweep._ots_vorhanden()
     if backend == "pq":
         try:
-            from proofbundle import pqsig
-            pqsig.generate_mldsa("mldsa44")
-        except Exception:  # noqa: BLE001 - this build has no ML-DSA
+            from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: F401, PLC0415
+        except ImportError:
             return False
         return True
     raise ValueError(f"unknown backend {backend!r}")
@@ -974,6 +979,57 @@ class ThePartNamesWhatItDoesNotBuild(unittest.TestCase):
                           for name in namen if name not in _sweep._OTS_FLAECHEN)
         print(f"\nBACKENDS: present {[b for b in _JE_BACKEND if original(b)]}; their surfaces here {weg}")
         self.assertEqual(weg, erwartet, "a surface built under a condition is not in _JE_BACKEND, or the reverse")
+
+    def test_a_failure_of_a_backend_is_not_read_as_its_absence(self) -> None:
+        """Codex thread 4163183345 at 52c7e634: the probe read any exception of the ML-DSA key generation as a
+        missing backend. For each backend, a planted failure that is NOT the absence of its module must leave the
+        probe where it was or propagate out of it, never turn it to False: a key generation that raises is not
+        consulted by the probe and raises where the base case builds the key; a module that raises on import with
+        anything but ImportError propagates out of the probe."""
+        import importlib.abc
+        import importlib.util
+        import tempfile
+
+        from proofbundle import anchors, pqsig
+        mldsa_da = importlib.util.find_spec("cryptography.hazmat.primitives.asymmetric.mldsa") is not None
+        original = pqsig.generate_mldsa
+        aufrufe: list = []
+
+        def kaputt(*_a, **_k):
+            aufrufe.append(1)
+            raise TypeError("planted failure of the key generation")
+        pqsig.generate_mldsa = kaputt
+        gesichert = dict(anchors._VERIFIERS)
+        alt_tmp = tempfile.tempdir
+        try:
+            with tempfile.TemporaryDirectory(prefix="backend-failure-") as ort:
+                tempfile.tempdir = ort
+                self.assertIs(_backend_da("pq"), mldsa_da, "the probe changed with a failure of the key generation")
+                self.assertEqual(aufrufe, [], "the probe called the key generation")
+                if mldsa_da:
+                    with self.assertRaises(TypeError):
+                        _flaechen_vier()
+        finally:
+            tempfile.tempdir = alt_tmp
+            pqsig.generate_mldsa = original
+            anchors._VERIFIERS.clear()
+            anchors._VERIFIERS.update(gesichert)
+
+        class _Wirft(importlib.abc.MetaPathFinder):
+            def find_spec(self, name, path, target=None):
+                if name == "opentimestamps":
+                    raise RuntimeError("planted failure on import")
+                return None
+        gemerkt = {k: v for k, v in sys.modules.items() if k == "opentimestamps" or k.startswith("opentimestamps.")}
+        for k in gemerkt:
+            del sys.modules[k]
+        sys.meta_path.insert(0, _Wirft())
+        try:
+            with self.assertRaises(RuntimeError):
+                _backend_da("anchors")
+        finally:
+            sys.meta_path.pop(0)
+            sys.modules.update(gemerkt)
 
 
 if __name__ == "__main__":
