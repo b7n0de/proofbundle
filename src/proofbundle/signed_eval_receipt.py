@@ -1,0 +1,496 @@
+"""Signed Evaluation Receipts, the format of draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL).
+
+A receipt is one JSON object ``{"schema", "payload_b64", "signature", "inclusion"}``. B, the RFC 8785
+bytes of the payload, is signed with pure Ed25519 over PAE(type, B), the DSSE pre-authentication
+encoding with the fixed type ``application/vnd.b7n0de.eval-receipt+json``, and B is the leaf input of an
+RFC 9162 Merkle tree whose inclusion proof travels in the receipt.
+
+A SECOND FORMAT, NOT A REPLACEMENT. ``proofbundle/eval-claim/v0.1`` (``evalclaim.py``) stays as it is
+and stays verifiable. Nothing here runs unless a caller names this format: ``emit-eval --format
+eval-receipt-v1`` produces it, and ``show-eval`` reaches it only for a file whose ``schema`` is the
+receipt type.
+
+WHAT A RECEIPT PROVES. That the holder of the key the Receiver fixed signed B, and that B is a leaf of
+a tree with the stated root. The root and the inclusion proof are not signed, so a root means something
+only when the Receiver obtained it from a source it trusts. A receipt does not show that the score is
+true, that the run was the only run, or that the named model was the one evaluated (the draft's
+Section 7).
+
+THE PROCEDURE IS THE DRAFT'S. ``verify_signed_eval_receipt`` evaluates the twelve steps of the draft's
+Section 6 in order and returns the first one that fails, so this verifier and the draft's vectors agree
+on the step and not only on the verdict (``tests/test_signed_eval_receipt_conformance.py``). The
+signature profile is the draft's Section 4.4, which is stricter than SPEC section 4a: a non-canonical
+encoding of the key or of R and a point of small order are refused before any signature arithmetic.
+
+The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
+there.
+"""
+from __future__ import annotations
+
+import base64
+import decimal
+import json
+import math
+import re
+from typing import Any, Mapping, NamedTuple, Optional, Sequence
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from ._wire_b64 import decode_b64
+from .merkle import merkle_tree_hash, inclusion_proof, verify_inclusion
+from .signature import _LOW_ORDER_ED25519_Y, verify_ed25519
+
+RECEIPT_TYPE = "application/vnd.b7n0de.eval-receipt+json"
+PAYLOAD_SCHEMA = "https://b7n0de.com/eval-receipt/v1"
+COMMIT_ALG = "sha256-salted-v1"
+DRAFT = "draft-gruszka-signed-evaluation-receipts-00"
+
+__all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict", "pae",
+           "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt", "names_receipt_type"]
+
+_RECEIPT_MEMBERS = frozenset({"schema", "payload_b64", "signature", "inclusion"})
+_SIGNATURE_MEMBER_SETS = (frozenset({"alg", "sig"}), frozenset({"alg", "sig", "key"}))
+_INCLUSION_MEMBERS = frozenset({"tree_size", "leaf_index", "inclusion_path", "root"})
+_PAYLOAD_MEMBERS = frozenset({"schema", "suite", "suite_version", "metric", "comparator", "threshold",
+                              "score", "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg",
+                              "timestamp"})
+_COMPARATORS = (">=", ">", "<=", "<")
+# Table 1 of the draft: an optional minus sign, then 0 or a digit 1-9 followed by digits, then
+# optionally a full stop and one or more digits. Stricter than eval-claim v0.1, which allows 00.5.
+_DECIMAL_RE = re.compile(r"\A-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?\Z")
+_COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
+_TIMESTAMP_RE = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z\Z")
+_INTEGER_TOKEN_RE = re.compile(r"\A(?:0|[1-9][0-9]*)\Z")
+_HASH_HEX_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+_MAX_SAFE = 2 ** 53
+
+# RFC 8032 Section 5.1: the field prime, the group order and the curve constant d.
+_P = 2 ** 255 - 19
+_L = 2 ** 252 + 27742317777372353535851937790883648493
+_D = -121665 * pow(121666, _P - 2, _P) % _P
+_SQRT_M1 = pow(2, (_P - 1) // 4, _P)
+
+
+class ReceiptVerdict(NamedTuple):
+    """The result of the draft's Section 6: ``ok``, and for a FAIL the first failing ``step`` (1 to 12),
+    for step 11 the profile ``rule`` (``"profile 3"``, ``"profile 1, key"`` ...), and a ``reason``."""
+    ok: bool
+    step: Optional[int]
+    rule: Optional[str]
+    reason: str
+    payload: Optional[bytes] = None   # B, only when ok
+
+    @property
+    def step_label(self) -> str:
+        """The step as the draft's vector table writes it: ``all``, ``4`` or ``11 (profile 2, R)``."""
+        if self.ok:
+            return "all"
+        return f"{self.step} ({self.rule})" if self.rule else str(self.step)
+
+
+class _Fail(Exception):
+    def __init__(self, step: int, reason: str, rule: Optional[str] = None):
+        super().__init__(reason)
+        self.step, self.reason, self.rule = step, reason, rule
+
+
+class _Number:
+    """A JSON number as its token. The receipt's integers are judged by how they are written (step 12:
+    ``4.0`` and ``-0`` are not valid), and B's numbers by their value as RFC 8785 serializes it."""
+    __slots__ = ("token",)
+
+    def __init__(self, token: str):
+        self.token = token
+
+    def value(self) -> float:
+        return float(self.token)
+
+
+# ---- I-JSON (RFC 7493) ----------------------------------------------------------------------------
+def _check_text(s: str, what: str, step: int) -> None:
+    for ch in s:
+        c = ord(ch)
+        if 0xD800 <= c <= 0xDFFF:
+            raise _Fail(step, f"{what} contains a surrogate code point, which I-JSON forbids")
+        if 0xFDD0 <= c <= 0xFDEF or (c & 0xFFFE) == 0xFFFE:
+            raise _Fail(step, f"{what} contains a noncharacter, which I-JSON forbids")
+
+
+def _ijson(raw: bytes, what: str, step: int) -> Any:
+    """One I-JSON text: UTF-8 without a byte order mark, no duplicate member names after unescaping
+    (RFC 8259 Section 8.3), no surrogate or noncharacter code point, no NaN or Infinity, and nothing
+    after the text but insignificant whitespace (RFC 8259 Section 2)."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise _Fail(step, f"{what} begins with a byte order mark")
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise _Fail(step, f"{what} is not UTF-8") from None
+
+    def pairs(items):
+        seen: dict = {}
+        for name, value in items:
+            _check_text(name, what, step)
+            if name in seen:
+                raise _Fail(step, f"{what} repeats a member name")
+            seen[name] = value
+        return seen
+
+    def no_constant(name):
+        raise _Fail(step, f"{what} contains {name}, which is not JSON")
+
+    try:
+        value = json.loads(text, object_pairs_hook=pairs, parse_int=_Number, parse_float=_Number,
+                           parse_constant=no_constant)
+    except _Fail:
+        raise
+    except (ValueError, RecursionError) as exc:
+        raise _Fail(step, f"{what} is not one JSON text ({type(exc).__name__})") from None
+
+    stack = [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            _check_text(v, what, step)
+        elif isinstance(v, dict):
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+    return value
+
+
+# ---- RFC 8785 ---------------------------------------------------------------------------------------
+def _es_number(x: float) -> str:
+    """ECMAScript Number::toString of a finite double (RFC 8785 Section 3.2.2.3)."""
+    if math.isnan(x) or math.isinf(x):
+        raise ValueError("a number that is not finite has no RFC 8785 form")
+    if x == 0:
+        return "0"
+    if x < 0:
+        return "-" + _es_number(-x)
+    _sign, digits, exp = decimal.Decimal(repr(x)).as_tuple()   # repr: the shortest round-trip digits
+    ds = "".join(map(str, digits))
+    while len(ds) > 1 and ds.endswith("0"):
+        ds, exp = ds[:-1], exp + 1
+    k = len(ds)
+    n = k + exp                      # the value is 0.ds times 10**n
+    if k <= n <= 21:
+        return ds + "0" * (n - k)
+    if 0 < n <= 21:
+        return ds[:n] + "." + ds[n:]
+    if -6 < n <= 0:
+        return "0." + "0" * (-n) + ds
+    e = n - 1
+    return ds[0] + ("." + ds[1:] if k > 1 else "") + "e" + ("+" if e >= 0 else "-") + str(abs(e))
+
+
+def _jcs_string(s: str) -> str:
+    out = ['"']
+    for ch in s:
+        c = ord(ch)
+        if ch == '"':
+            out.append('\\"')
+        elif ch == "\\":
+            out.append("\\\\")
+        elif c < 0x20:
+            out.append({8: "\\b", 9: "\\t", 10: "\\n", 12: "\\f", 13: "\\r"}.get(c, "\\u%04x" % c))
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def _jcs(v: Any) -> str:
+    """RFC 8785 of a parsed value (``_Number`` for numbers) or of a value built here (``int`` below
+    2**53). Member names are sorted by their UTF-16 code units (Section 3.2.3)."""
+    if v is True:
+        return "true"
+    if v is False:
+        return "false"
+    if v is None:
+        return "null"
+    if isinstance(v, _Number):
+        return _es_number(v.value())
+    if isinstance(v, int):
+        if not -_MAX_SAFE < v < _MAX_SAFE:
+            raise ValueError("an integer outside the I-JSON range has no exact RFC 8785 form")
+        return str(v)
+    if isinstance(v, str):
+        return _jcs_string(v)
+    if isinstance(v, (list, tuple)):
+        return "[" + ",".join(_jcs(x) for x in v) + "]"
+    if isinstance(v, dict):
+        names = sorted(v, key=lambda k: k.encode("utf-16-be"))
+        return "{" + ",".join(_jcs_string(k) + ":" + _jcs(v[k]) for k in names) + "}"
+    raise TypeError(f"a {type(v).__name__} has no RFC 8785 form here")
+
+
+# ---- pieces of the procedure ---------------------------------------------------------------------
+def pae(typ: str, body: bytes) -> bytes:
+    """The DSSE pre-authentication encoding, as the draft's Section 4.1 defines it."""
+    t = typ.encode("utf-8")
+    return b"DSSEv1 " + str(len(t)).encode("ascii") + b" " + t + b" " + str(len(body)).encode("ascii") \
+        + b" " + body
+
+
+def _canonical_b64(value: Any, step: int, what: str, length: Optional[int] = None) -> bytes:
+    if not isinstance(value, str):
+        raise _Fail(step, f"{what} is not a string")
+    try:
+        raw = decode_b64(value)
+    except (ValueError, TypeError):
+        raise _Fail(step, f"{what} is not the canonical base64 encoding of any bytes") from None
+    if length is not None and len(raw) != length:
+        raise _Fail(step, f"{what} does not decode to {length} bytes")
+    return raw
+
+
+def _valid_timestamp(s: str) -> bool:
+    m = _TIMESTAMP_RE.match(s)
+    if not m:
+        return False
+    year, month, day, hour, minute, second = (int(x) for x in m.groups())
+    leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    days = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    return 1 <= month <= 12 and 1 <= day <= days[month - 1] and hour <= 23 and minute <= 59 and second <= 59
+
+
+def _comparison_holds(score: str, comparator: str, threshold: str) -> bool:
+    a, b = decimal.Decimal(score), decimal.Decimal(threshold)
+    return {">=": a >= b, ">": a > b, "<=": a <= b, "<": a < b}[comparator]
+
+
+def _payload_violation(p: Any) -> Optional[str]:
+    """Step 6: the member set and every row of Table 1, or None."""
+    if not isinstance(p, dict):
+        return "the payload is not a JSON object"
+    if set(p) != _PAYLOAD_MEMBERS:
+        missing, extra = sorted(_PAYLOAD_MEMBERS - set(p)), sorted(set(p) - _PAYLOAD_MEMBERS)
+        return f"the payload member set differs from Table 1 (missing {missing}, extra {len(extra)})"
+    if p["schema"] != PAYLOAD_SCHEMA:
+        return "the payload schema is not " + PAYLOAD_SCHEMA
+    for name in ("suite", "suite_version", "metric"):
+        if not isinstance(p[name], str) or p[name] == "":
+            return f"{name} is not a non-empty string"
+    if not isinstance(p["comparator"], str) or p["comparator"] not in _COMPARATORS:
+        return "comparator is not one of >=, >, <=, <"
+    for name in ("threshold", "score"):
+        if not isinstance(p[name], str) or not _DECIMAL_RE.match(p[name]):
+            return f"{name} is not a decimal string"
+    if not isinstance(p["passed"], bool):
+        return "passed is not true or false"
+    n = p["n"]
+    if not isinstance(n, _Number) or not (n.value().is_integer() and 1 <= n.value() < _MAX_SAFE):
+        return "n is not an integer from 1 to 2^53 - 1"
+    for name in ("model_id_commit", "dataset_id_commit"):
+        if not isinstance(p[name], str):
+            return f"{name} is not a string"
+    if p["commit_alg"] != COMMIT_ALG:
+        return "commit_alg is not " + COMMIT_ALG
+    if not isinstance(p["timestamp"], str) or not _valid_timestamp(p["timestamp"]):
+        return "timestamp is not YYYY-MM-DDTHH:MM:SSZ with a valid date and time"
+    return None
+
+
+def _decode_point(enc: bytes) -> Optional[tuple]:
+    """RFC 8032 Section 5.1.3 decoding of a 32-byte point; None when it fails: y not below p, no
+    square root, or x = 0 with the sign bit set. Point decoding only; the equation of rule 4 is
+    checked by the library."""
+    v = int.from_bytes(enc, "little")
+    y, sign = v & ((1 << 255) - 1), v >> 255
+    if y >= _P:
+        return None
+    u = (y * y - 1) * pow(_D * y * y + 1, _P - 2, _P) % _P
+    if u == 0:
+        return None if sign else (0, y)
+    x = pow(u, (_P + 3) // 8, _P)
+    if (x * x - u) % _P:
+        x = x * _SQRT_M1 % _P
+    if (x * x - u) % _P:
+        return None
+    return (_P - x if (x & 1) != sign else x, y)
+
+
+def _profile(key: bytes, sig: bytes, message: bytes) -> None:
+    """The verification profile of the draft's Section 4.4, rules in order; raises _Fail(11, ...)."""
+    a_point, r_point = _decode_point(key), _decode_point(sig[:32])
+    if a_point is None:
+        raise _Fail(11, "the verification key is not a canonical encoding", "profile 1, key")
+    if r_point is None:
+        raise _Fail(11, "R is not a canonical encoding", "profile 1, R")
+    # For a canonical point, small order (8*P is the neutral element) is exactly a y of the 8-torsion
+    # subgroup; the set is the one SPEC section 4b refuses trusted keys with.
+    if a_point[1] in _LOW_ORDER_ED25519_Y:
+        raise _Fail(11, "the verification key is a point of small order", "profile 2, key")
+    if r_point[1] in _LOW_ORDER_ED25519_Y:
+        raise _Fail(11, "R is a point of small order", "profile 2, R")
+    if int.from_bytes(sig[32:], "little") >= _L:
+        raise _Fail(11, "S is not below L", "profile 3")
+    # Rule 4. With A and R canonical and S below L, the library's check (it recomputes S*B' - k*A and
+    # compares its encoding with the received R) is the cofactorless equation, because a canonical
+    # encoding names exactly one point. Mixed-order points pass rules 1 and 2, as the draft requires.
+    if not verify_ed25519(key, sig, message):
+        raise _Fail(11, "the cofactorless equation does not hold", "profile 4")
+
+
+def _receipt_integer(v: Any) -> Optional[int]:
+    if isinstance(v, _Number) and _INTEGER_TOKEN_RE.match(v.token) and int(v.token) < _MAX_SAFE:
+        return int(v.token)
+    return None
+
+
+def _procedure(receipt: bytes, key: bytes) -> bytes:
+    """Steps 1 to 12 of the draft's Section 6; returns B, raises _Fail at the first failing step."""
+    r = _ijson(receipt, "the receipt", 1)
+    if not isinstance(r, dict) or set(r) != _RECEIPT_MEMBERS:
+        raise _Fail(1, "the receipt is not an object with exactly schema, payload_b64, signature, inclusion")
+    if not isinstance(r["signature"], dict) or frozenset(r["signature"]) not in _SIGNATURE_MEMBER_SETS:
+        raise _Fail(1, "signature is not an object with exactly alg and sig, or alg, sig and key")
+    if not isinstance(r["inclusion"], dict) or set(r["inclusion"]) != _INCLUSION_MEMBERS:
+        raise _Fail(1, "inclusion is not an object with exactly its four members")
+    if r["schema"] != RECEIPT_TYPE:                                                  # step 2
+        raise _Fail(2, "schema is not " + RECEIPT_TYPE)
+    b = _canonical_b64(r["payload_b64"], 3, "payload_b64")                            # step 3
+    payload = _ijson(b, "B", 4)                                                       # step 4
+    if not isinstance(payload, dict):
+        raise _Fail(4, "B is not a JSON object")
+    try:
+        own = _jcs(payload).encode("utf-8")
+    except (ValueError, TypeError):
+        own = None
+    if own != b:                                                                      # step 5
+        raise _Fail(5, "B is not the RFC 8785 serialization of its own value")
+    violation = _payload_violation(payload)                                           # step 6
+    if violation:
+        raise _Fail(6, violation)
+    for name in ("model_id_commit", "dataset_id_commit"):                             # step 7
+        if not _COMMIT_RE.match(payload[name]):
+            raise _Fail(7, f"{name} is not sha256: followed by 64 lowercase hexadecimal digits")
+    if payload["passed"] != _comparison_holds(payload["score"], payload["comparator"],
+                                              payload["threshold"]):                  # step 8
+        raise _Fail(8, "passed differs from the comparison of score with threshold")
+    sig = r["signature"]
+    if sig["alg"] != "ed25519":                                                       # step 9
+        raise _Fail(9, "signature.alg is not ed25519")
+    sig_bytes = _canonical_b64(sig["sig"], 9, "signature.sig", 64)
+    if "key" in sig:                                                                  # step 10
+        hint = _canonical_b64(sig["key"], 10, "signature.key", 32)
+        if hint != key:
+            raise _Fail(10, "the key hint is not the verification key")
+    _profile(key, sig_bytes, pae(RECEIPT_TYPE, b))                                    # step 11
+    inc = r["inclusion"]                                                              # step 12
+    size, index = _receipt_integer(inc["tree_size"]), _receipt_integer(inc["leaf_index"])
+    if size is None or index is None:
+        raise _Fail(12, "tree_size or leaf_index is not an integer token below 2^53")
+    if index >= size:
+        raise _Fail(12, "leaf_index is not below tree_size")
+    path = inc["inclusion_path"]
+    if not isinstance(path, list) or not all(isinstance(h, str) and _HASH_HEX_RE.match(h) for h in path):
+        raise _Fail(12, "inclusion_path is not an array of 64-character lowercase hexadecimal strings")
+    if not isinstance(inc["root"], str) or not _HASH_HEX_RE.match(inc["root"]):
+        raise _Fail(12, "root is not a 64-character lowercase hexadecimal string")
+    if not verify_inclusion(b, index, size, [bytes.fromhex(h) for h in path], bytes.fromhex(inc["root"])):
+        raise _Fail(12, "the inclusion proof does not verify for leaf_index, tree_size and root")
+    return b
+
+
+# ---- public surface ---------------------------------------------------------------------------------
+def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
+    """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
+    Section 6. Never raises for any receipt bytes; a key that is not 32 bytes is a caller error."""
+    if type(receipt) is not bytes:
+        raise TypeError("receipt must be bytes: the procedure judges the bytes as received")
+    if type(key) is not bytes or len(key) != 32:
+        raise TypeError("the verification key must be 32 raw bytes")
+    try:
+        b = _procedure(receipt, key)
+    except _Fail as f:
+        return ReceiptVerdict(False, f.step, f.rule, f.reason)
+    return ReceiptVerdict(True, None, None, "every step of Section 6 succeeds", b)
+
+
+def payload_bytes(payload: Mapping) -> bytes:
+    """B for a payload given as a dict of str, bool and int: its RFC 8785 bytes, after the payload has
+    passed steps 4 to 8 as a Receiver would apply them. Raises ValueError naming the first violation."""
+    if not isinstance(payload, Mapping):
+        raise ValueError("the payload must be a JSON object")
+    plain = {}
+    for name, value in payload.items():
+        if type(name) is not str:
+            raise ValueError("payload member names must be strings")
+        if isinstance(value, bool) or type(value) in (str, int):
+            plain[name] = value
+        else:
+            raise ValueError(f"payload member {name!r} has a type Table 1 does not allow")
+    try:
+        b = _jcs(plain).encode("utf-8")
+    except (ValueError, TypeError) as exc:
+        raise ValueError(str(exc)) from None
+    try:
+        parsed = _ijson(b, "B", 4)
+        violation = _payload_violation(parsed)
+        if violation:
+            raise _Fail(6, violation)
+        for name in ("model_id_commit", "dataset_id_commit"):
+            if not _COMMIT_RE.match(parsed[name]):
+                raise _Fail(7, f"{name} is not sha256: followed by 64 lowercase hexadecimal digits")
+        if parsed["passed"] != _comparison_holds(parsed["score"], parsed["comparator"], parsed["threshold"]):
+            raise _Fail(8, "passed differs from the comparison of score with threshold")
+    except _Fail as f:
+        raise ValueError(f"the payload fails step {f.step}: {f.reason}") from None
+    return b
+
+
+def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *,
+                             other_leaves: Sequence[bytes] = (), leaf_index: int = 0,
+                             key_hint: bool = True) -> bytes:
+    """The receipt bytes for PAYLOAD, signed by SIGNER. B is the leaf at LEAF_INDEX of a tree whose
+    other leaf inputs are OTHER_LEAVES, in order; with none, the tree has one leaf. The receipt object
+    is written in its RFC 8785 form. The bytes are verified under the signer's key before they are
+    returned, so this producer never hands out a receipt its own verifier refuses."""
+    if not isinstance(signer, Ed25519PrivateKey):
+        raise TypeError("signer must be an Ed25519PrivateKey")
+    b = payload_bytes(payload)
+    leaves = [bytes(x) for x in other_leaves]
+    if type(leaf_index) is not int or not 0 <= leaf_index <= len(leaves):
+        raise ValueError("leaf_index must be an integer from 0 to the number of other leaves")
+    leaves.insert(leaf_index, b)
+    pub = signer.public_key().public_bytes_raw()
+    signature = {"alg": "ed25519", "sig": base64.b64encode(signer.sign(pae(RECEIPT_TYPE, b))).decode("ascii")}
+    if key_hint:
+        signature["key"] = base64.b64encode(pub).decode("ascii")
+    receipt = {
+        "schema": RECEIPT_TYPE,
+        "payload_b64": base64.b64encode(b).decode("ascii"),
+        "signature": signature,
+        "inclusion": {
+            "tree_size": len(leaves),
+            "leaf_index": leaf_index,
+            "inclusion_path": [h.hex() for h in inclusion_proof(leaves, leaf_index)],
+            "root": merkle_tree_hash(leaves).hex(),
+        },
+    }
+    out = _jcs(receipt).encode("utf-8")
+    verdict = verify_signed_eval_receipt(out, pub)
+    if not verdict.ok:
+        raise ValueError(f"the emitted receipt fails its own verification at step {verdict.step_label}: "
+                         f"{verdict.reason}")
+    return out
+
+
+def names_receipt_type(raw: bytes) -> bool:
+    """True when RAW reads as a JSON object whose schema, after unescaping, is the receipt type. A
+    dispatch question only, asked leniently (a byte order mark, bytes that are not UTF-8, trailing data
+    and a repeated name do not hide the schema), so that such a file reaches the receipt procedure and
+    fails there at the step the draft names, instead of being judged as another format. It vouches for
+    nothing."""
+    if type(raw) is not bytes:
+        return False
+    data = raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw
+    try:
+        text = data.decode("utf-8", errors="replace")
+        start = len(text) - len(text.lstrip(" \t\n\r"))
+        obj, _end = json.JSONDecoder().raw_decode(text, start)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(obj, dict) and obj.get("schema") == RECEIPT_TYPE
