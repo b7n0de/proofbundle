@@ -361,6 +361,8 @@ def _resolve_signer(args):
 
 
 def _cmd_emit_eval(args: argparse.Namespace) -> int:
+    if getattr(args, "format", "v0.1") == "eval-receipt-v1":
+        return _emit_signed_eval_receipt(args)
     from .evalclaim import EvalClaimError, emit_eval_receipt, load_claim_text  # noqa: PLC0415
     signer = _resolve_signer(args)
     if signer is None:
@@ -376,6 +378,97 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
         json.dump(bundle, handle, indent=2)
         handle.write("\n")
     print(f"wrote eval receipt {args.out}")
+    return 0
+
+
+def _emit_signed_eval_receipt(args: argparse.Namespace) -> int:
+    """``emit-eval --format eval-receipt-v1``: the receipt of draft-gruszka-signed-evaluation-receipts-00
+    (EXPERIMENTAL). Only on this explicit switch; without it ``emit-eval`` writes eval-claim v0.1 as
+    before. The claim file is the Payload itself, exactly the members of the draft's Table 1; the tree
+    has one leaf unless ``--leaf-index`` and ``--other-leaves`` place B among other leaf inputs."""
+    from .signed_eval_receipt import emit_signed_eval_receipt  # noqa: PLC0415
+    signer = _resolve_signer(args)
+    if signer is None:
+        return 2
+    try:
+        with open(args.claim, encoding="utf-8") as handle:
+            payload = loads_strict(_read_capped(handle))
+        other = []
+        if getattr(args, "other_leaves", None):
+            with open(args.other_leaves, encoding="utf-8") as handle:
+                listed = loads_strict(_read_capped(handle))
+            if not isinstance(listed, list) or not all(isinstance(x, str) for x in listed):
+                raise ValueError("--other-leaves must hold a JSON array of hexadecimal strings")
+            other = [bytes.fromhex(x) for x in listed]
+        receipt = emit_signed_eval_receipt(payload, signer, other_leaves=other,
+                                           leaf_index=getattr(args, "leaf_index", 0) or 0)
+    except (OSError, ValueError, TypeError, ProofBundleError) as exc:
+        _err(exc)
+        return 2
+    with open(args.out, "wb") as handle:
+        handle.write(receipt)   # the exact receipt bytes; a Receiver verifies these bytes
+    print(f"wrote signed evaluation receipt (eval-receipt-v1) {args.out}")
+    return 0
+
+
+def _peek_receipt_bytes(path) -> "bytes | None":
+    """The bytes of PATH for the schema dispatch of ``show-eval``, or None when they cannot be read
+    here; the eval-claim v0.1 path then reads and reports the file exactly as before."""
+    import os  # noqa: PLC0415
+    import stat  # noqa: PLC0415
+    try:
+        st = os.stat(path)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > DEFAULT_BUDGET.input_bytes:
+            return None
+        with open(path, "rb") as handle:
+            raw = handle.read(DEFAULT_BUDGET.input_bytes + 1)
+    except (OSError, TypeError, ValueError):
+        return None
+    return raw if len(raw) <= DEFAULT_BUDGET.input_bytes else None
+
+
+def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
+    """``show-eval`` for a file whose schema is the receipt type of draft-gruszka-signed-evaluation-
+    receipts-00. The draft's Receiver fixes the verification key, so exactly one ``--expect-issuer``
+    is required; the receipt's own key is only a hint. Exit 0 PASS, 1 FAIL (with the first failing
+    step of the draft's Section 6), 2 malformed invocation or a refused pin."""
+    from .signed_eval_receipt import DRAFT, verify_signed_eval_receipt  # noqa: PLC0415
+    pins = getattr(args, "expect_issuer", None) or []
+    try:
+        _refuse_weak_issuer_pins(pins)
+        for flag in ("context", "eat", "verifier_key", "profile"):
+            if getattr(args, flag, None) is not None:
+                raise ValueError(f"--{flag.replace('_', '-')} is not defined for an eval-receipt-v1 receipt")
+        if len(pins) != 1:
+            raise ValueError("an eval-receipt-v1 receipt is verified under the one key the Receiver fixes: "
+                             "pass exactly one --expect-issuer ed25519:<base64>")
+        if not pins[0].startswith("ed25519:"):
+            raise ValueError("--expect-issuer must be ed25519: followed by the base64 of a 32-byte key")
+        key = decode_b64(pins[0][len("ed25519:"):])
+        if len(key) != 32:
+            raise ValueError("--expect-issuer must name a 32-byte Ed25519 key")
+    except (ValueError, TypeError) as exc:
+        _err(exc)
+        return 2
+    verdict = verify_signed_eval_receipt(raw, key)
+    print(f"format     eval-receipt-v1 ({DRAFT})")
+    if not verdict.ok:
+        print(_safe_line(f"=> FAILED at step {verdict.step_label}: {verdict.reason}"), file=sys.stderr)
+        return 1
+    payload = loads_strict(verdict.payload.decode("utf-8"))   # B, verified above
+
+    def _s(v) -> str:
+        return _safe_line(str(v))
+    print(f"suite      {_s(payload['suite'])} ({_s(payload['suite_version'])})")
+    print(f"metric     {_s(payload['metric'])} {_s(payload['comparator'])} {_s(payload['threshold'])}")
+    print(f"score      {_s(payload['score'])}")
+    print(f"passed     {_s(payload['passed'])}   (n={_s(payload['n'])})")
+    print(f"model      commit {_s(payload['model_id_commit'])}")
+    print(f"dataset    commit {_s(payload['dataset_id_commit'])}")
+    print(f"timestamp  {_s(payload['timestamp'])} (the Issuer's statement)")
+    print("note       the key you fixed signed these bytes; the inclusion root is not signed, and the "
+          "receipt does not show that the score is true")
+    print("=> OK")
     return 0
 
 
@@ -403,6 +496,13 @@ def _refuse_weak_issuer_pins(pins) -> None:
 
 
 def _cmd_show_eval(args: argparse.Namespace) -> int:
+    # The verification tells the formats apart by schema: a file whose schema is the receipt type of
+    # draft-gruszka-signed-evaluation-receipts-00 goes to that procedure, every other file to the
+    # eval-claim v0.1 path below, unchanged.
+    from .signed_eval_receipt import names_receipt_type  # noqa: PLC0415
+    raw = _peek_receipt_bytes(args.receipt)
+    if raw is not None and names_receipt_type(raw):
+        return _show_signed_eval_receipt(args, raw)
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
         DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, enclave_assurance_proven,
@@ -2754,6 +2854,14 @@ def build_parser() -> argparse.ArgumentParser:
     emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
     emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit_eval.add_argument("--format", choices=("v0.1", "eval-receipt-v1"), default="v0.1",
+                           help="v0.1 (default): the eval-claim v0.1 receipt bundle. eval-receipt-v1 "
+                                "(EXPERIMENTAL): the receipt of draft-gruszka-signed-evaluation-receipts-00; "
+                                "--claim is then the Payload of that draft's Table 1")
+    emit_eval.add_argument("--leaf-index", dest="leaf_index", type=int, default=0,
+                           help="eval-receipt-v1 only: B's position among the leaf inputs (default 0)")
+    emit_eval.add_argument("--other-leaves", dest="other_leaves", default=None,
+                           help="eval-receipt-v1 only: JSON array of the other leaf inputs as hex, in order")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
     show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
