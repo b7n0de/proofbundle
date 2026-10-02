@@ -605,7 +605,9 @@ def _zweimal(rueckruf):
     (L3-620-T3-03)."""
     antwort = rueckruf({"sha256": "a" * 64})
     leiter = type(antwort) in (bytes, bytearray) and bytes(antwort) == _SCHLUESSEL
-    _ = [[] for _ in range(64)]
+    # A collection starts here for certain. The first version allocated 64 lists and hoped one would start it; under
+    # Python 3.10.21 with cryptography 42 (the crypto-floor job at 4ecfb1ed) none did, and the control swept 0 positions.
+    gc.collect(0)
     rolle = type(antwort) in (bytes, bytearray) and bytes(antwort) == _SCHLUESSEL
     return (leiter, rolle)
 

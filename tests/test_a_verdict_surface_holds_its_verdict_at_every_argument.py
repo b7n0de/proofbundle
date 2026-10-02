@@ -189,6 +189,13 @@ def _grundfaelle() -> "tuple[list[_Grundfall], dict[str, str], Callable[[], None
             offen[name] = f"the base call does not answer: {erstes}"
             continue
         faelle.append(_Grundfall(name, fn, argumente, erstes))
+    if not _sweep._ots_vorhanden():
+        # Without the [anchors] extra neither sweep builds a legitimate input for these four (the sweep names its two
+        # as not measured, `_OTS_FLAECHEN`); they are named open here, never read as held. Found by the hermetic
+        # cleanroom and the crypto-floor job at 4ecfb1ed, which run without the extra.
+        for name in _sweep._OTS_FLAECHEN + _OTS_GRUNDFAELLE:
+            offen.setdefault(name, "NOT MEASURED without OpenTimestamps (proofbundle[anchors]): its legitimate input "
+                                   "needs that extra")
 
     def alles_aufraeumen() -> None:
         uhr()
@@ -479,6 +486,10 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
     return f, aufraeumen
 
 
+#: The verdict surfaces `_flaechen_vier_ots` builds, named so that an environment without OpenTimestamps can name them.
+_OTS_GRUNDFAELLE = ("anchors_markovian.verify_markovian", "anchors_ots.verify_opentimestamps")
+
+
 def _flaechen_vier_ots() -> list:
     """The OpenTimestamps verifier and the markovian one, on a real upgraded proof and the relying party's header, as
     tests/test_a_verifier_reads_a_callers_value_once.py builds them."""
@@ -508,12 +519,14 @@ def _flaechen_vier_ots() -> list:
                            "merkle_root": mr, "block_height": 77810,
                            "ots": base64.b64encode(aufgewertet(r1)).decode()}).encode()
     kopf = {"bitcoin_block_headers": {"850000": hashlib.sha256(r1 + b"\x00").hexdigest()}}
-    return [
+    f = [
         ("anchors_markovian.verify_markovian", lambda w: verify_markovian(
             w(umschlag), w(r1), frozen=w({}), now=w(1_780_000_000), rp_trust=w(kopf))),
         ("anchors_ots.verify_opentimestamps", lambda w: verify_opentimestamps(
             w(aufgewertet(r1)), w(r1), frozen=w({}), now=w(1_780_000_000), rp_trust=w(kopf))),
     ]
+    assert tuple(name for name, _ in f) == _OTS_GRUNDFAELLE, "_OTS_GRUNDFAELLE names what is built here"
+    return f
 
 
 def _urteilsflaechen() -> "set[str]":
