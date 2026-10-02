@@ -387,9 +387,16 @@ def tool_calls_from_trace(path: pathlib.Path) -> list[str] | None:
             return None  # a corrupted line: NOT MEASURED, never a silent skip
         if isinstance(obj, dict) and obj.get("type") == "assistant":
             message = obj.get("message")
-            content = message.get("content") if isinstance(message, dict) else None
-            for block in content if isinstance(content, list) else []:
-                if isinstance(block, dict) and block.get("type") == "tool_use" and isinstance(block.get("name"), str):
+            # R5-3: a relevant event whose structure is not what a transcript writes is NOT MEASURED, never a
+            # silent skip. An assistant event whose message.content is not a list could hide a tool_use the
+            # verdict must see (the reviewer's case: inspect_receipt in an object, then a valid verify_receipt,
+            # read as 'ok'); a tool_use block whose name is not a string is equally unreadable.
+            if not isinstance(message, dict) or not isinstance(message.get("content"), list):
+                return None
+            for block in message["content"]:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    if not isinstance(block.get("name"), str):
+                        return None
                     names.append(block["name"])
     return names
 
@@ -427,6 +434,28 @@ def test_a_foreign_tool_ending_in_verify_receipt_is_not_the_plugins(tmp_path):
         for n in (I, foreign)), encoding="utf-8")
     assert tool_calls_from_trace(trace) == [I, foreign]        # both kept under their own full names
     assert run_order_verdict(trace) == "verify-missing"        # the foreign tool is not the plugin's verify
+
+
+def test_r5_3_a_structurally_broken_assistant_event_is_not_measured(tmp_path):
+    """R5-3 (the reviewer's case): an assistant event whose message.content is an object instead of the
+    expected list, followed by a valid verify_receipt event, must read as not-measured — the broken event
+    could hide a tool_use the verdict must see — never as a silent skip that reports ok."""
+    broken = {"type": "assistant", "message": {"content": {"type": "tool_use", "name": I, "input": {}}}}
+    good = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": V, "input": {}}]}}
+    trace = tmp_path / "broken.jsonl"
+    trace.write_text("\n".join(json.dumps(e) for e in (broken, good)), encoding="utf-8")
+    assert tool_calls_from_trace(trace) is None                # NOT MEASURED, not [V]
+    assert run_order_verdict(trace) == "not-measured"          # red against 110bffdc, which returned "ok"
+
+
+def test_r5_3_a_tool_use_block_without_a_string_name_is_not_measured(tmp_path):
+    """R5-3: a tool_use block whose name is not a string is equally unreadable, so the whole trace is
+    not-measured."""
+    event = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": None, "input": {}}]}}
+    trace = tmp_path / "noname.jsonl"
+    trace.write_text(json.dumps(event), encoding="utf-8")
+    assert tool_calls_from_trace(trace) is None
+    assert run_order_verdict(trace) == "not-measured"
 
 
 def test_the_order_check_reads_an_eval_trace(tmp_path):

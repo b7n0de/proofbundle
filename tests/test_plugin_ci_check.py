@@ -50,6 +50,17 @@ sys.dont_write_bytecode = _bytecode
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
+
+@pytest.fixture(autouse=True)
+def _clean_git_config(monkeypatch):
+    """Isolate git configuration so the gate reads the clean config the owner measured in throwaway repos
+    (Runde 5); a proxy-injected global url.*.insteadOf would otherwise make a resolved push read NOT MEASURED
+    (Punkt 9)."""
+    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+
 BUNDLE = ".proofbundle/build.bundle.json"
 POLICY = ".proofbundle/policy.json"
 REPORT_KEYS = {"outcome", "exit_code", "require_declaration", "repo", "head", "verdict", "reason_id", "digests",

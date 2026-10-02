@@ -185,6 +185,21 @@ def shim(tmp_path: pathlib.Path) -> dict:
     return env
 
 
+@pytest.fixture(autouse=True)
+def _clean_git_config(monkeypatch):
+    """Isolate git configuration for the whole test, so the gate reads the clean configuration the owner
+    measured in throwaway repositories (Runde 5). A CI/agent proxy may inject a global
+    `url.https://github.com/.insteadOf` through GIT_CONFIG_COUNT/KEY_*/VALUE_* or a global config file, and
+    Ebene 1 now reports NOT MEASURED whenever ANY insteadOf/pushInsteadOf rule is configured (Punkt 9).
+    Without this isolation every resolve-path test — in-process gate calls and the gate subprocess alike,
+    which both read the host configuration — would read NOT MEASURED from an unrelated environment rule.
+    The explicit R4-7 tests set a LOCAL rewrite in the repository and still see it."""
+    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+
+
 def run_gate(env: dict, cwd: pathlib.Path | str, command: str, *, raw: str | None = None) -> dict | None:
     event = raw if raw is not None else json.dumps(
         {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}})
@@ -685,8 +700,13 @@ def test_a_codex_style_argument_vector_is_read_as_a_command(shim, repo):
     assert decision(run_gate(shim, repo, "", raw=direct)) == "pass"
     # A vector that wraps the push in a nested shell is read as a command too, and the push is seen: under
     # the closed grammar a nested shell is NOT MEASURED. At aed5ed74 `bash -lc 'git push'` resolved to the
-    # cwd and passed a verified cwd; N15 makes it NOT MEASURED (ask). The Codex consequence of this is
-    # reported to the owner, not decided here (Nachtrag 15, Ebene 1).
+    # cwd and passed a verified cwd; N15 makes it NOT MEASURED (ask). This only exercises the gate's reading
+    # of a list-form command; it is not a claim about what Codex sends. Measured at the Codex pins 14a477ea
+    # and c248f6d4, Codex hands the PreToolUse hook `{"command": args.cmd}` — the raw command, with no outer
+    # `bash -lc` wrapper (exec_command.rs, pre_tool_use_payload; test exec_command_pre_tool_use_payload_uses_
+    # raw_command). So a real Codex event would carry the command itself, nothing to unpack. The separate
+    # R5-2 context defect (the hook's cwd is the session dir, not the execution workdir) is why every Codex
+    # push is NOT MEASURED (Nachtrag 18, Punkt 10; D12).
     wrapped = json.dumps({"cwd": str(repo), "tool_input": {"command": ["bash", "-lc", "git push"]}})
     assert decision(run_gate(shim, repo, "", raw=wrapped)) == "ask"
 

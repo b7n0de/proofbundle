@@ -68,6 +68,20 @@ sys.path.insert(0, str(GATE.parent))
 import proofbundle_gate as gate  # noqa: E402
 
 sys.path.pop(0)
+
+
+@pytest.fixture(autouse=True)
+def _clean_git_config(monkeypatch):
+    """Isolate git configuration so the gate reads the clean config the owner measured in throwaway repos
+    (Runde 5). A CI/agent proxy may inject a global url.*.insteadOf through GIT_CONFIG_COUNT/KEY_*/VALUE_*
+    or a global config file, and Ebene 1 now reports NOT MEASURED whenever ANY insteadOf/pushInsteadOf rule
+    is configured (Punkt 9); without isolation every resolve-path case would read NOT MEASURED from an
+    unrelated environment rule."""
+    import os  # noqa: PLC0415
+    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
 sys.dont_write_bytecode = _bytecode
 
 #: The marketplace files Codex looks for, first match wins (core-plugins/src/marketplace.rs:20-25).
@@ -287,17 +301,19 @@ INACTIVE = "The gate is not active in this repository, because nothing is declar
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_under_both_hosts_a_repository_that_declares_nothing_gets_no_decision(shim, tmp_path):
+def test_a_nothing_declared_push_is_inactive_under_claude_but_not_measured_under_codex(shim, tmp_path):
+    # Owner choice A (R5-2): under Claude a resolved nothing-declared push stays inactive with no decision
+    # (D5, C); under Codex it is NOT MEASURED and denied, because the hook cannot bind the execution workdir.
     repo = _repo(tmp_path, declare=False)
     claude = _run(shim, repo)
+    assert _codex_valid(claude) == "pass", "Claude: no decision on a measured nothing-declared repository"
+    assert "permissionDecision" not in claude["hookSpecificOutput"]
+    assert claude["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in claude["systemMessage"]
     codex = _run(shim, repo, "--host", "codex")
-    assert codex == claude, "the same answer under both hosts"
-    assert _codex_valid(codex) == "pass", "Codex accepts an answer without a decision"
-    assert "permissionDecision" not in codex["hookSpecificOutput"]
-    assert codex["systemMessage"].startswith("NOT MEASURED:")
-    assert INACTIVE in codex["systemMessage"]
-    assert codex["hookSpecificOutput"]["additionalContext"] == codex["systemMessage"]
-    assert "Codex cannot ask" not in codex["systemMessage"]
+    assert _codex_valid(codex) == "deny", "Codex: every push is NOT MEASURED, so denied"
+    assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+    assert "workdir" in codex["systemMessage"] and "Codex cannot ask" in codex["systemMessage"]
+    assert INACTIVE not in codex["systemMessage"]  # the gate never reached the repository's state
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -308,10 +324,12 @@ def test_under_codex_a_declaration_only_in_the_working_tree_is_denied_as_not_mea
         {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert "not committed" in claude["systemMessage"]  # Claude still reaches the uncommitted-declaration case
     codex = _run(shim, repo, "--host", "codex")
     assert _codex_valid(codex) == "deny"
     assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
-    assert "not committed" in codex["systemMessage"]
+    # Under Codex the push is NOT MEASURED before the repository is read, so the reason is the unbound context.
+    assert "workdir" in codex["systemMessage"]
     assert "Codex cannot ask" in codex["systemMessage"]
 
 
@@ -339,11 +357,16 @@ def test_under_codex_every_other_not_measured_case_is_still_denied(shim, tmp_pat
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_under_codex_a_tampered_bundle_is_denied_and_a_verified_one_passes(shim, tmp_path):
-    assert _codex_valid(_run(shim, _repo(tmp_path / "a", declare=True, tamper=True), "--host", "codex")) == "deny"
+def test_under_codex_every_push_is_not_measured_whatever_the_evidence(shim, tmp_path):
+    # Owner choice A (R5-2): under Codex a push is NOT MEASURED before the repository is read, so a tampered
+    # bundle and a verified one deny with the SAME context-unbound reason, not with an evidence verdict. The
+    # per-state verdicts are the Claude-host / Ebene-2 property (test_claude_code_plugin_gate.py).
+    tampered = _run(shim, _repo(tmp_path / "a", declare=True, tamper=True), "--host", "codex")
+    assert _codex_valid(tampered) == "deny"
+    assert "workdir" in tampered["systemMessage"] and "verification failed" not in tampered["systemMessage"]
     verified = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex")
-    assert _codex_valid(verified) == "pass"
-    assert "declared items verified" in verified["systemMessage"]
+    assert _codex_valid(verified) == "deny"
+    assert "workdir" in verified["systemMessage"] and "declared items verified" not in verified["systemMessage"]
 
 
 def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path):
@@ -441,9 +464,10 @@ def test_the_mac_runbook_names_every_case_with_its_expected_answer():
     for mode in set(modes):
         assert mode in scaffold, mode
     expected = [row.split("|")[4].strip() for row in rows]
-    assert expected[0].startswith("no decision, NOT MEASURED")
-    assert expected[1:6] == ["deny, NOT MEASURED", "deny", "deny", "deny", "deny"]
-    assert expected[6].startswith("no decision")
+    # Owner choice A (R5-2): under --host codex every push Ebene 1 would resolve is NOT MEASURED, so cases
+    # 1 to 5 all deny NOT MEASURED, independent of the repository's evidence state.
+    assert expected[:7] == ["deny, NOT MEASURED (Codex context unbound)"] * 7, expected
+    assert expected[7].startswith("none")  # case 6: the gate did not run (hooks not trusted)
     assert "NOT MEASURED" in text and "gate did not run" in text
     assert f"`{gate.MCP_MATCHER}`" in text, "the runbook names the matcher the manifests carry"
 
@@ -569,7 +593,7 @@ def test_the_guard_finds_each_form_that_would_switch_the_hooks_off(tmp_path, pla
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_under_codex_a_rules_change_is_denied_and_the_same_push_passes_once_published(shim, tmp_path):
+def test_under_codex_a_rules_change_push_is_not_measured_while_claude_asks(shim, tmp_path):
     repo = _repo(tmp_path, declare=True)
     policy = json.loads((repo / ".proofbundle" / "policy.json").read_text(encoding="utf-8"))
     other = generate_signer().public_key().public_bytes_raw()
@@ -579,5 +603,9 @@ def test_under_codex_a_rules_change_is_denied_and_the_same_push_passes_once_publ
     _git(repo, "commit", "-q", "-m", "widen the policy")
     codex = _run(shim, repo, "--host", "codex")
     assert _codex_valid(codex) == "deny"
-    assert "evidence rules" in codex["systemMessage"] and "Codex cannot ask" in codex["systemMessage"]
-    assert _run(shim, repo)["hookSpecificOutput"]["permissionDecision"] == "ask"
+    # Owner choice A (R5-2): under Codex the deny is the context-unbound NOT MEASURED, not the rules-change
+    # verdict; Claude still reaches the rules-change ask.
+    assert "workdir" in codex["systemMessage"] and "Codex cannot ask" in codex["systemMessage"]
+    claude = _run(shim, repo)
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert "evidence rules" in claude["systemMessage"]

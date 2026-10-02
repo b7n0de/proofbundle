@@ -47,6 +47,17 @@ sys.path.pop(0)
 sys.dont_write_bytecode = _bytecode
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+
+
+@pytest.fixture(autouse=True)
+def _clean_git_config(monkeypatch):
+    """Isolate git configuration so the gate reads the clean config the owner measured in throwaway repos
+    (Runde 5); a proxy-injected global url.*.insteadOf would otherwise make Ebene 1 read NOT MEASURED
+    everywhere (Punkt 9)."""
+    for key in [k for k in os.environ if k.startswith("GIT_CONFIG")]:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
 ENTRY_KEYS = {"ts", "host", "gate_version", "session_id", "tool", "actions", "decision", "verdict", "reason_ids",
               "repos"}
 
@@ -145,12 +156,22 @@ def test_a_deny_is_logged_with_its_reason_id(env, tmp_path):
     (repo / "README.md").write_text("changed after signing\n", encoding="utf-8")
     _git(repo, "commit", "-q", "-am", "late change")
     data, first = tmp_path / "data", tmp_path / "first"
+    # Under Codex (owner choice A, R5-2) a push is NOT MEASURED before the repository is read, so the logged
+    # deny carries the context-unbound reason (verdict 'ask' → deny), and the gate writes to PLUGIN_DATA first.
     answer, _ = _gate(dict(env, PLUGIN_DATA=str(first), CLAUDE_PLUGIN_DATA=str(data)), repo, "git push",
                       "--host", "codex")
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert _lines(data) == [], "under Codex the gate writes to PLUGIN_DATA first"
     (line,) = _lines(first)
-    assert (line["host"], line["decision"], line["verdict"], line["reason_ids"]) == ("codex", "deny", "deny", ["stale_subject"])
+    assert (line["host"], line["decision"], line["verdict"], line["reason_ids"]) == (
+        "codex", "deny", "ask", ["codex_context_unbound"])
+    # Under Claude the gate reaches the repository and logs the evidence verdict itself: a stale subject.
+    claude_data = tmp_path / "claude-data"
+    claude_answer, _ = _gate(dict(env, CLAUDE_PLUGIN_DATA=str(claude_data)), repo, "git push")
+    assert claude_answer["hookSpecificOutput"]["permissionDecision"] == "deny"
+    (claude_line,) = _lines(claude_data)
+    assert (claude_line["host"], claude_line["decision"], claude_line["verdict"],
+            claude_line["reason_ids"]) == ("claude", "deny", "deny", ["stale_subject"])
 
 
 @pytest.mark.parametrize("host, variables, used", [
