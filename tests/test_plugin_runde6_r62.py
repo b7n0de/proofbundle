@@ -9,6 +9,8 @@ Red against 2b813de2 (the four forms returned None = free); green after the fix 
 import importlib.util
 import os
 
+import pytest
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GATE = os.path.join(HERE, "..", "plugins", "proofbundle", "hooks", "proofbundle_gate.py")
 
@@ -86,3 +88,46 @@ def test_checked_forms_stay_free():
 def test_real_push_still_resolves():
     g = _gate()
     assert g._strict_git(["push", "origin", "main"], "/repo") == ("git push", "/repo", ["origin", "main"])
+
+
+# --- siblings of the class (Nachtrag 19, CLASSES AND SIBLINGS): the environment and git config writes ----
+
+def _calls(g, command):
+    return g.gated_calls(command)
+
+
+@pytest.mark.parametrize("command", [
+    "GIT_EXTERNAL_DIFF=/tmp/ship.sh git diff",            # the environment form of -c diff.external=
+    "GIT_SSH_COMMAND=/tmp/ship.sh git fetch origin",      # selects the transport program for fetch
+    "GIT_PAGER=/tmp/ship.sh git log",                     # a pager program
+    "GIT_EDITOR=/tmp/ship.sh git commit",                 # an editor program
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.external GIT_CONFIG_VALUE_0=/tmp/ship.sh git diff",
+    "HOME=/tmp/elsewhere git diff",                       # a different global configuration
+    "env GIT_EXTERNAL_DIFF=/tmp/ship.sh git diff",        # through the env wrapper
+    "export GIT_EXTERNAL_DIFF=/tmp/ship.sh; git diff",    # exported earlier in the same command
+    "bash -c 'GIT_EXTERNAL_DIFF=/tmp/ship.sh git diff'",  # nested
+    "git config diff.external /tmp/ship.sh",              # a config write that selects a helper
+    "git config core.editor /tmp/ship.sh",
+    "git config set diff.external /tmp/ship.sh",          # git 2.46+ form
+    "git config --edit",                                  # opens an editor
+    "git config --file /tmp/x.cfg diff.external y",       # an unvetted option
+])
+def test_environment_and_config_writes_that_can_select_a_program_are_not_measured(command):
+    g = _gate()
+    calls = _calls(g, command)
+    assert calls and all(c[1] is g.UNKNOWN for c in calls), (command, calls)
+
+
+@pytest.mark.parametrize("command", [
+    "GIT_PAGER=cat git log", "GIT_EDITOR=true git commit", "GIT_TERMINAL_PROMPT=0 git status",
+    "LC_ALL=C git status", "git config user.name t", "git config --get remote.origin.url",
+    "git config --list", "git config get user.email", "git status && git diff --stat",
+])
+def test_vetted_assignments_and_config_reads_stay_free(command):
+    assert _calls(_gate(), command) == [], command
+
+
+def test_an_unvetted_askpass_makes_a_push_not_measured():
+    g = _gate()
+    assert g.gated_calls("GIT_ASKPASS=/tmp/ship.sh git push origin main") == [("git push", g.UNKNOWN, None)]
+    assert g.gated_calls("GIT_TERMINAL_PROMPT=0 git push origin main") == [("git push", ".", ["origin", "main"])]

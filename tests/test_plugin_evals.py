@@ -385,16 +385,24 @@ def tool_calls_from_trace(path: pathlib.Path) -> list[str] | None:
             obj = json.loads(line)
         except ValueError:
             return None  # a corrupted line: NOT MEASURED, never a silent skip
-        if isinstance(obj, dict) and obj.get("type") == "assistant":
+        # R6-3: every event line must be a JSON object with, if present, a string type. A list, a scalar or
+        # null is not what a transcript writes and could hide a relevant event (the reviewer's case: an
+        # assistant event wrapped in a JSON list before a valid verify read as 'ok'), so the whole trace is
+        # not-measured, never a silent skip.
+        if not isinstance(obj, dict) or not isinstance(obj.get("type", ""), str):
+            return None
+        if obj.get("type") == "assistant":
             message = obj.get("message")
-            # R5-3: a relevant event whose structure is not what a transcript writes is NOT MEASURED, never a
-            # silent skip. An assistant event whose message.content is not a list could hide a tool_use the
-            # verdict must see (the reviewer's case: inspect_receipt in an object, then a valid verify_receipt,
-            # read as 'ok'); a tool_use block whose name is not a string is equally unreadable.
+            # R5-3: an assistant event whose message.content is not a list could hide a tool_use the verdict
+            # must see (inspect_receipt in an object, then a valid verify_receipt, read as 'ok').
             if not isinstance(message, dict) or not isinstance(message.get("content"), list):
                 return None
             for block in message["content"]:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
+                # R6-3: every block must be an object with a string type; a nested list or null is unreadable
+                # and could hide a tool_use, and a tool_use without a string name is equally unreadable (R5-3).
+                if not isinstance(block, dict) or not isinstance(block.get("type"), str):
+                    return None
+                if block["type"] == "tool_use":
                     if not isinstance(block.get("name"), str):
                         return None
                     names.append(block["name"])
@@ -456,6 +464,38 @@ def test_r5_3_a_tool_use_block_without_a_string_name_is_not_measured(tmp_path):
     trace.write_text(json.dumps(event), encoding="utf-8")
     assert tool_calls_from_trace(trace) is None
     assert run_order_verdict(trace) == "not-measured"
+
+
+_GOOD_VERIFY = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": V, "input": {}}]}}
+
+
+@pytest.mark.parametrize("unreadable, case", [
+    # R6-3, the reviewer's three cases, each before a valid verify: a block inside a nested list ...
+    ({"type": "assistant", "message": {"content": [[{"type": "tool_use", "name": I, "input": {}}]]}},
+     "a tool_use block in a nested list"),
+    # ... an assistant event wrapped in a JSON list ...
+    ([{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": I, "input": {}}]}}],
+     "an event wrapped in a JSON list"),
+    # ... and a content list holding null.
+    ({"type": "assistant", "message": {"content": [None]}}, "a content block that is null"),
+])
+def test_r6_3_an_unreadable_event_or_block_before_a_valid_verify_is_not_measured(tmp_path, unreadable, case):
+    """R6-3: the reader checks the form of every event line and of every block in an assistant message's
+    content; a structure it cannot read is not-measured, never skipped. Red against 2b813de2, which skipped
+    the non-object and returned 'ok' on the later verify."""
+    trace = tmp_path / "unreadable.jsonl"
+    trace.write_text("\n".join(json.dumps(e) for e in (unreadable, _GOOD_VERIFY)), encoding="utf-8")
+    assert tool_calls_from_trace(trace) is None, case
+    assert run_order_verdict(trace) == "not-measured", case
+
+
+def test_r6_3_the_control_sequence_inspect_before_verify_is_an_order_violation(tmp_path):
+    """R6-3 control: the same events in readable form, inspect before verify, read as order-violation."""
+    inspect = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": I, "input": {}}]}}
+    trace = tmp_path / "control.jsonl"
+    trace.write_text("\n".join(json.dumps(e) for e in (inspect, _GOOD_VERIFY)), encoding="utf-8")
+    assert tool_calls_from_trace(trace) == [I, V]
+    assert run_order_verdict(trace) == "order-violation"
 
 
 def test_the_order_check_reads_an_eval_trace(tmp_path):

@@ -376,12 +376,14 @@ def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_under_codex_an_mcp_pull_request_is_gated_like_a_push(shim, tmp_path):
+    # Runde 6, R6-1: under Codex a gated MCP write is NOT MEASURED and denied, whatever the local repository
+    # declares; the local check appears only as a diagnosis.
     undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex",
                       tool="mcp__github__create_pull_request")
-    assert _codex_valid(undeclared) == "pass"
-    assert undeclared["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in undeclared["systemMessage"]
+    assert _codex_valid(undeclared) == "deny"
+    assert undeclared["systemMessage"].startswith("NOT MEASURED:") and "Diagnosis only" in undeclared["systemMessage"]
     declared = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool="mcp__gitlab__create_merge_request")
-    assert _codex_valid(declared) == "pass"
+    assert _codex_valid(declared) == "deny"
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -391,9 +393,9 @@ def test_under_codex_an_mcp_write_or_merge_is_gated_like_a_push(shim, tmp_path, 
     import re  # noqa: PLC0415
     assert re.search(_codex_hook_matcher(), tool)
     undeclared = _run(shim, _repo(tmp_path / "a", declare=False), "--host", "codex", tool=tool)
-    assert _codex_valid(undeclared) == "pass"
-    assert undeclared["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in undeclared["systemMessage"]
-    assert _codex_valid(_run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool=tool)) == "pass"
+    assert _codex_valid(undeclared) == "deny"  # Runde 6, R6-1
+    assert undeclared["systemMessage"].startswith("NOT MEASURED:") and "Diagnosis only" in undeclared["systemMessage"]
+    assert _codex_valid(_run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex", tool=tool)) == "deny"
 
 
 @pytest.mark.parametrize("args", [["--host"], ["--host", "cursor"], ["--hots", "codex"], ["codex"]])

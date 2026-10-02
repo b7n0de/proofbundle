@@ -152,10 +152,12 @@ def test_a_not_measured_transfer_asks_under_claude_and_denies_under_codex(tmp_pa
 
 @pytest.mark.parametrize("key", ["url.https://mirror/.insteadOf", "url.https://mirror/.pushInsteadOf"])
 def test_r4_7_an_insteadof_rewrite_makes_ebene_1_not_measured(tmp_path, key):
-    repo, _ = _make_repo(tmp_path, "r", declare="valid")
-    # The rewrite is configured AFTER the last fetch; Ebene 1 cannot prove the push endpoint is the origin of
-    # the comparison state, so the push is NOT MEASURED (Punkt 9, correcting R4-7 for symmetric insteadOf too).
-    _git(repo, "config", key, "https://origin-host/")
+    repo, bare = _make_repo(tmp_path, "r", declare="valid")
+    # The rewrite is configured AFTER the last fetch and applies to this remote's URL; Ebene 1 cannot prove
+    # the push endpoint is the origin of the comparison state, so the push is NOT MEASURED (Punkt 9,
+    # correcting R4-7 for symmetric insteadOf too). Runde 6, Punkt 2: the rule must actually match the
+    # remote's URL; a rule for another host is excluded (test_plugin_gate_runde6.py).
+    _git(repo, "config", key, str(bare))
     assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline()) is None
 
 

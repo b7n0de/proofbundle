@@ -283,6 +283,8 @@ def reason(answer: dict) -> str:
     ("git config core.hooksPath /x", [("git config core.hooksPath", ".", [gate._HOOKS_DISABLE])]),
     # An unparsable command (an unbalanced quote) still names its gated call through the fallback.
     ("git commit -m 'no closing quote; git push", [("unparsed command", gate.UNKNOWN, None)]),
+    # Runde 6, R6-2: a per-command -c sets NOT MEASURED, which an allow-listed subcommand no longer drops.
+    ("git -c a=b status push", [("git status", gate.UNKNOWN, [gate._MAYBE_PUSH])]),
 ])
 def test_a_gated_call_is_found_in_every_shell_form(command, expected):
     assert gate.gated_calls(command) == expected
@@ -290,7 +292,7 @@ def test_a_gated_call_is_found_in_every_shell_form(command, expected):
 
 @pytest.mark.parametrize("command", [
     "git status", "git stash push", "git log --grep push", "git config push.default simple",
-    "git -c a=b status push", "gh pr view 3", "gh pr list", "gh release list", "npm publish", "ls -la",
+    "gh pr view 3", "gh pr list", "gh release list", "npm publish", "ls -la",
     "git commit -m 'no closing quote",
     "echo 'git push'",   # Nachtrag 15: echo does not execute its argument, so it is not a gated call
 ])
@@ -763,13 +765,17 @@ def test_the_mcp_matcher_names_exactly_the_gated_tools():
 
 
 @pytest.mark.parametrize("tool", GATED_MCP)
-def test_a_gated_mcp_tool_is_judged_by_the_local_repository(shim, repo, tool):
+def test_a_gated_mcp_tool_is_not_measured_whatever_the_local_repository(shim, repo, tool):
+    """Runde 6, R6-1: a gated MCP write is NOT MEASURED and asks under Claude, because the hook binds neither
+    its actual target nor the bytes it writes. The local repository is checked as a diagnosis only: a valid
+    one and a changed one give the same decision."""
     answer = run_gate(shim, repo, "", raw=_mcp_event(repo, tool))
-    assert decision(answer) == "pass"
-    assert "MCP" in reason(answer) and "the local repository" in reason(answer)
+    assert decision(answer) == "ask"
+    assert reason(answer).startswith("NOT MEASURED:") and "Diagnosis only" in reason(answer)
+    assert "the local repository" in reason(answer)
     _write(repo / "src" / "app.py", "print('changed after signing')\n")
     _commit(repo)
-    assert decision(run_gate(shim, repo, "", raw=_mcp_event(repo, tool))) == "deny"
+    assert decision(run_gate(shim, repo, "", raw=_mcp_event(repo, tool))) == "ask"
 
 
 def test_an_mcp_pull_request_without_declared_evidence_is_not_measured(shim, tmp_path):
@@ -778,7 +784,7 @@ def test_an_mcp_pull_request_without_declared_evidence_is_not_measured(shim, tmp
     _git(plain, "init", "-q", "-b", "main")
     _commit(plain)
     answer = run_gate(shim, plain, "", raw=_mcp_event(plain, "mcp__github__create_pull_request"))
-    assert decision(answer) == "inactive"
+    assert decision(answer) == "ask"  # R6-1: never inactive for the foreign target
     assert reason(answer).startswith("NOT MEASURED:")
     _declare(plain, GOOD_BUNDLE)
     answer = run_gate(shim, plain, "", raw=_mcp_event(plain, "mcp__github__create_pull_request"))
@@ -794,7 +800,7 @@ def test_an_mcp_pull_request_without_declared_evidence_is_not_measured(shim, tmp
 ])
 def test_a_gated_mcp_tool_says_what_the_gate_could_not_see(shim, repo, tool, unseen):
     answer = run_gate(shim, repo, "", raw=_mcp_event(repo, tool))
-    assert decision(answer) == "pass"
+    assert decision(answer) == "ask"
     assert unseen in reason(answer)
 
 
@@ -805,7 +811,7 @@ def test_an_mcp_write_without_declared_evidence_is_not_measured(shim, tmp_path):
     _commit(plain)
     for tool in ("mcp__github__push_files", "mcp__github__create_or_update_file", "mcp__github__merge_pull_request"):
         answer = run_gate(shim, plain, "", raw=_mcp_event(plain, tool))
-        assert decision(answer) == "inactive", tool
+        assert decision(answer) == "ask", tool  # R6-1: never inactive for the foreign target
         assert reason(answer).startswith("NOT MEASURED:"), tool
 
 
@@ -1266,12 +1272,16 @@ def test_a_push_nested_in_a_shell_bundle_is_not_measured(shim, repo, command):
 
 def test_a_push_insteadof_rewrite_is_not_measured(repo):
     """R4-7: `git remote get-url` shows the rewritten push URL, but the equality of the displayed push and
-    fetch URLs is not a proof the push reaches the comparison-state origin — a url.*.pushInsteadOf rewrite
-    is applied at the transport layer, which the gate does not reproduce. With such a rewrite configured the
-    push is NOT MEASURED. Red against aed5ed74, which compared only the displayed URLs."""
+    fetch URLs is not a proof the push reaches the comparison-state origin. A url.*.pushInsteadOf rule that
+    applies to this remote makes the push NOT MEASURED. Runde 6, Punkt 2: a rule that provably does not
+    match this remote's URL is excluded and no longer forces NOT MEASURED. Red against aed5ed74, which
+    compared only the displayed URLs."""
     assert _resolve(repo, "origin", "main") is not None  # no push rewrite: the target resolves
     _git(repo, "config", "url.https://mirror.invalid/.pushInsteadOf", "https://origin.invalid/")
-    assert _resolve(repo, "origin", "main") is None      # a push-only rewrite: NOT MEASURED
+    assert _resolve(repo, "origin", "main") is not None  # the rule does not match the remote's path URL
+    url = str(repo.parent / "remote.git")  # the fixture's remote URL (a local bare repository path)
+    _git(repo, "config", "url.https://mirror.invalid/x/.pushInsteadOf", url)
+    assert _resolve(repo, "origin", "main") is None      # a push-only rewrite of this remote: NOT MEASURED
 
 
 def test_a_symlinked_minus_c_is_resolved_physically(repo, tmp_path):
