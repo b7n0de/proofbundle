@@ -3,7 +3,7 @@
 The test vectors of draft-gruszka-signed-evaluation-receipts-00 (Signed Evaluation Receipts),
 Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
 
-- 64 vectors: 9 that verify (P1 to P9) and 55 that do not (N1 to N55), each with the expected
+- 65 vectors: 9 that verify (P1 to P9) and 56 that do not (N1 to N56), each with the expected
   verdict and the first failing step of the draft's Section 6.
 - Compact form: every payload B is stored once under `payloads`, and a receipt names its
   `payload_b64` by the token `@Bn@` when that value is exactly the base64 of a stored B. The test
