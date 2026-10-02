@@ -154,7 +154,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (74 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (75 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -169,7 +169,9 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   requires a complete stream and nothing after it), and mypy **2.3.0** was re-run over the 73 and
 #   exits 0. On 2026-09-28 it became 74 (`src/proofbundle/_plain_value.py`, the one reader that copies
 #   a caller's value from its storage into exact built-in types), and mypy **2.3.0** was re-run over
-#   the 74 and exits 0. The other seven versions were NOT re-run for any of the four new files; that is the same boundary
+#   the 74 and exits 0. On 2026-10-02 it became 75 (`src/proofbundle/signed_eval_receipt.py`, the
+#   EXPERIMENTAL eval-receipt-v1 format behind its explicit switch), and mypy **2.3.0** was re-run over
+#   the 75 and exits 0. The other seven versions were NOT re-run for any of the five new files; that is the same boundary
 #   RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather
 #   than absorbed into the sentence above.
 #
