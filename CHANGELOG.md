@@ -92,23 +92,28 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     clone, which reads no `PYTHONPATH`, so such a module does not run at all. Its tests plant a hidden package
     at every position a real run imports and a module at every position of three entries into the checkout,
     read from real runs.
-  - Two more of the same class, found by Codex on the fixes above. The interpreter and the checkout must not share a
-    directory in EITHER direction: an interpreter installed in the clone was already refused, and a clone placed IN a
-    startup directory of an outside interpreter (at the venv's `purelib`) is refused now too, because a `.pth` there
-    runs at interpreter start, `-I` included, and Codex turned a mismatched receipt into exit 0 VERIFIED that way. And
-    no git call of the verifier may run a program the clone chose: the working-tree inspection ran a `filter.*.clean`
-    configured in `.git/config` and selected by `.git/info/attributes`, so a clone whose own configuration or
-    attributes name a program (a `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor or
-    credential command, and the other program-selecting families) is refused with exit 2 before the inspection; the
-    global and system configuration are read from the null device and no program-selecting environment name is
-    inherited (owner decision of 2026-10-02 on card OA-4496f29e70). `scripts/pre_tag_audit_gate.py` reads git only
-    through this funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares bytes with
-    `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep.
+  - More of the same class, found by Codex on the fixes above and closed at the root rather than one directory at a
+    time. The interpreter and the checkout must not share a directory in EITHER direction, measured against the
+    interpreter's whole installation: an interpreter installed in the clone, a clone at the venv's `purelib`, and a
+    clone rooted at the interpreter's `lib-dynload` (where a `sitecustomize.py` runs under `-I` on 3.14) each turned a
+    mismatched receipt into exit 0 VERIFIED. Enumerating the particular startup directories lost that race, so the
+    verifier now refuses whenever the checkout lies in, equals, or contains any of the four prefixes
+    (`sys.prefix`/`exec_prefix`/`base_prefix`/`base_exec_prefix`), which hold every directory it reads code from, or any
+    site directory. And no git call of the verifier runs a program the clone chose: the cleanliness check is the
+    byte-for-byte comparison of every committed file under `scripts/` and `src/` with its blob, which calls no git
+    worktree operation, so the `git status` that ran a `filter.*.clean` (measured at 653b5d67) is gone and with it the
+    only git call that would run a configured program; the remaining calls read objects. As the owner's class decision
+    in its own words (OA-4496f29e70), a clone whose own configuration or attributes still NAME a program (a `filter`,
+    `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, credential or interactive-filter command, a
+    URL-scoped credential helper, an ssh signing command) is refused as well, with the global and system configuration
+    read from the null device and no program-selecting environment name inherited. `scripts/pre_tag_audit_gate.py`
+    reads git only through the same hardened funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares
+    bytes with `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep.
   - What a caller sees differently: a policy or flag that was accepted with no effect is refused with exit 2;
     `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify or names another
     audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/`, on a run
-    in which a module of the checkout was loaded before its first line, when the Python running it shares a directory
-    with the clone, when it is started from another checkout than `--repo`, and on a clone whose own git configuration
+    in which a module of the checkout was loaded before its first line, when the Python running it shares any directory
+    with the clone in either direction, when it is started from another checkout than `--repo`, and on a clone whose own git configuration
     or attributes select a program.
 
 - **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is

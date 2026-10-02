@@ -1155,14 +1155,22 @@ under `-I`, and one that patched `importlib.util.spec_from_file_location` gave e
 another tree. The fix of 30e1cbf2 refused an interpreter installed in the clone; Codex at 252ba3c6 found the
 SYMMETRIC gap (P1, reproduced): a clone placed IN a startup directory of an outside interpreter (at the venv's
 `purelib`) is run by that interpreter's `site` processing, `.pth` and all, `-I` included, and that too gave exit 0
-VERIFIED. The verifier now refuses when the checkout and any startup directory of the interpreter overlap in either
-direction -- a prefix at or below the checkout, or a site directory that the checkout lies in or that lies in the
-checkout. Alongside, the owner's class decision (OA-4496f29e70, 2026-10-02): no git call of the verifier may run a
-program the clone chose. The working-tree inspection ran a `filter.*.clean` set in `.git/config` and selected by
-`.git/info/attributes`; the verifier now refuses a clone whose own configuration or attributes name a program (a
-`filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, alternate-ref or credential command, and
-the other program-selecting families) before that inspection, reads the global and system configuration from the null
-device, and inherits no program-selecting environment name. The sweep over the neighbours: `pre_tag_audit_gate.py`
+VERIFIED. Codex at d0e47397 found the enumeration still incomplete (P1, reproduced on 3.14): a clone rooted at the
+interpreter's `lib-dynload`, a startup directory under a prefix that `purelib`/`platlib` enumeration missed. So
+the verifier now tests containment against the interpreter's WHOLE installation in both directions -- it refuses
+when the checkout lies in, equals, or contains any of the four prefixes (which hold `lib-dynload`, the standard
+library, `purelib` and `platlib` alike) or any site directory. Alongside, the owner's class decision (OA-4496f29e70, 2026-10-02): no git call of the verifier may run a
+program the clone chose. The working-tree inspection ran a `filter.*.clean` set in `.git/config` and selected by `.git/info/attributes`;
+the verifier no longer inspects the working tree with `git status` at all -- the cleanliness check is the
+byte-for-byte comparison of every committed file under `scripts/` and `src/` with its blob, which runs no git
+worktree operation, so the only git call that would run a configured program is gone and the remaining calls
+read objects. As the owner's class decision in its own words, a clone whose own configuration or attributes NAME a
+program is refused as well (a `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor,
+alternate-ref, credential or interactive-filter command, a URL-scoped credential helper, an ssh signing
+command); the global and system configuration are read from the null device and no program-selecting environment
+name is inherited. Codex at d0e47397 named four more config families the first matching missed (P2, a
+completeness gap, not an exploit, since none of them runs during the verifier's object reads); they are matched
+now. The sweep over the neighbours: `pre_tag_audit_gate.py`
 reaches git only through the shared funnel (hardened the same way) and inspects no working tree, and
 `pre_tag_receipt.py` compares bytes with `git hash-object --no-filters` and never runs a worktree filter, so neither
 runs a clone-chosen program; both are covered without a source change of their own logic. The verifier also refuses a

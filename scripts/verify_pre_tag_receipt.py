@@ -17,8 +17,9 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
 ``-I`` (isolated mode) keeps ``PYTHONPATH``, the user's site directory and the script's own directory off the import
 path. ``python`` must be installed outside the clone, and the clone must not lie inside that interpreter's
 installation: Python runs the startup files of its installation (``.pth`` files, ``sitecustomize``) before the
-script's first line, ``-I`` included, so a virtual environment created inside the clone, or a clone placed in the
-environment's own site directory, is refused with exit 2. A clone whose own git configuration or
+script's first line, ``-I`` included, so a virtual environment created inside the clone, a clone in the
+environment's own site directory, or a clone under the interpreter's installation (``lib-dynload`` and the rest)
+is refused with exit 2. A clone whose own git configuration or
 ``.git/info/attributes`` names a program for git to run (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``,
 an ssh, pager, editor or credential command) is refused too, because git would run it while the working tree is
 inspected. With an outside interpreter that does not contain the clone, plus ``-I``, no file of the checkout runs
@@ -137,22 +138,22 @@ def _interpreter_startaugen() -> list:
 
 
 def _interpreter_overlaps_the_checkout() -> list:
-    """Every startup directory of the interpreter that overlaps this checkout dangerously, as `name (path)`.
+    """Every directory of the interpreter that overlaps this checkout in either direction, as `name (path)`.
 
-    Two findings of the same class (Codex on PR 311), and they are not symmetric. A PREFIX is dangerous only when the
-    interpreter is installed IN the checkout (`sys.prefix` at or below `wurzel`): then its site directories, where
-    `.pth` files run, lie in the checkout. A prefix ABOVE the checkout (a clone at `<venv>/src`, the venv at `<venv>`)
-    is not dangerous -- the startup code is read from `<venv>/lib/.../site-packages`, not from `<venv>/src`. A SITE
-    directory is dangerous in EITHER direction: a `.pth` there runs at start, so it must not lie in the checkout (a
-    `.venv/` in the clone) and the checkout must not lie in it (a clone at the venv's `purelib`)."""
+    Four findings of one class (Codex on PR 311): an interpreter installed IN the checkout (a `.venv/` in the clone);
+    a clone placed in the venv's `purelib`; and a clone rooted at the interpreter's `lib-dynload`, where a
+    `sitecustomize.py` runs under `-I`. Enumerating the particular startup directories lost that race -- `purelib`,
+    then `lib-dynload`, then the next one a version adds. So the test is containment against the whole installation,
+    in BOTH directions: the checkout must not lie in, equal, or contain any of the interpreter's four PREFIXES
+    (`sys.prefix`, `sys.exec_prefix`, `sys.base_prefix`, `sys.base_exec_prefix`), which hold every directory the
+    interpreter reads code from -- `lib-dynload`, the standard library, `purelib`, `platlib` all lie under one of them.
+    The site directories are added as well for the user site, which lies under the user base rather than a prefix and
+    which `-I` disables but a run without `-I` does not. A reader therefore runs the verifier from a clone that is
+    disjoint from the Python that runs it; the documented command already is."""
     wurzel = _checkout_root()
     funde = []
     for name, pfad in _interpreter_startaugen():
-        if name == "site":
-            gefahr = _judged_location(pfad, wurzel) or _judged_location(wurzel, pfad)
-        else:  # a prefix: only when the interpreter's installation is inside the checkout
-            gefahr = _judged_location(pfad, wurzel)
-        if gefahr:
+        if _judged_location(pfad, wurzel) or _judged_location(wurzel, pfad):
             funde.append(f"{name} ({pfad})")
     return funde
 
@@ -498,12 +499,18 @@ def _git_environment(root: Path) -> dict:
 _GIT_PROGRAM_KEYS = {
     ("filter", "clean"), ("filter", "smudge"), ("filter", "process"),
     ("diff", "command"), ("diff", "textconv"), ("merge", "driver"),
+    ("credential", "helper"), ("gpg", "program"),
 }
+#: First components whose every subkey names a program (`pager.<cmd>`), unless the value is a plain boolean.
+_GIT_PROGRAM_FIRST = {"pager"}
 _GIT_PROGRAM_EXACT = {
     "core.fsmonitor", "core.hookspath", "core.sshcommand", "core.pager", "core.editor",
     "core.alternaterefscommand", "core.askpass", "diff.external", "sequence.editor",
     "credential.helper", "uploadpack.packobjectshook", "pack.packsizelimit.command",
+    "interactive.difffilter", "gpg.ssh.defaultkeycommand", "gpg.ssh.allowedsignerscommand",
+    "gpg.ssh.revocationfile",
 }
+_GIT_BOOLEAN = {"", "true", "false", "0", "1", "yes", "no", "on", "off"}
 
 
 def _git_configuration_selects_a_program(repo: Path) -> list:
@@ -535,7 +542,11 @@ def _git_configuration_selects_a_program(repo: Path) -> list:
         key_l = key.lower()
         teile = key_l.split(".")
         gewaehlt = key_l in _GIT_PROGRAM_EXACT or (len(teile) >= 2 and (teile[0], teile[-1]) in _GIT_PROGRAM_KEYS)
-        if gewaehlt and value.strip():
+        # A `pager.<cmd>` (and any other first-component family) names a program unless its value is a plain boolean
+        # that only switches paging on or off.
+        if len(teile) >= 2 and teile[0] in _GIT_PROGRAM_FIRST and value.strip().lower() not in _GIT_BOOLEAN:
+            gewaehlt = True
+        if gewaehlt and value.strip() and value.strip().lower() not in _GIT_BOOLEAN - {""}:
             funde.append(f"{key}={value[:60]}")
     return funde
 
@@ -828,44 +839,34 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     except _NichtDasObjekt as exc:
         out["reason"] = _kein_objekt_grund(exc)
         return out
-    # NO GIT CALL BELOW MAY RUN A PROGRAM THE CLONE CHOSE (owner decision OA-4496f29e70, 2026-10-02; Codex sweep). The
-    # `git status` below computes worktree blob hashes, and a clean filter configured in the clone runs then; measured
-    # on 2026-10-02 at 653b5d67 that a `filter.*.clean` under `.git/config` with `.git/info/attributes` `* filter=...`
-    # ran during that status. The clone of GitHub carries no such configuration; a prepared directory does. This refuses
-    # any clone whose own configuration or attributes select a program, before the status call, so no such program runs.
+    # NO GIT CALL OF THE VERIFIER RUNS A PROGRAM THE CLONE CHOSE (owner decision OA-4496f29e70, 2026-10-02; the Codex
+    # sweep's class fix). The cleanliness check below is `_code_on_disk_that_is_not_the_commit`, which hashes the bytes
+    # on disk itself and calls no git worktree operation -- so no `filter.*.clean`, `core.fsmonitor` or other
+    # configured program runs, because the only git call that would have run one was the `git status` this replaced
+    # (measured on 2026-10-02 at 653b5d67: a `filter.*.clean` ran during that status). The remaining git calls read
+    # objects (`cat-file --batch`, `ls-tree`, `rev-parse`) and run no program. As defence in depth, and as the owner's
+    # class decision in its own words, a clone whose own configuration or attributes NAME a program is still refused
+    # here, before any further git call; the global and system configuration are read from the null device and no
+    # program-selecting environment name is inherited (`_git_environment`).
     programme = _git_configuration_selects_a_program(repo)
     if programme:
         out["reason"] = (f"the clone's own git configuration or attributes select a program to run "
-                         f"({programme[0][:160]}{' …' if len(programme) > 1 else ''}); git would run it during the "
-                         "working-tree inspection below, and it is not the commit -- a clone from the forge carries no "
-                         "such setting, so clone afresh, then run again")
+                         f"({programme[0][:160]}{' …' if len(programme) > 1 else ''}); a clone from the forge carries "
+                         "no such setting, so clone afresh, then run again")
         return out
-    # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the
-    # commit says nothing about the files on disk; an uncommitted edit to the receipt library or
-    # to the signature primitive flipped a garbage receipt to VERIFIED with HEAD untouched. A
-    # modified or untracked file under scripts/ or src/ therefore refuses the measurement -- the
-    # honest answer is "your checkout is not that commit", not a verdict from code nobody pinned.
-    rc, schmutz, err = _git(repo, "status", "--porcelain", "--untracked-files=all",
-                            "--ignore-submodules=none", "--",
-                            *(f":(literal){p}" for p in _CODE_PFADE))
-    if rc != 0:
-        out["reason"] = f"the working tree could not be inspected: {err or 'git status failed'}"
-        return out
-    zeilen = [ln for ln in schmutz.decode("utf-8", "replace").splitlines() if ln.strip()]
-    if zeilen:
-        out["reason"] = (f"the checkout carries {len(zeilen)} local modification(s) or untracked file(s) under "
-                         f"{'/'.join(_CODE_PFADE)} ({zeilen[0].strip()[:80]}{' …' if len(zeilen) > 1 else ''}); "
-                         "the verifier and the library it calls run from these files, so a modified "
-                         "checkout cannot judge the commit -- `git stash` or clone afresh, then run again")
-        return out
-    # WHAT `git status` CANNOT SEE: a path its ignore rules or index bits hide (deep gate run 7, P1; see
-    # `_code_on_disk_that_is_not_the_commit`). Same refusal, same exit 2.
+    # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the commit says nothing
+    # about the files on disk; an uncommitted edit to the receipt library or to the signature primitive flipped a
+    # garbage receipt to VERIFIED with HEAD untouched. Every committed file under scripts/ and src/ is compared with
+    # its blob here, and every untracked importable file or symlink there is refused -- from the bytes, not through
+    # `git status`, which the ignore rules, the index bits and a configured filter all shape (deep gate run 7, P1, and
+    # the owner's class decision). A modified or untracked file under scripts/ or src/ refuses the measurement with
+    # exit 2: the honest answer is "your checkout is not that commit", not a verdict from code nobody pinned.
     funde = _code_on_disk_that_is_not_the_commit(repo, baum)
     if funde:
-        out["reason"] = (f"the checkout under {'/'.join(_CODE_PFADE)} is not the commit at {len(funde)} path(s) that "
-                         f"git status does not list ({funde[0][:120]}{' …' if len(funde) > 1 else ''}); the "
-                         "verifier and the library it calls run from these files, so this checkout cannot judge "
-                         "the commit -- clone afresh, then run again")
+        out["reason"] = (f"the checkout under {'/'.join(_CODE_PFADE)} is not the commit at {len(funde)} path(s) "
+                         f"({funde[0][:120]}{' …' if len(funde) > 1 else ''}); the verifier and the library it calls "
+                         "run from these files, so a modified or untracked checkout cannot judge the commit -- "
+                         "`git stash` or clone afresh, then run again")
         return out
 
     lib = _lib()

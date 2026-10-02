@@ -310,12 +310,12 @@ class TestReadFromTheCommitNotTheWorkingTree:
         assert lib.read_text(encoding="utf-8") != original
         rc, res, roh = _verify(repo, env, commit)
         assert rc == 2, roh
-        assert res["verdict"] == "NOT_MEASURABLE" and "local modification" in res["reason"], res["reason"]
+        assert res["verdict"] == "NOT_MEASURABLE" and "is not the commit" in res["reason"], res["reason"]
         # the same for an UNTRACKED file that could shadow an import
         lib.write_text(original, encoding="utf-8")
         (repo / "src" / "proofbundle" / "signature_shadow.py").write_text("x = 1\n")
         rc2, res2, _ = _verify(repo, env, commit)
-        assert rc2 == 2 and "untracked" in res2["reason"]
+        assert rc2 == 2 and "is not the commit" in res2["reason"]
         (repo / "src" / "proofbundle" / "signature_shadow.py").unlink()
         # ANTI-PARITY: the clean checkout verifies again -- the refusal is about the dirt, not the commit.
         rc3, res3, roh3 = _verify(repo, env, commit)
@@ -797,38 +797,47 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         mod._remove_the_judged_tree_from_sys_path()
         assert sys.path == [str(aussen)], "the empty entry is the working directory, here the checkout"
 
-    def test_the_overlap_check_covers_both_directions(self, welt, monkeypatch):
-        """At the function: a prefix or site directory IN the checkout counts, a checkout IN a site directory counts,
-        a directory beside or above the checkout does not. Codex found both directions (prefix in the checkout, and
-        the checkout in the interpreter's `purelib`)."""
+    def test_the_overlap_check_covers_the_whole_installation_both_directions(self, welt, monkeypatch):
+        """At the function: any prefix or site directory that contains the checkout, equals it, or lies in it is an
+        overlap; a directory fully beside it is not. A prefix ABOVE the checkout counts now (Codex found a clone rooted
+        at `lib-dynload`, which is under a prefix), so the test over the whole installation is bidirectional."""
         repo, _env, _priv, _kand, _commit = welt
         import importlib.util as ilu  # noqa: PLC0415
         spec = ilu.spec_from_file_location("_t6_overlap_verifier", repo / "scripts" / VERIFIER)
         mod = ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        draussen = str(repo.parent / "elsewhere")
-        # all prefixes outside, site dirs outside -> no overlap
-        for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
-            monkeypatch.setattr(sys, name, draussen)
-        monkeypatch.setattr(mod, "_interpreter_startaugen",
-                            lambda: [("site", str(repo.parent / "venv" / "site-packages"))])
+        # a directory fully beside the checkout -> no overlap
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.prefix", str(repo.parent / "elsewhere"))])
         assert mod._interpreter_overlaps_the_checkout() == []
-        # a prefix above the checkout is not an overlap
-        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.prefix", str(repo.parent))])
-        assert mod._interpreter_overlaps_the_checkout() == [], "a directory above the checkout is not an overlap"
+        # a prefix ABOVE the checkout is an overlap now (lib-dynload lies under such a prefix)
+        oben = str(repo.resolve().parent)
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.prefix", oben)])
+        assert mod._interpreter_overlaps_the_checkout() == [f"sys.prefix ({oben})"], \
+            "a prefix containing the checkout is an overlap"
         # a prefix IN the checkout (a .venv in the clone)
         innen = str((repo / ".venv").resolve())
-        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.prefix", innen)])
-        assert mod._interpreter_overlaps_the_checkout() == [f"sys.prefix ({innen})"]
-        # the checkout IN a site directory (a clone at the venv's purelib)
-        obendrueber = str(repo.resolve().parent)
-        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("site", obendrueber)])
-        assert mod._interpreter_overlaps_the_checkout() == [f"site ({obendrueber})"], \
-            "the checkout inside a site directory is an overlap"
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.base_prefix", innen)])
+        assert mod._interpreter_overlaps_the_checkout() == [f"sys.base_prefix ({innen})"]
+        # a site directory the checkout lies in (a clone at the venv's purelib)
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("site", oben)])
+        assert mod._interpreter_overlaps_the_checkout() == [f"site ({oben})"]
         # equal paths are an overlap
         gleich = str(repo.resolve())
         monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("site", gleich)])
         assert mod._interpreter_overlaps_the_checkout() == [f"site ({gleich})"]
+
+    def test_the_startup_eyes_enumerate_prefixes_and_site_dirs(self, welt):
+        """Anti-vacuity of the enumeration: a real run names the four prefixes and at least one site directory, so the
+        containment test above is applied to the directories that actually hold startup code."""
+        repo, _env, _priv, _kand, _commit = welt
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_t6_eyes_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        augen = mod._interpreter_startaugen()
+        namen = {n for n, _ in augen}
+        assert {"sys.prefix", "sys.exec_prefix", "sys.base_prefix", "sys.base_exec_prefix"} <= namen, namen
+        assert "site" in namen, namen
 
     def test_the_config_refusal_names_each_program_family(self, welt, monkeypatch):
         """At the function: a program-selecting key of each family is reported, an empty one and a non-program key are
@@ -843,15 +852,21 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
             "diff.word.textconv": "pandoc", "merge.ours.driver": "touch win", "core.fsmonitor": "/hook",
             "core.sshcommand": "ssh -i k", "diff.external": "run", "credential.helper": "store",
             "core.hooksPath": "/hooks",
+            # the P2 families Codex named at d0e47397: a URL-scoped credential helper, a per-command pager,
+            # an interactive diff filter, an ssh signing command.
+            "credential.https://example.com.helper": "!touch m", "pager.status": "less -X",
+            "interactive.diffFilter": "diff-highlight", "gpg.ssh.defaultKeyCommand": "ssh-add -L",
         }
         for key, value in familien.items():
             _git(["config", "--local", key, value], repo)
         _git(["config", "--local", "filter.empty.clean", ""], repo)       # empty: no program
         _git(["config", "--local", "core.ignoreCase", "false"], repo)     # not a program key
+        _git(["config", "--local", "pager.diff", "false"], repo)          # a pager switched off, not a program
         gefunden = {z.split("=", 1)[0].lower() for z in mod._git_configuration_selects_a_program(repo)}
         for key in familien:
             assert key.lower() in gefunden, (key, sorted(gefunden))
         assert "filter.empty.clean" not in gefunden and "core.ignorecase" not in gefunden, sorted(gefunden)
+        assert "pager.diff" not in gefunden, ("a pager switched off names no program", sorted(gefunden))
 
     def test_a_virtual_environment_inside_the_checkout_refuses_the_measurement(self, welt):
         """Codex's case, executed: `python -m venv .venv` in the clone, a `.pth` there that imports a module patching
@@ -922,7 +937,7 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         assert r.returncode == 1 and '"NOT_VERIFIED"' in r.stdout, r.stdout[-400:]
         r = _run([sys.executable, "-I", str(fremd / "scripts" / VERIFIER), "--repo", str(fremd), "--commit", tampered,
                   "--version", "5.0.0", "--json"], fremd, env)
-        assert r.returncode == 2 and "local modification" in json.loads(r.stdout)["reason"], r.stdout[-400:]
+        assert r.returncode == 2 and "is not the commit" in json.loads(r.stdout)["reason"], r.stdout[-400:]
 
     def test_a_clone_inside_the_interpreter_site_directory_refuses(self, welt):
         """Codex on PR 311 at 252ba3c6 (P1), executed: an external venv, the tree cloned at its `purelib`, and a `.pth`

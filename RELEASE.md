@@ -221,8 +221,10 @@ run and its standard library.
 on the import path. The `python` you run must be installed outside the clone, and the clone must not
 lie inside that interpreter's installation. Python runs the startup files of its installation (`.pth`
 files, `sitecustomize`) before the verifier's first line, `-I` included: a virtual environment
-created inside the clone, or a clone placed in the environment's own site directory, could run code
-the commit does not hold, and the verifier refuses either overlap with exit 2. With an outside
+created inside the clone, a clone placed in the environment's own site directory, or a clone rooted at
+a directory under the interpreter such as `lib-dynload` could run code the commit does not hold, so
+the verifier refuses any clone that shares a directory with the interpreter's installation, in either
+direction, with exit 2. With an outside
 interpreter whose installation does not contain the clone, plus `-I`, no file of the checkout runs
 before the first line. The verifier also refuses a clone whose own git configuration or
 `.git/info/attributes` names a program for git to run — a `filter`, `diff` or `merge` driver,
