@@ -23,6 +23,10 @@ from proofbundle import signed_eval_receipt as ser
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE = REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
 SPECCHECK = REPO / "tests" / "fixtures" / "ed25519_speccheck_cases.json"
+#: The draft's PURE TEST seed of the issuer key (its Appendix A.1), written out: a shipped test builds a
+#: throwaway key from a literal and loads no key from outside (tests/test_sdist_ohne_signierwerkzeug.py).
+#: The fixture carries the same seed, and a test below holds the two equal.
+_DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
 
 
 def _load():
@@ -47,6 +51,9 @@ def _run(*args):
 
 
 class TheFixtureIsTheDraftsVectors(unittest.TestCase):
+    def test_the_written_seed_is_the_drafts_test_seed(self):
+        self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
+
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
         self.assertEqual(len(VECTORS), 65)
         for v in VECTORS:
@@ -77,7 +84,7 @@ class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
 
 class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
     def test_positive_vectors_byte_for_byte(self):
-        signer = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(DOC["issuer_seed_hex"]))
+        signer = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
         other = [bytes.fromhex(x) for x in DOC["other_leaves_hex"]]
         by_id = {v["id"]: v for v in VECTORS}
         for vid, (leaf_index, key_hint) in DOC["emit"].items():
@@ -89,7 +96,7 @@ class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
                 self.assertEqual(out, v["receipt"])
 
     def test_a_payload_the_verifier_refuses_is_not_emitted(self):
-        signer = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(DOC["issuer_seed_hex"]))
+        signer = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
         p1 = next(v for v in VECTORS if v["id"] == "P1")
         payload = json.loads(base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
         for change, step in (({"score": "0.700"}, "8"), ({"score": ".834"}, "6"), ({"n": 0}, "6"),
@@ -128,9 +135,12 @@ class NoReceiptBytesRaise(unittest.TestCase):
         key = VECTORS[0]["key"]
         self.assertEqual(ser.verify_signed_eval_receipt(b"[" * 100000 + b"]" * 100000, key).step, 1)
 
-    def test_a_key_that_is_not_32_bytes_is_a_caller_error(self):
-        with self.assertRaises(TypeError):
-            ser.verify_signed_eval_receipt(VECTORS[0]["receipt"], b"\x00" * 31)
+    def test_any_argument_gets_a_verdict_not_an_exception(self):
+        got = ser.verify_signed_eval_receipt(VECTORS[0]["receipt"], b"\x00" * 31)
+        self.assertEqual((got.ok, got.step_label), (False, "11 (profile 1, key)"))
+        self.assertEqual(ser.verify_signed_eval_receipt(VECTORS[0]["receipt"], None).step_label,
+                         "11 (profile 1, key)")
+        self.assertEqual(ser.verify_signed_eval_receipt("not bytes", VECTORS[0]["key"]).step, 1)
 
 
 class TheCliKeepsV01AndSwitchesExplicitly(unittest.TestCase):

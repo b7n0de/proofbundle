@@ -36,9 +36,10 @@ from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from ._membership import require_switch
 from ._wire_b64 import decode_b64
 from .merkle import merkle_tree_hash, inclusion_proof, verify_inclusion
-from .signature import _LOW_ORDER_ED25519_Y, verify_ed25519
+from .signature import _LOW_ORDER_ED25519_Y, plain_bytes, verify_ed25519_pinned
 
 RECEIPT_TYPE = "application/vnd.b7n0de.eval-receipt+json"
 PAYLOAD_SCHEMA = "https://b7n0de.com/eval-receipt/v1"
@@ -265,8 +266,10 @@ def _payload_violation(p: Any) -> Optional[str]:
     if not isinstance(p, dict):
         return "the payload is not a JSON object"
     if set(p) != _PAYLOAD_MEMBERS:
-        missing, extra = sorted(_PAYLOAD_MEMBERS - set(p)), sorted(set(p) - _PAYLOAD_MEMBERS)
-        return f"the payload member set differs from Table 1 (missing {missing}, extra {len(extra)})"
+        # Only our own names are rendered; the Issuer's extra names are counted, never printed or sorted.
+        missing = [name for name in sorted(_PAYLOAD_MEMBERS) if name not in p]
+        extra = sum(1 for name in p if name not in _PAYLOAD_MEMBERS)
+        return f"the payload member set differs from Table 1 (missing {missing}, {extra} extra)"
     if p["schema"] != PAYLOAD_SCHEMA:
         return "the payload schema is not " + PAYLOAD_SCHEMA
     for name in ("suite", "suite_version", "metric"):
@@ -329,7 +332,9 @@ def _profile(key: bytes, sig: bytes, message: bytes) -> None:
     # Rule 4. With A and R canonical and S below L, the library's check (it recomputes S*B' - k*A and
     # compares its encoding with the received R) is the cofactorless equation, because a canonical
     # encoding names exactly one point. Mixed-order points pass rules 1 and 2, as the draft requires.
-    if not verify_ed25519(key, sig, message):
+    # The key is a trust anchor the Receiver fixed, so the call goes through the pinned verify (SPEC
+    # 4b); after rules 1 and 2 its refusals can no longer apply, and the verdict is the library's.
+    if not verify_ed25519_pinned(key, sig, message):
         raise _Fail(11, "the cofactorless equation does not hold", "profile 4")
 
 
@@ -397,11 +402,14 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
 # ---- public surface ---------------------------------------------------------------------------------
 def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
-    Section 6. Never raises for any receipt bytes; a key that is not 32 bytes is a caller error."""
-    if type(receipt) is not bytes:
-        raise TypeError("receipt must be bytes: the procedure judges the bytes as received")
-    if type(key) is not bytes or len(key) != 32:
-        raise TypeError("the verification key must be 32 raw bytes")
+    Section 6. Never raises. Each argument is read once, as the bytes it stores
+    (``signature.plain_bytes``): a receipt that is no bytes value fails at step 1, a key that is no
+    32-byte value fails rule 1 of the profile (its decoding cannot succeed)."""
+    receipt, key = plain_bytes(receipt), plain_bytes(key)
+    if receipt is None:
+        return ReceiptVerdict(False, 1, None, "the receipt is not a bytes value")
+    if key is None or len(key) != 32:
+        return ReceiptVerdict(False, 11, "profile 1, key", "the verification key is not 32 bytes")
     try:
         b = _procedure(receipt, key)
     except _Fail as f:
@@ -448,10 +456,18 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *,
     other leaf inputs are OTHER_LEAVES, in order; with none, the tree has one leaf. The receipt object
     is written in its RFC 8785 form. The bytes are verified under the signer's key before they are
     returned, so this producer never hands out a receipt its own verifier refuses."""
+    # The switch first: it changes what is published (the unsigned key hint), so only an exact bool is
+    # read, before anything is computed or signed (`_membership.require_switch`).
+    key_hint = require_switch(key_hint, "key_hint")
     if not isinstance(signer, Ed25519PrivateKey):
         raise TypeError("signer must be an Ed25519PrivateKey")
     b = payload_bytes(payload)
-    leaves = [bytes(x) for x in other_leaves]
+    leaves = []
+    for leaf in other_leaves:
+        plain = plain_bytes(leaf)   # read once, by what it stores; never the caller's __bytes__
+        if plain is None:
+            raise ValueError("every other leaf input must be bytes")
+        leaves.append(plain)
     if type(leaf_index) is not int or not 0 <= leaf_index <= len(leaves):
         raise ValueError("leaf_index must be an integer from 0 to the number of other leaves")
     leaves.insert(leaf_index, b)
