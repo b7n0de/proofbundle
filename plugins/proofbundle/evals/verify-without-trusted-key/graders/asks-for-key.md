@@ -1,5 +1,5 @@
 ---
 type: regex
-pattern: '(?<!private )(?:public|issuer|signing|trusted)(?:[\x27’]s)?\s+key'
+pattern: '\A(?:(?!private\s+(?:public|issuer|signing|trusted))[\s\S])*?\b(?:public|issuer|signing|trusted)(?:[\x27’]s)?\s+key'
 flags: i
 ---
