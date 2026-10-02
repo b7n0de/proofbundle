@@ -168,6 +168,17 @@ def test_a_green_run_on_a_clean_tree_writes_a_statement_bound_to_that_tree(env, 
     assert _git(repo, "status", "--porcelain", "--untracked-files=all") == ""
 
 
+def test_junit_out_writes_the_raw_report_whose_sha256_is_the_signed_report_sha256(env, repo, tmp_path):
+    """Review Runde 5, Befund 5: with --junit-out the raw JUnit report is kept beside the statement, and its
+    sha256 equals the report_sha256 in the record, so a reader can confirm the counts against the raw file."""
+    out, junit = tmp_path / "statement.json", tmp_path / "report.xml"
+    code, report, stderr = run_evidence(env, repo, out, options=("--junit-out", str(junit)))
+    assert code == 0, stderr
+    assert junit.exists(), "the JUnit report is written where --junit-out names"
+    assert hashlib.sha256(junit.read_bytes()).hexdigest() == report["run"]["report_sha256"]
+    assert b"<testsuite" in junit.read_bytes()
+
+
 def test_the_selection_of_tests_is_part_of_the_record(env, repo, tmp_path):
     out = tmp_path / "statement.json"
     code, report, _ = run_evidence(env, repo, out, *PYTEST, "-k", "test_one")

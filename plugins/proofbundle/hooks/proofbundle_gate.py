@@ -1964,7 +1964,7 @@ RUN_KEYS = frozenset({"schema", "commit", "tree_before", "tree_after", "command"
 COUNT_KEYS = frozenset({"tests", "passed", "failed", "errors", "skipped"})
 RUN_TIMEOUT_SECONDS = 600.0
 MAX_REPORT_BYTES = 16 * 1024 * 1024
-RUN_USAGE = "usage: run-evidence --repo DIR --out FILE [--timeout SECONDS] -- COMMAND..."
+RUN_USAGE = "usage: run-evidence --repo DIR --out FILE [--timeout SECONDS] [--junit-out FILE] -- COMMAND..."
 
 
 def _count(value) -> bool:
@@ -2124,13 +2124,17 @@ def _now() -> str:
 
 
 def run_evidence(directory: str, out: str, command: list[str],
-                 timeout: float = RUN_TIMEOUT_SECONDS) -> tuple[int, dict]:
+                 timeout: float = RUN_TIMEOUT_SECONDS, junit_out: str | None = None) -> tuple[int, dict]:
     """Run a pytest command on the clean working tree of HEAD and, for a green run that left the tree as it
     was, write the statement a bundle signs: the subject and the run record (DECISIONS.md, D23).
 
     There is no evidence when the working tree differs from HEAD before the run, when the run moves HEAD or
     changes the working tree, when it times out or writes no readable report, or when it is not green. The
     record holds no environment value. Nothing is signed here.
+
+    When junit_out is given, the exact JUnit report the record's report_sha256 is taken over is copied there,
+    so a reader can hold the raw report beside the signed record and confirm the hash (review Runde 5,
+    Befund 5; the report is otherwise discarded with the scratch directory).
     """
     report = {"outcome": "no_evidence", "reason_id": None, "message": "", "statement": None, "run": None,
               "gate_version": GATE_VERSION}
@@ -2197,6 +2201,11 @@ def run_evidence(directory: str, out: str, command: list[str],
                 return refuse("stale_report", str(exc))
             except GateError as exc:
                 return refuse("no_report", str(exc))
+            if junit_out is not None:
+                try:
+                    shutil.copyfile(junit, junit_out)  # the exact bytes report_sha256 is taken over (Befund 5)
+                except OSError as exc:
+                    return refuse("junit_not_written", f"the JUnit report could not be copied to {junit_out} ({exc})")
         import platform  # only this subcommand names the platform
 
         run = {"schema": RUN_SCHEMA, "commit": commit, "tree_before": digest, "tree_after": tree_after,
@@ -2229,7 +2238,7 @@ def run_evidence_command(argv: list[str]) -> int:
         print(RUN_USAGE, file=sys.stderr)
         return 2
     split = argv.index("--")
-    options, command, i = {"--repo": None, "--out": None, "--timeout": None}, argv[split + 1:], 0
+    options, command, i = {"--repo": None, "--out": None, "--timeout": None, "--junit-out": None}, argv[split + 1:], 0
     head = argv[:split]
     while i < len(head):
         if head[i] in options and i + 1 < len(head):
@@ -2246,7 +2255,7 @@ def run_evidence_command(argv: list[str]) -> int:
     if options["--repo"] is None or options["--out"] is None or not command:
         print(RUN_USAGE, file=sys.stderr)
         return 2
-    code, report = run_evidence(options["--repo"], options["--out"], command, timeout)
+    code, report = run_evidence(options["--repo"], options["--out"], command, timeout, options["--junit-out"])
     sys.stdout.write(json.dumps(report, indent=1) + "\n")
     print(report["message"], file=sys.stderr)
     return code
