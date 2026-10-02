@@ -1148,11 +1148,20 @@ L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, closed by the receipt verifier compa
 taking the judged tree off its import path before the standard library is imported (`scripts/verify_pre_tag_receipt.py`).
 Codex on pull request 311 at 3f598b5b found that last step incomplete (P1, reproduced at 1e189f89): it took only
 `scripts/` and `src/` off, and with the top level on the path (`PYTHONPATH=.`, or the working directory under
-`python -m`) an untracked top-level `contextlib.py` ran before any check. The verifier now takes every directory of
-the checkout off its path except the interpreter's own installation, refuses with exit 2 a run in which a module of
-the checkout was loaded before its first line, and documents `python -I` as its command. Named limit: a module of
-the checkout that Python loads at start, through `PYTHONPATH` or under `python -m`, runs before the script can act;
-the refusal sees it only while it stays in `sys.modules`, and only `-I` keeps it from running. Measured on 3.10.12:
+`python -m`) an untracked top-level `contextlib.py` ran before any check. The fix of 653b5d67 took every directory
+of the checkout off the path except the interpreter's own installation; Codex at e61dc740 found that exemption to be
+the next instance (P1, reproduced): a `.pth` file of a `.venv/` inside the clone runs before the first line, also
+under `-I`, and one that patched `importlib.util.spec_from_file_location` gave exit 0 VERIFIED for a receipt over
+another tree. The verifier now takes every directory of the checkout off its path with no exception, refuses with
+exit 2 an interpreter whose installation lies in the clone, a script started from another checkout than `--repo`
+(the sweep of the class found it: only `--repo` was compared, while the library was loaded from the script's own
+checkout, and an edited library there gave exit 0 VERIFIED against a clean `--repo`), and a run in which a module of
+the checkout was loaded before its first line, and documents `python -I` with a Python installed outside the clone
+as its command. Named
+limit: a module of the checkout that Python loads at start, through `PYTHONPATH` or under `python -m`, runs before
+the script can act; the refusal sees it only while it stays in `sys.modules`, and only `-I` keeps it from running.
+The interpreter itself stays trusted: a compromised Python outside the clone, or one whose prefix a startup file
+has rewritten, is not measured. Measured on 3.10.12:
 of 24 such positions, 4 were refused and 20 broke the interpreter before any verdict; on 3.11.15, of 16, 4 were
 refused, 11 broke it and 1 did not run when planted alone.
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card

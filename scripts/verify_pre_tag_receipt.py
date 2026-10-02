@@ -15,10 +15,13 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
     python -I scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
 
 ``-I`` (isolated mode) keeps ``PYTHONPATH``, the user's site directory and the script's own directory off the import
-path, so no file of the checkout can run before the script's first line. Without it the script still takes every
-directory of the checkout off its path before its first further import, and it refuses a run in which a module of the
-checkout was already loaded at start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the
-first line and hides itself is beyond what any check inside the script can see.
+path. ``python`` must be installed outside the clone: Python runs the startup files of its installation before the
+script's first line, ``-I`` included, so a virtual environment created inside the clone is refused with exit 2. With
+both, no file of the checkout runs before the first line. Without ``-I`` the script still takes every directory of the
+checkout off its path before its first further import, and it refuses a run in which a module of the checkout was
+already loaded at start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line
+and hides itself is beyond what any check inside the script can see. Run the script of the clone you verify: only
+the checkout ``--repo`` names is compared with the commit, so a script started from another checkout is refused.
 
 THE EVIDENCE IS READ FROM THE COMMIT; THE CODE RUNS FROM THE CHECKOUT, SO THE CHECKOUT MUST BE
 THE COMMIT. The receipt, the trust anchor and the gate source whose digest the receipt binds are
@@ -73,9 +76,15 @@ import sys
 # first fix took only those two directories off the path. Run with the top level on `sys.path` (`PYTHONPATH=.`, or
 # `python -m`, which puts the working directory first), an untracked `contextlib.py`, `argparse.py` or `json.py` at the
 # top level ran before any check, and so did `tests/contextlib.py` with `PYTHONPATH=tests`. Every directory of the
-# checkout is judged code. What stays is the interpreter's own installation, also when it lies in the checkout (a
-# reader's `.venv/`, measured: `/home/konrad/proofbundle/.venv/lib/python3.10/site-packages` is on the path of that
-# reader's run); its standard library and its packages are trusted, as `_bytecode_cache_elsewhere` says.
+# checkout is judged code, with no exception.
+#
+# AND NO INTERPRETER FROM THE CHECKOUT (Codex on PR 311 at e61dc740, P1, reproduced). The fix of 653b5d67 kept the
+# entries of an interpreter installed in the clone, a reader's `.venv/`. Such an installation is a directory of the
+# checkout the commit does not hold, and Python runs its startup files before this script's first line, `-I`
+# included: `-I` implies `-E` and `-s` (and `-P` from 3.11 on), and only `-S` would skip `site`, whose `.pth` files may
+# import code. A `.pth` in `.venv/` that patched `importlib.util.spec_from_file_location` turned a receipt whose subject
+# is not this tree into exit 0 VERIFIED, with and without `-I`. So the interpreter must be installed outside the clone;
+# one whose installation lies in it refuses the measurement with exit 2.
 
 
 def _checkout_root() -> str:
@@ -84,21 +93,26 @@ def _checkout_root() -> str:
 
 
 def _judged_location(ort: str, wurzel: str) -> bool:
-    """True iff the resolved path `ort` lies in the checkout `wurzel` and not in the interpreter's own installation.
+    """True iff the resolved path `ort` is the checkout `wurzel` or lies below it."""
+    return ort == wurzel or ort.startswith(wurzel + os.sep)
 
-    The installation is every prefix of the running interpreter that lies strictly inside the checkout (a virtual
-    environment created in the clone). A prefix equal to the top level is no exemption: then the whole checkout
-    would count as the interpreter."""
-    if not (ort == wurzel or ort.startswith(wurzel + os.sep)):
-        return False
+
+def _interpreter_installed_in_the_checkout() -> list:
+    """Every prefix of the running interpreter that lies in this checkout, as `name (path)`.
+
+    `sys.prefix` and `sys.exec_prefix` name the installation the interpreter reads its `site` directories from (for a
+    virtual environment, the environment), `sys.base_prefix` and `sys.base_exec_prefix` the installation it was built
+    from. A prefix above the checkout (a clone under `/usr/src` and Python under `/usr`) is not in it."""
+    wurzel = _checkout_root()
+    funde = []
     for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
         try:
             praefix = os.path.realpath(getattr(sys, name))
         except (OSError, ValueError, TypeError, AttributeError):
             continue
-        if praefix.startswith(wurzel + os.sep) and (ort == praefix or ort.startswith(praefix + os.sep)):
-            return False
-    return True
+        if _judged_location(praefix, wurzel):
+            funde.append(f"sys.{name} ({praefix})")
+    return funde
 
 
 def _remove_the_judged_tree_from_sys_path() -> None:
@@ -162,9 +176,17 @@ def _checkout_code_that_ran_before_this_script() -> list:
 
 #: Filled only when this file runs as a script (see below); a caller that imports the module measures in its own
 #: process, whose start this script did not see.
+_INTERPRETER_IN_THE_CHECKOUT: list = []
 _CODE_BEFORE_THIS_SCRIPT: list = []
+#: The checkout this script runs from, when it runs as a script. Its code judges, so it must be the checkout `--repo`
+#: names: that is the one compared with the commit. Measured on 2026-10-02 at 653b5d67: run from a checkout A whose
+#: `pre_tag_receipt_lib.py` was edited, against a clean `--repo` B, the script compared B, loaded the library from A and
+#: gave exit 0 VERIFIED for a receipt that does not bind the tree.
+_SCRIPT_CHECKOUT: str | None = None
 
 if __name__ == "__main__":
+    _SCRIPT_CHECKOUT = _checkout_root()
+    _INTERPRETER_IN_THE_CHECKOUT = _interpreter_installed_in_the_checkout()
     _CODE_BEFORE_THIS_SCRIPT = _checkout_code_that_ran_before_this_script()
     _remove_the_judged_tree_from_sys_path()
 
@@ -645,6 +667,21 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     if not isinstance(commit, str) or not _HEX40.match(commit):
         out["reason"] = ("--commit must be the full 40-hex commit id named by the attestation; an "
                          "abbreviated id is a search query, not a subject")
+        return out
+    if _INTERPRETER_IN_THE_CHECKOUT:
+        # THE INTERPRETER IS INSTALLED IN THE CHECKOUT (see the comment above `_checkout_root`): its startup files ran
+        # before this script, `-I` included, and they are not the commit.
+        out["reason"] = (f"the interpreter running this script is installed in the checkout "
+                         f"({_INTERPRETER_IN_THE_CHECKOUT[0][:160]}); Python runs the startup files of that installation "
+                         "(`.pth` files, `sitecustomize`) before the verifier's first line, also under -I, and they are "
+                         "not the commit -- run the verifier with a Python installed outside the clone")
+        return out
+    if _SCRIPT_CHECKOUT is not None and os.path.realpath(repo) != _SCRIPT_CHECKOUT:
+        # THE CODE THAT JUDGES IS NOT THE CODE THAT IS COMPARED (see `_SCRIPT_CHECKOUT`).
+        out["reason"] = (f"the verifier runs from the checkout {_SCRIPT_CHECKOUT}, but --repo names "
+                         f"{os.path.realpath(repo)}; only the checkout --repo names is compared with the commit, and the "
+                         "code that judges must be that code -- run scripts/verify_pre_tag_receipt.py of the checkout "
+                         "you verify")
         return out
     if _CODE_BEFORE_THIS_SCRIPT:
         # CODE OF THE CHECKOUT RAN BEFORE THIS SCRIPT (see `_checkout_code_that_ran_before_this_script`): whatever it

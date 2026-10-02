@@ -587,8 +587,12 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
     before the first line (repeated until no new one runs, as a plant that breaks the start hides the ones after it).
     A position after the first line is never taken from the checkout. A position before it is code the script cannot
     keep from running: its plant does not run, or the run is refused with exit 2, or it gives no verdict at all. In
-    isolated mode (`-I`, the documented command) no plant runs. The counter-direction: the interpreter's own
-    installation inside the checkout (a reader's `.venv/`) stays usable."""
+    isolated mode (`-I`, the documented command) no plant runs.
+
+    Codex at e61dc740 (P1, reproduced): the fix of 653b5d67 kept the entries of an interpreter installed in the clone. A
+    `.pth` in such a `.venv/` runs before the first line, `-I` included, and one that patched
+    `importlib.util.spec_from_file_location` gave exit 0 VERIFIED for a receipt that does not bind the tree. An
+    interpreter installed in the checkout now refuses the measurement, and no entry in the checkout stays on the path."""
 
     #: How a reader may put a directory of the checkout on the path: (label, PYTHONPATH below the top level or None,
     #: started with `-m`, directory the plants go to, relative to the top level).
@@ -769,10 +773,9 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
                 self._ausreissen(ordner, namen, marker_dir)
         assert len(namen) >= 30, len(namen)
 
-    def test_the_interpreters_installation_inside_the_checkout_stays_on_the_path(self, welt, monkeypatch, tmp_path):
-        """The counter-direction, at the function: a prefix of the interpreter strictly inside the checkout keeps its
-        entries; every other entry in the checkout goes, the top level included; a prefix equal to the top level is
-        no exemption."""
+    def test_no_entry_in_the_checkout_stays_on_the_path(self, welt, monkeypatch, tmp_path):
+        """At the function: every entry in the checkout goes, the top level, the working directory and the site
+        directory of an interpreter installed in the clone included; an entry outside stays."""
         repo, _env, _priv, _kand, _commit = welt
         import importlib.util as ilu  # noqa: PLC0415
         spec = ilu.spec_from_file_location("_t6_root_verifier", repo / "scripts" / VERIFIER)
@@ -784,13 +787,9 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         venv_sp.mkdir(parents=True)
         (repo / "tests").mkdir(exist_ok=True)
         monkeypatch.chdir(tmp_path)
-        pfad = [str(repo), str(repo / "tests"), str(repo / "scripts"), str(venv_sp), str(repo / "src"), str(aussen), ""]
-        monkeypatch.setattr(sys, "path", list(pfad))
+        monkeypatch.setattr(sys, "path", [str(repo), str(repo / "tests"), str(repo / "scripts"), str(venv_sp),
+                                          str(repo / "src"), str(aussen), ""])
         monkeypatch.setattr(sys, "prefix", str(repo / ".venv"))
-        mod._remove_the_judged_tree_from_sys_path()
-        assert sys.path == [str(venv_sp), str(aussen), ""], sys.path
-        monkeypatch.setattr(sys, "path", list(pfad))
-        monkeypatch.setattr(sys, "prefix", str(repo))
         mod._remove_the_judged_tree_from_sys_path()
         assert sys.path == [str(aussen), ""], sys.path
         monkeypatch.chdir(repo)
@@ -798,10 +797,32 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         mod._remove_the_judged_tree_from_sys_path()
         assert sys.path == [str(aussen)], "the empty entry is the working directory, here the checkout"
 
-    def test_a_virtual_environment_inside_the_checkout_verifies(self, welt):
-        """End to end, as a reader with `python -m venv .venv` in the clone runs it: a module the environment loads at
-        start (here through a `.pth`, as an editable install or setuptools does) is the interpreter's, not the
-        checkout's, and the good receipt verifies."""
+    def test_which_prefixes_count_as_installed_in_the_checkout(self, welt, monkeypatch):
+        """At the function: a prefix in the checkout or equal to it counts, a prefix above it or beside it does not."""
+        repo, _env, _priv, _kand, _commit = welt
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_t6_prefix_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        draussen = str(repo.parent / "elsewhere")
+        for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
+            monkeypatch.setattr(sys, name, draussen)
+        assert mod._interpreter_installed_in_the_checkout() == []
+        for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
+            monkeypatch.setattr(sys, name, str(repo.parent))
+        assert mod._interpreter_installed_in_the_checkout() == [], "a prefix above the checkout is not in it"
+        for innen in (repo / ".venv", repo):
+            monkeypatch.setattr(sys, "prefix", str(innen))
+            assert mod._interpreter_installed_in_the_checkout() == [f"sys.prefix ({innen.resolve()})"], innen
+        monkeypatch.setattr(sys, "prefix", draussen)
+        monkeypatch.setattr(sys, "base_prefix", str(repo / "py"))
+        assert mod._interpreter_installed_in_the_checkout() == [f"sys.base_prefix ({(repo / 'py').resolve()})"]
+
+    def test_a_virtual_environment_inside_the_checkout_refuses_the_measurement(self, welt):
+        """Codex's case, executed: `python -m venv .venv` in the clone, a `.pth` there that imports a module patching
+        `importlib.util.spec_from_file_location` so that the loaded library's `verify_receipt` says yes. With and
+        without `-I` the planted module runs (the anti-vacuity half) and the run is refused with exit 2, for the good
+        receipt as for the tampered one; the same interpreter outside the clone verifies the good receipt."""
         repo, _env, _priv, _kand, good = welt
         r = _run([sys.executable, "-m", "venv", "--without-pip", str(repo / ".venv")], repo.parent)
         assert r.returncode == 0, r.stderr
@@ -811,9 +832,58 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         sp = Path(r.stdout.strip())
         aussen = sorted({p for p in sys.path if p.endswith(("site-packages", "dist-packages")) and Path(p).is_dir()})
         marker = repo.parent / "_marker_installation"
-        (sp / "pb_installation_probe.py").write_text(f"open({str(marker)!r}, 'w').write('loaded')\n")
-        (sp / "pb_outer.pth").write_text("".join(p + "\n" for p in aussen) + "import pb_installation_probe\n")
-        r = _run([str(innen), "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0", "--json"],
-                 repo, {"PATH": "/usr/bin:/bin"})
-        assert marker.exists(), "the environment's start module did not load, the case proves nothing"
+        (sp / "pb_planted_at_start.py").write_text(
+            f"open({str(marker)!r}, 'w').write('ran')\n"
+            "import importlib.util as _u\n"
+            "_orig = _u.spec_from_file_location\n"
+            "def _spec(name, *a, **k):\n"
+            "    s = _orig(name, *a, **k)\n"
+            "    if name == '_verify_pre_tag_receipt_lib' and s is not None:\n"
+            "        _ex = s.loader.exec_module\n"
+            "        def exec_module(m, _ex=_ex):\n"
+            "            _ex(m)\n"
+            "            m.verify_receipt = lambda *aa, **kk: (True, 'planted')\n"
+            "        s.loader.exec_module = exec_module\n"
+            "    return s\n"
+            "_u.spec_from_file_location = _spec\n")
+        (sp / "pb_planted_at_start.pth").write_text("".join(p + "\n" for p in aussen) + "import pb_planted_at_start\n")
+        tampered = TestNoUncommittedCodeJudges._tamper(repo)
+        for commit in (good, tampered):
+            _git(["checkout", "-q", "--detach", commit], repo)
+            for modus in ([], ["-I"]):
+                marker.unlink(missing_ok=True)
+                r = _run([str(innen), *modus, "scripts/" + VERIFIER, "--repo", ".", "--commit", commit,
+                          "--version", "5.0.0", "--json"], repo, {"PATH": "/usr/bin:/bin"})
+                assert marker.exists(), (modus, "the planted start module did not run, the case proves nothing")
+                res = json.loads(r.stdout)
+                assert r.returncode == 2 and "installed in the checkout" in res["reason"], (modus, r.stdout[-400:])
+        _git(["checkout", "-q", "--detach", good], repo)
+        r = _run([sys.executable, "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
         assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+
+    def test_a_script_from_another_checkout_refuses_the_measurement(self, welt):
+        """The neighbour of the same class, measured at 653b5d67: the code that judges lies in the checkout the script
+        runs from, and only the checkout `--repo` names is compared. A second clone whose library says yes to every
+        receipt, run against the clean checkout of a tampered receipt, is refused with exit 2; the script of the judged
+        checkout itself gives NOT_VERIFIED, and the forged clone judging itself is refused as not the commit."""
+        repo, _env, _priv, _kand, _commit = welt
+        tampered = TestNoUncommittedCodeJudges._tamper(repo)
+        fremd = repo.parent / "other_clone"
+        _git(["clone", "-q", str(repo), str(fremd)], repo.parent)
+        _git(["checkout", "-q", "--detach", tampered], fremd)
+        lib = fremd / "scripts" / "pre_tag_receipt_lib.py"
+        lib.write_text(lib.read_text(encoding="utf-8")
+                       + "\n\ndef verify_receipt(receipt, **kw):\n    return True, 'FORGED in the other clone'\n",
+                       encoding="utf-8")
+        env = {"PATH": "/usr/bin:/bin"}
+        r = _run([sys.executable, "-I", str(fremd / "scripts" / VERIFIER), "--repo", str(repo), "--commit", tampered,
+                  "--version", "5.0.0", "--json"], repo, env)
+        res = json.loads(r.stdout)
+        assert r.returncode == 2 and "only the checkout --repo names is compared" in res["reason"], r.stdout[-400:]
+        r = _run([sys.executable, "-I", str(repo / "scripts" / VERIFIER), "--repo", str(repo), "--commit", tampered,
+                  "--version", "5.0.0", "--json"], repo, env)
+        assert r.returncode == 1 and '"NOT_VERIFIED"' in r.stdout, r.stdout[-400:]
+        r = _run([sys.executable, "-I", str(fremd / "scripts" / VERIFIER), "--repo", str(fremd), "--commit", tampered,
+                  "--version", "5.0.0", "--json"], fremd, env)
+        assert r.returncode == 2 and "local modification" in json.loads(r.stdout)["reason"], r.stdout[-400:]
