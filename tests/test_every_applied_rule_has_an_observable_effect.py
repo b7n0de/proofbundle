@@ -5,8 +5,8 @@ P1): `policy.ANGEWANDTE_REGELN["evaluate_policy"]` lists ``sd_jwt.expected_aud``
 it, and the body of `evaluate_policy` never read it. A library caller who verified with `verify_bundle(bundle)` got
 policy_ok True for a KB-JWT bound to another audience. The T16 contract (`test_every_rule_of_a_policy_is_handled_by_
 the_command.py`) asks whether a rule is REFUSED or not; it never asked whether a rule that is not refused DOES
-anything. Owner order OA-bdad1b7352 = A (2026-10-02): "ein Generator prueft fuer jedes Paar aus ANGEWANDTE_REGELN
-die beobachtbare Wirkung".
+anything. Owner order OA-bdad1b7352 = A (2026-10-02), in English: a generator checks the observable effect of every
+pair of ANGEWANDTE_REGELN.
 
 THE PROPERTY. For every pair (check path, rule) in `ANGEWANDTE_REGELN`, there is a world and a policy in which the
 rule alone turns the verdict of that path: the policy without the rule passes and with it fails (a requirement), or
