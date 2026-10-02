@@ -1073,7 +1073,7 @@ def _flaechen():
         ("adapters.agt_receipt.verify_agt_receipt", lambda w: agt.verify_agt_receipt(
             w(agt_r), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("adapters.agt_receipt.verify_agt_receipt_chain", lambda w: agt.verify_agt_receipt_chain(
-            w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]))),
+            w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("public_transparency.evaluate_public_transparency", lambda w: pt.evaluate_public_transparency(
             w(note), w({"requireSignedCheckpoint": True, "trustedLogOrigins": [origin], "witnessQuorum": {"threshold": 1}}),
             log_vkey=w(log_vkey), witness_vkeys=w([zeuge]), expected_root_b64=w(base64.b64encode(wurzel3).decode()),

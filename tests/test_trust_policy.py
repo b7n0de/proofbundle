@@ -583,16 +583,21 @@ class TestExpectedVct(unittest.TestCase):
         # read (Codex on pull request 293, round three), a failed check fails crypto, and the policy is
         # not evaluated at all. This case used to hand in `ok = True` beside a failed check, a result
         # `verify_bundle` never builds, and relied on the gate reading only `result.ok`.
-        from proofbundle.errors import Check  # noqa: PLC0415
+        # Both results are VerificationResults, as `verify_bundle` returns them. Until the fix of deep gate run 6 two
+        # classes of the test's own with ``ok`` and ``checks`` served; since then an object of a caller's class reaches
+        # evaluate_policy as a stand-in that holds nothing of the caller, and the policy is not evaluated at all.
+        from proofbundle.errors import VerificationResult  # noqa: PLC0415
 
-        class _NeverRan:
-            ok = True
-            checks = [Check("ed25519-signature", True), Check("sd-jwt-disclosures", True)]
+        def _NeverRan() -> VerificationResult:
+            r = VerificationResult()
+            r.add("ed25519-signature", True)
+            r.add("sd-jwt-disclosures", True)
+            return r
 
-        class _Failed:
-            ok = True
-            checks = [Check("ed25519-signature", True), Check("sd-jwt-disclosures", True),
-                      Check("sd-jwt-issuer-signature", False, "unsigned")]
+        def _Failed() -> VerificationResult:
+            r = _NeverRan()
+            r.add("sd-jwt-issuer-signature", False, "unsigned")
+            return r
 
         issuer = generate_signer()
         from _full_eval_claim import full_eval_claim  # noqa: PLC0415

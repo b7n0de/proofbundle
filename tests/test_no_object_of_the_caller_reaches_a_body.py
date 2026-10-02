@@ -274,6 +274,27 @@ class _Abbild(Mapping):
 
 _Paar = collections.namedtuple("_Paar", "a")
 
+
+def _ohne_type_im_mro() -> Any:
+    """An object whose type's metaclass leaves ``type`` out of its own MRO (form A of lens run 7, round 9 of the eval
+    claim producers): ``type``'s own descriptors refuse to read that type. Added after the full suite at 1473c9ea, where
+    the reading at the call raised a raw TypeError for it (`canonical._methoden_von`) and this sweep had no such form."""
+    class _OhneTypeMeta(type):
+        def mro(cls):
+            return [cls, object]
+
+    class _OhneType(type, metaclass=_OhneTypeMeta):
+        pass
+
+    class _Anfang(type):
+        pass
+
+    class Wert(metaclass=_Anfang):
+        pass
+    wert = Wert()
+    Wert.__class__ = _OhneType
+    return wert
+
 FEINDLICH, ZUGESAGT, KONTROLLE = "hostile", "promised", "control"
 
 
@@ -306,6 +327,9 @@ def _formen() -> "dict[str, tuple[Callable[[], Any], str, str]]":
         "a set of an object": (lambda: {_Objekt()}, FEINDLICH, "container"),
         "a frozenset of an object": (lambda: frozenset({_Objekt()}), FEINDLICH, "object"),
         "an object of the caller": (_Objekt, FEINDLICH, "object"),
+        "an object whose type hides type from its metaclass": (_ohne_type_im_mro, FEINDLICH, "object"),
+        "an OrderedDict keyed by a subclass of str": (lambda: OrderedDict([(_Text("k"), [1])]), FEINDLICH,
+                                                      "container"),
         "a subclass of int": (lambda: _Zahl(1), FEINDLICH, "object"),
         "a subclass of float": (lambda: _Komma(1.0), FEINDLICH, "object"),
         "an IntEnum of the caller": (lambda: _Stufe.EINS, FEINDLICH, "object"),

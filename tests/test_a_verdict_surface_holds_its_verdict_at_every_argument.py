@@ -559,11 +559,12 @@ _KONTROLLE_AUSNAHMEN: "dict[tuple[str, str], str]" = {
 
 
 #: The arguments no change of `_stoerungen` reaches, measured on 2026-10-02 at 69e5b69f in the audit venv with every
-#: extra (328 of 406 reached). Part two holds nothing for them: for run 7 they count as not executed, never as held.
+#: extra (328 of 406 reached; the sweep passes ``now`` to the AGT chain since, 328 of 407). Part two holds nothing for them: for run 7 they count as not executed, never as held.
 #: Without an extra (`_fehlende_extras`) a base case can change with the environment, so an argument that falls out
 #: of reach there and is not named here is printed as NOT MEASURED instead of red; with every extra the list is exact.
 _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "adapters.agt_receipt.verify_agt_receipt(now)",
+    "adapters.agt_receipt.verify_agt_receipt_chain(kwargs.now)",
     "agent_review.emit_agent_review(signer)",
     "agent_review.validate_statement_shape(predicate)",
     "anchors.verify_anchor(now)",

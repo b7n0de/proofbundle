@@ -19,12 +19,17 @@ from __future__ import annotations
 import pytest
 
 from proofbundle import policy, relation
+from proofbundle.errors import VerificationResult
 from proofbundle.policy import PolicyError, evaluate_decision_policy, evaluate_policy, load_policy
 
 
-class _R:
-    ok = True
-    checks: list = []
+def _R() -> VerificationResult:
+    """A passed verify result, as `verify_bundle` returns one. Until the fix of deep gate run 6 a class of the test's
+    own with ``ok`` and ``checks`` served; since then an object of a caller's class reaches the body as a stand-in that
+    holds nothing of the caller, and the policy is not evaluated (fail-closed, policy_ok None)."""
+    r = VerificationResult()
+    r.add("crypto", True)
+    return r
 
 
 _BUNDLE = {"schema": "proofbundle/v1",
@@ -95,9 +100,12 @@ def test_evaluate_relations_policy_weist_einen_tippfehler_ab():
 def test_positivkontrolle_korrekt_geschriebene_policies_bleiben_unveraendert():
     r = evaluate_policy(_BUNDLE, _R(), {"signature": {"allowed_algs": ["ed25519"]}})
     assert r["policy_ok"] is True and r["checks"][0]["name"] == "policy:signature_alg"
+    # Since T16 (owner point 4 of 2026-10-01) every check refuses a rule it does not apply: the signature rule of the
+    # eval path is no deactivation on the decision path any more, it refuses the policy.
     r = evaluate_decision_policy({"predicate": {}}, {}, {"signature": {"allowed_algs": ["ed25519"]}},
                                  signer_public_key_b64=_KEY)
-    assert r["policy_ok"] is None
+    assert r["policy_ok"] is False
+    assert any("signature.allowed_algs" in e for e in r["errors"])
     assert relation.evaluate_relations_policy({"reject_superseded": False}, {"edges": []}, successor_key_b64=None) == []
 
 
