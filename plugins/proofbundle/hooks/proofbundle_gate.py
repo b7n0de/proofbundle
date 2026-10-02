@@ -295,32 +295,33 @@ _MAYBE_PUSH = "\x00maybe-push"
 _GIT_GLOBAL_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
                                "--config-env", "--super-prefix"})
 
-#: The short allow-list of git subcommands Ebene 1 lets pass (returns None): built-ins that, per the git
-#: documentation, neither transfer objects TO a remote nor run an arbitrary command. A subcommand NOT on
-#: this list is NOT MEASURED as a possible transfer (DECISIONS.md, D3; review Runde 5, Punkt 4/6/8). The
-#: receiving commands fetch/pull/clone/ls-remote are here because they do not publish; the publishing and
-#: arbitrary-command commands (push, send-pack, format-patch+send-email, svn, p4, bundle, request-pull,
-#: filter-branch, difftool, mergetool, and any unknown word) are deliberately absent. `config` is here;
-#: a `config core.hooksPath` is denied earlier, before this list is consulted. The list closes no indirect
-#: push it does not name, and is not offered as a complete boundary against programs with remote write
-#: access (review Runde 5, Punkt 5/8).
+#: The allow-list of git subcommands Ebene 1 may leave free: built-ins that, per the git documentation,
+#: neither transfer objects TO a remote nor run an arbitrary command, AND whose program-selecting
+#: configuration keys and hooks are listed in _REPO_PROFILE (Nachtrag 19b). A subcommand NOT on this list is
+#: NOT MEASURED as a possible transfer (DECISIONS.md, D3; review Runde 5, Punkt 4/6/8). Being on the list is
+#: not enough to be free: the invocation must also be a checked form (_GIT_VETTED_OPTIONS), and decide()
+#: reads the bound repository's effective configuration and hook directory and frees the call only when no
+#: key or hook of its profile is present. The entries whose program list this round could not justify
+#: completely left the list (review S1, fallback A): am, apply, archive, bugreport, checkout-index,
+#: cherry-pick, clean, clone, column, commit-tree, fmt-merge-msg, fsck, gc, hash-object, maintenance, merge,
+#: merge-file, mktag, mktree, notes, pack-objects, pack-refs, patch-id, prune, pull, range-diff, read-tree,
+#: reflog, remote, repack, rerere, revert, sparse-checkout, stripspace, unpack-objects, update-index,
+#: update-ref, verify-commit, verify-pack, verify-tag, worktree, write-tree, and the exec-capable rebase,
+#: bisect and submodule. `config` is here; a `config core.hooksPath` is denied earlier. The list closes no
+#: indirect push it does not name, and is not offered as a complete boundary (review Runde 5, Punkt 5/8).
 _GIT_LOCAL_SUBCOMMANDS = frozenset({
-    "add", "am", "annotate", "apply", "archive", "blame", "branch", "bugreport", "cat-file",
-    "check-attr", "check-ignore", "check-mailmap", "check-ref-format", "checkout", "checkout-index",
-    "cherry", "cherry-pick", "clean", "clone", "column", "commit", "commit-tree", "config",
-    "count-objects", "describe", "diff", "diff-files", "diff-index", "diff-tree", "fetch",
-    "fmt-merge-msg", "for-each-ref", "fsck", "gc", "grep", "hash-object", "init", "log", "ls-files",
-    "ls-remote", "ls-tree", "maintenance", "merge", "merge-base", "merge-file", "mktag", "mktree",
-    "mv", "name-rev", "notes", "pack-objects", "pack-refs", "patch-id", "prune", "pull", "range-diff",
-    "read-tree", "reflog", "remote", "repack", "rerere", "reset", "restore", "rev-list", "rev-parse",
-    "revert", "rm", "shortlog", "show", "show-branch", "show-ref", "sparse-checkout", "stash",
-    "status", "stripspace", "switch", "symbolic-ref", "tag", "unpack-objects", "update-index",
-    "update-ref", "var", "verify-commit", "verify-pack", "verify-tag", "whatchanged", "worktree",
-    "write-tree",
+    "add", "annotate", "blame", "branch", "cat-file", "check-attr", "check-ignore", "check-mailmap",
+    "check-ref-format", "checkout", "cherry", "commit", "config", "count-objects", "describe", "diff",
+    "diff-files", "diff-index", "diff-tree", "fetch", "for-each-ref", "grep", "init", "log", "ls-files",
+    "ls-remote", "ls-tree", "merge-base", "mv", "name-rev", "reset", "restore", "rev-list", "rev-parse", "rm",
+    "shortlog", "show", "show-branch", "show-ref", "stash", "status", "switch", "symbolic-ref", "tag", "var",
+    "whatchanged",
 })
-#: Subcommands that are local EXCEPT when an argument makes them run an arbitrary command (which could be a
-#: push the gate never sees): `rebase -x/--exec`, `bisect run`, `submodule foreach`. The predicate decides
-#: whether this invocation is NOT MEASURED (review Runde 5, Punkt 6).
+#: Subcommands that run an arbitrary command through an argument (which could be a push the gate never
+#: sees): `rebase -x/--exec`, `bisect run`, `submodule foreach` (review Runde 5, Punkt 6). Since Nachtrag 19b
+#: none of the three is free in any form: their other forms check out commits, merge, or clone submodules,
+#: and their program lists were not justified completely (S1, fallback A). The predicates stay as the record
+#: of the forms that run a command directly.
 _GIT_EXEC_WHEN = {
     # `-x`/`--exec` run an arbitrary command; the short option also takes an ATTACHED argument (`-x<cmd>`),
     # so any word beginning `-x` counts, not only the separated `-x` and `--exec`/`--exec=` forms (R6-2).
@@ -461,6 +462,254 @@ def _options_inert(sub: str, args: list[str]) -> bool:
     return True
 
 
+# --- Ebene 1: the repository state behind a free git form (Nachtrag 19b, review S1) -----------------------
+#
+# A subcommand name and its options do not decide alone whether a call runs another program: the repository's
+# effective configuration (local, global, system, every included file and the environment-supplied scope) and
+# its hooks can select helpers, filters, editors, pagers or hooks (S1, measured on c159b817). decide()
+# therefore reads both, with the hook's own environment, in the bound repository before it leaves an
+# allow-listed form free. Sources are the git v2.43.0 documentation (Documentation/*.txt at tag v2.43.0, the
+# sources of git-config(1), githooks(5), gitattributes(5)), the git version of the measuring environment.
+
+#: Every hook githooks(5) names (Documentation/githooks.txt). git starts a hook only by exactly this name in
+#: the effective hook directory (core.hooksPath, else $GIT_DIR/hooks) and only when the file is executable; a
+#: `*.sample` file is never one of them.
+_GITHOOKS = frozenset({
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
+    "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push",
+    "pre-receive", "update", "proc-receive", "post-receive", "post-update", "reference-transaction",
+    "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman",
+    "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change",
+})
+_BOOLEAN_WORDS = frozenset({"true", "false", "yes", "no", "on", "off", "1", "0", ""})
+
+
+def _truthy(value: str | None) -> bool:
+    """git's boolean truth: a key without a value is true (git-config(1), Values: boolean)."""
+    return value is None or value.strip().lower() in ("true", "yes", "on", "1")
+
+
+def _helper_url(value: str | None) -> bool:
+    return value is not None and "::" in value   # <transport>::<address> runs git-remote-<transport>
+
+
+#: Families of keys that select a program: (pattern over the key in lower case, value test or None, source).
+_KEY_FAMILIES = {
+    "fsmonitor": (r"core\.fsmonitor", lambda k, v: v is not None and v.strip().lower() not in _BOOLEAN_WORDS,
+                  "git-config(1) core.fsmonitor: a pathname names a hook command (true is the built-in daemon)"),
+    "filter": (r"filter\..+\.(clean|smudge|process)", None,
+               "gitattributes(5) filter: filter.<driver>.clean, .smudge, .process are commands"),
+    "diff-driver": (r"diff\.external|diff\..+\.(command|textconv)", None,
+                    "git-config(1) diff.external, diff.<driver>.command, diff.<driver>.textconv"),
+    "merge-driver": (r"merge\..+\.driver", None, "git-config(1) merge.<driver>.driver"),
+    "editor": (r"core\.editor", None, "git-config(1) core.editor"),
+    "gpg": (r"gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand", None,
+            "git-config(1) gpg.program, gpg.<format>.program, gpg.ssh.defaultKeyCommand"),
+    "transport": (r"core\.(sshcommand|gitproxy|askpass|alternaterefscommand)|credential\.helper"
+                  r"|credential\..+\.helper|remote\..+\.(uploadpack|vcs)", None,
+                  "git-config(1) core.sshCommand, core.gitProxy, core.askPass, core.alternateRefsCommand, "
+                  "credential.helper, credential.<url>.helper, remote.<name>.uploadpack, remote.<name>.vcs"),
+    "transport-helper-url": (r"remote\..+\.(url|pushurl)", lambda k, v: _helper_url(v),
+                             "git-config(1) remote.<name>.url; gitremote-helpers(7) <transport>::<address>"),
+    "rewrite-to-helper": (r"url\..+\.(insteadof|pushinsteadof)", lambda k, v: "::" in k.split(".", 1)[1],
+                          "git-config(1) url.<base>.insteadOf with a <transport>:: base"),
+    "protocol": (r"protocol\.allow|protocol\.(ext|fd)\.allow",
+                 lambda k, v: (v or "").strip().lower() in ("always", "user") if k == "protocol.allow"
+                 else (v or "").strip().lower() != "never",
+                 "git-config(1) protocol.allow, protocol.<name>.allow (ext:: runs a command)"),
+    "pager": (r"core\.pager", None, "git-config(1) core.pager"),
+}
+#: Keys that make git run its default program for one subcommand (value true): signature display or signing.
+_TRIGGER_SOURCES = {
+    "log.showsignature": "git-config(1) log.showSignature (runs gpg.program or gpg)",
+    "commit.gpgsign": "git-config(1) commit.gpgSign (runs gpg.program or gpg)",
+    "tag.gpgsign": "git-config(1) tag.gpgSign (runs gpg.program or gpg, and the editor)",
+}
+_INDEX = frozenset({"post-index-change"})   # githooks(5): invoked when the index is written
+_REFS = frozenset({"reference-transaction"})  # githooks(5): invoked by any command that updates references
+_ALL = "all"
+
+
+def _profile(keys=(), hooks=frozenset(), pages=False, triggers=(), submodules=False, sources=""):
+    return {"keys": frozenset(keys), "hooks": hooks, "pages": pages, "triggers": frozenset(triggers),
+            "submodules": submodules, "sources": sources}
+
+
+_READ_ONLY = _profile(sources="reads objects, refs or attributes only; runs no driver, editor or hook")
+_WORKTREE = ("filter", "fsmonitor")
+#: Per allow-listed subcommand: the key families and trigger keys that select a program for it, the hooks it
+#: starts (githooks(5)), whether it pages by default (then core.pager counts; pager.<subcommand> counts for
+#: every entry, git-config(1) pager.<cmd>), and whether it can run inside submodules, whose configuration the
+#: gate does not read (then a .gitmodules file or a submodule.* key makes it NOT MEASURED; git-config(1)
+#: submodule.recurse, status.submoduleSummary, fetch.recurseSubmodules). `_ALL` stands for every githooks(5)
+#: name: the entry writes references or the index and may run auto maintenance (pre-auto-gc), so a complete
+#: list is the whole set.
+_REPO_PROFILE = {
+    **{sub: _READ_ONLY for sub in ("rev-parse", "show-ref", "for-each-ref", "cat-file", "ls-tree", "merge-base",
+                                   "rev-list", "name-rev", "count-objects", "var", "check-ref-format",
+                                   "check-attr", "check-ignore", "check-mailmap", "init", "config")},
+    "symbolic-ref": _profile(sources="githooks(5) reference-transaction does not cover symbolic references"),
+    "cherry": _profile(sources="git-cherry(1): patch ids by the internal diff, no driver"),
+    "log": _profile(("diff-driver", "gpg"), pages=True, triggers=("log.showsignature",),
+                    sources="git-log(1), git-config(1) diff.*, log.showSignature, gpg.*"),
+    "show": _profile(("diff-driver", "gpg"), pages=True, triggers=("log.showsignature",),
+                     sources="git-show(1), as git log"),
+    "whatchanged": _profile(("diff-driver", "gpg"), pages=True, triggers=("log.showsignature",),
+                            sources="git-whatchanged(1), as git log"),
+    "shortlog": _profile(pages=True, sources="git-shortlog(1)"),
+    "show-branch": _profile(pages=True, sources="git-show-branch(1)"),
+    "blame": _profile(("diff-driver", "filter"), pages=True, sources="git-blame(1): textconv, the worktree file"),
+    "annotate": _profile(("diff-driver", "filter"), pages=True, sources="git-annotate(1), as git blame"),
+    "grep": _profile(pages=True, submodules=True, sources="git-grep(1), submodule.recurse"),
+    "diff": _profile(("diff-driver",) + _WORKTREE, _INDEX, pages=True, submodules=True,
+                     sources="git-diff(1): drivers, worktree filters, fsmonitor, submodules"),
+    "diff-files": _profile(_WORKTREE, submodules=True, sources="git-diff-files(1): compares the worktree"),
+    "diff-index": _profile(_WORKTREE, submodules=True, sources="git-diff-index(1): compares the worktree"),
+    "diff-tree": _profile(sources="git-diff-tree(1): two trees, plumbing, no driver without --ext-diff"),
+    "describe": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-describe(1) --dirty refreshes the index"),
+    "ls-files": _profile(_WORKTREE, sources="git-ls-files(1) -m/-d compare the worktree"),
+    "status": _profile(_WORKTREE, _INDEX, submodules=True,
+                       sources="git-status(1) BACKGROUND REFRESH writes the index; submodules"),
+    "branch": _profile((), _REFS, pages=True, sources="git-branch(1): creating a branch updates a reference"),
+    "tag": _profile(("editor", "gpg"), _REFS, pages=True, triggers=("tag.gpgsign",),
+                    sources="git-tag(1), tag.gpgSign"),
+    "ls-remote": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"),
+                          sources="git-ls-remote(1): talks to the remote"),
+    "fetch": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"), _ALL, submodules=True,
+                      sources="git-fetch(1): transport, reference updates, auto maintenance, submodules"),
+    "add": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-add(1): clean filters, writes the index"),
+    "rm": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-rm(1): compares the worktree, writes the index"),
+    "mv": _profile(("fsmonitor",), _INDEX, submodules=True, sources="git-mv(1): writes the index"),
+    "restore": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-restore(1): smudge filters"),
+    "switch": _profile(_WORKTREE, _INDEX | _REFS | {"post-checkout"}, submodules=True,
+                       sources="git-switch(1), githooks(5) post-checkout"),
+    "checkout": _profile(_WORKTREE, _INDEX | _REFS | {"post-checkout"}, submodules=True,
+                         sources="git-checkout(1), githooks(5) post-checkout"),
+    "reset": _profile(_WORKTREE, _INDEX | _REFS, submodules=True, sources="git-reset(1)"),
+    "commit": _profile(("editor", "gpg") + _WORKTREE, _ALL, triggers=("commit.gpgsign",), submodules=True,
+                       sources="git-commit(1): editor, signing, githooks(5) pre-commit ... post-commit, "
+                               "reference-transaction, post-index-change, auto maintenance"),
+    "stash": _profile(("diff-driver", "merge-driver", "gpg") + _WORKTREE, _ALL, pages=True,
+                      triggers=("commit.gpgsign",), submodules=True,
+                      sources="git-stash(1): show diffs, apply/pop merge, writes refs/stash and the index"),
+}
+assert set(_REPO_PROFILE) == set(_GIT_LOCAL_SUBCOMMANDS), set(_REPO_PROFILE) ^ set(_GIT_LOCAL_SUBCOMMANDS)
+
+
+def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
+    """The effective configuration as git itself reads it in directory, with the hook's environment:
+    (scope, origin, key, value) per entry, value None for a key without '='. None when git cannot read it
+    (an unreadable or malformed file, an include it cannot open: measured, `git config --list` exits 128)."""
+    out = _git(directory, "config", "--list", "--null", "--show-origin", "--show-scope", deadline=deadline)
+    if out.returncode != 0:
+        why = out.stderr.decode("utf-8", "replace").strip().splitlines()
+        return None, (why[-1] if why else f"git config exited {out.returncode}")
+    parts = out.stdout.split(b"\0")
+    entries = []
+    for i in range(0, len(parts) - 2, 3):
+        scope, origin, kv = (x.decode("utf-8", "replace") for x in parts[i:i + 3])
+        key, nl, value = kv.partition("\n")
+        entries.append((scope, origin, key, value if nl else None))
+    return entries, ""
+
+
+def _repo_paths(directory: str, deadline: float) -> tuple[dict | None, str]:
+    """{'hooks', 'common', 'gitdir', 'toplevel'} of the repository at directory (all None outside one)."""
+    out = _git(directory, "rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir",
+               "--git-path", "hooks", deadline=deadline)
+    if out.returncode != 0:
+        if b"not a git repository" in out.stderr:
+            return {"hooks": None, "common": None, "gitdir": None, "toplevel": None}, ""
+        return None, out.stderr.decode("utf-8", "replace").strip() or f"git rev-parse exited {out.returncode}"
+    common, gitdir, hooks = out.stdout.decode("utf-8", "replace").splitlines()[:3]
+    top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
+    toplevel = top.stdout.decode("utf-8", "replace").strip() if top.returncode == 0 else None
+    return {"hooks": hooks, "common": common, "gitdir": gitdir, "toplevel": toplevel}, ""
+
+
+def _repo_state(directory: str, sub: str, deadline: float) -> tuple[str, list[str]]:
+    """('free', []) when no key or hook of sub's profile is present in the repository at directory;
+    ('selects', [what…]) when one is; ('unreadable', [why]) when the state cannot be read for sure."""
+    if not os.path.isdir(directory):
+        return "unreadable", [f"{directory} is not a directory"]
+    entries, why = _config_entries(directory, deadline)
+    if entries is None:
+        return "unreadable", [f"the effective configuration cannot be read ({why})"]
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        return "unreadable", [f"the repository layout cannot be read ({why})"]
+    prof, hits = _REPO_PROFILE[sub], []
+    for scope, origin, key, value in entries:
+        k = key.lower()
+        for family in prof["keys"] | ({"pager"} if prof["pages"] else set()):
+            pattern, test, _source = _KEY_FAMILIES[family]
+            if re.fullmatch(pattern, k) and (test is None or test(k, value)):
+                hits.append(f"{key} ({scope} configuration, {family})")
+        if k == f"pager.{sub}" and value is not None and value.strip().lower() not in ("false", "no", "off", "0"):
+            hits.append(f"{key} ({scope} configuration, pager)")
+        if k in prof["triggers"] and _truthy(value):
+            hits.append(f"{key} ({scope} configuration, runs the signature program)")
+        if prof["submodules"] and k.startswith("submodule."):
+            hits.append(f"{key} ({scope} configuration, submodules whose configuration the gate does not read)")
+    if prof["submodules"] and paths["toplevel"] and os.path.isfile(os.path.join(paths["toplevel"], ".gitmodules")):
+        hits.append(".gitmodules (submodules whose configuration the gate does not read)")
+    if paths["hooks"] and prof["hooks"]:
+        names = _GITHOOKS if prof["hooks"] == _ALL else prof["hooks"]
+        for name in sorted(names):
+            hook = os.path.join(paths["hooks"], name)
+            if os.path.isfile(hook) and os.access(hook, os.X_OK):
+                hits.append(f"the hook {name} in {paths['hooks']}")
+    return ("selects", hits) if hits else ("free", [])
+
+
+def _free_call_verdicts(free: list, cwd: str, deadline: float, host: str) -> list:
+    """The NOT MEASURED verdicts for the free git forms of one command (Nachtrag 19b): none for a form whose
+    repository state selects no program."""
+    verdicts, seen = [], set()
+    for sub, _args, directory in free:
+        label = f"git {sub}"
+        if host == "codex" or directory is UNKNOWN:
+            why = ("under Codex the hook does not receive the directory the command runs in (D12)" if host == "codex"
+                   else "the command changes the directory, runs git through a wrapper or a nested shell")
+            key = ("unbound", label, why)
+            if key not in seen:
+                seen.add(key)
+                verdicts.append(Verdict(
+                    "ask", f"NOT MEASURED: the gate cannot bind {label} to a repository ({why}), so it cannot read "
+                           "the configuration and hooks that may select a program for it.",
+                    "repo_state_unbound", evidence=f"the configuration and hooks of the repository {label} acts in",
+                    failed="the gate cannot tell which repository the call acts in",
+                    next_step="run the call as a plain command in the repository's directory, or have a person "
+                              "review it"))
+            continue
+        resolved = os.path.realpath(os.path.join(cwd, directory))
+        if (sub, resolved) in seen:
+            continue
+        seen.add((sub, resolved))
+        try:
+            state, what = _repo_state(resolved, sub, deadline)
+        except GateError as exc:
+            state, what = "unreadable", [str(exc)]
+        if state == "free":
+            continue
+        if state == "unreadable":
+            verdicts.append(Verdict(
+                "ask", f"NOT MEASURED: {label} in {resolved}: {what[0]}. The gate frees an allow-listed form only "
+                       "when it has read the effective configuration and hooks.",
+                "repo_state_unreadable", evidence=f"the effective configuration and hook directory of {resolved}",
+                failed=what[0], next_step="make the configuration readable, or have a person review the call",
+                repo=resolved))
+            continue
+        verdicts.append(Verdict(
+            "ask", f"NOT MEASURED: {label} in {resolved} may run another program: "
+                   f"{'; '.join(what)} selects a program or is a hook git starts for this subcommand. Ebene 1 "
+                   "leaves an allow-listed form free only when no such key or hook is present.",
+            "repo_state_selects_program", evidence=f"the effective configuration and hook directory of {resolved}",
+            failed=f"{len(what)} program-selecting key(s) or hook(s) for {label}",
+            next_step="review the key or hook named here, or have a person review the call", repo=resolved))
+    return verdicts
+
+
 def _expansion_present(command: str) -> bool:
     """Whether the command carries a parameter or command expansion outside single quotes (`$`, `${…}`,
     `$(…)`, or a backtick). Such an expansion runs before the words are final, so the command is not the one
@@ -487,7 +736,27 @@ def _hooks_off(key: str) -> bool:
     return key.strip().lower() == "core.hookspath"
 
 
-def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | None, list[str] | None] | None:
+#: The free git forms Ebene 1 found in the command decide() is judging (Nachtrag 19b): (subcommand, args,
+#: directory, -C values). decide() checks the repository state behind each. None outside decide().
+_FREE_CALLS: list | None = None
+#: The directory a free form found in a chain, a substitution or a nested shell acts in: "." (the event's
+#: directory) unless the command text changes the directory anywhere, then UNKNOWN.
+_FREE_BASE: str | None = "."
+_DIRECTORY_CHANGE = re.compile(r"(?<![\w./-])(cd|pushd|popd|source|eval)(?![\w./-])|(^|[\s;&|(])\.(\s|$)")
+
+
+def _note_free(sub: str, args: list[str], base: str | None, c_values: list[str]) -> None:
+    if _FREE_CALLS is None:
+        return
+    directory = base
+    if directory is not UNKNOWN:
+        for value in c_values:
+            directory = os.path.join(directory, value)
+    _FREE_CALLS.append((sub, tuple(args), directory))
+
+
+def _strict_git(words: list[str], directory: str | None,
+                free_base: str | None = None) -> tuple[str, str | None, list[str] | None] | None:
     """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call, or
     None when the subcommand is one git built-in that neither transfers objects to a remote nor runs an
     arbitrary command (the `_GIT_LOCAL_SUBCOMMANDS` allow-list). A `push` resolves its target as before:
@@ -500,12 +769,14 @@ def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | Non
     `-c alias.*` makes even an allow-listed subcommand NOT MEASURED, because the alias may name any command
     the gate does not see (review Runde 5, Punkt 6/7/8). Its arguments are never read with the push parser."""
     i, c_count, not_measured, deny, alias_config = 0, 0, False, False, False
+    start, c_values = directory, []
     while i < len(words) and words[i].startswith("-"):
         option, eq, inline = words[i].partition("=")
         has_value = option in _GIT_GLOBAL_VALUE
         value = inline if eq else (words[i + 1] if has_value and i + 1 < len(words) else "")
         if option == "-C" and value and "$" not in value:
             c_count += 1
+            c_values.append(os.path.expanduser(value))
             directory = (os.path.join(directory, os.path.expanduser(value))
                          if directory is not UNKNOWN else UNKNOWN)
         elif option in ("-c", "--config-env"):
@@ -535,7 +806,9 @@ def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | Non
     if alias_config:  # NOT MEASURED even without the word push, so a `-c alias.*` cannot slip through (Punkt 7)
         return (f"git {sub}" if sub else "git"), UNKNOWN, [_MAYBE_PUSH]
     if sub is None:
-        return None  # a bare `git` with only options and no subcommand transfers nothing
+        # A bare `git` or `git --version` runs nothing else; any other option-only form (`git --help` opens a
+        # pager or a viewer, `git -c …`) is not a checked form (Nachtrag 19b).
+        return None if not words or words == ["--version"] else ("git", UNKNOWN, [_MAYBE_PUSH])
     # An allow-listed subcommand is free only in a checked invocation form: a NOT MEASURED already
     # established in the global-option parse (e.g. a `-c`) is never lost, and every option word must be
     # vetted inert for this entry. Otherwise the invocation is NOT MEASURED, because an unchecked option
@@ -543,12 +816,12 @@ def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | Non
     if sub in _GIT_LOCAL_SUBCOMMANDS:
         if not_measured or not _options_inert(sub, args):
             return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
+        # Free in the command text. decide() still reads the repository state behind the call (Nachtrag 19b).
+        _note_free(sub, args, start if free_base is None and start is not UNKNOWN else
+                   (free_base if free_base is not None else _FREE_BASE), c_values)
         return None
-    if sub in _GIT_EXEC_WHEN:
-        if _GIT_EXEC_WHEN[sub](args) or not_measured or not _options_inert(sub, args):
-            return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
-        return None
-    return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]  # unknown subcommand, send-pack, any unmodelled transport
+    # unknown subcommand, send-pack, any unmodelled transport, and the entries that left the list (S1, A)
+    return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
 
 
 def _gh_call(words: list[str]) -> str | None:
@@ -724,7 +997,10 @@ def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False) -> No
         base = os.path.basename(value)
         rest = [w[0] for w in words[k + 1:]]
         if base == "git":
-            found = _strict_git(rest, UNKNOWN)
+            # A git word after a wrapper (sudo, env -i, nice, timeout, xargs, …) runs in an environment or
+            # directory Ebene 1 does not know, so a free form there has no bound repository (Nachtrag 19b).
+            wrapped = any(not (_ASSIGNMENT.match(w[0]) and _assignment_neutral(w[0])) for w in words[:k])
+            found = _strict_git(rest, UNKNOWN, free_base=UNKNOWN if wrapped else None)
             if found is not None:
                 emit([found])
             elif env_set:  # an unvetted assignment anywhere in the command may select a helper (R6-2 class)
@@ -2058,11 +2334,20 @@ class Outcome:
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
-    a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2)."""
-    calls = gated_calls(command)
-    if not calls:
+    a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
+    A git form the command text leaves free is free only when the bound repository's effective configuration
+    and hooks select no program for it (Nachtrag 19b); otherwise it is NOT MEASURED too."""
+    global _FREE_CALLS, _FREE_BASE
+    free: list = []
+    _FREE_CALLS, _FREE_BASE = free, (UNKNOWN if _DIRECTORY_CHANGE.search(command) else ".")
+    try:
+        calls = gated_calls(command)
+    finally:
+        _FREE_CALLS, _FREE_BASE = None, "."
+    extra = _free_call_verdicts(free, cwd, deadline, host)
+    if not calls and not extra:
         return None
-    return _judge(calls, cwd, deadline, host)
+    return _judge(calls, cwd, deadline, host, extra=extra)
 
 
 def mcp_gated(tool: str) -> bool:
@@ -2093,6 +2378,139 @@ def decide_mcp(tool: str, cwd: str, deadline: float, host: str = "claude") -> Ou
     return Outcome(decision, verdict.text(), [verdict])
 
 
+#: File-writing tools the gate judges (Nachtrag 19b, Punkt 6/7): Claude Code's Write, Edit, MultiEdit and
+#: NotebookEdit, and Codex's apply_patch, whose PreToolUse input is {"command": <the raw patch>} (Codex at
+#: 14a477ea, codex-rs/core/src/tools/handlers/apply_patch.rs, lines 289-295 and 414-419; its hook matcher
+#: aliases are Write and Edit, codex-rs/core/src/tools/hook_names.rs, lines 34-39).
+FILE_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"})
+_PATCH_TARGETS = ("*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: ")
+_PATCH_FRAME = ("*** Begin Patch", "*** End Patch", "*** End of File")
+
+
+def _write_targets(tool: str, tool_input: object) -> list[str] | None:
+    """The paths one file-tool call writes, or None when the gate cannot tell them for sure. A patch that
+    names an environment (`*** Environment ID:`) writes into a filesystem the hook does not see (Codex
+    parser.rs, line 8), and any `***` line the gate does not recognise could name a file, so both are None."""
+    if not isinstance(tool_input, dict):
+        return None
+    if tool == "apply_patch":
+        patch = tool_input.get("command")
+        if not isinstance(patch, str):
+            return None
+        targets = []
+        for line in patch.splitlines():
+            text = line.strip()
+            if not text.startswith("***"):
+                continue
+            marker = next((m for m in _PATCH_TARGETS if text.startswith(m.strip()) and
+                           text[len(m.strip()):len(m.strip()) + 1] in (" ", "")), None)
+            if marker is not None:
+                path = text[len(marker.strip()):].strip()
+                if not path:
+                    return None
+                targets.append(path)
+            elif text not in _PATCH_FRAME:
+                return None   # `*** Environment ID: …`, or a line the gate cannot read
+        return targets
+    path = tool_input.get("notebook_path" if tool == "NotebookEdit" else "file_path")
+    return [path] if isinstance(path, str) and path else None
+
+
+def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
+    """(files, directories, problem): the configuration files and hook directory that select programs for
+    the repository at directory, as git resolves them with the hook's environment — every file the effective
+    configuration was read from, every file it includes (also one that does not exist yet: git skips a missing
+    include, so a write would add configuration), the default global and system files, $GIT_DIR/config and
+    config.worktree, a `.git` file that points to the repository, and the effective hook directory."""
+    files, dirs = set(), set()
+    entries, why = _config_entries(directory, deadline)
+    if entries is None:
+        return files, dirs, f"the effective configuration cannot be read ({why})"
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        return files, dirs, f"the repository layout cannot be read ({why})"
+    base = paths["toplevel"] or directory
+    for _scope, origin, key, value in entries:
+        if origin.startswith("file:"):
+            source = os.path.join(base, os.path.expanduser(origin[5:]))
+            files.add(source)
+            k = key.lower()
+            if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
+                files.add(os.path.join(os.path.dirname(source), os.path.expanduser(value)))
+    home = os.path.expanduser("~")
+    for name, default in (("GIT_CONFIG_GLOBAL", None), ("GIT_CONFIG_SYSTEM", "/etc/gitconfig")):
+        value = os.environ.get(name)
+        if value and value != os.devnull:
+            files.add(value)
+        elif value is None and default:
+            files.add(default)
+    if os.environ.get("GIT_CONFIG_GLOBAL") is None:
+        files.add(os.path.join(home, ".gitconfig"))
+        files.add(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "git", "config"))
+    for root in {paths["common"], paths["gitdir"]} - {None}:
+        files.update({os.path.join(root, "config"), os.path.join(root, "config.worktree")})
+    if paths["toplevel"] and os.path.isfile(os.path.join(paths["toplevel"], ".git")):
+        files.add(os.path.join(paths["toplevel"], ".git"))
+    if paths["hooks"]:
+        dirs.add(paths["hooks"])
+    return files, dirs, ""
+
+
+def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
+    """Why a write to path touches the configuration or hooks of the repository the path is in or the bound
+    repository at cwd, symlinks and hard links resolved; None for an ordinary file."""
+    if not os.path.isabs(path):
+        if not (isinstance(cwd, str) and os.path.isabs(cwd)):
+            return f"the relative path {path!r} cannot be resolved without a known directory"
+        path = os.path.join(cwd, path)
+    target = os.path.realpath(path)
+    anchor = target
+    while not os.path.isdir(anchor):
+        anchor = os.path.dirname(anchor)
+    files, dirs = set(), set()
+    for directory in {anchor} | ({os.path.realpath(cwd)} if isinstance(cwd, str) and os.path.isdir(cwd) else set()):
+        more_files, more_dirs, problem = _state_files(directory, deadline)
+        if problem:
+            return f"{problem}, so the gate cannot tell whether {target} is part of it"
+        files |= more_files
+        dirs |= more_dirs
+    for f in files:
+        real = os.path.realpath(f)
+        if target == real:
+            return f"{target} is the git configuration file {f}"
+        if os.path.exists(target) and os.path.exists(real) and os.path.samefile(target, real):
+            return f"{target} is the same file as the git configuration file {f}"
+    for d in dirs:
+        real = os.path.realpath(d)
+        if target == real or target.startswith(real.rstrip(os.sep) + os.sep):
+            return f"{target} is in the hook directory {d}"
+    return None
+
+
+def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
+    """None for a file-tool write the gate does not gate; else NOT MEASURED, ask under Claude and deny under
+    Codex (Nachtrag 19b, Punkt 6): a write to the configuration or the hooks of a repository changes which
+    programs later git calls run, and a path the gate cannot map for sure is treated the same way."""
+    targets = _write_targets(tool, tool_input)
+    reasons = [f"the gate cannot tell for sure which files this {tool} call writes"] if targets is None else []
+    for target in targets or []:
+        try:
+            why = _protected_write(target, cwd, deadline)
+        except GateError as exc:
+            why = f"{exc}, so the gate cannot tell whether {target} is configuration or a hook"
+        if why:
+            reasons.append(why)
+    if not reasons:
+        return None
+    decision = "deny" if host == "codex" else "ask"
+    verdict = Verdict(decision, f"NOT MEASURED: {tool} would write the configuration or hooks of a git repository, "
+                                f"which select the programs later git calls run: {'; '.join(reasons)}.",
+                      "write_to_repo_state", evidence="the configuration files and hook directory the write touches",
+                      failed="; ".join(reasons),
+                      next_step="change git configuration and hooks yourself, or have a person review the write")
+    return Outcome(decision, verdict.text(), [verdict])
+
+
 def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline: float) -> Verdict:
     """The verdict for one gated call: a shell `git push` resolves its targets and the commits it sends; a
     `gh pr/release create` is judged as a push of the current branch to its upstream; an MCP tool, whose
@@ -2112,8 +2530,8 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
 
 
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
-           host: str = "claude") -> Outcome:
-    verdicts = []
+           host: str = "claude", extra: list | None = None) -> Outcome:
+    verdicts = list(extra or [])
     seen = set()
     for name, directory, detail in calls:
         # realpath, not normpath: a `git -C` walks the filesystem physically through symlinks, so the gate
@@ -2702,6 +3120,11 @@ def main(argv: list[str] | None = None) -> int:
             cwd = event.get("cwd")
             actions = [f"MCP {tool}"] if mcp_gated(tool) else []
             verdict = decide_mcp(tool, cwd if isinstance(cwd, str) and cwd else os.getcwd(), deadline, host=host)
+        elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+            cwd = event.get("cwd")
+            verdict = decide_write(tool, event.get("tool_input"), cwd if isinstance(cwd, str) and cwd else os.getcwd(),
+                                   deadline, host=host)
+            actions = [f"file {tool}"] if verdict is not None else []
         else:
             command, cwd = _command_from_event(event)
             actions = sorted({name for name, _, _ in gated_calls(command)})
