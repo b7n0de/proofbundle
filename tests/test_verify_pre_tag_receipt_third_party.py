@@ -797,26 +797,61 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         mod._remove_the_judged_tree_from_sys_path()
         assert sys.path == [str(aussen)], "the empty entry is the working directory, here the checkout"
 
-    def test_which_prefixes_count_as_installed_in_the_checkout(self, welt, monkeypatch):
-        """At the function: a prefix in the checkout or equal to it counts, a prefix above it or beside it does not."""
+    def test_the_overlap_check_covers_both_directions(self, welt, monkeypatch):
+        """At the function: a prefix or site directory IN the checkout counts, a checkout IN a site directory counts,
+        a directory beside or above the checkout does not. Codex found both directions (prefix in the checkout, and
+        the checkout in the interpreter's `purelib`)."""
         repo, _env, _priv, _kand, _commit = welt
         import importlib.util as ilu  # noqa: PLC0415
-        spec = ilu.spec_from_file_location("_t6_prefix_verifier", repo / "scripts" / VERIFIER)
+        spec = ilu.spec_from_file_location("_t6_overlap_verifier", repo / "scripts" / VERIFIER)
         mod = ilu.module_from_spec(spec)
         spec.loader.exec_module(mod)
         draussen = str(repo.parent / "elsewhere")
+        # all prefixes outside, site dirs outside -> no overlap
         for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
             monkeypatch.setattr(sys, name, draussen)
-        assert mod._interpreter_installed_in_the_checkout() == []
-        for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
-            monkeypatch.setattr(sys, name, str(repo.parent))
-        assert mod._interpreter_installed_in_the_checkout() == [], "a prefix above the checkout is not in it"
-        for innen in (repo / ".venv", repo):
-            monkeypatch.setattr(sys, "prefix", str(innen))
-            assert mod._interpreter_installed_in_the_checkout() == [f"sys.prefix ({innen.resolve()})"], innen
-        monkeypatch.setattr(sys, "prefix", draussen)
-        monkeypatch.setattr(sys, "base_prefix", str(repo / "py"))
-        assert mod._interpreter_installed_in_the_checkout() == [f"sys.base_prefix ({(repo / 'py').resolve()})"]
+        monkeypatch.setattr(mod, "_interpreter_startaugen",
+                            lambda: [("site", str(repo.parent / "venv" / "site-packages"))])
+        assert mod._interpreter_overlaps_the_checkout() == []
+        # a prefix above the checkout is not an overlap
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.prefix", str(repo.parent))])
+        assert mod._interpreter_overlaps_the_checkout() == [], "a directory above the checkout is not an overlap"
+        # a prefix IN the checkout (a .venv in the clone)
+        innen = str((repo / ".venv").resolve())
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("sys.prefix", innen)])
+        assert mod._interpreter_overlaps_the_checkout() == [f"sys.prefix ({innen})"]
+        # the checkout IN a site directory (a clone at the venv's purelib)
+        obendrueber = str(repo.resolve().parent)
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("site", obendrueber)])
+        assert mod._interpreter_overlaps_the_checkout() == [f"site ({obendrueber})"], \
+            "the checkout inside a site directory is an overlap"
+        # equal paths are an overlap
+        gleich = str(repo.resolve())
+        monkeypatch.setattr(mod, "_interpreter_startaugen", lambda: [("site", gleich)])
+        assert mod._interpreter_overlaps_the_checkout() == [f"site ({gleich})"]
+
+    def test_the_config_refusal_names_each_program_family(self, welt, monkeypatch):
+        """At the function: a program-selecting key of each family is reported, an empty one and a non-program key are
+        not. `filter.<n>.`, `diff.<n>.`, `merge.<n>.` carry a free middle name; the exact keys name a program directly."""
+        repo, _env, _priv, _kand, _commit = welt
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_t6_config_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        familien = {
+            "filter.secret.clean": "sh -c evil", "filter.x.process": "git-lfs", "diff.j.command": "jq",
+            "diff.word.textconv": "pandoc", "merge.ours.driver": "touch win", "core.fsmonitor": "/hook",
+            "core.sshcommand": "ssh -i k", "diff.external": "run", "credential.helper": "store",
+            "core.hooksPath": "/hooks",
+        }
+        for key, value in familien.items():
+            _git(["config", "--local", key, value], repo)
+        _git(["config", "--local", "filter.empty.clean", ""], repo)       # empty: no program
+        _git(["config", "--local", "core.ignoreCase", "false"], repo)     # not a program key
+        gefunden = {z.split("=", 1)[0].lower() for z in mod._git_configuration_selects_a_program(repo)}
+        for key in familien:
+            assert key.lower() in gefunden, (key, sorted(gefunden))
+        assert "filter.empty.clean" not in gefunden and "core.ignorecase" not in gefunden, sorted(gefunden)
 
     def test_a_virtual_environment_inside_the_checkout_refuses_the_measurement(self, welt):
         """Codex's case, executed: `python -m venv .venv` in the clone, a `.pth` there that imports a module patching
@@ -856,7 +891,8 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
                           "--version", "5.0.0", "--json"], repo, {"PATH": "/usr/bin:/bin"})
                 assert marker.exists(), (modus, "the planted start module did not run, the case proves nothing")
                 res = json.loads(r.stdout)
-                assert r.returncode == 2 and "installed in the checkout" in res["reason"], (modus, r.stdout[-400:])
+                assert r.returncode == 2 and "shares a directory with the checkout" in res["reason"], (
+                    modus, r.stdout[-400:])
         _git(["checkout", "-q", "--detach", good], repo)
         r = _run([sys.executable, "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
                   "--json"], repo, {"PATH": "/usr/bin:/bin"})
@@ -887,3 +923,72 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         r = _run([sys.executable, "-I", str(fremd / "scripts" / VERIFIER), "--repo", str(fremd), "--commit", tampered,
                   "--version", "5.0.0", "--json"], fremd, env)
         assert r.returncode == 2 and "local modification" in json.loads(r.stdout)["reason"], r.stdout[-400:]
+
+    def test_a_clone_inside_the_interpreter_site_directory_refuses(self, welt):
+        """Codex on PR 311 at 252ba3c6 (P1), executed: an external venv, the tree cloned at its `purelib`, and a `.pth`
+        in `purelib` (above the clone, so the earlier prefix-in-checkout check missed it) that replaces the loaded
+        verifier library. The documented `python -I` ran the `.pth` before the first line; now the run is refused with
+        exit 2 because the checkout lies in a site directory of the interpreter. The planted module runs (anti-vacuity),
+        the same interpreter against a clone OUTSIDE its site directories verifies the good receipt."""
+        repo, _env, _priv, good = welt[0], welt[1], welt[2], welt[4]
+        venv = repo.parent / "outer_venv"
+        r = _run([sys.executable, "-m", "venv", "--system-site-packages", "--without-pip", str(venv)], repo.parent)
+        assert r.returncode == 0, r.stderr
+        innen = venv / "bin" / "python"
+        sp = Path(_run([str(innen), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                       repo.parent).stdout.strip())
+        aussen = sorted({p for p in sys.path if p.endswith(("site-packages", "dist-packages")) and Path(p).is_dir()})
+        marker = repo.parent / "_marker_site"
+        (sp / "pb_site_plant.py").write_text(
+            f"open({str(marker)!r}, 'w').write('ran')\n"
+            "import importlib.util as _u\n_orig = _u.spec_from_file_location\n"
+            "def _spec(name, *a, **k):\n    s = _orig(name, *a, **k)\n"
+            "    if name == '_verify_pre_tag_receipt_lib' and s is not None:\n"
+            "        _ex = s.loader.exec_module\n"
+            "        def exec_module(m, _ex=_ex):\n            _ex(m)\n"
+            "            m.verify_receipt = lambda *aa, **kk: (True, 'planted via site .pth')\n"
+            "        s.loader.exec_module = exec_module\n    return s\n_u.spec_from_file_location = _spec\n")
+        (sp / "pb_site_plant.pth").write_text("".join(p + "\n" for p in aussen) + "import pb_site_plant\n")
+        klon = sp / "proofbundle_clone"
+        _git(["clone", "-q", str(repo), str(klon)], repo.parent)
+        _git(["checkout", "-q", "--detach", good], klon)
+        for modus in ([], ["-I"]):
+            marker.unlink(missing_ok=True)
+            r = _run([str(innen), *modus, str(klon / "scripts" / VERIFIER), "--repo", str(klon), "--commit", good,
+                      "--version", "5.0.0", "--json"], klon, {"PATH": "/usr/bin:/bin"})
+            assert marker.exists(), (modus, "the site .pth did not run, the case proves nothing")
+            res = json.loads(r.stdout)
+            assert r.returncode == 2 and "shares a directory with the checkout" in res["reason"], (modus, r.stdout[-400:])
+        # ANTI-PARITY, with the plant removed (the interpreter is trusted; the plant is the environment, not the
+        # clone): the same interpreter against a clone OUTSIDE its site directories verifies the good receipt. This
+        # shows the refusal above is the checkout lying in the site directory, not the clone id or the receipt.
+        (sp / "pb_site_plant.pth").unlink()
+        (sp / "pb_site_plant.py").unlink()
+        aussenklon = repo.parent / "clone_outside"
+        _git(["clone", "-q", str(repo), str(aussenklon)], repo.parent)
+        _git(["checkout", "-q", "--detach", good], aussenklon)
+        r = _run([str(innen), "-I", str(aussenklon / "scripts" / VERIFIER), "--repo", str(aussenklon), "--commit", good,
+                  "--version", "5.0.0", "--json"], aussenklon, {"PATH": "/usr/bin:/bin"})
+        assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+
+    def test_a_clone_configuring_a_clean_filter_refuses_and_never_runs_it(self, welt):
+        """Owner OA-4496f29e70, executed per family: a clean filter chosen by `.git/config` and `.git/info/attributes`
+        runs during `git status`. The verifier refuses the clone with exit 2 before the status, and the filter marker
+        never appears. The counter-check: a plain `git status` in the same clone DOES run it (anti-vacuity). One case
+        stands for the clean filter; `test_the_config_refusal_names_each_program_family` covers every family at the
+        function, which is where the families differ."""
+        repo, env, _priv, _kand, commit = welt
+        marker = repo.parent / "_marker_filter_e2e"
+        _git(["config", "--local", "filter.boese.clean", f"sh -c 'touch {marker}; cat'"], repo)
+        (repo / ".git" / "info").mkdir(parents=True, exist_ok=True)
+        (repo / ".git" / "info" / "attributes").write_text("* filter=boese\n")
+        for p in repo.rglob("*.py"):
+            p.touch()                                           # make the files racy so git re-runs the filter
+        marker.unlink(missing_ok=True)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and "select a program" in (res["reason"] or ""), roh
+        assert not marker.exists(), "the clean filter ran although the clone was refused"
+        # ANTI-VACUITY: a plain git status in the same clone does run the filter.
+        marker.unlink(missing_ok=True)
+        _run(["git", "status", "--porcelain"], repo)
+        assert marker.exists(), "the planted clean filter is not live; the case would be vacuous"

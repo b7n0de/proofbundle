@@ -218,17 +218,22 @@ Python's cache at a fresh temporary directory for the whole run: nothing under t
 run and its standard library.
 
 `-I` runs Python in isolated mode: it reads no `PYTHONPATH` and does not put the script's directory
-on the import path. The `python` you run must be installed outside the clone. Python runs the
-startup files of its own installation (`.pth` files, `sitecustomize`) before the verifier's first
-line, `-I` included, so a virtual environment created inside the clone could run code the commit
-does not hold; the verifier refuses such an interpreter with exit 2. With both, no file of the
-checkout runs before the first line. Without `-I` the verifier still takes every directory of the
-checkout off its import path before its next import, and it refuses with exit 2 a run in which a
-module of the checkout was already loaded at start, such as a `sitecustomize.py` reached through
-`PYTHONPATH`. Code that runs before the first line and then hides itself is beyond what a check
-inside the script can see; an interpreter outside the clone and `-I` are what keep it from running.
-Run the script of the clone you verify: its code is compared with the commit only there, so a
-script started from another checkout against `--repo` is refused with exit 2.
+on the import path. The `python` you run must be installed outside the clone, and the clone must not
+lie inside that interpreter's installation. Python runs the startup files of its installation (`.pth`
+files, `sitecustomize`) before the verifier's first line, `-I` included: a virtual environment
+created inside the clone, or a clone placed in the environment's own site directory, could run code
+the commit does not hold, and the verifier refuses either overlap with exit 2. With an outside
+interpreter whose installation does not contain the clone, plus `-I`, no file of the checkout runs
+before the first line. The verifier also refuses a clone whose own git configuration or
+`.git/info/attributes` names a program for git to run — a `filter`, `diff` or `merge` driver,
+`core.fsmonitor`, an ssh, pager, editor or credential command — because git would run it while the
+working tree is inspected; a clone straight from the forge carries no such setting. Without `-I` the
+verifier still takes every directory of the checkout off its import path before its next import, and
+it refuses with exit 2 a run in which a module of the checkout was already loaded at start, such as a
+`sitecustomize.py` reached through `PYTHONPATH`. Code that runs before the first line and then hides
+itself is beyond what a check inside the script can see; an interpreter outside the clone and `-I`
+are what keep it from running. Run the script of the clone you verify: its code is compared with the
+commit only there, so a script started from another checkout against `--repo` is refused with exit 2.
 
 This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
 It is written here so that "I verified the release" means what it actually means — the artifact's

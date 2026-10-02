@@ -15,13 +15,18 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
     python -I scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
 
 ``-I`` (isolated mode) keeps ``PYTHONPATH``, the user's site directory and the script's own directory off the import
-path. ``python`` must be installed outside the clone: Python runs the startup files of its installation before the
-script's first line, ``-I`` included, so a virtual environment created inside the clone is refused with exit 2. With
-both, no file of the checkout runs before the first line. Without ``-I`` the script still takes every directory of the
-checkout off its path before its first further import, and it refuses a run in which a module of the checkout was
-already loaded at start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line
-and hides itself is beyond what any check inside the script can see. Run the script of the clone you verify: only
-the checkout ``--repo`` names is compared with the commit, so a script started from another checkout is refused.
+path. ``python`` must be installed outside the clone, and the clone must not lie inside that interpreter's
+installation: Python runs the startup files of its installation (``.pth`` files, ``sitecustomize``) before the
+script's first line, ``-I`` included, so a virtual environment created inside the clone, or a clone placed in the
+environment's own site directory, is refused with exit 2. A clone whose own git configuration or
+``.git/info/attributes`` names a program for git to run (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``,
+an ssh, pager, editor or credential command) is refused too, because git would run it while the working tree is
+inspected. With an outside interpreter that does not contain the clone, plus ``-I``, no file of the checkout runs
+before the first line. Without ``-I`` the script still takes every directory of the checkout off its path before its
+first further import, and it refuses a run in which a module of the checkout was already loaded at start (a
+``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line and hides itself is beyond
+what any check inside the script can see. Run the script of the clone you verify: only the checkout ``--repo`` names
+is compared with the commit, so a script started from another checkout is refused.
 
 THE EVIDENCE IS READ FROM THE COMMIT; THE CODE RUNS FROM THE CHECKOUT, SO THE CHECKOUT MUST BE
 THE COMMIT. The receipt, the trust anchor and the gate source whose digest the receipt binds are
@@ -97,21 +102,58 @@ def _judged_location(ort: str, wurzel: str) -> bool:
     return ort == wurzel or ort.startswith(wurzel + os.sep)
 
 
-def _interpreter_installed_in_the_checkout() -> list:
-    """Every prefix of the running interpreter that lies in this checkout, as `name (path)`.
+def _interpreter_startaugen() -> list:
+    """Every directory the interpreter reads startup code from, as `(label, resolved path)`.
 
-    `sys.prefix` and `sys.exec_prefix` name the installation the interpreter reads its `site` directories from (for a
-    virtual environment, the environment), `sys.base_prefix` and `sys.base_exec_prefix` the installation it was built
-    from. A prefix above the checkout (a clone under `/usr/src` and Python under `/usr`) is not in it."""
-    wurzel = _checkout_root()
-    funde = []
+    Called AFTER the judged tree has left `sys.path` (see the `__main__` block), so the imports below take the standard
+    library, not a planted module. Two kinds. The four PREFIXES (`sys.prefix`, `sys.exec_prefix`, `sys.base_prefix`,
+    `sys.base_exec_prefix`): the installation a virtual environment points at and the one it was built from. And the
+    SITE DIRECTORIES that `site` processes at interpreter start, where a `.pth` file runs code:
+    `site.getsitepackages()`, the user site, and the `purelib`/`platlib` of `sysconfig`. A `.pth` in any of them runs
+    before this script's first line, `-I` included, because `-I` suppresses `PYTHONPATH` and the script directory but
+    not `site` processing of the environment's own directories."""
+    import contextlib as _c  # noqa: PLC0415
+    import site  # noqa: PLC0415
+    import sysconfig  # noqa: PLC0415
+    augen = []
     for name in ("prefix", "exec_prefix", "base_prefix", "base_exec_prefix"):
         try:
-            praefix = os.path.realpath(getattr(sys, name))
+            augen.append((f"sys.{name}", os.path.realpath(getattr(sys, name))))
         except (OSError, ValueError, TypeError, AttributeError):
             continue
-        if _judged_location(praefix, wurzel):
-            funde.append(f"sys.{name} ({praefix})")
+    kandidaten: list = []
+    with _c.suppress(Exception):
+        kandidaten += list(site.getsitepackages())
+    with _c.suppress(Exception):
+        if site.ENABLE_USER_SITE:
+            kandidaten.append(site.getusersitepackages())
+    with _c.suppress(Exception):
+        kandidaten += [sysconfig.get_paths().get("purelib"), sysconfig.get_paths().get("platlib")]
+    for pfad in kandidaten:
+        if isinstance(pfad, str) and pfad:
+            with _c.suppress(OSError, ValueError, TypeError):
+                augen.append(("site", os.path.realpath(pfad)))
+    return augen
+
+
+def _interpreter_overlaps_the_checkout() -> list:
+    """Every startup directory of the interpreter that overlaps this checkout dangerously, as `name (path)`.
+
+    Two findings of the same class (Codex on PR 311), and they are not symmetric. A PREFIX is dangerous only when the
+    interpreter is installed IN the checkout (`sys.prefix` at or below `wurzel`): then its site directories, where
+    `.pth` files run, lie in the checkout. A prefix ABOVE the checkout (a clone at `<venv>/src`, the venv at `<venv>`)
+    is not dangerous -- the startup code is read from `<venv>/lib/.../site-packages`, not from `<venv>/src`. A SITE
+    directory is dangerous in EITHER direction: a `.pth` there runs at start, so it must not lie in the checkout (a
+    `.venv/` in the clone) and the checkout must not lie in it (a clone at the venv's `purelib`)."""
+    wurzel = _checkout_root()
+    funde = []
+    for name, pfad in _interpreter_startaugen():
+        if name == "site":
+            gefahr = _judged_location(pfad, wurzel) or _judged_location(wurzel, pfad)
+        else:  # a prefix: only when the interpreter's installation is inside the checkout
+            gefahr = _judged_location(pfad, wurzel)
+        if gefahr:
+            funde.append(f"{name} ({pfad})")
     return funde
 
 
@@ -176,7 +218,7 @@ def _checkout_code_that_ran_before_this_script() -> list:
 
 #: Filled only when this file runs as a script (see below); a caller that imports the module measures in its own
 #: process, whose start this script did not see.
-_INTERPRETER_IN_THE_CHECKOUT: list = []
+_INTERPRETER_OVERLAP: list = []
 _CODE_BEFORE_THIS_SCRIPT: list = []
 #: The checkout this script runs from, when it runs as a script. Its code judges, so it must be the checkout `--repo`
 #: names: that is the one compared with the commit. Measured on 2026-10-02 at 653b5d67: run from a checkout A whose
@@ -186,9 +228,13 @@ _SCRIPT_CHECKOUT: str | None = None
 
 if __name__ == "__main__":
     _SCRIPT_CHECKOUT = _checkout_root()
-    _INTERPRETER_IN_THE_CHECKOUT = _interpreter_installed_in_the_checkout()
-    _CODE_BEFORE_THIS_SCRIPT = _checkout_code_that_ran_before_this_script()
+    # THE PATH IS CLEANED FIRST, then everything else is measured. `_checkout_code_that_ran_before_this_script` reads
+    # `sys.modules` (what already loaded, which cleaning does not unload) and `_interpreter_overlaps_the_checkout`
+    # imports `site`/`sysconfig`/`contextlib` -- those imports must take the standard library, not a module planted on
+    # the still-dirty path, so they run after the checkout's directories are gone.
     _remove_the_judged_tree_from_sys_path()
+    _CODE_BEFORE_THIS_SCRIPT = _checkout_code_that_ran_before_this_script()
+    _INTERPRETER_OVERLAP = _interpreter_overlaps_the_checkout()
 
 import argparse  # noqa: E402 - after the path is cleaned, see above
 import contextlib  # noqa: E402 - after the path is cleaned, see above
@@ -416,21 +462,82 @@ _GIT_PINNED_OPTIONS = (
 )
 
 
+#: Environment names that choose a PROGRAM for git to run, set empty so none is inherited (owner OA-4496f29e70). The
+#: allowlist above already keeps them out -- only `PATH` and `SYSTEMROOT` pass through -- but they are emptied as well,
+#: so a future name added to the allowlist cannot carry one, and `GIT_CONFIG_SYSTEM` is sent to the null device beside
+#: the global so neither configuration file is read.
+_GIT_PROGRAM_ENV = ("GIT_EXTERNAL_DIFF", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PAGER", "GIT_EDITOR",
+                    "GIT_SEQUENCE_EDITOR", "GIT_PROXY_COMMAND", "GIT_ASKPASS")
+
+
 def _git_environment(root: Path) -> dict:
     """The complete environment of a git call about the repository whose top level is `root` (the
     library's `git_environment`): the allowlist, the pinned names, the work tree pinned to `root`
-    and discovery stopped there, so a repository owned by another user still fails closed."""
+    and discovery stopped there, so a repository owned by another user still fails closed. No name
+    that chooses a program is inherited (`_GIT_PROGRAM_ENV`), and both the global and the system
+    configuration are sent to the null device."""
     umgebung = {k: os.environ[k] for k in _GIT_INHERITED if k in os.environ}
     umgebung.update({
         "LC_ALL": "C", "LANG": "C",
-        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
         "GIT_NO_REPLACE_OBJECTS": "1",
         "GIT_OPTIONAL_LOCKS": "0",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_WORK_TREE": str(root),
         "GIT_CEILING_DIRECTORIES": str(root.parent),
     })
+    umgebung.update({k: "" for k in _GIT_PROGRAM_ENV})
     return umgebung
+
+
+#: Git configuration keys that name a PROGRAM git may run (owner OA-4496f29e70, the D3 program-selecting families).
+#: A key is matched by its first and (where given) last dotted component, so the free middle name of a `filter.<n>.`,
+#: `diff.<n>.` or `merge.<n>.` section is covered. `core.fsmonitor` and `core.hooksPath`/alternate-ref/ssh commands
+#: name a program directly. Pagers and editors do not run in the verifier's non-interactive calls, but they choose a
+#: program and are refused too, so the rule is the family, not the one call that happens to reach it.
+_GIT_PROGRAM_KEYS = {
+    ("filter", "clean"), ("filter", "smudge"), ("filter", "process"),
+    ("diff", "command"), ("diff", "textconv"), ("merge", "driver"),
+}
+_GIT_PROGRAM_EXACT = {
+    "core.fsmonitor", "core.hookspath", "core.sshcommand", "core.pager", "core.editor",
+    "core.alternaterefscommand", "core.askpass", "diff.external", "sequence.editor",
+    "credential.helper", "uploadpack.packobjectshook", "pack.packsizelimit.command",
+}
+
+
+def _git_configuration_selects_a_program(repo: Path) -> list:
+    """Every configuration key of this clone that names a program git would run, as `key=value`.
+
+    Read through this script's own funnel, with the global and system configuration already sent to the null device
+    (`_git_environment`), so `git config --list --includes` returns the clone's own `.git/config` and the files it
+    includes (`include`, `includeIf`) and nothing from outside. A key is reported when it names a program and its value
+    is not empty: a `filter.<name>.clean`/`.smudge`/`.process`, a `diff.<name>.command`/`.textconv`, a
+    `merge.<name>.driver`, or one of the exact program-naming keys (`core.fsmonitor`, `core.hooksPath`, an ssh or
+    alternate-ref command, a configured pager or editor, a credential helper). An unparsable line is reported as a
+    refusal of its own, never dropped. `.git/info/attributes` alone selects nothing executable -- an attribute
+    `filter=x` runs code only when `filter.x.*` names a command, which this refuses -- so the configuration is the
+    complete place to look."""
+    rc, aus, err = _git(repo, "config", "--list", "-z", "--includes")
+    if rc != 0:
+        # No configuration at all is rc 1 with empty output; a real failure carries a message.
+        if aus == b"" and not err:
+            return []
+        return [f"the clone's git configuration could not be read: {err or 'git config failed'}"]
+    funde = []
+    # `--list -z` writes `key NL value NUL` for a key with a value, and `key NUL` for a value-less (boolean) key.
+    for eintrag in aus.split(b"\0"):
+        if not eintrag:
+            continue
+        schluessel, trenner, wert = eintrag.partition(b"\n")
+        key = schluessel.decode("utf-8", "replace")
+        value = wert.decode("utf-8", "replace") if trenner else ""
+        key_l = key.lower()
+        teile = key_l.split(".")
+        gewaehlt = key_l in _GIT_PROGRAM_EXACT or (len(teile) >= 2 and (teile[0], teile[-1]) in _GIT_PROGRAM_KEYS)
+        if gewaehlt and value.strip():
+            funde.append(f"{key}={value[:60]}")
+    return funde
 
 
 def _nennt_die_wurzel(antwort: bytes, root: Path) -> bool:
@@ -668,13 +775,16 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         out["reason"] = ("--commit must be the full 40-hex commit id named by the attestation; an "
                          "abbreviated id is a search query, not a subject")
         return out
-    if _INTERPRETER_IN_THE_CHECKOUT:
-        # THE INTERPRETER IS INSTALLED IN THE CHECKOUT (see the comment above `_checkout_root`): its startup files ran
-        # before this script, `-I` included, and they are not the commit.
-        out["reason"] = (f"the interpreter running this script is installed in the checkout "
-                         f"({_INTERPRETER_IN_THE_CHECKOUT[0][:160]}); Python runs the startup files of that installation "
-                         "(`.pth` files, `sitecustomize`) before the verifier's first line, also under -I, and they are "
-                         "not the commit -- run the verifier with a Python installed outside the clone")
+    if _INTERPRETER_OVERLAP:
+        # THE INTERPRETER AND THE CHECKOUT OVERLAP (see `_interpreter_overlaps_the_checkout`): either the interpreter is
+        # installed in the checkout, or the checkout lies in a startup directory of the interpreter. Either way Python
+        # runs that directory's startup code (`.pth` files, `sitecustomize`) before this script's first line, `-I`
+        # included, and it is not the commit.
+        out["reason"] = (f"the interpreter running this script shares a directory with the checkout "
+                         f"({_INTERPRETER_OVERLAP[0][:160]}); Python runs the startup files of its installation (`.pth` "
+                         "files, `sitecustomize`) from there before the verifier's first line, also under -I, and they "
+                         "are not the commit -- run the verifier with a Python whose installation is outside the clone, "
+                         "and from a clone that is not inside that installation")
         return out
     if _SCRIPT_CHECKOUT is not None and os.path.realpath(repo) != _SCRIPT_CHECKOUT:
         # THE CODE THAT JUDGES IS NOT THE CODE THAT IS COMPARED (see `_SCRIPT_CHECKOUT`).
@@ -717,6 +827,18 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         baum = _baum(repo, commit)
     except _NichtDasObjekt as exc:
         out["reason"] = _kein_objekt_grund(exc)
+        return out
+    # NO GIT CALL BELOW MAY RUN A PROGRAM THE CLONE CHOSE (owner decision OA-4496f29e70, 2026-10-02; Codex sweep). The
+    # `git status` below computes worktree blob hashes, and a clean filter configured in the clone runs then; measured
+    # on 2026-10-02 at 653b5d67 that a `filter.*.clean` under `.git/config` with `.git/info/attributes` `* filter=...`
+    # ran during that status. The clone of GitHub carries no such configuration; a prepared directory does. This refuses
+    # any clone whose own configuration or attributes select a program, before the status call, so no such program runs.
+    programme = _git_configuration_selects_a_program(repo)
+    if programme:
+        out["reason"] = (f"the clone's own git configuration or attributes select a program to run "
+                         f"({programme[0][:160]}{' …' if len(programme) > 1 else ''}); git would run it during the "
+                         "working-tree inspection below, and it is not the commit -- a clone from the forge carries no "
+                         "such setting, so clone afresh, then run again")
         return out
     # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the
     # commit says nothing about the files on disk; an uncommitted edit to the receipt library or

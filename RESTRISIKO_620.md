@@ -1152,12 +1152,24 @@ Codex on pull request 311 at 3f598b5b found that last step incomplete (P1, repro
 of the checkout off the path except the interpreter's own installation; Codex at e61dc740 found that exemption to be
 the next instance (P1, reproduced): a `.pth` file of a `.venv/` inside the clone runs before the first line, also
 under `-I`, and one that patched `importlib.util.spec_from_file_location` gave exit 0 VERIFIED for a receipt over
-another tree. The verifier now takes every directory of the checkout off its path with no exception, refuses with
-exit 2 an interpreter whose installation lies in the clone, a script started from another checkout than `--repo`
-(the sweep of the class found it: only `--repo` was compared, while the library was loaded from the script's own
-checkout, and an edited library there gave exit 0 VERIFIED against a clean `--repo`), and a run in which a module of
-the checkout was loaded before its first line, and documents `python -I` with a Python installed outside the clone
-as its command. Named
+another tree. The fix of 30e1cbf2 refused an interpreter installed in the clone; Codex at 252ba3c6 found the
+SYMMETRIC gap (P1, reproduced): a clone placed IN a startup directory of an outside interpreter (at the venv's
+`purelib`) is run by that interpreter's `site` processing, `.pth` and all, `-I` included, and that too gave exit 0
+VERIFIED. The verifier now refuses when the checkout and any startup directory of the interpreter overlap in either
+direction -- a prefix at or below the checkout, or a site directory that the checkout lies in or that lies in the
+checkout. Alongside, the owner's class decision (OA-4496f29e70, 2026-10-02): no git call of the verifier may run a
+program the clone chose. The working-tree inspection ran a `filter.*.clean` set in `.git/config` and selected by
+`.git/info/attributes`; the verifier now refuses a clone whose own configuration or attributes name a program (a
+`filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, alternate-ref or credential command, and
+the other program-selecting families) before that inspection, reads the global and system configuration from the null
+device, and inherits no program-selecting environment name. The sweep over the neighbours: `pre_tag_audit_gate.py`
+reaches git only through the shared funnel (hardened the same way) and inspects no working tree, and
+`pre_tag_receipt.py` compares bytes with `git hash-object --no-filters` and never runs a worktree filter, so neither
+runs a clone-chosen program; both are covered without a source change of their own logic. The verifier also refuses a
+script started from another checkout than `--repo` (only `--repo` is compared, while the library loads from the
+script's own checkout; an edited library there gave exit 0 VERIFIED against a clean `--repo`) and a run in which a
+module of the checkout was loaded before its first line, and documents `python -I` with a Python installed outside
+the clone as its command. Named
 limit: a module of the checkout that Python loads at start, through `PYTHONPATH` or under `python -m`, runs before
 the script can act; the refusal sees it only while it stays in `sys.modules`, and only `-I` keeps it from running.
 The interpreter itself stays trusted: a compromised Python outside the clone, or one whose prefix a startup file

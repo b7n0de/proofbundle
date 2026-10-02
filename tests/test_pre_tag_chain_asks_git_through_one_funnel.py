@@ -279,9 +279,13 @@ class TheFunnelBuildsTheEnvironment(unittest.TestCase):
             "GIT_PAGER", "SOME_UNRELATED_NAME")})
         root = pathlib.Path(tempfile.gettempdir()).resolve() / "a-repository"
         pinned = {"LC_ALL": "C", "LANG": "C", "GIT_CONFIG_NOSYSTEM": "1",
-                  "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1",
+                  "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                  "GIT_NO_REPLACE_OBJECTS": "1",
                   "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0",
                   "GIT_WORK_TREE": str(root), "GIT_CEILING_DIRECTORIES": str(root.parent)}
+        # No name that chooses a program for git to run (owner OA-4496f29e70): the funnel sets each one empty.
+        pinned.update({k: "" for k in ("GIT_EXTERNAL_DIFF", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PAGER", "GIT_EDITOR",
+                                       "GIT_SEQUENCE_EDITOR", "GIT_PROXY_COMMAND", "GIT_ASKPASS")})
         for label, build in (("library", self.lib.git_environment),
                              ("verifier", self.verifier._git_environment)):
             with self.subTest(funnel=label):

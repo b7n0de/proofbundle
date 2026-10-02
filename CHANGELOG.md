@@ -91,13 +91,25 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     documented command is now `python -I scripts/verify_pre_tag_receipt.py` with a Python installed outside the
     clone, which reads no `PYTHONPATH`, so such a module does not run at all. Its tests plant a hidden package
     at every position a real run imports and a module at every position of three entries into the checkout,
-    read from real runs. `scripts/pre_tag_audit_gate.py` has no such guard and runs on the fresh checkout of the
-    tag; RESTRISIKO_620.md names the limit.
+    read from real runs.
+  - Two more of the same class, found by Codex on the fixes above. The interpreter and the checkout must not share a
+    directory in EITHER direction: an interpreter installed in the clone was already refused, and a clone placed IN a
+    startup directory of an outside interpreter (at the venv's `purelib`) is refused now too, because a `.pth` there
+    runs at interpreter start, `-I` included, and Codex turned a mismatched receipt into exit 0 VERIFIED that way. And
+    no git call of the verifier may run a program the clone chose: the working-tree inspection ran a `filter.*.clean`
+    configured in `.git/config` and selected by `.git/info/attributes`, so a clone whose own configuration or
+    attributes name a program (a `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor or
+    credential command, and the other program-selecting families) is refused with exit 2 before the inspection; the
+    global and system configuration are read from the null device and no program-selecting environment name is
+    inherited (owner decision of 2026-10-02 on card OA-4496f29e70). `scripts/pre_tag_audit_gate.py` reads git only
+    through this funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares bytes with
+    `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep.
   - What a caller sees differently: a policy or flag that was accepted with no effect is refused with exit 2;
     `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify or names another
     audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/`, on a run
-    in which a module of the checkout was loaded before its first line, when the Python running it is
-    installed in the clone, and when it is started from another checkout than `--repo`.
+    in which a module of the checkout was loaded before its first line, when the Python running it shares a directory
+    with the clone, when it is started from another checkout than `--repo`, and on a clone whose own git configuration
+    or attributes select a program.
 
 - **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
   applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:
