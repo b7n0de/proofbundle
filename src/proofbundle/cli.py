@@ -455,6 +455,7 @@ def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
     if not verdict.ok:
         print(_safe_line(f"=> FAILED at step {verdict.step_label}: {verdict.reason}"), file=sys.stderr)
         return 1
+    assert verdict.payload is not None   # an ok verdict carries B (ReceiptVerdict.payload; mypy narrowing)
     payload = loads_strict(verdict.payload.decode("utf-8"))   # B, verified above
 
     def _s(v) -> str:
