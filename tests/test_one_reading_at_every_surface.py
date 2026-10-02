@@ -534,9 +534,7 @@ class TheEvidencePackBudgetBoundsTheProofThatIsDecoded(unittest.TestCase):
     so a proof the budget never saw was decoded and judged."""
 
     def test_the_proof_judged_is_the_proof_stored(self) -> None:
-        try:
-            import opentimestamps  # noqa: F401, PLC0415
-        except ImportError:
+        if not _ots_vorhanden():
             self.skipTest("needs proofbundle[anchors] (opentimestamps) — NOT MEASURABLE here, did NOT run")
         import hashlib  # noqa: PLC0415
 
@@ -1242,10 +1240,14 @@ _OTS_FLAECHEN = ("evidence_pack.verify_evidence_pack", "anchors_rootcommit.verif
 
 
 def _ots_vorhanden() -> bool:
-    try:
-        import opentimestamps  # noqa: F401, PLC0415
-    except ImportError:
+    """Whether OpenTimestamps (proofbundle[anchors]) is installed. Only its absence counts as absence: no module
+    spec to find. A module that is found and fails while importing, ``ImportError`` included, is a broken
+    install, and its failure is raised, so a regression stays red instead of reading as not measured (Codex
+    thread 4163240548 at dd079791; until then every ``ImportError`` counted as absence)."""
+    import importlib.util  # noqa: PLC0415
+    if importlib.util.find_spec("opentimestamps") is None:
         return False
+    import opentimestamps  # noqa: F401, PLC0415
     return True
 
 

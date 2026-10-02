@@ -507,22 +507,26 @@ _BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTim
 
 
 def _backend_da(backend: str) -> bool:
-    """Whether this environment has ``backend``: the ML-DSA module of cryptography imports (``pq``), or OpenTimestamps
-    imports (``anchors``). The one check every conditional base case here goes through.
+    """Whether this environment has ``backend``: OpenTimestamps (``anchors``, `_sweep._ots_vorhanden`), or the ML-DSA
+    classes of cryptography (``pq``). The one check every conditional base case here goes through.
 
-    ONLY THE ABSENCE OF THE BACKEND COUNTS: its module failing to import with ``ImportError``, as every other probe
-    of these backends in this suite reads it. The first form generated an ML-DSA key and read ANY exception as a
-    missing backend, so a regression of ``pqsig.generate_mldsa`` turned this part from red to green with the three
-    surfaces reported as not measured (Codex thread 4163183345 at 52c7e634). Now nothing is generated here, and a
-    failure of the key generation is raised where the base case builds the key."""
+    ONLY THE ABSENCE OF THE BACKEND COUNTS AS ABSENCE: no module spec to find, and for ``pq`` also the documented
+    shape of cryptography 48 and later without a post-quantum backend, a module without its classes
+    (`proofbundle.cli._detect_features`, tests/test_cli.py). A module that is found and fails while importing,
+    ``ImportError`` included, is a broken install and its failure is raised, and so is a failure of anything the
+    base cases do later. Three forms before this one each read a failure as absence or an absence as a failure:
+    a probe that generated a key and caught every exception (Codex thread 4163183345 at 52c7e634), then one that
+    read every ``ImportError`` as absence and the module without its classes as presence (threads 4163240548 and
+    4163240539 at dd079791)."""
     if backend == "anchors":
         return _sweep._ots_vorhanden()
     if backend == "pq":
-        try:
-            from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: F401, PLC0415
-        except ImportError:
+        import importlib.util
+        name = "cryptography.hazmat.primitives.asymmetric.mldsa"
+        if importlib.util.find_spec(name) is None:
             return False
-        return True
+        modul = importlib.import_module(name)   # found: a failure while importing it is raised
+        return all(hasattr(modul, klasse) for klasse in ("MLDSA44PrivateKey", "MLDSA44PublicKey"))
     raise ValueError(f"unknown backend {backend!r}")
 
 
@@ -987,11 +991,10 @@ class ThePartNamesWhatItDoesNotBuild(unittest.TestCase):
         consulted by the probe and raises where the base case builds the key; a module that raises on import with
         anything but ImportError propagates out of the probe."""
         import importlib.abc
-        import importlib.util
         import tempfile
 
         from proofbundle import anchors, pqsig
-        mldsa_da = importlib.util.find_spec("cryptography.hazmat.primitives.asymmetric.mldsa") is not None
+        mldsa_da = _backend_da("pq")   # the probe's answer before anything is planted
         original = pqsig.generate_mldsa
         aufrufe: list = []
 
@@ -1020,16 +1023,81 @@ class ThePartNamesWhatItDoesNotBuild(unittest.TestCase):
                 if name == "opentimestamps":
                     raise RuntimeError("planted failure on import")
                 return None
-        gemerkt = {k: v for k, v in sys.modules.items() if k == "opentimestamps" or k.startswith("opentimestamps.")}
-        for k in gemerkt:
+        with _ohne_modul("opentimestamps"):
+            sys.meta_path.insert(0, _Wirft())
+            try:
+                with self.assertRaises(RuntimeError):
+                    _backend_da("anchors")
+            finally:
+                sys.meta_path.pop(0)
+
+    def test_a_found_module_that_fails_to_import_is_no_absence(self) -> None:
+        """Codex thread 4163240548 at dd079791: a module that is found and raises ImportError while it is
+        executed counted as a missing backend. It is a broken install, and the probe raises."""
+        import importlib.abc
+        import importlib.machinery
+
+        class _Lader(importlib.abc.Loader):
+            def create_module(self, spec):
+                return None
+
+            def exec_module(self, module):
+                raise ImportError("planted: an import inside the present module fails")
+
+        for backend, name in (("pq", "cryptography.hazmat.primitives.asymmetric.mldsa"), ("anchors", "opentimestamps")):
+            class _Finder(importlib.abc.MetaPathFinder):
+                def find_spec(self, gesucht, path, target=None, _name=name):
+                    return importlib.machinery.ModuleSpec(gesucht, _Lader()) if gesucht == _name else None
+            with self.subTest(backend=backend), _ohne_modul(name):
+                sys.meta_path.insert(0, _Finder())
+                try:
+                    with self.assertRaises(ImportError):
+                        _backend_da(backend)
+                finally:
+                    sys.meta_path.pop(0)
+
+    def test_the_mldsa_module_without_its_classes_is_an_absence(self) -> None:
+        """Codex thread 4163240539 at dd079791: cryptography 48 and later without a post-quantum backend ships
+        the module without its classes (`proofbundle.cli._detect_features` names the shape). The probe read it
+        as present, and the base case raised AttributeError where the three surfaces are named open."""
+        import importlib.machinery
+        import types
+        name = "cryptography.hazmat.primitives.asymmetric.mldsa"
+        leer = types.ModuleType(name)
+        leer.__spec__ = importlib.machinery.ModuleSpec(name, None)
+        with _ohne_modul(name):
+            sys.modules[name] = leer
+            self.assertIs(_backend_da("pq"), False)
+            namen, aufraeumen = _flaechen_vier()
+            aufraeumen()
+            self.assertEqual(sorted(set(_MLDSA_GRUNDFAELLE) & {n for n, _ in namen}), [])
+
+
+class _ohne_modul:
+    """A context in which ``name`` and its submodules are taken out of ``sys.modules`` (and off its parent
+    package) and put back afterwards, so a planted finder or module is consulted."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __enter__(self):
+        self.gemerkt = {k: v for k, v in sys.modules.items() if k == self.name or k.startswith(self.name + ".")}
+        for k in self.gemerkt:
             del sys.modules[k]
-        sys.meta_path.insert(0, _Wirft())
-        try:
-            with self.assertRaises(RuntimeError):
-                _backend_da("anchors")
-        finally:
-            sys.meta_path.pop(0)
-            sys.modules.update(gemerkt)
+        eltern, _, kurz = self.name.rpartition(".")
+        self.eltern = sys.modules.get(eltern) if eltern else None
+        self.attribut = getattr(self.eltern, kurz, _ohne_modul) if self.eltern is not None else _ohne_modul
+        if self.attribut is not _ohne_modul:
+            delattr(self.eltern, kurz)
+        return self
+
+    def __exit__(self, *_):
+        for k in [k for k in sys.modules if k == self.name or k.startswith(self.name + ".")]:
+            del sys.modules[k]
+        sys.modules.update(self.gemerkt)
+        if self.attribut is not _ohne_modul:
+            setattr(self.eltern, self.name.rpartition(".")[2], self.attribut)
+        return False
 
 
 if __name__ == "__main__":
