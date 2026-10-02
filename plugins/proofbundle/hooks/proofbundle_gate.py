@@ -285,9 +285,45 @@ def _lex(command: str) -> list | None:
 #: a command-level `core.hooksPath` override, or a `git config core.hooksPath` — so the gate denies it rather
 #: than let an unchecked push through (review Nachtrag 15, Ebene 1, Punkt 5).
 _HOOKS_DISABLE = "\x00hooks-disabled"
+#: Detail marker for a git command Ebene 1 recognises as a possible object transfer to a remote but does
+#: not model (an unknown subcommand, `send-pack`, a per-command `-c alias.*`, a `rebase --exec`, …). It is
+#: never resolved and never inactive; the judge reports it NOT MEASURED (review Runde 5, Punkt 6/7/8).
+_MAYBE_PUSH = "\x00maybe-push"
 #: git global options (before the subcommand) that take their value as the next word.
 _GIT_GLOBAL_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
                                "--config-env", "--super-prefix"})
+
+#: The short allow-list of git subcommands Ebene 1 lets pass (returns None): built-ins that, per the git
+#: documentation, neither transfer objects TO a remote nor run an arbitrary command. A subcommand NOT on
+#: this list is NOT MEASURED as a possible transfer (DECISIONS.md, D3; review Runde 5, Punkt 4/6/8). The
+#: receiving commands fetch/pull/clone/ls-remote are here because they do not publish; the publishing and
+#: arbitrary-command commands (push, send-pack, format-patch+send-email, svn, p4, bundle, request-pull,
+#: filter-branch, difftool, mergetool, and any unknown word) are deliberately absent. `config` is here;
+#: a `config core.hooksPath` is denied earlier, before this list is consulted. The list closes no indirect
+#: push it does not name, and is not offered as a complete boundary against programs with remote write
+#: access (review Runde 5, Punkt 5/8).
+_GIT_LOCAL_SUBCOMMANDS = frozenset({
+    "add", "am", "annotate", "apply", "archive", "blame", "branch", "bugreport", "cat-file",
+    "check-attr", "check-ignore", "check-mailmap", "check-ref-format", "checkout", "checkout-index",
+    "cherry", "cherry-pick", "clean", "clone", "column", "commit", "commit-tree", "config",
+    "count-objects", "describe", "diff", "diff-files", "diff-index", "diff-tree", "fetch",
+    "fmt-merge-msg", "for-each-ref", "fsck", "gc", "grep", "hash-object", "init", "log", "ls-files",
+    "ls-remote", "ls-tree", "maintenance", "merge", "merge-base", "merge-file", "mktag", "mktree",
+    "mv", "name-rev", "notes", "pack-objects", "pack-refs", "patch-id", "prune", "pull", "range-diff",
+    "read-tree", "reflog", "remote", "repack", "rerere", "reset", "restore", "rev-list", "rev-parse",
+    "revert", "rm", "shortlog", "show", "show-branch", "show-ref", "sparse-checkout", "stash",
+    "status", "stripspace", "switch", "symbolic-ref", "tag", "unpack-objects", "update-index",
+    "update-ref", "var", "verify-commit", "verify-pack", "verify-tag", "whatchanged", "worktree",
+    "write-tree",
+})
+#: Subcommands that are local EXCEPT when an argument makes them run an arbitrary command (which could be a
+#: push the gate never sees): `rebase -x/--exec`, `bisect run`, `submodule foreach`. The predicate decides
+#: whether this invocation is NOT MEASURED (review Runde 5, Punkt 6).
+_GIT_EXEC_WHEN = {
+    "rebase": lambda args: any(a in ("-x", "--exec") or a.startswith("--exec=") for a in args),
+    "bisect": lambda args: bool(args) and args[0] == "run",
+    "submodule": lambda args: "foreach" in args,
+}
 
 
 def _expansion_present(command: str) -> bool:
@@ -317,13 +353,18 @@ def _hooks_off(key: str) -> bool:
 
 
 def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | None, list[str] | None] | None:
-    """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call or
-    None when it is not a push and not a `core.hooksPath` config. At most one literal `-C` is joined onto
-    the directory (not normalised, so the judge resolves it physically through symlinks, R4-2); more than
-    one `-C`, or any other global option (`-c`, `--git-dir`, `--work-tree`, `--namespace`, `--exec-path`,
-    `--no-pager`, …), makes the push NOT MEASURED (R4-6). `--no-verify`, a `-c core.hooksPath` override, or
-    a `git config core.hooksPath` denies (Punkt 5)."""
-    i, c_count, not_measured, deny = 0, 0, False, False
+    """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call, or
+    None when the subcommand is one git built-in that neither transfers objects to a remote nor runs an
+    arbitrary command (the `_GIT_LOCAL_SUBCOMMANDS` allow-list). A `push` resolves its target as before:
+    at most one literal `-C` is joined onto the directory (not normalised, so the judge resolves it
+    physically through symlinks, R4-2); more than one `-C`, or any other global option (`-c`, `--git-dir`,
+    `--work-tree`, `--namespace`, `--exec-path`, `--no-pager`, …), makes the push NOT MEASURED (R4-6).
+    `--no-verify`, a `-c core.hooksPath` override, or a `git config core.hooksPath` denies (Punkt 5). A
+    subcommand that is NOT on the allow-list — an unknown word, `send-pack`, `rebase --exec`, `bisect run`,
+    `submodule foreach` — is NOT MEASURED as a possible transfer (`_MAYBE_PUSH`), and a per-command
+    `-c alias.*` makes even an allow-listed subcommand NOT MEASURED, because the alias may name any command
+    the gate does not see (review Runde 5, Punkt 6/7/8). Its arguments are never read with the push parser."""
+    i, c_count, not_measured, deny, alias_config = 0, 0, False, False, False
     while i < len(words) and words[i].startswith("-"):
         option, eq, inline = words[i].partition("=")
         has_value = option in _GIT_GLOBAL_VALUE
@@ -333,26 +374,38 @@ def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | Non
             directory = (os.path.join(directory, os.path.expanduser(value))
                          if directory is not UNKNOWN else UNKNOWN)
         elif option in ("-c", "--config-env"):
-            if _hooks_off(value.partition("=")[0]):
+            key = value.partition("=")[0].strip()
+            if _hooks_off(key):
                 deny = True
+            if key.lower().startswith("alias."):
+                alias_config = True  # a per-command alias may name any command, push included (Punkt 7)
             not_measured = True  # any per-command config is a global option the strict form does not model
         else:
             not_measured = True  # --git-dir, --work-tree, --namespace, --exec-path, --no-pager, a 2nd -C, …
         i += 2 if (has_value and not eq) else 1
     if i < len(words) and words[i] == "config" and any(_hooks_off(w) for w in words[i + 1:]):
         return "git config core.hooksPath", directory, [_HOOKS_DISABLE]
-    if i >= len(words) or words[i] != "push":
-        return None
-    args = words[i + 1:]
-    if "--no-verify" in args:
-        deny = True
-    if c_count > 1:
-        not_measured = True
-    if deny:
+    if deny:  # a `-c core.hooksPath=…` override would turn the hook off, whatever the subcommand is (Punkt 5)
         return "git push", directory, [_HOOKS_DISABLE]
-    if not_measured:
-        return "git push", UNKNOWN, None
-    return "git push", directory, args
+    sub = words[i] if i < len(words) else None
+    args = words[i + 1:]
+    if sub == "push":
+        if "--no-verify" in args:
+            return "git push", directory, [_HOOKS_DISABLE]
+        if c_count > 1:
+            not_measured = True
+        if not_measured:
+            return "git push", UNKNOWN, None
+        return "git push", directory, args
+    if alias_config:  # NOT MEASURED even without the word push, so a `-c alias.*` cannot slip through (Punkt 7)
+        return (f"git {sub}" if sub else "git"), UNKNOWN, [_MAYBE_PUSH]
+    if sub is None:
+        return None  # a bare `git` with only options and no subcommand transfers nothing
+    if sub in _GIT_LOCAL_SUBCOMMANDS:
+        return None
+    if sub in _GIT_EXEC_WHEN:
+        return (f"git {sub}", UNKNOWN, [_MAYBE_PUSH]) if _GIT_EXEC_WHEN[sub](args) else None
+    return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]  # unknown subcommand, send-pack, any unmodelled transport
 
 
 def _gh_call(words: list[str]) -> str | None:
@@ -602,10 +655,17 @@ def _git(repo: str, *args: str, deadline: float) -> subprocess.CompletedProcess:
 
 
 def _blob(repo: str, head: str, path: str, deadline: float, limit: int) -> bytes | None:
-    """The bytes of path at the commit, None when there is no such file there."""
+    """The bytes of path at the commit; None only when the commit's tree is readable and holds no such file;
+    GateError when the commit or its tree is not available locally. A failed `cat-file` is never silently
+    read as absence — a remote object this clone does not have (a deletion against an unknown remote state,
+    a partial clone) must be NOT MEASURED, not 'absent' (review Runde 5, R5-1)."""
     kind = _git(repo, "cat-file", "-t", f"{head}:{path}", deadline=deadline)
     if kind.returncode != 0:
-        return None
+        listing = _git(repo, "ls-tree", "-z", "--full-tree", head, "--", path, deadline=deadline)
+        if listing.returncode == 0 and listing.stdout == b"":
+            return None  # a measured absence: the tree is readable and holds no such path
+        raise GateError(f"the gate could not read {path} at {head[:12]}: the commit or its tree is not "
+                        "available in this repository")
     if kind.stdout.strip() != b"blob":
         raise GateError(f"{path} at HEAD is a {kind.stdout.strip().decode(errors='replace')}, not a file")
     size = _git(repo, "cat-file", "-s", f"{head}:{path}", deadline=deadline)
@@ -1048,18 +1108,19 @@ def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
             or _config_bool(repo, "push.followTags", deadline))
 
 
-def _push_rewrite_present(repo: str, deadline: float) -> bool:
-    """Whether any `url.<base>.pushInsteadOf` rewrite rule is configured. Such a rule rewrites the push
-    endpoint but not the fetch that built the remote-tracking ref, so the push can diverge from the
-    comparison state through a mechanism that string-comparing the displayed URLs cannot prove absent: git
-    applies the rewrite at the transport layer, and the gate does not reproduce git's longest-prefix match
-    to decide whether a given rule hits this remote. A symmetric `url.<base>.insteadOf` is not a push
-    rewrite — it rewrites fetch and push alike, so the tracking ref already records the rewritten endpoint
-    (review R4-7, Ebene 1, Punkt 7). Any such rule present makes the push NOT MEASURED, conservatively; it
-    never widens what the gate measures."""
-    out = _git(repo, "config", "--get-regexp", r"^url\..*\.pushinsteadof$", deadline=deadline)
+def _url_rewrite_present(repo: str, deadline: float) -> bool:
+    """Whether any `url.<base>.insteadOf` or `url.<base>.pushInsteadOf` rewrite rule is configured. Either
+    kind rewrites a transport endpoint, and Ebene 1 does not reproduce git's longest-prefix match to decide
+    whether a given rule hits this remote, so it cannot prove from the displayed URLs that the push endpoint
+    is the origin of the comparison state. A `pushInsteadOf` rewrites push only, so the fetch that built the
+    remote-tracking ref used the un-rewritten endpoint. A symmetric `insteadOf` rewrites fetch and push
+    alike, but Ebene 1 still cannot prove, from `remote get-url` output alone, that the tracking ref records
+    the same endpoint this push will use — so it is no longer treated as faithful (review Runde 5, Punkt 9,
+    correcting R4-7). Any such rule present makes the push NOT MEASURED, conservatively; it never widens what
+    the gate measures. The authoritative comparison is Ebene 2's, where git itself reports the remote state."""
+    out = _git(repo, "config", "--get-regexp", r"^url\..*\.(push)?insteadof$", deadline=deadline)
     if out.returncode not in (0, 1):  # 1 is "no match", any other code is a read failure
-        raise GateError("git could not read the url.*.pushInsteadOf configuration")
+        raise GateError("git could not read the url.*.insteadOf / pushInsteadOf configuration")
     return bool(out.stdout.strip())
 
 
@@ -1069,11 +1130,11 @@ def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
     pushInsteadOf and lists every value, so the string comparison catches a pushurl or a second URL that
     sends the push to a different or a further endpoint than the remote-tracking ref records (Befund 1).
     String equality alone is not a proof the push endpoint matches the comparison-state origin, though
-    (review R4-7): a `url.<base>.pushInsteadOf` rewrite is applied at the transport layer, so the gate
-    additionally requires that no such push-only rewrite is configured. A symmetric insteadOf rewrites
-    fetch and push alike, so the tracking ref still records the push endpoint and the two URLs stay equal.
-    A git error raises GateError (NOT MEASURED)."""
-    if _push_rewrite_present(repo, deadline):
+    (review R4-7, Runde 5 Punkt 9): any `url.<base>.insteadOf` or `url.<base>.pushInsteadOf` rewrite is
+    applied at the transport layer and Ebene 1 does not reproduce git's longest-prefix match, so the gate
+    additionally requires that no such rewrite — push-only or symmetric — is configured. A git error raises
+    GateError (NOT MEASURED)."""
+    if _url_rewrite_present(repo, deadline):
         return False
     push = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)
     fetch = _git(repo, "remote", "get-url", "--all", remote, deadline=deadline)
@@ -1299,10 +1360,16 @@ def _unresolved_verdict(repo: str, head: str | None, why: str) -> Verdict:
 def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tail: str) -> Verdict:
     """The verdict for the evidence a single commit's tree declares: pass, inactive, ask (empty list) or
     deny. No working-tree read and no range comparison; `where` names the commit in every message and
-    `pass_tail` is appended to a pass. parse_declaration and _blob raise GateError, which the caller turns
-    into a deny, so a tree whose declaration cannot be read is never silently treated as declaring nothing.
-    """
-    raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
+    `pass_tail` is appended to a pass. parse_declaration and the evidence-file _blob reads raise GateError,
+    which the caller turns into a deny, so a tree whose evidence cannot be read is never silently treated as
+    declaring nothing. The DECLARATION read is the one exception: an unreadable or unconfirmable declaration
+    returns 'inactive' here, and the caller's absence nuance (D5) turns an UNMEASURED absence into a NOT
+    MEASURED ask and only a MEASURED absence (git lists the path empty with exit 0) into inactive — so a
+    failed `cat-file` is still never silently 'absent' (review Runde 5, R5-1)."""
+    try:
+        raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
+    except GateError:
+        raw = None  # unreadable/unconfirmed: the caller's absence nuance decides ask vs inactive
     if raw is None:
         return Verdict("inactive", f"NOT MEASURED: no evidence is declared at {where} ({DECLARATION} is absent).",
                        "nothing_declared", repo=repo, head=commit)
@@ -1496,6 +1563,15 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
     def where(commit: str) -> str:
         return f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
 
+    # R5-4: a target that sends commits to a ref this repository does not track (a brand-new remote ref,
+    # remote-sha all-zero in the pre-push path) has no comparison state, so the gate cannot tell which
+    # commits are new. Owner choice (D24): NOT MEASURED with a block, not a traceback into rev-list(None).
+    for t in targets:
+        if t.source is not None and t.tracking is None:
+            return _unresolved_verdict(repo, head_commit or t.source,
+                                       f"the push creates {t.dest}, which this repository does not track, so "
+                                       "the gate cannot determine which commits it adds (no comparison state)")
+
     # Every commit the push newly sends, across all targets, with the source tip always evaluated so a push
     # the remote already holds still has its evidence verified (its range is otherwise empty).
     order: list[str] = []
@@ -1522,6 +1598,13 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
     # The evidence rules must be the same at the target's known state and at every commit the push adds.
     for t in targets:
         base = _rules_at(repo, t.tracking, deadline) if t.tracking else ("absent",)
+        if base[0] == "unreadable":
+            # R5-1: the target's known remote state is not available locally (a deletion against a ref a
+            # different clone wrote, a partial clone). The gate cannot tell whether the rules change, so the
+            # push is NOT MEASURED, never a silent 'absent' that reads as inactive.
+            return _unresolved_verdict(repo, head_commit, f"the gate cannot read the target's known state for "
+                                       f"{t.dest} in this repository, so it cannot tell whether the push "
+                                       f"changes the evidence rules ({base[1]})")
         if t.source is None:  # a deletion removes the ref; its rules go to absent
             if base != ("absent",) and _rules_difference(base, ("absent",)):
                 return _rules_verdict(repo, head_commit, f"the push removes the declaration (deletes {t.dest}, "
@@ -1530,6 +1613,9 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
         reachable = _newly_reachable(repo, t.source, t.tracking, deadline)
         for commit in dict.fromkeys([*reachable, t.source]):
             head_rules = _rules_at(repo, commit, deadline)
+            if head_rules[0] == "unreadable":
+                return _unresolved_verdict(repo, head_commit, f"the gate cannot read the evidence rules at "
+                                           f"{commit[:12]} in this repository ({head_rules[1]})")
             if base != head_rules:
                 digests = verdicts[t.source].digests if verdicts[t.source].decision == "pass" else ()
                 against = t.tracking or "nothing, as this repository tracks no earlier state of the target"
@@ -1544,7 +1630,9 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
         where_all = ", ".join(c[:12] for c in order) or head_commit[:12]
         return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}, {DECLARATION} is "
                                    "absent). The gate is not active in this repository, because nothing is declared. "
-                                   "Nothing was verified.", "nothing_declared", repo=repo, head=head_commit)
+                                   "Nothing was verified. Any comparison would be against this repository's last known "
+                                   "state of the target, not a state read from the remote (Ebene 2 makes the "
+                                   "authoritative comparison).", "nothing_declared", repo=repo, head=head_commit)
     tip = (verdicts[targets[0].source] if targets[0].source and verdicts[targets[0].source].decision == "pass"
            else declared[0])
     tail = (f" The push sends {len(order)} commit(s) to {', '.join(dict.fromkeys(t.dest for t in targets))}; "
@@ -1601,12 +1689,13 @@ class Outcome:
         return iter((self.decision, self.text))
 
 
-def decide(command: str, cwd: str, deadline: float) -> Outcome | None:
-    """None for a call the gate does not gate, else the combined outcome."""
+def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
+    """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
+    a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2)."""
     calls = gated_calls(command)
     if not calls:
         return None
-    return _judge(calls, cwd, deadline)
+    return _judge(calls, cwd, deadline, host)
 
 
 def mcp_gated(tool: str) -> bool:
@@ -1646,7 +1735,8 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
     return evaluate_repository(directory, deadline)
 
 
-def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float) -> Outcome:
+def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
+           host: str = "claude") -> Outcome:
     verdicts = []
     seen = set()
     for name, directory, detail in calls:
@@ -1661,6 +1751,31 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             # a hook-disabling form denies whatever the directory is, so a `--no-verify` or a core.hooksPath
             # override inside a chain (where the directory is NOT MEASURED) still denies, not merely asks.
             verdicts.append(_evaluate_call(name, resolved, detail, deadline))
+            continue
+        if host == "codex" and (name == "git push" or name.startswith("gh ")):
+            # R5-2: under Codex the hook receives the session directory and the command text, not the
+            # execution workdir or a remote environment, so a push Ebene 1 would otherwise resolve could be
+            # judged against a different repository. Owner choice (02.10): such pushes are NOT MEASURED.
+            verdicts.append(Verdict(
+                "ask", f"NOT MEASURED: under Codex the gate cannot bind {name} to the directory and "
+                       "environment it runs in. The hook receives the session directory and the command "
+                       "text, not the execution workdir or a remote environment, so it could judge a "
+                       "different repository than the push acts on.",
+                "codex_context_unbound", evidence=f"the repository and target {name} acts on",
+                failed="the Codex hook does not carry the command's working directory (workdir) or a "
+                       "remote environment",
+                next_step="run the push under a host that binds the execution directory to the gate, or have "
+                          "a person review the push"))
+            continue
+        if detail == [_MAYBE_PUSH]:
+            verdicts.append(Verdict(
+                "ask", f"NOT MEASURED: {name} may transfer objects to a remote through a form Ebene 1 does "
+                       "not model (an unrecognised git subcommand such as send-pack, a per-command -c alias, "
+                       "a rebase --exec, or another transport); the gate checked nothing.",
+                "possible_unmodeled_push", evidence="the commits and refs this command might send",
+                failed="the command is not one strict push form the gate resolves",
+                next_step="use a plain `git push <remote> <refspec>` whose target this repository tracks, or "
+                          "have a person review the command"))
             continue
         if resolved is UNKNOWN:
             verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {name} acts on "
@@ -2152,15 +2267,29 @@ def pre_push_command(argv: list[str]) -> int:
     lines alone and denies the push (exit 1) when the evidence does not verify, whatever shell form launched
     the push. The two positional arguments (remote name and URL) are accepted and not needed here."""
     deadline = time.monotonic() + DEADLINE_SECONDS
-    lines = [tuple(parts) for parts in (raw.split() for raw in sys.stdin.read().splitlines())
-             if len(parts) == 4]
+    lines = []
+    for raw in sys.stdin.read().splitlines():
+        parts = raw.split()
+        if not parts:
+            continue  # a blank line carries no ref
+        if len(parts) != 4:
+            # R5-5: a non-empty line that is not git's four-field form is a controlled rejection, never an
+            # empty ref list the gate would read as 'nothing to push' and let pass.
+            sys.stderr.write("proofbundle pre-push (prototype): a ref line on stdin did not have the four "
+                             "fields git writes (<local_ref> <local_sha> <remote_ref> <remote_sha>). "
+                             "The push is denied.\n")
+            return 1
+        lines.append(tuple(parts))
     try:
         verdict = pre_push_verdict(os.getcwd(), lines, deadline)
     except GateError as exc:
         sys.stderr.write(f"proofbundle pre-push (prototype): {exc}. The push is denied.\n")
         return 1
     sys.stderr.write(verdict.text() + "\n")
-    return 1 if verdict.decision == "deny" else 0
+    # Point 1 (review Runde 5): exit 0 only for pass and a measured inactive; ask, unknown states, measurement
+    # errors and any exception all block (exit 1). A rule change stays blocked; there is no release switch in
+    # an environment the model can write or run (D24).
+    return 0 if verdict.decision in ("pass", "inactive") else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2189,7 +2318,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             command, cwd = _command_from_event(event)
             actions = sorted({name for name, _, _ in gated_calls(command)})
-            verdict = decide(command, cwd, deadline)
+            verdict = decide(command, cwd, deadline, host=host)
     except GateError as exc:
         failure = Verdict("deny", f"proofbundle gate: {exc}. The call is denied because the gate reached no verdict.",
                           "hook_input", evidence="none, the gate could not read the call", failed=str(exc),
