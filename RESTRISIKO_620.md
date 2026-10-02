@@ -343,6 +343,17 @@ fda55f98. `tests/test_every_rule_of_a_policy_is_handled_by_the_command.py` holds
 applied one at the command line and in the library, measurement 1 as a case, the shared fields and an invalid
 restriction; at fda55f98 it fails 5 of its 10 cases. The reach is the command line and the Python API.
 
+Deep gate run 7 at 1a3cd672 found the other side of the same rule, three of three jurors P1
+(L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-UNAPPLIED-01): a rule a path lists as applied that the path never read.
+`evaluate_policy` lists `sd_jwt.expected_aud`, so the policy was not refused, and its body never read it; a library
+caller who verified with `verify_bundle(bundle)` and handed the policy to `evaluate_policy` got `policy_ok` True for a
+KB-JWT bound to another audience, measured at 1a3cd672 and the same at v6.1.0. The command line was not affected:
+`verify --policy` binds the audience through `verify_bundle(expected_aud=...)` and exits 1. `evaluate_policy` applies
+the rule itself now, from a verified key binding only, and
+`tests/test_every_applied_rule_has_an_observable_effect.py` measures for every pair of `ANGEWANDTE_REGELN` that the
+rule alone turns the verdict of its path, at the command line and in the library; against the code of 1a3cd672 it
+fails at exactly that pair, 1 of 166 measurements. The permissions that relaxed no requirement are R620-V7-2.
+
 The release notes of 6.2.0 name the affected versions, the effect and the upgrade. A security advisory is a separate
 outward act and is not part of this file.
 
@@ -1025,8 +1036,11 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   strict example included, at v6.1.0 as well; the command line ended with exit 2. Only a relation that is text is one
   a reference names now (`tests/test_the_open_p1_of_the_class_are_closed_at_their_verdict.py`,
   `ARelationThatIsNoTextIsJudgedNotRaised`).
-- **R620-R6-3, P2. The pre-tag gate reads open P0 and P1 from RESTRISIKO_600.md only**
-  (L5-620v6-RT10-OPEN-P1-NOT-IN-REGISTER-01; P1 only where C12.2 is read as covering this file): C12.2 passed with
+- **R620-R6-3, P2. The pre-tag gate reads open P0 and P1 only from the signed findings register, whose entries come
+  from RESTRISIKO_600.md and RESTRISIKO_610.md, not from this file** (L5-620v6-RT10-OPEN-P1-NOT-IN-REGISTER-01; P1
+  only where C12.2 is read as covering this file; the heading said "from RESTRISIKO_600.md only" until deep gate run 7
+  at 1a3cd672 measured the register, 21 entries from table rows of RESTRISIKO_600.md, 1 from its prose and 4 from
+  RESTRISIKO_610.md, none P0 or P1, L5-620v7-T13-R6-3-SOURCE-TEXT-01): C12.2 passed with
   "0 open P0/P1" while this file named two open P1 with a workaround (V8-F2 and V10-F1, closed now) and the signed
   findings register, generated on 2026-09-29 at 18:02:55Z, named neither. This file names one P1 that stays by owner
   choice, R620-ABA-1. Workaround: the signature card names the open lines of this file. The fix reads the RESTRISIKO
@@ -1124,6 +1138,78 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   the fields of the package's objects and the returns of allowed callbacks, and refuses every other form at the call;
   that changes what a caller may pass, so it belongs to a major version (SemVer, rule 8). A promised form that
   promoted a verdict is refused in 6.2.0 already, and its break is named in the CHANGELOG entry of the fix of run 6.
+
+From deep gate run 7 at 1a3cd672, the head of pull request 311 that carried the pre-tag receipt signed over b747d6ca,
+which ended FIX_FIRST for two P1: L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-UNAPPLIED-01, closed by `evaluate_policy`
+applying `sd_jwt.expected_aud` itself and by a generator that measures for every pair of `policy.ANGEWANDTE_REGELN`
+that the rule alone turns the verdict of its path (`tests/test_every_applied_rule_has_an_observable_effect.py`), and
+L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, closed by the receipt verifier comparing every committed file under
+`scripts/` and `src/` with its blob, refusing every untracked module or symlink there whatever a `.gitignore` says, and
+taking the judged tree off its import path before the standard library is imported (`scripts/verify_pre_tag_receipt.py`).
+These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
+OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
+they say otherwise.
+- **R620-V7-1, P2. A broken RFC 8785 install makes three in-toto verifiers raise** (L1-620v7-RT02-BROKEN-CANONICALIZER-INTOTO-01):
+  when `rfc8785` is installed but raises `RuntimeError` or `SyntaxError` at import, or `RuntimeError` or
+  `AttributeError` from `dumps`, `verify_eval_result_dsse`, `verify_intoto_dsse` and `verify_svr_dsse` raise it raw, and
+  `intoto --verify` and `svr --verify` print a traceback and exit 1. `_content_root_binding` catches only
+  `CanonicalizerUnavailable`, `ProofBundleError` and `ValueError`. Nothing is promoted; a broken install of a core
+  dependency triggers it, not input. Workaround: a working `rfc8785` install. The fix routes the three verifiers through
+  the form their siblings use, after 6.2.0.
+- **R620-V7-2, P2, closed here. A permission or anchor trust without its requirement was applied by nothing**
+  (L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, with the sweep of the class): `verify --policy` took
+  `anchors.allow_pending` and the anchor trust material (`trusted_tsa_roots`, `bitcoin_block_headers`,
+  `trusted_tsa_policy_oids`) without an anchor requirement, `decision verify` took `decision_receipt.allow_pending`
+  without `require_external_anchor`, and both ended with exit 0 and POLICY: OK; the sweep added `--trusted-tsa-root` and
+  `--bitcoin-header` without a requirement at `verify` and without `--anchors` at `decision verify`. Each is refused
+  now, exit 2, and the library names `decision_receipt.allow_pending` without its requirement as a rule the check does
+  not apply (`policy._ERLAUBNIS_BRAUCHT`). Named limits: the library's `verify_decision_receipt(rp_trust=...)` without
+  `anchors` is still taken and reports `anchors_ok` None, so no anchor check is claimed (measured); and at `decision
+  verify` without `--anchors`, `allow_pending` beside `require_external_anchor` changes nothing, exit 3 with and
+  without it, because no anchor is checked there (measured in the generator).
+- **R620-V7-3, P2, closed here. A key allowlist of the public transparency policy was read by no check**
+  (L3-620v7-T18-PUBLIC-TRANSPARENCY-TRUSTEDLOGKEYS-DROPPED-01): `evaluate_public_transparency`, EXPERIMENTAL and on no
+  command, reads `trustedLogKeys` only under `requireSignedCheckpoint`, so with a witness quorum as the anchor a
+  checkpoint of a log the allowlist does not name gave PUBLIC_TRANSPARENCY PASS (as at v6.1.0).
+  `validate_public_transparency_policy` refuses a non-empty `trustedLogKeys` without `requireSignedCheckpoint: true`
+  now, and `evaluate_public_transparency` raises `PublicTransparencyError` for such a policy.
+- **R620-V7-4, P2. `verify_status_snapshot` raises for a `bits` of 1.0 or 2.0** (L3-620v7-RT04-STATUSLIST-BITS-MEMBERSHIP-01):
+  the exported never-raise function raises a raw `TypeError` for a `status_list.bits` of 1.0 or 2.0 signed under the
+  pinned `issuer_pubkey`, and reads `bits` true as 1: `statuslist.py` checks the value by membership, not as an exact
+  int, and the guard around `_status_at` catches only `ProofBundleError`. Nothing is promoted, a token signed by another
+  key is refused first, and the behaviour is the same at v6.1.0. A live instance of the open ledger class of a value
+  membership read as a type floor. Workaround: none is needed for a trusted issuer. The fix checks
+  `type(bits) is int`, after 6.2.0.
+- **R620-V7-5, P3, text. The list of the key types the copy keeps** (L4-620v7-CHANGELOG-KEY-REFUSAL-TEXT-01): the
+  CHANGELOG sentence on what a caller sees differently named only exact str, int, float, bool, bytes and None (and
+  tuples or frozensets of them) as the keys a dict may hold to be copied, while the copy has kept the exact complex,
+  range, Decimal, date and timedelta and a datetime or time without a tzinfo since 79627e67. The sweep found the same
+  short list in the docstring of `canonical._schluessel_von` and in the sentence of this file on the reading at the
+  call. All three are corrected; the copy itself is unchanged.
+- **R620-V7-6, P3, test text. A Rust parity case is skipped without a condition** (L4-620v7-STALE-RUST-PIN-PARITY-SKIP-01):
+  `tests/test_relation_subject_pin_361.py:255-268` skips `RustParity` always, and its docstring says Rust is not yet
+  fixed; `target_subject_pin_error` of the Rust verifier fails closed and agrees with Python on 22 states in two modes
+  and 8 hop states (the lens's measurement). Coverage stays through `crosscheck.py` and the target-subject vectors. The
+  same skip form stands, not measured, at `tests/test_relation_same_key_361.py:79` and `tests/test_never_raise_361.py:70`.
+  The fix replaces the skip with the differential and corrects the docstring, after 6.2.0.
+- The sweep of the T6 class over `scripts/pre_tag_audit_gate.py` (owner option A on OA-bdad1b7352): the gate puts the
+  judged tree's `src/` first on its path and imports `proofbundle.signature` from it, with no check that the files
+  there are the commit's, while the receipt binds the commit's tree (`subject_tree_digest` reads `git ls-tree -r
+  HEAD`). In `release.yml` it runs on the fresh checkout of the tag, where no untracked module exists; run by hand on a
+  tree with an untracked or ignored module under `src/proofbundle/`, its verdict comes from code the commit does not
+  hold. P3, a named limit of local runs; the gate makes no claim about a checkout it did not get fresh. The fix, after
+  6.2.0, gives the gate the guard of the receipt verifier (`_code_on_disk_that_is_not_the_commit`); it is not changed
+  here, because a change to its source changes the gate digest every receipt binds.
+- The row above on a null relationships list (Python VERIFIED and exit 0, Rust `malformed_ancestor` and exit 2) holds
+  at 1a3cd672 for a decision, a statement, a hop and an outcome (L4-620v7-NULL-RELATIONSHIPS-ANCESTOR-PARITY-01).
+- The rows above on readers of receipts and the register that catch only decode errors, and on
+  `scripts/verify_pre_tag_receipt.py` catching only decode errors in `_measure`, hold at 1a3cd672: a register or
+  receipt nested 5000 or 100000 deep makes `findings_register.verify_and_count` and `pre_tag_audit_gate.evaluate` raise
+  a raw `RecursionError`, the CLI prints a traceback with exit 1 and the matrix reads FAIL
+  (L5-620v7-RT10-GATE-RECURSION-01). Fail-closed; the jury ranks it P2.
+- The row above on `render_release` binding `release_commit` by its length was measured again at 1a3cd672
+  (L6-620v7-T7-RELEASE-COMMIT-BY-FORM-01): a 40-character revision expression or upper-case hex renders with exit 0 in
+  a depth-1 and in a full clone; the jury split P3, P3 and P1, so the row stays P3 with a P2 reading named here.
 
 ## Open — named limits carried by the fixes themselves
 
@@ -1236,7 +1322,10 @@ those on a verify, emit or release path:
   signer, a dict of signers by name, a path, a clock, the class of a classmethod, a path or a loaded log): a value that cannot change and whose methods are the
   interpreter's, the standard library's or this package's is handed on (an exact complex, range, Decimal, date,
   timedelta, a datetime or time without a tzinfo or with the standard library's `timezone`, a path of `pathlib`, a
-  frozenset of exact str, int, float, bool, bytes or None values, an object or a class of this package); a `str`,
+  frozenset of values the copy keeps as keys, which are exact str, int, float, bool, bytes or None, the exact complex,
+  range, Decimal, date and timedelta, a datetime or time without a tzinfo, and tuples or frozensets of these
+  (`canonical._schluessel_von`; this list named only the first six until deep gate run 7), an object or a class of
+  this package); a `str`,
   `bytes`, `int` or `float` subclass becomes what it stores, in a class of this package whose methods are the base
   type's own (`canonical._fremdwert`); an iterator or a generator refuses the call; any other value (an object of the
   caller's class, a Mapping that is no dict, a frozenset holding another value, a datetime with a tzinfo of the

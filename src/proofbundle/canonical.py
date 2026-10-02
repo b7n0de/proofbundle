@@ -556,8 +556,10 @@ def _art_des_blatts(wert: Any, typ: Any) -> str:
 def _schluessel_von(wert: Any, tiefe: int = 0, gemerkt: Any = None) -> Any:
     """A key or set item for the copy, or `_UNSICHER`.
 
-    An exact ``str``, ``bytes``, ``int``, ``float``, ``bool`` or None, and a tuple or frozenset of such values, is kept:
-    its hash and comparison are the interpreter's own. A ``str`` or ``bytes`` subclass becomes what it stores, in
+    An exact ``str``, ``bytes``, ``int``, ``float``, ``bool`` or None, an exact ``complex``, ``Decimal``, ``range``,
+    ``date`` or ``timedelta``, a ``datetime`` or ``time`` without a ``tzinfo``, and a tuple or frozenset of such values,
+    is kept: its hash and comparison are the interpreter's or the standard library's own. (This sentence named only the
+    first six types until deep gate run 7 at 1a3cd672.) A ``str`` or ``bytes`` subclass becomes what it stores, in
     `_FremderText` or `_FremdeBytes`: its hash and comparison are then those of the base type, and it is still no exact
     ``str`` or ``bytes``, so a reader that counts only an exact ``str`` as a key (`assurance`: a ``str`` subclass
     spelled "sha256" is no digest there) reads the copy as it read the caller's value, and no method of the caller's

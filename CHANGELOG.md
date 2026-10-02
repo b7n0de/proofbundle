@@ -45,9 +45,45 @@ collector cost, so the reading copies those values too and reads twice instead o
 The deep gate at fda55f98 (run 6) found what that reading still handed on and a rule a policy set that its command
 did not apply, the second in the released 6.0.0 and 6.1.0 as well; with the review before run 7 and the owner's choices of 2026-10-01, nothing of the caller reaches a
 body now but what an argument's contract names, and every rule a policy sets is applied or the policy is refused.
+The deep gate at 1a3cd672 (run 7) found a rule that `evaluate_policy` listed as applied and never read,
+`sd_jwt.expected_aud`, the same at v6.1.0, and a receipt verifier that a module the tree hides from git could take
+over; both are closed, and every rule a check path lists as applied is now measured to turn its verdict.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
+
+- **Every rule a check path lists as applied turns its verdict, and the receipt verifier judges only the commit's
+  code** (deep gate of the 6.2.0 release preparation at 1a3cd672, run 7: two P1 findings,
+  L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-UNAPPLIED-01 and L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, each confirmed
+  by three of three blind jurors; owner decision of 2026-10-02 on card OA-bdad1b7352, option A).
+  - `evaluate_policy` lists `sd_jwt.expected_aud` among the rules it applies (`policy.ANGEWANDTE_REGELN`), so the
+    policy was not refused, and it never read the rule: a library caller who verified with `verify_bundle(bundle)`
+    and handed the policy to `evaluate_policy` got `policy_ok` True for a KB-JWT bound to another audience, measured
+    at 1a3cd672 and at v6.1.0. `verify --policy` binds the audience through `verify_bundle(expected_aud=...)` and was
+    not affected. `evaluate_policy` applies the rule now as `verify_bundle(expected_aud=...)` does: the audience
+    counts only from a key binding that verified, and it must equal the policy's value; without one the policy fails
+    (`policy:expected_aud`). `tests/test_every_applied_rule_has_an_observable_effect.py` walks every pair of
+    `ANGEWANDTE_REGELN`, 166 measurements over four commands and five library functions, and checks that the rule
+    alone turns the verdict of its path; against the code of 1a3cd672 it fails at exactly this pair. Three pairs that
+    cannot turn their verdict alone are named there with a measured reason.
+  - Three neighbours of the class (P2 each): a permission or anchor trust without the requirement it serves was
+    applied by nothing and is refused now, exit 2. That is `anchors.allow_pending` and the anchor trust material at
+    `verify` without an anchor requirement, `decision_receipt.allow_pending` without `require_external_anchor` (in
+    the library too), and `--trusted-tsa-root` or `--bitcoin-header` without a requirement at `verify` and without
+    `--anchors` at `decision verify`. `validate_public_transparency_policy` refuses a non-empty `trustedLogKeys`
+    without `requireSignedCheckpoint: true`, the only check that reads it.
+  - `scripts/verify_pre_tag_receipt.py` checked cleanliness with `git status` without `--ignored`: a directory under
+    `src/` or `scripts/` with its own `.gitignore` holding `*` hid itself, and a package planted there as
+    `src/proofbundle/signature/` made a receipt changed after signing exit 0 VERIFIED; `scripts/contextlib/`
+    shadowed the standard library under the project's venv. The verifier now compares every committed file under
+    `scripts/` and `src/` with its blob (the bytes, or a symlink's target), refuses every untracked module or symlink
+    there whatever a `.gitignore` says, also behind skip-worktree or assume-unchanged, and takes the judged
+    `scripts/` and `src/` off its import path before it imports the standard library. Its test plants a hidden
+    package at every position a real run imports. `scripts/pre_tag_audit_gate.py` has no such guard and runs on the
+    fresh checkout of the tag; RESTRISIKO_620.md names the limit.
+  - What a caller sees differently: a policy or flag that was accepted with no effect is refused with exit 2;
+    `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify or names another
+    audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/`.
 
 - **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
   applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:
@@ -397,9 +433,11 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   `bytes` subclass as what it stores in a class of this package, a deque, an array and a view of a dict as private
   copies of the same type (a `MappingProxyType` over an OrderedDict as one over a plain dict in the OrderedDict's
   own order; a keys, values or items view of an OrderedDict as the caller's view),
-  and a dict with a key that is none of these (no exact str, int, float, bool, bytes or None, no subclass
-  of str or bytes and no tuple or frozenset of exact str, int, float, bool, bytes or None values), or whose keys meet
-  as one in the copy, stayed
+  and a dict with a key that is none of these (no exact str, int, float, bool, bytes or None, no exact complex,
+  range, Decimal, date or timedelta, no datetime or time without a tzinfo, no subclass of str or bytes and no tuple or
+  frozenset of such values; this list named only the first six types until deep gate run 7 at 1a3cd672,
+  L4-620v7-CHANGELOG-KEY-REFUSAL-TEXT-01, while the copy has kept the standard library's value types as keys since
+  79627e67), or whose keys meet as one in the copy, stayed
   the caller's object, as did a memoryview whose format no view of private bytes can take, and an iterator or a
   generator was read by the body as before (each refuses the call since the fix of deep gate run 6, the entry
   above, which names what a caller sees differently there); a function never changes
