@@ -261,6 +261,8 @@ class TheFunnelBuildsTheEnvironment(unittest.TestCase):
         the verifier ask git under other terms than the producer and the gate."""
         self.assertEqual(self.verifier._GIT_INHERITED, self.lib._GIT_INHERITED)
         self.assertEqual(self.verifier._GIT_PINNED_OPTIONS, self.lib.GIT_PINNED_OPTIONS)
+        # Both refuse a partial clone before any object is read, with one pattern (external review of 65d8f8cd, F3).
+        self.assertEqual(self.verifier._TEILKLON_SCHLUESSEL, self.lib._TEILKLON_SCHLUESSEL)
         root = pathlib.Path(tempfile.gettempdir()).resolve() / "a-repository"
         polluted = {"GIT_DIR": "/x", "GIT_TRACE": "1", "HOME": "/h", "SYSTEMROOT": "C:\\W",
                     "PATH": os.environ.get("PATH", "/usr/bin")}

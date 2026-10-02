@@ -1007,3 +1007,181 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         marker.unlink(missing_ok=True)
         _run(["git", "status", "--porcelain"], repo)
         assert marker.exists(), "the planted clean filter is not live; the case would be vacuous"
+
+
+def _load_by_path(datei, name):
+    import importlib.util as ilu  # noqa: PLC0415
+    spec = ilu.spec_from_file_location(name, datei)
+    mod = ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _outside_venv(tmp, name, extra_lines=()):
+    """A virtual environment OUTSIDE the clone whose `.pth` makes the suite's site directories importable (the verifier
+    needs `cryptography`) and adds `extra_lines`. -> (python, purelib)"""
+    venv = tmp / name
+    r = _run([sys.executable, "-m", "venv", "--without-pip", str(venv)], tmp)
+    assert r.returncode == 0, r.stderr
+    python = venv / "bin" / "python"
+    sp = Path(_run([str(python), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"], tmp).stdout.strip())
+    aussen = sorted({p for p in sys.path if p.endswith(("site-packages", "dist-packages")) and Path(p).is_dir()})
+    (sp / "pb_outside.pth").write_text("".join(p + "\n" for p in (*aussen, *extra_lines)))
+    return python, sp
+
+
+class TestExternalReviewOf65d8f8cd:
+    """The external review of 65d8f8cd and 40f52da4 (FIX_FIRST, 2026-10-02), one case per finding, each the case the
+    review measured. Owner decision OA-afcb198da0 B: a regression test per finding with its catch proof, no further
+    attack probes of our own. Every case below was run red against 40f52da4 with the fix removed and green with it; the
+    numbers stand in the report of the round."""
+
+    def test_F1_a_boolean_value_exempts_no_command_and_no_directory(self, welt):
+        """F1, at the function as the review measured it: `filter.demo.clean=true`, `core.sshCommand=false` and
+        `core.hooksPath=off` each came back `[]` at 40f52da4, because a boolean value was exempted for every key. The
+        value of these keys IS the command or the directory. The control: `pager.status=false` switches paging off and
+        names no program, so it stays free; an empty value names nothing."""
+        repo, env, _priv, _kand, commit = welt
+        mod = _load_by_path(repo / "scripts" / VERIFIER, "_f1_verifier")
+        faelle = {"filter.demo.clean": "true", "core.sshCommand": "false", "core.hooksPath": "off"}
+        for key, value in faelle.items():
+            _git(["config", "--local", key, value], repo)
+        _git(["config", "--local", "pager.status", "false"], repo)
+        _git(["config", "--local", "filter.leer.clean", ""], repo)
+        gefunden = {z.split("=", 1)[0].lower() for z in mod._git_configuration_selects_a_program(repo)}
+        for key in faelle:
+            assert key.lower() in gefunden, (key, sorted(gefunden))
+        assert "pager.status" not in gefunden, ("a pager switched off names no program", sorted(gefunden))
+        assert "filter.leer.clean" not in gefunden, sorted(gefunden)
+        # END TO END: the same configuration refuses the run with exit 2; without it the good receipt verifies.
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and "select a program" in (res["reason"] or ""), roh
+        for key in faelle:
+            _git(["config", "--local", "--unset", key], repo)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    @staticmethod
+    def _partial_clone(repo, marker):
+        """`repo` turned into a partial clone whose promisor remote's transport program leaves `marker`."""
+        programm = repo.parent / "_uploadpack_marker.sh"
+        programm.write_text(f"#!/bin/sh\ntouch {shlex.quote(str(marker))}\nexit 1\n")
+        programm.chmod(0o700)
+        for key, value in (("remote.origin.url", str(repo.parent / "_promisor_nowhere")),
+                           ("remote.origin.promisor", "true"), ("extensions.partialClone", "origin"),
+                           ("remote.origin.uploadpack", str(programm))):
+            _git(["config", "--local", key, value], repo)
+
+    def test_F3_no_object_is_read_from_a_partial_clone(self, welt):
+        """F3, as the review measured it at d0e47397: in a partial clone, a missing object asked through the library's
+        `git_objects` or the verifier's `_objekte` started the configured `remote.origin.uploadpack` (lazy fetch), and
+        the whole verifier run left the marker before it answered NOT_MEASURABLE. Now both funnels refuse a partial
+        clone before any object is read: no marker, and the verifier names the reason. The anti-vacuity half: a plain
+        `git cat-file` in the same clone does start the program."""
+        repo, env, _priv, _kand, commit = welt
+        marker = repo.parent / "_marker_lazy_fetch"
+        self._partial_clone(repo, marker)
+        fehlt = "1" * 40
+        _run(["git", "cat-file", "-p", fehlt], repo)
+        assert marker.exists(), "the promisor transport is not live for a plain git; the case would be vacuous"
+        marker.unlink()
+        lib = _load_by_path(repo / "scripts" / "pre_tag_receipt_lib.py", "_f3_lib")
+        with pytest.raises(lib.BaumNichtLesbar, match="partial clone"):
+            lib.git_objects(repo, [(fehlt, "blob")])
+        assert not marker.exists(), "the library's object read started the promisor transport"
+        verifier = _load_by_path(repo / "scripts" / VERIFIER, "_f3_verifier")
+        with pytest.raises(verifier._NichtDasObjekt, match="partial clone"):
+            verifier._objekte(repo, [(fehlt, "blob")])
+        assert not marker.exists(), "the verifier's object read started the promisor transport"
+        # END TO END, with an object of the commit missing from the store, so a read of it would fetch.
+        gate = _git(["rev-parse", f"{commit}:scripts/pre_tag_audit_gate.py"], repo)
+        lose = repo / ".git" / "objects" / gate[:2] / gate[2:]
+        assert lose.is_file(), "precondition: the gate blob is a loose object that can be taken out"
+        lose.unlink()
+        rc, res, roh = _verify(repo, env, commit)
+        assert not marker.exists(), "a verifier run started the promisor transport"
+        assert rc == 2 and res["reason"].startswith("the clone is a partial clone"), roh
+
+    def test_F4_a_tracked_directory_replaced_by_a_link_refuses(self, welt):
+        """F4, as the review measured it: the tracked directory `src/proofbundle` replaced by a symbolic link to an
+        outside copy whose tracked files are byte-identical, with an extra `extra.py` behind the link. At 40f52da4 the
+        byte comparison came back `[]` like the clean control and the run said VERIFIED; `git status` saw the exchange.
+        The type of every committed path is compared first now. The control: the directory put back verifies."""
+        repo, env, _priv, _kand, commit = welt
+        paket = repo / "src" / "proofbundle"
+        aussen = repo.parent / "_outside_proofbundle"
+        shutil.copytree(paket, aussen, ignore=shutil.ignore_patterns("__pycache__"))
+        (aussen / "extra.py").write_text("EXTRA = True\n")
+        shutil.rmtree(paket)
+        paket.symlink_to(aussen, target_is_directory=True)
+        try:
+            st = _run(["git", "status", "--porcelain", "--", "src"], repo)
+            assert st.stdout.strip(), "precondition: git sees the exchanged directory"
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 2 and res["verdict"] == "NOT_MEASURABLE", roh
+            assert "is not the commit" in res["reason"] and "symbolic link" in res["reason"], res["reason"]
+        finally:
+            paket.unlink()
+            shutil.copytree(aussen, paket, ignore=shutil.ignore_patterns("__pycache__", "extra.py"))
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    def test_F5_under_isolation_a_startup_path_into_the_clone_refuses(self, welt, tmp_path):
+        """F5: a `.pth` path line in an OUTSIDE virtual environment puts the clone on the search path at start, where
+        the review saw a `sitecustomize.py` of the clone run under `python -I` although every prefix and site directory
+        lay outside it. A check inside the started process cannot undo that; what it can see is the entry, which under
+        `-I` no `PYTHONPATH` and no script directory put there. At 40f52da4 the run with that line verified (exit 0);
+        now it is refused with exit 2. The control: the same environment without the line verifies."""
+        repo, _env, _priv, _kand, good = welt
+        mit, _sp = _outside_venv(tmp_path, "venv_with_clone_line", extra_lines=(str(repo),))
+        r = _run([str(mit), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        res = json.loads(r.stdout)
+        assert r.returncode == 2 and "search path at start" in res["reason"], r.stdout[-400:]
+        ohne, _sp2 = _outside_venv(tmp_path, "venv_without_clone_line")
+        r = _run([str(ohne), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+
+    def test_F5_GUARD_the_reviewed_sitecustomize_never_yields_a_verdict(self, welt, tmp_path):
+        """F5, the review's own case: a `sitecustomize.py` at the top of the clone, reached through the `.pth` path line.
+        It runs before the first line (the review measured it on CPython 3.12.14); the verifier cannot prevent that and
+        must not give a verdict after it. GUARD: at 40f52da4 the tripwire for a loaded module of the checkout already
+        refused it with exit 2, as the review saw. Where the interpreter's own standard library carries a
+        `sitecustomize` (Debian and Ubuntu builds), Python takes that one first and the clone's never runs; the case is
+        measured to be absent there and skips, naming the module that was taken."""
+        repo, _env, _priv, _kand, good = welt
+        marker = tmp_path / "_marker_sitecustomize"
+        (repo / "sitecustomize.py").write_text(f"open({str(marker)!r}, 'w').write('ran')\n")
+        python, _sp = _outside_venv(tmp_path, "venv_reviewed_case", extra_lines=(str(repo),))
+        probe = _run([str(python), "-I", "-c",
+                      "import sys; m = sys.modules.get('sitecustomize'); print(getattr(m, '__file__', '') or '')"],
+                     tmp_path, {"PATH": "/usr/bin:/bin"})
+        geladen = probe.stdout.strip()
+        if Path(geladen).resolve() != (repo / "sitecustomize.py").resolve():
+            marker.unlink(missing_ok=True)
+            pytest.skip(f"the case does not exist on this interpreter ({sys.version.split()[0]}): its start loaded the "
+                        f"sitecustomize at {geladen or '(none)'}, so the clone's is never reached")
+        marker.unlink(missing_ok=True)
+        r = _run([str(python), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        assert marker.exists(), "the clone's sitecustomize did not run; the case would be vacuous"
+        res = json.loads(r.stdout)
+        assert r.returncode == 2 and res["verdict"] == "NOT_MEASURABLE", r.stdout[-400:]
+
+    def test_F2_F5_the_texts_claim_no_more_than_is_checked(self):
+        """F2 and F5, the texts: the review named sentences that described more than the code checks. The verifier's
+        own description and RELEASE.md must state the startup search path as the reader's precondition, and must not
+        say that an outside interpreter plus `-I` keeps every file of the checkout from running, that the clone's
+        attributes are refused, or that the remaining git calls run no program."""
+        texte = {"verifier": (SCRIPTS / VERIFIER).read_text(encoding="utf-8"),
+                 "RELEASE.md": (REPO / "RELEASE.md").read_text(encoding="utf-8")}
+        for name, text in texte.items():
+            flach = " ".join(text.split())
+            assert "no startup file of that interpreter names a directory of the clone" in flach, name
+            for satz in ("plus ``-I``, no file of the checkout runs before the first line",
+                         "plus `-I`, no file of the checkout runs before the first line",
+                         "configuration or ``.git/info/attributes`` names a program",
+                         "configuration or `.git/info/attributes` names a program",
+                         "the remaining git calls read objects (`cat-file --batch`, `ls-tree`, `rev-parse`) and run no"):
+                assert satz not in flach, (name, satz)

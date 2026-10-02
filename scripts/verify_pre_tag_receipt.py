@@ -15,19 +15,25 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
     python -I scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
 
 ``-I`` (isolated mode) keeps ``PYTHONPATH``, the user's site directory and the script's own directory off the import
-path. ``python`` must be installed outside the clone, and the clone must not lie inside that interpreter's
-installation: Python runs the startup files of its installation (``.pth`` files, ``sitecustomize``) before the
-script's first line, ``-I`` included, so a virtual environment created inside the clone, a clone in the
-environment's own site directory, or a clone under the interpreter's installation (``lib-dynload`` and the rest)
-is refused with exit 2. A clone whose own git configuration or
-``.git/info/attributes`` names a program for git to run (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``,
-an ssh, pager, editor or credential command) is refused too, because git would run it while the working tree is
-inspected. With an outside interpreter that does not contain the clone, plus ``-I``, no file of the checkout runs
-before the first line. Without ``-I`` the script still takes every directory of the checkout off its path before its
-first further import, and it refuses a run in which a module of the checkout was already loaded at start (a
-``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line and hides itself is beyond
-what any check inside the script can see. Run the script of the clone you verify: only the checkout ``--repo`` names
-is compared with the commit, so a script started from another checkout is refused.
+path. Three things are the reader's to establish BEFORE the start, because Python runs the startup files of its
+installation (``.pth`` files, ``sitecustomize``) before the script's first line, ``-I`` included: ``python`` is
+installed outside the clone, the clone does not lie inside that interpreter's installation, and no startup file of
+that interpreter names a directory of the clone. The third is not implied by the first two: a ``.pth`` path line in an
+outside virtual environment puts the clone on the search path at start, and a ``sitecustomize.py`` of the clone then
+runs before the first line (external review of 65d8f8cd, F5, measured there with an outside venv under ``-I``). No
+check inside a process that has already started can replace that precondition; what this script refuses with exit 2
+is what it can still see: a virtual environment created inside the clone, a clone in the environment's own site
+directory, a clone under the interpreter's installation (``lib-dynload`` and the rest), and, under ``-I``, a run whose
+search path at start already named a directory of the clone. A clone whose own git configuration names a program for
+git to run (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``, an ssh, pager, editor or credential command,
+and the other families listed in ``_GIT_PROGRAM_KEYS`` and ``_GIT_PROGRAM_EXACT``) is refused, and so is a partial
+clone, whose object reads would fetch through a transport its configuration names. ``.git/info/attributes`` is not
+read: an attribute selects a program only through a configured driver command, and whether the refused families are
+every such command is not shown here. Without ``-I`` the script still takes every directory of the checkout off its
+path before its first further import, and it refuses a run in which a module of the checkout was already loaded at
+start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line and hides itself is
+beyond what any check inside the script can see. Run the script of the clone you verify: only the checkout ``--repo``
+names is compared with the commit, so a script started from another checkout is refused.
 
 THE EVIDENCE IS READ FROM THE COMMIT; THE CODE RUNS FROM THE CHECKOUT, SO THE CHECKOUT MUST BE
 THE COMMIT. The receipt, the trust anchor and the gate source whose digest the receipt binds are
@@ -40,7 +46,8 @@ disk. An adversarial lens measured on 2026-09-18 what that means when nothing ch
 against each other: one uncommitted edit to ``verify_receipt`` or to ``proofbundle.signature``,
 HEAD untouched, and a commit with a garbage receipt reported VERIFIED. So two things are refused
 with exit 2, never silently measured: a checkout at any head other than the named commit, and a
-checkout that carries local modifications or untracked files under ``scripts/`` or ``src/``. The
+checkout that carries local modifications or untracked files under ``scripts/`` or ``src/``, or a
+path there whose type is not the one the commit names (a directory replaced by a symbolic link). The
 tree digest itself is taken by the same library function the release gate uses
 (``pre_tag_receipt_lib.subject_tree_digest``), which reads ``HEAD``.
 
@@ -217,9 +224,38 @@ def _checkout_code_that_ran_before_this_script() -> list:
     return funde
 
 
+def _startup_search_paths_into_the_checkout() -> list:
+    """Under `-I`, every `sys.path` entry that names a directory of the checkout before this script changed the path.
+
+    External review of 65d8f8cd, F5: a `.pth` path line in an OUTSIDE virtual environment put the clone on the search
+    path at start, and under `python -I` a `sitecustomize.py` of the clone ran before this script's first line, although
+    every prefix and site directory lay outside the clone. In isolated mode Python adds neither `PYTHONPATH` nor the
+    script's directory, so an entry in the checkout at this point came from a startup file of the interpreter or from
+    code one of them ran. Like `_checkout_code_that_ran_before_this_script` this is a tripwire, not a boundary: the
+    startup code may already have run, and code that removes its own entry is not seen. The boundary is the
+    precondition in the module docstring. Read before the path is cleaned, with `os` and `sys` only. Outside isolated
+    mode the entries a reader puts there on purpose (`PYTHONPATH`, the script's directory) cannot be told apart from
+    the others, so nothing is reported there; the empty entry is the working directory, which no `.pth` line adds."""
+    if not getattr(sys.flags, "isolated", 0):
+        return []
+    wurzel = _checkout_root()
+    funde = []
+    for eintrag in sys.path:
+        if not isinstance(eintrag, str) or not eintrag:
+            continue
+        try:
+            ort = os.path.realpath(eintrag)
+        except (OSError, ValueError, TypeError):
+            continue
+        if _judged_location(ort, wurzel):
+            funde.append(eintrag)
+    return funde
+
+
 #: Filled only when this file runs as a script (see below); a caller that imports the module measures in its own
 #: process, whose start this script did not see.
 _INTERPRETER_OVERLAP: list = []
+_STARTUP_PATH_INTO_CHECKOUT: list = []
 _CODE_BEFORE_THIS_SCRIPT: list = []
 #: The checkout this script runs from, when it runs as a script. Its code judges, so it must be the checkout `--repo`
 #: names: that is the one compared with the commit. Measured on 2026-10-02 at 653b5d67: run from a checkout A whose
@@ -232,7 +268,10 @@ if __name__ == "__main__":
     # THE PATH IS CLEANED FIRST, then everything else is measured. `_checkout_code_that_ran_before_this_script` reads
     # `sys.modules` (what already loaded, which cleaning does not unload) and `_interpreter_overlaps_the_checkout`
     # imports `site`/`sysconfig`/`contextlib` -- those imports must take the standard library, not a module planted on
-    # the still-dirty path, so they run after the checkout's directories are gone.
+    # the still-dirty path, so they run after the checkout's directories are gone. The one thing read BEFORE the
+    # cleaning is the path itself, under -I (`_startup_search_paths_into_the_checkout`): the cleaning removes exactly
+    # the entries it looks for.
+    _STARTUP_PATH_INTO_CHECKOUT = _startup_search_paths_into_the_checkout()
     _remove_the_judged_tree_from_sys_path()
     _CODE_BEFORE_THIS_SCRIPT = _checkout_code_that_ran_before_this_script()
     _INTERPRETER_OVERLAP = _interpreter_overlaps_the_checkout()
@@ -491,6 +530,14 @@ def _git_environment(root: Path) -> dict:
     return umgebung
 
 
+#: The keys that make a repository a partial clone (the library's `_TEILKLON_SCHLUESSEL`; the reason is there). External
+#: review of 65d8f8cd, F3: a missing object of such a clone ran the configured `remote.origin.uploadpack` from `_objekte`,
+#: `_baum` and `_measure` before any refusal. `_git` asks nothing further of a repository that carries one of them.
+_TEILKLON_SCHLUESSEL = r"^(extensions\.partialclone|remote\..+\.(promisor|partialclonefilter))$"
+#: How the funnel's refusal of a partial clone begins, so `_measure` can give it as the reason it is.
+_TEILKLON_GRUND = "the clone is a partial clone"
+
+
 #: Git configuration keys that name a PROGRAM git may run (owner OA-4496f29e70, the D3 program-selecting families).
 #: A key is matched by its first and (where given) last dotted component, so the free middle name of a `filter.<n>.`,
 #: `diff.<n>.` or `merge.<n>.` section is covered. `core.fsmonitor` and `core.hooksPath`/alternate-ref/ssh commands
@@ -501,7 +548,8 @@ _GIT_PROGRAM_KEYS = {
     ("diff", "command"), ("diff", "textconv"), ("merge", "driver"),
     ("credential", "helper"), ("gpg", "program"),
 }
-#: First components whose every subkey names a program (`pager.<cmd>`), unless the value is a plain boolean.
+#: First components whose every subkey names a program (`pager.<cmd>`), unless the value is a plain boolean. This is
+#: the ONLY family whose boolean value is exempted; see the reason at the matching below.
 _GIT_PROGRAM_FIRST = {"pager"}
 _GIT_PROGRAM_EXACT = {
     "core.fsmonitor", "core.hookspath", "core.sshcommand", "core.pager", "core.editor",
@@ -521,10 +569,12 @@ def _git_configuration_selects_a_program(repo: Path) -> list:
     includes (`include`, `includeIf`) and nothing from outside. A key is reported when it names a program and its value
     is not empty: a `filter.<name>.clean`/`.smudge`/`.process`, a `diff.<name>.command`/`.textconv`, a
     `merge.<name>.driver`, or one of the exact program-naming keys (`core.fsmonitor`, `core.hooksPath`, an ssh or
-    alternate-ref command, a configured pager or editor, a credential helper). An unparsable line is reported as a
-    refusal of its own, never dropped. `.git/info/attributes` alone selects nothing executable -- an attribute
-    `filter=x` runs code only when `filter.x.*` names a command, which this refuses -- so the configuration is the
-    complete place to look."""
+    alternate-ref command, a configured pager or editor, a credential helper). A boolean value is exempted for
+    `pager.<cmd>` only, the one family git reads as a switch. An unparsable line is reported as a refusal of its own,
+    never dropped. `.git/info/attributes` is NOT read: an attribute `filter=x` runs code only when `filter.x.*` names a
+    command, which this refuses, but whether these families are every configured command an attribute can select is
+    not shown (external review of 65d8f8cd, F2), so this is a refusal of the listed families and not a proof that no
+    clone-chosen program exists."""
     rc, aus, err = _git(repo, "config", "--list", "-z", "--includes")
     if rc != 0:
         # No configuration at all is rc 1 with empty output; a real failure carries a message.
@@ -542,11 +592,17 @@ def _git_configuration_selects_a_program(repo: Path) -> list:
         key_l = key.lower()
         teile = key_l.split(".")
         gewaehlt = key_l in _GIT_PROGRAM_EXACT or (len(teile) >= 2 and (teile[0], teile[-1]) in _GIT_PROGRAM_KEYS)
-        # A `pager.<cmd>` (and any other first-component family) names a program unless its value is a plain boolean
-        # that only switches paging on or off.
-        if len(teile) >= 2 and teile[0] in _GIT_PROGRAM_FIRST and value.strip().lower() not in _GIT_BOOLEAN:
-            gewaehlt = True
-        if gewaehlt and value.strip() and value.strip().lower() not in _GIT_BOOLEAN - {""}:
+        # A BOOLEAN IS A SWITCH ONLY WHERE GIT READS THE KEY AS ONE (external review of 65d8f8cd, F1, measured there:
+        # that commit exempted a boolean value for every key, and `filter.demo.clean=true`, `core.sshCommand=false` and
+        # `core.hooksPath=off` all came back as `[]`). Git reads `pager.<cmd>` as a switch when its value is a boolean
+        # and as a pager command otherwise, so only that family keeps the exemption. For every other key the value IS
+        # the program or the directory: `filter.<n>.clean=true` runs the command `true`, `core.sshCommand=false` runs
+        # `false`, `core.hooksPath=off` names a directory `off`, and `core.fsmonitor` is a hook command on the git this
+        # was measured with (2.34.1, whose `git help config` names no boolean form), so it is not exempted either. An
+        # empty value selects no program and stays allowed; the funnel's own `-c core.fsmonitor=` is one.
+        if len(teile) >= 2 and teile[0] in _GIT_PROGRAM_FIRST:
+            gewaehlt = value.strip().lower() not in _GIT_BOOLEAN
+        if gewaehlt and value.strip():
             funde.append(f"{key}={value[:60]}")
     return funde
 
@@ -574,9 +630,10 @@ def _git(repo: Path, *args: str, eingabe: bytes | None = None) -> tuple[int, byt
     `verify_receipt`, and a commit with an invalid receipt was `VERIFIED`, exit 0.
 
     Before the call, git must name `repo` as the top level with an empty prefix, as in the
-    library's funnel. A repository git will not answer for (not a repository, another owner, a
-    subdirectory, no git) is returned as exit 128 with git's reason, which every caller below reads
-    as not measurable.
+    library's funnel, and the repository must not be a partial clone (`_TEILKLON_SCHLUESSEL`). A
+    repository git will not answer for (not a repository, another owner, a subdirectory, no git, a
+    partial clone) is returned as exit 128 with the reason, which every caller below reads as not
+    measurable.
     """
     import subprocess  # noqa: PLC0415
     root = Path(os.fspath(repo)).resolve()
@@ -597,6 +654,17 @@ def _git(repo: Path, *args: str, eingabe: bytes | None = None) -> tuple[int, byt
             return 128, b"", (f"git answers for {root} with the top level "
                               f"{os.fsdecode(zeilen[0])!r}; only the top level of a repository "
                               "is measured")
+        # NO QUESTION TO A PARTIAL CLONE, before any object is read (see `_TEILKLON_SCHLUESSEL`).
+        teilklon = starte(("config", "-z", "--get-regexp", _TEILKLON_SCHLUESSEL))
+        if teilklon.returncode == 0 and teilklon.stdout:
+            namen = sorted({e.split(b"\n", 1)[0].decode("utf-8", "replace")
+                            for e in teilklon.stdout.split(b"\0") if e})
+            return 128, b"", (f"{_TEILKLON_GRUND} ({', '.join(namen)[:160]}): git fetches an object it does not "
+                              "hold from the promisor remote and starts the program that remote's configuration "
+                              "names, so no object is read from it -- clone the repository in full")
+        if teilklon.returncode != 1 or teilklon.stdout:
+            return 128, b"", ("git could not say whether this clone is a partial clone: "
+                              + (teilklon.stderr.decode("utf-8", "replace").strip() or "git config failed"))
         r = starte(args, eingabe)
     except (OSError, subprocess.SubprocessError) as exc:
         return 127, b"", f"{type(exc).__name__}: {exc}"
@@ -608,11 +676,12 @@ def _git(repo: Path, *args: str, eingabe: bytes | None = None) -> tuple[int, byt
 # Review finding on PR 249, 2026-09-27 (P0 at the release gate, measured): git returns whatever the
 # object store holds under an id and does not hash it. The library now reads every object it uses
 # through `pre_tag_receipt_lib.git_objects`, which does. This script reads the gate source and the
-# receipts from the commit itself, and its cleanliness check asks `git status`, which compares the
-# checkout with the commit's trees; all of that happens here, before or beside the library, so the
-# check is carried here as well, on this file's code alone, for the reason `_git` is: a library whose
-# trees were rewritten to list its modified blob looked clean to `git status` and then judged itself
-# (measured at 995cabdd with git 2.34.1 and 2.55.0: `VERIFIED` for a receipt nobody trusted signed).
+# receipts from the commit itself, and its cleanliness check compares the checkout with the commit's
+# trees (it asked `git status` until 65d8f8cd and compares the bytes itself since); all of that happens
+# here, before or beside the library, so the check is carried here as well, on this file's code alone,
+# for the reason `_git` is: a library whose trees were rewritten to list its modified blob looked
+# clean to `git status` and then judged itself (measured at 995cabdd with git 2.34.1 and 2.55.0:
+# `VERIFIED` for a receipt nobody trusted signed).
 # The library's copy and this one are held to one answer by
 # `tests/test_pre_tag_receipt_git_answers_for_the_named_tree.py`.
 
@@ -664,6 +733,14 @@ def _objekte(repo: Path, gesucht) -> dict:
 def _baum(repo: Path, commit: str) -> dict:
     """{path: (type, id)} for every entry below the tree of `commit`, read from the commit and from
     trees that each hash to their id; one `cat-file --batch` per level (the library's `git_tree`)."""
+    return {pfad: (typ, oid) for pfad, (typ, oid, _modus) in _baum_eintraege(repo, commit).items()}
+
+
+def _baum_eintraege(repo: Path, commit: str) -> dict:
+    """{path: (type, id, mode)}: `_baum` with each entry's mode as `ls-tree` prints it (`100644`, `100755`,
+    `120000`, `040000`, `160000`, the library's `_modus`). The mode tells a symbolic link from a file and a
+    directory from both; `_code_on_disk_that_is_not_the_commit` holds the checkout to it (external review of
+    65d8f8cd, F4)."""
     erste = _objekte(repo, [(commit, "commit")])[commit].split(b"\n", 1)[0]
     wurzel = erste[5:].decode("ascii", "replace")
     if not erste.startswith(b"tree ") or len(wurzel) != len(commit) or not _IST_OBJEKT_ID.match(wurzel):
@@ -681,10 +758,13 @@ def _baum(repo: Path, commit: str) -> dict:
                 if (nul < 0 or nul + 1 + breite > len(inhalt) or nul == leer + 1 or not modus
                         or any(c < 0x30 or c > 0x37 for c in modus)):
                     raise _NichtDasObjekt(f"the tree {oid} is not in the form git writes")
-                art = int(modus, 8) & 0o170000
+                zahl = int(modus, 8)
+                art = zahl & 0o170000
                 typ = "tree" if art == 0o040000 else "blob" if art in (0o100000, 0o120000) else "commit"
+                modus_text = ("040000" if art == 0o040000 else "120000" if art == 0o120000
+                              else ("100755" if zahl & 0o100 else "100644") if art == 0o100000 else "160000")
                 pfad, eid = praefix + inhalt[leer + 1:nul], inhalt[nul + 1:nul + 1 + breite].hex()
-                raus[os.fsdecode(pfad)] = (typ, eid)
+                raus[os.fsdecode(pfad)] = (typ, eid, modus_text)
                 if typ == "tree":
                     naechste.append((eid, pfad + b"/"))
                 pos = nul + 1 + breite
@@ -716,30 +796,69 @@ def _code_on_disk_that_is_not_the_commit(repo: Path, baum: dict) -> list:
     `skip-worktree` or `assume-unchanged` bit is set is not listed either. So the property is computed from the bytes,
     as the producer does (`pre_tag_receipt._baumzustand_oder_stop`), on this file's code alone:
 
-      a committed entry     its bytes on disk (the target of a symbolic link) hashed as a git blob and compared with
-                            the id the commit names; a committed file that is missing or no file refuses;
+      a committed entry     its TYPE on disk first, read with `lstat` so a link is never followed: a committed
+                            directory must be a directory, a committed file a regular file, a committed symbolic
+                            link a link (`scripts` and `src` themselves included, so every directory on the way to
+                            a compared file is one the commit names). Then a file's bytes, or a link's target,
+                            hashed as a git blob and compared with the id the commit names; a committed path that
+                            is missing refuses;
       an uncommitted path   a file Python could import (any suffix of `importlib.machinery.all_suffixes()`) or a
                             symbolic link refuses, whatever rule hides it. Other files (a `*.egg-info` of an
                             editable install, notes) cannot be imported and stay allowed.
 
-    `__pycache__` is not read: this run keeps its bytecode in a fresh directory (`_bytecode_cache_elsewhere`), and no
-    import names a package of that name."""
+    THE TYPE COMES BEFORE THE BYTES (external review of 65d8f8cd, F4, measured there): the committed directory
+    `src/pkg` replaced by a symbolic link to an outside copy whose tracked files were byte-identical, with an extra
+    `extra.py` behind the link, came back `[]` like the clean control. Reading a committed file follows a linked
+    directory above it, and the walk below does not follow links and skips the linked directory's name because the
+    commit has it, so an importable file nobody compared lay behind a structure judged clean. The `git status` this
+    replaced refused that exchange; it is not brought back, because it is the call that ran a configured filter. The
+    execute bit of a regular file is not compared: Python imports a module whatever that bit says, and on a file
+    system without one (Windows) every committed `100755` would refuse. `__pycache__` is not read: this run keeps its
+    bytecode in a fresh directory (`_bytecode_cache_elsewhere`), and no import names a package of that name."""
     import importlib.machinery  # noqa: PLC0415 - the standard library, after the path was cleaned
+    import stat  # noqa: PLC0415 - the standard library, after the path was cleaned
     suffixe = tuple(importlib.machinery.all_suffixes())
     wurzel = repo.resolve()
     funde: list = []
-    for rel, (typ, oid) in sorted(baum.items()):
-        if typ != "blob" or not any(rel.startswith(p + "/") for p in _CODE_PFADE):
+    #: Committed directories found to be something else on disk; nothing below them is read through them.
+    abgelehnt: list = []
+    for rel, (typ, oid, modus) in sorted(baum.items()):
+        if not (rel in _CODE_PFADE or any(rel.startswith(p + "/") for p in _CODE_PFADE)):
+            continue
+        if any(rel.startswith(a + "/") for a in abgelehnt):
             continue
         pfad = wurzel / rel
         try:
-            if os.path.islink(pfad):
-                inhalt = os.fsencode(os.readlink(pfad))
-            elif pfad.is_file():
-                inhalt = pfad.read_bytes()
-            else:
-                funde.append(f"{rel}: committed, but no file in the checkout")
-                continue
+            st = os.lstat(pfad)
+        except FileNotFoundError:
+            if typ != "commit":                 # a submodule that was never initialised may be absent
+                funde.append(f"{rel}: committed, but not in the checkout")
+                if typ == "tree":
+                    abgelehnt.append(rel)
+            continue
+        except OSError as exc:
+            funde.append(f"{rel}: cannot be read ({type(exc).__name__})")
+            if typ == "tree":
+                abgelehnt.append(rel)
+            continue
+        ist = ("a symbolic link" if stat.S_ISLNK(st.st_mode) else "a directory" if stat.S_ISDIR(st.st_mode)
+               else "a regular file" if stat.S_ISREG(st.st_mode) else "neither a file, a directory nor a link")
+        soll = {"040000": "a directory", "120000": "a symbolic link", "100644": "a regular file",
+                "100755": "a regular file"}.get(modus)
+        if typ == "commit":
+            # A submodule's directory is walked below like any other; it must not be a link to elsewhere.
+            if stat.S_ISLNK(st.st_mode):
+                funde.append(f"{rel}: committed as a submodule directory, but in the checkout it is a symbolic link")
+            continue
+        if ist != soll:
+            funde.append(f"{rel}: committed as {soll}, but in the checkout it is {ist}")
+            if typ == "tree":
+                abgelehnt.append(rel)
+            continue
+        if typ == "tree":
+            continue
+        try:
+            inhalt = os.fsencode(os.readlink(pfad)) if modus == "120000" else pfad.read_bytes()
         except OSError as exc:
             funde.append(f"{rel}: cannot be read ({type(exc).__name__})")
             continue
@@ -748,6 +867,8 @@ def _code_on_disk_that_is_not_the_commit(repo: Path, baum: dict) -> list:
         if h.hexdigest() != oid:
             funde.append(f"{rel}: its bytes in the checkout are not the committed blob")
     for teil in _CODE_PFADE:
+        if teil in abgelehnt:
+            continue                            # already refused above; `os.walk` would follow a linked top
         for ordner, unterordner, dateien in os.walk(wurzel / teil, followlinks=False):
             unterordner[:] = [d for d in unterordner if d != "__pycache__"]
             rel_ordner = Path(ordner).relative_to(wurzel).as_posix()
@@ -797,6 +918,15 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                          "are not the commit -- run the verifier with a Python whose installation is outside the clone, "
                          "and from a clone that is not inside that installation")
         return out
+    if _STARTUP_PATH_INTO_CHECKOUT:
+        # A STARTUP FILE PUT THE CHECKOUT ON THE PATH, under -I (see `_startup_search_paths_into_the_checkout`). Code of
+        # the checkout may have run before this line; the precondition in the module docstring was not met.
+        out["reason"] = (f"under -I the search path at start already named a directory of this checkout "
+                         f"({_STARTUP_PATH_INTO_CHECKOUT[0][:160]}); -I adds neither PYTHONPATH nor the script's "
+                         "directory, so a startup file of the interpreter (a `.pth` path line) put it there, and Python "
+                         "may have run a `sitecustomize.py` of the checkout before the verifier's first line -- run the "
+                         "verifier with a Python none of whose startup files names a directory of the clone")
+        return out
     if _SCRIPT_CHECKOUT is not None and os.path.realpath(repo) != _SCRIPT_CHECKOUT:
         # THE CODE THAT JUDGES IS NOT THE CODE THAT IS COMPARED (see `_SCRIPT_CHECKOUT`).
         out["reason"] = (f"the verifier runs from the checkout {_SCRIPT_CHECKOUT}, but --repo names "
@@ -814,7 +944,25 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         return out
     rc, head, err = _git(repo, "rev-parse", "--verify", "HEAD")
     if rc != 0:
-        out["reason"] = f"not a git checkout, or no HEAD: {err or 'git rev-parse failed'}"
+        # A partial clone is refused by the funnel itself, before this first question (see `_TEILKLON_SCHLUESSEL`).
+        out["reason"] = (err if err.startswith(_TEILKLON_GRUND)
+                         else f"not a git checkout, or no HEAD: {err or 'git rev-parse failed'}")
+        return out
+    # NO CONFIGURED PROGRAM, asked as early as a reason can still say what was refused (after git answered for the
+    # directory as a repository) and before any object is read. The order is defence in depth: the object reads below
+    # run no configured program, and the one way they could start one, the fetch of a partial clone, the funnel refuses
+    # before every call (external review of 65d8f8cd, F3, where `_baum` still ran before this refusal). The cleanliness
+    # check further down is `_code_on_disk_that_is_not_the_commit`, which hashes the bytes on disk itself and calls no
+    # git worktree operation, so the `git status` that ran a `filter.*.clean` (measured on 2026-10-02 at 653b5d67) is
+    # gone. As the owner's class decision (OA-4496f29e70), a clone whose own configuration names a program from the
+    # families of `_git_configuration_selects_a_program` is refused; its `.git/info/attributes` is not read, and that
+    # the families are complete is not shown. The global and system configuration are read from the null device and no
+    # program-selecting environment name is inherited (`_git_environment`).
+    programme = _git_configuration_selects_a_program(repo)
+    if programme:
+        out["reason"] = (f"keys of the clone's own git configuration select a program to run "
+                         f"({programme[0][:160]}{' …' if len(programme) > 1 else ''}); a clone from the forge carries "
+                         "no such setting, so clone afresh, then run again")
         return out
     head_s = head.decode().strip()
     out["checkout_head"] = head_s
@@ -832,36 +980,24 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                          "the tree that is checked out and refuses to guess about another")
         return out
     # THE COMMIT AND EVERY TREE BELOW IT ARE THE OBJECTS THEIR IDS NAME, checked before anything is
-    # compared with them or read from them: `git status` below compares the checkout with these
-    # trees, and the gate source and the receipts are looked up in them.
+    # compared with them or read from them: the checkout is compared with these trees below, and the
+    # gate source and the receipts are looked up in them.
     try:
-        baum = _baum(repo, commit)
+        eintraege = _baum_eintraege(repo, commit)
     except _NichtDasObjekt as exc:
         out["reason"] = _kein_objekt_grund(exc)
         return out
-    # NO GIT CALL OF THE VERIFIER RUNS A PROGRAM THE CLONE CHOSE (owner decision OA-4496f29e70, 2026-10-02; the Codex
-    # sweep's class fix). The cleanliness check below is `_code_on_disk_that_is_not_the_commit`, which hashes the bytes
-    # on disk itself and calls no git worktree operation -- so no `filter.*.clean`, `core.fsmonitor` or other
-    # configured program runs, because the only git call that would have run one was the `git status` this replaced
-    # (measured on 2026-10-02 at 653b5d67: a `filter.*.clean` ran during that status). The remaining git calls read
-    # objects (`cat-file --batch`, `ls-tree`, `rev-parse`) and run no program. As defence in depth, and as the owner's
-    # class decision in its own words, a clone whose own configuration or attributes NAME a program is still refused
-    # here, before any further git call; the global and system configuration are read from the null device and no
-    # program-selecting environment name is inherited (`_git_environment`).
-    programme = _git_configuration_selects_a_program(repo)
-    if programme:
-        out["reason"] = (f"the clone's own git configuration or attributes select a program to run "
-                         f"({programme[0][:160]}{' …' if len(programme) > 1 else ''}); a clone from the forge carries "
-                         "no such setting, so clone afresh, then run again")
-        return out
+    baum = {pfad: (typ, oid) for pfad, (typ, oid, _modus) in eintraege.items()}
     # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the commit says nothing
     # about the files on disk; an uncommitted edit to the receipt library or to the signature primitive flipped a
     # garbage receipt to VERIFIED with HEAD untouched. Every committed file under scripts/ and src/ is compared with
     # its blob here, and every untracked importable file or symlink there is refused -- from the bytes, not through
     # `git status`, which the ignore rules, the index bits and a configured filter all shape (deep gate run 7, P1, and
     # the owner's class decision). A modified or untracked file under scripts/ or src/ refuses the measurement with
-    # exit 2: the honest answer is "your checkout is not that commit", not a verdict from code nobody pinned.
-    funde = _code_on_disk_that_is_not_the_commit(repo, baum)
+    # exit 2: the honest answer is "your checkout is not that commit", not a verdict from code nobody pinned. The type
+    # of every committed path there is compared first, so a directory replaced by a link to elsewhere refuses too
+    # (external review of 65d8f8cd, F4).
+    funde = _code_on_disk_that_is_not_the_commit(repo, eintraege)
     if funde:
         out["reason"] = (f"the checkout under {'/'.join(_CODE_PFADE)} is not the commit at {len(funde)} path(s) "
                          f"({funde[0][:120]}{' …' if len(funde) > 1 else ''}); the verifier and the library it calls "
