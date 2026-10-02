@@ -2056,6 +2056,8 @@ _LENGTH_32 = {
     ("cli.py", "_build_rp_trust"): (1, "a root, no key"),
     ("cli.py", "_resolve_canonical_root"): (1, "a root, no key"),
     ("cli.py", "_parse_bundled_headers"): (1, "a root, no key"),
+    ("cli.py", "_show_signed_eval_receipt"): (1, "the key the Receiver fixes; _refuse_weak_issuer_pins "
+                                                "applies the rule before, and the draft's profile again"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
     ("evalclaim.py", "_field_violation"): (1, "a root, no key (the samples root; D4, PR 300, moved this "
@@ -2071,6 +2073,10 @@ _LENGTH_32 = {
     ("sdjwt_issue.py", "issue_sd_jwt"): (1, "the holder key; followed by the rule since this fix"),
     ("signature.py", "ed25519_trust_anchor_weakness"): (1, "the rule itself"),
     ("signature.py", "verify_ed25519"): (1, "the SPEC 4a verify profile"),
+    ("signed_eval_receipt.py", "verify_signed_eval_receipt"): (1, "a key that is not 32 bytes fails rule 1 "
+                                                                   "of the draft's profile, which with rule "
+                                                                   "2 refuses non-canonical and small-order "
+                                                                   "keys before any arithmetic"),
     ("tlogproof.py", "format_tlog_proof"): (1, "a hash, no key"),
     ("tlogproof.py", "parse_tlog_proof"): (1, "a hash, no key"),
 }

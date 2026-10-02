@@ -71,6 +71,9 @@ _MODULES = [
     # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
     # arrive there.
     "adapters.agt_receipt",
+    # 2026-10-02: draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL, behind --format
+    # eval-receipt-v1). verify_signed_eval_receipt answers with a verdict for any argument.
+    "signed_eval_receipt",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -340,6 +343,10 @@ _OUT_OF_SCOPE = frozenset({
     "lint_policy",  "list_profiles",  "make_disclosure",  "merkle_root_from_layers",
     "merkle_tree_hash",  "nested_closure_violations",  "ots_upgraded_proof_is_self_contained",
     "outcome_execution_proven",  "pae",
+    # signed_eval_receipt: the producers take the caller's own payload and refuse loudly
+    # (`payload_bytes`, `emit_signed_eval_receipt`, ValueError naming the step); `names_receipt_type`
+    # is a dispatch question and answers False for any value.
+    "payload_bytes", "emit_signed_eval_receipt", "names_receipt_type",
     # 2026-09-05 (deep gate L1-600-02): `pack_key_binds_signer` ist ein URTEIL derselben Familie wie
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
     # Schluessel, unter dem ein Umschlag gerade verifiziert wurde; es wirft nie (eigene Tests).
