@@ -49,15 +49,23 @@ After the turn, record the hook's message as Codex showed it, and whether anythi
 test -e remote.git/refs/heads/main && echo pushed || echo "not pushed"
 ```
 
+Owner choice (02.10.2026, R5-2, choice A): under `--host codex` EVERY push Ebene 1 would otherwise resolve
+is NOT MEASURED and therefore denied, because the hook receives the session directory and the command text,
+not the execution `workdir` or a remote environment, so it could judge a different repository than the push
+acts on (review Runde 5, R5-2; Codex source `exec_command.rs`/`hook_runtime.rs` at 14a477ea). So the answer
+does not depend on the repository's evidence state here; every case 1 to 5 denies with the same NOT MEASURED
+reason. What each scaffold mode would verify with a bound context is a Claude-Code / Ebene-2 property, not a
+Codex Ebene-1 one, until the execution context is reliably bound (Messauftrag, D12).
+
 | # | Mode | Hooks | Expected answer of the gate | Pass criterion |
 |---|---|---|---|---|
-| 1 | `repo-nodecl` | trusted | no decision, NOT MEASURED; the gate is not active | Codex shows a message that starts with `NOT MEASURED:` and says the gate is not active in this repository; Codex's own approval flow decides; after approval, pushed. |
-| 1a | `repo-worktree-only` | trusted | deny, NOT MEASURED | Codex shows a block whose reason starts with `NOT MEASURED:` and says the declaration is not committed; not pushed. |
-| 1b | `repo-rules-changed` | trusted | deny | Codex shows a block with `evidence rules`; not pushed. |
-| 2 | `repo-tampered` | trusted | deny | Codex shows a block with `verification failed`; not pushed. |
-| 3 | `repo-missing` | trusted | deny | Codex shows a block with `missing at HEAD`; not pushed. |
-| 4 | `repo-stale` | trusted | deny | Codex shows a block with `does not match the tree at HEAD`; not pushed. |
-| 5 | `repo-valid` | trusted | no decision; a message `1 of 1 declared items verified` | Codex shows the message; Codex's own approval flow decides; after approval, pushed. |
+| 1 | `repo-nodecl` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 1a | `repo-worktree-only` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 1b | `repo-rules-changed` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 2 | `repo-tampered` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 3 | `repo-missing` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 4 | `repo-stale` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 5 | `repo-valid` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
 | 6 | `repo-valid` | not trusted | none: the gate did not run | No gate message at all; after approval, pushed. This is D13, measured. |
 
 For case 6, open `/hooks` first and withdraw the trust from both `proofbundle` hooks, or start Codex with
@@ -65,9 +73,9 @@ a fresh `CODEX_HOME` in which the plugin is installed and the hooks were never t
 afterwards.
 
 Expected values measured without Codex, from the gate run directly with `--host codex` on each scaffold
-mode (tests/test_codex_plugin.py measures the hook schema): the cases 1 to 5 give exactly the answers in
-the table. What this runbook adds is Codex itself: that it starts the hook, passes the event, and honours
-the answer.
+mode (tests/test_codex_plugin.py measures the hook schema): the cases 1 to 5 all deny NOT MEASURED, because
+of the owner choice above. What this runbook adds is Codex itself: that it starts the hook, passes the
+event, and honours the deny.
 
 ## The note of the verify skill
 

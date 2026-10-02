@@ -107,14 +107,27 @@ MEASURED. The remote itself is not read.
     - A command that would turn off the real-push check is **denied**, not resolved: `git push --no-verify`,
       a command-level `core.hooksPath` override (`git -c core.hooksPath=…`), or `git config core.hooksPath …`
       (Punkt 5). The deny holds whatever the directory, so it holds inside a chain too.
+    - The git subcommand must be on a short allow-list of local built-ins that, per the git documentation,
+      neither transfer objects to a remote nor run an arbitrary command. A subcommand off that list is NOT
+      MEASURED as a possible transfer, never resolved and never inactive (`_MAYBE_PUSH`). Off-list, and so
+      NOT MEASURED: `send-pack`, an unknown subcommand, `rebase --exec`/`-x`, `bisect run`, `submodule
+      foreach`. On-list: `fetch`, `pull`, `clone`, `ls-remote` (they receive, they do not publish) and
+      `config` (but `git config core.hooksPath` is denied earlier, before the list is consulted). This is not
+      a complete transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8).
+    - A per-command `git -c alias.*` (or `--config-env` of an alias) is NOT MEASURED even when the word
+      `push` is absent and the subcommand is otherwise allow-listed, because the alias may name any command,
+      a push included (Runde 5, Punkt 7).
 
     Because Level 1 cannot see through the shell, a push it leaves NOT MEASURED is not one it has checked. A
     NOT MEASURED answer asks (and on Codex, or under `claude -p`, denies), so Level 1 blocks rather than
     passes; it is a convenience and a record, not a boundary. No protection beyond what is measured here is
     claimed.
   - **Level 2 (prototype, D24)** is the git `pre-push` hook: it judges git's own ref lines, so it sees the
-    real push whatever shell form launched it, and verifies the evidence there. It is what closes Level 1's
-    NOT MEASURED. Measured in test fixtures only; not installed by the plugin.
+    real push whatever shell form launched it, and verifies the evidence there — but only for a push git
+    actually invokes the installed hook on, and only when the required objects are readable locally. It
+    narrows, it does not close, what Level 1 leaves NOT MEASURED. Measured in test fixtures only; not
+    installed by the plugin; protection against every disallowed transmission is enforceable only on the
+    receiving side.
   - **Level 3 (D22)** is the CI check at HEAD, off the contributor's machine: the enforcement point.
 - A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
   the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
@@ -131,11 +144,15 @@ MEASURED. The remote itself is not read.
   updates).
 - The push endpoint must be one URL, equal for fetch and push, so the remote-tracking ref records the state
   of the endpoint the push updates. A `pushurl` or a second `remote.<name>.url` sends the push elsewhere or
-  to a further endpoint and is NOT MEASURED (Befund 1); a symmetric `insteadOf` rewrites fetch and push
-  alike and is faithful. A `url.<base>.pushInsteadOf` rewrite, though, is applied at the transport layer and
-  rewrites only the push, so string equality of the URLs `git remote get-url` displays is not a proof the
-  push reaches the comparison-state origin (review R4-7): whenever any `pushInsteadOf` rule is configured the
-  push is NOT MEASURED, conservatively, never resolved on displayed equality alone. Under Level 1 any
+  to a further endpoint and is NOT MEASURED (Befund 1). Any `url.<base>.insteadOf` **or**
+  `url.<base>.pushInsteadOf` rewrite also makes the push NOT MEASURED (review R4-7, Runde 5 Punkt 9): a
+  rewrite is applied at the transport layer, so string equality of the URLs `git remote get-url` displays is
+  not a proof the push reaches the comparison-state origin. The earlier claim that a symmetric `insteadOf` is
+  always faithful was wrong; both kinds of rewrite now make the push NOT MEASURED, conservatively, never
+  resolved on displayed equality alone. A stale remote-tracking ref without any rewrite stays possible
+  (POSSIBLE) on Level 1: the push is still resolved and compared, but the verdict then describes only the
+  locally known target state, not the actual rule change of this push; Level 2 makes the authoritative
+  comparison when it runs and can read the objects. Under Level 1 any
   `git -c`/`--config-env` global option already makes the directory NOT MEASURED before the target is read
   (the configuration the gate's separate reads cannot see can no longer reach `resolve_push_targets`); a
   `GIT_CONFIG_*` injection in the environment is read by the gate as the push reads it, because the gate's
@@ -344,6 +361,55 @@ Follow-up of D5, C (2026-09-30): a repository the gate measured to declare nothi
 under Codex either. That answer is not an ask, so the gate does not turn it into a deny, and Codex
 accepts an answer without a decision (tests/test_codex_plugin.py). Every other NOT MEASURED case is still
 denied under Codex.
+
+EVERY PUSH IS NOT MEASURED UNDER CODEX (owner choice A, 02.10.2026, R5-2)
+- Under `--host codex` every push Ebene 1 would otherwise resolve is NOT MEASURED and therefore denied, not
+  only the pushes Claude Code would leave NOT MEASURED.
+- The reason is the hook's input, not the repository's evidence state: the Codex PreToolUse hook receives the
+  session directory and the command text, not the execution workdir or a remote environment, so it could
+  judge a different repository than the push acts on.
+- `gh pr create` and the other gated shell calls are denied the same way.
+- Under Claude Code nothing changes.
+- MCP tools are a separate path and are unchanged.
+
+THE CODEX EXECUTION MODEL IS AN ASSUMPTION, NOT A MEASURED FACT
+- Codex is often described as running a command through a login shell (`bash -lc …`), but that is not
+  absolute: `login:false` is possible, and without a setting the configuration decides.
+- The shell, its startup files and the program resolution are assumptions to be checked at a real host start
+  (owner machine, not a cloud session), not measured facts.
+- `write_stdin` fed to a running command after the PreToolUse hook has no hook of its own, so the gate does
+  not check input fed in later.
+
+CODEX SOURCE PINS
+- `codex-rs/core/src/hook_runtime.rs` at 14a477ea89712071944244022e8a10142845456e — the PreToolUse hook
+  payload and its `cwd`.
+- `codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs` at 14a477ea89712071944244022e8a10142845456e
+  — where the per-call workdir is applied at execution.
+- The other pin `c248f6d4` gives the same `{"command": args.cmd}` as the tool_input handed to the hook.
+
+### Messauftrag R5-2 (Entscheidungsvorlage, nicht umsetzen)
+
+MEASURED (read from the Codex source at 14a477ea this session, not from a Codex run):
+- The PreToolUse hook payload (`PreToolUseRequest`, `hook_runtime.rs` lines 138-149) includes
+  `transcript_path` (line 142) and `tool_use_id` (line 145).
+- Its `cwd` (line 141) comes from `tool_hook_cwd` (lines 152-157), which prefers a local-environment path and
+  otherwise the turn context cwd — i.e. the session/turn directory, not the per-call workdir.
+- There is no `environment_id` in the payload.
+- The per-call workdir is applied at execution as `native_environment_cwd.join(workdir)` (`exec_command.rs`
+  line 201) and comes from the model's arguments.
+- The tool_input handed to the hook is only `{"command": cmd}`.
+
+OPEN (NOT MEASURED this phase, needs the dispatch-layer source or a real host run):
+- Whether the tool-call record carrying workdir is written to the file at `transcript_path` BEFORE the
+  PreToolUse hook fires, and is keyed by `tool_use_id`, so the gate could recover workdir.
+
+DECISION TEMPLATE (do NOT implement anything):
+- IF that ordering holds, a future change could have the gate read `transcript_path`, find the `tool_use_id`
+  entry and recover the real workdir to resolve the repository.
+- UNTIL it is measured at a real host start (owner machine, not a cloud session), owner choice A stands:
+  every Codex push is NOT MEASURED → deny.
+- EVEN THEN the transcript workdir is model-influenced content, so the gate may trust it only if Codex
+  guarantees it equals the execution workdir.
 
 Options:
 - A. Deny under Codex (chosen for every NOT MEASURED ask).
@@ -668,14 +734,25 @@ subshell, a wrapper, a nested shell (`bash -lc`), a `cd`, an expansion each move
 Level 1 answers those NOT MEASURED, which blocks under Codex and `claude -p` but is not proof. A git
 `pre-push` hook runs at the push itself: git hands it, on stdin, one `<local ref> <local sha> <remote ref>
 <remote sha>` line per ref, in the repository being pushed. From those lines the hook knows the exact
-commits and the remote's own current state without parsing any command, so it reaches a verdict for every
-form Level 1 leaves NOT MEASURED.
+commits and the remote's own current state without parsing any command. It reaches a verdict only for
+pushes git actually invokes the installed hook on, and only when the required objects are readable locally;
+it is a bypassable prototype not installed by the plugin, and protection against every disallowed
+transmission is enforceable only on the receiving side.
 
 Chosen (a prototype, measured in test fixtures only):
 - `proofbundle_gate.py pre-push <remote> <url>` reads the ref lines on stdin, builds one target per line
   (source = the local sha, None when all-zero for a deletion; dest = the remote ref; tracking = the remote
   sha, None when the remote has no such ref), and runs the same evidence core as a resolved shell push
-  (`_evaluate_targets`). It exits 1, denying the push, on a deny verdict, and 0 otherwise.
+  (`_evaluate_targets`). It exits 0 only for a pass and a measured inactive (nothing declared):
+  `return 0 if verdict.decision in ("pass", "inactive") else 1`. An ask, an unknown state, a measurement
+  error and any exception all block the push with exit 1. There is no release or approval switch in any
+  environment the model can write or run: a rule change stays blocked, and a human handles it on a
+  separately controlled path.
+- A brand-new remote ref (the remote side all-zero, review R5-4) has no comparison state, so the gate
+  cannot tell which commits the push newly sends. The chosen behaviour is NOT MEASURED with a block, not a
+  traceback: the gate returns a NOT MEASURED verdict, which blocks the push, instead of running
+  `git rev-list` with a `None` base. The reason: without a locally known target state there is no range to
+  evaluate, so the push is reported unmeasured rather than crashing or being read as an absent target.
 - It is a prototype. The plugin does not install it and sets no `core.hooksPath`, in the repository or
   globally; it is exercised only by a test that installs it in a throwaway repository's local
   `core.hooksPath`. Shipping it needs an install story a maintainer owns (where the hook lives, how it is

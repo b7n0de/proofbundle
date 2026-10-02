@@ -70,29 +70,51 @@ verifies the evidence that the repository declares in `.proofbundle/evidence.jso
 The verification runs at three levels, which see different things and which the design keeps apart
 (DECISIONS.md, D3, D22, D24).
 
+The three levels, in the reviewer's words (Runde 5, answer 1):
+
+> Level 1 is a best-effort check of recognized commands, not a security boundary. Unrecognized commands may
+> produce no gate verdict. Level 2 receives ref names and object IDs only when Git invokes the installed
+> pre-push hook; the required objects must also be readable locally. It is a bypassable prototype and is not
+> installed by the plugin. Level 3 checks the PR head and can enforce acceptance into a protected branch
+> only with the required checks and review settings described in D22; it does not check the push range or
+> prevent transmission to an unprotected remote. The CI template has not been measured on GitHub Actions.
+
 **Level 1, this `PreToolUse` gate, is not a security boundary.** It reads the shell command before it
 runs, and it resolves the repository a push acts on only when the whole command is one strict simple
-command headed by a bare `git`/`git-push`/`gh`: at most one literal `git -C` (resolved physically through
-symlinks), only prefix assignments from a narrow neutral list, trailing redirections with a literal
-target, and no expansion anywhere. Every other form is NOT MEASURED, never passed off as checked: any
-`;`/`&&`/`||`/`|`/`&`/newline chain, a `cd`, a subshell or a brace group, a shell keyword, a function, a
-wrapper such as `env`/`sudo`, a nested shell (`bash -lc`, `sh -c`, and the `-lc`/`-cl` bundles), `eval`,
-`source`, a command or parameter substitution, a here-document, a non-neutral assignment (`PATH`,
-`GIT_DIR`, `GIT_CONFIG_*`, `HOME` included), and a `git` run by a path. A command that would turn off the
-real-push check — `git push --no-verify`, or a command-level `core.hooksPath` override, or a `git config
-core.hooksPath` — is denied. Because Level 1 cannot see through the shell, a push it leaves NOT MEASURED
-is not one it has checked: a NOT MEASURED answer asks (and on Codex, or under `claude -p`, denies), so it
-blocks rather than passes, but it is not proof the push is sound.
+command headed by a bare `git`/`git-push`/`gh` whose subcommand is `push` (or a gated `gh` subcommand):
+at most one literal `git -C` (resolved physically through symlinks), only prefix assignments from a narrow
+neutral list, trailing redirections with a literal target, and no expansion anywhere. Every other form is
+NOT MEASURED, never passed off as checked: any `;`/`&&`/`||`/`|`/`&`/newline chain, a `cd`, a subshell or a
+brace group, a shell keyword, a function, a wrapper such as `env`/`sudo`, a nested shell (`bash -lc`,
+`sh -c`, and the `-lc`/`-cl` bundles), `eval`, `source`, a command or parameter substitution, a
+here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOME` included), and a `git`
+run by a path. A git subcommand that is not on a short allow-list of local, non-transmitting, non-arbitrary
+commands — `send-pack`, an unknown subcommand, `rebase --exec`, `bisect run`, `submodule foreach` — is NOT
+MEASURED as a possible transfer; this is not a complete list of transports and closes no indirect push it
+does not name (Runde 5, Punkt 6/8). A per-command `-c alias.*` is NOT MEASURED even without the word push,
+and any `url.*.insteadOf` or `url.*.pushInsteadOf` rewrite makes a push NOT MEASURED (Punkt 7/9). A command
+that would turn off the real-push check — `git push --no-verify`, a command-level `core.hooksPath` override,
+or a `git config core.hooksPath` — is denied. Because Level 1 cannot see through the shell, a push it
+leaves NOT MEASURED is not one it has checked: a NOT MEASURED answer asks (and on Codex, or under
+`claude -p`, denies), so it blocks rather than passes, but it is not proof the push is sound. Under
+`--host codex` every push Level 1 would otherwise resolve is NOT MEASURED and denied, because the hook
+receives the session directory and the command text, not the execution `workdir` or a remote environment,
+so it could judge a different repository than the push acts on (Runde 5, R5-2; owner choice 02.10.2026).
 
 **Level 2 (prototype, D24) is the pre-push hook.** A git `pre-push` hook reaches a verdict from git's own
-ref lines, so it sees the exact commits and the remote's own state whatever shell form launched the push,
-and verifies the evidence there. It is the layer that closes what Level 1 leaves NOT MEASURED. It is
-measured in test fixtures only and is not installed or wired to `core.hooksPath` by the plugin; `git push
---no-verify` skips it, which is why Level 1 denies that form.
+ref lines, so it sees the exact commits and the remote's own state — but only for a push git actually
+invokes the installed hook on, and only when the objects it names are readable locally. It is a bypassable
+prototype (`git push --no-verify` skips it, which is why Level 1 denies that form), it is measured in test
+fixtures only and is not installed or wired to `core.hooksPath` by the plugin, and it exits 0 only for a
+pass and a measured inactive; an ask, an unknown state and any error block (exit 1). Protection against
+every disallowed transmission cannot be assured from these local levels; it must be enforced on the
+receiving side.
 
-**Level 3 is the CI check (D22).** It evaluates the evidence at HEAD in the pull request, off the
-contributor's machine, and is the enforcement point a maintainer relies on. The gate claims no protection
-it has not measured.
+**Level 3 is the CI check (D22).** It evaluates the evidence at the pull request's HEAD, off the
+contributor's machine, and can enforce acceptance into a protected branch only with the required checks and
+review settings of D22; it does not check the push range or prevent transmission to an unprotected remote,
+and the CI template has not been measured on GitHub Actions. The gate claims no protection it has not
+measured.
 
 | What the gate finds | Answer |
 |---|---|
@@ -232,7 +254,12 @@ The gate behaves differently under Codex in two ways:
 
 - Codex has no ask decision. Under Codex, a NOT MEASURED call that would ask is denied instead (D12 in
   DECISIONS.md). A repository that declares nothing, neither at HEAD nor in the working tree, gets no
-  decision under Codex either, marked NOT MEASURED (D5).
+  decision under Codex either, marked NOT MEASURED (D5). Beyond that, under `--host codex` every push the
+  gate would otherwise resolve is NOT MEASURED and denied (owner choice A, 02.10.2026, R5-2): the hook
+  receives the session directory and the command text, not the execution `workdir` or a remote environment,
+  so it could judge a different repository than the push acts on; `gh pr create` and the other gated shell
+  calls are denied the same way, while MCP tools are a separate path and unchanged. `write_stdin` fed to a
+  running command after the hook has no hook of its own, so the gate does not check input fed in later.
 - Codex runs a plugin's hooks only after you trust them, at the start-up review or in `/hooks`. Until
   then the gate does not run, and a push is not gated (D13). Under Codex every result of
   `verify_receipt` carries a `gate_note` that says so; the server cannot see whether the hooks are
@@ -260,7 +287,11 @@ Codex reads the same `.claude-plugin/marketplace.json` (D15).
 `evals/` holds cases for the three skills and the gate, for `claude plugin eval`. The verify and
 review cases grade the result, not the route: a model may call `verify_receipt` without the skill, and
 the server states the rules the result depends on, so whether a skill fired is read from the trace and
-reported, not scored. review-receipt-injection still grades it. The gate cases seed a git repository with a
+reported, not scored. review-receipt-injection still grades it. The eval graders detect text features only —
+a regex over the trace, or which tool ran — so content judgements like "verification failure correctly
+named", "no truth claimed" or "no private key requested" hold only with human review; four known
+counter-phrasings that match the pattern while reversing the meaning are recorded as a known limit in the
+tests. The gate cases seed a git repository with a
 scaffold script and need Bash, so they run with:
 
 ```sh
