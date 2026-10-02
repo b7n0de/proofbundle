@@ -60,10 +60,12 @@ signature and structure hold.
 A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call and before an MCP tool whose
 name ends in `create_pull_request`, `create_merge_request`, `create_release`, `push_files`,
 `create_or_update_file` or `merge_pull_request` (`mcp__<server>__<tool>`). It acts before `git push`,
-`gh pr create`, `gh release create` and those MCP tools. For an MCP tool it judges the local repository
-at HEAD: it cannot see the branch a tool publishes or the pull request it merges, and the bytes
-`push_files` and `create_or_update_file` write come from the tool's own arguments, which the gate does
-not compare with that tree. At those calls it
+`gh pr create`, `gh release create` and those MCP tools. A gated MCP write is NOT MEASURED — asked under
+Claude Code, denied under Codex — because the hook binds neither its actual target nor the bytes it
+writes: the gate cannot see the branch a tool publishes or the pull request it merges, and the bytes
+`push_files` and `create_or_update_file` write come from the tool's own arguments. The local repository
+is checked at HEAD and named in the answer as a diagnosis only; it never decides the call (Runde 6, R6-1).
+At the other calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
@@ -82,8 +84,8 @@ The three levels, in the reviewer's words (Runde 5, answer 1):
 **Level 1, this `PreToolUse` gate, is not a security boundary.** It reads the shell command before it
 runs, and it resolves the repository a push acts on only when the whole command is one strict simple
 command headed by a bare `git`/`git-push`/`gh` whose subcommand is `push` (or a gated `gh` subcommand):
-at most one literal `git -C` (resolved physically through symlinks), only prefix assignments from a narrow
-neutral list, trailing redirections with a literal target, and no expansion anywhere. Every other form is
+at most one literal `git -C` (resolved physically through symlinks), only prefix assignments checked to
+select no program, trailing redirections with a literal target, and no expansion anywhere. Every other form is
 NOT MEASURED, never passed off as checked: any `;`/`&&`/`||`/`|`/`&`/newline chain, a `cd`, a subshell or a
 brace group, a shell keyword, a function, a wrapper such as `env`/`sudo`, a nested shell (`bash -lc`,
 `sh -c`, and the `-lc`/`-cl` bundles), `eval`, `source`, a command or parameter substitution, a
@@ -91,8 +93,18 @@ here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOM
 run by a path. A git subcommand that is not on a short allow-list of local, non-transmitting, non-arbitrary
 commands — `send-pack`, an unknown subcommand, `rebase --exec`, `bisect run`, `submodule foreach` — is NOT
 MEASURED as a possible transfer; this is not a complete list of transports and closes no indirect push it
-does not name (Runde 5, Punkt 6/8). A per-command `-c alias.*` is NOT MEASURED even without the word push,
-and any `url.*.insteadOf` or `url.*.pushInsteadOf` rewrite makes a push NOT MEASURED (Punkt 7/9). A command
+does not name (Runde 5, Punkt 6/8). A subcommand name alone does not establish that an invocation cannot
+execute other programs; options and Git configuration can select helpers, filters, hooks or editors. So an
+allow-listed subcommand is free only in a checked invocation form: its bare form or options vetted for it,
+no per-command `-c` (a NOT MEASURED from it is never lost), no prefix assignment that selects a program
+(`GIT_EXTERNAL_DIFF=…`, `GIT_SSH_COMMAND=…`, `GIT_PAGER` other than `cat`), and for `git config` only a
+read or a write of a key that selects no program; everything else is NOT MEASURED (Runde 6, R6-2). Level 1
+reads the command text only: a helper already configured in a repository or global config file, or
+exported into the session earlier, is not checked by it. A per-command `-c alias.*` is NOT MEASURED even
+without the word push, and a `url.*.insteadOf` or `url.*.pushInsteadOf` rewrite that applies to the
+remote, resolved by git's own rules, makes a push NOT MEASURED; a rule for another host does not (Punkt
+7/9, Runde 6 Punkt 2). When the target comparison is NOT MEASURED, the evidence at uniquely determined
+source commits is still checked, and a proven failure there is a deny (Runde 6, Befund 1). A command
 that would turn off the real-push check — `git push --no-verify`, a command-level `core.hooksPath` override,
 or a `git config core.hooksPath` — is denied. Because Level 1 cannot see through the shell, a push it
 leaves NOT MEASURED is not one it has checked: a NOT MEASURED answer asks (and on Codex, or under
@@ -258,7 +270,9 @@ The gate behaves differently under Codex in two ways:
   gate would otherwise resolve is NOT MEASURED and denied (owner choice A, 02.10.2026, R5-2): the hook
   receives the session directory and the command text, not the execution `workdir` or a remote environment,
   so it could judge a different repository than the push acts on; `gh pr create` and the other gated shell
-  calls are denied the same way, while MCP tools are a separate path and unchanged. `write_stdin` fed to a
+  calls are denied the same way; a gated MCP write is NOT MEASURED and denied as well (R6-1). No transcript
+  path is built: until Codex binds the effective execution directory and environment of the same call to
+  the hook, and that binding is checked, gated shell calls stay NOT MEASURED and denied (D12). `write_stdin` fed to a
   running command after the hook has no hook of its own, so the gate does not check input fed in later.
 - Codex runs a plugin's hooks only after you trust them, at the start-up review or in `/hooks`. Until
   then the gate does not run, and a push is not gated (D13). Under Codex every result of

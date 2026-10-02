@@ -96,9 +96,16 @@ MEASURED. The remote itself is not read.
       (`realpath`, so a symlinked `-C` names the same repository git walks to, review R4-2). A second `-C`,
       `--git-dir`, `--work-tree`, `--namespace`, `--exec-path`, `--no-pager`, or any other git global option
       is NOT MEASURED (R4-6).
-    - Prefix assignments only from a narrow neutral list (`GIT_TERMINAL_PROMPT`, `GIT_PAGER`, `GIT_EDITOR`,
-      `GIT_ASKPASS`, `GIT_TRACE*`). Every other command-level assignment — `PATH`, every non-neutral `GIT_*`,
-      and the configuration names (`GIT_CONFIG_*`, `HOME`, `XDG_CONFIG_HOME`) — makes it NOT MEASURED.
+    - Prefix assignments only from a narrow list checked to select no program (`GIT_TERMINAL_PROMPT`,
+      `GIT_TRACE*`, `LANG`, `LANGUAGE`, `LC_ALL`, `LC_CTYPE`, `LC_MESSAGES`, `TZ`). A name that selects a
+      program — `GIT_PAGER`/`PAGER`, `GIT_EDITOR`/`EDITOR`/`VISUAL`/`GIT_SEQUENCE_EDITOR`,
+      `GIT_ASKPASS`/`SSH_ASKPASS` — counts only with a checked value (a pager of `cat` or empty, an editor or
+      askpass helper of `true` or `:`), because the environment is configuration by another name
+      (`GIT_EXTERNAL_DIFF` is `diff.external`, `GIT_SSH_COMMAND` is `core.sshCommand`; Runde 6, R6-2).
+      Every other command-level assignment — `PATH`, every other `GIT_*`, and the configuration names
+      (`GIT_CONFIG_*`, `HOME`, `XDG_CONFIG_HOME`) — makes the call NOT MEASURED, a git call the allow-list
+      would otherwise leave free included, and so does such an assignment anywhere in a chain, behind `env`,
+      through `export`, or in an enclosing command for a nested `bash -c` (Runde 6).
     - `git` counts only as a bare word; a `git` by a path (`/usr/bin/git`) is NOT MEASURED. A wrapper
       (`env`, `sudo`, `command`, …), a shell keyword, a function, `eval`/`source`, and a nested shell
       (`bash -lc`, `sh -c`, the `-lc`/`-cl`/`-ilc` bundles) are NOT MEASURED — but the scan still SEES the
@@ -127,8 +134,18 @@ MEASURED. The remote itself is not read.
       `send-pack`, an unknown subcommand, `rebase --exec`/`-x`, `bisect run`, `submodule foreach`, and any
       allow-listed subcommand carrying an unvetted option. On-list (bare, or with their vetted options):
       `fetch`, `pull`, `clone`, `ls-remote` (they receive, they do not publish) and `config` (but
-      `git config core.hooksPath` is denied earlier, before the list is consulted). This is not a complete
-      transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8; Runde 6, R6-2).
+      `git config core.hooksPath` is denied earlier, before the list is consulted). `git config` itself is
+      free only as a read (`--get`, `--get-all`, `--get-regexp`, `--list`, `git config get|list`) or as a
+      write of a key checked to select no program (`user.name`, `user.email`, `init.defaultBranch`,
+      `color.ui`, `core.autocrlf`, `core.quotePath`, `pull.rebase`, `pull.ff`, `fetch.prune`,
+      `push.default`, `advice.detachedHead`); a write of any other key (`diff.external`, `core.editor`,
+      `core.pager`, `filter.*`, `core.fsmonitor`, `core.sshCommand`, `credential.helper`,
+      `remote.*.uploadpack`, `include.path`, …), `--edit` and `--file` are NOT MEASURED, because the key
+      may select a helper for a later call (git-config). Named limit: Level 1 reads the command text only.
+      A helper already configured in a repository or global configuration file, or exported into the session
+      by an earlier command, is not read by it; such state is outside what Level 1 measures. This is not a
+      complete transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8;
+      Runde 6, R6-2).
     - A per-command `git -c alias.*` (or `--config-env` of an alias) is NOT MEASURED even when the word
       `push` is absent and the subcommand is otherwise allow-listed, because the alias may name any command,
       a push included (Runde 5, Punkt 7).
@@ -153,21 +170,40 @@ MEASURED. The remote itself is not read.
   `remote.<name>.push`, a mirror remote or `push.followTags` add updates the command does not name, so the
   push is NOT MEASURED (N2). Only a narrow list of target-neutral options is read; `--` ends option
   parsing; an abbreviation (git takes `--mir` for `--mirror`), `--repo`, or any option the gate does not
-  model is NOT MEASURED (review R3-1). Git booleans are read as git reads them (`1`, `yes`, `on` are true),
+  model is NOT MEASURED (review R3-1). `--receive-pack` and its alias `--exec` are not neutral: they name
+  the program that runs as the receiving end, which a path or `file://` transport starts on this machine
+  (Runde 6, R6-2 class). Git booleans are read as git reads them (`1`, `yes`, `on` are true),
   and a value git cannot read is NOT MEASURED (R3-3). A bare `git push` resolves only under a push
   configuration the gate can model faithfully (`push.default` simple/current/upstream, no extra ref
   updates).
 - The push endpoint must be one URL, equal for fetch and push, so the remote-tracking ref records the state
   of the endpoint the push updates. A `pushurl` or a second `remote.<name>.url` sends the push elsewhere or
-  to a further endpoint and is NOT MEASURED (Befund 1). Any `url.<base>.insteadOf` **or**
-  `url.<base>.pushInsteadOf` rewrite also makes the push NOT MEASURED (review R4-7, Runde 5 Punkt 9): a
-  rewrite is applied at the transport layer, so string equality of the URLs `git remote get-url` displays is
-  not a proof the push reaches the comparison-state origin. The earlier claim that a symmetric `insteadOf` is
-  always faithful was wrong; both kinds of rewrite now make the push NOT MEASURED, conservatively, never
-  resolved on displayed equality alone. A stale remote-tracking ref without any rewrite stays possible
-  (POSSIBLE) on Level 1: the push is still resolved and compared, but the verdict then describes only the
-  locally known target state, not the actual rule change of this push; Level 2 makes the authoritative
-  comparison when it runs and can read the objects. Under Level 1 any
+  to a further endpoint and is NOT MEASURED (Befund 1). A `url.<base>.insteadOf` **or**
+  `url.<base>.pushInsteadOf` rewrite that applies to this remote also makes the push NOT MEASURED (review
+  R4-7, Runde 5 Punkt 9). Which rule applies is resolved by git's own rules (Runde 6, Punkt 2): an
+  `insteadOf` rule rewrites a configured `url` or an explicit `pushurl` it is the longest matching prefix
+  of; a `pushInsteadOf` rule rewrites the push side of a `url`, and git ignores it for a remote with an
+  explicit `pushurl`. A rule that provably matches none of this remote's URLs is excluded, so a common
+  global rule for another host no longer turns every push NOT MEASURED. A rule that does apply keeps the
+  comparison NOT MEASURED even when the effective fetch and push URLs are equal: equal URLs do not prove
+  where the existing tracking ref came from (a rule configured after the last fetch rewrites both), and
+  how common a rule is (an SSH rewrite, say) is no reason to release a comparison it applies to. A stale
+  remote-tracking ref without any rewrite stays possible (POSSIBLE) on Level 1, as an expressly limited
+  verdict: the push is still resolved and compared, but every comparison verdict (pass, inactive, a
+  rules change, a deletion) says it is against the last known state of the target in this repository,
+  not a state read from the remote, never the actual rule change on the remote (R4-7K); Level 2 makes the
+  authoritative comparison when it runs and can read the objects, and its verdicts say they compare
+  against the remote's state as git reported it.
+- A NOT MEASURED target comparison does not hide a measurable failure at the source (Runde 6, Befund 1).
+  When the commits a push sends are uniquely determined from the command and the local branch (each
+  literal refspec source, or the current branch of a bare push git pushes alone) in the uniquely bound
+  repository, the gate checks their evidence even though it cannot resolve the comparison; a proven
+  evidence failure stays a deny, and the comparison it could not measure is named separately in that
+  verdict. A source that passes is never a verdict on the push: the push stays NOT MEASURED. When the
+  source is unclear (`--all`, a wildcard, an unmodelled option, a detached HEAD, `push.default`
+  matching), no check of HEAD stands in for it, so there is neither a positive verdict nor a deny derived
+  from HEAD. The same holds in the shared core for a target ref that does not exist and for a range the
+  gate cannot list. Under Level 1 any
   `git -c`/`--config-env` global option already makes the directory NOT MEASURED before the target is read
   (the configuration the gate's separate reads cannot see can no longer reach `resolve_push_targets`); a
   `GIT_CONFIG_*` injection in the environment is read by the gate as the push reads it, because the gate's
@@ -288,11 +324,13 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
   - Gated tool names: `create_pull_request` (the GitHub MCP server, as `mcp__github__create_pull_request`),
     `create_merge_request` and `create_release` (names other servers use; which servers, not measured),
     and the GitHub MCP server's `push_files`, `create_or_update_file` and `merge_pull_request`.
-  - What the gate cannot see, and says in every answer to an MCP tool: it judges the local repository at
-    HEAD, not the remote. It cannot see the branch a tool publishes or the pull request `merge_pull_request`
-    merges. The bytes `push_files` and `create_or_update_file` write come from the tool's own arguments,
-    and the gate does not compare them with the tree it judged, so a pass says the local evidence holds,
-    not that the pushed bytes are the ones it covers.
+  - A gated MCP write is NOT MEASURED, asked under Claude Code and denied under Codex (Runde 6, R6-1): the
+    hook binds neither the tool's actual target nor the bytes it writes. It cannot see the branch a tool
+    publishes or the pull request `merge_pull_request` merges, and the bytes `push_files` and
+    `create_or_update_file` write come from the tool's own arguments. The local repository at the hook's
+    working directory never decides the call — not pass, not inactive, and not a deny for a foreign
+    target; its HEAD is still checked and named in the answer as a diagnosis only. Every gated MCP call
+    therefore gets a permission decision; none ends without one. The host is passed to `decide_mcp`.
   - Ungated, and listed as such: every other name. Open, the owner kept them out of the gate on
     2026-09-29: `delete_file`, `create_branch`, `update_pull_request`, `update_pull_request_branch` and
     `enable_pr_auto_merge`, which write to a remote without opening a pull request. Also ungated:
@@ -385,7 +423,8 @@ EVERY PUSH IS NOT MEASURED UNDER CODEX (owner choice A, 02.10.2026, R5-2)
   judge a different repository than the push acts on.
 - `gh pr create` and the other gated shell calls are denied the same way.
 - Under Claude Code nothing changes.
-- MCP tools are a separate path and are unchanged.
+- MCP tools are a separate path: a gated MCP write is NOT MEASURED on both hosts and denied under Codex
+  (Runde 6, R6-1; D8).
 
 THE CODEX EXECUTION MODEL IS AN ASSUMPTION, NOT A MEASURED FACT
 - Codex is often described as running a command through a login shell (`bash -lc …`), but that is not
@@ -425,6 +464,21 @@ DECISION TEMPLATE (do NOT implement anything):
   every Codex push is NOT MEASURED → deny.
 - EVEN THEN the transcript workdir is model-influenced content, so the gate may trust it only if Codex
   guarantees it equals the execution workdir.
+
+DECISION AFTER REVIEW RUNDE 6 (Nachtrag 19; the reviewer's decision, recorded here in substance)
+- No transcript path is built. The better route is a context that Codex itself binds to the hook for the
+  call it is about to run: the effective execution directory and the execution environment of that same
+  call.
+- The source reading supports the block, not a working transcript path: at pin 14a477ea the workdir is
+  resolved for execution, but the PreToolUse input carries only the command; the hook's cwd does not stand
+  in for that binding.
+- That the model chooses workdir does not by itself disqualify it; the command comes from the model too.
+  What matters is that Codex assigns the value to the very call it executes. A transcript path would in
+  addition have to show untampered origin, timely availability, an unambiguous assignment to the call, and
+  the effective environment; `tool_use_id` together with a file path does not establish that binding.
+- Until Codex reliably binds the effective execution directory and the execution environment for the same
+  call to the hook, and that binding has been checked, gated shell calls under Codex stay NOT MEASURED and
+  denied.
 
 Options:
 - A. Deny under Codex (chosen for every NOT MEASURED ask).
@@ -768,6 +822,16 @@ Chosen (a prototype, measured in test fixtures only):
   traceback: the gate returns a NOT MEASURED verdict, which blocks the push, instead of running
   `git rev-list` with a `None` base. The reason: without a locally known target state there is no range to
   evaluate, so the push is reported unmeasured rather than crashing or being read as an absent target.
+  A null object id for the remote side is a measured absence of the target ref, not an unreadable remote
+  object (Runde 6, Befund 2), and the verdict says so verbatim: "NOT MEASURED: The target ref does not
+  exist; this gate does not yet implement the history and initial-policy checks for creating it." Only
+  this measured case carries that text; a push Level 1 cannot map to a local tracking ref keeps its own
+  text. The block stays; `git rev-list <source> --not --remotes` is not a substitute (the reviewer showed a
+  tracking ref of another remote can cover the whole source history while a middle commit carries an
+  invalid declaration). A later measured path would have to check the whole reachable source history
+  against the empty target and an explicitly defined initial-declaration policy, and stay blocked on an
+  incomplete history or an exceeded limit. The evidence at the sent commit is still checked meanwhile; a
+  proven failure there is a deny (Befund 1).
 - It is a prototype. The plugin does not install it and sets no `core.hooksPath`, in the repository or
   globally; it is exercised only by a test that installs it in a throwaway repository's local
   `core.hooksPath`. Shipping it needs an install story a maintainer owns (where the hook lives, how it is
