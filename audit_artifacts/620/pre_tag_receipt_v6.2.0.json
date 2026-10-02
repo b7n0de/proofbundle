@@ -1,13 +1,13 @@
 {
   "schema": "b7n0de.pre_tag_audit_receipt.v1",
   "version": "6.2.0",
-  "subject_tree_digest": "5fa8c834c577c0e6c737f5772d71e5d3f5132e5b544e3e7b1a85e2b6151a0947",
+  "subject_tree_digest": "3a38509506cc2084a1f15f64c00fc3baa3c4735f676217fc4ae079870910c064",
   "gate_source_digest": "911d10db54ac3def1abd4c64e76a2a3cf3241d82d41911efbac6b9c338ecfd06",
   "audit_command": "/home/konrad/proofbundle/.venv/bin/python -m pytest -q -p no:cacheprovider -p no:randomly",
   "audit_exit_code": 0,
-  "audit_output_digest": "a1fdc006291b117239db03dc00fcc56d4bfd6b6dea450d8e60f45ec1c75188b3",
+  "audit_output_digest": "eab0d62fc25449ef0c5fc9c438e6fe176d68792562c904c27402b956bb27a0b7",
   "runner_identity": "b7n0de-release-runner (farmer; claude-code, Konto un_echoXX, Opus 5.5)",
-  "produced_at": "2026-10-01T12:38:38Z",
-  "signature": "Gj/ezzzSiwAZWyNxp+LT91tS7eC6DDCQqLdFdHzt5KihDvB50F6FipvvUarlHrnUad+hr4RbTzN2tUnYZ6zTBA==",
+  "produced_at": "2026-10-02T09:43:43Z",
+  "signature": "RH1RyZO8L+u8B0LhHgZqQdSntPAuWMVuduIxnEvlsSnMC84ZwrQibgYGrqRyb4d5FI7q7FTjqgS/LFc6ZfGYDA==",
   "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
 }
