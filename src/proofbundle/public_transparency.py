@@ -146,6 +146,15 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     for lk in ("trustedLogOrigins", "trustedLogKeys"):
         if lk in policy and not (isinstance(policy[lk], list) and all(isinstance(x, str) for x in policy[lk])):
             errors.append(f"{lk} must be a list of strings")
+    # A KEY ALLOWLIST THAT NO CHECK READS (deep gate run 7 at 1a3cd672, L3-620v7-T18-PUBLIC-TRANSPARENCY-TRUSTEDLOGKEYS-
+    # DROPPED-01, P2): `trustedLogKeys` is read only by the checkpoint signature check, which runs only under
+    # `requireSignedCheckpoint`. With a witness quorum as the anchor, a checkpoint of a log the allowlist does not name
+    # gave PUBLIC_TRANSPARENCY PASS. A rule given and applied by nothing is refused, as in the trust policy.
+    if isinstance(policy.get("trustedLogKeys"), list) and policy["trustedLogKeys"] \
+            and policy.get("requireSignedCheckpoint") is not True:
+        errors.append("trustedLogKeys is set but requireSignedCheckpoint is not true: the allowlist is read only by "
+                      "the checkpoint signature check, so it would be applied by nothing (set requireSignedCheckpoint, "
+                      "or drop trustedLogKeys)")
     wq = policy.get("witnessQuorum")
     if "witnessQuorum" in policy:
         if not isinstance(wq, dict) or "threshold" not in wq:

@@ -713,6 +713,15 @@ ANGEWANDTE_REGELN: dict = {
 }
 
 
+#: A permission that acts only beside the requirement it relaxes, by (section, key) -> the requirement's (section, key).
+#: Deep gate run 7 at 1a3cd672 (L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, P2, a neighbour of the P1 below):
+#: `decision verify` took ``decision_receipt.allow_pending: true`` without ``require_external_anchor`` and printed
+#: POLICY: OK, although no anchor was checked and the permission relaxed nothing. Set without its requirement, the
+#: permission is applied by no check, so `_ungehandhabte_regeln` names it. The anchors section has the same shape at
+#: `verify`, where the requirement may also come from a command line flag; the CLI refuses that case itself.
+_ERLAUBNIS_BRAUCHT: dict = {("decision_receipt", "allow_pending"): ("decision_receipt", "require_external_anchor")}
+
+
 def _setzt(wert) -> bool:
     """Whether a value of a policy field sets its rule. Absence, None, False, an empty list and an empty object set
     none: the absence and the deactivations the loader allows. Every other value sets the rule, a permission such as
@@ -722,15 +731,25 @@ def _setzt(wert) -> bool:
 
 def _ungehandhabte_regeln(policy: dict, pfad: str) -> list:
     """The rules a plain, loader-checked ``policy`` sets that the check path ``pfad`` does not apply, by name
-    (``decision_receipt.allow_pending``), sorted."""
+    (``decision_receipt.allow_pending``), sorted. A permission set without the requirement it relaxes
+    (`_ERLAUBNIS_BRAUCHT`) is applied by no check either and is named with that reason."""
     angewandt = ANGEWANDTE_REGELN[pfad]
     gefunden = []
     for abschnitt, schluessel in _REGELN:
         quelle = policy if abschnitt is None else policy.get(abschnitt)
         if not isinstance(quelle, dict) or schluessel not in quelle:
             continue
-        if _setzt(quelle[schluessel]) and (abschnitt, schluessel) not in angewandt:
-            gefunden.append(schluessel if abschnitt is None else f"{abschnitt}.{schluessel}")
+        if not _setzt(quelle[schluessel]):
+            continue
+        name = schluessel if abschnitt is None else f"{abschnitt}.{schluessel}"
+        if (abschnitt, schluessel) not in angewandt:
+            gefunden.append(name)
+            continue
+        braucht = _ERLAUBNIS_BRAUCHT.get((abschnitt, schluessel))
+        if braucht is not None:
+            b_quelle = policy if braucht[0] is None else policy.get(braucht[0])
+            if not (isinstance(b_quelle, dict) and _setzt(b_quelle.get(braucht[1]))):
+                gefunden.append(f"{name} (it relaxes {braucht[0]}.{braucht[1]}, which the policy does not set)")
     return sorted(gefunden)
 
 
@@ -1315,8 +1334,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                  "--expected-root nor any trusted_roots entry nor a pinned checkpoint (coherent-rewrap "
                  "guard, fail-closed)")
 
-    # 5. SD-JWT / KB-JWT policy. The aud VALUE was already bound by verify_bundle (the CLI passed the
-    #    reconciled effective aud); here we enforce the remaining presence/structure requirements.
+    # 5. SD-JWT / KB-JWT policy. On the CLI path the aud VALUE was already bound by verify_bundle (the CLI passed the
+    #    reconciled effective aud); this function applies it itself as well (5a), so a library caller is bound too.
     sdj = _as_dict(policy.get("sd_jwt"))
     sd = bundle.get("sd_jwt_vc")
     kb = None
@@ -1353,6 +1372,29 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             "verified KB-JWT carries a nonce" if verified_nonce
             else "policy requires a nonce from a VERIFIED key binding, but none is present "
                  "(fail-closed: an unauthenticated nonce provides no replay protection)")
+
+    # 5a. sd_jwt.expected_aud, APPLIED HERE. Deep gate run 7 at 1a3cd672 (L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-
+    # UNAPPLIED-01, three of three jurors P1): the contract of this function (`ANGEWANDTE_REGELN["evaluate_policy"]`)
+    # lists the rule, so `_regelfehler` does not refuse it, and this body never read it. The CLI binds the audience
+    # through `verify_bundle(expected_aud=...)`, but a library caller who verified with `verify_bundle(bundle)` and
+    # handed the policy here got policy_ok True for a KB-JWT bound to another audience (measured, and the same at
+    # v6.1.0). The rule is applied the way `verify_bundle(expected_aud=...)` applies it: the audience counts only from
+    # a key binding whose verification passed, and it must equal the policy's value; without one it fails closed.
+    expected_aud = sdj.get("expected_aud")
+    if expected_aud is not None:
+        kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
+        compact = sd.get("compact") if isinstance(sd, dict) else None
+        if kb_check is None or kb_check.ok is not True or not isinstance(compact, str):
+            add("policy:expected_aud", False,
+                f"policy requires the KB-JWT audience {_nennen(expected_aud)} from a VERIFIED key binding, but none "
+                "verified (fail-closed: an audience that is not bound by a verified key binding binds nothing)")
+        else:
+            gebunden = verify_key_binding(compact, expected_aud=expected_aud)
+            aud_ok = gebunden.get("ok") is True
+            add("policy:expected_aud", aud_ok,
+                f"KB-JWT audience equals the policy's expected_aud {_nennen(expected_aud)}" if aud_ok
+                else f"KB-JWT audience {_nennen(gebunden.get('aud'))} is not the policy's expected_aud "
+                     f"{_nennen(expected_aud)} (fail-closed)")
 
     # 5b. Finding 20 / issue #27 (PB-2026-07-15): sd_jwt.expected_vct — the RP verifier flag issue #27's
     # item 3 asked for. Mirrors nonce_present's "verified vs. merely present" discipline (the doc's own

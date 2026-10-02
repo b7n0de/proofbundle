@@ -815,6 +815,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
                 rp_trust_material = merged
+        # AN ANCHOR PERMISSION OR ANCHOR TRUST WITHOUT AN ANCHOR REQUIREMENT IS APPLIED BY NOTHING (deep gate run 7 at
+        # 1a3cd672, L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, P2, with its command-line neighbour from the sweep):
+        # no anchor is checked without a requirement, so `anchors.allow_pending` or trust material from the policy, or
+        # `--trusted-tsa-root` / `--bitcoin-header` alone, ended with POLICY: OK and nothing applied. Refused like the
+        # lone `--allow-pending` above, exit 2.
+        if require_anchor is None and (allow_pending or rp_trust_material):
+            lose = (["allow_pending"] if allow_pending else []) + sorted(rp_trust_material or {})
+            raise ValueError(
+                f"anchor trust or permission given without an anchor requirement ({', '.join(lose)}): no anchor is "
+                "checked without --require-anchor, --anchor-type, --anchor-target or the policy's "
+                "anchors.require_anchor / require_anchor_target, so it would be applied by nothing")
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce,
                                expected_root_b64=expected_root,
                                expected_tree_size=expected_tree_size)
@@ -2158,6 +2169,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
         # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
         rp_trust = _build_rp_trust(args)
+        # TRUST FOR NO ANCHOR (the sweep of deep gate run 7, L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01): the trust
+        # flags give the relying party's trust for the anchors of `--anchors`, and without it no anchor is checked, so
+        # they were applied by nothing and the verify ended as without them. The policy's anchors section is refused in
+        # that case by `_regelfehler`; the flags are refused here, exit 2.
+        if anchors is None and rp_trust:
+            raise ValueError(f"anchor trust given without --anchors ({', '.join(sorted(rp_trust))}): the trust applies "
+                             "to the anchors named by --anchors, and without them no anchor is checked")
         if policy is not None:
             from .policy import policy_anchor_trust  # noqa: PLC0415
             pol_trust = policy_anchor_trust(policy)

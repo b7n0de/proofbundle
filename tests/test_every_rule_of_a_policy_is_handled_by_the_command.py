@@ -22,7 +22,10 @@ schema has an active value (it restricts or permits something) and, where the lo
 (`_REGELN`). The cases:
 * an active rule outside the contract, alone and beside a rule the command applies and that passes: refused (CLI exit
   2; a library verdict with policy_ok False);
-* an active rule inside the contract: not refused as unsupported;
+* an active rule inside the contract: not refused as unsupported, a permission beside the requirement it serves;
+* a permission or anchor trust without that requirement, in the policy or as a command-line flag: refused (deep gate
+  run 7, the neighbours of T18; whether an applied rule acts at all is measured by
+  `test_every_applied_rule_has_an_observable_effect.py`);
 * a deactivation value beside a passing applied rule: the verdict of that rule alone;
 * metadata beside a passing applied rule: the verdict of that rule alone;
 * an unknown key, at the top and in a section: refused;
@@ -127,6 +130,18 @@ _UNGUELTIG: "dict[tuple, Any]" = {("decision_receipt", "accepted_predicate_types
 
 #: Fields that describe the policy and require nothing.
 _METADATEN = {"generatedFromTemplate": "template:x", "deploymentReady": True}
+
+#: A permission or trust input that acts only beside the requirement it serves, by rule -> that requirement. Deep gate
+#: run 7 at 1a3cd672 (L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, P2): `decision verify` took
+#: ``decision_receipt.allow_pending: true`` without ``require_external_anchor`` and printed POLICY: OK, and `verify`
+#: took the anchors permission and the anchor trust material without an anchor requirement; nothing applied them. Set
+#: without its requirement, such a rule is refused (exit 2); beside it, it is a rule of the command's contract. This
+#: table is the test's own reading of the rule, not a copy of the code's.
+_ERLAUBNIS = {("anchors", "allow_pending"): ("anchors", "require_anchor"),
+              ("anchors", "trusted_tsa_roots"): ("anchors", "require_anchor"),
+              ("anchors", "bitcoin_block_headers"): ("anchors", "require_anchor"),
+              ("anchors", "trusted_tsa_policy_oids"): ("anchors", "require_anchor"),
+              ("decision_receipt", "allow_pending"): ("decision_receipt", "require_external_anchor")}
 
 _GEMEINSAM = {(None, "valid_until"), (None, "valid_from"), (None, "policyPurpose"), (None, "requiresIdentityOverlay")}
 _EVAL = ({k for k in _REGELN if k[0] in ("signature", "merkle", "sd_jwt", "status", "assurance")}
@@ -311,15 +326,68 @@ class EveryRuleIsHandledByTheCommand(unittest.TestCase):
         self.assertEqual(befunde, [], f"{len(befunde)} unsupported rules gave no policy failure")
 
     def test_a_supported_rule_is_not_refused_as_unsupported(self) -> None:
+        """A permission is set beside the requirement it serves (`_ERLAUBNIS`); alone it is refused, which the next
+        case measures."""
         befunde = []
         for ziel in _CLI:
             for regel in sorted(_VERTRAG[ziel], key=str):
                 regeln = dict(self.w.anker(ziel))
                 regeln[regel] = _aktiv(ziel, regel)
+                if regel in _ERLAUBNIS:
+                    regeln[_ERLAUBNIS[regel]] = _aktiv(ziel, _ERLAUBNIS[regel])
                 rc, _ = self.w.cli(ziel, _politik(regeln))
                 if rc == 2:
                     befunde.append(f"{ziel}: {regel}")
         self.assertEqual(befunde, [], f"{len(befunde)} rules of the command's contract were refused")
+
+    def test_a_permission_without_its_requirement_is_refused(self) -> None:
+        """Run 7, T18 neighbours: a permission or trust input without the requirement it serves is applied by nothing,
+        so it is refused: exit 2 at every command whose contract holds it, beside the passing rule of the command, and
+        policy_ok False in the library. Measured at 1a3cd672: `decision verify` exit 0 with POLICY: OK for
+        ``decision_receipt.allow_pending`` alone, and `verify` exit 0 for each anchors permission and trust rule."""
+        befunde = []
+        for ziel in _CLI:
+            for regel in sorted(set(_ERLAUBNIS) & _VERTRAG[ziel], key=str):
+                regeln = dict(self.w.anker(ziel))
+                regeln[regel] = _aktiv(ziel, regel)
+                rc, _ = self.w.cli(ziel, _politik(regeln))
+                if rc != 2:
+                    befunde.append(f"{ziel}: {regel} without {_ERLAUBNIS[regel]} -> exit {rc}")
+        for ziel in ("verify_decision_receipt", "evaluate_decision_policy"):
+            regel = ("decision_receipt", "allow_pending")
+            regeln = dict(self.w.anker(ziel))
+            regeln[regel] = True
+            if self.w.bibliothek(ziel, _politik(regeln))["policy_ok"] is not False:
+                befunde.append(f"{ziel}: {regel} without its requirement -> policy_ok not False")
+        self.assertEqual(befunde, [], "\n".join(befunde))
+
+    def test_a_requirement_from_a_flag_lets_the_anchor_permission_of_the_policy_through(self) -> None:
+        """The control of the refusal above at `verify`: the anchor requirement may come from the command line, and
+        then the policy's anchors permission serves it. Exit 3 here (the bundle carries no anchor), never 2."""
+        befunde = []
+        for regel in sorted(k for k in _ERLAUBNIS if k[0] == "anchors"):
+            regeln = dict(self.w.anker("verify"))
+            regeln[regel] = _aktiv("verify", regel)
+            rc, _ = self.w.cli("verify", _politik(regeln), "--require-anchor")
+            if rc == 2:
+                befunde.append(f"verify --require-anchor: {regel} -> exit 2")
+        self.assertEqual(befunde, [], "\n".join(befunde))
+
+    def test_anchor_trust_flags_without_a_requirement_are_refused(self) -> None:
+        """The command-line neighbour from the sweep: `--bitcoin-header` and `--allow-pending` give trust and
+        permission for anchors that are only checked under a requirement (`verify`) or for the anchors of `--anchors`
+        (`decision verify`). Without them nothing applies the flag, and the verify ended as without it (measured at
+        1a3cd672: exit 0 at both). Exit 2 now; with the requirement the flag is taken (exit 3, no anchor here)."""
+        kopf = "850000:" + "ab" * 32
+        faelle = [("verify", ("--bitcoin-header", kopf), 2), ("verify", ("--allow-pending",), 2),
+                  ("decision verify", ("--bitcoin-header", kopf), 2),
+                  ("verify", ("--bitcoin-header", kopf, "--require-anchor"), 3)]
+        befunde = []
+        for ziel, flaggen, erwartet in faelle:
+            rc, _ = self.w.cli(ziel, _politik(self.w.anker(ziel)), *flaggen)
+            if rc != erwartet:
+                befunde.append(f"{ziel} {' '.join(flaggen)} -> exit {rc}, expected {erwartet}")
+        self.assertEqual(befunde, [], "\n".join(befunde))
 
     def test_a_deactivation_and_metadata_change_nothing_beside_a_passing_rule(self) -> None:
         """The deactivation of the passing rule's own key is left out: it would replace that rule, and a policy that
