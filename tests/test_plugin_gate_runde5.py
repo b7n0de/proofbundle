@@ -125,19 +125,27 @@ def test_an_alias_configured_in_the_repo_is_a_not_measured_possible_push():
 
 
 @pytest.mark.parametrize("command", [
-    "git status", "git log --oneline", "git diff origin/main", "git fetch origin",
-    "git rebase main", "git bisect start", "git config user.name t",
+    "git status", "git log --oneline", "git diff origin/main", "git fetch origin", "git config user.name t",
 ])
 def test_a_local_subcommand_is_still_left_alone(command):
+    # Left alone by the command text; decide() still reads the repository state behind it (Nachtrag 19b).
     assert gate.gated_calls(command) == []
+
+
+@pytest.mark.parametrize("command", ["git rebase main", "git bisect start", "git submodule status"])
+def test_the_exec_capable_subcommands_left_the_allow_list(command):
+    # Nachtrag 19b (S1, fallback A): rebase, bisect and submodule check out, merge or clone in their other
+    # forms, and their program lists were not justified completely, so no form of them is free any more.
+    name = command.split()[0] + " " + command.split()[1]
+    assert gate.gated_calls(command) == [(name, gate.UNKNOWN, [gate._MAYBE_PUSH])]
 
 
 def test_submodule_update_with_an_unchecked_option_is_not_measured():
     # Runde 6, R6-2: `submodule` is in the exec-when class (it can run a configured `!command`), and
     # `--init` is not a vetted inert option for it, so the invocation is NOT MEASURED rather than left
-    # alone. A bare `git submodule status` (no option) stays free.
+    # alone. Since Nachtrag 19b a bare `git submodule status` is NOT MEASURED too (submodule left the list).
     assert gate.gated_calls("git submodule update --init") == [("git submodule", gate.UNKNOWN, [gate._MAYBE_PUSH])]
-    assert gate.gated_calls("git submodule status") == []
+    assert gate.gated_calls("git submodule status") == [("git submodule", gate.UNKNOWN, [gate._MAYBE_PUSH])]
 
 
 def test_a_not_measured_transfer_asks_under_claude_and_denies_under_codex(tmp_path):

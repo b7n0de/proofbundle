@@ -81,8 +81,10 @@ def test_checked_forms_stay_free():
     g = _gate()
     for words in (["status"], ["status", "-s"], ["log", "--oneline"], ["diff", "--stat"],
                   ["show", "HEAD"], ["grep", "needle"], ["branch", "-a"], ["fetch", "origin"],
-                  ["rebase", "HEAD~1"], ["-C", "/path", "status"], ["log", "--oneline", "-n", "5"]):
+                  ["-C", "/path", "status"], ["log", "--oneline", "-n", "5"]):
         assert _free(g, words), words
+    # Nachtrag 19b: rebase left the allow-list (S1, fallback A), so even its bare form is NOT MEASURED now
+    assert _not_measured(g, ["rebase", "HEAD~1"])
 
 
 def test_real_push_still_resolves():

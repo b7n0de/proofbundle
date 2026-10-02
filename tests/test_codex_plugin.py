@@ -101,9 +101,12 @@ def _codex_hook_matcher() -> str:
 def _codex_hook() -> dict:
     groups = CODEX["hooks"]["hooks"]["PreToolUse"]
     assert set(CODEX["hooks"]["hooks"]) == {"PreToolUse"}
-    assert [g["matcher"] for g in groups] == [g["matcher"] for g in CLAUDE_HOOKS["hooks"]["PreToolUse"]]
-    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER]
-    assert groups[0]["hooks"] == groups[1]["hooks"]
+    # Nachtrag 19b, Punkt 7/8: the Bash and MCP matchers are Claude's; the file matcher adds Codex's apply_patch,
+    # whose hook name is apply_patch with the matcher aliases Write and Edit (Codex at 14a477ea, hook_names.rs)
+    assert [g["matcher"] for g in groups][:2] == [g["matcher"] for g in CLAUDE_HOOKS["hooks"]["PreToolUse"]][:2]
+    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER,
+                                              "^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$"]
+    assert groups[0]["hooks"] == groups[1]["hooks"] == groups[2]["hooks"]
     (entry,) = groups[0]["hooks"]
     return entry
 

@@ -826,8 +826,9 @@ def _hook_entries() -> list[dict]:
     config = json.loads(HOOKS.read_text(encoding="utf-8"))
     assert set(config) <= {"description", "hooks"}
     groups = config["hooks"]["PreToolUse"]
-    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER]
-    assert groups[0]["hooks"] == groups[1]["hooks"], "both matchers run the same gate the same way"
+    # Nachtrag 19b, Punkt 8: the file tools join, so a write to a repository's configuration or hooks is judged
+    assert [g["matcher"] for g in groups] == ["Bash", gate.MCP_MATCHER, "^(Write|Edit|MultiEdit|NotebookEdit)$"]
+    assert groups[0]["hooks"] == groups[1]["hooks"] == groups[2]["hooks"], "every matcher runs the same gate"
     return groups[0]["hooks"]
 
 
