@@ -91,16 +91,24 @@ brace group, a shell keyword, a function, a wrapper such as `env`/`sudo`, a nest
 `sh -c`, and the `-lc`/`-cl` bundles), `eval`, `source`, a command or parameter substitution, a
 here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOME` included), and a `git`
 run by a path. A git subcommand that is not on a short allow-list of local, non-transmitting, non-arbitrary
-commands — `send-pack`, an unknown subcommand, `rebase --exec`, `bisect run`, `submodule foreach` — is NOT
+commands — `send-pack`, an unknown subcommand, every form of `rebase`, `bisect` and `submodule`, and the 43
+entries that left the list in Nachtrag 19b, `pull`, `clone`, `merge` and `init` among them (D3) — is NOT
 MEASURED as a possible transfer; this is not a complete list of transports and closes no indirect push it
 does not name (Runde 5, Punkt 6/8). A subcommand name alone does not establish that an invocation cannot
 execute other programs; options and Git configuration can select helpers, filters, hooks or editors. So an
 allow-listed subcommand is free only in a checked invocation form: its bare form or options vetted for it,
 no per-command `-c` (a NOT MEASURED from it is never lost), no prefix assignment that selects a program
 (`GIT_EXTERNAL_DIFF=…`, `GIT_SSH_COMMAND=…`, `GIT_PAGER` other than `cat`), and for `git config` only a
-read or a write of a key that selects no program; everything else is NOT MEASURED (Runde 6, R6-2). Level 1
-reads the command text only: a helper already configured in a repository or global config file, or
-exported into the session earlier, is not checked by it. A per-command `-c alias.*` is NOT MEASURED even
+read or a write of a key that selects no program; everything else is NOT MEASURED (Runde 6, R6-2). Before
+it leaves such a form free, Level 1 also reads the bound repository's effective configuration (every
+scope and include), its effective hook directory and the hook's own environment, and frees the form only
+when no key, variable or executable hook that selects a program for that subcommand is present; D3 lists,
+per entry, the vetted options, the keys and the hooks with their sources (Nachtrag 19b, review S1). An
+unknown directory, a configuration git cannot read, and every free form under Codex are NOT MEASURED. Not
+seen: an environment a session command exported earlier, `PATH`, and git's compiled-in default programs. A
+write by the file tools (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and Codex's `apply_patch`) to a
+repository's configuration, an included or global configuration file, or the hook directory is NOT
+MEASURED too; a write by a shell command is not judged (D8). A per-command `-c alias.*` is NOT MEASURED even
 without the word push, and a `url.*.insteadOf` or `url.*.pushInsteadOf` rewrite that applies to the
 remote, resolved by git's own rules, makes a push NOT MEASURED; a rule for another host does not (Punkt
 7/9, Runde 6 Punkt 2). When the target comparison is NOT MEASURED, the evidence at uniquely determined

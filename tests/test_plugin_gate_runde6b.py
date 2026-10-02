@@ -436,6 +436,79 @@ def test_the_gate_reads_exactly_the_program_selecting_variables_these_tests_clea
     assert read == set(_PROGRAM_ENV)
 
 
+# --- D3 names, per allow-list entry, what is checked (Nachtrag 19b, Punkt 9); the text is the code's -------
+
+DECISIONS = GATE.parent.parent / "DECISIONS.md"
+_BEGIN, _END = "<!-- d3-entries:begin (generated from the gate; tests/test_plugin_gate_runde6b.py) -->", \
+    "<!-- d3-entries:end -->"
+#: What counts in each family, in words; the citation is the gate's own source string.
+_FAMILY_WORDS = {
+    "fsmonitor": "`core.fsmonitor` with a value other than a boolean (a boolean selects git's built-in daemon)",
+    "filter": "`filter.<driver>.clean`, `filter.<driver>.smudge`, `filter.<driver>.process`",
+    "diff-driver": "`diff.external`, `diff.<driver>.command`, `diff.<driver>.textconv`",
+    "merge-driver": "`merge.<driver>.driver`",
+    "editor": "`core.editor`",
+    "transport": "`core.sshCommand`, `core.gitProxy`, `core.askPass`, `core.alternateRefsCommand`, "
+                 "`credential.helper`, `credential.<url>.helper`, `remote.<name>.uploadpack`, `remote.<name>.vcs`",
+    "transport-helper-url": "`remote.<name>.url`, `remote.<name>.pushurl` with a `<transport>::<address>` value",
+    "rewrite-to-helper": "`url.<base>.insteadOf`, `url.<base>.pushInsteadOf` with a `<transport>::` base",
+    "protocol": "`protocol.allow` of `always` or `user`; `protocol.ext.allow`, `protocol.fd.allow` other than "
+                "`never`",
+    "pager": "`core.pager` for an entry that pages by default; `pager.<entry>` for every entry unless false",
+    "signature-format": "`format.pretty`, `pretty.<name>` with a value containing `%G`",
+    "signature-sort": "`branch.sort`, `tag.sort` with a value containing `signature`",
+}
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", "\\|")
+
+
+def _d3_entries_block() -> str:
+    out = [_BEGIN, "",
+           "Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), `pager.<entry>`, "
+           "`$GIT_EXEC_PATH` in the hook's environment, and the hook `fsmonitor-watchman` only through "
+           "`core.fsmonitor`. A row with *submodules* also counts every `submodule.*` key and a `.gitmodules` "
+           "file, because the gate does not read a submodule's own configuration.", "",
+           "| Family | Keys and values that count | Variables in the hook's environment | Source |",
+           "|---|---|---|---|"]
+    for name, (_pattern, _test, source) in gate._KEY_FAMILIES.items():
+        names, _ = gate._ENV_FAMILIES.get(name, ((), None))
+        env = ", ".join(f"`${n}`" for n in names) or "none"
+        out.append(f"| {name} | {_cell(_FAMILY_WORDS[name])} | {env} | {_cell(source)} |")
+    out += ["", "| Entry | Options vetted beyond the bare form | Keys that make it NOT MEASURED | Hooks git starts "
+                "for it (githooks(5)) | Source |", "|---|---|---|---|---|"]
+    for sub in sorted(gate._GIT_LOCAL_SUBCOMMANDS):
+        prof = gate._REPO_PROFILE[sub]
+        if sub == "config":
+            options = ("reads: " + ", ".join(f"`{o}`" for o in sorted(gate._CONFIG_READ_OPTIONS))
+                       + ", " + ", ".join(f"`git config {s}`" for s in sorted(gate._CONFIG_READ_SUBCOMMANDS))
+                       + "; writes only of " + ", ".join(f"`{k}`" for k in sorted(gate._CONFIG_INERT_KEYS))
+                       + "; with " + ", ".join(f"`{o}`" for o in sorted(gate._CONFIG_VETTED_OPTIONS
+                                                                       - gate._CONFIG_READ_OPTIONS)))
+        else:
+            vetted = sorted(gate._GIT_VETTED_OPTIONS.get(sub, ()))
+            options = ", ".join(f"`{o}`" for o in vetted) or "none, the bare form only"
+        if sub in gate._SIGNATURE_WORDS:
+            options += f"; a word containing `{gate._SIGNATURE_WORDS[sub]}` is NOT MEASURED"
+        keys = sorted(prof["keys"]) + (["pager (`core.pager`)"] if prof["pages"] else [])
+        keys += [f"`{t}` true" for t in sorted(prof["triggers"])] + (["*submodules*"] if prof["submodules"] else [])
+        hooks = ("every githooks(5) name" if prof["hooks"] == gate._ALL
+                 else ", ".join(f"`{h}`" for h in sorted(prof["hooks"])) or "none")
+        out.append(f"| `{sub}` | {_cell(options)} | {_cell(', '.join(keys) or 'only the every-entry keys')} | "
+                   f"{hooks} | {_cell(prof['sources'])} |")
+    out += ["", _END]
+    return "\n".join(out)
+
+
+def test_d3_names_the_checked_options_keys_and_hooks_of_every_allow_list_entry_as_the_code_has_them():
+    assert set(_FAMILY_WORDS) == set(gate._KEY_FAMILIES)
+    text = DECISIONS.read_text(encoding="utf-8")
+    assert text.count(_BEGIN) == 1 and text.count(_END) == 1
+    block = text[text.index(_BEGIN):text.index(_END) + len(_END)]
+    assert block == _d3_entries_block()
+
+
 # --- hooks per githooks(5): commit and fetch carry the hooks named for them, not every name ----------------
 
 @pytest.mark.parametrize("command", ["git fetch origin", "git commit", "git status", "git log --oneline -n 1"])

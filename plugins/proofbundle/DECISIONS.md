@@ -131,21 +131,26 @@ MEASURED. The remote itself is not read.
       form of `--exec`). Git-documentation sources for the option semantics: git-grep, git-fetch, git-diff,
       and git-config (URL rewrites and the per-command `-c`). A subcommand off the list is NOT MEASURED as a
       possible transfer, never resolved and never inactive (`_MAYBE_PUSH`). Off-list, and so NOT MEASURED:
-      `send-pack`, an unknown subcommand, `rebase --exec`/`-x`, `bisect run`, `submodule foreach`, and any
-      allow-listed subcommand carrying an unvetted option. On-list (bare, or with their vetted options):
-      `fetch`, `pull`, `clone`, `ls-remote` (they receive, they do not publish) and `config` (but
-      `git config core.hooksPath` is denied earlier, before the list is consulted). `git config` itself is
+      `send-pack`, an unknown subcommand, every form of `rebase`, `bisect` and `submodule`, the 43 entries
+      that left the list in Nachtrag 19b (below), and any allow-listed subcommand carrying an unvetted
+      option. On-list (bare, or with their vetted options): `fetch` and `ls-remote` (they receive, they do
+      not publish) and `config` (but `git config core.hooksPath` is denied earlier, before the list is
+      consulted); `pull` and `clone` left the list in Nachtrag 19b. `git config` itself is
       free only as a read (`--get`, `--get-all`, `--get-regexp`, `--list`, `git config get|list`) or as a
       write of a key checked to select no program (`user.name`, `user.email`, `init.defaultBranch`,
       `color.ui`, `core.autocrlf`, `core.quotePath`, `pull.rebase`, `pull.ff`, `fetch.prune`,
       `push.default`, `advice.detachedHead`); a write of any other key (`diff.external`, `core.editor`,
       `core.pager`, `filter.*`, `core.fsmonitor`, `core.sshCommand`, `credential.helper`,
       `remote.*.uploadpack`, `include.path`, …), `--edit` and `--file` are NOT MEASURED, because the key
-      may select a helper for a later call (git-config). Named limit: Level 1 reads the command text only.
-      A helper already configured in a repository or global configuration file, or exported into the session
-      by an earlier command, is not read by it; such state is outside what Level 1 measures. This is not a
-      complete transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8;
-      Runde 6, R6-2).
+      may select a helper for a later call (git-config). Since Nachtrag 19b (review S1) Level 1 no longer
+      reads the command text alone: before it leaves an allow-listed form free it reads the bound
+      repository's effective configuration, its effective hook directory and the hook's own environment,
+      and frees the form only when none of the keys, variables or hooks named for that entry in the table
+      below is present. Named limits: an environment a session command exported earlier is not the hook's
+      environment and is not seen; `PATH` and git's compiled-in default programs (the pager `less`, the
+      editor `vi`, `ssh` for an SSH URL, `gpg`) are not keys and do not count. This is not a complete
+      transport boundary and closes no indirect push it does not name (Runde 5, Punkt 4/6/8; Runde 6,
+      R6-2).
     - A per-command `git -c alias.*` (or `--config-env` of an alias) is NOT MEASURED even when the word
       `push` is absent and the subcommand is otherwise allow-listed, because the alias may name any command,
       a push included (Runde 5, Punkt 7).
@@ -224,6 +229,123 @@ Options:
 - B. Every newly reachable commit per resolved target, unresolved is NOT MEASURED (chosen).
 - C. Treat a push whose refspec is not the current branch as NOT MEASURED (too coarse: it would miss a
   bare push of a branch the gate can resolve).
+
+### D3, the allow-list entries and what frees them (Nachtrag 19b, review S1)
+
+Chosen (owner, Nachtrag 19b): option B, read the repository state, with option A, leave the list, as the
+fallback for an entry whose list cannot be justified completely. An allow-listed form that passed the
+command-text checks above is free only after the gate has read, in the repository the call is bound to and
+with the hook's own environment:
+- the effective configuration as git reads it (`git config --list --null --show-origin --show-scope`:
+  system, global, local and worktree files, every included file, and the command scope a host injects
+  through `GIT_CONFIG_COUNT` or `GIT_CONFIG_PARAMETERS`);
+- the effective hook directory (`git rev-parse --path-format=absolute --git-path hooks`, which follows
+  `core.hooksPath`); a hook counts only under its exact githooks(5) name and only when it is executable, as
+  git starts it; a `*.sample` file never counts;
+- the program-selecting variables of the hook's environment, with the neutral values named above for a
+  command-level assignment.
+
+The form stays free only when none of the keys, variables or hooks in its row is present. NOT MEASURED
+instead (asked under Claude Code, denied under Codex): a directory the gate cannot bind (a `cd`, `pushd`,
+`popd`, `source`, `eval` or `.` anywhere in the command, or `git` behind a wrapper or in a nested shell);
+a configuration git itself cannot read (an include that names a directory, broken syntax: measured, git
+exits 128; a missing include git skips, as git does); git output of a shape the gate does not expect; and
+every free form under Codex, whose hook does not receive the directory the command runs in (D12). The
+reason id is `repo_state_selects_program`, `repo_state_unreadable` or `repo_state_unbound`.
+
+Sources: the git v2.43.0 documentation (git-config(1), githooks(5), gitattributes(5), git(1), git-var(1),
+git-init(1), pretty-formats) and source (read-cache.c, fsmonitor.c, pretty.c, ref-filter.c, setup.c), the
+git version of the measuring environment. Four rules rest on the source rather than the manual: an index
+read queries the fsmonitor hook (read-cache.c `post_read_index_from` → `tweak_fsmonitor`, fsmonitor.c), so
+`core.fsmonitor` counts for every entry; `%G` placeholders (pretty.c) and the ref-filter atom `signature`
+(ref-filter.c) verify signatures, so such a value is NOT MEASURED attached or as the next word; log and
+show verify only under `show_signature` (log-tree.c, set by `log.showSignature` in builtin/log.c) and stash
+creates its commits without a signing key (builtin/stash.c), so `gpg.program`, `gpg.<format>.program` and
+`gpg.ssh.defaultKeyCommand`, which choose the program but start none, do not count on their own, while every
+key and option that starts signing or verification does. A hook counts for an entry only when githooks(5)
+names it for that command (`commit`: pre-commit, prepare-commit-msg, commit-msg, post-commit, plus
+reference-transaction, post-index-change and pre-auto-gc; `fetch`: reference-transaction and pre-auto-gc;
+pre-push only for `git push`); `stash`, whose internal paths githooks(5) does not name one by one, counts
+every name.
+
+Left the list (fallback A), NOT MEASURED in every form, because their program lists were not justified
+completely: am, apply, archive, bugreport, checkout-index, cherry-pick, clean, clone, column, commit-tree,
+fmt-merge-msg, fsck, gc, hash-object, init, maintenance, merge, merge-file, mktag, mktree, notes,
+pack-objects, pack-refs, patch-id, prune, pull, range-diff, read-tree, reflog, remote, repack, rerere,
+revert, sparse-checkout, stripspace, unpack-objects, update-index, update-ref, verify-commit, verify-pack,
+verify-tag, worktree, write-tree (43); and every form of rebase, bisect and submodule, which were free
+before outside their command-running forms. `init` left because it writes the configuration and copies
+hooks from a template directory (`--template`, `$GIT_TEMPLATE_DIR`, `init.templateDir` or the compiled-in
+default; git-init(1) TEMPLATE DIRECTORY), which later calls run.
+
+<!-- d3-entries:begin (generated from the gate; tests/test_plugin_gate_runde6b.py) -->
+
+Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), `pager.<entry>`, `$GIT_EXEC_PATH` in the hook's environment, and the hook `fsmonitor-watchman` only through `core.fsmonitor`. A row with *submodules* also counts every `submodule.*` key and a `.gitmodules` file, because the gate does not read a submodule's own configuration.
+
+| Family | Keys and values that count | Variables in the hook's environment | Source |
+|---|---|---|---|
+| fsmonitor | `core.fsmonitor` with a value other than a boolean (a boolean selects git's built-in daemon) | none | git-config(1) core.fsmonitor: a pathname names a hook command (true is the built-in daemon) |
+| filter | `filter.<driver>.clean`, `filter.<driver>.smudge`, `filter.<driver>.process` | none | gitattributes(5) filter: filter.<driver>.clean, .smudge, .process are commands |
+| diff-driver | `diff.external`, `diff.<driver>.command`, `diff.<driver>.textconv` | `$GIT_EXTERNAL_DIFF` | git-config(1) diff.external, diff.<driver>.command, diff.<driver>.textconv |
+| merge-driver | `merge.<driver>.driver` | none | git-config(1) merge.<driver>.driver |
+| editor | `core.editor` | `$GIT_EDITOR`, `$VISUAL`, `$EDITOR` | git-config(1) core.editor |
+| transport | `core.sshCommand`, `core.gitProxy`, `core.askPass`, `core.alternateRefsCommand`, `credential.helper`, `credential.<url>.helper`, `remote.<name>.uploadpack`, `remote.<name>.vcs` | `$GIT_SSH`, `$GIT_SSH_COMMAND`, `$GIT_ASKPASS`, `$SSH_ASKPASS`, `$GIT_PROXY_COMMAND` | git-config(1) core.sshCommand, core.gitProxy, core.askPass, core.alternateRefsCommand, credential.helper, credential.<url>.helper, remote.<name>.uploadpack, remote.<name>.vcs |
+| transport-helper-url | `remote.<name>.url`, `remote.<name>.pushurl` with a `<transport>::<address>` value | none | git-config(1) remote.<name>.url; gitremote-helpers(7) <transport>::<address> |
+| rewrite-to-helper | `url.<base>.insteadOf`, `url.<base>.pushInsteadOf` with a `<transport>::` base | none | git-config(1) url.<base>.insteadOf with a <transport>:: base |
+| protocol | `protocol.allow` of `always` or `user`; `protocol.ext.allow`, `protocol.fd.allow` other than `never` | none | git-config(1) protocol.allow, protocol.<name>.allow (ext:: runs a command) |
+| pager | `core.pager` for an entry that pages by default; `pager.<entry>` for every entry unless false | `$GIT_PAGER`, `$PAGER` | git-config(1) core.pager |
+| signature-format | `format.pretty`, `pretty.<name>` with a value containing `%G` | none | git-config(1) format.pretty, pretty.<name>; pretty-formats %G placeholders verify the signature (pretty.c, lines 1631-1633, check_commit_signature runs gpg.program or gpg) |
+| signature-sort | `branch.sort`, `tag.sort` with a value containing `signature` | none | git-config(1) branch.sort, tag.sort; the ref-filter atom signature verifies (ref-filter.c, line 1749) |
+
+| Entry | Options vetted beyond the bare form | Keys that make it NOT MEASURED | Hooks git starts for it (githooks(5)) | Source |
+|---|---|---|---|---|
+| `add` | none, the bare form only | filter, fsmonitor, *submodules* | `post-index-change` | git-add(1): clean filters, writes the index |
+| `annotate` | none, the bare form only | diff-driver, filter, pager (`core.pager`) | none | git-annotate(1), as git blame |
+| `blame` | `--abbrev`, `--color-lines`, `--date`, `--line-porcelain`, `--no-color`, `--porcelain`, `--show-email`, `-L`, `-e`, `-l`, `-s`, `-w` | diff-driver, filter, pager (`core.pager`) | none | git-blame(1): textconv, the worktree file |
+| `branch` | `--all`, `--color`, `--contains`, `--format`, `--list`, `--merged`, `--no-color`, `--no-contains`, `--no-merged`, `--points-at`, `--remotes`, `--show-current`, `--sort`, `--verbose`, `-a`, `-l`, `-r`, `-v`, `-vv`; a word containing `signature` is NOT MEASURED | signature-sort, pager (`core.pager`) | `reference-transaction` | git-branch(1): creating a branch updates a reference; branch.sort |
+| `cat-file` | `--batch-all-objects`, `--batch-check`, `-e`, `-p`, `-s`, `-t` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `check-attr` | none, the bare form only | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `check-ignore` | none, the bare form only | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `check-mailmap` | none, the bare form only | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `check-ref-format` | none, the bare form only | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `checkout` | none, the bare form only | filter, fsmonitor, *submodules* | `post-checkout`, `post-index-change`, `reference-transaction` | git-checkout(1), githooks(5) post-checkout |
+| `cherry` | none, the bare form only | only the every-entry keys | none | git-cherry(1): patch ids by the internal diff, no driver |
+| `commit` | none, the bare form only | editor, filter, fsmonitor, `commit.gpgsign` true, *submodules* | `commit-msg`, `post-commit`, `post-index-change`, `pre-auto-gc`, `pre-commit`, `prepare-commit-msg`, `reference-transaction` | git-commit(1): editor, signing, githooks(5) pre-commit, prepare-commit-msg, commit-msg, post-commit, reference-transaction, post-index-change, pre-auto-gc |
+| `config` | reads: `--get`, `--get-all`, `--get-regexp`, `--get-urlmatch`, `--list`, `-l`, `git config get`, `git config list`; writes only of `advice.detachedhead`, `color.ui`, `core.autocrlf`, `core.quotepath`, `fetch.prune`, `init.defaultbranch`, `pull.ff`, `pull.rebase`, `push.default`, `user.email`, `user.name`; with `--add`, `--all`, `--bool`, `--global`, `--int`, `--local`, `--name-only`, `--null`, `--replace-all`, `--show-origin`, `--show-scope`, `--unset`, `--unset-all`, `--worktree`, `-z` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `count-objects` | `--human-readable`, `--verbose`, `-H`, `-v` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `describe` | `--abbrev`, `--all`, `--always`, `--contains`, `--dirty`, `--exclude`, `--long`, `--match`, `--tags` | filter, fsmonitor, *submodules* | `post-index-change` | git-describe(1) --dirty refreshes the index |
+| `diff` | `--cached`, `--check`, `--color`, `--find-copies`, `--find-renames`, `--ignore-all-space`, `--ignore-space-change`, `--name-only`, `--name-status`, `--no-color`, `--no-patch`, `--numstat`, `--patch`, `--raw`, `--shortstat`, `--staged`, `--stat`, `--summary`, `--unified`, `-C`, `-M`, `-U`, `-b`, `-p`, `-w` | diff-driver, filter, fsmonitor, pager (`core.pager`), *submodules* | `post-index-change` | git-diff(1): drivers, worktree filters, fsmonitor, submodules |
+| `diff-files` | `--name-only`, `--name-status`, `--stat`, `-p` | filter, fsmonitor, *submodules* | none | git-diff-files(1): compares the worktree |
+| `diff-index` | `--cached`, `--name-only`, `--name-status`, `--stat`, `-p` | filter, fsmonitor, *submodules* | none | git-diff-index(1): compares the worktree |
+| `diff-tree` | `--abbrev`, `--name-only`, `--name-status`, `--no-color`, `--root`, `--stat`, `-p`, `-r` | only the every-entry keys | none | git-diff-tree(1): two trees, plumbing, no driver without --ext-diff |
+| `fetch` | none, the bare form only | protocol, rewrite-to-helper, transport, transport-helper-url, *submodules* | `pre-auto-gc`, `reference-transaction` | git-fetch(1): transport, reference updates, auto maintenance (githooks(5) reference-transaction, pre-auto-gc), submodules |
+| `for-each-ref` | `--color`, `--contains`, `--count`, `--format`, `--merged`, `--no-color`, `--no-contains`, `--no-merged`, `--points-at`, `--sort`; a word containing `signature` is NOT MEASURED | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `grep` | `--after-context`, `--basic-regexp`, `--before-context`, `--break`, `--cached`, `--color`, `--context`, `--count`, `--extended-regexp`, `--files-with-matches`, `--files-without-match`, `--fixed-strings`, `--heading`, `--ignore-case`, `--invert-match`, `--line-number`, `--no-color`, `--no-index`, `--perl-regexp`, `--untracked`, `--word-regexp`, `-A`, `-B`, `-C`, `-E`, `-F`, `-G`, `-H`, `-L`, `-P`, `-c`, `-e`, `-h`, `-i`, `-l`, `-n`, `-v`, `-w` | pager (`core.pager`), *submodules* | none | git-grep(1), submodule.recurse |
+| `log` | `--abbrev-commit`, `--all`, `--author`, `--branches`, `--color`, `--committer`, `--date`, `--decorate`, `--first-parent`, `--format`, `--graph`, `--grep`, `--max-count`, `--merges`, `--name-only`, `--name-status`, `--no-abbrev-commit`, `--no-color`, `--no-decorate`, `--no-merges`, `--no-patch`, `--numstat`, `--oneline`, `--patch`, `--pretty`, `--remotes`, `--reverse`, `--shortstat`, `--since`, `--skip`, `--stat`, `--summary`, `--tags`, `--until`, `-m`, `-n`, `-p`; a word containing `%G` is NOT MEASURED | diff-driver, signature-format, pager (`core.pager`), `log.showsignature` true | none | git-log(1), git-config(1) diff.*, log.showSignature, format.pretty, pretty.* |
+| `ls-files` | `--cached`, `--deleted`, `--error-unmatch`, `--full-name`, `--modified`, `--others`, `--stage`, `--unmerged`, `-c`, `-d`, `-m`, `-o`, `-s`, `-u`, `-z` | filter, fsmonitor | none | git-ls-files(1) -m/-d compare the worktree |
+| `ls-remote` | none, the bare form only | protocol, rewrite-to-helper, transport, transport-helper-url | none | git-ls-remote(1): talks to the remote |
+| `ls-tree` | `--abbrev`, `--full-name`, `--full-tree`, `--long`, `--name-only`, `--name-status`, `-d`, `-l`, `-r`, `-t`, `-z` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `merge-base` | `--all`, `--fork-point`, `--independent`, `--is-ancestor`, `--octopus` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `mv` | none, the bare form only | fsmonitor, *submodules* | `post-index-change` | git-mv(1): writes the index |
+| `name-rev` | `--all`, `--name-only`, `--refs`, `--stdin`, `--tags` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `reset` | none, the bare form only | filter, fsmonitor, *submodules* | `post-index-change`, `reference-transaction` | git-reset(1) |
+| `restore` | none, the bare form only | filter, fsmonitor, *submodules* | `post-index-change` | git-restore(1): smudge filters |
+| `rev-list` | `--all`, `--branches`, `--count`, `--first-parent`, `--left-right`, `--max-count`, `--merges`, `--no-merges`, `--no-walk`, `--oneline`, `--remotes`, `--reverse`, `--tags`, `-n` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `rev-parse` | `--abbrev-ref`, `--all`, `--branches`, `--default`, `--git-common-dir`, `--git-dir`, `--is-bare-repository`, `--is-inside-work-tree`, `--quiet`, `--remotes`, `--short`, `--show-toplevel`, `--symbolic`, `--symbolic-full-name`, `--tags`, `--verify`, `-q` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `rm` | none, the bare form only | filter, fsmonitor, *submodules* | `post-index-change` | git-rm(1): compares the worktree, writes the index |
+| `shortlog` | `--all`, `--email`, `--no-color`, `--numbered`, `--summary`, `-e`, `-n`, `-s` | pager (`core.pager`) | none | git-shortlog(1) |
+| `show` | `--abbrev-commit`, `--color`, `--format`, `--name-only`, `--name-status`, `--no-color`, `--no-patch`, `--numstat`, `--oneline`, `--patch`, `--pretty`, `--stat`, `-p`, `-s`; a word containing `%G` is NOT MEASURED | diff-driver, signature-format, pager (`core.pager`), `log.showsignature` true | none | git-show(1), as git log |
+| `show-branch` | none, the bare form only | pager (`core.pager`) | none | git-show-branch(1) |
+| `show-ref` | `--abbrev`, `--dereference`, `--hash`, `--head`, `--heads`, `--quiet`, `--tags`, `--verify`, `-d`, `-q`, `-s` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `stash` | none, the bare form only | diff-driver, filter, fsmonitor, merge-driver, pager (`core.pager`), *submodules* | every githooks(5) name | git-stash(1): show diffs, apply/pop merge, writes refs/stash and the index |
+| `status` | `--branch`, `--color`, `--ignored`, `--long`, `--no-color`, `--no-untracked-files`, `--porcelain`, `--short`, `--show-stash`, `--untracked-files`, `--verbose`, `-b`, `-s`, `-u`, `-v`, `-z` | filter, fsmonitor, *submodules* | `post-index-change` | git-status(1) BACKGROUND REFRESH writes the index; submodules |
+| `switch` | none, the bare form only | filter, fsmonitor, *submodules* | `post-checkout`, `post-index-change`, `reference-transaction` | git-switch(1), githooks(5) post-checkout |
+| `symbolic-ref` | `--delete`, `--quiet`, `--short`, `-d`, `-q` | only the every-entry keys | none | githooks(5) reference-transaction does not cover symbolic references |
+| `tag` | `--color`, `--contains`, `--format`, `--list`, `--merged`, `--no-color`, `--no-contains`, `--no-merged`, `--points-at`, `--sort`, `-l`, `-n`; a word containing `signature` is NOT MEASURED | editor, signature-sort, pager (`core.pager`), `tag.gpgsign` true | `reference-transaction` | git-tag(1), tag.gpgSign, tag.sort |
+| `var` | none, the bare form only | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
+| `whatchanged` | none, the bare form only; a word containing `%G` is NOT MEASURED | diff-driver, signature-format, pager (`core.pager`), `log.showsignature` true | none | git-whatchanged(1), as git log |
+
+<!-- d3-entries:end -->
 
 ## D4. What a pass does
 
@@ -336,6 +458,19 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
     `enable_pr_auto_merge`, which write to a remote without opening a pull request. Also ungated:
     `fork_repository` and `create_repository`. A tool of another server with a different name for the
     same act is not gated either.
+
+- File tools (Nachtrag 19b, Punkt 6 to 8), through a third `PreToolUse` matcher, `^(Write|Edit|MultiEdit|NotebookEdit)$`
+  under Claude Code and `^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$` under Codex. A write to a
+  repository's configuration or hooks is NOT MEASURED, asked under Claude Code and denied under Codex
+  (reason id `write_to_repo_state`): `.git/config`, `config.worktree`, a `.git` file, any file under the
+  effective hook directory, every file the effective configuration was read from or includes (also an
+  included file that does not exist yet, which a write would create), and the global and system files
+  (`git var GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`, the defaults when unset), for the repository the target
+  lies in and for the bound repository. Symlinks are resolved and hard links compared by file identity; a
+  path the gate cannot map for sure (a relative path without a known directory, an `apply_patch` with
+  `*** Environment ID:` or a `***` line the gate does not read) is NOT MEASURED. Every other write gets no
+  decision. Not judged: a write made by a shell command (a redirection, `cp`, `chmod` in a Bash call),
+  through an MCP tool, or by a program the user starts; the matcher covers the file tools only.
 
 Not seen:
 - git aliases;
@@ -479,6 +614,29 @@ DECISION AFTER REVIEW RUNDE 6 (Nachtrag 19; the reviewer's decision, recorded he
 - Until Codex reliably binds the effective execution directory and the execution environment for the same
   call to the hook, and that binding has been checked, gated shell calls under Codex stay NOT MEASURED and
   denied.
+
+FREE GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7)
+- Codex stays strict: every git form Level 1 would leave free under Claude Code is NOT MEASURED under
+  `--host codex` and denied (`repo_state_unbound`), because the hook does not receive the directory the
+  command runs in, so the gate cannot read that repository's configuration and hooks.
+- MEASURED in the Codex source at 14a477ea89712071944244022e8a10142845456e (read, not run): the dispatcher
+  asks every tool for a PreToolUse payload (`codex-rs/core/src/tools/registry.rs` line 602); a function
+  tool fires the hook under its own name with its JSON arguments (lines 133-142, 833-842); `apply_patch`,
+  the tool that edits files, fires it with `tool_name` `apply_patch` and `tool_input`
+  `{"command": <the raw patch>}` (`codex-rs/core/src/tools/handlers/apply_patch.rs` lines 289-295 and
+  414-419), and a hook matcher written as `Write` or `Edit` also selects it
+  (`codex-rs/core/src/tools/hook_names.rs` lines 34-39). Shell-like tools carry `Bash` (same file, lines
+  53-56) and can write files too; the gate judges only their git and gh calls (D8).
+- The gate reads the target paths from the patch's `*** Add File:`, `*** Update File:`, `*** Delete File:`
+  and `*** Move to:` lines. A patch path without an environment line resolves against the turn's primary
+  environment (`codex-rs/core/src/tools/handlers/mod.rs` lines 160-178; the grammar's
+  `*** Environment ID:` line, `codex-rs/apply-patch/src/parser.rs` line 8), while the hook's `cwd` is the
+  local environment's (`codex-rs/core/src/hook_runtime.rs` lines 248-253, `tool_hook_cwd`).
+- Named limit: when the primary environment is not the local one, a relative patch path names a file in a
+  filesystem the hook does not see, and the gate resolves it against the hook's `cwd`. A patch that names
+  an environment, or carries a `***` line the gate does not read, is NOT MEASURED and denied. Whether
+  Codex fires the hook for `apply_patch` in every approval mode is read from the source, not measured in a
+  run.
 
 Options:
 - A. Deny under Codex (chosen for every NOT MEASURED ask).
