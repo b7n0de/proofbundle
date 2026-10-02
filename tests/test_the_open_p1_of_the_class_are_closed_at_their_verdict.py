@@ -335,6 +335,44 @@ class TheWorkOfAReadingIsBoundedByWhatItHolds(unittest.TestCase):
             return 1 + sum(je_pfad(t) for t in (wert if type(wert) is list else ()))
         self.assertGreater(je_pfad(_geteilt(18)), DEFAULT_BUDGET.json_nodes + 64)
 
+    def test_the_classes_made_for_a_callers_types_die_with_them(self) -> None:
+        """Codex on pull request 311 at 4ecfb1ed (P2): the caches of the reading, keyed by the id of a caller's type,
+        held the class made for each type for the life of the process, so 20000 fresh types kept 20000 stand-in classes
+        and 37.1 MB after the collector ran, though each of those inputs was refused. Counted here as entries: 2000
+        fresh types of the caller, as objects, as subclasses of str and as subclasses of int, passed to a public
+        function, leave the caches as large as they were once the types are gone and the collector ran."""
+        import gc
+
+        from proofbundle import _membership, canonical
+        caches = {"FREMDKOERPER_KLASSEN": _membership.FREMDKOERPER_KLASSEN,
+                  "_FREMDKOERPER_JE_TYP": canonical._FREMDKOERPER_JE_TYP,
+                  "_FREMDWERT_JE_TYP": canonical._FREMDWERT_JE_TYP,
+                  "_METHODEN_JE_TYP": canonical._METHODEN_JE_TYP}
+
+        def runde() -> None:
+            for i in range(2000):
+                for wert in (type(f"E{i}", (), {})(), type(f"S{i}", (str,), {})("x"), type(f"I{i}", (int,), {})(1)):
+                    try:
+                        canonical.canonicalize_statement({"k": wert})
+                    except Exception:  # noqa: BLE001 - each of these is refused; the count is what is measured
+                        pass
+        def bereinigt() -> "dict[str, int]":
+            # A type dies in one collection, and only its callback drops the entry that holds the class made for it;
+            # that class is in a cycle of its own and goes in the next one. So collect until the counts rest.
+            zahlen: dict = {}
+            for _ in range(8):
+                gc.collect()
+                jetzt = {name: len(cache) for name, cache in caches.items()}
+                if jetzt == zahlen:
+                    break
+                zahlen = jetzt
+            return zahlen
+        vorher = bereinigt()
+        runde()
+        nachher = bereinigt()
+        for name in caches:
+            self.assertLessEqual(nachher[name] - vorher[name], 16, f"{name}: {vorher[name]} -> {nachher[name]} entries")
+
     def test_the_copy_refuses_exactly_what_the_parse_budget_refuses(self) -> None:
         """The copy's budget is the parse budget's (`_strict_json._enforce_structural_budget`, the independent oracle
         here): a value of exactly ``json_nodes`` entries is taken by both, and one more entry is refused by both, for a
