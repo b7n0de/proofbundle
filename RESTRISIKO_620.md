@@ -1094,7 +1094,7 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   Measured at 53bbb94c with OpenTimestamps installed and a loader raising `ImportError` while it executes
   `opentimestamps.core.notary` and `opentimestamps.core.serialize`: the two guarded cases of
   `tests/test_a_verifier_reads_a_callers_value_once.py` were skipped with the reason that the extra is not installed.
-  With the extra intact, as in every CI job that installs it, both run. No shipped code reads these guards and no
+  With the extra intact both run, measured locally at 53bbb94c (2 passed). No shipped code reads these guards and no
   verdict of the package changes; a broken install of an extra turns cases into skips instead of failures, which shows
   in the skip count. In the package, 10 places import either backend directly, counted at bf219510 by the syntax tree
   with a planted control: five turn an `ImportError` of a found module into an absence themselves
