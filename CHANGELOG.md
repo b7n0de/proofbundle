@@ -94,27 +94,44 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     read from real runs.
   - More of the same class, found by Codex on the fixes above and closed at the root rather than one directory at a
     time. The interpreter and the checkout must not share a directory in EITHER direction, measured against the
-    interpreter's whole installation: an interpreter installed in the clone, a clone at the venv's `purelib`, and a
-    clone rooted at the interpreter's `lib-dynload` (where a `sitecustomize.py` runs under `-I` on 3.14) each turned a
-    mismatched receipt into exit 0 VERIFIED. Enumerating the particular startup directories lost that race, so the
-    verifier now refuses whenever the checkout lies in, equals, or contains any of the four prefixes
-    (`sys.prefix`/`exec_prefix`/`base_prefix`/`base_exec_prefix`), which hold every directory it reads code from, or any
-    site directory. And no git call of the verifier runs a program the clone chose: the cleanliness check is the
-    byte-for-byte comparison of every committed file under `scripts/` and `src/` with its blob, which calls no git
-    worktree operation, so the `git status` that ran a `filter.*.clean` (measured at 653b5d67) is gone and with it the
-    only git call that would run a configured program; the remaining calls read objects. As the owner's class decision
-    in its own words (OA-4496f29e70), a clone whose own configuration or attributes still NAME a program (a `filter`,
-    `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, credential or interactive-filter command, a
-    URL-scoped credential helper, an ssh signing command) is refused as well, with the global and system configuration
-    read from the null device and no program-selecting environment name inherited. `scripts/pre_tag_audit_gate.py`
-    reads git only through the same hardened funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares
-    bytes with `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep.
+    interpreter's whole installation: an interpreter installed in the clone turned a mismatched receipt into exit 0
+    VERIFIED, and a clone at the venv's `purelib` and a clone rooted at the interpreter's `lib-dynload` (where a
+    `sitecustomize.py` runs under `-I` on 3.14) each ran checkout code before the verifier's first line; for the
+    `lib-dynload` case that early run is what Codex showed, and a false VERIFIED was not measured. Enumerating the
+    particular startup directories lost that race, so the verifier now refuses whenever the checkout lies in, equals,
+    or contains any of the four prefixes (`sys.prefix`/`exec_prefix`/`base_prefix`/`base_exec_prefix`) or any site
+    directory. An external review of 65d8f8cd then showed that disjoint prefixes and `-I` are not enough on their own:
+    a `.pth` path line in an outside virtual environment puts the clone on the search path at start, and a
+    `sitecustomize.py` of the clone ran under `-I`. That no startup file of the interpreter names a directory of the
+    clone is therefore a precondition the reader establishes before the start (RELEASE.md says so); under `-I` the
+    verifier refuses with exit 2 a run whose search path at start already named a directory of the clone, a tripwire
+    that cannot undo code that already ran. The cleanliness check is the byte-for-byte comparison of every committed
+    file under `scripts/` and `src/` with its blob, which calls no git worktree operation, so the `git status` that ran
+    a `filter.*.clean` (measured at 653b5d67) is gone; it now compares the type of every committed path first, because
+    the review measured that a committed directory replaced by a symbolic link to a byte-identical outside copy, with
+    an extra module behind the link, passed the byte comparison. Removing `git status` alone did not keep the
+    remaining git calls from starting a configured program: in a partial clone an object read fetches a missing
+    object through the promisor remote's transport, whose program the clone's configuration names (the review
+    measured `remote.origin.uploadpack` started from the object reads at d0e47397). Both git funnels of the receipt
+    chain, the library's and the verifier's, now refuse a partial clone before any object is read. As the owner's
+    class decision (OA-4496f29e70), a clone whose own configuration names a program from the listed families (a
+    `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, credential or interactive-filter
+    command, a URL-scoped credential helper, an ssh signing command) is refused as well; a boolean value is exempted
+    only for `pager.<cmd>`, the one family git reads as a switch, after the review measured `filter.<n>.clean=true`,
+    `core.sshCommand=false` and `core.hooksPath=off` passing as booleans. The global and system configuration are read
+    from the null device and no program-selecting environment name is inherited. `.git/info/attributes` is not read,
+    and that the listed families are every program an attribute can select is not shown. `scripts/pre_tag_audit_gate.py`
+    reads git only through the same funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares bytes
+    with `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep and the
+    review.
   - What a caller sees differently: a policy or flag that was accepted with no effect is refused with exit 2;
     `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify or names another
-    audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/`, on a run
-    in which a module of the checkout was loaded before its first line, when the Python running it shares any directory
-    with the clone in either direction, when it is started from another checkout than `--repo`, and on a clone whose own git configuration
-    or attributes select a program.
+    audience; the receipt verifier exits 2 on a tree with untracked code under `scripts/` or `src/` or a path there of
+    another type than the commit names, on a run in which a module of the checkout was loaded before its first line or,
+    under `-I`, whose search path at start named a directory of the checkout, when the Python running it shares any
+    directory with the clone in either direction, when it is started from another checkout than `--repo`, on a clone
+    whose own git configuration selects a program, and on a partial clone; the release gate and the receipt producer
+    refuse a partial clone too.
 
 - **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
   applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:

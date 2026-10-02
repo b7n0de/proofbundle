@@ -1163,14 +1163,19 @@ library, `purelib` and `platlib` alike) or any site directory. Alongside, the ow
 program the clone chose. The working-tree inspection ran a `filter.*.clean` set in `.git/config` and selected by `.git/info/attributes`;
 the verifier no longer inspects the working tree with `git status` at all -- the cleanliness check is the
 byte-for-byte comparison of every committed file under `scripts/` and `src/` with its blob, which runs no git
-worktree operation, so the only git call that would run a configured program is gone and the remaining calls
-read objects. As the owner's class decision in its own words, a clone whose own configuration or attributes NAME a
-program is refused as well (a `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor,
-alternate-ref, credential or interactive-filter command, a URL-scoped credential helper, an ssh signing
-command); the global and system configuration are read from the null device and no program-selecting environment
-name is inherited. Codex at d0e47397 named four more config families the first matching missed (P2, a
-completeness gap, not an exploit, since none of them runs during the verifier's object reads); they are matched
-now. The sweep over the neighbours: `pre_tag_audit_gate.py`
+worktree operation. CORRECTED after the external review of 65d8f8cd (2026-10-02, FIX_FIRST): this paragraph said
+that with `git status` the only git call that would run a configured program was gone and that the remaining calls
+read objects; the review measured at d0e47397 that an object read of a partial clone fetches the missing object and
+starts the promisor remote's configured `remote.origin.uploadpack`, so that sentence did not hold. As the owner's
+class decision, a clone whose own configuration names a program from the listed families is refused (a `filter`,
+`diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, alternate-ref, credential or interactive-filter
+command, a URL-scoped credential helper, an ssh signing command); the global and system configuration are read from
+the null device and no program-selecting environment name is inherited. `.git/info/attributes` is not read, and that
+the listed families are every program an attribute can select is not shown; this paragraph first said the
+attributes were refused too. Codex at d0e47397 named four more config families the first matching missed (P2, a
+completeness gap); they are matched now, and the review found the boolean exemption of that fix too wide (F1 below).
+Its "measured per family and end to end" holds end to end for `filter.*.clean` only; the other families were checked
+at the function. The sweep over the neighbours: `pre_tag_audit_gate.py`
 reaches git only through the shared funnel (hardened the same way) and inspects no working tree, and
 `pre_tag_receipt.py` compares bytes with `git hash-object --no-filters` and never runs a worktree filter, so neither
 runs a clone-chosen program; both are covered without a source change of their own logic. The verifier also refuses a
@@ -1179,11 +1184,51 @@ script's own checkout; an edited library there gave exit 0 VERIFIED against a cl
 module of the checkout was loaded before its first line, and documents `python -I` with a Python installed outside
 the clone as its command. Named
 limit: a module of the checkout that Python loads at start, through `PYTHONPATH` or under `python -m`, runs before
-the script can act; the refusal sees it only while it stays in `sys.modules`, and only `-I` keeps it from running.
+the script can act; the refusal sees it only while it stays in `sys.modules`. `-I` keeps `PYTHONPATH` from adding such
+a module, but not a `.pth` path line of the interpreter that names the clone (F5 below); that no startup file names
+the clone is the reader's precondition.
 The interpreter itself stays trusted: a compromised Python outside the clone, or one whose prefix a startup file
 has rewritten, is not measured. Measured on 3.10.12:
 of 24 such positions, 4 were refused and 20 broke the interpreter before any verdict; on 3.11.15, of 16, 4 were
 refused, 11 broke it and 1 did not run when planted alone.
+From the external review of 65d8f8cd and 40f52da4 (2026-10-02, verdict FIX_FIRST, four serious findings and one on
+the texts; owner decision OA-afcb198da0 B: fix F1, F3, F4 and F5 as new commits on 40f52da4, a regression test per
+finding with its catch proof, the texts corrected, no attack probes of our own). The fixes below are not reviewed
+yet; the next review decides whether they hold, and no line here says more than the tests measured.
+- **R620-REV-F1, serious, fixed in the commits after 40f52da4. A boolean value hid a program or a directory**: the
+  boolean exemption of 65d8f8cd applied to every key, so `filter.demo.clean=true`, `core.sshCommand=false` and
+  `core.hooksPath=off` came back as no finding. Only `pager.<cmd>` keeps the exemption now, the one family git reads
+  as a switch. Test: `TestExternalReviewOf65d8f8cd::test_F1_...`, the three cases and the control `pager.status=false`.
+- **R620-REV-F3, serious, fixed in the commits after 40f52da4. An object read of a partial clone started a
+  configured program**: lazy fetch ran `remote.origin.uploadpack` from the library's `git_objects` and the verifier's
+  `_objekte`, `_baum` and `_measure` (measured by the review at d0e47397). Both funnels refuse a repository that
+  carries `extensions.partialClone`, `remote.<name>.promisor` or `remote.<name>.partialclonefilter` before any further
+  git call, so the release gate and the producer refuse it too. Measured here on git 2.34.1 only; that no other key
+  makes a remote a promisor on a later git is not measured.
+- **R620-REV-F4, serious, fixed in the commits after 40f52da4. A directory exchanged for a link passed the byte
+  comparison**: the comparison read committed files through a linked directory and its walk skipped the link's name.
+  The type of every committed path under `scripts/` and `src/` is compared first, with `lstat`. The execute bit is
+  not compared (Python imports regardless of it, and a file system without it would refuse every `100755`).
+- **R620-REV-F5, serious, partly closed: precondition stated, tripwire added, the cause cannot be closed from
+  inside.** A `.pth` path line in an outside virtual environment puts the clone on the search path at start, and a
+  `sitecustomize.py` of the clone ran under `-I` (measured by the review on CPython 3.12.14). The verifier cannot keep
+  such code from running; the documents now name "no startup file of the interpreter names a directory of the clone"
+  as the reader's precondition, and under `-I` a search path at start that names the clone refuses with exit 2. Code
+  that runs at start and removes both its module and its path entry is not seen. On Debian and Ubuntu builds the
+  standard library's own `sitecustomize` is found first and the review's case does not run (measured on 3.10.12,
+  the GUARD case skips there naming the module).
+- **R620-REV-F2, small on the texts. The texts said more than was checked**: CHANGELOG, RELEASE.md, this file and
+  the verifier's own description said that removing `git status` removed the only git call that could start a
+  configured program, that `.git/info/attributes` was refused, that an outside interpreter plus `-I` keeps every
+  file of the checkout from running, and that every `lib-dynload` case gave a false VERIFIED. Corrected above and in
+  those files; the correction of Codex comment 5961005011 is a draft for the owner and is not posted.
+- **R620-REV-OPEN-1, open, owner decision. `.git/info/attributes` is not read.** The contract of OA-4496f29e70 named
+  the configuration AND the attributes; the verifier refuses the configured program families and does not read the
+  attributes. Whether the narrower contract suffices needs that decision; until then it is not called fulfilled.
+- **R620-REV-OPEN-2, open. Completeness of the program families is not shown.** The families are a list; a
+  program-selecting key the list does not carry is not refused. With partial clones refused, no transport key is
+  reached by an object read; that every other key is unreachable by the verifier's calls is not shown either.
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.
