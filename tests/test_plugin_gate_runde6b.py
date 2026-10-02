@@ -434,3 +434,51 @@ def test_a_neutral_value_or_a_variable_the_entry_does_not_use_stays_free(tmp_pat
 def test_the_gate_reads_exactly_the_program_selecting_variables_these_tests_clean():
     read = {n for names, _ in gate._ENV_FAMILIES.values() for n in names} | set(gate._ENV_EVERY_ENTRY)
     assert read == set(_PROGRAM_ENV)
+
+
+# --- hooks per githooks(5): commit and fetch carry the hooks named for them, not every name ----------------
+
+@pytest.mark.parametrize("command", ["git fetch origin", "git commit", "git status", "git log --oneline -n 1"])
+def test_the_ebene_2_pre_push_hook_does_not_make_a_form_that_never_pushes_not_measured(tmp_path, command):
+    """githooks(5): pre-push is called by git-push(1) only. Measured in Nachtrag 19b: with every githooks(5)
+    name counted for fetch, the installed Ebene-2 hook made every git fetch NOT MEASURED."""
+    repo = _repo(tmp_path)
+    _hook(repo / ".git" / "hooks", "pre-push")
+    assert _decision(command, repo) == (None, ""), command
+
+
+@pytest.mark.parametrize("hook, command", [
+    ("pre-commit", "git commit"), ("prepare-commit-msg", "git commit"), ("commit-msg", "git commit"),
+    ("post-commit", "git commit"), ("reference-transaction", "git commit"), ("post-index-change", "git commit"),
+    ("pre-auto-gc", "git commit"), ("reference-transaction", "git fetch origin"), ("pre-auto-gc", "git fetch origin"),
+    ("pre-push", "git stash"), ("post-checkout", "git stash")])
+def test_a_hook_githooks_names_for_the_entry_counts(tmp_path, hook, command):
+    repo = _repo(tmp_path)
+    _hook(repo / ".git" / "hooks", hook)
+    decision, text = _decision(command, repo)
+    assert decision == "ask" and hook in text, (hook, command, text)
+
+
+
+# --- the signing program alone starts nothing; what triggers signing or verification counts -----------------
+
+@pytest.mark.parametrize("command", ["git log", "git show HEAD", "git branch", "git tag -l", "git commit",
+                                     "git stash list"])
+def test_a_configured_signing_program_alone_leaves_the_form_free(tmp_path, command):
+    """gpg.program and gpg.<format>.program choose which program signs or verifies; log and show verify only
+    under show_signature (log-tree.c), stash never signs (builtin/stash.c). Measured in Nachtrag 19b: the
+    shape of this cloud container (gpg.ssh.program set) made git log NOT MEASURED while it ran nothing."""
+    repo = _repo(tmp_path)
+    _git(repo, "config", "gpg.format", "ssh")
+    _git(repo, "config", "gpg.ssh.program", _helper(tmp_path))
+    _git(repo, "config", "gpg.program", _helper(tmp_path))
+    assert _decision(command, repo) == (None, ""), command
+
+
+@pytest.mark.parametrize("key, command", [("commit.gpgsign", "git commit"), ("log.showsignature", "git log"),
+                                          ("log.showsignature", "git show HEAD"), ("tag.gpgsign", "git tag -l")])
+def test_the_key_that_triggers_signing_or_verification_counts(tmp_path, key, command):
+    repo = _repo(tmp_path)
+    _git(repo, "config", key, "true")
+    decision, text = _decision(command, repo)
+    assert decision == "ask" and key in text.lower(), (command, text)

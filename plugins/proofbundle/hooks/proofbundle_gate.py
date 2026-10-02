@@ -517,8 +517,6 @@ _KEY_FAMILIES = {
                     "git-config(1) diff.external, diff.<driver>.command, diff.<driver>.textconv"),
     "merge-driver": (r"merge\..+\.driver", None, "git-config(1) merge.<driver>.driver"),
     "editor": (r"core\.editor", None, "git-config(1) core.editor"),
-    "gpg": (r"gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand", None,
-            "git-config(1) gpg.program, gpg.<format>.program, gpg.ssh.defaultKeyCommand"),
     "transport": (r"core\.(sshcommand|gitproxy|askpass|alternaterefscommand)|credential\.helper"
                   r"|credential\..+\.helper|remote\..+\.(uploadpack|vcs)", None,
                   "git-config(1) core.sshCommand, core.gitProxy, core.askPass, core.alternateRefsCommand, "
@@ -539,6 +537,12 @@ _KEY_FAMILIES = {
                        "git-config(1) branch.sort, tag.sort; the ref-filter atom signature verifies "
                        "(ref-filter.c, line 1749)"),
 }
+#: gpg.program, gpg.<format>.program and gpg.ssh.defaultKeyCommand only choose WHICH program signs or verifies;
+#: alone they start nothing, so they are no family here. What starts it counts instead: these trigger keys, a
+#: %G value or a signature atom (_SIGNATURE_WORDS, format.pretty, pretty.*, branch.sort, tag.sort), and the
+#: unvetted -S, --gpg-sign, --show-signature, -s, -u options. Measured in the source: log and show verify
+#: only under show_signature (log-tree.c, lines 786-789), which log.showSignature sets (builtin/log.c, lines
+#: 613-615); stash creates its commits without a signing key (builtin/stash.c, lines 1181, 1400, 1467).
 #: Keys that make git run its default program for one subcommand (value true): signature display or signing.
 _TRIGGER_SOURCES = {
     "log.showsignature": "git-config(1) log.showSignature (runs gpg.program or gpg)",
@@ -564,6 +568,10 @@ _ENV_FAMILIES = {
 _ENV_EVERY_ENTRY = ("GIT_EXEC_PATH",)
 _INDEX = frozenset({"post-index-change"})   # githooks(5): invoked when the index is written
 _REFS = frozenset({"reference-transaction"})  # githooks(5): invoked by any command that updates references
+_AUTO_GC = frozenset({"pre-auto-gc"})        # githooks(5): invoked by `git gc --auto`, which commit and fetch run
+#: githooks(5): pre-commit, prepare-commit-msg, commit-msg and post-commit are invoked by git-commit(1);
+#: post-rewrite only with --amend, an option that is not vetted; pre-merge-commit only by git-merge(1).
+_COMMIT_HOOKS = frozenset({"pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"})
 _ALL = "all"
 
 
@@ -584,19 +592,21 @@ _WORKTREE = ("filter", "fsmonitor")
 #: every entry, git-config(1) pager.<cmd>), and whether it can run inside submodules, whose configuration the
 #: gate does not read (then a .gitmodules file or a submodule.* key makes it NOT MEASURED; git-config(1)
 #: submodule.recurse, status.submoduleSummary, fetch.recurseSubmodules). `_ALL` stands for every githooks(5)
-#: name: the entry writes references or the index and may run auto maintenance (pre-auto-gc), so a complete
-#: list is the whole set.
+#: name, for an entry whose hook list is not sure (stash: push and pop write commits, references, the index
+#: and the worktree through internal paths githooks(5) does not name one by one). commit and fetch carry the
+#: hooks githooks(5) names for them; neither starts pre-push, which git-push(1) alone runs (measured in
+#: Nachtrag 19b: with the Ebene-2 pre-push hook installed, _ALL made every git fetch NOT MEASURED).
 _REPO_PROFILE = {
     **{sub: _READ_ONLY for sub in ("rev-parse", "show-ref", "for-each-ref", "cat-file", "ls-tree", "merge-base",
                                    "rev-list", "name-rev", "count-objects", "var", "check-ref-format",
                                    "check-attr", "check-ignore", "check-mailmap", "config")},
     "symbolic-ref": _profile(sources="githooks(5) reference-transaction does not cover symbolic references"),
     "cherry": _profile(sources="git-cherry(1): patch ids by the internal diff, no driver"),
-    "log": _profile(("diff-driver", "gpg", "signature-format"), pages=True, triggers=("log.showsignature",),
-                    sources="git-log(1), git-config(1) diff.*, log.showSignature, gpg.*, format.pretty, pretty.*"),
-    "show": _profile(("diff-driver", "gpg", "signature-format"), pages=True, triggers=("log.showsignature",),
+    "log": _profile(("diff-driver", "signature-format"), pages=True, triggers=("log.showsignature",),
+                    sources="git-log(1), git-config(1) diff.*, log.showSignature, format.pretty, pretty.*"),
+    "show": _profile(("diff-driver", "signature-format"), pages=True, triggers=("log.showsignature",),
                      sources="git-show(1), as git log"),
-    "whatchanged": _profile(("diff-driver", "gpg", "signature-format"), pages=True,
+    "whatchanged": _profile(("diff-driver", "signature-format"), pages=True,
                             triggers=("log.showsignature",), sources="git-whatchanged(1), as git log"),
     "shortlog": _profile(pages=True, sources="git-shortlog(1)"),
     "show-branch": _profile(pages=True, sources="git-show-branch(1)"),
@@ -612,14 +622,15 @@ _REPO_PROFILE = {
     "ls-files": _profile(_WORKTREE, sources="git-ls-files(1) -m/-d compare the worktree"),
     "status": _profile(_WORKTREE, _INDEX, submodules=True,
                        sources="git-status(1) BACKGROUND REFRESH writes the index; submodules"),
-    "branch": _profile(("gpg", "signature-sort"), _REFS, pages=True,
+    "branch": _profile(("signature-sort",), _REFS, pages=True,
                        sources="git-branch(1): creating a branch updates a reference; branch.sort"),
-    "tag": _profile(("editor", "gpg", "signature-sort"), _REFS, pages=True, triggers=("tag.gpgsign",),
+    "tag": _profile(("editor", "signature-sort"), _REFS, pages=True, triggers=("tag.gpgsign",),
                     sources="git-tag(1), tag.gpgSign, tag.sort"),
     "ls-remote": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"),
                           sources="git-ls-remote(1): talks to the remote"),
-    "fetch": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"), _ALL, submodules=True,
-                      sources="git-fetch(1): transport, reference updates, auto maintenance, submodules"),
+    "fetch": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"), _REFS | _AUTO_GC,
+                      submodules=True, sources="git-fetch(1): transport, reference updates, auto maintenance "
+                                               "(githooks(5) reference-transaction, pre-auto-gc), submodules"),
     "add": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-add(1): clean filters, writes the index"),
     "rm": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-rm(1): compares the worktree, writes the index"),
     "mv": _profile(("fsmonitor",), _INDEX, submodules=True, sources="git-mv(1): writes the index"),
@@ -629,11 +640,11 @@ _REPO_PROFILE = {
     "checkout": _profile(_WORKTREE, _INDEX | _REFS | {"post-checkout"}, submodules=True,
                          sources="git-checkout(1), githooks(5) post-checkout"),
     "reset": _profile(_WORKTREE, _INDEX | _REFS, submodules=True, sources="git-reset(1)"),
-    "commit": _profile(("editor", "gpg") + _WORKTREE, _ALL, triggers=("commit.gpgsign",), submodules=True,
-                       sources="git-commit(1): editor, signing, githooks(5) pre-commit ... post-commit, "
-                               "reference-transaction, post-index-change, auto maintenance"),
-    "stash": _profile(("diff-driver", "merge-driver", "gpg") + _WORKTREE, _ALL, pages=True,
-                      triggers=("commit.gpgsign",), submodules=True,
+    "commit": _profile(("editor",) + _WORKTREE, _COMMIT_HOOKS | _REFS | _INDEX | _AUTO_GC,
+                       triggers=("commit.gpgsign",), submodules=True,
+                       sources="git-commit(1): editor, signing, githooks(5) pre-commit, prepare-commit-msg, "
+                               "commit-msg, post-commit, reference-transaction, post-index-change, pre-auto-gc"),
+    "stash": _profile(("diff-driver", "merge-driver") + _WORKTREE, _ALL, pages=True, submodules=True,
                       sources="git-stash(1): show diffs, apply/pop merge, writes refs/stash and the index"),
 }
 assert set(_REPO_PROFILE) == set(_GIT_LOCAL_SUBCOMMANDS), set(_REPO_PROFILE) ^ set(_GIT_LOCAL_SUBCOMMANDS)
