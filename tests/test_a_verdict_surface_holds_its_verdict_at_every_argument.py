@@ -189,13 +189,12 @@ def _grundfaelle() -> "tuple[list[_Grundfall], dict[str, str], Callable[[], None
             offen[name] = f"the base call does not answer: {erstes}"
             continue
         faelle.append(_Grundfall(name, fn, argumente, erstes))
-    if not _sweep._ots_vorhanden():
-        # Without the [anchors] extra neither sweep builds a legitimate input for these four (the sweep names its two
-        # as not measured, `_OTS_FLAECHEN`); they are named open here, never read as held. Found by the hermetic
-        # cleanroom and the crypto-floor job at 4ecfb1ed, which run without the extra.
-        for name in _sweep._OTS_FLAECHEN + _OTS_GRUNDFAELLE:
-            offen.setdefault(name, "NOT MEASURED without OpenTimestamps (proofbundle[anchors]): its legitimate input "
-                                   "needs that extra")
+    for backend, namen in _JE_BACKEND.items():
+        if not _backend_da(backend):
+            # Without the backend no legitimate input is built for these surfaces; they are named open here, never
+            # read as held (`_JE_BACKEND`).
+            for name in namen:
+                offen.setdefault(name, f"NOT MEASURED without {_BACKEND_GRUND[backend]}: its legitimate input needs it")
 
     def alles_aufraeumen() -> None:
         uhr()
@@ -331,11 +330,11 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
     blaetter = [b"leaf-0", b"leaf-1", b"leaf-2"]
     note = cp.sign_checkpoint(origin, 3, merkle.merkle_tree_hash(blaetter), t, origin)
     zeuge = _sweep._raw(_sweep._W1)
-    try:
+    if _backend_da("pq"):
         from proofbundle import pqsig
         ml = pqsig.generate_mldsa("mldsa44")
         ml_pub = ml.public_key().public_bytes_raw()
-    except Exception:  # noqa: BLE001 - this build has no ML-DSA; the ML-DSA surfaces stay open, named
+    else:   # this build has no ML-DSA: `_grundfaelle` names the group of `_JE_BACKEND` open
         ml = ml_pub = None
 
     from cryptography.hazmat.primitives import hashes as _hashes
@@ -475,19 +474,51 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("verifier_block.validate_verifier_block", lambda w: vb.validate_verifier_block(w(vb_block))),
     ]
     if ml is not None:
-        f += [
+        mldsa = [
             ("checkpoint.cosign_checkpoint_mldsa", lambda w: cp.cosign_checkpoint_mldsa(
                 w(note), ml, w("witness.example"), w(1000))),
             ("checkpoint.cosign_key_id_mldsa", lambda w: cp.cosign_key_id_mldsa(w("witness.example"), w(ml_pub))),
             ("checkpoint.cosign_vkey_mldsa", lambda w: cp.cosign_vkey_mldsa(w("witness.example"), w(ml_pub))),
         ]
-    if _sweep._ots_vorhanden():
+        assert tuple(name for name, _ in mldsa) == _MLDSA_GRUNDFAELLE, "_MLDSA_GRUNDFAELLE names what is built here"
+        f += mldsa
+    if _backend_da("anchors"):
         f += _flaechen_vier_ots()
     return f, aufraeumen
 
 
 #: The verdict surfaces `_flaechen_vier_ots` builds, named so that an environment without OpenTimestamps can name them.
 _OTS_GRUNDFAELLE = ("anchors_markovian.verify_markovian", "anchors_ots.verify_opentimestamps")
+#: The verdict surfaces `_flaechen_vier` builds on an ML-DSA key, named so that a build without ML-DSA can name them.
+_MLDSA_GRUNDFAELLE = ("checkpoint.cosign_checkpoint_mldsa", "checkpoint.cosign_key_id_mldsa",
+                      "checkpoint.cosign_vkey_mldsa")
+
+#: Every verdict surface whose LEGITIMATE input needs an optional backend, by backend. A surface is built only where its
+#: backend is present (`_backend_da`), and `_grundfaelle` names every group whose backend is missing open, never held.
+#: One table and one check for every backend: f1256bca named the OpenTimestamps surfaces after the hermetic cleanroom
+#: and the crypto-floor job at 4ecfb1ed, and the crypto-floor job at 198af5c5 then found the three ML-DSA surfaces
+#: unnamed in a build without ML-DSA, the same gap at the next backend. `ThePartNamesWhatItDoesNotBuild` holds the
+#: table to what `_flaechen_vier` builds.
+_JE_BACKEND: "dict[str, tuple[str, ...]]" = {
+    "pq": _MLDSA_GRUNDFAELLE,
+    "anchors": tuple(_sweep._OTS_FLAECHEN) + _OTS_GRUNDFAELLE,
+}
+_BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTimestamps (proofbundle[anchors])"}
+
+
+def _backend_da(backend: str) -> bool:
+    """Whether this environment has ``backend``: an ML-DSA key can be generated (``pq``), or OpenTimestamps imports
+    (``anchors``). The one check every conditional base case here goes through."""
+    if backend == "anchors":
+        return _sweep._ots_vorhanden()
+    if backend == "pq":
+        try:
+            from proofbundle import pqsig
+            pqsig.generate_mldsa("mldsa44")
+        except Exception:  # noqa: BLE001 - this build has no ML-DSA
+            return False
+        return True
+    raise ValueError(f"unknown backend {backend!r}")
 
 
 def _flaechen_vier_ots() -> list:
@@ -663,10 +694,7 @@ def _fehlende_extras() -> "list[str]":
     [rootcommit], and an ML-DSA build for [pq]."""
     import importlib.util
     fehlt = [m for m in ("opentimestamps", "rfc3161_client", "rfc8785", "ecdsa") if importlib.util.find_spec(m) is None]
-    try:
-        from proofbundle import pqsig
-        pqsig.generate_mldsa("mldsa44")
-    except Exception:  # noqa: BLE001 - this build has no ML-DSA
+    if not _backend_da("pq"):
         fehlt.append("pq")
     return fehlt
 
@@ -921,6 +949,31 @@ class EveryVerdictSurfaceAndArgumentIsHeld(_Mit):
         print(f"\nFORMS: {geprueft} lying leaves checked")
         self.assertGreater(geprueft, 100)
         self.assertEqual(befoerdert, [], f"{len(befoerdert)} lying values got the verdict they do not store")
+
+
+class ThePartNamesWhatItDoesNotBuild(unittest.TestCase):
+    """`_JE_BACKEND` is exact in every environment, not only in the one that lacks a backend: with every backend taken
+    away (`_backend_da` answering False), the surfaces `_flaechen_vier` no longer builds are exactly the groups of the
+    table whose backend this environment has. A base case built under a condition the table does not carry, or a group
+    the table forgets, is red here. The sweep's own OpenTimestamps surfaces (`_sweep._OTS_FLAECHEN`) are built by the
+    sweep, not here, and are left out of the comparison."""
+
+    def test_the_table_names_exactly_what_a_missing_backend_takes_away(self) -> None:
+        modul = sys.modules[__name__]
+        original = modul._backend_da
+        voll, aufraeumen = _flaechen_vier()
+        aufraeumen()
+        modul._backend_da = lambda backend: False
+        try:
+            ohne, aufraeumen = _flaechen_vier()
+            aufraeumen()
+        finally:
+            modul._backend_da = original
+        weg = sorted({name for name, _ in voll} - {name for name, _ in ohne})
+        erwartet = sorted(name for backend, namen in _JE_BACKEND.items() if original(backend)
+                          for name in namen if name not in _sweep._OTS_FLAECHEN)
+        print(f"\nBACKENDS: present {[b for b in _JE_BACKEND if original(b)]}; their surfaces here {weg}")
+        self.assertEqual(weg, erwartet, "a surface built under a condition is not in _JE_BACKEND, or the reverse")
 
 
 if __name__ == "__main__":
