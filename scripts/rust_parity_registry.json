@@ -423,7 +423,7 @@
       "status": "PENDING",
       "rust_subcommands": [],
       "crosscheck_refs": [],
-      "notes": "Verification of a Signed Evaluation Receipt of draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL, behind emit-eval --format eval-receipt-v1): the twelve steps of the draft's Section 6 with the first failing step, its stricter Ed25519 profile, RFC 8785 in full and an RFC 9162 inclusion proof. Python-only; no Rust implementation. PENDING. The draft's 65 vectors (tests/fixtures/signed_eval_receipt) are the conformance set a Rust reader would have to meet in verdict and step."
+      "notes": "Verification of a Signed Evaluation Receipt of draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL, behind emit-eval --format eval-receipt-v1): the twelve steps of the draft's Section 6 with the first failing step, its stricter Ed25519 profile, RFC 8785 in full and an RFC 9162 inclusion proof. Python-only; no Rust implementation. PENDING. The draft's 65 vectors (tests/fixtures/signed_eval_receipt) are the conformance set a Rust reader would have to meet in verdict and step. The format is not released before a Rust reader meets all 65 in verdict and step (owner decision 2026-10-02; its own order follows 6.2.0)."
     },
     "proofbundle.statuslist.verify_status_snapshot": {
       "status": "PENDING",
