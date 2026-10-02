@@ -36,7 +36,7 @@ from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from ._membership import require_switch
+from ._membership import is_member, require_switch
 from ._wire_b64 import decode_b64
 from .merkle import merkle_tree_hash, inclusion_proof, verify_inclusion
 from .signature import _LOW_ORDER_ED25519_Y, plain_bytes, verify_ed25519_pinned
@@ -268,7 +268,7 @@ def _payload_violation(p: Any) -> Optional[str]:
     if set(p) != _PAYLOAD_MEMBERS:
         # Only our own names are rendered; the Issuer's extra names are counted, never printed or sorted.
         missing = [name for name in sorted(_PAYLOAD_MEMBERS) if name not in p]
-        extra = sum(1 for name in p if name not in _PAYLOAD_MEMBERS)
+        extra = sum(1 for name in p if not is_member(name, _PAYLOAD_MEMBERS))
         return f"the payload member set differs from Table 1 (missing {missing}, {extra} extra)"
     if p["schema"] != PAYLOAD_SCHEMA:
         return "the payload schema is not " + PAYLOAD_SCHEMA
