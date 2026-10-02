@@ -148,7 +148,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   producer documents where it names one (`EvalClaimError`, a `ValueError`, at the eval claim producers,
   `BundleFormatError` at the in-toto exporters and verifiers, `BundleFormatError` or `ValueError` at `issue_sd_jwt`);
   elsewhere they are `ProofBundleError`s, which a caller that catches only a function's own error class does not catch
-  (RESTRISIKO_620.md, R620-R6-10).
+  (RESTRISIKO_620.md, R620-R6-10). The classes the reading makes for the types of a caller (a stand-in class, the
+  class of a value of a `str` or number subclass, the methods it read) are released with those types: each entry of
+  its caches goes when its type dies (`canonical._schwach`). Codex on pull request 311 at 4ecfb1ed measured 20000
+  fresh types keeping 20000 stand-in classes and 37.1 MB after the collector ran (P2).
   Tests: the gate before run 7, in five files: `tests/test_no_object_of_the_caller_reaches_a_body.py` (every hostile
   form at every parameter of every public function, with a planted control),
   `tests/test_a_verdict_surface_holds_its_verdict_at_every_argument.py` (each verdict surface and argument from a valid
