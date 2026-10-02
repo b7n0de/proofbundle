@@ -47,7 +47,7 @@ from collections import OrderedDict, deque
 from collections.abc import Mapping
 from typing import Any, Callable, Union
 
-from ._membership import FREMDKOERPER_KLASSEN, Fremdkoerper, require_switch
+from ._membership import FREMDKOERPER_KLASSEN, Fremdkoerper, is_member, require_switch
 from .errors import ProofBundleError
 
 __all__ = ["CONTENT_ROOT_ALG", "STATEMENT_REQUIRED_KEYS", "CanonicalizerUnavailable",
@@ -228,10 +228,11 @@ def _lies(wert: Any) -> Any:
         if typ is not dict and issubclass(typ, OrderedDict):
             try:
                 return ("dict", typ, _in_eigener_reihenfolge(wert, paare), None)
-            except _Abweisung:
+            except _Abweisung as abweisung:
                 # Its own order cannot be read without hashing a key, so it stays the caller's object; its stored pairs
                 # are compared by the second collect, so a refusal that a change in the middle caused is read again.
-                return ("lebend", typ, paare, None)
+                # The reason rides along, so `_bauen`'s refusal names it as the producers' own rule did.
+                return ("lebend", typ, paare, abweisung.grund)
         return ("dict", typ, paare, None)
     if issubclass(typ, list):
         return ("list", typ, list(list.__iter__(wert)), None)
@@ -459,16 +460,25 @@ _METHODEN_JE_TYP: dict = {}
 def _methoden_von(typ: Any) -> frozenset:
     """Which of ``__next__``, ``__call__`` and ``__fspath__`` the classes of ``typ``'s MRO define, read from their class
     dicts by iteration: no key is hashed or compared through a method of the caller's (a key counts when it is of type
-    ``str`` itself), and no hook of a metaclass runs."""
+    ``str`` itself), and no hook of a metaclass runs.
+
+    A type whose metaclass leaves ``type`` out of its own MRO cannot be read so: ``type``'s own ``__mro__`` and
+    ``__dict__`` descriptors check their argument against that MRO and raise TypeError (round 9, form A of lens run 7,
+    `tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py`). Its methods are then unknown, so none is named
+    and the value is a stand-in (``"fremd"``, `_art_des_blatts`): it reaches no body as the caller's object, and the
+    TypeError, which until the review of the run 7 preparation escaped the reading at the call, no longer does."""
     eintrag = _METHODEN_JE_TYP.get(id(typ))
     if eintrag is not None and eintrag[0]() is typ:
         return eintrag[1]
     gefunden = set()
-    for klasse in _MRO.__get__(typ):
-        for schluessel in _KLASSENDICT.__get__(klasse):
-            if type(schluessel) is str and (schluessel == "__next__" or schluessel == "__call__"
-                                            or schluessel == "__fspath__"):
-                gefunden.add(schluessel)
+    try:
+        for klasse in _MRO.__get__(typ):
+            for schluessel in _KLASSENDICT.__get__(klasse):
+                if type(schluessel) is str and (schluessel == "__next__" or schluessel == "__call__"
+                                                or schluessel == "__fspath__"):
+                    gefunden.add(schluessel)
+    except TypeError:
+        gefunden = set()
     antwort = frozenset(gefunden)
     _METHODEN_JE_TYP[id(typ)] = (weakref.ref(typ), antwort)
     return antwort
@@ -696,11 +706,13 @@ def _bauen(gelesen: dict, wurzel: Any, ersetzt: Any = None) -> Any:
                 eigen[k] = kopie.get(id(v), v)
         elif art == "list" or art == "deque":
             ziel.extend([kopie.get(id(v), v) for v in inhalt])
-    offen = [satz[1] for schluessel, satz in gelesen.items() if schluessel not in kopie and satz[0] != "blatt"]
+    offen = [satz for schluessel, satz in gelesen.items() if schluessel not in kopie and satz[0] != "blatt"]
     if offen:
+        grund = offen[0][3] if offen[0][0] == "lebend" and type(offen[0][3]) is str else None
         raise _StandUnkopierbar(
-            f"a value of the caller holds a container the reading at the call cannot copy ({_type_name(offen[0])}"
-            f"{' and ' + str(len(offen) - 1) + ' more' if len(offen) > 1 else ''}): a key or item whose hash is the "
+            f"a value of the caller holds a container the reading at the call cannot copy ({_type_name(offen[0][1])}"
+            f"{' and ' + str(len(offen) - 1) + ' more' if len(offen) > 1 else ''})"
+            f"{'; ' + grund if grund is not None else ''}: a key or item whose hash is the "
             "caller's code, keys that meet as one, an order that cannot be read without hashing, or a view or buffer "
             "that is no one private copy; pass plain JSON-shaped values")
     return kopie.get(id(wurzel), wurzel)
@@ -1065,7 +1077,7 @@ _AUSSEN_ERLAUBT = {
 }
 
 
-def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any:
+def _ein_stand(funktion: Any = None, *, aussen: Any = None, fehler: Any = None, **leser: Any) -> Any:
     """Every argument of a public function, read at its call by one reading (`_stand`, whose double collect sees every
     change but one made and undone between two reads, THE LIMIT there), before its body reads any of them.
     ``leser`` names arguments that a named reader reads and the reader for each. An argument of an
@@ -1083,6 +1095,12 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any
     `_StandGestoert` for a value that changed during each of its readings, both a ``ProofBundleError``. So where a docstring of this package says a function never raises, it
     speaks of the body; the two refusals come first, also at a function that otherwise answers every input with a
     verdict. JSON, the CLI and files build no such value.
+
+    ``fehler`` names the classes a function documents for a value it refuses (`BundleFormatError` at the in-toto
+    exporters, `EvalClaimError`, a ``ValueError``, at the eval claim producers). The two refusals of the reading are
+    then raised as a subclass of their own class and of each named one (`_in_der_klasse`), so a caller that catches the
+    documented class catches them, and one that catches ``ProofBundleError`` catches them too. A function that names
+    none raises them as they are.
 
     A CALL FROM INSIDE is not read again: when this thread is in the body of a public function whose arguments
     were read at its call, and the function that calls is this package's own code, what it passes is that
@@ -1106,11 +1124,14 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any
         fremd = sorted(set(leser) - set(namen[1]))
         if fremd:
             raise TypeError(f"_ein_stand: {', '.join(fremd)} is no parameter of {f.__qualname__}")
+        klassen = tuple(fehler) if type(fehler) is tuple else ((fehler,) if fehler is not None else ())
+        if not all(isinstance(k, type) and issubclass(k, BaseException) for k in klassen):
+            raise TypeError(f"_ein_stand: fehler of {f.__qualname__} names no exception class")
         vertrag = dict(aussen or {})
         # In the order the decorator names them (tests/test_ablehnungstext_rendert_beschraenkt.py: no sorted()
         # over a set of keys in the package); the names are this package's own.
         fremd = [k for k in vertrag if k not in namen[1]]
-        falsch = [k for k, art in vertrag.items() if art not in _AUSSEN_ERLAUBT]
+        falsch = [k for k, art in vertrag.items() if not is_member(art, _AUSSEN_ERLAUBT)]
         if fremd or falsch:
             raise TypeError(f"_ein_stand: {', '.join(fremd + falsch)} is no parameter of {f.__qualname__} or names no "
                             "kind of contract")
@@ -1119,7 +1140,12 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any
         def lesen(*args: Any, **kwargs: Any) -> Any:
             tiefe = getattr(_INNEN, "tiefe", 0)
             if not (tiefe and _aus_dem_paket(sys._getframe(1))):
-                args, kwargs = _gelesen(namen, leser, args, kwargs, vertrag)
+                try:
+                    args, kwargs = _gelesen(namen, leser, args, kwargs, vertrag)
+                except (_StandUnkopierbar, _StandGestoert) as abweisung:
+                    if not klassen:
+                        raise
+                    raise _in_der_klasse(abweisung, klassen) from None
             _INNEN.tiefe = tiefe + 1
             try:
                 return f(*args, **kwargs)
@@ -1128,6 +1154,25 @@ def _ein_stand(funktion: Any = None, *, aussen: Any = None, **leser: Any) -> Any
         lesen.__ein_stand__ = True  # type: ignore[attr-defined]
         return lesen
     return verpacken(funktion) if funktion is not None else verpacken
+
+
+#: The subclasses `_in_der_klasse` made, one for each refusal class and tuple of documented classes.
+_ABWEISUNGSKLASSEN: dict = {}
+
+
+def _in_der_klasse(abweisung: ProofBundleError, klassen: tuple) -> ProofBundleError:
+    """The refusal of the reading (`_StandUnkopierbar`, `_StandGestoert`) as an exception of the classes the function
+    documents for a value it refuses (`_ein_stand`, ``fehler``): an instance of a subclass of the refusal's own class
+    and of each of them that it is not already, with the refusal's message and its class name. No ``__init__`` of a
+    documented class runs, so its signature does not matter."""
+    basis = type(abweisung)
+    weitere = tuple(k for k in klassen if not issubclass(basis, k))
+    klasse = _ABWEISUNGSKLASSEN.get((basis, weitere))
+    if klasse is None:
+        klasse = type(basis.__name__, (basis,) + weitere, {"__module__": basis.__module__,
+                                                          "__qualname__": basis.__qualname__})
+        _ABWEISUNGSKLASSEN[(basis, weitere)] = klasse
+    return klasse.__new__(klasse, *abweisung.args)
 
 
 def _gelesen(namen: tuple, leser: dict, args: tuple, kwargs: dict, vertrag: Any = None) -> tuple:

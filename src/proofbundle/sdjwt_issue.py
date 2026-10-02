@@ -68,7 +68,7 @@ def _make_disclosure(name: str, value, salt_b64: str) -> tuple[str, str]:
     return disclosure_b64, digest
 
 
-@_ein_stand(aussen={"signer": "signierer"})
+@_ein_stand(aussen={"signer": "signierer"}, fehler=(BundleFormatError, ValueError))
 def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                  exact_score: Optional[str] = None, ci95: Optional[Sequence[str]] = None,
                  model_id_opening: Optional[Sequence] = None,

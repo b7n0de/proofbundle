@@ -246,7 +246,7 @@ def _reject_non_jcs_walk(value) -> None:
     raise EvalClaimError(f"unsupported value type {_type_name(typ)}")
 
 
-@_ein_stand
+@_ein_stand(fehler=EvalClaimError)
 def canonicalize(claim: dict) -> bytes:
     """RFC 8785 JCS canonical bytes of a claim — EMIT PATH ONLY.
 
@@ -708,7 +708,7 @@ def _claim_read_back(claim, *, profile: bool) -> tuple:
     return read_back, payload
 
 
-@_ein_stand(aussen={"signer": "signierer"})
+@_ein_stand(aussen={"signer": "signierer"}, fehler=EvalClaimError)
 def emit_eval_receipt(claim: dict, signer: Ed25519PrivateKey, *, prior_leaves: Sequence[bytes] = (),
                       sd_jwt: Optional[dict] = None) -> dict:
     """Emit a proofbundle/v0.1 bundle whose payload is the canonical eval claim.
