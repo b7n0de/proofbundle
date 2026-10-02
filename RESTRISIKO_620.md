@@ -1080,7 +1080,8 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   of every refusal.
 - **R620-R6-11, P2. 31 test guards of the optional backends read a failure inside an installed backend as its absence**
   (Codex on pull request 311 at 53bbb94c, thread 4163347099, reproduced by the filer; the answer to thread 4163240548
-  named the same guards as not changed by 8c7c761c; the count corrected after Codex at b4888df9, thread 4164188079):
+  named the same guards as not changed by 8c7c761c; the count corrected after Codex at b4888df9, thread 4164188079, and
+  the places in the package after Codex at bf219510, thread 4164326818):
   27 test files hold 28 guards of their own on ML-DSA or OpenTimestamps (23 catch `ImportError`, 3 `ImportError` and
   `AttributeError`, 2 any exception), so an `ImportError` raised while an installed module executes skips the case as a
   missing extra, and 3 more guards catch `pqsig.PQUnavailable`, which `pqsig._mldsa_classes` raises for every
@@ -1095,17 +1096,23 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   `tests/test_a_verifier_reads_a_callers_value_once.py` were skipped with the reason that the extra is not installed.
   With the extra intact, as in every CI job that installs it, both run. No shipped code reads these guards and no
   verdict of the package changes; a broken install of an extra turns cases into skips instead of failures, which shows
-  in the skip count. The same reading stands at seven places in six modules of the shipped code, each failing closed by
-  reading of the code: `pqsig._mldsa_classes` (`PQUnavailable`), `checkpoint._mldsa_module` (`UnsupportedError`), the
-  registration of the OpenTimestamps verifier in `anchors._ensure_builtin_types` (left unregistered),
-  `anchors_markovian.verify_markovian` (`no_lib`), `anchors_ots._calendar_uris_of` (no calendars) and
-  `cli._detect_features` twice (not listed); a broken install there reads as an absent extra, and no verdict is
-  promoted. The gate before run 7 reads each backend through a probe that takes only a module that cannot be
-  found, or the ML-DSA module without its classes, as absent and raises every other failure (`_backend_da` and
+  in the skip count. In the package, 10 places import either backend directly, counted at bf219510 by the syntax tree
+  with a planted control: five turn an `ImportError` of a found module into an absence themselves
+  (`pqsig._mldsa_classes` into `PQUnavailable`, `checkpoint._mldsa_module` into `UnsupportedError`,
+  `anchors_ots._calendar_uris_of` into no calendars, `cli._detect_features` twice into not listed), and five in
+  `anchors_ots` raise it to their callers. Every caller that reads these errors as absence reads a broken install the
+  same way, among them `renewal._verify_ats_signature` and `trust_pack._verify_signature_for_alg` (`PQUnavailable`,
+  twice each), `anchors_ots.verify_opentimestamps` (`no_lib`) and `anchors_ots.calendar_uris` (no calendars); each of
+  these fails closed by reading of the code, and no verdict is promoted. The callers are not inventoried completely
+  for 6.2.0. This sentence first named seven places in six modules: two of them, `anchors._ensure_builtin_types` and
+  `anchors_markovian.verify_markovian`, import a module of the package that does not load OpenTimestamps, so they
+  cannot see the failure, and the four callers above were missing. The gate before run 7 reads each backend through a
+  probe that takes only a module that cannot be found, or the ML-DSA module without its classes, as absent and raises every other failure (`_backend_da` and
   `_ots_vorhanden`, 8c7c761c). A neighbour of the line above on a shipped test that drops every module that does not
-  import. Workaround: none is needed by a caller; read the skip reasons of a run with the extras installed. The fix is
-  one shared probe for both backends in `tests/` and in the package, and a syntax-tree check over every `try` that names
-  either backend, after the tag.
+  import. Workaround: none is needed by a caller; read the skip reasons of a run with the extras installed. The fix,
+  after the tag, tells a module that cannot be found from one that fails at the 10 import places of the package, which
+  reaches every caller, and adds one shared probe for both backends in `tests/` and a syntax-tree check over every
+  `try` that names either backend.
 - The rows above on `render_release` binding `release_commit` by its length and not binding the tags to `--version`
   were measured again at fda55f98 by the lens L6 (L6-620v6-T7-RELEASE-COMMIT-BY-LENGTH-01 and
   L6-620v6-T7-TAG-FIELD-UNCHECKED-01), both P3 there as here.
