@@ -1064,6 +1064,20 @@ Each was judged real by at least two of three blind jurors; lines are as at fda5
   of the caller, so such a raise promotes no verdict, and it is a site of the class under "a caller's own Python
   objects can make a never-raise surface raise" below. Workaround: pass the package's own types (`VerificationResult`,
   `Check`); a caller's own class is outside the contract of these arguments.
+- **R620-R6-10, P3. The refusal of the reading at the call carries a function's own error class only where the function
+  names it** (found by the full suite at 1473c9ea while the fix of run 6 was built: 282 cases of
+  `tests/test_every_producer_of_an_eval_claim_holds_the_one_rule.py` expected `EvalClaimError` or `BundleFormatError`
+  and got `canonical._StandUnkopierbar`). `canonical._ein_stand` takes ``fehler``, the classes a function documents for
+  a value it refuses, and raises its two refusals as a subclass of each named one: the eval claim producers name
+  `EvalClaimError` (a `ValueError`), the in-toto exporters and verifiers `BundleFormatError` (`svr_properties` and
+  `export_svr_dsse` `SwitchTypeError` beside it), `issue_sd_jwt` `BundleFormatError` and `ValueError`. 38 of the 303
+  functions the reading stands on name an own error class in their docstrings (counted on 2026-10-02 by the classes
+  their docstrings say they raise); the others among them raise the refusal as a `ProofBundleError` only, so a caller
+  that catches only the function's own class, a `DecisionReceiptError` say, does not catch it, and one that catches
+  `ValueError` around `AGTReceiptError` does not either. Nothing is promoted; the call ends with an exception the
+  caller did not expect for a value JSON, the CLI and files cannot build. Workaround: catch `ProofBundleError` beside
+  the function's own class. The fix is the closed type boundary of 7.0 (R620-TYPE-BOUNDARY-70), which names the class
+  of every refusal.
 - The rows above on `render_release` binding `release_commit` by its length and not binding the tags to `--version`
   were measured again at fda55f98 by the lens L6 (L6-620v6-T7-RELEASE-COMMIT-BY-LENGTH-01 and
   L6-620v6-T7-TAG-FIELD-UNCHECKED-01), both P3 there as here.

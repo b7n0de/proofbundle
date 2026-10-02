@@ -141,9 +141,14 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   `examples/trust_policy_decision_strict.json` no longer carry `allowed_schema_versions` and `signature`, rules of the
   eval bundle path that `decision verify` never applied: a decision policy instantiated from the 6.1.0 template carries
   them and is refused by `decision verify` with exit 2, naming them, until they are removed. `from_inspect_ai_log`
-  takes a path or a loaded log as before. A check or a result of the caller's own class reaches
-  `root_authenticity_summary` and `svr_properties` as a stand-in, which fails the crypto verdict or earns no property,
-  where both read the caller's object.
+  takes a path or a loaded log as before. A check or a result of the caller's own class reaches `evaluate_policy`,
+  `root_authenticity_summary` and `svr_properties` as a stand-in, which fails the crypto verdict (the policy is not
+  evaluated, `policy_ok` None) or earns no property, where they read the caller's object; pass the
+  `VerificationResult` of `verify_bundle`. The two refusals of the reading at the call are raised as the class a
+  producer documents where it names one (`EvalClaimError`, a `ValueError`, at the eval claim producers,
+  `BundleFormatError` at the in-toto exporters and verifiers, `BundleFormatError` or `ValueError` at `issue_sd_jwt`);
+  elsewhere they are `ProofBundleError`s, which a caller that catches only a function's own error class does not catch
+  (RESTRISIKO_620.md, R620-R6-10).
   Tests: the gate before run 7, in five files: `tests/test_no_object_of_the_caller_reaches_a_body.py` (every hostile
   form at every parameter of every public function, with a planted control),
   `tests/test_a_verdict_surface_holds_its_verdict_at_every_argument.py` (each verdict surface and argument from a valid
