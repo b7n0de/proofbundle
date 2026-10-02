@@ -46,7 +46,7 @@ The deep gate at fda55f98 (run 6) found what that reading still handed on and a 
 did not apply, the second in the released 6.0.0 and 6.1.0 as well; with the review before run 7 and the owner's choices of 2026-10-01, nothing of the caller reaches a
 body now but what an argument's contract names, and every rule a policy sets is applied or the policy is refused.
 The deep gate at 1a3cd672 (run 7) found a rule that `evaluate_policy` listed as applied and never read,
-`sd_jwt.expected_aud`, the same at v6.1.0, and a receipt verifier that a module the tree hides from git could take
+`sd_jwt.expected_aud`, the same at v6.0.0 and v6.1.0, and a receipt verifier that a module the tree hides from git could take
 over; both are closed, and every rule a check path lists as applied is now measured to turn its verdict.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
@@ -59,7 +59,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   - `evaluate_policy` lists `sd_jwt.expected_aud` among the rules it applies (`policy.ANGEWANDTE_REGELN`), so the
     policy was not refused, and it never read the rule: a library caller who verified with `verify_bundle(bundle)`
     and handed the policy to `evaluate_policy` got `policy_ok` True for a KB-JWT bound to another audience, measured
-    at 1a3cd672 and at v6.1.0. `verify --policy` binds the audience through `verify_bundle(expected_aud=...)` and was
+    at 1a3cd672 and at v6.0.0 and v6.1.0. `verify --policy` binds the audience through `verify_bundle(expected_aud=...)` and was
     not affected. `evaluate_policy` applies the rule now as `verify_bundle(expected_aud=...)` does: the audience
     counts only from a key binding that verified, and it must equal the policy's value; without one the policy fails
     (`policy:expected_aud`). `tests/test_every_applied_rule_has_an_observable_effect.py` walks every pair of

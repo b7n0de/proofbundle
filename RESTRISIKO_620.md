@@ -347,7 +347,7 @@ Deep gate run 7 at 1a3cd672 found the other side of the same rule, three of thre
 (L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-UNAPPLIED-01): a rule a path lists as applied that the path never read.
 `evaluate_policy` lists `sd_jwt.expected_aud`, so the policy was not refused, and its body never read it; a library
 caller who verified with `verify_bundle(bundle)` and handed the policy to `evaluate_policy` got `policy_ok` True for a
-KB-JWT bound to another audience, measured at 1a3cd672 and the same at v6.1.0. The command line was not affected:
+KB-JWT bound to another audience, measured at 1a3cd672 and the same at v6.0.0 and v6.1.0. The command line was not affected:
 `verify --policy` binds the audience through `verify_bundle(expected_aud=...)` and exits 1. `evaluate_policy` applies
 the rule itself now, from a verified key binding only, and
 `tests/test_every_applied_rule_has_an_observable_effect.py` measures for every pair of `ANGEWANDTE_REGELN` that the
