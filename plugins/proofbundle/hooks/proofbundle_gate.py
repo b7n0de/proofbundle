@@ -116,8 +116,6 @@ LOG_NAME = "gate-log.jsonl"
 LOG_DIR_VARIABLES = {"claude": ("CLAUDE_PLUGIN_DATA",), "codex": ("PLUGIN_DATA", "CLAUDE_PLUGIN_DATA")}
 MAX_LOG_BYTES = 1024 * 1024
 
-_GIT_OPTIONS_WITH_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace",
-                                     "--config-env", "--super-prefix"})
 _GH_OPTIONS_WITH_VALUE = frozenset({"-R", "--repo"})
 _GH_GATED = frozenset({("pr", "create"), ("pr", "new"), ("release", "create"), ("release", "new")})
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -147,33 +145,6 @@ _PUSH_OPTS_NEUTRAL_VALUE = frozenset({"-o", "--push-option", "--receive-pack", "
 #: Target-neutral options accepted in the inline `--opt=value` form.
 _PUSH_OPTS_NEUTRAL_INLINE = frozenset({"--push-option", "--receive-pack", "--exec", "--force-with-lease",
                                        "--signed"})
-#: Prepended to the resolved push arguments when the configuration is set in the command and the gate's
-#: separate reads never see it, so resolve_push_targets reports NOT MEASURED: a `git -c` or `--config-env`
-#: option with a target key (review R3-1), or a command-level assignment of GIT_CONFIG_*, GIT_CONFIG_GLOBAL,
-#: GIT_CONFIG_SYSTEM, HOME or XDG_CONFIG_HOME, by prefix, export or env (review Nachtrag 11, Befund 2). Only
-#: the host process's own environment is inherited by the gate's reads; a configuration assigned in the
-#: command reaches only the push, never those reads, so it cannot be resolved.
-_GIT_CONFIG_SENTINEL = "\x00config-injected"
-#: The last component of a config key, by section, for keys that can change a push's endpoint, target refs
-#: or range. url.<base>.insteadof is included because, injected only into the push, it would rewrite the
-#: endpoint the gate's reads cannot see (review R3-1, Befund 1).
-_TARGET_CONFIG_EXACT = frozenset({"push.default", "push.followtags", "push.recursesubmodules",
-                                  "remote.pushdefault"})
-_TARGET_CONFIG_BY_SECTION = {"remote": frozenset({"url", "pushurl", "push", "mirror", "fetch"}),
-                             "branch": frozenset({"remote", "pushremote", "merge"}),
-                             "url": frozenset({"insteadof", "pushinsteadof"})}
-
-
-def _key_affects_push_target(key: str) -> bool:
-    """Whether a git config key can change which endpoint, refs or commits a push sends. Used for the keys a
-    `git -c` or `--config-env` option injects, which the gate's separate reads never see (review R3-1)."""
-    k = key.strip().lower()
-    if k in _TARGET_CONFIG_EXACT:
-        return True
-    parts = k.split(".")
-    return len(parts) >= 3 and parts[-1] in _TARGET_CONFIG_BY_SECTION.get(parts[0], frozenset())
-
-
 class GateError(Exception):
     """The gate cannot reach a verdict. Answered as deny."""
 
@@ -310,31 +281,78 @@ def _lex(command: str) -> list | None:
     return toks
 
 
-def _join(directory: str | None, target: str) -> str | None:
-    if directory is UNKNOWN or not target or "$" in target or target == "-":
-        return UNKNOWN
-    return os.path.normpath(os.path.join(directory, os.path.expanduser(target)))
+#: A detail marker (first element): the command would turn off the real-push check — `git push --no-verify`,
+#: a command-level `core.hooksPath` override, or a `git config core.hooksPath` — so the gate denies it rather
+#: than let an unchecked push through (review Nachtrag 15, Ebene 1, Punkt 5).
+_HOOKS_DISABLE = "\x00hooks-disabled"
+#: git global options (before the subcommand) that take their value as the next word.
+_GIT_GLOBAL_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+                               "--config-env", "--super-prefix"})
 
 
-def _git_call(words: list[str], directory: str | None) -> tuple[str, str | None, list[str] | None] | None:
-    i, config_injected = 0, False
+def _expansion_present(command: str) -> bool:
+    """Whether the command carries a parameter or command expansion outside single quotes (`$`, `${…}`,
+    `$(…)`, or a backtick). Such an expansion runs before the words are final, so the command is not the one
+    strict simple command the gate resolves, and it is NOT MEASURED (review R4-3, R4-4)."""
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        if c == "'":
+            j = command.find("'", i + 1)
+            if j < 0:
+                return False
+            i = j + 1
+        elif c == "\\":
+            i += 2
+        elif c in "$`":
+            return True
+        else:
+            i += 1
+    return False
+
+
+def _hooks_off(key: str) -> bool:
+    """Whether a git config key is `core.hooksPath` (any case), which would redirect or disable the hook."""
+    return key.strip().lower() == "core.hookspath"
+
+
+def _strict_git(words: list[str], directory: str | None) -> tuple[str, str | None, list[str] | None] | None:
+    """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call or
+    None when it is not a push and not a `core.hooksPath` config. At most one literal `-C` is joined onto
+    the directory (not normalised, so the judge resolves it physically through symlinks, R4-2); more than
+    one `-C`, or any other global option (`-c`, `--git-dir`, `--work-tree`, `--namespace`, `--exec-path`,
+    `--no-pager`, …), makes the push NOT MEASURED (R4-6). `--no-verify`, a `-c core.hooksPath` override, or
+    a `git config core.hooksPath` denies (Punkt 5)."""
+    i, c_count, not_measured, deny = 0, 0, False, False
     while i < len(words) and words[i].startswith("-"):
-        option, _, inline = words[i].partition("=")
-        value = inline if inline else (words[i + 1] if option in _GIT_OPTIONS_WITH_VALUE
-                                       and i + 1 < len(words) else "")
-        if option == "-C":
-            directory = _join(directory, value)
-        elif option in ("--git-dir", "--work-tree"):
-            directory = UNKNOWN
+        option, eq, inline = words[i].partition("=")
+        has_value = option in _GIT_GLOBAL_VALUE
+        value = inline if eq else (words[i + 1] if has_value and i + 1 < len(words) else "")
+        if option == "-C" and value and "$" not in value:
+            c_count += 1
+            directory = (os.path.join(directory, os.path.expanduser(value))
+                         if directory is not UNKNOWN else UNKNOWN)
         elif option in ("-c", "--config-env"):
-            # -c <key>=<value> / --config-env=<key>=<envvar>: the config key is the part before the first =.
-            if not value or _key_affects_push_target(value.partition("=")[0]):
-                config_injected = True  # per-command config the gate's separate reads never see (R3-1)
-        i += 2 if (option in _GIT_OPTIONS_WITH_VALUE and not inline) else 1
-    if i < len(words) and words[i] == "push":
-        args = words[i + 1:]
-        return "git push", directory, ([_GIT_CONFIG_SENTINEL] + args if config_injected else args)
-    return None
+            if _hooks_off(value.partition("=")[0]):
+                deny = True
+            not_measured = True  # any per-command config is a global option the strict form does not model
+        else:
+            not_measured = True  # --git-dir, --work-tree, --namespace, --exec-path, --no-pager, a 2nd -C, …
+        i += 2 if (has_value and not eq) else 1
+    if i < len(words) and words[i] == "config" and any(_hooks_off(w) for w in words[i + 1:]):
+        return "git config core.hooksPath", directory, [_HOOKS_DISABLE]
+    if i >= len(words) or words[i] != "push":
+        return None
+    args = words[i + 1:]
+    if "--no-verify" in args:
+        deny = True
+    if c_count > 1:
+        not_measured = True
+    if deny:
+        return "git push", directory, [_HOOKS_DISABLE]
+    if not_measured:
+        return "git push", UNKNOWN, None
+    return "git push", directory, args
 
 
 def _gh_call(words: list[str]) -> str | None:
@@ -361,16 +379,6 @@ _NEUTRAL_ASSIGN = frozenset({"GIT_TERMINAL_PROMPT", "GIT_PAGER", "GIT_EDITOR", "
 #: the push is NOT MEASURED through the configuration sentinel. The gate's reads inherit only the host
 #: process's own environment, never a configuration assigned in the command (review Nachtrag 11, Befund 2).
 _CONFIG_ASSIGN = frozenset({"HOME", "XDG_CONFIG_HOME"})
-#: Shell keywords, builtins and wrappers whose presence before or at a gated call takes the command outside
-#: the modeled grammar, so the directory is NOT MEASURED (review Nachtrag 12). `env` is handled separately,
-#: as a carrier of prefix assignments; `cd`, `pushd` and `popd` are handled by the directory resolver.
-_UNMODELLED = frozenset({
-    "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until", "do", "done", "select",
-    "function", "eval", "source", ".", "exec", "set", "shopt", "alias", "export", "declare", "typeset",
-    "local", "readonly", "sudo", "command", "builtin",
-})
-
-
 def _assign_class(name: str) -> str:
     """How a command-level assignment of `name` bears on a gated call: 'config' (the git configuration the
     gate's reads never see), 'neutral' (neither the repository nor the configuration), or 'other'
@@ -417,128 +425,143 @@ def _subst_bodies(raw: str) -> list[str]:
     return bodies
 
 
-def _recurse_bodies(value: str, has_subst: bool, raw: str) -> list[str]:
-    """The sub-commands to scan inside a word: the bodies of its command substitutions, or, for a quoted
-    word with no substitution, the word itself when it could carry a command (`bash -c '...'`)."""
-    if has_subst:
-        return _subst_bodies(raw)
-    if any(ch in value for ch in " \t;&|`"):
-        return [value]
-    return []
+def _resolve_single(words: list[tuple], directory: str | None) -> list[tuple[str, str | None, list[str] | None]] | None:
+    """One strict simple command (word tokens (value, has_subst, raw)). Returns the gated call list, or []
+    when the command is not one the gate gates. The repository and target resolve only when `git`/`gh` is
+    the bare command word and every prefix assignment is from the neutral list; a path invocation or any
+    non-neutral assignment leaves the call NOT MEASURED. A `--no-verify`/`core.hooksPath` form denies
+    regardless (review Nachtrag 15, Ebene 1)."""
+    i, neutral_only = 0, True
+    while i < len(words) and _ASSIGNMENT.match(words[i][0]):
+        if _assign_class(words[i][0].split("=", 1)[0]) != "neutral":
+            neutral_only = False
+        i += 1
+    if i >= len(words):
+        return []
+    head = words[i][0]
+    base = os.path.basename(head)
+    rest = [w[0] for w in words[i + 1:]]
+    if base not in ("git", "git-push", "gh"):
+        return []
+    bare = head == base
+    if base == "gh":
+        name = _gh_call(rest)
+        if name is None:
+            return []
+        return [(name, directory if (bare and neutral_only) else UNKNOWN, None)]
+    call = ("git push", directory, rest) if base == "git-push" else _strict_git(rest, directory)
+    if call is None:
+        return []
+    name, cdir, detail = call
+    if detail == [_HOOKS_DISABLE]:
+        return [call]  # a push that would disable the real-push check denies, whatever the context
+    if not (bare and neutral_only):
+        return [(name, UNKNOWN, None)]
+    return [call]
+
+
+#: Commands whose string argument is executed as a command, so the gate scans inside it for a gated call.
+_SHELL_DASH_C = frozenset({"bash", "sh", "dash", "zsh", "ksh"})
+_STRING_EXECUTORS = frozenset({"eval", "source", "."})
+
+
+def _shell_c_arg(args: list[str]) -> str | None:
+    """The command string a shell runs via `-c`, or None. A short-flag bundle that carries `c` — `-c`,
+    `-lc`, `-cl`, `-ilc`, in any order — puts the shell in command mode, exactly as `bash`/`sh` run it;
+    the command string is then the first following word that is not itself an option. A `--` is skipped.
+    The gate must see the string whichever bundle introduces it, or `bash -lc "git push"` (the Codex host's
+    own form) would slip past as an unchecked push (review R4-1, the bypass probes)."""
+    c_at = next((i for i, w in enumerate(args)
+                 if w.startswith("-") and not w.startswith("--") and w != "-" and "c" in w[1:]), None)
+    if c_at is None:
+        return None
+    for w in args[c_at + 1:]:
+        if w == "--" or (w.startswith("-") and w != "-"):
+            continue
+        return w
+    return None
+
+
+def _scan_run(words: list[tuple], emit, depth: int) -> None:
+    """Report every gated call a single run of words (between control operators) executes, each NOT
+    MEASURED. A `git`/`git-push`/`gh` word anywhere in the run (so after a wrapper such as `env`, `sudo`,
+    `command`, `nice`, `timeout`) counts; a shell executor word anywhere (`bash`/`sh`/`dash`/`zsh`/`ksh`,
+    by basename, so a path form too) has its `-c` command string scanned in turn, and `eval`/`source`/`.`
+    have their string arguments scanned. The scan is an over-approximation on purpose: it never misses a
+    nested push, including through a wrapper or a `-lc`/`-cl` bundle (review R4-1, the bypass probes), at
+    the cost of a rare harmless ask."""
+    for k, (value, _has, _raw) in enumerate(words):
+        base = os.path.basename(value)
+        rest = [w[0] for w in words[k + 1:]]
+        if base == "git":
+            found = _strict_git(rest, UNKNOWN)
+            if found is not None:
+                emit([found])
+        elif base == "git-push":
+            emit([("git push", UNKNOWN, None)])
+        elif base == "gh":
+            name = _gh_call(rest)
+            if name is not None:
+                emit([(name, UNKNOWN, None)])
+        elif base in _SHELL_DASH_C and depth < MAX_NESTING:
+            cmd = _shell_c_arg(rest)
+            if cmd is not None:
+                emit(gated_calls(cmd, UNKNOWN, depth + 1))
+        elif base in _STRING_EXECUTORS and depth < MAX_NESTING:
+            for arg in rest:
+                if not arg.startswith("-"):
+                    emit(gated_calls(arg, UNKNOWN, depth + 1))
+
+
+def _overmatch(command: str, toks: list, depth: int) -> list[tuple[str, str | None, list[str] | None]]:
+    """A command that is not one strict simple `git`/`gh` command: every gated call that occurs anywhere
+    is reported NOT MEASURED (never resolved, never inactive), and a hook-disabling form denies. No call may
+    be missed, so each control-operator-separated run of words is scanned, and every command substitution
+    in the raw text — including a dropped redirection target — is scanned in turn (R4-1, R4-3, R4-4, R4-5)."""
+    calls: list[tuple[str, str | None, list[str] | None]] = []
+
+    def emit(found: list) -> None:
+        for name, _dir, detail in found:
+            calls.append((name, UNKNOWN, detail if detail == [_HOOKS_DISABLE] else None))
+
+    run: list = []
+    for t in toks:
+        if t[0] == "word":
+            run.append(t[1:])
+        else:  # a control operator ends the run
+            if run:
+                _scan_run(run, emit, depth)
+            run = []
+    if run:
+        _scan_run(run, emit, depth)
+    if depth < MAX_NESTING:
+        for body in _subst_bodies(command):
+            emit(gated_calls(body, UNKNOWN, depth + 1))
+    return calls
 
 
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0) -> list[tuple[str, str | None, list[str] | None]]:
-    """Every gated call in a shell command: its name, the directory it acts in, and for `git push` the
-    words after `push` (its remote and refspecs), None for the other calls.
-
-    The gate determines the directory only when the command up to the call stands in a small, closed
-    grammar — a sequence of simple commands joined by `;`, a newline or `&&`, with a literal `cd`/`pushd`
-    certain to have run (unconditional, or `&&`-chained directly into the call) and prefix assignments from
-    a narrow neutral list. Everything else leaves the directory NOT MEASURED (UNKNOWN): `||`, `|`, `&`,
-    `{ }`, a shell keyword or an unmodeled builtin, a function definition, a command or parameter
-    substitution before or in the call, a here-document, a non-neutral assignment (`PATH` included), and a
-    `git` invoked by a path. A subshell `( ... )` confines its own `cd` and environment; a configuration
-    assignment the gate cannot see marks the push through the configuration sentinel (review Nachtrag 12).
-
-    Over-matching is deliberate: a word `git` followed by `push` counts, and so does a gated call inside a
-    quoted argument or a command substitution. An over-matched or path-invoked push the gate cannot place
-    carries the UNKNOWN directory, so it is NOT MEASURED rather than silently inactive.
-    """
+    """Every gated call in a shell command: its name, the directory it acts in (UNKNOWN = NOT MEASURED),
+    and for `git push` the words after `push`. The gate resolves the repository and target of a gated call
+    ONLY when the whole command is exactly one simple command headed by a bare `git`/`git-push`/`gh` — at
+    most one literal `git -C`, only neutral prefix assignments, trailing redirections with a literal
+    target, no expansion anywhere (Nachtrag 15, Ebene 1). Every other form a gated call occurs in — a
+    `;`/`&&`/`||`/`|`/`&`/newline chain, a pre-command or wrapper, `cd`, a subshell, a group, a keyword, a
+    function, `eval`, `source`, `sh -c`, a command or parameter substitution anywhere (even in a redirection
+    target), a here-document — is NOT MEASURED, never inactive. `--no-verify` or a `core.hooksPath` override
+    denies, because it would turn off the real-push check (Punkt 5)."""
     toks = _lex(command)
     if toks is None or depth > MAX_NESTING:
         return [("unparsed command", UNKNOWN, None)] if _FALLBACK.search(command) else []
-    # A function definition `name() …` turns `()` into a definition, not a subshell: the command defines a
-    # function the gate does not model, so no call in it resolves its directory.
-    func_def = any(toks[k] == ("op", "(") and k and toks[k - 1][0] == "word" for k in range(len(toks)))
-    segments: list[tuple[str, list]] = []  # (the operator before the segment, its word tokens)
-    op, cur = "", []
-    for t in toks:
-        if t[0] == "op":
-            segments.append((op, cur)); op, cur = t[1], []
-        else:
-            cur.append(t[1:])  # (value, has_subst, raw)
-    segments.append((op, cur))
-    calls: list[tuple[str, str | None, list[str] | None]] = []
-    cwd = directory       # the directory after every cd certain to have run (subshell-aware)
-    run_dir = directory   # cwd plus the literal cds of the current &&-run
-    run_cond_cd = False   # the current &&-run holds a cd whose running is conditional
-    tainted = func_def    # the command has left the modeled grammar; the directory is NOT MEASURED
-    stack: list = []      # saved (cwd, run_dir, run_cond_cd, tainted) for each open subshell
-    for sep, words in segments:
-        if sep == "(":
-            stack.append((cwd, run_dir, run_cond_cd, tainted)); run_dir, run_cond_cd = cwd, False
-        elif sep == ")":
-            cwd, run_dir, run_cond_cd, tainted = stack.pop() if stack else (UNKNOWN, UNKNOWN, False, True)
-        elif sep in ("||", "|", "&", "{", "}", "<<"):
-            tainted = True
-        elif sep == ";":
-            if run_cond_cd:
-                tainted = True  # after `;`, a conditional cd leaves the next run's base directory uncertain
-            run_dir, run_cond_cd = cwd, False
-        elif sep == "":
-            run_dir, run_cond_cd = cwd, False
-        # classify the segment's leading prefix assignments and an optional `env` carrier
-        i, cfg_seg, dir_seg = 0, False, False
-        while i < len(words) and _ASSIGNMENT.match(words[i][0]):
-            cls = _assign_class(words[i][0].split("=", 1)[0])
-            cfg_seg |= cls == "config"; dir_seg |= cls == "other"
-            i += 1
-        if i < len(words) and os.path.basename(words[i][0]) == "env" and not words[i][1]:
-            j = i + 1
-            while j < len(words):
-                tok = words[j][0]
-                if tok == "--":
-                    j += 1; break
-                if tok.startswith("-"):
-                    dir_seg = True; break  # an env option the gate does not model (env -C, env -i)
-                if _ASSIGNMENT.match(tok):
-                    cls = _assign_class(tok.split("=", 1)[0])
-                    cfg_seg |= cls == "config"; dir_seg |= cls == "other"
-                    j += 1; continue
-                break
-            i = j
-        head = words[i] if i < len(words) else None
-        hbase = os.path.basename(head[0]) if head else ""
-        if hbase in ("cd", "pushd"):
-            rest = words[i + 1:]
-            target = rest[0] if rest else None
-            literal = target is not None and len(rest) == 1 and not target[1] and not target[0].startswith("-")
-            moved = _join(cwd if sep in ("", ";", "(") else run_dir, target[0]) if literal else UNKNOWN
-            if moved is UNKNOWN:
-                tainted = True
-            elif sep in ("", ";", "("):
-                cwd = run_dir = moved
-            else:  # sep == "&&": conditional, so it counts only for a push in this same &&-run
-                run_dir, run_cond_cd = moved, True
-        elif hbase == "popd":
-            tainted = True
-        elif hbase in _UNMODELLED:
-            tainted = True
-        base_dir = UNKNOWN if tainted else run_dir              # a nested command inherits this directory
-        cmd_dir = UNKNOWN if (tainted or dir_seg) else run_dir  # this segment's own command acts here
-        for k, (value, has_subst, raw) in enumerate(words):
-            name = os.path.basename(value)
-            if k >= i and name in ("git", "git-push", "gh"):
-                call_dir = cmd_dir if value in ("git", "git-push", "gh") else UNKNOWN  # a path git: NOT MEASURED
-                rest = [w[0] for w in words[k + 1:]]
-                if name == "git":
-                    found = _git_call(rest, call_dir)
-                    if found:
-                        gname, gdir, gdetail = found
-                        if cfg_seg and gname == "git push":
-                            gdetail = [_GIT_CONFIG_SENTINEL] + (gdetail or [])
-                        calls.append((gname, gdir, gdetail))
-                elif name == "git-push":
-                    calls.append(("git push", call_dir,
-                                  [_GIT_CONFIG_SENTINEL] + rest if cfg_seg else rest))
-                else:
-                    found_gh = _gh_call(rest)
-                    if found_gh:
-                        calls.append((found_gh, call_dir, [_GIT_CONFIG_SENTINEL] if cfg_seg else None))
-            inner_dir = base_dir if (k < i and _ASSIGNMENT.match(value)) else cmd_dir
-            for body in _recurse_bodies(value, has_subst, raw):
-                calls.extend(gated_calls(body, inner_dir, depth + 1))
-    return calls
+    words = [t[1:] for t in toks if t[0] == "word"]
+    h = 0
+    while h < len(words) and _ASSIGNMENT.match(words[h][0]):
+        h += 1
+    single = not any(t[0] == "op" for t in toks) and not _expansion_present(command)
+    head_gated = h < len(words) and os.path.basename(words[h][0]) in ("git", "git-push", "gh")
+    if single and head_gated:
+        return _resolve_single(words, directory)
+    return _overmatch(command, toks, depth)
 
 
 # --- the declaration and the evidence at HEAD --------------------------------------------------------
@@ -1025,13 +1048,33 @@ def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
             or _config_bool(repo, "push.followTags", deadline))
 
 
+def _push_rewrite_present(repo: str, deadline: float) -> bool:
+    """Whether any `url.<base>.pushInsteadOf` rewrite rule is configured. Such a rule rewrites the push
+    endpoint but not the fetch that built the remote-tracking ref, so the push can diverge from the
+    comparison state through a mechanism that string-comparing the displayed URLs cannot prove absent: git
+    applies the rewrite at the transport layer, and the gate does not reproduce git's longest-prefix match
+    to decide whether a given rule hits this remote. A symmetric `url.<base>.insteadOf` is not a push
+    rewrite — it rewrites fetch and push alike, so the tracking ref already records the rewritten endpoint
+    (review R4-7, Ebene 1, Punkt 7). Any such rule present makes the push NOT MEASURED, conservatively; it
+    never widens what the gate measures."""
+    out = _git(repo, "config", "--get-regexp", r"^url\..*\.pushinsteadof$", deadline=deadline)
+    if out.returncode not in (0, 1):  # 1 is "no match", any other code is a read failure
+        raise GateError("git could not read the url.*.pushInsteadOf configuration")
+    return bool(out.stdout.strip())
+
+
 def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
-    """Whether the remote resolves to exactly one push endpoint equal to its one fetch endpoint. git's
-    `remote get-url` applies pushurl and url.<base>.insteadOf / pushInsteadOf and lists every value, so this
-    catches a pushInsteadOf rewrite, a pushurl, or a second URL that would send the push to a different or a
-    further endpoint than the remote-tracking ref records (Befund 1). A git error raises GateError (NOT
-    MEASURED). A symmetric insteadOf rewrites fetch and push alike, so the tracking ref still records the
-    push endpoint and the two URLs stay equal."""
+    """Whether the remote resolves to exactly one push endpoint equal to its one fetch endpoint, with no
+    push-only rewrite in play. git's `remote get-url` applies pushurl and url.<base>.insteadOf /
+    pushInsteadOf and lists every value, so the string comparison catches a pushurl or a second URL that
+    sends the push to a different or a further endpoint than the remote-tracking ref records (Befund 1).
+    String equality alone is not a proof the push endpoint matches the comparison-state origin, though
+    (review R4-7): a `url.<base>.pushInsteadOf` rewrite is applied at the transport layer, so the gate
+    additionally requires that no such push-only rewrite is configured. A symmetric insteadOf rewrites
+    fetch and push alike, so the tracking ref still records the push endpoint and the two URLs stay equal.
+    A git error raises GateError (NOT MEASURED)."""
+    if _push_rewrite_present(repo, deadline):
+        return False
     push = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)
     fetch = _git(repo, "remote", "get-url", "--all", remote, deadline=deadline)
     if push.returncode != 0 or fetch.returncode != 0:
@@ -1117,8 +1160,6 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     """
     if args is None:
         args = []
-    if _GIT_CONFIG_SENTINEL in args:
-        return None  # a `-c`/`--config-env` key that can change the target and the gate's reads cannot see
     remotes = _remote_names(repo, deadline)
     remote, refspecs, i, options_done = None, [], 0, False
     while i < len(args):
@@ -1444,7 +1485,14 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
                                    "map to a locally tracked target (a URL or path remote, --all/--mirror/--tags, a "
                                    "wildcard refspec, a configured remote push list, or a branch this repository does "
                                    "not track)")
+    return _evaluate_targets(repo, head_commit, targets, deadline)
 
+
+def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: float) -> Verdict:
+    """The verdict for a resolved set of push targets: the evidence at every commit the push newly sends to
+    each target, and whether those commits change the evidence rules against the target's known state. Both
+    the shell-command path (evaluate_push, targets from resolve_push_targets) and the prototype pre-push
+    hook (pre_push_verdict, targets from git's own stdin) share this core."""
     def where(commit: str) -> str:
         return f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
 
@@ -1505,6 +1553,42 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
     return Verdict("pass", tip.detail + tail, "verified", digests=tip.digests, repo=repo, head=head_commit)
 
 
+#: All-zero object names git writes for a missing side of a pre-push ref line (SHA-1 and SHA-256 lengths).
+_ZERO_OIDS = frozenset({"0" * 40, "0" * 64})
+
+
+def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Verdict:
+    """PROTOTYPE Ebene-2 pre-push verdict (DECISIONS.md, D24 — measured in test fixtures only, not installed
+    or wired to core.hooksPath outside tests). git hands a pre-push hook, on stdin, one line
+    `<local_ref> <local_sha> <remote_ref> <remote_sha>` per ref being pushed, in the repository the push
+    runs in. The hook therefore knows the exact commits and the remote's own current state without parsing
+    any shell command, so it reaches a verdict where Ebene 1 (the shell grammar) says NOT MEASURED. Each
+    line becomes a target: source = the local sha (None when it is all-zero, a deletion), dest = the remote
+    ref, tracking = the remote sha (None when the remote has no such ref yet). Then the shared core judges
+    the evidence exactly as for a resolved shell push."""
+    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
+    if top.returncode != 0:
+        return Verdict("deny", f"proofbundle gate (pre-push): {directory} is not inside a git work tree.",
+                       "not_a_work_tree", evidence=f"none, {directory} is not a work tree",
+                       failed="the pre-push hook ran outside a repository", next_step="run the hook from the repository")
+    repo = top.stdout.decode().strip()
+    head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+    head_commit = head.stdout.decode().strip() if head.returncode == 0 and head.stdout.strip() else ""
+    targets = []
+    for local_ref, local_sha, remote_ref, remote_sha in lines:
+        dest = remote_ref if remote_ref.startswith(_TRACKABLE) else None
+        if dest is None:  # a ref the gate does not model (not a branch or tag): NOT MEASURED
+            return _unresolved_verdict(repo, head_commit or local_sha,
+                                       f"the pre-push ref {remote_ref} is not a branch or a tag")
+        source = None if local_sha in _ZERO_OIDS else local_sha
+        tracking = None if remote_sha in _ZERO_OIDS else remote_sha
+        targets.append(PushTarget(source=source, dest=dest, tracking=tracking))
+    if not targets:
+        return Verdict("inactive", "NOT MEASURED: the pre-push hook received no ref to push.", "nothing_declared",
+                       repo=repo, head=head_commit)
+    return _evaluate_targets(repo, head_commit or targets[0].source, targets, deadline)
+
+
 class Outcome:
     """The combined answer for one call: the decision, its text, and the verdict of every repository."""
 
@@ -1548,6 +1632,13 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
     """The verdict for one gated call: a shell `git push` resolves its targets and the commits it sends; a
     `gh pr/release create` is judged as a push of the current branch to its upstream; an MCP tool, whose
     remote target the gate cannot read, is judged at HEAD with no range comparison."""
+    if detail and detail[0] == _HOOKS_DISABLE:
+        return Verdict("deny", f"the command would turn off the gate's check of the real push, so it is denied.",
+                       "hooks_disabled",
+                       evidence="none, the command would disable the pre-push verification",
+                       failed=f"{name} would skip or redirect the hook that verifies the real push "
+                              "(--no-verify, or a core.hooksPath override)",
+                       next_step="push without --no-verify and without setting core.hooksPath, or obtain a human review")
     if name == "git push":
         return evaluate_push(directory, detail, deadline)
     if name.startswith("gh "):
@@ -1559,11 +1650,18 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
     verdicts = []
     seen = set()
     for name, directory, detail in calls:
-        resolved = directory if directory is UNKNOWN else os.path.normpath(os.path.join(cwd, directory))
+        # realpath, not normpath: a `git -C` walks the filesystem physically through symlinks, so the gate
+        # must too, or `git -C link/..` names a different repository than a string normalisation would (R4-2).
+        resolved = directory if directory is UNKNOWN else os.path.realpath(os.path.join(cwd, directory))
         key = (name, resolved, tuple(detail) if detail is not None else None)
         if key in seen:
             continue
         seen.add(key)
+        if detail and detail[0] == _HOOKS_DISABLE:
+            # a hook-disabling form denies whatever the directory is, so a `--no-verify` or a core.hooksPath
+            # override inside a chain (where the directory is NOT MEASURED) still denies, not merely asks.
+            verdicts.append(_evaluate_call(name, resolved, detail, deadline))
+            continue
         if resolved is UNKNOWN:
             verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {name} acts on "
                                            "(a directory change or a git option it does not resolve).",
@@ -2047,6 +2145,24 @@ def _host(argv: list[str]) -> str:
     raise GateError(f"unknown arguments {argv!r}; the gate takes --host claude or --host codex")
 
 
+def pre_push_command(argv: list[str]) -> int:
+    """PROTOTYPE git pre-push hook entry (DECISIONS.md, D24 — not installed outside tests). git runs a
+    pre-push hook as `hook <remote-name> <remote-url>` with one `<local_ref> <local_sha> <remote_ref>
+    <remote_sha>` line per ref on stdin, in the repository being pushed. This reaches a verdict from those
+    lines alone and denies the push (exit 1) when the evidence does not verify, whatever shell form launched
+    the push. The two positional arguments (remote name and URL) are accepted and not needed here."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    lines = [tuple(parts) for parts in (raw.split() for raw in sys.stdin.read().splitlines())
+             if len(parts) == 4]
+    try:
+        verdict = pre_push_verdict(os.getcwd(), lines, deadline)
+    except GateError as exc:
+        sys.stderr.write(f"proofbundle pre-push (prototype): {exc}. The push is denied.\n")
+        return 1
+    sys.stderr.write(verdict.text() + "\n")
+    return 1 if verdict.decision == "deny" else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["tree-digest"]:
@@ -2055,6 +2171,8 @@ def main(argv: list[str] | None = None) -> int:
         return ci_check_command(argv[1:])
     if argv[:1] == ["run-evidence"]:
         return run_evidence_command(argv[1:])
+    if argv[:1] == ["pre-push"]:
+        return pre_push_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions = "claude", None, []
     try:

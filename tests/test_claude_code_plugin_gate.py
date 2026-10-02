@@ -228,33 +228,45 @@ def reason(answer: dict) -> str:
 # --- which calls are gated ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("command, expected", [
+    # Nachtrag 15, Ebene 1: the gate resolves ONLY one strict simple command headed by a bare git/gh. These
+    # are the counter-cases the reviewer named (Punkt 6); each must still resolve.
     ("git push", [("git push", ".", [])]),
+    ("git push origin main", [("git push", ".", ["origin", "main"])]),
+    ("git push origin HEAD:main", [("git push", ".", ["origin", "HEAD:main"])]),
     ("git push origin main --tags", [("git push", ".", ["origin", "main", "--tags"])]),
-    ("git -c push.default=simple push", [("git push", ".", [gate._GIT_CONFIG_SENTINEL])]),
-    ("git -c http.proxy=http://p push origin main", [("git push", ".", ["origin", "main"])]),
-    ("git --no-pager push", [("git push", ".", [])]),
-    ("/usr/bin/git push", [("git push", gate.UNKNOWN, [])]),  # N12: a path git is NOT MEASURED, not the host's
+    ("GIT_TERMINAL_PROMPT=0 git push", [("git push", ".", [])]),           # a neutral prefix still resolves
+    ("git push origin main 2>&1", [("git push", ".", ["origin", "main"])]),  # a trailing redirection is dropped
+    ("git push origin main >/dev/null", [("git push", ".", ["origin", "main"])]),
+    ("git -C ../other push", [("git push", "./../other", [])]),  # one literal -C, joined not normalised (R4-2)
     ("git-push origin", [("git push", ".", ["origin"])]),
-    ("FOO=1 sudo command git push", [("git push", gate.UNKNOWN, [])]),  # N12: sudo, command, PATH-class prefix
-    ("make && git push", [("git push", ".", [])]),
-    ("cd a && cd b && git push", [("git push", "a/b", [])]),  # N12 counter-case: the && cd chain still resolves
-    ("git push origin main 2>&1", [("git push", ".", ["origin", "main"])]),  # N12 counter-case: redirection dropped
-    ("git status\ngit push", [("git push", ".", [])]),
-    ("x=$(git push)", [("git push", ".", [])]),
-    ("`git push`", [("git push", ".", [])]),
-    ("bash -c 'git push'", [("git push", ".", [])]),
-    ("echo 'git push'", [("git push", ".", [])]),
     ("gh pr create --fill", [("gh pr create", ".", None)]),
     ("gh pr new", [("gh pr new", ".", None)]),
     ("gh -R owner/repo pr create", [("gh pr create", ".", None)]),
     ("gh release create v1.0.0", [("gh release create", ".", None)]),
     ("gh release new v1", [("gh release new", ".", None)]),
-    ("cd sub && git push", [("git push", "sub", [])]),
-    ("sh -c 'cd sub; git push'", [("git push", "sub", [])]),
-    ("git -C ../other push", [("git push", "../other", [])]),
-    ("cd $HOME && git push", [("git push", gate.UNKNOWN, [])]),
-    ("git --git-dir=x push", [("git push", gate.UNKNOWN, [])]),
-    ("popd; git push", [("git push", gate.UNKNOWN, [])]),
+    # Everything outside that one strict form is NOT MEASURED: a git global option the strict form does not
+    # model, a path-form git, a wrapper, a chain, a pipeline, a nesting, an expansion, a cd.
+    ("git -c push.default=simple push", [("git push", gate.UNKNOWN, None)]),
+    ("git -c http.proxy=http://p push origin main", [("git push", gate.UNKNOWN, None)]),
+    ("git --no-pager push", [("git push", gate.UNKNOWN, None)]),
+    ("git --git-dir=x push", [("git push", gate.UNKNOWN, None)]),
+    ("/usr/bin/git push", [("git push", gate.UNKNOWN, None)]),  # a path git is NOT MEASURED, not the host's
+    ("FOO=1 sudo command git push", [("git push", gate.UNKNOWN, None)]),  # sudo, command, a PATH-class prefix
+    ("make && git push", [("git push", gate.UNKNOWN, None)]),
+    ("cd a && cd b && git push", [("git push", gate.UNKNOWN, None)]),   # Nachtrag 15: a cd chain is NOT MEASURED
+    ("cd sub && git push", [("git push", gate.UNKNOWN, None)]),         # Punkt 6: cd sub is now NOT MEASURED
+    ("cd $HOME && git push", [("git push", gate.UNKNOWN, None)]),
+    ("git status\ngit push", [("git push", gate.UNKNOWN, None)]),
+    ("popd; git push", [("git push", gate.UNKNOWN, None)]),
+    ("x=$(git push)", [("git push", gate.UNKNOWN, None)]),
+    ("`git push`", [("git push", gate.UNKNOWN, None)]),
+    ("bash -c 'git push'", [("git push", gate.UNKNOWN, None)]),
+    ("sh -c 'cd sub; git push'", [("git push", gate.UNKNOWN, None)]),
+    # Punkt 5: a form that would turn off the gate's check of the real push is denied, not resolved.
+    ("git push --no-verify", [("git push", ".", [gate._HOOKS_DISABLE])]),
+    ("git -c core.hooksPath=/x push", [("git push", ".", [gate._HOOKS_DISABLE])]),
+    ("git config core.hooksPath /x", [("git config core.hooksPath", ".", [gate._HOOKS_DISABLE])]),
+    # An unparsable command (an unbalanced quote) still names its gated call through the fallback.
     ("git commit -m 'no closing quote; git push", [("unparsed command", gate.UNKNOWN, None)]),
 ])
 def test_a_gated_call_is_found_in_every_shell_form(command, expected):
@@ -265,6 +277,7 @@ def test_a_gated_call_is_found_in_every_shell_form(command, expected):
     "git status", "git stash push", "git log --grep push", "git config push.default simple",
     "git -c a=b status push", "gh pr view 3", "gh pr list", "gh release list", "npm publish", "ls -la",
     "git commit -m 'no closing quote",
+    "echo 'git push'",   # Nachtrag 15: echo does not execute its argument, so it is not a gated call
 ])
 def test_a_call_the_gate_does_not_know_is_left_alone(command):
     assert gate.gated_calls(command) == []
@@ -618,22 +631,24 @@ def test_a_call_whose_repository_cannot_be_resolved_is_not_measured(shim, repo):
 def test_the_repository_a_directory_change_names_is_the_one_checked(shim, repo, tmp_path):
     other = _plain(tmp_path, "other", remote=True)
     assert decision(run_gate(shim, repo, "git push")) == "pass"
-    assert decision(run_gate(shim, repo, f"cd {other} && git push")) == "inactive"
+    # Nachtrag 15: a cd no longer resolves the repository; the whole command is NOT MEASURED.
+    assert decision(run_gate(shim, repo, f"cd {other} && git push")) == "ask"
+    # but a single `git -C <repo>` still names the repository, resolved physically through symlinks (R4-2).
     assert decision(run_gate(shim, other, f"git -C {repo} push")) == "pass"
 
 
-def test_an_undeclared_repository_next_to_others_gives_way_to_their_answers(shim, repo, tmp_path):
+def test_a_chain_across_repositories_is_not_measured_while_a_single_push_resolves(shim, repo, tmp_path):
     other = _plain(tmp_path, "other", remote=True)
+    # Nachtrag 15: a chained command is NOT MEASURED as a whole, whatever the repositories hold — the gate
+    # no longer resolves one repository per link of a chain. Red against aed5ed74, which resolved each and
+    # answered inactive here.
     both = run_gate(shim, repo, f"git push && git -C {other} push")
-    assert decision(both) == "inactive", "no decision: one verified, one not active"
-    assert "1 of 1 declared items verified" in reason(both) and INACTIVE in reason(both)
-    plain = _plain(tmp_path, "plain")  # no remote: its push is NOT MEASURED, so the whole call asks
-    assert decision(run_gate(shim, other, f"git push && git -C {plain} push")) == "ask"
-    tampered = tmp_path / "tampered"
-    shutil.copytree(repo, tampered)
-    _tamper_bundle(tampered / BUNDLE)
-    _commit(tampered)
-    assert decision(run_gate(shim, other, f"git push && git -C {tampered} push")) == "deny"
+    assert decision(both) == "ask"
+    assert both["systemMessage"].startswith("NOT MEASURED: ")
+    # each repository still resolves on its own, as a single `git -C`; the declared, verified repo passes
+    assert decision(run_gate(shim, other, f"git -C {repo} push")) == "pass"
+    plain = _plain(tmp_path, "plain")  # no remote: a single push to it is NOT MEASURED
+    assert decision(run_gate(shim, plain, "git push")) == "ask"
 
 
 def test_one_failing_repository_denies_the_whole_call(shim, repo, tmp_path):
@@ -641,7 +656,9 @@ def test_one_failing_repository_denies_the_whole_call(shim, repo, tmp_path):
     shutil.copytree(repo, other)
     _tamper_bundle(other / BUNDLE)
     _commit(other)
-    assert decision(run_gate(shim, repo, f"git push && git -C {other} push")) == "deny"
+    # Nachtrag 15: reached as a single `git -C` (a chain would be NOT MEASURED); invalid evidence at head
+    # denies regardless of the push range.
+    assert decision(run_gate(shim, repo, f"git -C {other} push")) == "deny"
 
 
 def test_a_verifier_that_cannot_start_denies(shim, repo, tmp_path):
@@ -664,8 +681,14 @@ def test_unreadable_hook_input_is_denied(shim, repo, raw):
 
 
 def test_a_codex_style_argument_vector_is_read_as_a_command(shim, repo):
-    event = json.dumps({"cwd": str(repo), "tool_input": {"command": ["bash", "-lc", "git push"]}})
-    assert decision(run_gate(shim, repo, "", raw=event)) == "pass"
+    direct = json.dumps({"cwd": str(repo), "tool_input": {"command": ["git", "push"]}})
+    assert decision(run_gate(shim, repo, "", raw=direct)) == "pass"
+    # A vector that wraps the push in a nested shell is read as a command too, and the push is seen: under
+    # the closed grammar a nested shell is NOT MEASURED. At aed5ed74 `bash -lc 'git push'` resolved to the
+    # cwd and passed a verified cwd; N15 makes it NOT MEASURED (ask). The Codex consequence of this is
+    # reported to the owner, not decided here (Nachtrag 15, Ebene 1).
+    wrapped = json.dumps({"cwd": str(repo), "tool_input": {"command": ["bash", "-lc", "git push"]}})
+    assert decision(run_gate(shim, repo, "", raw=wrapped)) == "ask"
 
 
 # --- MCP tools ---------------------------------------------------------------------------------------
@@ -986,16 +1009,18 @@ def _remote_head(tmp_path, name):
 
 
 @pytest.mark.parametrize("command, cwd, expect", [
-    ("(cd ../good && true) ; git push origin main", "bad", "deny"),   # cd confined to the subshell -> bad
+    ("(cd ../good && true) ; git push origin main", "bad", "ask"),   # Nachtrag 15: a subshell -> NOT MEASURED
     ("GIT_DIR=../bad/.git git push origin main", "good", "ask"),      # prefix GIT_DIR -> NOT MEASURED
     ("env -C ../bad git push origin main", "good", "ask"),            # env -C -> NOT MEASURED
     ("export GIT_DIR=../bad/.git ; git push origin main", "good", "ask"),  # exported GIT_DIR -> NOT MEASURED
 ])
 def test_a_command_that_moves_the_repository_is_resolved_or_not_measured(shim, tmp_path, command, cwd, expect):
-    """Befund 1: a cd in a subshell, a GIT_DIR prefix, env -C and an exported GIT_DIR each make the push act
-    on `bad` while the gate, at 78132534, judged `good` or the cwd as inactive. The gate now resolves the
-    subshell correctly to bad (deny) and marks the others NOT MEASURED. Executing the command shows the
-    push really reaches bad's remote. Red against 78132534, where every form was inactive."""
+    """Befund 1 with Nachtrag 15, Ebene 1: a cd in a subshell, a GIT_DIR prefix, env -C and an exported
+    GIT_DIR each make the push act on `bad` while the gate, at 78132534, judged `good` or the cwd as
+    inactive. Under the closed grammar none of these is the one strict simple command, so every form is now
+    NOT MEASURED (the subshell too, which Nachtrag 12 still resolved to bad). Executing the command shows the
+    push really reaches bad's remote, so NOT MEASURED is the honest verdict. Red against aed5ed74, where the
+    subshell form resolved to bad and denied."""
     bad = _repo_with_remote(tmp_path, "bad", stale=True)
     _repo_with_remote(tmp_path, "good", stale=False)
     answer = run_gate(shim, tmp_path / cwd, command)
@@ -1026,13 +1051,15 @@ def test_an_unmodelled_git_env_var_is_not_measured_but_a_neutral_one_resolves(sh
     "env HOME=/tmp/elsewhere git push origin main",
 ])
 def test_config_assigned_in_the_command_is_not_measured(shim, tmp_path, command):
-    """Befund 2: a configuration assigned in the command (GIT_CONFIG_*, HOME, XDG_CONFIG_HOME, through a
-    prefix or env) is seen only by the push, not by the gate's separate reads, so the push is NOT MEASURED.
-    Red against 78132534, which inherited only the host environment and resolved these to main."""
+    """Befund 2 with Nachtrag 15, Ebene 1: a configuration assigned in the command (GIT_CONFIG_*, HOME,
+    XDG_CONFIG_HOME, through a prefix or env) is a non-neutral prefix or a wrapper, so the directory is NOT
+    MEASURED. Red against 78132534, which inherited only the host environment and resolved these to main.
+    Under the closed grammar the reason is the generic unresolved-directory one, not the config-sentinel
+    wording the earlier resolver produced."""
     _repo_with_remote(tmp_path, "r", stale=False)
     answer = run_gate(shim, tmp_path / "r", command)
     assert decision(answer) == "ask"
-    assert "cannot resolve what this push sends" in reason(answer)
+    assert "cannot tell which repository" in reason(answer)
 
 
 # --- Nachtrag 12: the closed grammar for the directory --------------------------------------------------
@@ -1082,45 +1109,55 @@ def test_a_closed_grammar_form_is_not_measured_and_the_push_still_reaches_bad(sh
     assert _remote_head(tmp_path, "bad") == bad_head, "the push really acted on bad, not on what the gate judged"
 
 
-#: The differential set of Nachtrag 12, point 2: short commands built from the grammar's pieces, each with
-#: the repository the gate must resolve it to ('a', 'b') or None when the grammar leaves it NOT MEASURED.
-#: `s.sh` and `u` stand for a sourced script and an unset variable, filled per run.
+#: The differential set of Nachtrag 15, Ebene 1: short commands built from the grammar's pieces and the
+#: reviewer's dimensions (CDPATH, a symlinked -C, a failing redirection, conditional chains, subshells, a
+#: start-file-style function, a nested shell), each with the repository the gate must resolve it to
+#: ('a', 'b') or None when the closed grammar leaves it NOT MEASURED. `{bad}` is a redirection target whose
+#: directory does not exist, so the redirection fails and the push never runs; `blink` is a symlink to the
+#: sibling repository `b`.
 _DIFFERENTIAL = [
+    # the strict single commands: resolved, and the push really comes from the resolved repository
     ("git push origin main", "a"),
     ("git push --force origin main", "a"),
-    ("true && git push origin main", "a"),
     ("GIT_TERMINAL_PROMPT=0 git push origin main", "a"),
     ("git push origin main 2>/dev/null", "a"),
-    ("cd ../b && git push origin main", "b"),
-    ("cd ../b ; git push origin main", "b"),
-    ("cd ../b && cd ../a && git push origin main", "a"),
-    ("cd ../b && git push origin main 2>&1", "b"),
     ("git -C ../b push origin main", "b"),
-    ("(cd ../b) ; git push origin main", "a"),
-    ("(cd ../b && true) ; git push origin main", "a"),
-    ("false && cd ../b ; git push origin main", None),
-    ("true || cd ../b ; git push origin main", None),
-    ("cd ../b ; cd ../a && git push origin main", "a"),  # two certain cds compose; the push comes from a
-    ("{ cd ../b ; } ; git push origin main", None),
-    ("if true ; then cd ../b ; fi ; git push origin main", None),
-    ("for d in ../b ; do cd $d ; done ; git push origin main", None),
-    ("set -a ; GIT_DIR=../b/.git ; git push origin main", None),
-    ("eval 'cd ../b' ; git push origin main", None),
+    ("git -C blink push origin main", "b"),                     # a symlinked -C, resolved physically (R4-2)
+    ("git push origin main >{bad}", "a"),                       # the redirection fails, so no push runs
+    # everything else is NOT MEASURED
+    ("true && git push origin main", None),
+    ("cd ../b && git push origin main", None),
+    ("cd ../b ; git push origin main", None),
+    ("cd ../b && cd ../a && git push origin main", None),
+    ("cd ../b && git push origin main 2>&1", None),
+    ("(cd ../b) ; git push origin main", None),                 # subshell
+    ("(cd ../b && true) ; git push origin main", None),         # subshell
+    ("false && cd ../b ; git push origin main", None),          # conditional chain
+    ("true || cd ../b ; git push origin main", None),           # conditional chain
+    ("{ cd ../b ; } ; git push origin main", None),             # brace group
+    ("f() { cd ../b ; } ; f ; git push origin main", None),     # start-file-style function
+    ("CDPATH=.. cd b && git push origin main", None),           # CDPATH redirects `cd b` to the sibling b
+    ("CDPATH=.. git push origin main", None),                   # a non-neutral prefix
+    ("HOME=/nowhere git push origin main", None),               # config-class prefix: now NOT MEASURED
     ("GIT_DIR=../b/.git git push origin main", None),
-    ("HOME=/nowhere git push origin main", "a"),  # config-class prefix: directory stays a, push still from a
-    ("cd $U && git push origin main", None),
+    ("eval 'cd ../b' ; git push origin main", None),
+    ("bash -lc 'cd ../b && git push origin main'", None),       # a nested shell (the bypass probe)
     ("command git push origin main", None),
-    ("printf 'cd ../b\\n' > {script} ; . {script} ; git push origin main", None),
 ]
 
 
 def test_the_differential_property_holds_the_push_comes_from_the_resolved_repository(tmp_path, capsys):
-    """Nachtrag 12, point 2: for every command the gate either resolves one repository and the push really
-    comes from it, or it says NOT MEASURED. Each command is judged by the gate and then run in bash; the
-    repository whose bare remote advances is the real source. The property is that a resolved directory
-    always matches the real source. Prints the set size and the number of violations for the report."""
+    """Nachtrag 15, Ebene 1: two properties over the differential set. P1 (soundness, no false pass): for
+    every command, when the gate resolves a directory and the executed command advances exactly one remote,
+    that remote is the resolved one. P2 (the closed grammar): the gate resolves exactly the strict single
+    commands and leaves every other form NOT MEASURED, resolving to the listed repository where it resolves.
+    Each command is judged by the gate, then run in bash in `a`; the repository whose bare remote advances
+    is the real source. Prints the set size, the number resolved, and the violations for the report. Red
+    against aed5ed74, where the cd, subshell and config-prefix forms resolved rather than NOT MEASURED."""
     a = _repo_with_remote(tmp_path, "a", stale=False)
     b = _repo_with_remote(tmp_path, "b", stale=False)
+    os.symlink(str(b), str(a / "blink"))  # a symlink in a's working tree pointing at the sibling repo b
+    bad = str(tmp_path / "no-such-dir" / "x")  # a redirection target whose parent directory does not exist
     heads = {name: subprocess.run(["git", "-C", str(tmp_path / name), "rev-parse", "HEAD"],
                                   capture_output=True, text=True, check=True).stdout.strip()
              for name in ("a", "b")}
@@ -1128,7 +1165,7 @@ def test_the_differential_property_holds_the_push_comes_from_the_resolved_reposi
     assert all(base[n] and base[n] != heads[n] for n in ("a", "b"))
     violations, measured = [], 0
     for raw, expect in _DIFFERENTIAL:
-        command = raw.replace("{script}", str(tmp_path / "s.sh"))
+        command = raw.replace("{bad}", bad)
         for name in ("a", "b"):  # reset each bare remote to one commit behind its HEAD
             subprocess.run(["git", "--git-dir", str(tmp_path / f"{name}.git"), "update-ref",
                             "refs/heads/main", base[name]], check=True, capture_output=True)
@@ -1144,19 +1181,169 @@ def test_the_differential_property_holds_the_push_comes_from_the_resolved_reposi
             resolved = "a" if os.path.realpath(os.path.join(str(a), gdir)) == os.path.realpath(str(a)) else \
                        ("b" if os.path.realpath(os.path.join(str(a), gdir)) == os.path.realpath(str(b)) else "?")
             measured += 1
-            if source != resolved:
-                violations.append((command, resolved, source))
+            if source is not None and source != resolved:  # P1: a resolved push never acts on another repo
+                violations.append((command, "resolved", resolved, "but pushed", source))
+        # P2: the gate resolves exactly the forms the closed grammar resolves, to exactly the named repo
         if expect is None:
             if gdir is not gate.UNKNOWN:
-                violations.append((command, "expected NOT MEASURED", gdir))
-        elif source != expect:
-            violations.append((command, f"expected source {expect}", source))
+                violations.append((command, "expected NOT MEASURED, resolved", resolved))
+        elif resolved != expect:
+            violations.append((command, f"expected resolved {expect}, got", resolved))
     with capsys.disabled():
-        print(f"\n[N12 differential] commands={len(_DIFFERENTIAL)} resolved={measured} "
+        print(f"\n[N15 differential] commands={len(_DIFFERENTIAL)} resolved={measured} "
               f"violations={len(violations)}")
         for v in violations:
             print("  VIOLATION", v)
     assert violations == []
+
+
+# --- Nachtrag 15, Ebene 1: deny on a hook-disabling form, the bypass probes, R4-7 ----------------------
+
+@pytest.mark.parametrize("command", [
+    "git push --no-verify",
+    "git push --no-verify origin main",
+    "git -c core.hooksPath=/x push origin main",
+    "git -c core.hooksPath= push",
+    "git config core.hooksPath /x",
+    "git config core.hooksPath .husky",
+])
+def test_a_form_that_turns_off_the_real_push_check_is_denied(shim, repo, command):
+    """Nachtrag 15, Ebene 1, Punkt 5: --no-verify would skip the pre-push hook, and setting core.hooksPath
+    (through a -c option or git config) would redirect or disable it, so the gate denies rather than let an
+    unchecked push through. Red against aed5ed74, where --no-verify was a neutral push flag that resolved
+    and passed, and core.hooksPath was never recognised."""
+    answer = run_gate(shim, repo, command)
+    assert decision(answer) == "deny"
+    assert "turn off the gate's check of the real push" in reason(answer)
+
+
+def test_a_hook_disabling_form_denies_in_a_chain_where_the_directory_is_not_measured(shim, repo):
+    """The deny holds inside a chain, where the directory is NOT MEASURED: the hook-disabling marker denies
+    regardless of the directory, and a deny outranks the NOT MEASURED ask of the rest of the chain. Without
+    this the bypass `git push --no-verify && anything` would only ask, not deny."""
+    assert decision(run_gate(shim, repo, "git push --no-verify && git push")) == "deny"
+    assert decision(run_gate(shim, repo, "cd elsewhere && git push --no-verify")) == "deny"
+
+
+@pytest.mark.parametrize("command", [
+    "bash -lc 'git push'",
+    "bash -cl 'git push origin main'",
+    "sh -lc 'git push'",
+    "env bash -lc 'git push'",
+    "bash -ilc 'git push'",
+    "/bin/bash -lc 'git push'",
+])
+def test_a_push_nested_in_a_shell_bundle_is_not_measured(shim, repo, command):
+    """A push run through `bash -lc`/`sh -lc` (the Codex host's own form) and its flag-bundle variants is a
+    nested shell, which the closed grammar leaves NOT MEASURED — never silently passed. Red against
+    aed5ed74, which resolved these to the cwd and would pass a verified cwd. The scan still has to SEE the
+    push through any `-c` bundle (`-lc`, `-cl`, `-ilc`) and through a wrapper, or the push would slip past
+    unseen; that it is seen, as NOT MEASURED, is what this asserts."""
+    answer = run_gate(shim, repo, command)
+    assert decision(answer) == "ask"
+    assert answer["systemMessage"].startswith("NOT MEASURED: ")
+
+
+def test_a_push_insteadof_rewrite_is_not_measured(repo):
+    """R4-7: `git remote get-url` shows the rewritten push URL, but the equality of the displayed push and
+    fetch URLs is not a proof the push reaches the comparison-state origin — a url.*.pushInsteadOf rewrite
+    is applied at the transport layer, which the gate does not reproduce. With such a rewrite configured the
+    push is NOT MEASURED. Red against aed5ed74, which compared only the displayed URLs."""
+    assert _resolve(repo, "origin", "main") is not None  # no push rewrite: the target resolves
+    _git(repo, "config", "url.https://mirror.invalid/.pushInsteadOf", "https://origin.invalid/")
+    assert _resolve(repo, "origin", "main") is None      # a push-only rewrite: NOT MEASURED
+
+
+def test_a_symlinked_minus_c_is_resolved_physically(repo, tmp_path):
+    """R4-2: `git -C` walks the filesystem physically, so the gate resolves it with realpath, not a string
+    normalisation. A `git -C link/..` where `link` is a symlink names the symlink target's parent, not the
+    cwd. The gate must judge the same repository git does."""
+    link = tmp_path / "link"
+    link.symlink_to(repo)
+    # git -C link/.. acts in the parent of the symlink target (repo's parent), not in the cwd
+    calls = gate.gated_calls(f"git -C {link}/.. push")
+    assert len(calls) == 1 and calls[0][0] == "git push"
+    _, gdir, _ = calls[0]
+    assert gdir is not gate.UNKNOWN
+    assert os.path.realpath(os.path.join(os.getcwd(), gdir)) == os.path.realpath(str(repo.parent))
+
+
+# --- Nachtrag 15, Ebene 2: the prototype pre-push hook (DECISIONS.md, D24) -----------------------------
+
+def _push_env(shim: dict) -> dict:
+    return dict(shim, GIT_TERMINAL_PROMPT="0",
+                **{k: "t" for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")},
+                **{k: "t@e" for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")})
+
+
+def _install_pre_push(repo_path: pathlib.Path) -> None:
+    """Install the prototype pre-push hook in THIS repository only, through its local core.hooksPath. The
+    hook forwards git's argv and stdin to the gate's `pre-push` entry. Nothing global is touched."""
+    hooks = repo_path / ".pb-prototype-hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-push"
+    hook.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{GATE}" pre-push "$@"\n', encoding="utf-8")
+    hook.chmod(0o755)
+    _git(repo_path, "config", "core.hooksPath", str(hooks))
+
+
+#: Forms that push to `bad` from within it. Level 1 leaves most NOT MEASURED; the prototype Level-2 hook
+#: sees git's real refs and denies the push regardless of the form. `git push --no-verify` is the exception
+#: the levels are built around: --no-verify skips the hook, so only Level 1's deny stops it.
+_LEVEL2_FORMS = [
+    "git push origin main",
+    "cd . && git push origin main",
+    "(git push origin main)",
+    "{ git push origin main ; }",
+    "true && git push origin main",
+    "env git push origin main",
+    "bash -lc 'git push origin main'",
+    "bash -cl 'git push origin main'",
+    "sh -lc 'git push origin main'",
+    "eval 'git push origin main'",
+]
+
+
+def test_the_prototype_pre_push_hook_catches_what_level_1_leaves_not_measured(shim, tmp_path, capsys):
+    """Nachtrag 15, Ebene 2 (D24): the prototype pre-push hook reaches a verdict from git's own ref lines,
+    independent of the shell form, so it denies a push of invalid evidence that Level 1 could only mark NOT
+    MEASURED. Each form is run for real against `bad` (whose declaration names a subject no tree matches);
+    the hook must block every one and the remote must not advance. `git push --no-verify` is measured too:
+    it skips the hook (Level 2 cannot see it), which is why Level 1 denies it. A clean repository's push is
+    allowed. Prints the Level 1 / Level 2 table for the report."""
+    bad = _repo_with_remote(tmp_path, "bad", stale=True)
+    good = _repo_with_remote(tmp_path, "good", stale=False)
+    _install_pre_push(bad)
+    _install_pre_push(good)
+    base = _remote_head(tmp_path, "bad")
+    env = _push_env(shim)
+    rows = []
+    for form in _LEVEL2_FORMS:
+        subprocess.run(["git", "--git-dir", str(tmp_path / "bad.git"), "update-ref", "refs/heads/main", base],
+                       check=True, capture_output=True)
+        level1 = decision(run_gate(shim, bad, form))
+        proc = subprocess.run(["bash", "-c", form], cwd=str(bad), capture_output=True, env=env)
+        blocked = proc.returncode != 0 and _remote_head(tmp_path, "bad") == base
+        rows.append((form, level1, "blocked" if blocked else "PUSHED"))
+        assert blocked, (form, "level2 did not block", proc.stderr.decode()[-400:])
+    # --no-verify skips the hook entirely: Level 2 cannot stop it, only Level 1's deny does.
+    subprocess.run(["git", "--git-dir", str(tmp_path / "bad.git"), "update-ref", "refs/heads/main", base],
+                   check=True, capture_output=True)
+    nv_level1 = decision(run_gate(shim, bad, "git push --no-verify origin main"))
+    nv = subprocess.run(["bash", "-c", "git push --no-verify origin main"], cwd=str(bad), capture_output=True, env=env)
+    nv_blocked = nv.returncode != 0 and _remote_head(tmp_path, "bad") == base
+    rows.append(("git push --no-verify origin main", nv_level1, "blocked" if nv_blocked else "PUSHED"))
+    assert nv_level1 == "deny"               # Level 1 denies --no-verify
+    assert not nv_blocked                    # Level 2 is skipped by --no-verify, so the real push went through
+    # a clean repository (nothing invalid): the hook allows the push and the remote advances
+    good_base = _remote_head(tmp_path, "good")
+    ok = subprocess.run(["bash", "-c", "git push origin main"], cwd=str(good), capture_output=True, env=env)
+    assert ok.returncode == 0 and _remote_head(tmp_path, "good") != good_base
+    rows.append(("git push origin main (clean repo)", decision(run_gate(shim, good, "git push origin main")), "allowed"))
+    with capsys.disabled():
+        print("\n[N15 Ebene-2 pre-push prototype]  form | Level 1 | Level 2 (real push)")
+        for form, l1, l2 in rows:
+            print(f"  {form:45} | {l1:9} | {l2}")
 
 
 def test_a_fetch_refspec_that_does_not_map_the_target_is_not_measured(shim, repo):
@@ -1240,11 +1427,13 @@ def test_config_injected_through_the_environment_is_not_measured(repo, monkeypat
 
 
 def test_config_injected_on_the_command_line_is_not_measured(shim, repo):
-    """R3-1: `git -c <key>=<value> push` injects configuration the gate's separate reads never see. The
-    push is NOT MEASURED. Red against 3026924e, where -c was consumed and ignored."""
+    """R3-1 with Nachtrag 15, Ebene 1: `git -c <key>=<value> push` carries a git global option the strict
+    single-command grammar does not model, so the directory is NOT MEASURED before any target is resolved.
+    Red against 3026924e, where -c was consumed and ignored; the reason is now the generic unresolved-
+    directory one, not the earlier config-sentinel wording."""
     answer = run_gate(shim, repo, "git -c remote.origin.pushurl=/tmp/elsewhere.git push origin main")
     assert decision(answer) == "ask"
-    assert "cannot resolve what this push sends" in reason(answer)
+    assert reason(answer).startswith("NOT MEASURED: ") and "cannot tell which repository" in reason(answer)
 
 
 def test_a_force_push_that_drops_a_declaration_on_another_branch_is_resolved_or_not_measured(shim, repo, tmp_path):
