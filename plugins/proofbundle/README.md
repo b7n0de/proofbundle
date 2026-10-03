@@ -108,7 +108,8 @@ unknown directory, a configuration git cannot read, and every free form under Co
 seen: an environment a session command exported earlier, `PATH`, and git's compiled-in default programs. A
 write by the file tools (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and Codex's `apply_patch`) to a
 repository's configuration, an included or global configuration file, or the hook directory is NOT
-MEASURED too; a write by a shell command is not judged (D8). A per-command `-c alias.*` is NOT MEASURED even
+MEASURED too, and under Codex every file-tool write is, because its hook does not bind the write to the
+filesystem and directory it acts in (D12); a write by a shell command is not judged (D8). A per-command `-c alias.*` is NOT MEASURED even
 without the word push, and a `url.*.insteadOf` or `url.*.pushInsteadOf` rewrite that applies to the
 remote, resolved by git's own rules, makes a push NOT MEASURED; a rule for another host does not (Punkt
 7/9, Runde 6 Punkt 2). When the target comparison is NOT MEASURED, the evidence at uniquely determined

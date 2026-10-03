@@ -2676,7 +2676,24 @@ def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
 def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
     """None for a file-tool write the gate does not gate; else NOT MEASURED, ask under Claude and deny under
     Codex (Nachtrag 19b, Punkt 6): a write to the configuration or the hooks of a repository changes which
-    programs later git calls run, and a path the gate cannot map for sure is treated the same way."""
+    programs later git calls run, and a path the gate cannot map for sure is treated the same way.
+
+    Under Codex every file-tool write is NOT MEASURED and denied (review Runde 7, R7-6): an apply_patch without
+    `*** Environment ID:` writes into the turn's primary environment (codex-rs/core/src/tools/handlers/mod.rs at
+    14a477ea, resolve_tool_environment, lines 160-178), which need not be the filesystem and directory of the
+    hook's cwd, and the hook input carries nothing that binds the two. A missing environment line is no proof of
+    binding, so the gate cannot tell for any path whether it is configuration or a hook."""
+    if host == "codex":
+        why = (f"under Codex the hook does not bind {tool} to the filesystem and directory the write acts in: an "
+               "apply_patch without `*** Environment ID:` writes into the turn's primary environment, which need "
+               "not be the hook's directory, and a missing environment line is no proof of binding")
+        verdict = Verdict("deny", f"NOT MEASURED: {why}, so the gate cannot tell whether the write touches the "
+                                  "configuration or hooks of a git repository.",
+                          "codex_write_unbound", evidence="the filesystem, directory and files the write acts on",
+                          failed="the Codex hook does not carry the environment and directory of a file write",
+                          next_step="make the change under a host whose hook binds the write's directory, or have "
+                                    "a person make it")
+        return Outcome("deny", verdict.text(), [verdict])
     targets = _write_targets(tool, tool_input)
     reasons = [f"the gate cannot tell for sure which files this {tool} call writes"] if targets is None else []
     for target in targets or []:

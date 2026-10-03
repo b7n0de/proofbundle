@@ -484,7 +484,8 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
   own path too (review Runde 7, R7-5; measured is the gate's decision, not a host's file change); a
   path the gate cannot map for sure (a relative path without a known directory, an `apply_patch` with
   `*** Environment ID:` or a `***` line the gate does not read) is NOT MEASURED. Every other write gets no
-  decision. Not judged: a write made by a shell command (a redirection, `cp`, `chmod` in a Bash call),
+  decision under Claude Code; under Codex every file-tool write is NOT MEASURED and denied, because the hook
+  does not bind it to the filesystem and directory it acts in (D12; review Runde 7, R7-6). Not judged: a write made by a shell command (a redirection, `cp`, `chmod` in a Bash call),
   through an MCP tool, or by a program the user starts; the matcher covers the file tools only.
 
 Not seen:
@@ -647,11 +648,13 @@ FREE GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7)
   environment (`codex-rs/core/src/tools/handlers/mod.rs` lines 160-178; the grammar's
   `*** Environment ID:` line, `codex-rs/apply-patch/src/parser.rs` line 8), while the hook's `cwd` is the
   local environment's (`codex-rs/core/src/hook_runtime.rs` lines 248-253, `tool_hook_cwd`).
-- Named limit: when the primary environment is not the local one, a relative patch path names a file in a
-  filesystem the hook does not see, and the gate resolves it against the hook's `cwd`. A patch that names
-  an environment, or carries a `***` line the gate does not read, is NOT MEASURED and denied. Whether
-  Codex fires the hook for `apply_patch` in every approval mode is read from the source, not measured in a
-  run.
+- Every file-tool write under Codex is NOT MEASURED and denied (`codex_write_unbound`; review Runde 7,
+  R7-6). When the primary environment is not the local one, a patch path names a file in a filesystem the
+  hook does not see, and the hook input carries nothing that binds the write to the filesystem and directory
+  it acts in; a missing environment line is no proof of binding, so the gate cannot tell for any path
+  whether it is configuration or a hook. This makes the plugin's write path unusable under Codex until such
+  a binding is carried. Whether Codex fires the hook for `apply_patch` in every approval mode is read from
+  the source, not measured in a run.
 
 Options:
 - A. Deny under Codex (chosen for every NOT MEASURED ask).

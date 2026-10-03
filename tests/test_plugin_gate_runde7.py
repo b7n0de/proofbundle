@@ -291,3 +291,17 @@ def test_r7_5_a_write_to_an_include_from_the_command_scope_asks(tmp_path, monkey
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "include.path")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(included))
     assert _write_decision("Write", included, repo) == "ask"
+
+
+# --- R7-6: the Codex write path without a proven binding ---------------------------------------------------------
+
+def test_r7_6_a_codex_patch_without_a_proven_binding_is_denied(tmp_path):
+    """R7-6: without `*** Environment ID:` apply_patch writes into the primary environment while the hook's cwd
+    can be local; a synthetic patch on .git/config with a local hook cwd outside any repository got no answer.
+    A missing environment line is no proof of binding, so the write is NOT MEASURED and denied."""
+    cwd = tmp_path / "local-not-a-repository"
+    cwd.mkdir()
+    patch = "*** Begin Patch\n*** Update File: .git/config\n@@\n-a\n+b\n*** End Patch"
+    outcome = gate.decide_write("apply_patch", {"command": patch}, str(cwd), _deadline(), host="codex")
+    assert outcome is not None and outcome.decision == "deny", outcome
+    assert outcome.text.startswith("NOT MEASURED:") and "Environment ID" in outcome.text, outcome.text
