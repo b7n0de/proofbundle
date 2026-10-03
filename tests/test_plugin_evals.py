@@ -381,22 +381,31 @@ _TRACE_SKIPPED_TYPES = frozenset({"user", "system", "result", "rate_limit_event"
 _TRACE_SKIPPED_BLOCKS = frozenset({"text", "thinking"})
 
 
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    """R8-7: json.loads keeps only the last value of a repeated key, so an object that names message or name
+    twice could read a tool call away; every object on every level must name each key once."""
+    obj = dict(pairs)
+    if len(obj) != len(pairs):
+        raise ValueError("a trace object repeats a key")
+    return obj
+
+
 def tool_calls_from_trace(path: pathlib.Path) -> list[str] | None:
     """The plugin tool-use names, in order, from an eval run's trace.jsonl, or None when the trace is not a
     complete transcript. R4-8: only a genuine tool_use block inside an assistant message counts (not a
     name that appears in free text or in a tool_result echo), the full plugin tool name is kept (a foreign
     __verify_receipt is collected under its own name, never folded into the plugin's), and a corrupted
     (non-JSON) line or an empty trace returns None — NOT MEASURED — because a verdict read from a partial
-    transcript could miss the very call it must see."""
+    transcript could miss the very call it must see. R8-7: so does an object on any level that repeats a key."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not lines:
         return None
     names: list[str] = []
     for line in lines:
         try:
-            obj = json.loads(line)
+            obj = json.loads(line, object_pairs_hook=_unique_keys)
         except ValueError:
-            return None  # a corrupted line: NOT MEASURED, never a silent skip
+            return None  # a corrupted line or a repeated key (R8-7): NOT MEASURED, never a silent skip
         # R6-3: every event line must be a JSON object. A list, a scalar or null is not what a transcript writes
         # and could hide a relevant event (the reviewer's case: an assistant event wrapped in a JSON list before
         # a valid verify read as 'ok'), so the whole trace is not-measured, never a silent skip. R7-8: the type
@@ -515,6 +524,31 @@ def test_r6_3_the_control_sequence_inspect_before_verify_is_an_order_violation(t
     trace.write_text("\n".join(json.dumps(e) for e in (inspect, _GOOD_VERIFY)), encoding="utf-8")
     assert tool_calls_from_trace(trace) == [I, V]
     assert run_order_verdict(trace) == "order-violation"
+
+
+_INSPECT_THEN_EMPTY_MESSAGE = ('{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "%s", '
+                               '"input": {}}]}, "message": {"content": []}}' % I)
+_INSPECT_THEN_EMPTY_NAME = ('{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "%s", '
+                            '"name": "", "input": {}}]}}' % I)
+
+
+@pytest.mark.parametrize("ambiguous", [_INSPECT_THEN_EMPTY_MESSAGE, _INSPECT_THEN_EMPTY_NAME],
+                         ids=["message-twice", "tool-name-twice"])
+def test_r8_7_a_repeated_json_key_before_a_valid_verify_is_not_measured(tmp_path, ambiguous):
+    """R8-7, the reviewer's case: one line names message twice, first with the inspect call and then with empty
+    content, and a valid verify follows; reading kept the last value, lost the inspect and graded 'ok'. The same
+    with the tool name repeated. The ambiguous trace is not-measured now. The control: the unique sequence,
+    inspect before verify, is an order-violation."""
+    assert I in ambiguous and I not in json.dumps(json.loads(ambiguous))   # a plain read loses the inspect call
+    trace = tmp_path / "ambiguous.jsonl"
+    trace.write_text(ambiguous + "\n" + json.dumps(_GOOD_VERIFY), encoding="utf-8")
+    assert tool_calls_from_trace(trace) is None
+    assert run_order_verdict(trace) == "not-measured"
+    control = tmp_path / "control.jsonl"
+    control.write_text("\n".join(json.dumps(e) for e in (
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": I, "input": {}}]}},
+        _GOOD_VERIFY)), encoding="utf-8")
+    assert run_order_verdict(control) == "order-violation"
 
 
 def test_the_order_check_reads_an_eval_trace(tmp_path):
