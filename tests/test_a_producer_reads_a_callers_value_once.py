@@ -1147,8 +1147,8 @@ _SWEEP = {
     ("src/proofbundle/signed_eval_receipt.py", "pae"): "not affected: checks nothing, formats its arguments "
         "(the DSSE encoding of the receipts draft)",
     ("src/proofbundle/signed_eval_receipt.py", "emit_signed_eval_receipt"): "reads each value once: payload "
-        "members only as exact str, int or bool, leaves through plain_bytes, the switch through "
-        "require_switch; the receipt it returns passes its own verifier first",
+        "members only as exact str, int or bool, the switch through require_switch; the receipt it "
+        "returns passes its own verifier first",
     ("src/proofbundle/emit.py", "generate_signer"): "not affected: takes no argument",
     ("src/proofbundle/emit.py", "save_signer"): "not affected: writes a key to a path; the path is "
         "written into no artefact",

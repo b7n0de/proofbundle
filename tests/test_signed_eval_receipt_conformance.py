@@ -1,8 +1,9 @@
 """The vectors of draft-gruszka-signed-evaluation-receipts-00 as conformance tests (EXPERIMENTAL format).
 
 Every vector of the draft's Appendix A is judged as the draft judges it: the same verdict and the same
-first failing step of Section 6. Where proofbundle produces a receipt (P1 to P3, P6 to P10) it
-produces the draft's bytes. eval-claim v0.1 stays verifiable next to the new format, and the new format
+first failing step of Section 5. Where proofbundle produces a receipt (P1, P2, P6 to P10) it produces
+the draft's bytes. The receipt has no inclusion member since 2026-10-03; B and the signatures are the
+ones of the 68 vectors before, and the seven vectors that only exercised the inclusion proof are gone. eval-claim v0.1 stays verifiable next to the new format, and the new format
 is written only on the explicit ``--format eval-receipt-v1`` switch. A divergence is red; the fixture
 is never adjusted to the code (tests/fixtures/signed_eval_receipt/README.md).
 """
@@ -55,7 +56,7 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
         self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
 
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
-        self.assertEqual(len(VECTORS), 68)
+        self.assertEqual(len(VECTORS), 61)
         for v in VECTORS:
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
@@ -69,9 +70,19 @@ class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
                 self.assertEqual(("PASS" if got.ok else "FAIL", got.step_label), (v["expected"], v["step"]),
                                  got.reason)
 
-    def test_each_of_the_twelve_steps_decides_some_vector(self):
+    def test_each_of_the_eleven_steps_decides_some_vector(self):
         steps = {int(v["step"].split()[0]) for v in VECTORS if v["expected"] == "FAIL"}
-        self.assertEqual(steps, set(range(1, 13)))
+        self.assertEqual(steps, set(range(1, 12)))
+
+    def test_a_receipt_of_the_former_shape_with_inclusion_fails_at_step_1(self):
+        """The member set is exactly schema, payload_b64 and signature: P1 with the inclusion object it
+        carried until 2026-10-03 (the same B and signature) is refused at step 1, not verified."""
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        former = json.loads(p1["receipt"])
+        former["inclusion"] = {"tree_size": 1, "leaf_index": 0, "inclusion_path": [],
+                               "root": hashlib.sha256(b"\x00" + base64.b64decode(former["payload_b64"])).hexdigest()}
+        got = ser.verify_signed_eval_receipt(json.dumps(former).encode("utf-8"), p1["key"])
+        self.assertEqual((got.ok, got.step_label), (False, "1"), got.reason)
 
     def test_a_pass_returns_b_and_a_fail_returns_none(self):
         p1 = next(v for v in VECTORS if v["id"] == "P1")
@@ -85,14 +96,12 @@ class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
 class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
     def test_positive_vectors_byte_for_byte(self):
         signer = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
-        other = [bytes.fromhex(x) for x in DOC["other_leaves_hex"]]
         by_id = {v["id"]: v for v in VECTORS}
-        for vid, (leaf_index, key_hint) in DOC["emit"].items():
+        for vid, key_hint in DOC["emit"].items():
             with self.subTest(vector=vid):
                 v = by_id[vid]
                 b = base64.b64decode(json.loads(v["receipt"])["payload_b64"])
-                out = ser.emit_signed_eval_receipt(json.loads(b), signer, other_leaves=other,
-                                                   leaf_index=leaf_index, key_hint=key_hint)
+                out = ser.emit_signed_eval_receipt(json.loads(b), signer, key_hint=key_hint)
                 self.assertEqual(out, v["receipt"])
 
     def test_a_payload_the_verifier_refuses_is_not_emitted(self):
@@ -163,14 +172,18 @@ class TheCliKeepsV01AndSwitchesExplicitly(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             seed = os.path.join(d, "seed.bin")
             Path(seed).write_bytes(bytes.fromhex(DOC["issuer_seed_hex"]))
-            payload, leaves = os.path.join(d, "payload.json"), os.path.join(d, "leaves.json")
+            payload = os.path.join(d, "payload.json")
             Path(payload).write_bytes(b)
-            Path(leaves).write_text(json.dumps(DOC["other_leaves_hex"]), encoding="utf-8")
             out = os.path.join(d, "receipt.json")
-            r = _run("emit-eval", "--format", "eval-receipt-v1", "--claim", payload, "--key", seed,
-                     "--other-leaves", leaves, "--out", out)
+            r = _run("emit-eval", "--format", "eval-receipt-v1", "--claim", payload, "--key", seed, "--out", out)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(Path(out).read_bytes(), p1["receipt"])
+            # The tree options went with the inclusion member: argparse refuses them (exit 2), nothing written.
+            out2 = os.path.join(d, "receipt2.json")
+            r = _run("emit-eval", "--format", "eval-receipt-v1", "--claim", payload, "--key", seed,
+                     "--leaf-index", "0", "--out", out2)
+            self.assertEqual(r.returncode, 2)
+            self.assertFalse(os.path.exists(out2))
             # Without the switch the same payload is read as an eval-claim v0.1 claim, which it is not:
             # the v0.1 path refuses it, and no receipt of the new format is written.
             out01 = os.path.join(d, "v01.json")
@@ -194,7 +207,7 @@ class TheCliKeepsV01AndSwitchesExplicitly(unittest.TestCase):
             r = _run("show-eval", v01)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertNotIn("eval-receipt-v1", r.stdout)
-            for vid, code, text in (("P1", 0, "=> OK"), ("P5", 0, "=> OK"),
+            for vid, code, text in (("P1", 0, "=> OK"), ("P10", 0, "=> OK"),
                                     ("N7", 1, "=> FAILED at step 11 (profile 4)"),
                                     ("N23", 1, "=> FAILED at step 1"), ("N44", 1, "=> FAILED at step 1")):
                 with self.subTest(vector=vid):

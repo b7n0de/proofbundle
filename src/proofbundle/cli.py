@@ -384,8 +384,8 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 def _emit_signed_eval_receipt(args: argparse.Namespace) -> int:
     """``emit-eval --format eval-receipt-v1``: the receipt of draft-gruszka-signed-evaluation-receipts-00
     (EXPERIMENTAL). Only on this explicit switch; without it ``emit-eval`` writes eval-claim v0.1 as
-    before. The claim file is the Payload itself, exactly the members of the draft's Table 1; the tree
-    has one leaf unless ``--leaf-index`` and ``--other-leaves`` place B among other leaf inputs."""
+    before. The claim file is the Payload itself, exactly the members of the draft's Table 1. The receipt
+    carries no inclusion proof; registering it in a log is outside this command."""
     from .signed_eval_receipt import emit_signed_eval_receipt  # noqa: PLC0415
     signer = _resolve_signer(args)
     if signer is None:
@@ -393,15 +393,7 @@ def _emit_signed_eval_receipt(args: argparse.Namespace) -> int:
     try:
         with open(args.claim, encoding="utf-8") as handle:
             payload = loads_strict(_read_capped(handle))
-        other = []
-        if getattr(args, "other_leaves", None):
-            with open(args.other_leaves, encoding="utf-8") as handle:
-                listed = loads_strict(_read_capped(handle))
-            if not isinstance(listed, list) or not all(isinstance(x, str) for x in listed):
-                raise ValueError("--other-leaves must hold a JSON array of hexadecimal strings")
-            other = [bytes.fromhex(x) for x in listed]
-        receipt = emit_signed_eval_receipt(payload, signer, other_leaves=other,
-                                           leaf_index=getattr(args, "leaf_index", 0) or 0)
+        receipt = emit_signed_eval_receipt(payload, signer)
     except (OSError, ValueError, TypeError, ProofBundleError) as exc:
         _err(exc)
         return 2
@@ -431,7 +423,7 @@ def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
     """``show-eval`` for a file whose schema is the receipt type of draft-gruszka-signed-evaluation-
     receipts-00. The draft's Receiver fixes the verification key, so exactly one ``--expect-issuer``
     is required; the receipt's own key is only a hint. Exit 0 PASS, 1 FAIL (with the first failing
-    step of the draft's Section 6), 2 malformed invocation or a refused pin."""
+    step of the draft's Section 5), 2 malformed invocation or a refused pin."""
     from .signed_eval_receipt import DRAFT, verify_signed_eval_receipt  # noqa: PLC0415
     pins = getattr(args, "expect_issuer", None) or []
     try:
@@ -467,8 +459,8 @@ def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
     print(f"model      commit {_s(payload['model_id_commit'])}")
     print(f"dataset    commit {_s(payload['dataset_id_commit'])}")
     print(f"timestamp  {_s(payload['timestamp'])} (the Issuer's statement)")
-    print("note       the key you fixed signed these bytes; the inclusion root is not signed, and the "
-          "receipt does not show that the score is true")
+    print("note       the key you fixed signed these bytes; the receipt does not show that it was logged "
+          "or that the score is true")
     print("=> OK")
     return 0
 
@@ -2859,10 +2851,6 @@ def build_parser() -> argparse.ArgumentParser:
                            help="v0.1 (default): the eval-claim v0.1 receipt bundle. eval-receipt-v1 "
                                 "(EXPERIMENTAL): the receipt of draft-gruszka-signed-evaluation-receipts-00; "
                                 "--claim is then the Payload of that draft's Table 1")
-    emit_eval.add_argument("--leaf-index", dest="leaf_index", type=int, default=0,
-                           help="eval-receipt-v1 only: B's position among the leaf inputs (default 0)")
-    emit_eval.add_argument("--other-leaves", dest="other_leaves", default=None,
-                           help="eval-receipt-v1 only: JSON array of the other leaf inputs as hex, in order")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
     show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
