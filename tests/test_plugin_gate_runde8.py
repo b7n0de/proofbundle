@@ -192,3 +192,22 @@ def test_r8_4_a_write_to_commondir_of_a_linked_worktree_asks(tmp_path):
     assert _write_decision(worktree / ".git", worktree) == "ask"   # the control the review names
     common = _git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
     assert pathlib.Path(common) == (gitdir / commondir.read_text(encoding="utf-8").strip()).resolve()
+
+
+# --- R8-5: a program path named git without a subcommand -----------------------------------------------------
+
+@pytest.mark.parametrize("words", ["", " --version"], ids=["no-subcommand", "version"])
+def test_r8_5_a_program_path_named_git_is_not_free_without_a_subcommand(tmp_path, words):
+    """R8-5: a program path whose basename is git, with no subcommand or with --version, got no answer and the
+    local marker program ran; the same path with `status --short` asks. The early return for the bare form
+    skipped the binding check. The anti-vacuity half: the path does run the marker. The bare `git --version`
+    stays free (the control the review names)."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-path-git"
+    program = _marker_program(tmp_path / "bin", marker, "git")
+    decision, text = _decision(f"{shlex.quote(str(program))}{words}", repo)
+    assert decision == "ask", text
+    assert _decision(f"{shlex.quote(str(program))} status --short", repo)[0] == "ask"
+    assert _decision("git --version", repo) == (None, "")
+    assert not marker.exists()
+    subprocess.run([str(program), *words.split()], capture_output=True, check=False)
+    assert marker.exists(), "the program at the path is not live; the case would be vacuous"

@@ -746,7 +746,7 @@ def _free_call_verdicts(free: list, cwd: str, deadline: float, host: str) -> lis
     repository state selects no program."""
     verdicts, seen = [], set()
     for sub, _args, directory in free:
-        label = f"git {sub}"
+        label = f"git {sub}".rstrip()
         if host == "codex" or directory is UNKNOWN:
             why = ("under Codex a repository-dependent call has no bound execution context: the hook does not "
                    "receive the directory the command runs in, D12" if host == "codex"
@@ -896,7 +896,14 @@ def _strict_git(words: list[str], directory: str | None,
     if sub is None:
         # A bare `git` or `git --version` runs nothing else; any other option-only form (`git --help` opens a
         # pager or a viewer, `git -c …`) is not a checked form (Nachtrag 19b).
-        return None if not words or words == ["--version"] else ("git", UNKNOWN, [_MAYBE_PUSH])
+        if words and words != ["--version"]:
+            return "git", UNKNOWN, [_MAYBE_PUSH]
+        # Free only as the git the gate binds: through a program path, a wrapper, a nested shell or a later run
+        # the word may name another program, so the form gets no bound context (review Runde 8, R8-5: this early
+        # return came before the binding check of R7-4, and `<path>/git --version` ran the program at that path).
+        if (start if free_base is _FROM_DIRECTORY else free_base) is UNKNOWN:
+            _note_free(" ".join(words), [], UNKNOWN, c_values)
+        return None
     # An allow-listed subcommand is free only in a checked invocation form: a NOT MEASURED already
     # established in the global-option parse (e.g. a `-c`) is never lost, and every option word must be
     # vetted inert for this entry. Otherwise the invocation is NOT MEASURED, because an unchecked option
