@@ -231,3 +231,63 @@ def test_r7_3_a_reference_transaction_hook_makes_symbolic_ref_not_measured(tmp_p
     assert decision == "ask", text
     assert "reference-transaction" in text, text
     assert not marker.exists()
+
+
+# --- R7-5: protected write targets -------------------------------------------------------------------------------
+
+def _write_decision(tool: str, path: pathlib.Path, cwd: pathlib.Path, host: str = "claude") -> str | None:
+    tool_input = {"file_path": str(path)}
+    tool_input.update({"content": "x\n"} if tool == "Write" else {"old_string": "a", "new_string": "b"})
+    outcome = gate.decide_write(tool, tool_input, str(cwd), _deadline(), host=host)
+    return None if outcome is None else outcome.decision
+
+
+def _outside_script(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A file outside the repository that a hook entry points to. It is never executed."""
+    outside = tmp_path / "outside" / "script.sh"
+    outside.parent.mkdir()
+    outside.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    outside.chmod(0o700)
+    return outside
+
+
+def test_r7_5_an_edit_of_a_hook_path_that_links_outside_asks(tmp_path):
+    """R7-5, first case: an Edit on .git/hooks/pre-push, a symlink to a file outside the repository, got no
+    answer, because only the resolved path was compared with the hook directory."""
+    repo = _repo(tmp_path)
+    (repo / ".git" / "hooks" / "pre-push").symlink_to(_outside_script(tmp_path))
+    assert _write_decision("Edit", repo / ".git" / "hooks" / "pre-push", repo) == "ask"
+
+
+def test_r7_5_an_edit_of_the_file_a_hook_entry_resolves_to_asks(tmp_path):
+    """R7-5, second case: the external target of a hook symlink, edited under its own path, got no answer."""
+    repo = _repo(tmp_path)
+    outside = _outside_script(tmp_path)
+    (repo / ".git" / "hooks" / "pre-push").symlink_to(outside)
+    assert _write_decision("Edit", outside, repo) == "ask"
+
+
+def test_r7_5_an_edit_of_a_hard_link_to_a_hook_asks(tmp_path):
+    """R7-5, third case: a hard link to a hook, edited under its own path outside the repository, got no answer."""
+    repo = _repo(tmp_path)
+    hook = repo / ".git" / "hooks" / "pre-push"
+    hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    hook.chmod(0o700)
+    alias = tmp_path / "alias-of-the-hook"
+    os.link(hook, alias)
+    assert _write_decision("Edit", alias, repo) == "ask"
+
+
+@pytest.mark.parametrize("state", ["empty", "missing"])
+def test_r7_5_a_write_to_an_include_from_the_command_scope_asks(tmp_path, monkeypatch, state):
+    """R7-5, fourth case: include.path injected through GIT_CONFIG_COUNT has the origin `command line:`, and the
+    include capture read only `file:` origins, so a write to the empty or still missing included file got no
+    answer."""
+    repo = _repo(tmp_path)
+    included = tmp_path / "injected.gitconfig"
+    if state == "empty":
+        included.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "include.path")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(included))
+    assert _write_decision("Write", included, repo) == "ask"

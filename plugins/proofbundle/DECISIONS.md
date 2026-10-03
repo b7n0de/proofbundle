@@ -474,10 +474,14 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
   under Claude Code and `^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$` under Codex. A write to a
   repository's configuration or hooks is NOT MEASURED, asked under Claude Code and denied under Codex
   (reason id `write_to_repo_state`): `.git/config`, `config.worktree`, a `.git` file, any file under the
-  effective hook directory, every file the effective configuration was read from or includes (also an
-  included file that does not exist yet, which a write would create), and the global and system files
-  (`git var GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`, the defaults when unset), for the repository the target
-  lies in and for the bound repository. Symlinks are resolved and hard links compared by file identity; a
+  effective hook directory, every file the effective configuration was read from or includes from any origin
+  (also an empty included file, and one that does not exist yet, which a write would create; an include the
+  host injects through `GIT_CONFIG_COUNT`, origin `command line:`, counts like one from a file), and the
+  global and system files (`git var GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`, the defaults when unset), for the
+  repository the target lies in and for the bound repository. The target counts as written and as resolved:
+  a hook path that is a symlink to a file outside is still a hook path, and the file a hook entry resolves
+  to, or a hard link to it or to a configuration file (compared by file identity), is protected under its
+  own path too (review Runde 7, R7-5; measured is the gate's decision, not a host's file change); a
   path the gate cannot map for sure (a relative path without a known directory, an `apply_patch` with
   `*** Environment ID:` or a `***` line the gate does not read) is NOT MEASURED. Every other write gets no
   decision. Not judged: a write made by a shell command (a redirection, `cp`, `chmod` in a Bash call),

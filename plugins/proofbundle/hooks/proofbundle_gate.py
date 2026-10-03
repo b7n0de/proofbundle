@@ -2572,9 +2572,11 @@ def _write_targets(tool: str, tool_input: object) -> list[str] | None:
 def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     """(files, directories, problem): the configuration files and hook directory that select programs for
     the repository at directory, as git resolves them with the hook's environment — every file the effective
-    configuration was read from, every file it includes (also one that does not exist yet: git skips a missing
-    include, so a write would add configuration), the default global and system files, $GIT_DIR/config and
-    config.worktree, a `.git` file that points to the repository, and the effective hook directory."""
+    configuration was read from, every file it includes from any origin (also one that is empty or does not
+    exist yet: git skips a missing include, so a write would add configuration; an include from the command
+    scope a host injects through GIT_CONFIG_COUNT counts as one from a file, review Runde 7, R7-5), the default
+    global and system files, $GIT_DIR/config and config.worktree, a `.git` file that points to the repository,
+    and the effective hook directory."""
     files, dirs = set(), set()
     entries, why = _config_entries(directory, deadline)
     if entries is None:
@@ -2584,12 +2586,19 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
         return files, dirs, f"the repository layout cannot be read ({why})"
     base = paths["toplevel"] or directory
     for _scope, origin, key, value in entries:
+        source = None
         if origin.startswith("file:"):
             source = os.path.join(base, os.path.expanduser(origin[5:]))
             files.add(source)
-            k = key.lower()
-            if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
-                files.add(os.path.join(os.path.dirname(source), os.path.expanduser(value)))
+        k = key.lower()
+        if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
+            included = os.path.expanduser(value)
+            if source is not None:
+                files.add(os.path.join(os.path.dirname(source), included))
+            elif os.path.isabs(included):
+                files.add(included)   # an include from the command scope or standard input names its file
+            else:   # git-config(1): a relative include must come from a file, so git itself refuses it
+                return files, dirs, f"the include {value!r} from {origin or 'an unnamed origin'} names no file"
     home = os.path.expanduser("~")
     for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):   # git-var(1): the files git itself would use
         named = _git(directory, "var", name, deadline=deadline)
@@ -2613,34 +2622,54 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     return files, dirs, ""
 
 
+def _nearest_directory(path: str) -> str:
+    while not os.path.isdir(path):
+        path = os.path.dirname(path)
+    return path
+
+
 def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
     """Why a write to path touches the configuration or hooks of the repository the path is in or the bound
-    repository at cwd, symlinks and hard links resolved; None for an ordinary file."""
+    repository at cwd; None for an ordinary file. The path counts both as written (lexically: a hook path that
+    is a symlink to a file outside is still a hook path) and resolved (symlinks followed), and a resolved target
+    counts when it is, or is the same file as, a configuration file, an entry of the hook directory or the
+    resolved target of such an entry (a hook symlinked to a file outside, or a hard link to a hook; review
+    Runde 7, R7-5)."""
     if not os.path.isabs(path):
         if not (isinstance(cwd, str) and os.path.isabs(cwd)):
             return f"the relative path {path!r} cannot be resolved without a known directory"
         path = os.path.join(cwd, path)
-    target = os.path.realpath(path)
-    anchor = target
-    while not os.path.isdir(anchor):
-        anchor = os.path.dirname(anchor)
+    lexical, target = os.path.normpath(path), os.path.realpath(path)
+    anchors = {_nearest_directory(target), _nearest_directory(lexical)}
     files, dirs = set(), set()
-    for directory in {anchor} | ({os.path.realpath(cwd)} if isinstance(cwd, str) and os.path.isdir(cwd) else set()):
+    for directory in anchors | ({os.path.realpath(cwd)} if isinstance(cwd, str) and os.path.isdir(cwd) else set()):
         more_files, more_dirs, problem = _state_files(directory, deadline)
         if problem:
             return f"{problem}, so the gate cannot tell whether {target} is part of it"
         files |= more_files
         dirs |= more_dirs
+    def same(a: str, b: str) -> bool:
+        return a == b or (os.path.exists(a) and os.path.exists(b) and os.path.samefile(a, b))
+
     for f in files:
-        real = os.path.realpath(f)
-        if target == real:
-            return f"{target} is the git configuration file {f}"
-        if os.path.exists(target) and os.path.exists(real) and os.path.samefile(target, real):
+        if lexical == os.path.normpath(f) or target == os.path.realpath(f):
+            return f"{lexical} is the git configuration file {f}"
+        if same(target, os.path.realpath(f)):
             return f"{target} is the same file as the git configuration file {f}"
     for d in dirs:
-        real = os.path.realpath(d)
-        if target == real or target.startswith(real.rstrip(os.sep) + os.sep):
-            return f"{target} is in the hook directory {d}"
+        for root in {os.path.normpath(d), os.path.realpath(d)}:
+            for candidate in (lexical, target):
+                if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
+                    return f"{candidate} is in the hook directory {d}"
+        try:
+            entries = [os.path.join(d, name) for name in os.listdir(d)]
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            return f"the hook directory {d} cannot be listed ({exc.strerror or exc}), so the gate cannot tell"
+        for hook in entries:
+            if same(target, os.path.realpath(hook)):
+                return f"{target} is the file the hook entry {hook} resolves to"
     return None
 
 
