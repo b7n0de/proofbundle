@@ -744,7 +744,8 @@ def _free_call_verdicts(free: list, cwd: str, deadline: float, host: str) -> lis
         label = f"git {sub}"
         if host == "codex" or directory is UNKNOWN:
             why = ("under Codex the hook does not receive the directory the command runs in (D12)" if host == "codex"
-                   else "the command changes the directory, runs git through a wrapper or a nested shell")
+                   else "the command changes the directory, runs git through a wrapper, a program path or a nested "
+                        "shell, or after another command, in a pipeline, in the background or in a substitution")
             key = ("unbound", label, why)
             if key not in seen:
                 seen.add(key)
@@ -813,9 +814,16 @@ def _hooks_off(key: str) -> bool:
 #: The free git forms Ebene 1 found in the command decide() is judging (Nachtrag 19b): (subcommand, args,
 #: directory, -C values). decide() checks the repository state behind each. None outside decide().
 _FREE_CALLS: list | None = None
-#: The directory a free form found in a chain, a substitution or a nested shell acts in: "." (the event's
-#: directory) unless the command text changes the directory anywhere, then UNKNOWN.
+#: The directory a free form in the first run of a chain acts in: "." (the event's directory) unless the command
+#: text changes the directory anywhere, then UNKNOWN. A free form in any later run, in a substitution or in a
+#: nested shell has no bound context (UNKNOWN; review Runde 7, R7-4).
 _FREE_BASE: str | None = "."
+#: The default of _strict_git's free_base: a free form acts in the directory the call resolved, with its -C
+#: values. It is a value of its own and not UNKNOWN (None), which a caller passes for a context the gate cannot
+#: bind: when UNKNOWN was also the default, the deliberately unknown context of a wrapper fell back to
+#: _FREE_BASE, so `env --chdir=<other repository> git status` was judged by the configuration of the event's
+#: directory (review Runde 7, R7-4).
+_FROM_DIRECTORY = object()
 _DIRECTORY_CHANGE = re.compile(r"(?<![\w./-])(cd|pushd|popd|source|eval)(?![\w./-])|(^|[\s;&|(])\.(\s|$)")
 
 
@@ -830,7 +838,7 @@ def _note_free(sub: str, args: list[str], base: str | None, c_values: list[str])
 
 
 def _strict_git(words: list[str], directory: str | None,
-                free_base: str | None = None) -> tuple[str, str | None, list[str] | None] | None:
+                free_base: object = _FROM_DIRECTORY) -> tuple[str, str | None, list[str] | None] | None:
     """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call, or
     None when the subcommand is one git built-in that neither transfers objects to a remote nor runs an
     arbitrary command (the `_GIT_LOCAL_SUBCOMMANDS` allow-list). A `push` resolves its target as before:
@@ -890,9 +898,9 @@ def _strict_git(words: list[str], directory: str | None,
     if sub in _GIT_LOCAL_SUBCOMMANDS:
         if not_measured or not _options_inert(sub, args):
             return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
-        # Free in the command text. decide() still reads the repository state behind the call (Nachtrag 19b).
-        _note_free(sub, args, start if free_base is None and start is not UNKNOWN else
-                   (free_base if free_base is not None else _FREE_BASE), c_values)
+        # Free in the command text. decide() still reads the repository state behind the call (Nachtrag 19b),
+        # in the directory the call resolved, or in none when the caller passes UNKNOWN (R7-4).
+        _note_free(sub, args, start if free_base is _FROM_DIRECTORY else free_base, c_values)
         return None
     # unknown subcommand, send-pack, any unmodelled transport, and the entries that left the list (S1, A)
     return f"git {sub}", UNKNOWN, [_MAYBE_PUSH]
@@ -1013,7 +1021,10 @@ def _resolve_single(words: list[tuple], directory: str | None,
         if name is None:
             return []
         return [(name, directory if (bare and neutral_only) else UNKNOWN, None)]
-    call = ("git push", directory, rest) if base == "git-push" else _strict_git(rest, directory)
+    # A program path (`./git`, `/opt/x/git`) names a program the gate does not know, so a form it leaves free
+    # has no bound context and is NOT MEASURED (review Runde 7, R7-4: the path check came after the free branch).
+    call = (("git push", directory, rest) if base == "git-push"
+            else _strict_git(rest, directory, free_base=_FROM_DIRECTORY if bare else UNKNOWN))
     if call is None:
         # A git invocation Ebene 1 would leave free is free only without an unvetted prefix assignment: the
         # environment selects helpers as configuration does (GIT_EXTERNAL_DIFF=… git diff is the -c
@@ -1059,14 +1070,15 @@ def _git_label(words: list[str]) -> str:
     return f"git {words[i]}" if i < len(words) else "git"
 
 
-def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False) -> None:
+def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False, bound: bool = False) -> None:
     """Report every gated call a single run of words (between control operators) executes, each NOT
     MEASURED. A `git`/`git-push`/`gh` word anywhere in the run (so after a wrapper such as `env`, `sudo`,
     `command`, `nice`, `timeout`) counts; a shell executor word anywhere (`bash`/`sh`/`dash`/`zsh`/`ksh`,
     by basename, so a path form too) has its `-c` command string scanned in turn, and `eval`/`source`/`.`
     have their string arguments scanned. The scan is an over-approximation on purpose: it never misses a
     nested push, including through a wrapper or a `-lc`/`-cl` bundle (review R4-1, the bypass probes), at
-    the cost of a rare harmless ask."""
+    the cost of a rare harmless ask. A free git form here is bound to _FREE_BASE only when bound (the first run
+    of a sequential chain), git is the bare command word and no wrapper precedes it (review Runde 7, R7-4)."""
     for k, (value, _has, _raw) in enumerate(words):
         base = os.path.basename(value)
         rest = [w[0] for w in words[k + 1:]]
@@ -1074,7 +1086,8 @@ def _scan_run(words: list[tuple], emit, depth: int, env_set: bool = False) -> No
             # A git word after a wrapper (sudo, env -i, nice, timeout, xargs, …) runs in an environment or
             # directory Ebene 1 does not know, so a free form there has no bound repository (Nachtrag 19b).
             wrapped = any(not (_ASSIGNMENT.match(w[0]) and _assignment_neutral(w[0])) for w in words[:k])
-            found = _strict_git(rest, UNKNOWN, free_base=UNKNOWN if wrapped else None)
+            found = _strict_git(rest, UNKNOWN, free_base=_FREE_BASE if bound and not wrapped and value == "git"
+                                else UNKNOWN)
             if found is not None:
                 emit([found])
             elif env_set:  # an unvetted assignment anywhere in the command may select a helper (R6-2 class)
@@ -1111,16 +1124,24 @@ def _overmatch(command: str, toks: list, depth: int,
         for name, _dir, detail in found:
             calls.append((name, UNKNOWN, detail if detail == [_HOOKS_DISABLE] else None))
 
+    # Only the first run of a chain acts in the state the gate reads before the command: any earlier command,
+    # a git form included, can change the configuration or the hooks before a later run starts (`printf … >>
+    # .git/config; git status`); a pipeline or a background job runs beside the next run; a here-document
+    # feeds input the gate does not read; a command substitution runs before the run it sits in. So a free form
+    # is bound only in the first run, and only in a command without `|`, `&`, `<<` or a substitution (review
+    # Runde 7, R7-4). No predecessor is modelled.
+    bound = not _subst_bodies(command) and not any(t[0] == "op" and t[1] in ("|", "&", "<<") for t in toks)
     run: list = []
     for t in toks:
         if t[0] == "word":
             run.append(t[1:])
         else:  # a control operator ends the run
             if run:
-                _scan_run(run, emit, depth, env_set)
+                _scan_run(run, emit, depth, env_set, bound)
+                bound = False
             run = []
     if run:
-        _scan_run(run, emit, depth, env_set)
+        _scan_run(run, emit, depth, env_set, bound)
     if depth < MAX_NESTING:
         for body in _subst_bodies(command):
             emit(gated_calls(body, UNKNOWN, depth + 1, inherited_env=env_set))

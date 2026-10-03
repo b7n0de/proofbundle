@@ -199,7 +199,10 @@ def test_a_global_program_key_counts(tmp_path, monkeypatch):
 def test_a_free_form_after_a_directory_change_is_not_measured(tmp_path):
     repo = _repo(tmp_path)
     assert _decision("cd . && git status", repo)[0] == "ask"
-    assert _decision("git status && git log --oneline -n 3", repo) == (None, "")
+    # Review Runde 7, R7-4: only the first run of a chain acts in the state the gate reads, so the free form of a
+    # later run is NOT MEASURED; the first run stays free.
+    assert _decision("git status && git log --oneline -n 3", repo)[0] == "ask"
+    assert _decision("git status; true", repo) == (None, "")
 
 
 @pytest.mark.parametrize("command", ["git merge side", "git pull", "git rebase side", "git cherry-pick side",

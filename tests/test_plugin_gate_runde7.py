@@ -132,3 +132,48 @@ def test_r7_7_the_mcp_diagnosis_reads_no_object_of_a_partial_clone(tmp_path, hos
     subprocess.run(["git", "-C", str(repo), "cat-file", "-t", "HEAD:.proofbundle/evidence.json"],
                    capture_output=True, check=False)
     assert marker.exists(), "the promisor transport is not live for a plain git; the case would be vacuous"
+
+
+# --- R7-4: an unknown or changed context is not free ------------------------------------------------------------
+
+def _fsmonitor_marker(tmp_path: pathlib.Path, marker: pathlib.Path) -> pathlib.Path:
+    return _marker_program(tmp_path, marker, "fsmonitor-marker.sh")
+
+
+def test_r7_4_a_wrapper_that_changes_the_directory_is_not_bound(tmp_path):
+    """R7-4, first case: `env --chdir=<other repository> git status --short` started the other repository's
+    core.fsmonitor, judged by the configuration of the event's directory. The anti-vacuity half: plain git in the
+    other repository starts it."""
+    repo, other, marker = _repo(tmp_path, "r"), _repo(tmp_path, "other"), tmp_path / "marker-fsmonitor"
+    _git(other, "config", "core.fsmonitor", str(_fsmonitor_marker(tmp_path, marker)))
+    subprocess.run(["git", "-C", str(other), "status", "--short"], capture_output=True, check=False)
+    assert marker.exists(), "the other repository's fsmonitor is not live; the case would be vacuous"
+    decision, text = _decision(f"env --chdir={shlex.quote(str(other))} git status --short", repo)
+    assert decision == "ask", text
+    assert "cannot bind git status" in text, text
+
+
+def test_r7_4_a_program_path_named_git_is_not_free(tmp_path):
+    """R7-4, second case: `<own path>/git status --short` ran the program at that path with no gate answer."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-path"
+    (tmp_path / "bin").mkdir()
+    program = _marker_program(tmp_path / "bin", marker, "git")
+    decision, text = _decision(f"{shlex.quote(str(program))} status --short", repo)
+    assert decision == "ask", text
+    assert "cannot bind git status" in text, text
+
+
+def test_r7_4_a_free_form_after_a_command_that_writes_the_configuration_is_not_free(tmp_path):
+    """R7-4, third case: a command that appends core.fsmonitor to .git/config and then `; git status --short`
+    started the marker, because the gate read the configuration before the whole chain. The anti-vacuity half:
+    the same two steps, the append and then plain git, start it."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-fsmonitor"
+    program = _fsmonitor_marker(tmp_path, marker)
+    command = f"printf '[core]\\n\\tfsmonitor = {program}\\n' >> .git/config; git status --short"
+    decision, text = _decision(command, repo)
+    assert decision == "ask", text
+    assert "cannot bind git status" in text, text
+    with open(repo / ".git" / "config", "a", encoding="utf-8") as config:
+        config.write(f"[core]\n\tfsmonitor = {program}\n")
+    subprocess.run(["git", "-C", str(repo), "status", "--short"], capture_output=True, check=False)
+    assert marker.exists(), "the appended fsmonitor is not live; the case would be vacuous"

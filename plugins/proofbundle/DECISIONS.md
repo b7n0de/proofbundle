@@ -247,7 +247,11 @@ with the hook's own environment:
 
 The form stays free only when none of the keys, variables or hooks in its row is present. NOT MEASURED
 instead (asked under Claude Code, denied under Codex): a directory the gate cannot bind (a `cd`, `pushd`,
-`popd`, `source`, `eval` or `.` anywhere in the command, or `git` behind a wrapper or in a nested shell);
+`popd`, `source`, `eval` or `.` anywhere in the command, or `git` behind a wrapper, as a program path or in a
+nested shell); a free form after another command of the same chain, in a pipeline, in the background, with a
+here-document or with a command substitution anywhere in the command, because an earlier command can change
+the configuration or the hooks before the form runs and the gate models no such predecessor (review Runde 7,
+R7-4; only the first run of a sequential chain is read in the state before the command);
 a configuration git itself cannot read (an include that names a directory, broken syntax: measured, git
 exits 128; a missing include git skips, as git does); git output of a shape the gate does not expect; and
 every free form under Codex, whose hook does not receive the directory the command runs in (D12). The
