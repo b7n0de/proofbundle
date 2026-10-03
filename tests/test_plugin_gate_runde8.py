@@ -261,3 +261,20 @@ def test_r8_6_a_valueless_pager_key_is_true_and_asks(tmp_path):
     assert not marker.exists(), "the gate started the pager"
     _status_on_a_terminal(repo)
     assert marker.exists(), "git status does not start core.pager on a terminal; the case would be vacuous"
+
+
+# --- R8-2: the promisor key with an empty remote subsection --------------------------------------------------
+
+def test_r8_2_a_promisor_key_with_an_empty_remote_subsection_is_a_partial_clone(tmp_path):
+    """R8-2: with remote..promisor=true, tree_digest computed a digest and `git cat-file -p HEAD` got no answer;
+    both patterns required a non-empty subsection. Now the digest is refused and the object read asks. The
+    anti-vacuity half: git stores and reads the key under exactly that name. A transport start through this form
+    is not shown (the review says so too); the test pins the set key, not a fetch."""
+    repo = _repo(tmp_path)
+    _git(repo, "config", "--local", "remote..promisor", "true")
+    assert _git(repo, "config", "--get-regexp", r"^remote\.\.promisor$") == "remote..promisor true"
+    with pytest.raises(gate.GateError, match="partial clone"):
+        gate.tree_digest(str(repo), "HEAD", _deadline())
+    decision, text = _decision("git cat-file -p HEAD", repo)
+    assert decision == "ask", text
+    assert "remote..promisor" in text, text

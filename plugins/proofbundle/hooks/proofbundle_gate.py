@@ -546,7 +546,7 @@ _KEY_FAMILIES = {
     "signature-sort": (r"(branch|tag)\.sort", lambda k, v: "signature" in (v or ""),
                        "git-config(1) branch.sort, tag.sort; the ref-filter atom signature verifies "
                        "(ref-filter.c, line 1749)"),
-    "promisor": (r"extensions\.partialclone|remote\..+\.(promisor|partialclonefilter)", None,
+    "promisor": (r"extensions\.partialclone|remote\..*\.(promisor|partialclonefilter)", None,
                  "git-config(1) remote.<name>.promisor, remote.<name>.partialclonefilter; partial-clone "
                  "(extensions.partialClone): a missing object is fetched from the promisor remote with the "
                  "transport its configuration names, by any command that reads it (review Runde 7, R7-7)"),
@@ -1227,8 +1227,8 @@ def _read_env() -> dict:
 #: marker uploadpack, and decide_mcp's diagnosis started it while it read a declaration this clone did not hold.
 #: git makes a remote a promisor through remote.<name>.promisor and remote.<name>.partialclonefilter and through
 #: the repository format's extensions.partialClone; whatever the value, the gate reads no object from such a
-#: repository.
-_PARTIAL_CLONE_KEYS = r"^(extensions\.partialclone|remote\..+\.(promisor|partialclonefilter))$"
+#: repository. The remote's subsection may be empty (remote..promisor, review Runde 8, R8-2), hence `.*`.
+_PARTIAL_CLONE_KEYS = r"^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$"
 
 
 def _run_git(repo: str, args: tuple, deadline: float) -> subprocess.CompletedProcess:
