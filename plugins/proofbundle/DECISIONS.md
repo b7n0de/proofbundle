@@ -487,7 +487,15 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
   path the gate cannot map for sure (a relative path without a known directory, an `apply_patch` with
   `*** Environment ID:` or a `***` line the gate does not read) is NOT MEASURED. Every other write gets no
   decision under Claude Code; under Codex every file-tool write is NOT MEASURED and denied, because the hook
-  does not bind it to the filesystem and directory it acts in (D12; review Runde 7, R7-6). Not judged: a write made by a shell command (a redirection, `cp`, `chmod` in a Bash call),
+  does not bind it to the filesystem and directory it acts in (D12; review Runde 7, R7-6).
+  Host integration (review Runde 7, question 4). Measured in one real Claude Code run, 2026-10-03, Claude
+  Code 2.1.288, `claude -p` with `--permission-mode acceptEdits`, the plugin loaded with `--plugin-dir` at
+  5b22cc9b, git 2.43.0: in a fresh repository whose `.git/config` includes `../extra.gitconfig`, a Write to
+  `extra.gitconfig` in the run's directory reached the gate (gate log: `ask`, `write_to_repo_state`), the
+  reason named that path in that directory, the host refused the call (`permission_denials`) and the file
+  stayed absent; a control Write to `notes.md` reached the gate (`not_gated`) and was written. One run, one
+  permission mode, one tool; the other file tools and modes are not measured in a run. Codex: NOT MEASURED in
+  a run (D16). Not judged: a write made by a shell command (a redirection, `cp`, `chmod` in a Bash call),
   through an MCP tool, or by a program the user starts; the matcher covers the file tools only.
 
 Not seen:
