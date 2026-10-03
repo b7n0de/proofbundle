@@ -1,23 +1,22 @@
 """Signed Evaluation Receipts, the format of draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL).
 
-A receipt is one JSON object ``{"schema", "payload_b64", "signature", "inclusion"}``. B, the RFC 8785
-bytes of the payload, is signed with pure Ed25519 over PAE(type, B), the DSSE pre-authentication
-encoding with the fixed type ``application/vnd.b7n0de.eval-receipt+json``, and B is the leaf input of an
-RFC 9162 Merkle tree whose inclusion proof travels in the receipt.
+A receipt is one JSON object ``{"schema", "payload_b64", "signature"}``. B, the RFC 8785 bytes of the
+payload, is signed with pure Ed25519 over PAE(type, B), the DSSE pre-authentication encoding with the fixed
+type ``application/vnd.b7n0de.eval-receipt+json``. The receipt carries no inclusion proof (removed from
+the draft on 2026-10-03; B and every signature are unchanged by that): transparency comes from registering
+a receipt in an envelope, not from the receipt.
 
 A SECOND FORMAT, NOT A REPLACEMENT. ``proofbundle/eval-claim/v0.1`` (``evalclaim.py``) stays as it is
 and stays verifiable. Nothing here runs unless a caller names this format: ``emit-eval --format
 eval-receipt-v1`` produces it, and ``show-eval`` reaches it only for a file whose ``schema`` is the
 receipt type.
 
-WHAT A RECEIPT PROVES. That the holder of the key the Receiver fixed signed B, and that B is a leaf of
-a tree with the stated root. The root and the inclusion proof are not signed, so a root means something
-only when the Receiver obtained it from a source it trusts. A receipt does not show that the score is
-true, that the run was the only run, or that the named model was the one evaluated (the draft's
-Section 7).
+WHAT A RECEIPT PROVES. That the holder of the key the Receiver fixed signed B. A receipt does not show
+that it was published or logged, that the score is true, that the run was the only run, or that the named
+model was the one evaluated (the draft's Section 6).
 
-THE PROCEDURE IS THE DRAFT'S. ``verify_signed_eval_receipt`` evaluates the twelve steps of the draft's
-Section 6 in order and returns the first one that fails, so this verifier and the draft's vectors agree
+THE PROCEDURE IS THE DRAFT'S. ``verify_signed_eval_receipt`` evaluates the eleven steps of the draft's
+Section 5 in order and returns the first one that fails, so this verifier and the draft's vectors agree
 on the step and not only on the verdict (``tests/test_signed_eval_receipt_conformance.py``). The
 signature profile is the draft's Section 4.4, which is stricter than SPEC section 4a: a non-canonical
 encoding of the key or of R and a point of small order are refused before any signature arithmetic.
@@ -32,13 +31,12 @@ import decimal
 import json
 import math
 import re
-from typing import Any, Mapping, NamedTuple, Optional, Sequence
+from typing import Any, Mapping, NamedTuple, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ._membership import is_member, require_switch
 from ._wire_b64 import decode_b64
-from .merkle import merkle_tree_hash, inclusion_proof, verify_inclusion
 from .signature import _LOW_ORDER_ED25519_Y, plain_bytes, verify_ed25519_pinned
 
 RECEIPT_TYPE = "application/vnd.b7n0de.eval-receipt+json"
@@ -49,9 +47,8 @@ DRAFT = "draft-gruszka-signed-evaluation-receipts-00"
 __all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict", "pae",
            "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt", "names_receipt_type"]
 
-_RECEIPT_MEMBERS = frozenset({"schema", "payload_b64", "signature", "inclusion"})
+_RECEIPT_MEMBERS = frozenset({"schema", "payload_b64", "signature"})
 _SIGNATURE_MEMBER_SETS = (frozenset({"alg", "sig"}), frozenset({"alg", "sig", "key"}))
-_INCLUSION_MEMBERS = frozenset({"tree_size", "leaf_index", "inclusion_path", "root"})
 _PAYLOAD_MEMBERS = frozenset({"schema", "suite", "suite_version", "metric", "comparator", "threshold",
                               "score", "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg",
                               "timestamp"})
@@ -64,8 +61,6 @@ _COMPARATORS = (">=", ">", "<=", "<")
 _DECIMAL_RE = re.compile(r"\A-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?\Z")
 _COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 _TIMESTAMP_RE = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z\Z")
-_INTEGER_TOKEN_RE = re.compile(r"\A(?:0|[1-9][0-9]*)\Z")
-_HASH_HEX_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 _MAX_SAFE = 2 ** 53
 
 # RFC 8032 Section 5.1: the field prime, the group order and the curve constant d.
@@ -76,7 +71,7 @@ _SQRT_M1 = pow(2, (_P - 1) // 4, _P)
 
 
 class ReceiptVerdict(NamedTuple):
-    """The result of the draft's Section 6: ``ok``, and for a FAIL the first failing ``step`` (1 to 12),
+    """The result of the draft's Section 5: ``ok``, and for a FAIL the first failing ``step`` (1 to 11),
     for step 11 the profile ``rule`` (``"profile 3"``, ``"profile 1, key"`` ...), and a ``reason``."""
     ok: bool
     step: Optional[int]
@@ -99,8 +94,8 @@ class _Fail(Exception):
 
 
 class _Number:
-    """A JSON number as its token. The receipt's integers are judged by how they are written (step 12:
-    ``4.0`` and ``-0`` are not valid), and B's numbers by their value as RFC 8785 serializes it."""
+    """A JSON number as its token. B's numbers are judged by their value as RFC 8785 serializes it; the
+    receipt object has no number member, so a number there fails the step that checks that member."""
     __slots__ = ("token",)
 
     def __init__(self, token: str):
@@ -351,21 +346,13 @@ def _profile(key: bytes, sig: bytes, message: bytes) -> None:
         raise _Fail(11, "the cofactorless equation does not hold", "profile 4")
 
 
-def _receipt_integer(v: Any) -> Optional[int]:
-    if isinstance(v, _Number) and _INTEGER_TOKEN_RE.match(v.token) and int(v.token) < _MAX_SAFE:
-        return int(v.token)
-    return None
-
-
 def _procedure(receipt: bytes, key: bytes) -> bytes:
-    """Steps 1 to 12 of the draft's Section 6; returns B, raises _Fail at the first failing step."""
+    """Steps 1 to 11 of the draft's Section 5; returns B, raises _Fail at the first failing step."""
     r = _ijson(receipt, "the receipt", 1)
     if not isinstance(r, dict) or set(r) != _RECEIPT_MEMBERS:
-        raise _Fail(1, "the receipt is not an object with exactly schema, payload_b64, signature, inclusion")
+        raise _Fail(1, "the receipt is not an object with exactly schema, payload_b64, signature")
     if not isinstance(r["signature"], dict) or frozenset(r["signature"]) not in _SIGNATURE_MEMBER_SETS:
         raise _Fail(1, "signature is not an object with exactly alg and sig, or alg, sig and key")
-    if not isinstance(r["inclusion"], dict) or set(r["inclusion"]) != _INCLUSION_MEMBERS:
-        raise _Fail(1, "inclusion is not an object with exactly its four members")
     if r["schema"] != RECEIPT_TYPE:                                                  # step 2
         raise _Fail(2, "schema is not " + RECEIPT_TYPE)
     b = _canonical_b64(r["payload_b64"], 3, "payload_b64")                            # step 3
@@ -396,26 +383,13 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
         if hint != key:
             raise _Fail(10, "the key hint is not the verification key")
     _profile(key, sig_bytes, pae(RECEIPT_TYPE, b))                                    # step 11
-    inc = r["inclusion"]                                                              # step 12
-    size, index = _receipt_integer(inc["tree_size"]), _receipt_integer(inc["leaf_index"])
-    if size is None or index is None:
-        raise _Fail(12, "tree_size or leaf_index is not an integer token below 2^53")
-    if index >= size:
-        raise _Fail(12, "leaf_index is not below tree_size")
-    path = inc["inclusion_path"]
-    if not isinstance(path, list) or not all(isinstance(h, str) and _HASH_HEX_RE.match(h) for h in path):
-        raise _Fail(12, "inclusion_path is not an array of 64-character lowercase hexadecimal strings")
-    if not isinstance(inc["root"], str) or not _HASH_HEX_RE.match(inc["root"]):
-        raise _Fail(12, "root is not a 64-character lowercase hexadecimal string")
-    if not verify_inclusion(b, index, size, [bytes.fromhex(h) for h in path], bytes.fromhex(inc["root"])):
-        raise _Fail(12, "the inclusion proof does not verify for leaf_index, tree_size and root")
     return b
 
 
 # ---- public surface ---------------------------------------------------------------------------------
 def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
-    Section 6. Never raises. Each argument is read once, as the bytes it stores
+    Section 5. Never raises. Each argument is read once, as the bytes it stores
     (``signature.plain_bytes``): a receipt that is no bytes value fails at step 1, a key that is no
     32-byte value fails rule 1 of the profile (its decoding cannot succeed)."""
     raw, pin = plain_bytes(receipt), plain_bytes(key)
@@ -427,7 +401,7 @@ def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
         b = _procedure(raw, pin)
     except _Fail as f:
         return ReceiptVerdict(False, f.step, f.rule, f.reason)
-    return ReceiptVerdict(True, None, None, "every step of Section 6 succeeds", b)
+    return ReceiptVerdict(True, None, None, "every step of Section 5 succeeds", b)
 
 
 def payload_bytes(payload: Mapping) -> bytes:
@@ -462,12 +436,8 @@ def payload_bytes(payload: Mapping) -> bytes:
     return b
 
 
-def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *,
-                             other_leaves: Sequence[bytes] = (), leaf_index: int = 0,
-                             key_hint: bool = True) -> bytes:
-    """The receipt bytes for PAYLOAD, signed by SIGNER. B is the leaf at LEAF_INDEX of a tree whose
-    other leaf inputs are OTHER_LEAVES, in order; with none, the tree has one leaf. The receipt object
-    is written in its RFC 8785 form. The bytes are verified under the signer's key before they are
+def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key_hint: bool = True) -> bytes:
+    """The receipt bytes for PAYLOAD, signed by SIGNER. The receipt object is written in its RFC 8785 form. The bytes are verified under the signer's key before they are
     returned, so this producer never hands out a receipt its own verifier refuses."""
     # The switch first: it changes what is published (the unsigned key hint), so only an exact bool is
     # read, before anything is computed or signed (`_membership.require_switch`).
@@ -475,15 +445,6 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *,
     if not isinstance(signer, Ed25519PrivateKey):
         raise TypeError("signer must be an Ed25519PrivateKey")
     b = payload_bytes(payload)
-    leaves = []
-    for leaf in other_leaves:
-        plain = plain_bytes(leaf)   # read once, by what it stores; never the caller's __bytes__
-        if plain is None:
-            raise ValueError("every other leaf input must be bytes")
-        leaves.append(plain)
-    if type(leaf_index) is not int or not 0 <= leaf_index <= len(leaves):
-        raise ValueError("leaf_index must be an integer from 0 to the number of other leaves")
-    leaves.insert(leaf_index, b)
     pub = signer.public_key().public_bytes_raw()
     signature = {"alg": "ed25519", "sig": base64.b64encode(signer.sign(pae(RECEIPT_TYPE, b))).decode("ascii")}
     if key_hint:
@@ -492,12 +453,6 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *,
         "schema": RECEIPT_TYPE,
         "payload_b64": base64.b64encode(b).decode("ascii"),
         "signature": signature,
-        "inclusion": {
-            "tree_size": len(leaves),
-            "leaf_index": leaf_index,
-            "inclusion_path": [h.hex() for h in inclusion_proof(leaves, leaf_index)],
-            "root": merkle_tree_hash(leaves).hex(),
-        },
     }
     out = _jcs(receipt).encode("utf-8")
     verdict = verify_signed_eval_receipt(out, pub)
