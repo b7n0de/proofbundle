@@ -125,8 +125,8 @@ def test_an_alias_configured_in_the_repo_is_a_not_measured_possible_push():
 
 
 @pytest.mark.parametrize("command", [
-    "git status", "git log --oneline", "git diff origin/main", "git fetch origin", "git config user.name t",
-])
+    "git status", "git log --oneline", "git diff origin/main", "git config user.name t",
+])   # git fetch left the allow-list in review Runde 7 (R7-2); tests/test_plugin_gate_runde7.py
 def test_a_local_subcommand_is_still_left_alone(command):
     # Left alone by the command text; decide() still reads the repository state behind it (Nachtrag 19b).
     assert gate.gated_calls(command) == []

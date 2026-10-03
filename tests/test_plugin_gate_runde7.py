@@ -177,3 +177,41 @@ def test_r7_4_a_free_form_after_a_command_that_writes_the_configuration_is_not_f
         config.write(f"[core]\n\tfsmonitor = {program}\n")
     subprocess.run(["git", "-C", str(repo), "status", "--short"], capture_output=True, check=False)
     assert marker.exists(), "the appended fsmonitor is not live; the case would be vacuous"
+
+
+# --- R7-2: the transport is chosen by argument, remote URL and protocol environment together ---------------------
+
+def test_r7_2_an_inherited_protocol_allowance_does_not_free_an_ext_transport(tmp_path, monkeypatch):
+    """R7-2, first case: with GIT_ALLOW_PROTOCOL=ext inherited by gate and git alike, `git ls-remote
+    ext::<absolute path>/marker.sh` got no gate answer and started the marker. The anti-vacuity half: plain git
+    with the same environment starts it."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-ext"
+    program = _marker_program(tmp_path, marker, "ext-marker.sh")
+    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "ext")
+    decision, text = _decision(f"git ls-remote ext::{program}", repo)
+    assert decision == "ask", text
+    assert not marker.exists(), "the gate's check started the transport"
+    subprocess.run(["git", "-C", str(repo), "ls-remote", f"ext::{program}"], capture_output=True, check=False,
+                   timeout=60)
+    assert marker.exists(), "the ext transport is not live for a plain git; the case would be vacuous"
+
+
+@pytest.mark.parametrize("form", ["argument", "configured remote URL"])
+def test_r7_2_a_scheme_url_that_selects_a_remote_helper_on_path_is_not_free(tmp_path, monkeypatch, form):
+    """R7-2, second case: `markerprobe://…` as an argument or as the configured remote URL started a
+    git-remote-markerprobe on the inherited PATH; _helper_url recognised only `::`. The anti-vacuity half: plain
+    git starts the helper."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-helper"
+    (tmp_path / "bin").mkdir()
+    _marker_program(tmp_path / "bin", marker, "git-remote-markerprobe")
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    if form == "argument":
+        command, plain = "git ls-remote markerprobe://example/repo", ["ls-remote", "markerprobe://example/repo"]
+    else:
+        _git(repo, "config", "remote.origin.url", "markerprobe://example/repo")
+        command, plain = "git fetch origin", ["fetch", "origin"]
+    decision, text = _decision(command, repo)
+    assert decision == "ask", text
+    assert not marker.exists(), "the gate's check started the helper"
+    subprocess.run(["git", "-C", str(repo), *plain], capture_output=True, check=False, timeout=60)
+    assert marker.exists(), "the helper is not live for a plain git; the case would be vacuous"

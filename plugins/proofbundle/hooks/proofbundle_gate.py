@@ -310,13 +310,16 @@ _GIT_GLOBAL_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namesp
 #: bisect and submodule; and `init`, which writes the repository's configuration and copies hooks from a
 #: template directory chosen by --template, $GIT_TEMPLATE_DIR, init.templateDir or the compiled-in default
 #: (git-init(1) TEMPLATE DIRECTORY; setup.c copy_templates, lines 1794-1844), so a later call runs them.
-#: `config` is here; a `config core.hooksPath` is denied earlier. The list closes no
+#: `fetch` and `ls-remote` left too (review Runde 7, R7-2): the transport they start is chosen by the URL
+#: argument, the effective remote URL after rewriting and the protocol environment together — a `<scheme>://`
+#: URL runs `git-remote-<scheme>` from PATH (gitremote-helpers(7)), and an inherited GIT_ALLOW_PROTOCOL=ext
+#: lets `ext::` run a command — and the gate does not check the three together. `config` is here; a `config core.hooksPath` is denied earlier. The list closes no
 #: indirect push it does not name, and is not offered as a complete boundary (review Runde 5, Punkt 5/8).
 _GIT_LOCAL_SUBCOMMANDS = frozenset({
     "add", "annotate", "blame", "branch", "cat-file", "check-attr", "check-ignore", "check-mailmap",
     "check-ref-format", "checkout", "cherry", "commit", "config", "count-objects", "describe", "diff",
-    "diff-files", "diff-index", "diff-tree", "fetch", "for-each-ref", "grep", "log", "ls-files",
-    "ls-remote", "ls-tree", "merge-base", "mv", "name-rev", "reset", "restore", "rev-list", "rev-parse", "rm",
+    "diff-files", "diff-index", "diff-tree", "for-each-ref", "grep", "log", "ls-files",
+    "ls-tree", "merge-base", "mv", "name-rev", "reset", "restore", "rev-list", "rev-parse", "rm",
     "shortlog", "show", "show-branch", "show-ref", "stash", "status", "switch", "symbolic-ref", "tag", "var",
     "whatchanged",
 })
@@ -508,6 +511,9 @@ def _helper_url(value: str | None) -> bool:
 
 
 #: Families of keys that select a program: (pattern over the key in lower case, value test or None, source).
+#: Since review Runde 7 (R7-2) no allow-list entry carries transport, transport-helper-url, rewrite-to-helper or
+#: protocol: fetch and ls-remote, the entries that talk to a remote, left the list. The families stay as the
+#: record of what a joint check of the transport would have to read, and are named in D3.
 _KEY_FAMILIES = {
     "fsmonitor": (r"core\.fsmonitor", lambda k, v: v is not None and v.strip().lower() not in _BOOLEAN_WORDS,
                   "git-config(1) core.fsmonitor: a pathname names a hook command (true is the built-in daemon)"),
@@ -599,9 +605,10 @@ _WORKTREE = ("filter", "fsmonitor")
 #: gate does not read (then a .gitmodules file or a submodule.* key makes it NOT MEASURED; git-config(1)
 #: submodule.recurse, status.submoduleSummary, fetch.recurseSubmodules). `_ALL` stands for every githooks(5)
 #: name, for an entry whose hook list is not sure (stash: push and pop write commits, references, the index
-#: and the worktree through internal paths githooks(5) does not name one by one). commit and fetch carry the
-#: hooks githooks(5) names for them; neither starts pre-push, which git-push(1) alone runs (measured in
-#: Nachtrag 19b: with the Ebene-2 pre-push hook installed, _ALL made every git fetch NOT MEASURED).
+#: and the worktree through internal paths githooks(5) does not name one by one). commit carries the hooks
+#: githooks(5) names for it; it does not start pre-push, which git-push(1) alone runs (measured in Nachtrag
+#: 19b: with the Ebene-2 pre-push hook installed, _ALL made every git fetch NOT MEASURED; fetch has left the
+#: list since review Runde 7, R7-2).
 _REPO_PROFILE = {
     **{sub: _READ_ONLY for sub in ("rev-parse", "show-ref", "for-each-ref", "cat-file", "ls-tree", "merge-base",
                                    "rev-list", "name-rev", "count-objects", "var", "check-ref-format",
@@ -632,11 +639,6 @@ _REPO_PROFILE = {
                        sources="git-branch(1): creating a branch updates a reference; branch.sort"),
     "tag": _profile(("editor", "signature-sort"), _REFS, pages=True, triggers=("tag.gpgsign",),
                     sources="git-tag(1), tag.gpgSign, tag.sort"),
-    "ls-remote": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"),
-                          sources="git-ls-remote(1): talks to the remote"),
-    "fetch": _profile(("transport", "transport-helper-url", "rewrite-to-helper", "protocol"), _REFS | _AUTO_GC,
-                      submodules=True, sources="git-fetch(1): transport, reference updates, auto maintenance "
-                                               "(githooks(5) reference-transaction, pre-auto-gc), submodules"),
     "add": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-add(1): clean filters, writes the index"),
     "rm": _profile(_WORKTREE, _INDEX, submodules=True, sources="git-rm(1): compares the worktree, writes the index"),
     "mv": _profile(("fsmonitor",), _INDEX, submodules=True, sources="git-mv(1): writes the index"),

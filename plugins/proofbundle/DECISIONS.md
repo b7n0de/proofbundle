@@ -268,8 +268,7 @@ creates its commits without a signing key (builtin/stash.c), so `gpg.program`, `
 `gpg.ssh.defaultKeyCommand`, which choose the program but start none, do not count on their own, while every
 key and option that starts signing or verification does. A hook counts for an entry only when githooks(5)
 names it for that command (`commit`: pre-commit, prepare-commit-msg, commit-msg, post-commit, plus
-reference-transaction, post-index-change and pre-auto-gc; `fetch`: reference-transaction and pre-auto-gc;
-pre-push only for `git push`); `stash`, whose internal paths githooks(5) does not name one by one, counts
+reference-transaction, post-index-change and pre-auto-gc; pre-push only for `git push`); `stash`, whose internal paths githooks(5) does not name one by one, counts
 every name.
 
 Left the list (fallback A), NOT MEASURED in every form, because their program lists were not justified
@@ -280,7 +279,14 @@ revert, sparse-checkout, stripspace, unpack-objects, update-index, update-ref, v
 verify-tag, worktree, write-tree (43); and every form of rebase, bisect and submodule, which were free
 before outside their command-running forms. `init` left because it writes the configuration and copies
 hooks from a template directory (`--template`, `$GIT_TEMPLATE_DIR`, `init.templateDir` or the compiled-in
-default; git-init(1) TEMPLATE DIRECTORY), which later calls run.
+default; git-init(1) TEMPLATE DIRECTORY), which later calls run. `fetch` and `ls-remote` left in review Runde 7
+(R7-2): the transport they start is chosen by the URL argument, the effective remote URL after
+`insteadOf` rewriting and the protocol environment together. A `<scheme>://` URL, as an argument or as the
+configured URL, runs `git-remote-<scheme>` from the inherited PATH (gitremote-helpers(7)); an inherited
+`GIT_ALLOW_PROTOCOL=ext` lets `ext::` run a command, measured by the reviewer without a gate answer. The
+gate does not check the three together, and naming one more variable would not close the class, so every
+form of both is NOT MEASURED until such a joint, positive check exists. The transport families in the table
+below stay as the record of what that check would read; no entry carries them.
 
 <!-- d3-entries:begin (generated from the gate; tests/test_plugin_gate_runde6b.py) -->
 
@@ -323,12 +329,10 @@ Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), the pa
 | `diff-files` | `--name-only`, `--name-status`, `--stat`, `-p` | filter, fsmonitor, *submodules* | none | git-diff-files(1): compares the worktree |
 | `diff-index` | `--cached`, `--name-only`, `--name-status`, `--stat`, `-p` | filter, fsmonitor, *submodules* | none | git-diff-index(1): compares the worktree |
 | `diff-tree` | `--abbrev`, `--name-only`, `--name-status`, `--no-color`, `--root`, `--stat`, `-p`, `-r` | only the every-entry keys | none | git-diff-tree(1): two trees, plumbing, no driver without --ext-diff |
-| `fetch` | none, the bare form only | protocol, rewrite-to-helper, transport, transport-helper-url, *submodules* | `pre-auto-gc`, `reference-transaction` | git-fetch(1): transport, reference updates, auto maintenance (githooks(5) reference-transaction, pre-auto-gc), submodules |
 | `for-each-ref` | `--color`, `--contains`, `--count`, `--format`, `--merged`, `--no-color`, `--no-contains`, `--no-merged`, `--points-at`, `--sort`; a word containing `signature` is NOT MEASURED | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
 | `grep` | `--after-context`, `--basic-regexp`, `--before-context`, `--break`, `--cached`, `--color`, `--context`, `--count`, `--extended-regexp`, `--files-with-matches`, `--files-without-match`, `--fixed-strings`, `--heading`, `--ignore-case`, `--invert-match`, `--line-number`, `--no-color`, `--no-index`, `--perl-regexp`, `--untracked`, `--word-regexp`, `-A`, `-B`, `-C`, `-E`, `-F`, `-G`, `-H`, `-L`, `-P`, `-c`, `-e`, `-h`, `-i`, `-l`, `-n`, `-v`, `-w` | pager (`core.pager`), *submodules* | none | git-grep(1), submodule.recurse |
 | `log` | `--abbrev-commit`, `--all`, `--author`, `--branches`, `--color`, `--committer`, `--date`, `--decorate`, `--first-parent`, `--format`, `--graph`, `--grep`, `--max-count`, `--merges`, `--name-only`, `--name-status`, `--no-abbrev-commit`, `--no-color`, `--no-decorate`, `--no-merges`, `--no-patch`, `--numstat`, `--oneline`, `--patch`, `--pretty`, `--remotes`, `--reverse`, `--shortstat`, `--since`, `--skip`, `--stat`, `--summary`, `--tags`, `--until`, `-m`, `-n`, `-p`; a word containing `%G` is NOT MEASURED | diff-driver, signature-format, pager (`core.pager`), `log.showsignature` true | none | git-log(1), git-config(1) diff.*, log.showSignature, format.pretty, pretty.* |
 | `ls-files` | `--cached`, `--deleted`, `--error-unmatch`, `--full-name`, `--modified`, `--others`, `--stage`, `--unmerged`, `-c`, `-d`, `-m`, `-o`, `-s`, `-u`, `-z` | filter, fsmonitor | none | git-ls-files(1) -m/-d compare the worktree |
-| `ls-remote` | none, the bare form only | protocol, rewrite-to-helper, transport, transport-helper-url | none | git-ls-remote(1): talks to the remote |
 | `ls-tree` | `--abbrev`, `--full-name`, `--full-tree`, `--long`, `--name-only`, `--name-status`, `-d`, `-l`, `-r`, `-t`, `-z` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
 | `merge-base` | `--all`, `--fork-point`, `--independent`, `--is-ancestor`, `--octopus` | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
 | `mv` | none, the bare form only | fsmonitor, *submodules* | `post-index-change` | git-mv(1): writes the index |

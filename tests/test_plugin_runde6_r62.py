@@ -80,7 +80,7 @@ def test_checked_forms_stay_free():
     """Bare forms and vetted inert options remain free, so the gate does not become uselessly noisy."""
     g = _gate()
     for words in (["status"], ["status", "-s"], ["log", "--oneline"], ["diff", "--stat"],
-                  ["show", "HEAD"], ["grep", "needle"], ["branch", "-a"], ["fetch", "origin"],
+                  ["show", "HEAD"], ["grep", "needle"], ["branch", "-a"],   # fetch left the list (R7-2)
                   ["-C", "/path", "status"], ["log", "--oneline", "-n", "5"]):
         assert _free(g, words), words
     # Nachtrag 19b: rebase left the allow-list (S1, fallback A), so even its bare form is NOT MEASURED now

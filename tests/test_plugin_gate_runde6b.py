@@ -141,7 +141,7 @@ def test_s1_form_with_a_program_selecting_key_or_hook_is_not_measured(tmp_path, 
     assert "selects a program" in text or "hook" in text, text
 
 
-@pytest.mark.parametrize("command", [c for c, _ in S1_FORMS])
+@pytest.mark.parametrize("command", [c for c, _ in S1_FORMS if c != "git fetch origin"])   # fetch left (R7-2)
 def test_s1_form_in_a_repository_without_such_keys_or_hooks_stays_free(tmp_path, command):
     repo = _repo(tmp_path)
     assert _decision(command, repo) == (None, ""), command
@@ -206,7 +206,8 @@ def test_a_free_form_after_a_directory_change_is_not_measured(tmp_path):
 
 
 @pytest.mark.parametrize("command", ["git merge side", "git pull", "git rebase side", "git cherry-pick side",
-                                     "git clone x y", "git gc", "git worktree list", "git verify-commit HEAD"])
+                                     "git clone x y", "git gc", "git worktree list", "git verify-commit HEAD",
+                                     "git fetch origin", "git ls-remote origin"])   # the last two: R7-2
 def test_entries_whose_program_list_is_not_fully_justified_left_the_allow_list(tmp_path, command):
     repo = _repo(tmp_path)
     assert _decision(command, repo)[0] == "ask", command
@@ -412,8 +413,7 @@ def test_a_write_into_a_submodule_git_directory_asks(tmp_path):
 
 
 @pytest.mark.parametrize("name, value, command", [
-    ("GIT_EXTERNAL_DIFF", "HELPER", "git diff"), ("GIT_ASKPASS", "HELPER", "git fetch origin"),
-    ("SSH_ASKPASS", "HELPER", "git ls-remote origin"), ("GIT_SSH_COMMAND", "HELPER", "git fetch origin"),
+    ("GIT_EXTERNAL_DIFF", "HELPER", "git diff"),   # the transport variables went with fetch and ls-remote (R7-2)
     ("GIT_EDITOR", "HELPER", "git commit"), ("EDITOR", "vim", "git commit"), ("PAGER", "less", "git log"),
     ("GIT_PAGER", "HELPER", "git show HEAD"), ("GIT_EXEC_PATH", "DIR", "git rev-parse HEAD")])
 def test_a_program_selecting_variable_in_the_hooks_environment_counts_like_its_key(tmp_path, monkeypatch, name,
@@ -517,7 +517,7 @@ def test_d3_names_the_checked_options_keys_and_hooks_of_every_allow_list_entry_a
 
 # --- hooks per githooks(5): commit and fetch carry the hooks named for them, not every name ----------------
 
-@pytest.mark.parametrize("command", ["git fetch origin", "git commit", "git status", "git log --oneline -n 1"])
+@pytest.mark.parametrize("command", ["git commit", "git status", "git log --oneline -n 1"])   # fetch left (R7-2)
 def test_the_ebene_2_pre_push_hook_does_not_make_a_form_that_never_pushes_not_measured(tmp_path, command):
     """githooks(5): pre-push is called by git-push(1) only. Measured in Nachtrag 19b: with every githooks(5)
     name counted for fetch, the installed Ebene-2 hook made every git fetch NOT MEASURED."""
@@ -529,8 +529,7 @@ def test_the_ebene_2_pre_push_hook_does_not_make_a_form_that_never_pushes_not_me
 @pytest.mark.parametrize("hook, command", [
     ("pre-commit", "git commit"), ("prepare-commit-msg", "git commit"), ("commit-msg", "git commit"),
     ("post-commit", "git commit"), ("reference-transaction", "git commit"), ("post-index-change", "git commit"),
-    ("pre-auto-gc", "git commit"), ("reference-transaction", "git fetch origin"), ("pre-auto-gc", "git fetch origin"),
-    ("pre-push", "git stash"), ("post-checkout", "git stash")])
+    ("pre-auto-gc", "git commit"), ("pre-push", "git stash"), ("post-checkout", "git stash")])   # fetch left (R7-2)
 def test_a_hook_githooks_names_for_the_entry_counts(tmp_path, hook, command):
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", hook)
