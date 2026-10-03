@@ -133,9 +133,8 @@ MEASURED. The remote itself is not read.
       possible transfer, never resolved and never inactive (`_MAYBE_PUSH`). Off-list, and so NOT MEASURED:
       `send-pack`, an unknown subcommand, every form of `rebase`, `bisect` and `submodule`, the 43 entries
       that left the list in Nachtrag 19b (below), and any allow-listed subcommand carrying an unvetted
-      option. On-list (bare, or with their vetted options): `fetch` and `ls-remote` (they receive, they do
-      not publish) and `config` (but `git config core.hooksPath` is denied earlier, before the list is
-      consulted); `pull` and `clone` left the list in Nachtrag 19b. `git config` itself is
+      option. Since Runde 7, fetch and ls-remote are NOT MEASURED; config remains subject to the restricted
+      read and write forms below. `git config` itself is
       free only as a read (`--get`, `--get-all`, `--get-regexp`, `--list`, `git config get|list`) or as a
       write of a key checked to select no program (`user.name`, `user.email`, `init.defaultBranch`,
       `color.ui`, `core.autocrlf`, `core.quotePath`, `pull.rebase`, `pull.ff`, `fetch.prune`,

@@ -370,7 +370,7 @@ def inspect_not_before_verify(names: list[str]) -> bool:
 
 
 #: The event types a trace may carry besides assistant that hold no tool call by their schema, as Claude Code
-#: writes them (measured in the 65 traces saved from the eval runs of 2026-09-30 and 2026-10-01, Claude Code
+#: writes them (measured in the 65 traces saved from the eval runs of 2026-09-30, Claude Code
 #: 2.1.285 and 2.1.286: assistant, user, system, result and rate_limit_event, nothing else). Only these are skipped;
 #: a missing, empty or unknown type could stand for an event that carries a tool call, so the trace is
 #: not-measured (review Runde 7, R7-8).
