@@ -55,6 +55,9 @@ _INCLUSION_MEMBERS = frozenset({"tree_size", "leaf_index", "inclusion_path", "ro
 _PAYLOAD_MEMBERS = frozenset({"schema", "suite", "suite_version", "metric", "comparator", "threshold",
                               "score", "passed", "n", "model_id_commit", "dataset_id_commit", "commit_alg",
                               "timestamp"})
+#: The only optional Payload member (the draft's Section 3.2 and 3.5): the digest of a criteria set, with the
+#: pattern of the commitments; only its form is checked.
+_OPTIONAL_PAYLOAD_MEMBER = "criteria_digest"
 _COMPARATORS = (">=", ">", "<=", "<")
 # Table 1 of the draft: an optional minus sign, then 0 or a digit 1-9 followed by digits, then
 # optionally a full stop and one or more digits. Stricter than eval-claim v0.1, which allows 00.5.
@@ -264,14 +267,21 @@ def _comparison_holds(score: str, comparator: str, threshold: str) -> bool:
     return {">=": a >= b, ">": a > b, "<=": a <= b, "<": a < b}[comparator]
 
 
+def _digest_members(p: dict) -> tuple:
+    """The members with the pattern sha256: followed by 64 lowercase hexadecimal digits: the two commitments, and
+    criteria_digest when present."""
+    return ("model_id_commit", "dataset_id_commit") + ((_OPTIONAL_PAYLOAD_MEMBER,) if _OPTIONAL_PAYLOAD_MEMBER in p
+                                                       else ())
+
+
 def _payload_violation(p: Any) -> Optional[str]:
     """Step 6: the member set and every row of Table 1, or None."""
     if not isinstance(p, dict):
         return "the payload is not a JSON object"
-    if set(p) != _PAYLOAD_MEMBERS:
+    if set(p) - {_OPTIONAL_PAYLOAD_MEMBER} != _PAYLOAD_MEMBERS:
         # Only our own names are rendered; the Issuer's extra names are counted, never printed or sorted.
         missing = [name for name in sorted(_PAYLOAD_MEMBERS) if name not in p]
-        extra = sum(1 for name in p if not is_member(name, _PAYLOAD_MEMBERS))
+        extra = sum(1 for name in p if not is_member(name, _PAYLOAD_MEMBERS | {_OPTIONAL_PAYLOAD_MEMBER}))
         return f"the payload member set differs from Table 1 (missing {missing}, {extra} extra)"
     if p["schema"] != PAYLOAD_SCHEMA:
         return "the payload schema is not " + PAYLOAD_SCHEMA
@@ -288,7 +298,7 @@ def _payload_violation(p: Any) -> Optional[str]:
     n = p["n"]
     if not isinstance(n, _Number) or not (n.value().is_integer() and 1 <= n.value() < _MAX_SAFE):
         return "n is not an integer from 1 to 2^53 - 1"
-    for name in ("model_id_commit", "dataset_id_commit"):
+    for name in _digest_members(p):
         if not isinstance(p[name], str):
             return f"{name} is not a string"
     if p["commit_alg"] != COMMIT_ALG:
@@ -371,7 +381,7 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
     violation = _payload_violation(payload)                                           # step 6
     if violation:
         raise _Fail(6, violation)
-    for name in ("model_id_commit", "dataset_id_commit"):                             # step 7
+    for name in _digest_members(payload):                                             # step 7
         if not _COMMIT_RE.match(payload[name]):
             raise _Fail(7, f"{name} is not sha256: followed by 64 lowercase hexadecimal digits")
     if payload["passed"] != _comparison_holds(payload["score"], payload["comparator"],

@@ -1,6 +1,6 @@
 {
  "source": "draft-gruszka-signed-evaluation-receipts-00, Appendix A",
- "source_vectors_json_sha256": "3fc76458efe0ed000404fc49a53eb1ac177661a870b46d487e193d0f6fe38f52",
+ "source_vectors_json_sha256": "ba0326ac197a877390df9c5a29e296ba315d0e33582ac855dad8ff362e7003d4",
  "notice": "PURE TEST KEYS AND SALTS. They MUST NOT be used for any real receipt.",
  "issuer_seed_hex": "2365520410748de8778b544410b15792fcf174e0fba4806a8c1afbdbb0946b07",
  "issuer_public_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
@@ -35,6 +35,10 @@
    true
   ],
   "P9": [
+   0,
+   true
+  ],
+  "P10": [
    0,
    true
   ]
@@ -132,6 +136,15 @@
   },
   "B31": {
    "text": "{\"commit_alg\":\"sha256-salted-v1\",\"comparator\":\">=\",\"dataset_id_commit\":\"sha256:a21ba4d96c803d4263dd3d2161bc039a30f4462bd59470e31ba5a9ab0a9b3b63\",\"metric\":\"accuracy\",\"model_id_commit\":\"sha256:904de42562f9a19651e19eb7ab165e4ffe114ce5a2f98e57da5838959684fb0f\",\"n\":1800.0,\"passed\":true,\"schema\":\"https://b7n0de.com/eval-receipt/v1\",\"score\":\"0.834\",\"suite\":\"acme-safety-suite\",\"suite_version\":\"1.2.0\",\"threshold\":\"0.800\",\"timestamp\":\"2026-10-02T00:00:00Z\"}"
+  },
+  "B32": {
+   "text": "{\"commit_alg\":\"sha256-salted-v1\",\"comparator\":\">=\",\"criteria_digest\":\"sha256:7ccedb152aba3740dcde20e4f4014e2875b863ed4a4062879558bf78df9ce41a\",\"dataset_id_commit\":\"sha256:a21ba4d96c803d4263dd3d2161bc039a30f4462bd59470e31ba5a9ab0a9b3b63\",\"metric\":\"accuracy\",\"model_id_commit\":\"sha256:904de42562f9a19651e19eb7ab165e4ffe114ce5a2f98e57da5838959684fb0f\",\"n\":1800,\"passed\":true,\"schema\":\"https://b7n0de.com/eval-receipt/v1\",\"score\":\"0.834\",\"suite\":\"acme-safety-suite\",\"suite_version\":\"1.2.0\",\"threshold\":\"0.800\",\"timestamp\":\"2026-10-02T00:00:00Z\"}"
+  },
+  "B33": {
+   "text": "{\"commit_alg\":\"sha256-salted-v1\",\"comparator\":\">=\",\"criteria_digest\":\"sha256:7CCEDB152ABA3740DCDE20E4F4014E2875B863ED4A4062879558BF78DF9CE41A\",\"dataset_id_commit\":\"sha256:a21ba4d96c803d4263dd3d2161bc039a30f4462bd59470e31ba5a9ab0a9b3b63\",\"metric\":\"accuracy\",\"model_id_commit\":\"sha256:904de42562f9a19651e19eb7ab165e4ffe114ce5a2f98e57da5838959684fb0f\",\"n\":1800,\"passed\":true,\"schema\":\"https://b7n0de.com/eval-receipt/v1\",\"score\":\"0.834\",\"suite\":\"acme-safety-suite\",\"suite_version\":\"1.2.0\",\"threshold\":\"0.800\",\"timestamp\":\"2026-10-02T00:00:00Z\"}"
+  },
+  "B34": {
+   "text": "{\"commit_alg\":\"sha256-salted-v1\",\"comparator\":\">=\",\"criteria_digest\":null,\"dataset_id_commit\":\"sha256:a21ba4d96c803d4263dd3d2161bc039a30f4462bd59470e31ba5a9ab0a9b3b63\",\"metric\":\"accuracy\",\"model_id_commit\":\"sha256:904de42562f9a19651e19eb7ab165e4ffe114ce5a2f98e57da5838959684fb0f\",\"n\":1800,\"passed\":true,\"schema\":\"https://b7n0de.com/eval-receipt/v1\",\"score\":\"0.834\",\"suite\":\"acme-safety-suite\",\"suite_version\":\"1.2.0\",\"threshold\":\"0.800\",\"timestamp\":\"2026-10-02T00:00:00Z\"}"
   }
  },
  "vectors": [
@@ -654,6 +667,30 @@
    "key_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
    "receipt_sha256": "41d98247a19b88bad226837bdbf086c093fed99ba29cece7679fd43d07227373",
    "receipt_text": "{\"inclusion\":{\"inclusion_path\":[\"dee65ad4ef8f3accb2ed59f3d245291a0d6cca588deaefd6906cb5d3df048479\",\"e95c6ec9600c86453db10a63206255c1689f29d539b0f94c2a5ccc81bff28d11\"],\"leaf_index\":0,\"root\":\"53e1ec94a6dfde1d0f986b0d6743f643a1b4f1ed21883c745d09b690362b8f48\",\"tree_size\":4},\"payload_b64\":\"@B31@\",\"schema\":\"application/vnd.b7n0de.eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=\",\"sig\":\"4LgPbZ6PDeEQRHs47xNRvM/hPzCuWGlSN9dCEESjYkg5Nf72AeiJ9KBoIhONBvfr4SgD7Avxv41ZiatpjOcdDw==\"}}"
+  },
+  {
+   "id": "P10",
+   "expected": "PASS",
+   "step": "all",
+   "key_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
+   "receipt_sha256": "3e0619be4459af54705fcb70ea750ece40b0c9c6b256fc23b3ce1a3651d9991b",
+   "receipt_text": "{\"inclusion\":{\"inclusion_path\":[\"dee65ad4ef8f3accb2ed59f3d245291a0d6cca588deaefd6906cb5d3df048479\",\"e95c6ec9600c86453db10a63206255c1689f29d539b0f94c2a5ccc81bff28d11\"],\"leaf_index\":0,\"root\":\"45a82dea266c97bd31934a06b7f31b8105af386fa403dd5041f855d040c72fd0\",\"tree_size\":4},\"payload_b64\":\"@B32@\",\"schema\":\"application/vnd.b7n0de.eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=\",\"sig\":\"e2eNZiCETnOsuYwPq/yyDrcOGyhhETLR7CiKUuO0d+2rTJ7qf1SxYX9GSQtbXqhs4at1oHaZbCDKNQ87Sd8QBQ==\"}}"
+  },
+  {
+   "id": "N57",
+   "expected": "FAIL",
+   "step": "7",
+   "key_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
+   "receipt_sha256": "3be285a1a52789498043e1970909340ac69aaf760493c574267215a32ce3f68d",
+   "receipt_text": "{\"inclusion\":{\"inclusion_path\":[\"dee65ad4ef8f3accb2ed59f3d245291a0d6cca588deaefd6906cb5d3df048479\",\"e95c6ec9600c86453db10a63206255c1689f29d539b0f94c2a5ccc81bff28d11\"],\"leaf_index\":0,\"root\":\"5eca8fb468edc31e7244270fd35ef5e05bb4d8db8297ec72e1aa7fd7de5462ba\",\"tree_size\":4},\"payload_b64\":\"@B33@\",\"schema\":\"application/vnd.b7n0de.eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=\",\"sig\":\"GpkQc1ikVGmIjg+g2aYLplLN1Jd9NhjreROReHcRL8PM+Qno2j1wBlPINEclMllg8PxdOyXJOqa6kF0ypbIFCw==\"}}"
+  },
+  {
+   "id": "N58",
+   "expected": "FAIL",
+   "step": "6",
+   "key_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
+   "receipt_sha256": "4b21dab16a61359cfa288e80c265b5a3557566ee480779874c0c73e6650eae9b",
+   "receipt_text": "{\"inclusion\":{\"inclusion_path\":[\"dee65ad4ef8f3accb2ed59f3d245291a0d6cca588deaefd6906cb5d3df048479\",\"e95c6ec9600c86453db10a63206255c1689f29d539b0f94c2a5ccc81bff28d11\"],\"leaf_index\":0,\"root\":\"4b17b3dfa78eb5b02cfc0d9f1a2f96a08a62d493cbd8b54ba809d507e99a8122\",\"tree_size\":4},\"payload_b64\":\"@B34@\",\"schema\":\"application/vnd.b7n0de.eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=\",\"sig\":\"GrCDBOhFkMqMy4UMJyI0E2ddilimVYBXJ1Af/tI8mSp5VfIIlsJgzGqhw8c6p7bvB/YCphuOXWA46FAZuN+WAA==\"}}"
   }
  ]
 }
