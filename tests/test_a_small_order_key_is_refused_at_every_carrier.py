@@ -2069,6 +2069,10 @@ _LENGTH_32 = {
     ("persample.py", "audit_challenge"): (1, "a root, no key"),
     ("policy.py", "_validate_pinned_ed25519_pubkey"): (1, "followed by the rule"),
     ("policy.py", "_validate_root_b64"): (1, "a root, no key"),
+    ("receipt_cose.py", "_rule_broken"): (2, "a kid (a thumbprint) and a payload (a digest), no key"),
+    ("receipt_cose.py", "_statement_keys"): (1, "the relying party's statement key; followed by the rule"),
+    ("receipt_cose.py", "cose_key_thumbprint"): (1, "hashes a public key it is given; trusts and writes "
+                                                    "nothing, the rule stands where a key is trusted"),
     ("relation.py", "_keys_equal"): (1, "compares two keys; writes nothing"),
     ("sdjwt_issue.py", "issue_sd_jwt"): (1, "the holder key; followed by the rule since this fix"),
     ("signature.py", "ed25519_trust_anchor_weakness"): (1, "the rule itself"),
