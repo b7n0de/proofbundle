@@ -489,5 +489,6 @@ def test_r9_4_a_verifier_answer_that_repeats_a_key_is_no_answer(monkeypatch, whe
         line = line.replace('"id": 1,', '"id": 1, "id": 1,')
     monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
     monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, line + "\n", ""))
-    with pytest.raises(gate.GateError, match="not one unambiguous JSON object|gave no answer"):
+    with pytest.raises(gate.GateError,
+                       match="not one unambiguous JSON object|refuses the whole verifier run"):   # R10-2
         gate.verify_items([{"kind": "bundle"}], _deadline())

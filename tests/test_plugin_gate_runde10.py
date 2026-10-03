@@ -1,8 +1,9 @@
 """Review Runde 10 (stand 494bb373): one regression test per finding, each exactly the review's case.
 
 R10-1: a valid git command followed by a shell comment that holds an apostrophe got no answer on either host; the
-gate now drops the comment and answers the command as its control without the comment. Red against 494bb373, green
-after.
+gate now drops the comment and answers the command as its control without the comment. R10-2: a reply line of the
+verifier that repeats a key, or a second reply for the same request, no longer lets another reply count; the whole
+verifier run is refused. Red against 494bb373, green after.
 """
 from __future__ import annotations
 
@@ -88,3 +89,34 @@ def test_r10_1_a_git_command_with_a_shell_comment_is_answered_as_its_control(tmp
         assert want == expected, (host, control, want)
         assert (got, got_ids) == (want, want_ids), (host, commented, got_answer)
         assert "not_gated" not in got_ids
+
+
+# --- R10-2: ambiguous or repeated replies of the verifier --------------------------------------------------------
+
+def _reply(request_id: int, exit_code: int) -> str:
+    text = json.dumps({"exit_code": exit_code, "meaning": "synthetic", "proofbundle_version": "6.1.0"})
+    return json.dumps({"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text}]}})
+
+
+_AMBIGUOUS = _reply(1, 0).replace('"id": 1,', '"id": 1, "id": 1,')
+
+
+@pytest.mark.parametrize("stream", [
+    [_AMBIGUOUS, _reply(1, 0)],
+    [_reply(1, 1), _reply(1, 0)],
+    [_reply(1, 0), _reply(1, 1)],
+], ids=["ambiguous-then-valid", "exit-1-then-exit-0", "exit-0-then-exit-1"])
+def test_r10_2_an_ambiguous_or_repeated_reply_refuses_the_whole_verifier_run(monkeypatch, stream):
+    """R10-2, the review's synthetic reply streams for one expected request: a reply line that repeats a key followed
+    by a valid reply, and two unambiguous replies for the same id in both orders. At 494bb373 the first two read as
+    exit 0 (pass verified) and the third as exit 1; now each refuses the whole verifier run, which the judge answers
+    as deny (gate_error)."""
+    monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
+    for lines, refused in (([_reply(1, 1)], False), (stream, True)):   # the control: one reply is read as it is
+        out = "".join(line + "\n" for line in lines)
+        monkeypatch.setattr(gate.subprocess, "run", lambda *a, _o=out, **k: subprocess.CompletedProcess(a, 0, _o, ""))
+        if not refused:
+            assert gate.verify_items([{"kind": "bundle"}], gate.time.monotonic() + 30)[0]["exit_code"] == 1
+            continue
+        with pytest.raises(gate.GateError, match="refuses the whole verifier run"):
+            gate.verify_items([{"kind": "bundle"}], gate.time.monotonic() + 30)

@@ -1163,13 +1163,21 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
                                   capture_output=True, text=True, timeout=left, check=False)
     except subprocess.TimeoutExpired as exc:
         raise GateError("the verifier did not finish in time") from exc
+    # A reply line that repeats a key could be read as an answer to any request, and a second reply for the same
+    # request leaves two answers to choose from: either refuses the whole run, so no other reply counts and no
+    # reply is overwritten (review Runde 10, R10-2). A line that is no JSON at all is still skipped.
     replies = {}
     for line in proc.stdout.splitlines():
         try:
             reply = strict_json(line)
-        except ValueError:   # AmbiguousJSON included: a reply that repeats a key is no answer
+        except AmbiguousJSON as exc:
+            raise GateError(f"a reply line of the verifier {exc}, which refuses the whole verifier run") from exc
+        except ValueError:
             continue
         if isinstance(reply, dict) and isinstance(reply.get("id"), int):
+            if reply["id"] in replies:
+                raise GateError(f"the verifier sent a second reply for request {reply['id']}, which refuses the "
+                                "whole verifier run")
             replies[reply["id"]] = reply
     results = []
     for n in range(len(requests)):
