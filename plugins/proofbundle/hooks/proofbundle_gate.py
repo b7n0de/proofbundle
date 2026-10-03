@@ -747,7 +747,8 @@ def _free_call_verdicts(free: list, cwd: str, deadline: float, host: str) -> lis
     for sub, _args, directory in free:
         label = f"git {sub}"
         if host == "codex" or directory is UNKNOWN:
-            why = ("under Codex the hook does not receive the directory the command runs in (D12)" if host == "codex"
+            why = ("under Codex a repository-dependent call has no bound execution context: the hook does not "
+                   "receive the directory the command runs in, D12" if host == "codex"
                    else "the command changes the directory, runs git through a wrapper, a program path or a nested "
                         "shell, or after another command, in a pipeline, in the background or in a substitution")
             key = ("unbound", label, why)

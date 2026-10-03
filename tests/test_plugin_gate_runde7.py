@@ -334,3 +334,16 @@ def test_r7_8_an_inspect_event_without_a_known_type_makes_the_trace_not_measured
     trace = tmp_path / "trace.jsonl"
     trace.write_text("\n".join(json.dumps(e) for e in (inspect, verify)), encoding="utf-8")
     assert reader.run_order_verdict(trace) == expected
+
+
+# --- review question 5: the Codex rule covers repository-dependent calls, not every git form -------------------
+
+def test_q5_under_codex_a_call_that_reads_no_repository_stays_free_and_a_repository_dependent_one_does_not(tmp_path):
+    """The texts say "repository-dependent calls without a bound execution context", not "every git form": a bare
+    `git --version` stays free under Codex, `git status` is NOT MEASURED (the host answer denies it), also with a
+    literal -C, which alone binds no execution filesystem."""
+    repo = _repo(tmp_path)
+    assert _decision("git --version", repo, host="codex") == (None, "")
+    for command in ("git status", f"git -C {shlex.quote(str(repo))} status"):
+        decision, text = _decision(command, repo, host="codex")
+        assert decision == "ask" and "repository-dependent call has no bound execution context" in text, text

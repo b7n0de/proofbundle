@@ -254,7 +254,9 @@ the configuration or the hooks before the form runs and the gate models no such 
 R7-4; only the first run of a sequential chain is read in the state before the command);
 a configuration git itself cannot read (an include that names a directory, broken syntax: measured, git
 exits 128; a missing include git skips, as git does); git output of a shape the gate does not expect; and
-every free form under Codex, whose hook does not receive the directory the command runs in (D12). The
+under Codex every repository-dependent call without a bound execution context, because its hook does not
+receive the directory the command runs in (D12; a bare `git` and `git --version` read no repository and stay
+free). The
 reason id is `repo_state_selects_program`, `repo_state_unreadable` or `repo_state_unbound`.
 
 Sources: the git v2.43.0 documentation (git-config(1), githooks(5), gitattributes(5), git(1), git-var(1),
@@ -632,9 +634,12 @@ DECISION AFTER REVIEW RUNDE 6 (Nachtrag 19; the reviewer's decision, recorded he
   denied.
 
 FREE GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7)
-- Codex stays strict: every git form Level 1 would leave free under Claude Code is NOT MEASURED under
-  `--host codex` and denied (`repo_state_unbound`), because the hook does not receive the directory the
-  command runs in, so the gate cannot read that repository's configuration and hooks.
+- Codex stays strict for repository-dependent calls without a bound execution context: an allow-listed git
+  form Level 1 would leave free under Claude Code, whose freedom rests on the configuration and hooks of the
+  repository it runs in, is NOT MEASURED under `--host codex` and denied (`repo_state_unbound`), because the
+  hook does not receive the directory the command runs in, so the gate cannot read that repository's state.
+  A literal `-C` alone binds no execution filesystem. A call that reads no repository (a bare `git`,
+  `git --version`) stays free (review Runde 7, question 5: "every git form" was too broad).
 - MEASURED in the Codex source at 14a477ea89712071944244022e8a10142845456e (read, not run): the dispatcher
   asks every tool for a PreToolUse payload (`codex-rs/core/src/tools/registry.rs` line 602); a function
   tool fires the hook under its own name with its JSON arguments (lines 133-142, 833-842); `apply_patch`,

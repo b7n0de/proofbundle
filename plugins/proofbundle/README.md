@@ -104,7 +104,8 @@ it leaves such a form free, Level 1 also reads the bound repository's effective 
 scope and include), its effective hook directory and the hook's own environment, and frees the form only
 when no key, variable or executable hook that selects a program for that subcommand is present; D3 lists,
 per entry, the vetted options, the keys and the hooks with their sources (Nachtrag 19b, review S1). An
-unknown directory, a configuration git cannot read, and every free form under Codex are NOT MEASURED. Not
+unknown directory, a configuration git cannot read, and under Codex every repository-dependent call without
+a bound execution context are NOT MEASURED. Not
 seen: an environment a session command exported earlier, `PATH`, and git's compiled-in default programs. A
 write by the file tools (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and Codex's `apply_patch`) to a
 repository's configuration, an included or global configuration file, or the hook directory is NOT
