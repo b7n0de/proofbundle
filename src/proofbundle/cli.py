@@ -154,6 +154,58 @@ _VERIFY_NULLABLE_FIELDS = (
     "root_authenticity")
 
 
+def _relations_regel(abschnitt: dict, eigene_aussage: bool) -> bool:
+    """Whether a loaded ``relations`` section sets a rule the verify command applies (`_policy_ohne_abschnitt`).
+
+    A rule is set by a ``require_relation_resolution`` that names a relation, a ``reject_superseded`` that is true, a
+    ``relation_signer`` or ``require_relation_target`` that names a relation, and a ``reject_retracted`` that is true
+    where the command judges a statement's own assertion (``relation-statement verify``, ``eigene_aussage``): the decision
+    and outcome verify commands never apply it (`relation.evaluate_relations_policy`, "standalone-only"). Deep gate run 6
+    at fda55f98, L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01: a section holding only ``reject_retracted: true``, or only
+    ``reject_superseded: false``, ``relation_signer: {}`` or ``require_relation_target: {}``, counted as held, and
+    `outcome verify` printed POLICY: OK over an attached, verified retraction of its receipt."""
+    from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
+    for name in ("require_relation_resolution", "relation_signer", "require_relation_target"):
+        wert = _feld_von(abschnitt, name, _FEHLT)
+        if wert is not _FEHLT and not ((type(wert) is list or type(wert) is dict) and not wert):
+            return True
+    if _feld_von(abschnitt, "reject_superseded", _FEHLT) is True:
+        return True
+    return eigene_aussage and _feld_von(abschnitt, "reject_retracted", _FEHLT) is True
+
+
+def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple, eigene_aussage: bool = False) -> bool:
+    """True when a loaded ``--policy`` holds none of the sections this command evaluates, or holds them with nothing
+    in them that applies.
+
+    A FILE WHOSE CONTENT READS AS ABSENT, ONE LEVEL DOWN (verify lane V3 on 6d674973, the class of
+    L3-620v5-T14-ANCHORS-NULL-FILE-01). A valid policy with no section for this command, the packaged eval
+    template for instance, was loaded and then not evaluated, and `decision verify`, `outcome verify` and
+    `relation-statement verify` ended with exit 0 and output byte-identical to a call without `--policy`
+    (measured at d388ed3d and at both tags). A relying party who names a policy asked for it to be applied,
+    so such a file is refused like the empty value. A section the policy holds as null counts as held: the
+    gate refuses it with its own code.
+
+    WHAT COUNTS AS HELD, section by section (verify lanes V4, V5 and V6 on 8f2fa980). ``decision_receipt`` counts
+    when present: its default rules apply to an empty section too (``allow_raw_inputs``). ``relations`` counts when
+    it holds a key: each of its rules is one the policy sets, so ``{}`` sets none, and `decision verify` under it
+    ended byte-identical to a verify without the policy. ``anchors`` counts when it gives trust material for the
+    anchors of ``--anchors`` (`policy.policy_anchor_trust`), the only part of it these commands read; a policy with
+    only that section confirmed an anchor at d388ed3d, and the first form of this refusal refused it."""
+    from .canonical import _FEHLT, _feld_von  # noqa: PLC0415
+    from .policy import policy_anchor_trust  # noqa: PLC0415
+    for name in abschnitte:
+        wert = _feld_von(policy, name, _FEHLT)
+        if wert is _FEHLT:
+            continue
+        if name == "relations" and type(wert) is dict and not _relations_regel(wert, eigene_aussage):
+            continue
+        if name == "anchors" and not policy_anchor_trust(policy):
+            continue
+        return False
+    return True
+
+
 def _error_verify_fields(error: str) -> dict:
     """The stable single-field contract on the malformed-input (exit 2) path (verify-lens L2,
     2026-07-09): crypto could not even be evaluated, so crypto_ok is False and every check field is
@@ -345,17 +397,29 @@ def _check_matrix(result) -> list:
 
 
 def _resolve_signer(args):
-    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error)."""
-    if getattr(args, "new_key", None) and getattr(args, "key", None):
+    """Shared signer resolution for emit / emit-eval. Returns a signer or None (with an error).
+
+    Both options are read by `is not None` (verify lane V3 on 6d674973, the class of L3-620v3-CLI-EMPTY-OPTION-01):
+    they were read by their truth, so `--key K --new-key ''` signed with K and exited 0, and `--key '' --new-key N`
+    wrote N, each exactly as if the empty option had not been given. Both given is refused whatever they hold, and
+    a key file that cannot be read or written, the empty path included, is refused with exit 2, not a raw
+    traceback."""
+    new_key = getattr(args, "new_key", None)
+    key = getattr(args, "key", None)
+    if new_key is not None and key is not None:
         print("ERROR: use either --key or --new-key, not both", file=sys.stderr)
         return None
-    if getattr(args, "new_key", None):
-        signer = generate_signer()
-        save_signer(signer, args.new_key)
-        print(f"wrote new signing key to {args.new_key} (keep this secret)", file=sys.stderr)
-        return signer
-    if getattr(args, "key", None):
-        return load_signer(args.key)
+    try:
+        if new_key is not None:
+            signer = generate_signer()
+            save_signer(signer, new_key)
+            print(f"wrote new signing key to {new_key} (keep this secret)", file=sys.stderr)
+            return signer
+        if key is not None:
+            return load_signer(key)
+    except (OSError, ValueError, ProofBundleError) as exc:
+        _err(exc)
+        return None
     print("ERROR: provide --key <file> or --new-key <file>", file=sys.stderr)
     return None
 
@@ -419,11 +483,11 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         # (see enclave_assurance_proven). Parsed here so a bad --eat/--verifier-key gets the SAME clean
         # ERROR+exit-2 handling as the receipt itself, never a raw traceback.
         eat_jws = None
-        if getattr(args, "eat", None):
+        if getattr(args, "eat", None) is not None:
             with _open_input(args.eat) as handle:
                 eat_jws = _read_capped(handle).strip()
         verifier_pubkey = None
-        if getattr(args, "verifier_key", None):
+        if getattr(args, "verifier_key", None) is not None:
             verifier_pubkey = decode_b64(args.verifier_key)
     except (OSError, ValueError, ProofBundleError) as exc:   # missing/invalid receipt file → clean exit, not a traceback
         _err(exc)
@@ -593,8 +657,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # requirement) | "any" | a specific type string. --anchor-type narrows and implies --require-anchor.
     anchor_type = getattr(args, "anchor_type", None)
     anchor_target = getattr(args, "anchor_target", None)   # WP-A1: implies --require-anchor
-    require_anchor = anchor_type if anchor_type else (
-        "any" if (getattr(args, "require_anchor", False) or anchor_target) else None)
+    # AN OPTION THE CALLER GAVE IS READ BY `is not None` (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01):
+    # `--anchor-type ''` read by its truth dropped the requirement it implies and exited 0.
+    require_anchor = anchor_type if anchor_type is not None else (
+        "any" if (getattr(args, "require_anchor", False) or anchor_target is not None) else None)
     allow_pending = bool(getattr(args, "allow_pending", False))
     policy = None
     try:
@@ -610,7 +676,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         verification_time = None
         if getattr(args, "verification_time", None) is not None:
             from .policy import _parse_iso_utc  # noqa: PLC0415
-            if not getattr(args, "policy", None):
+            if getattr(args, "policy", None) is None:
                 raise ValueError("--verification-time only applies together with --policy (it sets "
                                  "the instant the policy lifecycle is evaluated at)")
             verification_time = _parse_iso_utc(args.verification_time)
@@ -707,8 +773,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (fail-closed) before verifying, and reconcile the aud VALUE: if BOTH --aud and the policy's
         # expected_aud are set and DIFFER, that is ambiguous → exit 2 (never a silent override).
         effective_aud = flag_aud
-        if getattr(args, "policy", None):
+        if getattr(args, "policy", None) is not None:   # `--policy ''` is a policy that cannot be read
             policy = load_policy(resolve_policy_source(args.policy))
+            # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): a decision or
+            # relations section is refused here, exit 2, never dropped.
+            from .policy import PolicyError, _regelfehler  # noqa: PLC0415
+            _regel = _regelfehler(policy, "verify")
+            if _regel is not None:
+                raise PolicyError(_regel)
             pol_aud = policy_expected_aud(policy)
             if pol_aud is not None and flag_aud is not None and pol_aud != flag_aud:
                 from .policy import PolicyError  # noqa: PLC0415
@@ -733,7 +805,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                         f"anchors.require_anchor_target is {p_tgt!r} — ambiguous; align them")
                 require_anchor = require_anchor if require_anchor is not None else p_req
                 anchor_target = anchor_target if anchor_target is not None else p_tgt
-                if anchor_target and require_anchor is None:
+                if anchor_target is not None and require_anchor is None:
                     require_anchor = "any"
                 if pol_anc.get("allow_pending"):
                     allow_pending = True
@@ -743,6 +815,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust_material or {})   # CLI flags take precedence on the same key
                 rp_trust_material = merged
+        # AN ANCHOR PERMISSION OR ANCHOR TRUST WITHOUT AN ANCHOR REQUIREMENT IS APPLIED BY NOTHING (deep gate run 7 at
+        # 1a3cd672, L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, P2, with its command-line neighbour from the sweep):
+        # no anchor is checked without a requirement, so `anchors.allow_pending` or trust material from the policy, or
+        # `--trusted-tsa-root` / `--bitcoin-header` alone, ended with POLICY: OK and nothing applied. Refused like the
+        # lone `--allow-pending` above, exit 2.
+        if require_anchor is None and (allow_pending or rp_trust_material):
+            lose = (["allow_pending"] if allow_pending else []) + sorted(rp_trust_material or {})
+            raise ValueError(
+                f"anchor trust or permission given without an anchor requirement ({', '.join(lose)}): no anchor is "
+                "checked without --require-anchor, --anchor-type, --anchor-target or the policy's "
+                "anchors.require_anchor / require_anchor_target, so it would be applied by nothing")
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce,
                                expected_root_b64=expected_root,
                                expected_tree_size=expected_tree_size)
@@ -776,10 +859,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # (Lens-2/3/4/6 review: a not-yet-valid policy or an expired-today checkpoint must never read
         # automation-safe just because a past instant was supplied). We therefore evaluate TWICE in historical
         # mode; in current mode the two coincide (one evaluation, no behaviour change).
-        policy_result = evaluate_policy(bundle, result, policy, now=verification_time)
+        # The anchors section was applied above (the requirement and the trust material), so the evaluator gets the
+        # policy without it; it refuses any rule it does not apply itself (T16).
+        _ohne_anker = {k: v for k, v in policy.items() if k != "anchors"}
+        policy_result = evaluate_policy(bundle, result, _ohne_anker, now=verification_time)
         policy_ok = policy_result["policy_ok"]
         policy_result_now = (policy_result if verification_time is None
-                             else evaluate_policy(bundle, result, policy, now=None))
+                             else evaluate_policy(bundle, result, _ohne_anker, now=None))
     # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
     # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
     # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
@@ -1059,11 +1145,15 @@ def _cmd_emit(args: argparse.Namespace) -> int:
     if signer is None:
         return 2
 
-    with open(args.payload_file, "rb") as handle:
-        # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
-        # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
-        # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
-        payload = handle.read()
+    try:
+        with open(args.payload_file, "rb") as handle:
+            # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
+            # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
+            # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+            payload = handle.read()
+    except OSError as exc:   # `--payload-file ''` or a missing file: exit 2, not a raw traceback (verify lane V3)
+        _err(f"cannot read --payload-file: {exc}")
+        return 2
 
     bundle = emit_bundle(payload, signer)
     with open(args.out, "w", encoding="utf-8") as handle:
@@ -1235,6 +1325,23 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
         print("ERROR: beacon mode needs --beacon-randomness, --beacon and --round together "
               "(partial flags would silently downgrade to the grindable self-challenge mode)", file=sys.stderr)
         return 2
+    # THE NONCE IS JUDGED BY THE BYTES THE CHALLENGE USES, not by its spelling. An empty nonce is a nonce that
+    # was asked for and not given (deep gate at d97de8e5, L3-620v3-CLI-EMPTY-OPTION-01), and the first fix
+    # refused only the spelling "". `bytes.fromhex` skips ASCII whitespace, so " ", "\t" or "\n" decoded to
+    # b"", the command derived exactly the grindable self-challenge indices and called them "auditor-nonce"
+    # with exit 0 (deep gate at 99f76ceb, L3-620v4-T11-NONCE-WS-01). Decoded here, once, before any mode is
+    # chosen; a nonce that decodes to no bytes is refused, whatever its spelling.
+    nonce = b""
+    if args.nonce is not None:
+        try:
+            nonce = bytes.fromhex(args.nonce)
+        except ValueError as exc:
+            _err(exc)
+            return 2
+        if not nonce:
+            print("ERROR: --nonce decodes to no bytes (empty, or only whitespace); give the auditor's fresh "
+                  "nonce, or leave the flag out for the self-challenge sanity check", file=sys.stderr)
+            return 2
     if args.beacon_randomness is not None and args.nonce is not None:
         print("ERROR: --nonce and --beacon-randomness are mutually exclusive — pick one challenge mode",
               file=sys.stderr)
@@ -1248,9 +1355,9 @@ def _cmd_audit_challenge(args: argparse.Namespace) -> int:
                 beacon=args.beacon, round_=args.round)
             indices, mode = req.indices, "beacon"
         else:
-            nonce = bytes.fromhex(args.nonce) if args.nonce else b""
             indices = audit_challenge(args.root, args.n, args.k, nonce)
-            mode = "auditor-nonce" if args.nonce else "self-challenge"
+            # The label follows the decoded nonce: "auditor-nonce" only when the challenge used a nonce.
+            mode = "auditor-nonce" if len(nonce) > 0 else "self-challenge"
     except (ProofBundleError, ValueError) as exc:
         _err(exc)
         return 2
@@ -1373,9 +1480,9 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
     import hashlib  # noqa: PLC0415
     tf = getattr(args, "target_file", None)
     rh = getattr(args, "canonical_root_hex", None)
-    if tf and rh:
+    if tf is not None and rh is not None:
         raise ValueError("give either --target-file or --canonical-root-hex, not both")
-    if tf:
+    if tf is not None:
         # --target-file is the user's OWN artifact to anchor and MAY legitimately exceed the input_bytes
         # verify budget, so it is not capped — but hash it in 1 MiB chunks so a large file bounds memory
         # instead of read()-ing the whole file in at once (bug-hunt adversarial re-audit, 3.6.2).
@@ -1384,7 +1491,7 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
             for _chunk in iter(lambda: handle.read(1 << 20), b""):
                 h.update(_chunk)
         return h.digest()
-    if rh:
+    if rh is not None:
         root = bytes.fromhex(rh.strip().lower())
         if len(root) != 32:
             raise ValueError("--canonical-root-hex must be a 32-byte (64 hex char) SHA-256")
@@ -2011,7 +2118,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if args.policy:
+    if args.policy is not None:   # `--policy ''` names a policy that cannot be read, never no policy
         from .policy import PolicyError, load_policy  # noqa: PLC0415
         from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
@@ -2022,13 +2129,39 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err(exc)
             return 2
     anchors = None
-    if getattr(args, "anchors", None):
+    if getattr(args, "anchors", None) is not None:   # `--anchors ''` is a file that cannot be read
         try:
             with _open_input(args.anchors) as handle:
                 anchors = loads_strict(_read_capped(handle))   # WP-C1
         except (ProofBundleError, OSError, ValueError) as exc:
             _err(f"cannot read --anchors: {exc}")
             return 2
+        # A FILE WHOSE CONTENT IS THE LIBRARY'S "NO ANCHORS" IS REFUSED LIKE THE EMPTY VALUE (deep gate run 5
+        # at d388ed3d, L3-620v5-T14-ANCHORS-NULL-FILE-01, two of three jurors P1). `null` became `anchors=None`, the value of a call
+        # without the option, and an empty list is what the anchor layer reads None as
+        # (`anchors._anker_lesen`), so both ended with exit 0 exactly like no `--anchors`, while `--anchors ''`
+        # ends with exit 2. A relying party who names an anchors file asked for its anchors to be checked.
+        if anchors is None or (type(anchors) is list and not anchors):
+            _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
+                 "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
+            return 2
+    # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): the decision section, the
+    # relations rules but `reject_retracted`, the shared fields, and beside `--anchors` the anchor trust material.
+    if policy is not None:
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "decision verify --anchors" if anchors is not None else "decision verify")
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+    # A policy the command reads as nothing is refused like the empty value (`_policy_ohne_abschnitt`). Its
+    # `anchors` section gives the relying party's trust for the anchors of `--anchors` (`policy_anchor_trust`), so it
+    # applies when anchors are checked, and only then (verify lane V4 on 8f2fa980: a policy with only that section
+    # beside `--anchors` confirmed an anchor at d388ed3d and was refused here).
+    if policy is not None and _policy_ohne_abschnitt(
+            policy, ("decision_receipt", "relations") + (("anchors",) if anchors is not None else ())):
+        _err("cannot use --policy: the policy holds no decision_receipt section, no relations rule and no anchor trust "
+             "beside --anchors, so nothing in it applies to this verify; a verify without a policy omits the option")
+        return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -2036,6 +2169,13 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # WP-A1: relying-party anchor trust for a statement time anchor (CLI flags ∪ policy anchors section;
         # a CLI value wins per key). Built here so a malformed --trusted-tsa-root/--bitcoin-header is exit 2.
         rp_trust = _build_rp_trust(args)
+        # TRUST FOR NO ANCHOR (the sweep of deep gate run 7, L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01): the trust
+        # flags give the relying party's trust for the anchors of `--anchors`, and without it no anchor is checked, so
+        # they were applied by nothing and the verify ended as without them. The policy's anchors section is refused in
+        # that case by `_regelfehler`; the flags are refused here, exit 2.
+        if anchors is None and rp_trust:
+            raise ValueError(f"anchor trust given without --anchors ({', '.join(sorted(rp_trust))}): the trust applies "
+                             "to the anchors named by --anchors, and without them no anchor is checked")
         if policy is not None:
             from .policy import policy_anchor_trust  # noqa: PLC0415
             pol_trust = policy_anchor_trust(policy)
@@ -2049,8 +2189,11 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             for e in rel_errs:
                 _err(e)
             return 2
+        # The anchors section was applied above as the relying party's trust, so the verifier gets the policy
+        # without it; it refuses any rule it does not apply itself (T16).
+        _politik = None if policy is None else {k: v for k, v in policy.items() if k != "anchors"}
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
-                                         expected_nonce=args.nonce, policy=policy, anchors=anchors,
+                                         expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
                                          related=related or None)
@@ -2233,7 +2376,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if getattr(args, "policy", None):
+    if getattr(args, "policy", None) is not None:
         # WP-B (3.4.0): the outcome path enforces the trust-policy `relations` section identically to
         # the decision path (require_relation_resolution / reject_superseded / relation_signer /
         # require_relation_target). trust_pack role auth is separate and unchanged.
@@ -2243,6 +2386,15 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             _err(exc)
+            return 2
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "outcome")   # T16: every rule the policy sets is one this command applies
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+        if _policy_ohne_abschnitt(policy, ("relations",)):
+            _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
+                 "receipt is judged by; a verify without a policy omits the option")
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -2400,13 +2552,22 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         print("ERROR: --pub <base64 Ed25519 public key> is required", file=sys.stderr)
         return 2
     policy = None
-    if getattr(args, "policy", None):
+    if getattr(args, "policy", None) is not None:
         from .policy import PolicyError, load_policy  # noqa: PLC0415
         from .policy_profiles import resolve_policy_source  # noqa: PLC0415
         try:
             policy = load_policy(resolve_policy_source(args.policy))
         except PolicyError as exc:
             _err(exc)
+            return 2
+        from .policy import _regelfehler  # noqa: PLC0415
+        _regel = _regelfehler(policy, "relation_statement")   # T16, as at outcome verify
+        if _regel is not None:
+            _err(f"cannot use --policy: {_regel}")
+            return 2
+        if _policy_ohne_abschnitt(policy, ("relations",), eigene_aussage=True):
+            _err("cannot use --policy: the policy holds no relations rule, the only part of a policy a relation "
+                 "statement is judged by; a verify without a policy omits the option")
             return 2
     try:
         with _open_input(args.envelope) as handle:
@@ -2604,7 +2765,7 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
                 raise PolicyError(f"issuer key file {kf!r} carries no public key")
             keys.append(key)
         expected_root = None
-        if args.expected_root_file:
+        if args.expected_root_file is not None:   # an empty path is refused, never a policy without the root
             with open(args.expected_root_file, encoding="utf-8") as fh:
                 expected_root = fh.read().strip()
         inst = instantiate_template(args.template, issuer_keys=keys, policy_id=args.policy_id,

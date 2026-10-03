@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..evalclaim import build_eval_claim
+from ..canonical import _ein_stand
 
 
 def _find_metric(res: dict, metric: str):
@@ -34,6 +35,7 @@ def _find_metric(res: dict, metric: str):
     return None, None, None
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, threshold: str,
                          timestamp: str, model_salt: Optional[bytes] = None,
                          dataset_salt: Optional[bytes] = None):

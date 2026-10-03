@@ -28,6 +28,7 @@ from typing import Any
 
 from .errors import ProofBundleError
 from .signature import verify_ed25519_pinned
+from .canonical import _ein_stand
 
 __all__ = [
     "PQUnavailable",
@@ -59,6 +60,7 @@ def _mldsa_classes(level: str) -> tuple[Any, Any]:
     return table[level]
 
 
+@_ein_stand
 def verify_mldsa(public_key: bytes, signature: bytes, message: bytes, *, level: str = "mldsa65") -> bool:
     """True iff ``signature`` is a valid ML-DSA (FIPS 204) signature over ``message`` at ``level``.
 
@@ -90,6 +92,7 @@ def verify_mldsa(public_key: bytes, signature: bytes, message: bytes, *, level: 
         return False
 
 
+@_ein_stand
 def verify_slhdsa(public_key: bytes, signature: bytes, message: bytes, *,
                   level: str = "slhdsa-sha2-128s") -> bool:
     """SLH-DSA (FIPS 205) verify — OPTIONAL and currently OPEN.
@@ -106,6 +109,7 @@ def verify_slhdsa(public_key: bytes, signature: bytes, message: bytes, *,
     raise PQUnavailable("SLH-DSA wiring is not implemented yet")  # pragma: no cover - future path
 
 
+@_ein_stand
 def verify_hybrid(*, classical_pub: bytes, classical_sig: bytes, pq_pub: bytes, pq_sig: bytes,
                   message: bytes, pq_level: str = "mldsa65") -> bool:
     """True iff BOTH the Ed25519 and the ML-DSA signature over ``message`` verify.
@@ -115,19 +119,31 @@ def verify_hybrid(*, classical_pub: bytes, classical_sig: bytes, pq_pub: bytes, 
 
     ``classical_pub`` is a key the caller trusts, so it gets the trust-anchor rule: a low-order Ed25519
     leg would verify a signature made with no private key and leave the hybrid resting on ML-DSA alone,
-    which is exactly the single point the hybrid exists to avoid (deep gate Z195, class of L1-Z195-02)."""
+    which is exactly the single point the hybrid exists to avoid (deep gate Z195, class of L1-Z195-02).
+
+    The message is read ONCE, and both legs verify that one reading (deep gate run 5 at d388ed3d, the sweep of
+    L4-620v5-T5-SECOND-READING-01): each leg read it on its own, so a ``bytearray`` the caller changed between the two checks had
+    its Ed25519 leg verified over one message and its ML-DSA leg over another, and the hybrid answered True
+    for a message only one of its keys signed. A message that is no bytes-like value is handed on unchanged,
+    and both legs refuse it as before."""
+    from .canonical import _bytes_von  # noqa: PLC0415
+    gelesen = _bytes_von(message)
+    if gelesen is not None:
+        message = gelesen
     return (verify_ed25519_pinned(classical_pub, classical_sig, message)
             and verify_mldsa(pq_pub, pq_sig, message, level=pq_level))
 
 
 # --- test / demo helpers (key generation + signing live here, not on the production issuance path) ----
 
+@_ein_stand
 def generate_mldsa(level: str = "mldsa65") -> Any:
     """Generate an ML-DSA private key (test/demo helper; production issuance is out of scope)."""
     priv_cls, _pub_cls = _mldsa_classes(level)
     return priv_cls.generate()
 
 
+@_ein_stand(aussen={"private_key": "signierer"})
 def sign_mldsa(private_key: Any, message: bytes) -> bytes:
     """Sign ``message`` with an ML-DSA private key (test/demo helper)."""
     return bytes(private_key.sign(message))

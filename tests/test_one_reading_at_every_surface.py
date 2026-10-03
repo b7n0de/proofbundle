@@ -534,9 +534,7 @@ class TheEvidencePackBudgetBoundsTheProofThatIsDecoded(unittest.TestCase):
     so a proof the budget never saw was decoded and judged."""
 
     def test_the_proof_judged_is_the_proof_stored(self) -> None:
-        try:
-            import opentimestamps  # noqa: F401, PLC0415
-        except ImportError:
+        if not _ots_vorhanden():
             self.skipTest("needs proofbundle[anchors] (opentimestamps) — NOT MEASURABLE here, did NOT run")
         import hashlib  # noqa: PLC0415
 
@@ -1073,7 +1071,7 @@ def _flaechen():
         ("adapters.agt_receipt.verify_agt_receipt", lambda w: agt.verify_agt_receipt(
             w(agt_r), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("adapters.agt_receipt.verify_agt_receipt_chain", lambda w: agt.verify_agt_receipt_chain(
-            w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]))),
+            w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("public_transparency.evaluate_public_transparency", lambda w: pt.evaluate_public_transparency(
             w(note), w({"requireSignedCheckpoint": True, "trustedLogOrigins": [origin], "witnessQuorum": {"threshold": 1}}),
             log_vkey=w(log_vkey), witness_vkeys=w([zeuge]), expected_root_b64=w(base64.b64encode(wurzel3).decode()),
@@ -1242,10 +1240,14 @@ _OTS_FLAECHEN = ("evidence_pack.verify_evidence_pack", "anchors_rootcommit.verif
 
 
 def _ots_vorhanden() -> bool:
-    try:
-        import opentimestamps  # noqa: F401, PLC0415
-    except ImportError:
+    """Whether OpenTimestamps (proofbundle[anchors]) is installed. Only its absence counts as absence: no module
+    spec to find. A module that is found and fails while importing, ``ImportError`` included, is a broken
+    install, and its failure is raised, so a regression stays red instead of reading as not measured (Codex
+    thread 4163240548 at dd079791; until then every ``ImportError`` counted as absence)."""
+    import importlib.util  # noqa: PLC0415
+    if importlib.util.find_spec("opentimestamps") is None:
         return False
+    import opentimestamps  # noqa: F401, PLC0415
     return True
 
 

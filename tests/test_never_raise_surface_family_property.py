@@ -727,6 +727,19 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                     lambda kk=_k, x=_hv: relation.evaluate_relations_policy(_full_sec, {"edges": [
                         {"relation": "supersedes", "resolution": "VERIFIED", "targetDigest": "d",
                          "verified_under": "vu", kk: x}]}, successor_key_b64="s"))
+        # The same unhashable relation where the rule is empty or absent (2026-09-29). The signer and
+        # target loops now refuse a relation that is no str before a rule is looked up, but only when the
+        # rule holds an entry, so an empty or absent `relation_signer` and `require_relation_target` are
+        # the only way to the two R7-2b guards at the lookup. No case above took it: with the mutation
+        # anchors of the two guards drawn onto today's source, both mutants survived this file, and both
+        # raise TypeError here (measured on 938fa4cc).
+        for _sec in ({}, {"relation_signer": {}}, {"require_relation_target": {}},
+                     {"relation_signer": {}, "require_relation_target": {}}):
+            for _hv in ([1], {1: 2}, {1, 2}, bytearray(b"x")):
+                run(f"R7-2b rule empty or absent {sorted(_sec)} relation={type(_hv).__name__}",
+                    lambda s=_sec, x=_hv: relation.evaluate_relations_policy(s, {"edges": [
+                        {"relation": x, "resolution": "VERIFIED", "targetDigest": "d"}]},
+                        successor_key_b64="s"))
         # R7-3 — evaluate_policy merkle.trusted_checkpoints ELEMENT non-dict: entry.get('hashAlg') ran
         #        BEFORE _authenticate_trusted_checkpoint's own try/except and escaped raw.
         for _bad_cp in (5, "x", None, [1], True):

@@ -1,409 +1,481 @@
 {
-  "schema": "b7n0de.release_source.v1",
-  "warum_diese_datei": "Die Gruppierung eines Release kommt aus einer VERSIONIERTEN Inhaltsquelle, nicht aus dem Titelpraefix eines Pull Requests. Owner-Wort 23.09.2026: 'Titelpraefixe wie feat, docs und fix sind allein keine zuverlaessige Auskunft darueber, ob ein Eintrag den Verifier, die CI oder einen internen Pruefprozess betrifft.' Der Originaltitel, der Autor und die URL stehen je Eintrag DANEBEN, damit die Herkunft der PR-Menge nachvollziehbar bleibt und die redaktionelle Kurzfassung nicht das Einzige ist, was ueberlebt.",
-  "version": "6.1.0",
-  "vorheriger_tag": "v6.0.0",
-  "tag": "v6.1.0",
-  "release_commit": "dcac5aeec92e850443cf34d9c07ab5cd277fabe1",
-  "readme_commit": "3be557575793c3ab402c866b4a3c7fcee04d2fd0",
-  "kopfsatz": "Verifier build identity, CAP-1 coverage rules and stricter claim validation. **Beta. Closing audit not run.**",
-  "was_sich_aenderte": [
-    {
-      "bereich": "Verifier identity",
-      "aenderung": "agent-review/v0.3 can include a build digest, vector set digest and test result reference. The block is self-declared and does not change the verification verdict.",
-      "beleg": "[#224](https://github.com/b7n0de/proofbundle/pull/224) · [Detail](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/VERIFIER_BLOCK.md)"
-    },
-    {
-      "bereich": "Coverage checks",
-      "aenderung": "CAP-1 rules and 15 conformance vectors are included. Partial or skipped conformance runs are distinguished from fully passed runs.",
-      "beleg": "[#209](https://github.com/b7n0de/proofbundle/pull/209) · [#214](https://github.com/b7n0de/proofbundle/pull/214) · [Detail](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)"
-    },
-    {
-      "bereich": "Claim validation",
-      "aenderung": "Malformed claim values are refused. A string such as passed: \"false\" is no longer treated as a true verdict by the affected exporters.",
-      "beleg": "[#231](https://github.com/b7n0de/proofbundle/pull/231) · [Detail](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)"
-    }
+ "schema": "b7n0de.release_source.v1",
+ "warum_diese_datei": "Die Gruppierung eines Release kommt aus einer VERSIONIERTEN Inhaltsquelle, nicht aus dem Titelpraefix eines Pull Requests. Owner-Wort 23.09.2026: 'Titelpraefixe wie feat, docs und fix sind allein keine zuverlaessige Auskunft darueber, ob ein Eintrag den Verifier, die CI oder einen internen Pruefprozess betrifft.' Der Originaltitel, der Autor und die URL stehen je Eintrag DANEBEN, damit die Herkunft der PR-Menge nachvollziehbar bleibt und die redaktionelle Kurzfassung nicht das Einzige ist, was ueberlebt.",
+ "version": "6.2.0",
+ "vorheriger_tag": "v6.1.0",
+ "tag": "v6.2.0",
+ "release_commit": "f6d6625cff6ff716ac16de529b9b7895640f1f41",
+ "kopfsatz": "Stricter input checks at verification boundaries, hardened Ed25519 trust-anchor handling, and offline AGT receipt verification. **Beta. Locations of the closing records are listed under Audit status.**",
+ "sicherheit": {
+  "titel": "Findings addressed in 6.2.0",
+  "einleitung": "6.2.0 closes five findings in the released 6.0.0 and 6.1.0, eight further findings of one class in pull request 312, six release-preparation findings in pull request 313, and six findings of four later gate rounds in pull request 311, each present in the released 6.0.0 and 6.1.0. The group of pull request 313 includes a pre-release regression. The rows below summarize affected surfaces, representative effects and fixes; their measurement baselines are named separately where they differ.",
+  "zeilen": [
+   {
+    "befund": "Truthy non-boolean callback results promoted verification evidence",
+    "betroffen": "6.0.0, 6.1.0; Python API resolver and registered-anchor-verifier paths",
+    "wirkung": "For example, an evidence resolver returning `\"false\"` lifted a digest from `REFERENCE_WELL_FORMED` to `CONTENT_RESOLVED`",
+    "behoben": "Boolean success decisions now require exact `True`; documented receiver-key results remain supported ([#293](https://github.com/b7n0de/proofbundle/pull/293), which carries [#291](https://github.com/b7n0de/proofbundle/pull/291))"
+   },
+   {
+    "befund": "A low-order Ed25519 key as a trusted key",
+    "betroffen": "6.0.0, 6.1.0; `verify_ed25519`, `dsse.verify_envelope`",
+    "wirkung": "With the identity point supplied as the key, `R = identity, S = 0` verifies without a private key",
+    "behoben": "Trust-anchor paths now reject weak keys, including `dsse.verify_envelope`; bare `verify_ed25519` and the bundle's in-band key retain the §4a profile ([#280](https://github.com/b7n0de/proofbundle/pull/280), [#293](https://github.com/b7n0de/proofbundle/pull/293))"
+   },
+   {
+    "befund": "A low-order Ed25519 key as the holder key of an SD-JWT key binding",
+    "betroffen": "6.0.0, 6.1.0; CLI included",
+    "wirkung": "an SD-JWT bound to the identity point and a Key Binding JWT signed by nobody (R = identity, S = 0) gave \"key binding valid\"",
+    "behoben": "6.2.0: `issue_sd_jwt` raises `ValueError`, its documented refusal for a bad holder key, and the verifier refuses the presentation ([#280](https://github.com/b7n0de/proofbundle/pull/280), [#293](https://github.com/b7n0de/proofbundle/pull/293))"
+   },
+   {
+    "befund": "A related map that says it is empty hid an attached retraction",
+    "betroffen": "6.0.0, 6.1.0; Python API",
+    "wirkung": "With `reject_superseded` enabled, a dict subclass reporting length 0 hid a verified attached retraction. `verify_decision_receipt` and `verify_outcome_receipt` returned `ok=True`; the same entries in a plain dict returned `ok=False`",
+    "behoben": "6.2.0 reads the map by what it stores ([#300](https://github.com/b7n0de/proofbundle/pull/300))"
+   },
+   {
+    "befund": "An edge's `declaredAt` accepted non-ASCII decimal digits",
+    "betroffen": "6.0.0, 6.1.0 in `validate_relationships`; signed CLI comparison measured on main `86671552`",
+    "wirkung": "On that main head, the package emitted such a signed edge; `decision verify` returned exit 0 with `ok=True`, while `pb_verify_rs verify-relation` refused the same bytes with exit 2",
+    "behoben": "The edge's `declaredAt` now accepts ASCII digits only; both verifiers refuse the tested non-ASCII cases ([#300](https://github.com/b7n0de/proofbundle/pull/300))"
+   },
+   {
+    "befund": "Eight findings involved caller-controlled inputs",
+    "betroffen": "6.0.0, 6.1.0; Python API",
+    "wirkung": "For example, `verify_decision_receipt` reported `signer_trusted`, `ok` and `safeForAutomation` True for a receipt signed by an untrusted key",
+    "behoben": "6.2.0 uses a fixed reading of the affected inputs, or refuses their types ([#312](https://github.com/b7n0de/proofbundle/pull/312))"
+   },
+   {
+    "befund": "Wrong-typed policy fields, callback mutation and malformed containers affected verification",
+    "betroffen": "6.0.0, 6.1.0 for these cases; Python API, plus malformed falsy `--anchors` input on the CLI",
+    "wirkung": "Python API example: a wrong-typed `trusted_decision_makers` let an untrusted signer pass. On the CLI, malformed falsy `anchors` were read as absent",
+    "behoben": "6.2.0 shares policy-field validation, rejects the affected malformed containers, and snapshots affected inputs before callbacks ([#313](https://github.com/b7n0de/proofbundle/pull/313))"
+   },
+   {
+    "befund": "An attached target's subject state outside the four words of its resolver was read as present",
+    "betroffen": "6.0.0, 6.1.0; Python API",
+    "wirkung": "A target labelled `AMBIGUOUS` or `multiple` bound a declared `targetSubjectDigest` to its first subject, and `verify_decision_receipt`, `verify_outcome_receipt` and `verify_relation_statement` returned lineage `VERIFIED` and `ok=True`",
+    "behoben": "When binding a declared `targetSubjectDigest`, states other than `None` must be `present`, `absent`, `ambiguous` or `malformed`; other values fail on direct edges and attached hops. Missing or `None` states remain inferred from the digest ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+   },
+   {
+    "befund": "A restricting CLI option given an empty value was read as absent",
+    "betroffen": "6.0.0, 6.1.0; CLI",
+    "wirkung": "Nine command/option combinations, including `verify --policy ''`, `verify --anchor-type ''` and `decision verify --anchors ''`, exited 0 when their empty values were ignored",
+    "behoben": "These options are read with `is not None`; empty paths and an empty nonce are refused with exit 2, while `verify --anchor-type ''` exits 3 ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+   },
+   {
+    "befund": "A verifier read a caller's related map twice, and an anchors file holding null read as no option",
+    "betroffen": "6.0.0, 6.1.0; Python API for the related map, CLI for `--anchors`",
+    "wirkung": "Under a policy that refuses both the full and the empty map, a gc callback of the caller that emptied its map between the two readings let `verify_decision_receipt` and `verify_outcome_receipt` return `ok=True`. `decision verify --anchors FILE` with the content `null` or `[]` exited 0 like no `--anchors`",
+    "behoben": "The verifiers read the map once, and every public function now reads all of its arguments in one reading at its call; such an anchors file is refused with exit 2, and so is a policy file with nothing in it the command evaluates ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+   },
+   {
+    "befund": "A policy rule the command does not apply was dropped in silence",
+    "betroffen": "6.0.0, 6.1.0; CLI and Python API, `outcome verify` and `decision verify`",
+    "wirkung": "Under a policy whose only rule was `reject_retracted`, which only `relation-statement verify` applies, `outcome verify` printed `POLICY: OK` over an attached, verified retraction of its receipt, and `decision verify` ended like a verify without the policy; the same held beside a rule the command applies",
+    "behoben": "Every rule a policy sets is applied by the command it is given to, or the policy is refused with exit 2 (`policy_ok` False in the library); validity, purpose and the raw-template flag apply at every receipt command ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+   },
+   {
+    "befund": "`evaluate_policy` did not apply a policy's `sd_jwt.expected_aud`",
+    "betroffen": "6.0.0, 6.1.0; Python API `evaluate_policy` (the CLI binds the audience itself)",
+    "wirkung": "A caller who verified with `verify_bundle(bundle)` and handed the policy to `evaluate_policy` got `policy_ok` True for a KB-JWT bound to another audience than the policy's `expected_aud`",
+    "behoben": "`evaluate_policy` applies `sd_jwt.expected_aud` from a verified key binding, and a test checks that every rule a check path lists as applied turns its verdict ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+   }
   ],
-  "vor_dem_upgrade": [
+  "schluss": "The measurements behind each row are in [RESTRISIKO_620.md](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/RESTRISIKO_620.md). A security advisory is a separate outward act."
+ },
+ "was_sich_aenderte": [
+  {
+   "bereich": "Verify boundary",
+   "aenderung": "The affected verify paths reject malformed inputs or read fixed copies of their stored values.",
+   "beleg": "[#300](https://github.com/b7n0de/proofbundle/pull/300) · [#312](https://github.com/b7n0de/proofbundle/pull/312) · [#313](https://github.com/b7n0de/proofbundle/pull/313) · [Detail](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)"
+  },
+  {
+   "bereich": "Keys",
+   "aenderung": "Ed25519 trust-anchor paths reject low-order and non-canonical keys; the core §4a verification profile remains unchanged.",
+   "beleg": "[#280](https://github.com/b7n0de/proofbundle/pull/280) · [#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)"
+  },
+  {
+   "bereich": "Callbacks",
+   "aenderung": "Truthy non-boolean callback results no longer grant success; documented key-returning resolver results remain supported.",
+   "beleg": "[#293](https://github.com/b7n0de/proofbundle/pull/293) · [Detail](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)"
+  },
+  {
+   "bereich": "Relation timestamps",
+   "aenderung": "An edge's `declaredAt` takes ASCII digits only, as the Rust verifier does.",
+   "beleg": "[#300](https://github.com/b7n0de/proofbundle/pull/300) · [Detail](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)"
+  },
+  {
+   "bereich": "AGT receipts",
+   "aenderung": "Offline verification of Agent Governance Toolkit (AGT) governance receipts.",
+   "beleg": "[#255](https://github.com/b7n0de/proofbundle/pull/255) · [Detail](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)"
+  },
+  {
+   "bereich": "Build timestamp",
+   "aenderung": "The release build's default timestamp is the commit time of the first commit `git log` finds from HEAD back that changes a path outside `audit_artifacts/` and `release_notes/`. It skips commits confined to those two paths and a merge whose tree outside them equals one of its parents. 6.1.0 used HEAD's commit time.",
+   "beleg": "[#311](https://github.com/b7n0de/proofbundle/pull/311) · [Detail](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)"
+  }
+ ],
+ "vor_dem_upgrade": [
+  {
+   "titel": "Stricter verify boundary.",
+   "text": "Some inputs accepted by 6.1.0 are now refused. Review the affected API and input rules before upgrading. [Details](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)."
+  },
+  {
+   "titel": "Python API and CLI.",
+   "text": "The CLI passes no callbacks and builds plain values; of the findings of pull request 313 it reaches only a falsy `anchors` from `--anchors <file>`. A restricting option given an empty value, such as `--policy ''`, is refused or applied where 6.1.0 exited 0. A file given to `decision verify --anchors` that holds `null` or an empty list is refused with exit 2, a policy given to `decision verify`, `outcome verify` or `relation-statement verify` that holds nothing the command evaluates is refused with exit 2, and so is an empty `--key` or `--new-key` beside the other. A policy that sets a rule the command does not apply is refused with exit 2 at every verify command, a decision policy instantiated from the 6.1.0 template among them: it carries `allowed_schema_versions` and `signature`, two rules of the eval bundle path that `decision verify` never applied, and the 6.2.0 template no longer carries them. A permission or anchor trust given without the requirement it serves (`allow_pending`, the anchor trust material, `--trusted-tsa-root` or `--bitcoin-header` without an anchor requirement or without `--anchors`) is refused with exit 2, and `evaluate_policy` with `sd_jwt.expected_aud` fails a bundle whose key binding did not verify. The AGT verifiers refuse an iterator or a generator as `trusted_authorizer_keys` (exit 2); a list, a tuple or a numpy or ctypes array of keys is read as before. From Python, an argument reaches a public function as a private copy of one reading: a subclass of a built-in container is read as what it stores, a deque, an array or a view of a dict as a copy of the same type, an object of a dataclass of the package as a new object of that class, and a key of a `str` or `bytes` subclass as what it stores; a value of the caller's own class reaches it as a stand-in that holds nothing of the caller, and an iterator or a generator, a memoryview no copy can take and a container the copy cannot hold are refused with a `ProofBundleError`, except where an argument's contract takes the caller's object (a callback, a signer, a path, a clock, the class of a classmethod, a path or a loaded log); the reading does not yet prove a joint state of mutable inputs, since a change made and undone between its two reads is not seen (named in `RESTRISIKO_620.md`); an argument that changes during each of three readings raises a `ProofBundleError`, and so does a Mapping read through its own methods whose two answers are no one value, such as a value of a type the comparison does not read built anew on each read (named in `RESTRISIKO_620.md`); and apart from `verifier_block.attach`, which fills the caller's predicate by contract, no function changes the caller's own mutable object or returns it. The package's own classes and functions are not part of that reading, and code in the same process that rebinds one of them, such as a property of `VerificationResult`, is outside the threat model of this release. [Details](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)."
+  },
+  {
+   "titel": "Keys a producer writes.",
+   "text": "Ed25519 holder-key, log-vkey and witness-vkey producers reject the weak encodings their verifiers reject. [Details](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/CHANGELOG.md)."
+  }
+ ],
+ "auditstatus": "These notes describe the package-source commit linked above; the closing record identifies the head actually checked. In the `v6.2.0` tagged tree, consult `gate_zeile.head` and `gate_zeile.verdict` in `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`; the separate `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result. A short soak does not satisfy C6.3's full 24-hour requirement; a full run after the tag is planned.\n\n[Residual risks](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/RESTRISIKO_620.md) · [README status](https://github.com/b7n0de/proofbundle/blob/f6d6625cff6ff716ac16de529b9b7895640f1f41/README.md#current-release)\n\nThe published package and a passed closing audit are separate facts.",
+ "gruppen": [
+  {
+   "name": "Verifier and receipt formats",
+   "eintraege": [
     {
-      "titel": "Receipt versions.",
-      "text": "The default emitted format is unchanged from 6.0.0. Use a compatible reader for agent-review/v0.3. A 6.0.0 reader refuses a v0.2 receipt carrying the new verifier field. [Details](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)."
+     "nr": 313,
+     "kurz": "Apply the loader's field rules, reject malformed containers, and protect affected inputs from callback mutation",
+     "originaltitel": "fix(verify): every evaluator applies the loader's field rule, and no caller code or wrong container decides a verdict",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/313"
     },
     {
-      "titel": "Stricter input handling.",
-      "text": "Previously accepted malformed claims can now be refused. Check callers that relied on implicit type coercion. [Details](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md)."
+     "nr": 312,
+     "kurz": "Use one stored reading for the affected verify inputs",
+     "originaltitel": "fix(verify): one reading reaches every argument a public verify surface judges",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/312"
     },
     {
-      "titel": "Separate Action release.",
-      "text": "The Action input fix is in this source tree. That does not update the documented action@v1.0.0 tag. Its version and extras inputs retain the documented restriction on untrusted values. [Details](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/release_scope/6.1.0.md)."
+     "nr": 300,
+     "kurz": "Parse the bytes a signature covers, and hold commitment patterns at the verify boundary",
+     "originaltitel": "[6.2.0 R-B1] fix(verify): the bytes a signature covers are the bytes parsed, and a commitment holds its pattern at the verify boundary",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/300"
+    },
+    {
+     "nr": 293,
+     "kurz": "Extend small-order key refusal to the affected carrier and producer paths",
+     "originaltitel": "fix(agt): a small-order key is refused at every carrier that relies on a key",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/293"
+    },
+    {
+     "nr": 280,
+     "kurz": "Refuse low-order and non-canonical Ed25519 keys that a verifier relies on",
+     "originaltitel": "fix(crypto): a key a verifier relies on is never a low-order or non-canonical Ed25519 key",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/280"
+    },
+    {
+     "nr": 288,
+     "kurz": "Give an ES256 signature one identity and never rewrite a foreign signer's bytes",
+     "originaltitel": "fix(signature): an ES256 signature has one identity, and a foreign signer's bytes are never rewritten",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/288"
+    },
+    {
+     "nr": 284,
+     "kurz": "Make the Rust policy reader judge the relations section like load_policy",
+     "originaltitel": "fix(rust): the policy reader judges the relations section the way load_policy does",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/284"
+    },
+    {
+     "nr": 272,
+     "kurz": "Treat an empty container as malformed in both verifiers, with a named reason",
+     "originaltitel": "fix(pb_verify_rs): an empty container is malformed in both verifiers, and every malformed exit names its reason",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/272"
+    },
+    {
+     "nr": 283,
+     "kurz": "Require each zlib field to contain one complete stream with no trailing bytes",
+     "originaltitel": "fix(decode): a zlib field is one complete stream and nothing after it",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/283"
+    },
+    {
+     "nr": 286,
+     "kurz": "Require the in-toto Statement type, fail on missing promised sdist paths, and cap OTS proofs",
+     "originaltitel": "Package one: a signed statement names its in-toto type, a promised sdist path is not skipped, and an OTS proof is capped",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/286"
+    },
+    {
+     "nr": 268,
+     "kurz": "Refuse a bundle that names another format, instead of judging it invalid",
+     "originaltitel": "fix(evalclaim): a foreign identifier on the bundle itself is a refusal, not invalid",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/268"
+    },
+    {
+     "nr": 257,
+     "kurz": "Require a verdict in the verdict field at five public exporters",
+     "originaltitel": "fix(intoto): a verdict field must hold a verdict, at five public exporters",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/257"
+    },
+    {
+     "nr": 260,
+     "kurz": "Split the SD-JWT refusals into three disjoint forms",
+     "originaltitel": "fix(sdjwt): three disjoint refusal forms, and the docstring that promised one",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/260"
+    },
+    {
+     "nr": 254,
+     "kurz": "Tell an absent contentRootAlg from a present but unusable one",
+     "originaltitel": "fix(s26): an absent contentRootAlg and a present but unusable one are not the same thing",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/254"
+    },
+    {
+     "nr": 252,
+     "kurz": "Count distinct CAP-1 units, validate each element and run the alias check on both branches",
+     "originaltitel": "fix(cap1): count distinct units, validate the elements, and run the alias check on both branches",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/252"
+    },
+    {
+     "nr": 255,
+     "kurz": "Verify AGT governance receipts offline",
+     "originaltitel": "feat(adapters): verify AGT governance receipts offline, against the form they are actually signed with",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/255"
     }
-  ],
-  "auditstatus": "The closing adversarial round was not run because the required model family floor was not met. C6.2, C6.3 and C8.2 remain red. The full 24 hour soak was not included at tag time. The v2 findings register is unsigned. A separate signed pre-tag receipt does not sign that register.\n\n[Audit record](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md#the-pre-tag-receipt-and-the-closing-round-of-610) · [Residual risks](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [README status](https://github.com/b7n0de/proofbundle/blob/3be557575793c3ab402c866b4a3c7fcee04d2fd0/README.md#current-release)\n\nThe published package and a passed closing audit are separate facts.",
-  "gruppen": [
+   ]
+  },
+  {
+   "name": "Build, CI and test infrastructure",
+   "eintraege": [
     {
-      "name": "Verifier and receipt formats",
-      "eintraege": [
-        {
-          "nr": 224,
-          "kurz": "Add optional verifier build identity in agent-review/v0.3",
-          "originaltitel": "[6.1.0 P19] feat(receipt): the verifier block, carried by agent-review/v0.3",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/224"
-        },
-        {
-          "nr": 209,
-          "kurz": "Add CAP-1 coverage rules and conformance vectors",
-          "originaltitel": "Coverage in the language of CAP-1, an independent implementation targeting 6.1.0",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/209"
-        },
-        {
-          "nr": 231,
-          "kurz": "Validate decoded claim types at the verification boundary",
-          "originaltitel": "fix(verify): a loader annotated -> dict returns a dict, and the boundary types what it decodes",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/231"
-        }
-      ]
+     "nr": 311,
+     "kurz": "Prepare 6.2.0: version, release block, notes renderer and register producer",
+     "originaltitel": "release: prepare 6.2.0, with the version jump, the current-release block, the notes renderer and the register producer",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/311"
     },
     {
-      "name": "Build, CI and test infrastructure",
-      "eintraege": [
-        {
-          "nr": 200,
-          "kurz": "Reject package builds that would include key material",
-          "originaltitel": "feat(guard): the package build fails closed when key material would ship in the sdist or wheel",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/200"
-        },
-        {
-          "nr": 235,
-          "kurz": "Fix shell interpolation of Action inputs in this source tree",
-          "originaltitel": "[6.1.0 N16] fix(action): two inputs were spliced into a shell body one line above their own fix",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/235"
-        },
-        {
-          "nr": 202,
-          "kurz": "Revise CI queue handling at four points",
-          "originaltitel": "ci: cut the queue at four points, measured cause not guessed",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/202"
-        },
-        {
-          "nr": 203,
-          "kurz": "Correct CI change records and time budget figures",
-          "originaltitel": "fix(ci): the cut landed without a changelog trace, and two of its own numbers were wrong",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/203"
-        },
-        {
-          "nr": 204,
-          "kurz": "Handle queue entries that produce no required check",
-          "originaltitel": "ci: a queue entry runs no job at all, so no required check ever reports",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/204"
-        },
-        {
-          "nr": 205,
-          "kurz": "Run the complete set of budget assertions",
-          "originaltitel": "fix(budget): an axis verdict that ran one of its six assertions",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/205"
-        },
-        {
-          "nr": 206,
-          "kurz": "Refresh the conformance ratchet baseline",
-          "originaltitel": "fix(conformance): the spec ratchet baseline went stale and blocks every landing",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/206"
-        },
-        {
-          "nr": 208,
-          "kurz": "Bind the baseline case count to tests",
-          "originaltitel": "fix(baseline): a case count that no test reads, and had drifted from 14 to 17",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/208"
-        },
-        {
-          "nr": 210,
-          "kurz": "Test the ADR 0008 rule as a property",
-          "originaltitel": "Pin ADR 0008's no-prose decision as a property, not as four examples",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/210"
-        },
-        {
-          "nr": 211,
-          "kurz": "Fix pinned Rust formatting and clippy checks",
-          "originaltitel": "Make rust-parity green again: pinned-toolchain formatting, plus the clippy error it was hiding",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/211"
-        },
-        {
-          "nr": 213,
-          "kurz": "Name required checks that no workflow can produce",
-          "originaltitel": "Name the required checks no workflow can produce, instead of leaving them absent",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/213"
-        },
-        {
-          "nr": 214,
-          "kurz": "Distinguish skipped checks from executed checks",
-          "originaltitel": "A skipped check is never a passed one: declare the executed scope",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/214"
-        },
-        {
-          "nr": 215,
-          "kurz": "Bind marked PR titles to a release scope entry",
-          "originaltitel": "Bind a pull request title to exactly one line of the release scope",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/215"
-        },
-        {
-          "nr": 219,
-          "kurz": "Evaluate check reachability on the live pull request",
-          "originaltitel": "fix(ci): the reachability guard judges the live pull request, not only the structure",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/219"
-        },
-        {
-          "nr": 220,
-          "kurz": "Run the full test matrix on repository pull requests",
-          "originaltitel": "ci: the full test matrix runs for every pull request from this repository",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/220"
-        },
-        {
-          "nr": 222,
-          "kurz": "Add a required check collector that always reports",
-          "originaltitel": "ci: one required context that always reports, and the two shapes in which it would not",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/222"
-        },
-        {
-          "nr": 225,
-          "kurz": "Declare both required collector contexts",
-          "originaltitel": "ci: the declaration names the two required contexts of the collector",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/225"
-        },
-        {
-          "nr": 230,
-          "kurz": "Check whether required contexts exist on the current head",
-          "originaltitel": "feat(ci): a gate that asks whether a required context exists on this head, not whether one could",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/230"
-        },
-        {
-          "nr": 234,
-          "kurz": "Run the English text gate against the requested tree",
-          "originaltitel": "fix(gate): the English gate judged the tree it lives in, not the tree it was called in",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/234"
-        }
-      ]
+     "nr": 256,
+     "kurz": "Render the release body from a versioned source",
+     "originaltitel": "feat(release): render the body from a versioned source, and publish the text that was checked",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/256"
     },
     {
-      "name": "Audit and evidence",
-      "eintraege": [
-        {
-          "nr": 198,
-          "kurz": "Add findings register object classes and evidence binding tests",
-          "originaltitel": "feat(register): object classes for the findings register, with tests that bind the evidence",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/198"
-        },
-        {
-          "nr": 218,
-          "kurz": "Document register extraction rules for Migration 1A",
-          "originaltitel": "docs(audit): register head for Migration 1A, the extraction rule in its own words",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/218"
-        },
-        {
-          "nr": 221,
-          "kurz": "Report PASS, FAIL and NOT_MEASURED separately",
-          "originaltitel": "audit-matrix: three outcomes per cell, red only for a FAIL, the small soak measured live",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/221"
-        },
-        {
-          "nr": 228,
-          "kurz": "Assign identifiers to three residual risk entries",
-          "originaltitel": "fix(scope): three RESTRISIKO rows get their own identifiers, and a line can no longer leave the count in silence",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/228"
-        },
-        {
-          "nr": 232,
-          "kurz": "Derive three published figures from the tree",
-          "originaltitel": "[6.1.0 R7] fix(comments): three shipped numbers are derived from the tree, not remembered",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/232"
-        },
-        {
-          "nr": 237,
-          "kurz": "Record the agent review receipt for PR 236",
-          "originaltitel": "chore(receipts): the agent review receipt for the reply on pull request 236",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/237"
-        },
-        {
-          "nr": 238,
-          "kurz": "Add a carrier for a promised register entry",
-          "originaltitel": "fix(register): a promised register entry now has a carrier",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/238"
-        },
-        {
-          "nr": 239,
-          "kurz": "Run the pre-tag audit between two clean tree measurements",
-          "originaltitel": "fix(pre-tag): the tool runs the audit between two measurements of a clean tree",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/239"
-        },
-        {
-          "nr": 240,
-          "kurz": "Record seven signed review reply receipts",
-          "originaltitel": "chore(receipts): seven signed receipts for the replies on #239 and on this pull request",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/240"
-        },
-        {
-          "nr": 241,
-          "kurz": "Document readiness and the closing audit that was not run",
-          "originaltitel": "docs(readiness): fill the 6.1.0 slot and record the closing round that does not run",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/241"
-        },
-        {
-          "nr": 243,
-          "kurz": "Make the register test assert its specific claim",
-          "originaltitel": "fix(tests): the register case asserts its own sentence instead of the blanket one",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/243"
-        },
-        {
-          "nr": 244,
-          "kurz": "Record owner-signed pre-tag receipt and readiness evidence",
-          "originaltitel": "chore(610): land the owner-signed pre-tag receipt and readiness evidence",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/244"
-        }
-      ]
+     "nr": 285,
+     "kurz": "Run each mutant against the test files that reach it, and count only confirmed kills",
+     "originaltitel": "fix(mutation): each mutant runs the test files that reach it, and only a confirmed kill counts",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/285"
     },
     {
-      "name": "Documentation and interoperability",
-      "eintraege": [
-        {
-          "nr": 188,
-          "kurz": "Remeasure five Cedulon mapping cells",
-          "originaltitel": "docs(mapping4): Revision 3, five cells re-measured against draft-dogru-cedulon-decision-profile-02",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/188"
-        },
-        {
-          "nr": 189,
-          "kurz": "Document the Cedulon refusal fixture and its implications",
-          "originaltitel": "docs(interop): the frozen Cedulon leaked-refusal fixture through our own verifier, and the 6.1.0 proposal it argues for",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/189"
-        },
-        {
-          "nr": 197,
-          "kurz": "Document the release scope and research programme",
-          "originaltitel": "docs: release scope for 6.1.0 and the research program",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/197"
-        },
-        {
-          "nr": 201,
-          "kurz": "Consolidate the contributor identity mapping",
-          "originaltitel": "chore(identity): map by address to one identity, no real name in the file",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/201"
-        },
-        {
-          "nr": 207,
-          "kurz": "Update the SCITT mapping to architecture draft 05",
-          "originaltitel": "docs(mapping): bring the SCITT mapping forward to draft -05, and correct one of our own claims",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/207"
-        },
-        {
-          "nr": 212,
-          "kurz": "Correct four CPB draft claims against their evidence",
-          "originaltitel": "Correct four claims about the CPB draft that do not survive re-measurement, and pin what they rest on",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/212"
-        },
-        {
-          "nr": 226,
-          "kurz": "Record two Merkle roots from two document interpretations",
-          "originaltitel": "measurement: two readings of the same document give two Merkle roots",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/226"
-        },
-        {
-          "nr": 227,
-          "kurz": "Update the research coverage record after CAP-1 landed",
-          "originaltitel": "docs(research): re-measure the C6 coverage line now that cap1 has landed",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/227"
-        },
-        {
-          "nr": 229,
-          "kurz": "Document the shipped Merkle interpretation with vectors",
-          "originaltitel": "docs(merkle): pin which of the two readings this implementation ships, with a vector for each",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/229"
-        },
-        {
-          "nr": 233,
-          "kurz": "Limit 6.1.0 to the cut and defer the remaining scope to 6.2.0",
-          "originaltitel": "docs(scope): 6.1.0 is cut to what is on main, and the rest moves to 6.2.0 unchanged",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/233"
-        },
-        {
-          "nr": 236,
-          "kurz": "Remove duplicated and outdated README release notes",
-          "originaltitel": "docs(readme): two release notes duplicated the changelog, and one of them was two releases old",
-          "autor": "b7n0de",
-          "url": "https://github.com/b7n0de/proofbundle/pull/236"
-        }
-      ]
+     "nr": 289,
+     "kurz": "Cap the mutation gate's test child at 6 GiB of address space",
+     "originaltitel": "fix(mutation): the gate's test child runs under a 6 GiB address-space ceiling",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/289"
     },
     {
-      "name": "Dependencies",
-      "eintraege": [
-        {
-          "nr": 195,
-          "kurz": "Update the supported inspect-ai requirement",
-          "originaltitel": "deps: update inspect-ai requirement from <=0.3.261,>=0.3.112 to >=0.3.112,<=0.3.263",
-          "autor": "app/dependabot",
-          "url": "https://github.com/b7n0de/proofbundle/pull/195"
-        },
-        {
-          "nr": 196,
-          "kurz": "Update two GitHub Actions dependencies",
-          "originaltitel": "ci: bump the actions group with 2 updates",
-          "autor": "app/dependabot",
-          "url": "https://github.com/b7n0de/proofbundle/pull/196"
-        },
-        {
-          "nr": 217,
-          "kurz": "Update three GitHub Actions dependencies",
-          "originaltitel": "ci: bump the actions group across 1 directory with 3 updates",
-          "autor": "app/dependabot",
-          "url": "https://github.com/b7n0de/proofbundle/pull/217"
-        }
-      ]
+     "nr": 253,
+     "kurz": "Degrade a bare install to clean skips, and run the gate that claims it",
+     "originaltitel": "fix(n18): a bare install degrades to clean skips, and the gate that claims it now runs it",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/253"
+    },
+    {
+     "nr": 264,
+     "kurz": "Choose a test file list by its project, not by its sort order",
+     "originaltitel": "fix(tests): a file list is chosen by the project it belongs to, not by where it sorts",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/264"
+    },
+    {
+     "nr": 259,
+     "kurz": "Treat a fallen high-water mark in the tests as a refuted premise",
+     "originaltitel": "fix(tests): a fallen high-water mark is not a measurement, it is a refuted premise",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/259"
+    },
+    {
+     "nr": 273,
+     "kurz": "Test that a fail-closed verdict is False, not merely not True",
+     "originaltitel": "test: a fail-closed verdict is False, not merely not True",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/273"
+    },
+    {
+     "nr": 276,
+     "kurz": "Add three negative cases on a real receipt for a Codex answer",
+     "originaltitel": "test: three negative cases on a real receipt for a real Codex answer",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/276"
+    },
+    {
+     "nr": 275,
+     "kurz": "Add an advisory check that measures the Codex review loop",
+     "originaltitel": "ci(codex-threads): an advisory check that measures the Codex review loop of a pull request",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/275"
+    },
+    {
+     "nr": 281,
+     "kurz": "Read each file once per run in the English gate",
+     "originaltitel": "fix(gate): the English gate reads each file once per run, not once per added line",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/281"
+    },
+    {
+     "nr": 295,
+     "kurz": "Cover every curve and the signing call in the ECDSA inventory test",
+     "originaltitel": "test(d1): the ECDSA inventory knows every curve and the signing call itself",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/295"
+    },
+    {
+     "nr": 261,
+     "kurz": "Generate the house form for pull requests and issues from data",
+     "originaltitel": "feat(tooling): the house form for pull requests and issues comes out of data",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/261"
     }
-  ],
-  "danke": [
-    "b7n0de",
-    "dependabot"
-  ]
+   ]
+  },
+  {
+   "name": "Audit and evidence",
+   "eintraege": [
+    {
+     "nr": 249,
+     "kurz": "Guard every caller of the pre-tag cleanliness gate, with the Rust dependency audit",
+     "originaltitel": "fix(pre-tag): the cleanliness gate must guard every caller, not one",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/249"
+    },
+    {
+     "nr": 274,
+     "kurz": "Let a pre-tag verifier judge a tree without installing it",
+     "originaltitel": "fix(release-integrity): a pre-tag verifier judges a tree, it does not install it into the process that asked",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/274"
+    },
+    {
+     "nr": 266,
+     "kurz": "Pin only the current release in the README, and run the gate on prose",
+     "originaltitel": "fix(release-integrity): the README pins only the current release, and prose runs the gate",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/266"
+    },
+    {
+     "nr": 265,
+     "kurz": "Bind the PR 259 receipt to the comment as GitHub stores it",
+     "originaltitel": "fix(receipts): the PR 259 receipt binds the comment as GitHub stores it",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/265"
+    },
+    {
+     "nr": 270,
+     "kurz": "Check a declared error marker against both implementations",
+     "originaltitel": "fix(rust-parity): a declared error marker is checked against both implementations",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/270"
+    },
+    {
+     "nr": 271,
+     "kurz": "State in the parity registry what the verifier does when no policy is named",
+     "originaltitel": "fix(parity-registry): the registry states what the verifier does when no policy is named",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/271"
+    }
+   ]
+  },
+  {
+   "name": "Documentation and interoperability",
+   "eintraege": [
+    {
+     "nr": 294,
+     "kurz": "Cut 6.2.0 to main and its frozen fixes, and move the rest to 6.3.0",
+     "originaltitel": "docs(scope): 6.2.0 is cut to what is on main and its frozen fixes, and the rest moves to 6.3.0",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/294"
+    },
+    {
+     "nr": 251,
+     "kurz": "Recast the 6.2.0 scope against its four outcomes and open 6.3.0",
+     "originaltitel": "docs(scope): re-cast 6.2.0 against the four outcomes and open 6.3.0",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/251"
+    },
+    {
+     "nr": 245,
+     "kurz": "Rewrite the README from the current-release block on, for 6.1.0",
+     "originaltitel": "docs(readme): rewrite from Current release on for 6.1.0",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/245"
+    },
+    {
+     "nr": 258,
+     "kurz": "Add two readings of the SCITT CCF receipt draft and check the checker with planted defects",
+     "originaltitel": "feat(tools): two readings of the SCITT CCF receipt draft, and a proof that the checker catches",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/258"
+    },
+    {
+     "nr": 263,
+     "kurz": "Compare SCITT vector bytes rather than lengths, and add a digest-checked fallback for the unavailable pinned source",
+     "originaltitel": "fix(scitt-vector): equal length is no proof of equal bytes, and the pinned source is gone",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/263"
+    },
+    {
+     "nr": 267,
+     "kurz": "Record the ToBeSigned inputs per SCITT vector case",
+     "originaltitel": "feat(scitt-vector): record the inputs of ToBeSigned per case, and what the envelope does not carry",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/267"
+    },
+    {
+     "nr": 269,
+     "kurz": "Correct the SCITT vectors' attribution to Nicholas Templeman",
+     "originaltitel": "docs(scitt-vector): the vectors are Nicholas Templeman's",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/269"
+    },
+    {
+     "nr": 262,
+     "kurz": "Give every site value its source and every gap its reason",
+     "originaltitel": "feat(site-data): every value with its source, every gap with its reason",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/262"
+    }
+   ]
+  },
+  {
+   "name": "Dependencies",
+   "eintraege": [
+    {
+     "nr": 246,
+     "kurz": "Raise the inspect-ai ceiling to 0.3.266",
+     "originaltitel": "deps: update inspect-ai requirement from <=0.3.263,>=0.3.112 to >=0.3.112,<=0.3.266",
+     "autor": "app/dependabot",
+     "url": "https://github.com/b7n0de/proofbundle/pull/246"
+    },
+    {
+     "nr": 247,
+     "kurz": "Update three GitHub Actions dependencies",
+     "originaltitel": "ci: bump the actions group with 3 updates",
+     "autor": "app/dependabot",
+     "url": "https://github.com/b7n0de/proofbundle/pull/247"
+    }
+   ]
+  }
+ ],
+ "danke": [
+  "b7n0de",
+  "dependabot"
+ ]
 }

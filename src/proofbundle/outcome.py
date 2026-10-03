@@ -23,8 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
-                        _richtlinie_von, _zeichen_von)
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _draussen, _ein_stand, _eine_kopie, _plain_for_jcs,
+                        _pruefkopie, _richtlinie_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -89,6 +89,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return a list of fail-closed errors for an ``action-outcome/v0.1`` predicate (empty = valid).
 
@@ -221,6 +222,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     return errors
 
 
+@_ein_stand
 def require_valid_outcome_predicate(predicate: Any, *, strict: bool = False) -> None:
     """Raise :class:`OutcomeReceiptError` if the predicate is invalid; return ``None`` if valid."""
     errs = validate_outcome_predicate(predicate, strict=strict)
@@ -228,6 +230,7 @@ def require_valid_outcome_predicate(predicate: Any, *, strict: bool = False) -> 
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
 
 
+@_ein_stand
 def outcome_execution_proven(predicate: Any) -> bool | None:
     """Whether ``status == executed`` is backed by a digest of what was actually done/effected.
 
@@ -245,6 +248,7 @@ def outcome_execution_proven(predicate: Any) -> bool | None:
 _OUTCOME_EXECUTOR_ROLE = "outcomeExecutors"
 
 
+@_ein_stand
 def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool:
     """True iff ``trust_pack.keys[key_id].publicKey`` decodes to exactly ``public_key`` — the 32 raw
     Ed25519 bytes the receipt was VERIFIED under. Deep gate 2026-09-05, finding L1-600-02 (P2, fail-open):
@@ -311,6 +315,7 @@ def _widerrufen(trust_pack: dict, key_id: str) -> bool:
     return key_id in revoked
 
 
+@_ein_stand
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
     """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
     revoked and — when ``public_key`` (the 32 raw Ed25519 bytes the receipt was verified under) is
@@ -367,6 +372,7 @@ _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
 _KEIN_NUTZBARER_SCHLUESSEL = b""
 
 
+@_ein_stand
 def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     """True iff ``receiver_key_id`` (a ``receiverRefs[]`` entry's ``receiverKeyId``) is a non-revoked member
     of ``trust_pack``'s ``outcomeReceivers`` role (Finding 16, mirrors :func:`executor_trusted_by_role`
@@ -391,6 +397,7 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     return True
 
 
+@_ein_stand
 def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
                          artifact_bytes: bytes | None = None) -> dict:
     """Offline check of one ``receiverRefs[]`` entry against resolved evidence (no network) — Finding 16,
@@ -429,6 +436,7 @@ def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
     return out
 
 
+@_ein_stand
 def detect_outcome_sequence_gaps(predicates) -> dict:
     """Best-effort gap detection across a set of outcome predicates that share an executor + ``sequence.runId``
     (Finding 16, additive) — a way to spot a SUPPRESSED outcome: an executor who silently omits emitting a
@@ -508,6 +516,7 @@ def _predicate_once(predicate):
                       error=lambda m: OutcomeReceiptError(f"invalid action-outcome predicate: {m}"))
 
 
+@_ein_stand
 def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Outcome Receipt. The subject is by DEFAULT
@@ -528,6 +537,7 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                          subject_sha256: str | None = None, keyid: str | None = None,
                          strict: bool = True) -> dict:
@@ -588,6 +598,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                     expected_decision_ref: str | None = None,
                                     decision_maker_id: str | None = None,
@@ -611,6 +622,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         _raise_on_malformed=True)
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
@@ -789,20 +801,23 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
         # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
-        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, as on the
-        # decision path (`_carries_attached_entries`).
-        from .relation import _carries_attached_entries  # noqa: PLC0415
-        if "relationships" in predicate or _carries_attached_entries(related):
+        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, and read ONCE
+        # (`relation._related_lesen`), as on the decision path: whether there are targets, the edges and
+        # `supersededByAttached` are all judged over that one reading (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of
+        # three jurors P1). `verify_relationship_edges` and `successor_warning` read the map twice, and a gc
+        # callback of the caller that emptied it between the two hid an attached retraction while the edge to the
+        # parent stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one.
+        from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
+        _related_gelesen = _related_lesen(related)
+        if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
-            r["lineage"] = verify_relationship_edges(
-                predicate.get("relationships"), related, subject_hex=_subject_hex)
-            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
-            r["lineage"]["supersededByAttached"] = _sw
+            r["lineage"] = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
+            # Set by the engine over the one reading of the map, and only read here.
+            _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
@@ -890,7 +905,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     return None
 
                 def _f(d):
-                    res = receiver_attestation_resolver(d)
+                    with _draussen():   # the resolver is the caller's code (`canonical._draussen`)
+                        res = receiver_attestation_resolver(d)
+                    res = _stand(res)   # the answer as one state (verify lane V2)
                     if type(res) is bytearray:
                         res = bytes(res)
                     _recv_answers[idx] = res
@@ -1106,12 +1123,21 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # verifier judges only the relations section, so a top-level typo such as "relationz" read as no
             # relations rule and an attached retraction passed, where load_policy and the decision verifier
             # refuse the policy. A policy the loader refuses is refused here with its message.
-            from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+            from .policy import _abgelehnt_vom_loader, _gemeinsame_fehler, _regelfehler  # noqa: PLC0415
             _grund = _abgelehnt_vom_loader(richtlinie)
             if _grund is not None:
                 r["policy_ok"] = False
                 r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
                                    f"load_policy applies): {_grund}")
+            elif r["crypto_ok"]:
+                # Every rule the policy sets is one this verifier applies (T16, `policy._regelfehler`), and the
+                # shared fields apply here as on every receipt path (owner point 6): an expired policy, one not yet
+                # valid, one for another path and a raw template fail it. Measured at fda55f98: each passed here.
+                _regel = _regelfehler(richtlinie, "outcome")
+                _fehler = ([_regel] if _regel is not None else []) + _gemeinsame_fehler(richtlinie, "outcome")
+                if _fehler:
+                    r["policy_ok"] = False
+                    r["errors"].extend(_fehler)
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

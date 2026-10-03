@@ -16,7 +16,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
-from .canonical import _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
+from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
+                        _pruefkopie, _richtlinie_von, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
@@ -137,6 +138,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return a list of human-readable errors; **empty list == valid**. Fail-closed.
 
@@ -325,6 +327,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     return errors
 
 
+@_ein_stand
 def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) -> None:
     """Raise ``DecisionReceiptError`` if the predicate is invalid; return ``None`` if valid.
 
@@ -341,6 +344,7 @@ def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) ->
         )
 
 
+@_ein_stand
 def action_outcome_proven(predicate: Any) -> bool | None:
     """DEPRECATED (PB-2026-0717-08) — a digest-PRESENCE boolean whose name OVERSTATES. It reads True on a
     mere well-formed sha256 outcomeRef (evidence_levels REFERENCE_WELL_FORMED, attacker-choosable content),
@@ -357,6 +361,7 @@ def action_outcome_proven(predicate: Any) -> bool | None:
     return isinstance(ref, dict) and _is_digest(ref.get("digest"))
 
 
+@_ein_stand
 def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
                          artifact_bytes: bytes | None = None) -> dict:
     """Offline check of one ``evidenceRefs[]`` entry against resolved evidence (no network).
@@ -403,11 +408,11 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     root* is defined over the RFC-8785 (JCS) canonical form (Fix 3 / proofbundle#7 consensus), so both emit
     and the hash_binding check use a REAL JCS canonicalizer rather than the bundle path's
     ``json.dumps(sort_keys=True)`` — which is not full JCS (it does not normalize number formatting or string
-    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``, the ``[eval]`` extra)
-    is imported lazily inside the shared primitive, so the base install and the plain no-anchor verify path
-    stay dependency-free; a missing extra surfaces there as ``CanonicalizerUnavailable`` which we re-raise as
-    the predicate-local ``DecisionReceiptError`` with the SAME message (never a raw ImportError — no
-    behaviour change)."""
+    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``) is a dependency of the
+    core install since 3.6.1 and is imported lazily inside the shared primitive; an install that lacks it surfaces
+    there as ``CanonicalizerUnavailable``, which we re-raise as the predicate-local ``DecisionReceiptError`` with
+    the SAME message (never a raw ImportError). Until deep gate run 6 at fda55f98 this said the base install
+    stays dependency-free."""
     from . import canonical  # noqa: PLC0415 — lazy: only the canonical/emit path pulls the JCS dependency
     try:
         return canonical.canonicalize_statement(obj)
@@ -437,6 +442,7 @@ def _predicate_once(predicate):
                       error=lambda m: DecisionReceiptError(f"invalid decision predicate: {m}"))
 
 
+@_ein_stand
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
@@ -463,6 +469,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                           subject_sha256: str | None = None, keyid: str | None = None,
                           strict: bool = True) -> dict:
@@ -521,6 +528,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
 def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                      expected_audience: str | None = None,
                                      expected_nonce: str | None = None, policy: dict | None = None,
@@ -540,6 +548,7 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         related=related, _raise_on_malformed=True)
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
@@ -559,7 +568,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     signed. The CLI gates its exit code on `crypto_ok` first (and reports `ok`).
 
     hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
-    fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
+    fail-closed error. ``rfc8785`` is a dependency of the core install since 3.6.1, and an install that lacks it
+    refuses every receipt (``canonical.CanonicalizerUnavailable``); until deep gate run 6 at fda55f98 this said the
+    check runs only when rfc8785 is importable.
 
     Subject binding (Finding 05, mirrors outcome.py): `build_decision_statement` allows a caller to
     OVERRIDE `subject_sha256`, self-attested and NOT cross-checked there. This verify path now classifies
@@ -708,19 +719,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # `related` IS READ BEFORE ANY CALLER CODE RUNS (verify lane on pull request 312): the lineage below
         # read the caller's map after the evidence resolver had run, and a resolver that cleared the map
-        # hid an attached retraction, so ok went from False to True. Each attached entry is read here, once
-        # (`relation._read_attached_entries` inside the two calls), and the result is recorded further down.
-        from .relation import _carries_attached_entries  # noqa: PLC0415
+        # hid an attached retraction, so ok went from False to True. The map is read here ONCE
+        # (`relation._related_lesen`), and whether there are targets, the edges and `supersededByAttached` are all
+        # judged over that one reading (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of three jurors P1): the
+        # question, `verify_relationship_edges` and `successor_warning` were three readings, and a gc callback of
+        # the caller that emptied its map between the last two hid the retraction while the edge to the parent
+        # stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one alike.
+        from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
         _linie = None
-        if "relationships" in predicate or _carries_attached_entries(related):
+        _related_gelesen = _related_lesen(related)
+        if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
-            _linie = (verify_relationship_edges(predicate.get("relationships"), related, subject_hex=_subject_hex),
-                      successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex))
+            _linie = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
         r["action_outcome_proven"] = action_outcome_proven(predicate)
         if r["action_outcome_proven"] is False:
             r["warnings"].append("actionOutcome.status=executed is self-asserted (no signed outcomeRef)")
@@ -774,14 +788,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
         # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
         # Whether targets are attached is read from what the map stores, never through the caller's own
-        # `__bool__` or `__len__` (`_carries_attached_entries`): a map that said it was empty skipped this
+        # `__bool__` or `__len__` (`_related_traegt_eintraege` of the one reading): a map that said it was empty skipped this
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
         # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
         # where it always stood, so the order of the warnings is unchanged.
         if _linie is not None:
-            r["lineage"], _sw = _linie
-            # Advisory by default; the policy's reject_superseded turns it into a blocker below.
-            r["lineage"]["supersededByAttached"] = _sw
+            r["lineage"] = _linie
+            # Advisory by default; the policy's reject_superseded turns it into a blocker below. Set by the engine
+            # over the one reading of the map, and only read here.
+            _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
@@ -955,11 +970,20 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
             import base64  # noqa: PLC0415
-            from .policy import evaluate_decision_policy  # noqa: PLC0415
-            # The plain copy when there is one; otherwise the refusal taken at entry (`_ablehnung`).
-            pe = _ablehnung if _ablehnung is not None else evaluate_decision_policy(
-                statement, r, richtlinie, signer_public_key_b64=base64.b64encode(schluessel).decode(),
-                anchor_status=anchor_status)
+            from .policy import _regelfehler, evaluate_decision_policy  # noqa: PLC0415
+            # Every rule the policy sets is one this verifier applies (T16, `policy._regelfehler`): the decision
+            # section, the relations rules (the gate below) and the shared fields. Any other rule, an eval, anchors or
+            # `reject_retracted` rule, refuses the policy. The decision section and the shared fields are judged by
+            # `evaluate_decision_policy`, which gets the policy without the relations section judged below.
+            _regel = _regelfehler(richtlinie, "verify_decision_receipt") if richtlinie is not None else None
+            if _ablehnung is not None:   # the plain copy is missing: the refusal taken at entry
+                pe = _ablehnung
+            elif _regel is not None:
+                pe = {"policy_ok": False, "signer_trusted": None, "errors": [_regel]}
+            else:
+                pe = evaluate_decision_policy(
+                    statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
+                    signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])

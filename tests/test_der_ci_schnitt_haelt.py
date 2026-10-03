@@ -436,7 +436,18 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: at its 50-minute limit twice and coverage at 60:22: a guard that compares against a measurement
 #: from two weeks ago judges a machine that no longer exists. With today's maxima, 50 and 60 fail it
 #: (59 and 75 needed); the owner decision of 2026-09-28 (card OA-cb15f2bf74) sets 70 and 80.
-GEMESSENE_MAXIMA_MIN = {"test": 47, "coverage": 60}
+#:
+#: MEASURED AGAIN 2026-10-01, after the reading at each call (8f2fa980 and after). Over the CI runs at d388ed3d
+#: and 6b02d9f7, the longest finished test leg took 55 min (3.10 at d388ed3d); at 6b02d9f7 test (3.11) and (3.12) took 54 and 53 min, and
+#: (3.10), (3.13), (3.14) and coverage ran into 70 and 80 without a failing test, so their length there is
+#: not measured. The owner decision of 2026-10-01 (card OA-52e183ce21) sets 120 and 150,
+#: and crypto-floor and hermetic-cleanroom 45.
+#:
+#: MEASURED AGAIN 2026-10-02 over the heads of the 6.2.0 chain. The longest finished test leg took 105 min
+#: (3.10 at 53bbb94c), the longest finished coverage run 144 min (a1d5a815); coverage ran into 150 at
+#: 52c7e634 and 53bbb94c with src/, the packages and the runner image the same as at 198af5c5, where it took
+#: 115. The owner decision of 2026-10-02 (card OA-32ba6e0c7a) sets 180 and 300.
+GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.

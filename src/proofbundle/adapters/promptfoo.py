@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..evalclaim import build_eval_claim
+from ..canonical import _ein_stand
 
 _SCALE = 6  # pass_rate decimal places — fixed-point, schema-conformant
 
@@ -34,6 +35,7 @@ def _pass_rate(successes: int, failures: int, errors: int) -> "tuple[str, int]":
     return f"{rate:.{_SCALE}f}", total
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: str,
                            model_salt: Optional[bytes] = None,
                            dataset_salt: Optional[bytes] = None):

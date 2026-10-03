@@ -43,6 +43,7 @@ from typing import List
 
 from .errors import BundleFormatError
 from .persample import audit_challenge
+from .canonical import _ein_stand
 
 __all__ = ["AuditRequest", "beacon_nonce", "beacon_audit_challenge"]
 
@@ -76,6 +77,7 @@ class AuditRequest:
         return f"AuditRequest(beacon={self.beacon!r}, round={self.round}, k={self.k}, n={self.n})"
 
 
+@_ein_stand
 def beacon_nonce(pulse_randomness: bytes, beacon: str, round_: int) -> bytes:
     """Derive the ``audit_challenge`` nonce from a beacon pulse, binding the beacon id + round.
 
@@ -110,6 +112,7 @@ def _beacon_once(pulse_randomness, beacon, round_) -> "tuple[bytes, str, int]":
     return pulse, name, rnd
 
 
+@_ein_stand
 def beacon_audit_challenge(root, n: int, k: int, *, pulse_randomness: bytes, beacon: str,
                            round_: int) -> AuditRequest:
     """Derive a reproducible per-sample audit challenge from a public beacon pulse.

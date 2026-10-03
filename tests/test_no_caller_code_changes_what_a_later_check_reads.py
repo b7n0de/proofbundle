@@ -554,6 +554,51 @@ class AWrongContainerIsRefusedNotReadAsEmpty(unittest.TestCase):
                     anchors.verify_anchors(falsch, target_roots={})
 
 
+class AnEntryThatRaisesWhenReadFailsTheAnchorStep(unittest.TestCase):
+    """verify_decision_receipt reads its anchors at entry, keeps what that reading raised, and raises it again at the
+    anchor step (`raise _anker_fehler`), where its two arms turn it into a failed anchor verdict. Codex round two on
+    PR 313 at 37fc3cac asked whether an entry whose type check raises escapes there. Measured, it does not, and no
+    case held the path; this one does (owner order of 2026-09-29): ok False, anchors_ok False, no exception, and an
+    exception of caller code is named by its type only, never rendered.
+
+    Since the fix of deep gate run 6 the entry no longer reaches the body: the reading at the call
+    (`canonical._ein_stand`) judges it by its type, never asks it its class, and holds it as a stand-in
+    (`canonical._fremdkoerper`), which the anchor step refuses as malformed input (owner choice 8 on OA-73db31053a: the
+    old expectation became the refusal). The arm for an exception of caller code stays for a registered verifier."""
+
+    def test_an_entry_whose_type_check_raises(self) -> None:
+        from proofbundle.decision import emit_decision_receipt, verify_decision_receipt  # noqa: PLC0415
+        umschlag = emit_decision_receipt(_beispiel("decision_receipt_deny.json"), _A, strict=True)
+        self.assertIs(verify_decision_receipt(umschlag, _raw(_A), strict=True, anchors=[])["ok"], True)   # control
+        gerendert = []
+        gefragt = []
+
+        class _Fehler(Exception):
+            def __str__(self) -> str:
+                gerendert.append(1)
+                return "rendered"
+
+        def feindlich(ausnahme: BaseException):
+            class _Eintrag:
+                @property
+                def __class__(self):
+                    gefragt.append(1)
+                    raise ausnahme
+            return _Eintrag()
+
+        for ausnahme in (RuntimeError("x"), _Fehler(), TypeError("x")):
+            with self.subTest(error=type(ausnahme).__name__):
+                r = verify_decision_receipt(umschlag, _raw(_A), strict=True, anchors=[feindlich(ausnahme)])
+                self.assertIs(r["ok"], False)
+                self.assertIs(r["anchors_ok"], False)
+                self.assertIs(r["automation"]["safeForAutomation"], False)
+                fehler = " ".join(r["errors"])
+                self.assertIn("refused malformed anchor input (fail-closed)", fehler)
+                self.assertIn("each anchor must be a JSON object", fehler)
+        self.assertEqual(gefragt, [], "the reading or the anchor step asked an entry of the caller its class")
+        self.assertEqual(gerendert, [], "the anchor step rendered an exception of caller code")
+
+
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
 # THE PROPERTY, per surface: callbacks that empty every argument they can reach change no verdict.
 # ─────────────────────────────────────────────────────────────────────────────────────────────────

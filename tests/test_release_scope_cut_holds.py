@@ -1227,17 +1227,70 @@ def test_in_this_tree_the_default_is_a_scope_the_changelog_does_not_record_as_re
     if not _git("tag", "--list", "v[0-9]*").stdout.strip():
         pytest.skip("NOT MEASURED: this clone shows no release tag, and the source version has a "
                     "scope file of its own, so bumped and tagged cannot be told apart here")
-    _rc, d = _gate_without_version(REPO, capsys)
+    grund = _der_standard_im_baum(REPO, capsys, monkeypatch, _git)
+    if grund:
+        pytest.skip(f"NOT MEASURED: {grund}")
+
+
+def _git_in(root: pathlib.Path):
+    return lambda *args: subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                                        text=True, timeout=60)
+
+
+def _der_standard_im_baum(root: pathlib.Path, capsys, monkeypatch, git) -> str | None:
+    """Judge the release a run without `--version` picks in the tree at `root`: None when every
+    assertion held, or the reason the judgement is NOT MEASURED there. `git` runs git in that tree.
+
+    TWO STATES EVERY RELEASE PASSES THROUGH ARE NOT MEASURABLE HERE, and each has its own narrow
+    exit rather than a red. Measured on 2026-09-28 in throwaway trees for the 6.2.0 release:
+    between the version bump and its tag, the gate cannot tell whether the source version is out
+    and says so (the source has a scope file of its own and its tag is not shown); and after the
+    tag, the next scope file, 6.3.0, names no branch and no `## Out` section yet, so the landing card
+    cannot count it. This case asserted a version in both states and would have gone red on main at
+    the bump and again after the tag, for every pull request. Any other outcome is still asserted.
+    """
+    _rc, d = _gate_without_version(root, capsys)
     v = d["version"]
+    herkunft = str(d.get("version_herkunft") or "")
+    if v is None and "has its own scope file" in herkunft:
+        return f"between the bump and its tag the release being built is not decided here ({herkunft})"
     assert v, d["gruende"]
-    assert (SCOPE_DIR / f"{v}.md").is_file(), v
-    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert (root / "docs" / "release_scope" / f"{v}.md").is_file(), v
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert not re.search(rf"(?m)^## \[{re.escape(v)}\] - [0-9]", changelog), (
         f"without a version the gate judges {v}, which the changelog records as released")
-    if _git("tag", "--list", "v[0-9]*").stdout.strip():
-        assert _commit(f"v{v}") is None, f"without a version the gate judges {v}, which is tagged"
-    card = _card_without_version(REPO, monkeypatch)
+    assert f"v{v}" not in git("tag", "--list", "v[0-9]*").stdout.split(), (
+        f"without a version the gate judges {v}, which is tagged")
+    card = _card_without_version(root, monkeypatch)
+    if card.get("zustand") == "NOT MEASURABLE" and str(card.get("grund", "")).startswith("NICHT MESSBAR"):
+        return f"the landing card cannot count {v}: {card.get('grund')}"
     assert card.get("version") == v, (card, v)
+    return None
+
+
+def test_between_the_bump_and_the_tag_the_default_is_NOT_MEASURED(tmp_path, capsys, monkeypatch):
+    root = _tree(tmp_path, "6.2.0", ("6.1.0", "6.2.0", "6.3.0"), ("v6.0.0", "v6.1.0"))
+    (root / "CHANGELOG.md").write_text("## [6.2.0] - 2026-09-28\n", encoding="utf-8")
+    grund = _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root))
+    assert grund and "between the bump and its tag" in grund, grund
+
+
+def test_after_the_tag_an_unbranched_next_scope_is_NOT_MEASURED_for_the_card(tmp_path, capsys,
+                                                                            monkeypatch):
+    root = _tree(tmp_path, "6.2.0", ("6.1.0", "6.2.0", "6.3.0"), ("v6.0.0", "v6.1.0", "v6.2.0"))
+    (root / "docs" / "release_scope" / "6.3.0.md").write_text(
+        "# Release scope - 6.3.0 (not started)\n\n| Item | What it is |\n|---|---|\n"
+        "| P30 | something |\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text("## [6.2.0] - 2026-09-28\n", encoding="utf-8")
+    grund = _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root))
+    assert grund and grund.startswith("the landing card cannot count 6.3.0"), grund
+
+
+def test_a_tagged_source_with_a_readable_next_scope_is_still_asserted(tmp_path, capsys, monkeypatch):
+    """The control: in the state before the bump nothing is skipped, and the card agrees."""
+    root = _tree(tmp_path, "6.1.0", SCOPES, _TAGS_UP_TO["6.1.0"])
+    (root / "CHANGELOG.md").write_text("## [6.1.0] - 2026-09-19\n", encoding="utf-8")
+    assert _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root)) is None
 
 
 # -- 5. the review of caccdbad: a commit in any spelling git reads, a reference without backticks --

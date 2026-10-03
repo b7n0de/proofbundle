@@ -40,7 +40,7 @@ import json
 from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
-from .canonical import _plain_for_jcs, _zeichen_von
+from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import ProofBundleError
 from .sdjwt import _es256_signature_spellings
 from .signature import verify_ed25519_pinned
@@ -68,6 +68,7 @@ def _b64url_nopad(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
 
+@_ein_stand
 def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     """Split a compact SD-JWT into (sd_part, kb_jwt_or_None).
 
@@ -101,6 +102,7 @@ def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     return head + "~", tail
 
 
+@_ein_stand
 def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     """Extract the raw 32-byte Ed25519 holder key from a ``cnf.jwk`` claim (RFC 7800).
 
@@ -146,6 +148,7 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     return raw if len(raw) == 32 else None
 
 
+@_ein_stand
 def verify_key_binding(
     compact: str,
     holder_pubkey: Optional[bytes] = None,

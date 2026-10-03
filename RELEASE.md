@@ -97,7 +97,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
 ## Beta / pre-release (any future pre-release line)
 
 Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09); the
-stable default has since moved on to the 5.x line (current: 6.1.0) and the `[experimental]` extra
+stable default has since moved on to the 5.x line (current: 6.2.0) and the `[experimental]` extra
 ships with normal releases.
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
@@ -193,7 +193,7 @@ installed from PyPI, you never received the receipt at all.
 ```bash
 git clone https://github.com/b7n0de/proofbundle && cd proofbundle
 git checkout <the source commit named by the attestation>
-python scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
+python -I scripts/verify_pre_tag_receipt.py --commit <that commit> --version X.Y.Z
 ```
 
 It reads the receipt, the pinned key and the gate source **from the commit**, never from the
@@ -203,7 +203,8 @@ receipt over exactly this tree and this version, and the receipt records an audi
 Exit 1 means it did not — no receipt in the commit, a receipt made for another commit, or a receipt
 whose signature is right and whose subject is not this tree; each is a contract with a test that
 plants the defect. Exit 2 means the question could not be measured: the checkout is not at the named
-commit, or it carries local modifications or untracked files under `scripts/` or `src/`. The second
+commit, or it carries local modifications or untracked files under `scripts/` or `src/`, or a path
+there is of another type than the commit names (a directory replaced by a symbolic link). The second
 refusal exists because the verifier code runs from your checkout, not from the commit — a review
 measured that one uncommitted edit to the receipt library turned a garbage receipt into a pass while
 `HEAD` stayed put — so the script refuses to judge from code that nobody pinned. The limit of the
@@ -216,6 +217,36 @@ lists ignored paths, so the checkout guard above cannot see one. The verifier th
 Python's cache at a fresh temporary directory for the whole run: nothing under the judged tree's
 `__pycache__` is read or written. What stays trusted, and is not measured: the interpreter you
 run and its standard library.
+
+`-I` runs Python in isolated mode: it reads no `PYTHONPATH` and does not put the script's directory
+on the import path. Python runs the startup files of its installation (`.pth` files, `sitecustomize`)
+before the verifier's first line, `-I` included, so three things are yours to establish before you
+start it: the `python` you run is installed outside the clone, the clone does not lie inside that
+interpreter's installation, and no startup file of that interpreter names a directory of the clone.
+The third does not follow from the first two: a `.pth` path line in an outside virtual environment
+puts the clone on the search path at start, and a `sitecustomize.py` of the clone then runs before
+the first line, `-I` included (an external review measured this). A check inside the verifier runs
+only after that, so it cannot replace these preconditions; what it refuses with exit 2 is what it
+can still see. That is a virtual environment created inside the clone, a clone placed in the
+environment's own site directory or rooted at a directory under the interpreter such as
+`lib-dynload` (any clone that shares a directory with the interpreter's installation, in either
+direction), and, under `-I`, a run whose search path at start already named a directory of the
+clone. The verifier also refuses a clone whose own git configuration names a program for git to
+run from the families the script lists (a `filter`, `diff` or `merge` driver, `core.fsmonitor`,
+`core.hooksPath`, an ssh, proxy, pager, editor or credential command, a remote's transport program,
+a difftool or mergetool command, a shell alias), a partial clone, whose object reads would fetch
+through a transport its configuration names, and a clone whose effective attributes, as git
+resolves them from the checkout's `.gitattributes` files, `.git/info/attributes` and macros, name a
+`filter`, `diff` or `merge` driver git does not ship, a driver named `set`, `unset` or
+`unspecified` included; an index that does not list exactly the commit's files, and a warning git
+prints while reading the attributes, refuse too. That the listed families are every program
+git can be configured to run is not shown. A directory under `scripts/` or `src/` that cannot be listed refuses the measurement too.
+Without `-I` the verifier still takes every directory of the checkout off its import path before its
+next import, and it refuses with exit 2 a run in which a module of the checkout was already loaded at
+start, such as a `sitecustomize.py` reached through `PYTHONPATH`. Code that runs before the first
+line and then hides itself is beyond what a check inside the script can see. Run the script of the
+clone you verify: its code is compared with the commit only there, so a script started from another
+checkout against `--repo` is refused with exit 2.
 
 This is the same boundary the project states about its own gate: provenance-shaped, not provenance.
 It is written here so that "I verified the release" means what it actually means — the artifact's

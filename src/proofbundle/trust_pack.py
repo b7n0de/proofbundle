@@ -31,7 +31,8 @@ from typing import Any, TypeGuard
 from ._membership import require_switch, type_name
 from ._statement_payload import load_statement_strict
 from .budget import DEFAULT_BUDGET
-from .canonical import KEIN_ZEITPUNKT, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von, _zeitpunkt_von
+from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _richtlinie_von,
+                        _zeichen_von, _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
@@ -119,6 +120,7 @@ def _parse_rfc3339_z(s: str) -> datetime:
     return dt
 
 
+@_ein_stand
 def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``trust-pack/v0.1`` predicate (empty = valid).
 
@@ -310,6 +312,7 @@ def _validate_role(role: Any, key_ids: set[str], revoked: set[str]) -> list[str]
     return errs
 
 
+@_ein_stand
 def require_valid_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_trust_pack_predicate(predicate, strict=strict)
     if errs:
@@ -376,6 +379,7 @@ def _read_once(predicate: Any) -> Any:
                              "within the structure budget") from exc
 
 
+@_ein_stand
 def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
     predicate = _read_once(predicate)
@@ -393,6 +397,7 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
     }
 
 
+@_ein_stand(aussen={"signers": "signierer_je_name"})
 def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, strict: bool = True) -> dict:
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
@@ -519,6 +524,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     return verify_ed25519_pinned(pub, sig, msg)
 
 
+@_ein_stand(aussen={"now": "uhr"})
 def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | None = None,
                       prev_version: int | None = None, prev_version_digest: str | None = None,
                       prev_root_keys: dict | None = None, prev_root_threshold: int | None = None,

@@ -425,7 +425,7 @@ def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
 #: genau daran fiel C12.2 am 2026-09-06: ein gueltig signiertes Register auf `3.6.1` entschied ueber
 #: 6.0.0. Wer diese Zahl aendert, aendert auch FINDINGS; ein Register mit neuer Version und alten
 #: Funden waere dieselbe Luege eine Ebene tiefer.
-VERSION = "6.1.0"
+VERSION = "6.2.0"
 
 #: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
 #: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
@@ -639,17 +639,24 @@ NORMALISIERUNG_DER_TITEL = (
     "`language_scope.title_derivation`. Applying the rule of that form to the evidence bytes "
     "reproduces the title exactly — it is a derivation, not a verbatim line of the source.")
 
-#: THE HONEST STATE OF THE 6.1.0 FINDINGS. Two sources, named per entry, nothing from memory:
+#: THE HONEST STATE OF THE 6.2.0 FINDINGS. Two sources, named per entry, nothing from memory:
 #:
 #:   * `N1`..`N21`, carried over from the 6.0.0 register, which derived them from the table rows of
 #:     `RESTRISIKO_600.md`. `tests/test_register_population_gegen_restrisiko.py` compares the two
-#:     populations rather than deriving one from the other. One of them changed state with the cut:
-#:     `N16` is closed for the 6.1.0 tree and its note says what still ships the old form.
+#:     populations rather than deriving one from the other. One of them changed state with the 6.1.0
+#:     cut: `N16` is closed for the tree and its note says what still ships the old form.
 #:   * the five class entries the risk sheets PROMISE in prose (`Register entry <id>`), four in
 #:     `RESTRISIKO_610.md` and one in `RESTRISIKO_600.md`, cut out there and carried by the line
 #:     610 object class file. Owner word of 2026-09-20 for the 6.1.0 register: the carried 6.0.0
 #:     findings plus those five, nothing from the 6.2.0 scope.
 #:     `tests/test_register_610_carries_what_the_sheets_promise.py` binds both directions.
+#:
+#: FOR 6.2.0 THE POPULATION IS UNCHANGED AND THREE STATES MOVE. `RESTRISIKO_620.md` promises no
+#: new `Register entry <id>`, so no entry is added, and its section "Closed in 6.2.0 — the open
+#: items of the 6.1.0 record" names three of the five above as closed, each with the tree it was
+#: measured on. Those three are closed here, and their notes quote that measurement rather than a
+#: new one; the other two stay open and their notes no longer name 6.2.0 as their target. Which
+#: entries this register carries is the owner's call at signing, as it was for 6.1.0.
 #:
 #: SEVERITY FOLLOWS IMPACT, not wish. The gate reads {P0, P1} as release-deciding; rating a finding
 #: lower so that the gate turns green would be exactly the false PASS this register is built
@@ -823,34 +830,36 @@ FINDINGS = [
     # reach the sheet states, and every note says so; a reader who wants the measured part reads
     # the sheet, which each note names. None of them is P0 or P1: the sheet itself states for each
     # why it does not hold the tag, and the owner's cut decision of 2026-09-20 ships 6.1.0 with
-    # them open, target 6.2.0.
-    {"id": "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01", "severity": "P2", "status": "open",
+    # them open, target 6.2.0. For 6.2.0 three of them are closed, each on the measurement
+    # `RESTRISIKO_620.md` records under "Closed in 6.2.0"; the severity stays as assigned.
+    {"id": "COMMIT-PATTERN-DOMAIN-NOT-AT-VERIFY-BOUNDARY-01", "severity": "P2", "status": "closed",
      "note": "promised in RESTRISIKO_610.md, section 'Open — the two commitment patterns at the "
              "verify boundary': schemas/eval_claim_v0_1.schema.json documents ^sha256:[0-9a-f]{64}$ "
-             "for model_id_commit and dataset_id_commit, and decode_eval_claim does not enforce "
-             "it, so a signed claim carrying an arbitrary string in either field decodes. Not fixed "
-             "in 6.1.0 for a measured reason: the three-line check turns five cases of "
-             "tests/test_cli_eval.py red because they sign placeholder commitments such as "
-             "sha256:x (5 of 5 green without the two patterns, 4 red with them), and rewriting "
-             "house tests so a new check passes is its own change. Carried as BEKANNTE_LUECKEN in "
-             "tests/test_eval_claim_domains_are_enforced.py, which fails in both directions. "
-             "Severity P2 assigned by the producer from the sheet's stated reach — a malformed "
-             "commitment weakens what a claim binds, it does not flip a verdict — not measured by "
-             "a tool. Target 6.2.0"},
-    {"id": "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01", "severity": "P2", "status": "open",
+             "for model_id_commit and dataset_id_commit, and decode_eval_claim did not enforce "
+             "it, so a signed claim carrying an arbitrary string in either field decoded. CLOSED "
+             "IN 6.2.0 by pull request 300. RESTRISIKO_620.md, section 'Closed in 6.2.0', records "
+             "the measurement: emit_eval_receipt with model_id_commit='sha256:x' signs on main "
+             "31816e08 and 86671552 and is refused with EvalClaimError at the heads of the fix, "
+             "493c2f86 and 657cc67c, measured on 2026-09-27 and 2026-09-28 before the freeze; the "
+             "closing round repeats it on the frozen tree. Severity P2 as assigned by the producer "
+             "for 6.1.0 from the sheet's stated reach, unchanged, not measured by a tool"},
+    {"id": "SMALL-ORDER-KEY-AT-CARRIER-SIGNATURE-01", "severity": "P2", "status": "closed",
      "note": "promised in RESTRISIKO_610.md, section 'Open — two findings this cut made and "
              "deliberately did not close': _signatur_lage in scripts/gen_findings_register.py "
-             "delegates verification to cryptography, and the project's Ed25519 profile accepts "
-             "small-order components, so 32 zero bytes as a public key and 64 as a signature "
-             "verify over roughly one body in four (measured 2026-09-20; the point has order "
-             "four, 1P, 2P and 3P measured not to be the identity). The carrier goes through no "
-             "signing path and states signature.state UNSIGNED, so a forged carrier does not pass "
-             "the release path; what reaches further is that _signaturzeile and pruefe_v2 share "
-             "that one exit, so the generated views would show a carrier with a zero key to a "
-             "reviewer as signed. Refusing small-order keys at this block is a code change with "
-             "its own catch proof and is not in this cut. Severity P2 assigned by the producer "
-             "from the sheet's stated reach — the audit trail a reviewer reads, not the release "
-             "path — not measured by a tool. Target 6.2.0"},
+             "delegated verification to cryptography, and the project's Ed25519 profile accepts "
+             "small-order components, so a small-order key with a matching signature verified and "
+             "the generated views would have shown such a carrier to a reviewer as signed. CLOSED "
+             "IN 6.2.0 by pull request 293: the register exit has the state KEY_REFUSED, which "
+             "pruefe_v2 counts as an error. RESTRISIKO_620.md, section 'Closed in 6.2.0', records "
+             "the measurement over 16 bodies: on main 31816e08 the identity point with R = "
+             "identity, S = 0 came back VERIFIZIERT 16 of 16 times and 32 zero bytes as key "
+             "with 64 as signature 2 of 16 times; at the head of the fix, 06f84b88, on main "
+             "86671552 and "
+             "at 657cc67c both are KEY_REFUSED 16 of 16 times, measured on 2026-09-27 and "
+             "2026-09-28 before the freeze. The AGT signer, the register view and the "
+             "--expect-issuer pin were not measured again there; the closing round measures them "
+             "on the frozen tree. Severity P2 as assigned by the producer for 6.1.0 from the "
+             "sheet's stated reach, unchanged, not measured by a tool"},
     {"id": "SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01", "severity": "P3", "status": "open",
      "note": "promised in RESTRISIKO_610.md, same section as the previous entry: pyproject.toml "
              "states that eight mypy versions and six ruff versions exit 0 over this tree, and "
@@ -860,26 +869,31 @@ FINDINGS = [
              "over it, and the case's docstring states the split rather than blurring it. Severity "
              "P3 assigned by the producer from the sheet's stated reach — a shipped comment could "
              "overstate a tool verdict, no verifier path depends on it — not measured by a tool. "
-             "Target 6.2.0"},
+             "Not closed in 6.2.0: f544df74 raised the mypy file count in pyproject.toml to 72, "
+             "re-ran mypy 2.3.0 over the 72 files and not the other seven versions, and names this "
+             "entry as the boundary it leaves in place. RESTRISIKO_620.md does not carry the "
+             "entry; docs/release_scope/6.3.0.md carries it as line R-B3, which is where its "
+             "target moved"},
     {"id": "DREI-VERBRAUCHER-COERCEN-PASSED-DOKUMENTIERT-IST-EINER-01", "severity": "P2",
-     "status": "open",
+     "status": "closed",
      "note": "promised in RESTRISIKO_610.md, section 'Open — three public exporters coerce the "
-             "verdict field, and A-15 fixes the boundary, not them': A-15 typed passed, n and "
-             "metric at decode_eval_claim, and src/proofbundle/intoto.py holds three paths a "
-             "library caller reaches without that boundary: to_test_result_statement "
-             "(intoto.py:246 and :251), to_eval_result_predicate (intoto.py:424) and "
-             "svr_properties (intoto.py:551) coerce claim['passed'] with bool() or truthiness, so "
-             "a correctly signed claim whose passed field is the string 'false' returns 'PASSED', "
-             "passed: true and the threshold-met property when those functions are called "
-             "directly; measured 2026-09-19 at 99d89a8 by an adversarial lens and reproduced by an "
-             "executable case. Only the first of the three was documented before the sheet. Every "
-             "path the shipped CLI takes decodes at the boundary first (cli.py:1685, "
-             "intoto.py:584, hf_evals and policy.evaluate_policy), so the exposure is the direct "
-             "library caller of a published package, stated as real. Severity P2 assigned by the "
-             "producer from the sheet's stated reach — no path of the shipped CLI, the direct "
-             "library caller — consistent with the owner's cut decision of 2026-09-20 that 6.1.0 "
-             "ships with it open; not measured by a tool. Target 6.2.0, as a class fix at the "
-             "public exporters rather than three guards"},
+             "verdict field, and A-15 fixes the boundary, not them': to_test_result_statement, "
+             "to_eval_result_predicate and svr_properties in src/proofbundle/intoto.py coerced "
+             "claim['passed'] with bool() or truthiness, so a correctly signed claim whose passed "
+             "field is the string 'false' gave 'PASSED', passed: true and the threshold-met "
+             "property when those functions were called directly by a library caller. "
+             "RESTRISIKO_610_NACHTRAG_20260924.md counts five sites rather than three "
+             "(to_intoto_statement at intoto.py:99, and :251 as a read of its own) and records "
+             "all five and the A-15 boundary routed through one predicate, _membership.is_bool. "
+             "CLOSED IN 6.2.0, before the cut and not with a branch of it. RESTRISIKO_620.md, "
+             "section "
+             "'Closed in 6.2.0', records the measurement: passed='false' is refused with "
+             "BundleFormatError (passed must be a boolean) at all three on main 31816e08, measured "
+             "on 2026-09-27, and the same on main 86671552 and at 657cc67c on 2026-09-28, where "
+             "the control passed=False gives FAILED; the closing round repeats it on the frozen "
+             "tree. "
+             "Severity P2 as assigned by the producer for 6.1.0 from the sheet's stated reach, "
+             "unchanged, not measured by a tool"},
     {"id": "ZAHL-IM-TEXT-STATT-PLATZHALTER-VERALTET-STILL-01", "severity": "P3", "status": "open",
      "note": "promised in RESTRISIKO_600.md, paragraph 'A number in this section that a later "
              "commit makes stale' of the receipt-binding section: a head written into prose is "
