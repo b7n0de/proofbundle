@@ -2605,8 +2605,9 @@ def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None
     would stage: every committed file must be a regular file (mode 100644, or 100755 with the owner's execute
     bit) or a symbolic link (120000) whose own bytes, or link text, hash to the committed blob id, and no
     other file that git does not ignore may exist. No configured clean or smudge filter, line-ending or
-    encoding rule, fsmonitor or hook runs, because none is asked: a content transformation of any kind makes
-    the bytes differ and is refused before the run, never staged into agreement with HEAD. The one git call
+    encoding rule, fsmonitor or hook runs, because none is asked, and no checkout transformation is modelled:
+    a working file whose bytes differ from its committed blob is refused before the run, including differences
+    caused by checkout transformations, never staged into agreement with HEAD (review Runde 9, R9-7). The one git call
     that lists the other files reads the ignore rules only, with an index that does not exist (so nothing
     is refreshed or written), core.fsmonitor off and an empty hook directory. Measured by the reviewer: a
     clean filter that wrote the committed value back while staging let a run on another working file be

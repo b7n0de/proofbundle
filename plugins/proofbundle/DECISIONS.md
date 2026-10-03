@@ -839,8 +839,9 @@ Chosen (smallest variant, 2026-09-30; the report binding tightened after the rev
   rules say; a symbolic link, another type, or a component the gate cannot check safely is refused (review
   Runde 9, R9-1: a directory replaced by a link to an outside directory with the same leaf bytes, hidden by an
   ignore rule, gave a green run for a tree on which the same test fails). The comparison runs no clean or
-  smudge filter, line-ending or encoding rule, fsmonitor or hook: any content transformation makes the bytes
-  differ and is refused before the run. Until review Runde 8 (R8-1) the working tree was staged with `git
+  smudge filter, line-ending or encoding rule, fsmonitor or hook, and models no checkout transformation. A
+  working file whose bytes differ from its committed blob is refused before the run, including differences
+  caused by checkout transformations. Until review Runde 8 (R8-1) the working tree was staged with `git
   add -A` through a temporary index, and a clean filter that wrote the committed value back let a run on
   another working file be recorded as a run on HEAD, measured by the reviewer. Files git ignores are not
   compared, and they can influence the run. The command is judged before the tree is read.
