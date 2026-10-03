@@ -114,9 +114,12 @@ MEASURED. The remote itself is not read.
     - A command that would turn off the real-push check is **denied**, not resolved: `git push --no-verify`,
       a command-level `core.hooksPath` override (`git -c core.hooksPath=…`), or `git config core.hooksPath …`
       (Punkt 5). The deny holds whatever the directory, so it holds inside a chain too.
-    - **No git form is free except the bare `git --version`** (review Runde 9, owner choice B, 2026-10-03;
-      the subsection below). Every git form that acts on a repository is NOT MEASURED: asked under Claude
-      Code, denied under Codex. The free list of Nachtrag 19b, its per-entry option tables and its read of the
+    - **The former free list for local git commands has been removed** (review Runde 9, owner choice B,
+      2026-10-03, the subsection below; wording of review Runde 10, R10-3). Those forms are NOT MEASURED,
+      asked under Claude Code and denied under Codex. Only the exact bare command text `git --version` is
+      exempt from judgment as a git form. The separate push path remains. Under Claude Code it may return
+      `pass` or `inactive` after its checks; under Codex every push is denied because its execution context
+      is unbound. The free list of Nachtrag 19b, its per-entry option tables and its read of the
       repository state are removed. The subcommand list in the gate (`_GIT_LOCAL_SUBCOMMANDS`) now only picks
       the reason: a listed local subcommand asks as a repository form (`git_form_not_free`), any other
       subcommand — `send-pack`, an unknown word, every form of `rebase`, `bisect` and `submodule` — asks as a
@@ -203,9 +206,12 @@ Options:
 
 ### D3, no git form is free (review Runde 9, owner choice B, 2026-10-03)
 
-Chosen (owner, 2026-10-03): option B, remove the free list. Under Claude Code the gate gives no free answer
-for any git form that depends on a repository; every one asks. Under Codex every one is denied (D12). The one
-form that stays free is the bare `git --version`, as exactly that command text: no program path, no wrapper,
+Chosen (owner, 2026-10-03): option B, remove the free list. The former free list for local git commands has
+been removed. Those forms are NOT MEASURED, asked under Claude Code and denied under Codex (D12). Only the
+exact bare command text `git --version` is exempt from judgment as a git form. The separate push path remains.
+Under Claude Code it may return `pass` or `inactive` after its checks; under Codex every push is denied because
+its execution context is unbound (wording of review Runde 10, R10-3). The one free form, the bare
+`git --version`, is exactly that command text: no program path, no wrapper,
 no chain, pipeline, background job or here-document, no substitution, no prefix assignment, no redirection
 and no predecessor in the same command. Every other spelling of it asks (reason id `git_form_not_free`).
 

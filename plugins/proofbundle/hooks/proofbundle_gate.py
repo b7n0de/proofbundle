@@ -2124,8 +2124,11 @@ class Outcome:
 def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
-    Every git form that acts on a repository is NOT MEASURED; only the bare `git --version` is not gated
-    (review Runde 9, owner choice B)."""
+    The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
+    Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
+    judgment as a git form. The separate push path remains. Under Claude Code it may return `pass` or
+    `inactive` after its checks; under Codex every push is denied because its execution context is unbound
+    (review Runde 9, owner choice B; wording of review Runde 10, R10-3)."""
     calls = gated_calls(command)
     if not calls:
         return None

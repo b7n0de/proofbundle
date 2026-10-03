@@ -90,12 +90,15 @@ NOT MEASURED, never passed off as checked: any `;`/`&&`/`||`/`|`/`&`/newline cha
 brace group, a shell keyword, a function, a wrapper such as `env`/`sudo`, a nested shell (`bash -lc`,
 `sh -c`, and the `-lc`/`-cl` bundles), `eval`, `source`, a command or parameter substitution, a
 here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOME` included), and a `git`
-run by a path. **No git form is free except the bare `git --version`** (review Runde 9, owner choice B,
-2026-10-03; D3): every git form that acts on a repository is NOT MEASURED, asked under Claude Code and denied
-under Codex, whatever its options and whatever the repository holds. git starts programs through options,
-configuration values, attribute-selected drivers, hooks and automatic maintenance, and a list of what frees a
-form did not close that class, so the free list, its option tables and its read of the repository state are
-removed. `git --version` is free only as exactly that text, without a path, wrapper, chain, substitution,
+run by a path. **The former free list for local git commands has been removed** (review Runde 9, owner
+choice B, 2026-10-03; D3; wording of review Runde 10, R10-3). Those forms are NOT MEASURED, asked under
+Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
+judgment as a git form. The separate push path remains. Under Claude Code it may return `pass` or
+`inactive` after its checks; under Codex every push is denied because its execution context is unbound.
+git starts programs through options, configuration values, attribute-selected drivers, hooks and automatic
+maintenance, and a list of what frees a form did not close that class, so the free list, its option tables
+and its read of the repository state are removed. `git --version` is free only as exactly that text,
+without a path, wrapper, chain, substitution,
 prefix assignment, redirection or predecessor. A subcommand that is not a local one — `send-pack`, an unknown
 subcommand, every form of `rebase`, `bisect` and `submodule` — is asked as a possible transfer; this is not a
 complete list of transports and closes no indirect push it does not name (Runde 5, Punkt 6/8). An unknown
