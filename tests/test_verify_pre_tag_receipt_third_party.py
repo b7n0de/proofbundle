@@ -679,9 +679,12 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
             for name in nach:
                 self._plant_module(ordner, name, marker_dir)
             try:
-                # ANTI-VACUITY: through this entry a plain import takes the plant (the case of the first fix).
-                _run([sys.executable, "-c", "import argparse"], repo if pp is None else repo.parent,
-                     self._umgebung(repo, eintrag))
+                # ANTI-VACUITY: through this entry a plain import takes the plant (the case of the first fix). The
+                # import runs in a script started the way the verifier starts, the start whose positions before the
+                # first line were measured above. `python -c` is a different start: from 3.13 on it imports
+                # `linecache` and calls `linecache._register_code` before the command runs, a real run loads
+                # `linecache`, so it is planted, and the command never reached its import on 3.13 and 3.14.
+                self._probe(repo, eintrag, "import argparse\n")
                 lebendig = marker_dir / f"{ordner.name}__argparse"
                 assert lebendig.exists(), f"{label}: the plant is not live for a plain import, the case proves nothing"
                 lebendig.unlink()

@@ -1286,6 +1286,20 @@ yet; the external reviewer reads only this fix.
   refuses those keys; the texts now say "committed file" and name the gitlink. Fix in 6.2.1: ask git about gitlinks
   too.
 
+From CI on pull request 311 at 6d081424 (run 37136482975; the same failure at d0e47397, run 37061080599; owner A on
+OA-dd2cfee22c). Not reviewed yet; the external reviewer reads only this fix.
+- **R620-CI-6D08-1, test instrument, fixed after 90e81a5a. A probe started differently from the case it proves**:
+  test (3.13) and test (3.14) failed in
+  `test_no_module_after_the_first_line_is_taken_from_an_entry_into_the_checkout` at its anti-vacuity probe. The probe
+  ran `python -c "import argparse"`; from 3.13 on, `python -c` imports `linecache` and calls
+  `linecache._register_code` before the command runs, and the test plants `linecache` because a real run loads it, so
+  the import never ran. The probe now runs in a script started the way the verifier starts. The verifier is unchanged;
+  it is started as a script or with `-m`, which do not take that path.
+- **R620-CI-6D08-2, open for 6.2.1, not a required check. `release-scope-title` is NOT MEASURABLE on this pull
+  request** (red since 53bbb94c): in the CI clone the gate cannot read whether v6.2.0 is tagged, and the scope file of
+  the next candidate, 6.3.0, names no branch in its In section, so it cannot judge the title. It is not a required
+  context of main and changes no verdict of the package or of a release script.
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.
