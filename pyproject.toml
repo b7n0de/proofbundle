@@ -78,6 +78,12 @@ pq = ["cryptography>=48"]
 # verify and the v2-sig BINDING check need only [anchors]; without this extra the v2-sig signature outcomes
 # honestly skip (sig_ok None / status no_sig_lib), never a silent pass. `pip install proofbundle[rootcommit]`.
 rootcommit = ["ecdsa>=0.18"]
+# EXPERIMENTAL: COSE_Sign1 Hash Envelopes that cite a Signed Evaluation Receipt (proofbundle.receipt_cose),
+# both directions. cbor2 reads a statement strictly (no duplicate keys, no indefinite lengths) and reads back
+# every statement written; the writer is the module's own deterministic encoder. The receipt format itself
+# needs no CBOR, and without this extra the check returns no_lib, never a pass. The pin is the one the
+# scitt-ccf reader of Draft-PR 299 was measured with (cbor2 6.1.4, 2026-09-25).
+scitt = ["cbor2==6.1.4"]
 # EXPERIMENTAL: the versioned formal model of the relation-lineage ladder (Fundament F3, formal/model.py).
 # z3-solver enables the z3-EXTENDED symbolic proof (higher symbolic arity than bounded enumeration can
 # reach). Without it the model still runs a complete bounded-enumeration proof — the extra only adds the
@@ -154,7 +160,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (75 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (76 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -171,7 +177,9 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   a caller's value from its storage into exact built-in types), and mypy **2.3.0** was re-run over
 #   the 74 and exits 0. On 2026-10-02 it became 75 (`src/proofbundle/signed_eval_receipt.py`, the
 #   EXPERIMENTAL eval-receipt-v1 format behind its explicit switch), and mypy **2.3.0** was re-run over
-#   the 75 and exits 0. The other seven versions were NOT re-run for any of the five new files; that is the same boundary
+#   the 75 and exits 0. On 2026-10-03 it became 76 (`src/proofbundle/receipt_cose.py`, the EXPERIMENTAL
+#   translator between that format and a COSE_Sign1 Hash Envelope, behind the [scitt] extra), and mypy
+#   **2.3.0** was re-run over the 76 and exits 0. The other seven versions were NOT re-run for any of the six new files; that is the same boundary
 #   RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather
 #   than absorbed into the sentence above.
 #
