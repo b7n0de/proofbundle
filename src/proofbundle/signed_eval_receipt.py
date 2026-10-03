@@ -452,7 +452,7 @@ def payload_bytes(payload: Mapping) -> bytes:
         violation = _payload_violation(parsed)
         if violation:
             raise _Fail(6, violation)
-        for name in ("model_id_commit", "dataset_id_commit"):
+        for name in _digest_members(parsed):
             if not _COMMIT_RE.match(parsed[name]):
                 raise _Fail(7, f"{name} is not sha256: followed by 64 lowercase hexadecimal digits")
         if parsed["passed"] != _comparison_holds(parsed["score"], parsed["comparator"], parsed["threshold"]):
