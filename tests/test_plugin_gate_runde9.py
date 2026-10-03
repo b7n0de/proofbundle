@@ -8,6 +8,7 @@ test first shows that plain git starts the marker, so the case is not vacuous. R
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import shlex
@@ -250,3 +251,83 @@ def test_no_everyday_form_of_the_runde_7_measurement_is_free(tmp_path, command):
     assert claude is not None and claude.decision == "ask", command
     assert codex is not None and gate.answer(codex.decision, codex.text, host="codex")[
         "hookSpecificOutput"]["permissionDecision"] == "deny", command
+
+
+# --- R9-1: every intermediate component of a committed path is a real directory ------------------------------------
+
+def _run_evidence(repo: pathlib.Path, out: pathlib.Path) -> tuple[int, dict]:
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    argv = [sys.executable, str(GATE), "run-evidence", "--repo", str(repo), "--out", str(out), "--",
+            sys.executable, "-m", "pytest", "-q", "tests/"]
+    proc = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=repo.parent, timeout=300, check=False)
+    return proc.returncode, json.loads(proc.stdout)
+
+
+_LINK_TEST = 'from pathlib import Path\n\n\ndef test_pkg_is_a_link():\n    assert Path("pkg").is_symlink()\n'
+
+
+def _ignored_pkg_repo(tmp_path: pathlib.Path, test: str = _LINK_TEST) -> pathlib.Path:
+    """The review's repository: a committed `.gitignore` line `pkg`, a force-added pkg/helper.py, and a test
+    that demands that pkg is a symbolic link. HEAD holds a real directory, so the test fails there."""
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / ".gitignore").write_text("pkg\n", encoding="utf-8")
+    (repo / "pkg" / "helper.py").write_text("HELPER = 1\n", encoding="utf-8")
+    (repo / "tests" / "test_pkg.py").write_text(test, encoding="utf-8")
+    _git(repo, "add", ".gitignore", "tests/test_pkg.py")
+    _git(repo, "add", "-f", "pkg/helper.py")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "pkg is a directory")
+    return repo
+
+
+def _outside_copy(tmp_path: pathlib.Path) -> pathlib.Path:
+    outside = tmp_path / "outside-pkg"
+    outside.mkdir()
+    (outside / "helper.py").write_text("HELPER = 1\n", encoding="utf-8")   # the same leaf bytes
+    return outside
+
+
+def test_r9_1_a_committed_directory_replaced_by_a_link_gives_no_evidence(tmp_path):
+    """R9-1, the review's case: the working pkg replaced by a link to an outside directory with the same leaf
+    bytes. lstat of the leaf alone found no difference, the ignore rule hid the link, and run-evidence gave exit 0
+    and green_run, 1 of 1 passed, for the unchanged HEAD on which the test fails. Now the intermediate component is
+    checked and the run is refused before it starts. The control: the run on HEAD is red. The anti-vacuity half:
+    with the link, plain pytest passes."""
+    repo = _ignored_pkg_repo(tmp_path)
+    code, report = _run_evidence(repo, tmp_path / "control.json")
+    assert (code, report["outcome"], report["reason_id"]) == (1, "no_evidence", "run_failed"), report
+    shutil.rmtree(repo / "pkg")
+    os.symlink(str(_outside_copy(tmp_path)), repo / "pkg")
+    code, report = _run_evidence(repo, tmp_path / "statement.json")
+    assert (code, report["outcome"], report["reason_id"]) == (1, "no_evidence", "tree_not_clean"), report
+    assert "pkg" in report["message"] and "symbolic link" in report["message"], report["message"]
+    plain = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/"], cwd=repo,
+                           capture_output=True, text=True, timeout=120, check=False,
+                           env={k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))})
+    assert plain.returncode == 0, "the test does not pass on the linked tree; the case would be vacuous"
+
+
+def test_r9_1_a_run_that_replaces_a_committed_directory_by_a_link_gives_no_evidence(tmp_path):
+    """R9-1, the proposal's second half, after the run: a test that replaces pkg by a link to an outside directory
+    with the same bytes passes, and the check after the run refuses it, so no statement names HEAD."""
+    outside = _outside_copy(tmp_path)
+    test = ("import os, shutil\nfrom pathlib import Path\n\n\ndef test_swap():\n    shutil.rmtree('pkg')\n"
+            f"    os.symlink({str(outside)!r}, 'pkg')\n    assert Path('pkg').is_symlink()\n")
+    repo = _ignored_pkg_repo(tmp_path, test)
+    code, report = _run_evidence(repo, tmp_path / "statement.json")
+    assert (code, report["outcome"], report["reason_id"]) == (1, "no_evidence", "tree_changed"), report
+    assert (repo / "pkg").is_symlink()
+
+
+@pytest.mark.parametrize("path", [b"a/../x.txt", b"./x.txt", b"a//x.txt"])
+def test_r9_1_a_path_component_that_cannot_be_checked_is_refused(tmp_path, monkeypatch, path):
+    """R9-1, components that cannot be checked safely (a function contract: git writes no such tree path in a
+    checkout, so the listing is planted)."""
+    oid = "0" * 40
+    listing = subprocess.CompletedProcess([], 0, b"100644 blob " + oid.encode() + b"\t" + path + b"\0", b"")
+    monkeypatch.setattr(gate, "_refuse_partial_clone", lambda repo, deadline: None)
+    monkeypatch.setattr(gate, "_git", lambda *args, **kwargs: listing)
+    problem = gate._working_tree_problem(str(tmp_path), oid, _deadline())
+    assert problem is not None and "cannot check safely" in problem, problem

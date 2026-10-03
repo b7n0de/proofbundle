@@ -2583,6 +2583,20 @@ def signed_run_counts(kind: str, content: bytes):
 _BLOB_HASHES = {40: hashlib.sha1, 64: hashlib.sha256}
 
 
+def _directory_problem(root: bytes, prefix: bytes) -> str | None:
+    """None when root/prefix is a real directory (lstat, so a symbolic link is not followed), else why not."""
+    shown = prefix.decode(errors="replace")
+    try:
+        st = os.lstat(os.path.join(root, prefix))
+    except OSError:
+        return f"{shown}, which is absent or cannot be read in the working tree"
+    if stat.S_ISLNK(st.st_mode):
+        return f"{shown}, which is a symbolic link in the working tree and a directory in the commit"
+    if not stat.S_ISDIR(st.st_mode):
+        return f"{shown}, which is not a directory in the working tree"
+    return None
+
+
 def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None:
     """None when the working tree holds exactly the files of the commit's tree, outside the top-level
     .proofbundle/ folder the tree digest leaves out, else the first difference (review Runde 8, R8-1).
@@ -2596,7 +2610,13 @@ def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None
     that lists the other files reads the ignore rules only, with an index that does not exist (so nothing
     is refreshed or written), core.fsmonitor off and an empty hook directory. Measured by the reviewer: a
     clean filter that wrote the committed value back while staging let a run on another working file be
-    recorded as a run on HEAD."""
+    recorded as a run on HEAD.
+
+    Every intermediate component of a committed path must be a real directory in the working tree, checked
+    with lstat before and after the run whatever the ignore rules say; a symbolic link, any other type, a
+    component that cannot be read and an empty, `.` or `..` component are refused (review Runde 9, R9-1:
+    a working directory replaced by a link to an outside directory with the same leaf bytes, ignored by a
+    committed `.gitignore`, gave a green run for a tree on which the same test fails)."""
     # A second lock: run_evidence's tree_digest refuses first, and the ls-tree below goes through _git (R8-3).
     _refuse_partial_clone(repo, deadline)
     listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, deadline=deadline)
@@ -2618,8 +2638,18 @@ def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None
                             "that the gate cannot compare with the working tree")
         committed[path] = (mode, oid.decode("ascii"))
     root = os.fsencode(repo)
+    directories: dict[bytes, str | None] = {}
     for path, (mode, oid) in sorted(committed.items()):
         shown = path.decode(errors="replace")
+        parts = path.split(b"/")
+        if any(part in (b"", b".", b"..") for part in parts):
+            return f"{shown} has a path component the gate cannot check safely"
+        for depth in range(1, len(parts)):
+            prefix = b"/".join(parts[:depth])
+            if prefix not in directories:
+                directories[prefix] = _directory_problem(root, prefix)
+            if directories[prefix] is not None:
+                return f"{shown} lies below {directories[prefix]}"
         full = os.path.join(root, path)
         try:
             st = os.lstat(full)

@@ -834,7 +834,11 @@ Chosen (smallest variant, 2026-09-30; the report binding tightened after the rev
 - Before the run the working tree must hold exactly the files of HEAD's tree outside `.proofbundle/`: every
   committed file a regular file with the committed execute bit, or a symbolic link, whose own bytes (or
   link text) have the committed blob id, and no other file git does not ignore. After the run HEAD must be
-  the same commit and the working tree must still hold exactly those files. The comparison runs no clean or
+  the same commit and the working tree must still hold exactly those files. Every intermediate component of a
+  committed path must be a real directory, checked with lstat before and after the run whatever the ignore
+  rules say; a symbolic link, another type, or a component the gate cannot check safely is refused (review
+  Runde 9, R9-1: a directory replaced by a link to an outside directory with the same leaf bytes, hidden by an
+  ignore rule, gave a green run for a tree on which the same test fails). The comparison runs no clean or
   smudge filter, line-ending or encoding rule, fsmonitor or hook: any content transformation makes the bytes
   differ and is refused before the run. Until review Runde 8 (R8-1) the working tree was staged with `git
   add -A` through a temporary index, and a clean filter that wrote the committed value back let a run on
