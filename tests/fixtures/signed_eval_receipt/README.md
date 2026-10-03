@@ -3,7 +3,7 @@
 The test vectors of draft-gruszka-signed-evaluation-receipts-00 (Signed Evaluation Receipts),
 Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
 
-- 65 vectors: 9 that verify (P1 to P9) and 56 that do not (N1 to N56), each with the expected
+- 68 vectors: 10 that verify (P1 to P10) and 58 that do not (N1 to N58), each with the expected
   verdict and the first failing step of the draft's Section 6.
 - Compact form: every payload B is stored once under `payloads`, and a receipt names its
   `payload_b64` by the token `@Bn@` when that value is exactly the base64 of a stored B. The test
@@ -15,5 +15,5 @@ Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
   receipt.
 
 `tests/test_signed_eval_receipt_conformance.py` asserts, for every vector, the draft's verdict and
-first failing step, and for P1, P2, P3, P6, P7, P8 and P9 that the emitter produces the draft's bytes.
+first failing step, and for P1, P2, P3, P6, P7, P8, P9 and P10 that the emitter produces the draft's bytes.
 A divergence is red and is never adjusted silently.

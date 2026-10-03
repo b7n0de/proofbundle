@@ -1,7 +1,7 @@
 """The vectors of draft-gruszka-signed-evaluation-receipts-00 as conformance tests (EXPERIMENTAL format).
 
 Every vector of the draft's Appendix A is judged as the draft judges it: the same verdict and the same
-first failing step of Section 6. Where proofbundle produces a receipt (P1 to P3, P6 to P9) it
+first failing step of Section 6. Where proofbundle produces a receipt (P1 to P3, P6 to P10) it
 produces the draft's bytes. eval-claim v0.1 stays verifiable next to the new format, and the new format
 is written only on the explicit ``--format eval-receipt-v1`` switch. A divergence is red; the fixture
 is never adjusted to the code (tests/fixtures/signed_eval_receipt/README.md).
@@ -55,7 +55,7 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
         self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
 
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
-        self.assertEqual(len(VECTORS), 65)
+        self.assertEqual(len(VECTORS), 68)
         for v in VECTORS:
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
@@ -100,7 +100,8 @@ class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
         p1 = next(v for v in VECTORS if v["id"] == "P1")
         payload = json.loads(base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
         for change, step in (({"score": "0.700"}, "8"), ({"score": ".834"}, "6"), ({"n": 0}, "6"),
-                             ({"model_id_commit": "acme/model-x"}, "7"), ({"extra": "x"}, "6")):
+                             ({"model_id_commit": "acme/model-x"}, "7"), ({"extra": "x"}, "6"),
+                             ({"criteria_digest": "sha256:" + "A" * 64}, "7"), ({"criteria_digest": 7}, "6")):
             with self.subTest(change=change):
                 with self.assertRaisesRegex(ValueError, f"step {step}"):
                     ser.emit_signed_eval_receipt(dict(payload, **change), signer)
