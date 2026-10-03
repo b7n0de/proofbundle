@@ -330,7 +330,14 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
   - inside `$( )` and backticks;
   - inside any quoted argument, as in `bash -c "git push"`.
   Over-matching is accepted: `echo "git push"` is gated too. A command that cannot be tokenised is gated
-  when a text search finds a gated call, with the directory NOT MEASURED.
+  when a text search finds a gated call, with the directory NOT MEASURED; since review Runde 10 (R10-1) the
+  search counts the word `git` alone, because every git form is gated.
+- A shell comment is dropped before the scan (review Runde 10, R10-1): a `#` that begins a word, up to the end
+  of its line, as long as every character before it outside the comments already dropped is plain text (no
+  quote, escape, expansion, substitution, glob, bracket, brace or here-document). The command is then judged
+  as it is without the comment. After the first other character a `#` is kept as a word character, because it
+  may sit in a string, a here-document or an arithmetic command the shell runs; a command that is unparsable
+  then falls back to the text search.
 - Since review Runde 9 (owner choice B, D3) every other git form that acts on a repository is gated too,
   found the same way: it is NOT MEASURED, asked under Claude Code and denied under Codex. Only the bare
   `git --version` is not gated.

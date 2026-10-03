@@ -125,9 +125,15 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 #: redirection and its target word are consumed and dropped, so they never become words of a call
 #: (`git push origin main 2>&1` keeps only `origin main`; review Nachtrag 12).
 _REDIR = re.compile(r"&>>|&>|<<<|<<|\d*(?:>>|>&|>\||<>|<&|>|<)")
-#: Used only when the command cannot be tokenised: any mention of a gated call counts as one.
-_FALLBACK = re.compile(r"\bgit-push\b|\bgit\b.*\bpush\b|\bgh\b.*\b(?:pr|release)\b.*\b(?:create|new)\b",
-                       re.DOTALL)
+#: Used only when the command cannot be tokenised: any mention of a gated call counts as one. Since review Runde 9
+#: every git form is gated, so the word `git` alone counts (`git-push` included); the push-only search let an
+#: unparsable `git config` or `git commit` through ungated (review Runde 10, R10-1).
+_FALLBACK = re.compile(r"\bgit\b|\bgh\b.*\b(?:pr|release)\b.*\b(?:create|new)\b", re.DOTALL)
+#: Plain text for _drop_comments: words without a quote, an escape, an expansion, a substitution, a glob, a bracket or
+#: a brace, blanks, newlines, and the control and redirection operators (a here-document excepted).
+_PLAIN = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:=@%+,~^-;&|<> \t\n")
+#: The characters after which a `#` begins a word in plain text.
+_WORD_BREAK = frozenset(";&|<> \t\n")
 UNKNOWN = None
 
 #: `git push` options the gate models as target-neutral: they change neither the endpoint, the refs nor
@@ -182,6 +188,30 @@ def _consume_subst(s: str, i: int) -> int | None:
             j += 1
         return j
     return i + 2
+
+
+def _drop_comments(command: str) -> str:
+    """The command without its shell comments (review Runde 10, R10-1). A `#` that begins a word starts a comment
+    that runs to the end of its line (sh, bash, dash and zsh; measured for bash 5.2 and dash): the shell runs the
+    command before it as if the comment were absent, so a comment adds no word, and an apostrophe in it does not
+    make the command unparsable. A comment is dropped only while every character before it, outside the comments
+    already dropped, is plain text (_PLAIN, no `<<`), where the gate's words are the shell's. From the first other
+    character on — a quote, an escape, a `$`, a backtick, a glob, a bracket, a brace or a here-document — the rest is
+    kept as it is: there a `#` after a blank may sit in a string, a here-document or an arithmetic command the shell
+    runs, and the gate does not model where. A command that is then unparsable falls back to the text search."""
+    kept, i, start, n = [], 0, 0, len(command)
+    while i < n:
+        c = command[i]
+        if c == "#" and (i == 0 or command[i - 1] in _WORD_BREAK):
+            kept.append(command[start:i])
+            end = command.find("\n", i)
+            i = start = n if end < 0 else end
+            continue
+        if c not in _PLAIN or command.startswith("<<", i):
+            break
+        i += 1
+    kept.append(command[start:])
+    return "".join(kept)
 
 
 def _lex(command: str) -> list | None:
@@ -699,21 +729,22 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
     function, `eval`, `source`, `sh -c`, a command or parameter substitution anywhere (even in a redirection
     target), a here-document — is NOT MEASURED, never inactive. `--no-verify` or a `core.hooksPath` override
     denies, because it would turn off the real-push check (Punkt 5)."""
-    toks = _lex(command)
+    text = _drop_comments(command)   # the shell ignores a comment, and so does the rest of the scan (R10-1)
+    toks = _lex(text)
     if toks is None or depth > MAX_NESTING:
-        return [("unparsed command", UNKNOWN, None)] if _FALLBACK.search(command) else []
+        return [("unparsed command", UNKNOWN, None)] if _FALLBACK.search(text) else []
     words = [t[1:] for t in toks if t[0] == "word"]
     h = 0
     while h < len(words) and _ASSIGNMENT.match(words[h][0]):
         h += 1
-    single = not any(t[0] == "op" for t in toks) and not _expansion_present(command)
+    single = not any(t[0] == "op" for t in toks) and not _expansion_present(text)
     head_gated = h < len(words) and os.path.basename(words[h][0]) in ("git", "git-push", "gh")
     if single and head_gated:
         calls = _resolve_single(words, directory, inherited_env)
         if not calls and os.path.basename(words[h][0]) == "git" and not _BARE_VERSION.fullmatch(command):
             return [("git --version", UNKNOWN, [_NOT_FREE])]  # free only as its exact text (review Runde 9)
         return calls
-    return _overmatch(command, toks, depth, inherited_env)
+    return _overmatch(text, toks, depth, inherited_env)
 
 
 # --- the declaration and the evidence at HEAD --------------------------------------------------------
