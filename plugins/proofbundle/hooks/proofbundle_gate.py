@@ -1211,7 +1211,8 @@ def _read_env() -> dict:
     what an object id resolves to, so they are not such a rewrite. GIT_NO_LAZY_FETCH=1 keeps a git that
     honours it from fetching a missing object of a partial clone (review Runde 7, R7-7; measured effective on
     git 2.43.0 as Ubuntu builds it, 1:2.43.0-1ubuntu7.3). A git that ignores it is caught by
-    _refuse_partial_clone, which does not depend on the version."""
+    _refuse_partial_clone, which does not depend on the version. That refusal carries the case end to end; this
+    variable is a second lock with a function contract only (review Runde 8, R8-3)."""
     env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
@@ -1316,6 +1317,8 @@ def _feed(stream, data: bytes) -> None:
 
 def _blob_sha256s(repo: str, oids: list[bytes], deadline: float) -> list[str]:
     """sha256 of each object's bytes, read through one `git cat-file --batch`, in order."""
+    # Its own lock, as it reads through Popen and not _git; end to end, tree_manifest's ls-tree through _git
+    # refuses first (review Runde 8, R8-3).
     _refuse_partial_clone(repo, deadline)
     left = deadline - time.monotonic()
     if left <= 0:
@@ -2675,6 +2678,8 @@ def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
             return f"{target} is the same file as the git configuration file {f}"
     for d in dirs:
         for root in {os.path.normpath(d), os.path.realpath(d)}:
+            # The lexical path is a second lock: a hook entry is also caught by the resolved target against both
+            # roots and by the entry identity below (review Runde 8, R8-3).
             for candidate in (lexical, target):
                 if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
                     return f"{candidate} is in the hook directory {d}"
@@ -3064,6 +3069,7 @@ def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None
     is refreshed or written), core.fsmonitor off and an empty hook directory. Measured by the reviewer: a
     clean filter that wrote the committed value back while staging let a run on another working file be
     recorded as a run on HEAD."""
+    # A second lock: run_evidence's tree_digest refuses first, and the ls-tree below goes through _git (R8-3).
     _refuse_partial_clone(repo, deadline)
     listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, deadline=deadline)
     if listing.returncode != 0:

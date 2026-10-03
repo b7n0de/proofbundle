@@ -278,3 +278,99 @@ def test_r8_2_a_promisor_key_with_an_empty_remote_subsection_is_a_partial_clone(
     decision, text = _decision("git cat-file -p HEAD", repo)
     assert decision == "ask", text
     assert "remote..promisor" in text, text
+
+
+# --- R8-3: the reviewer's counterprobes for three locks no test caught alone (end-to-end, the gate's verdict) ---
+
+def test_r8_3_git_status_in_a_nested_shell_is_not_bound(tmp_path):
+    """R8-3, first counterprobe: a nested shell running `git status --short` asks, because the gate cannot bind
+    the inner git to a repository; with the nested-shell lock undone alone it got no answer. The control: the
+    same form, bare, in the same clean repository, stays free."""
+    repo = _repo(tmp_path)
+    assert _decision("git status --short", repo) == (None, "")
+    decision, text = _decision("sh -c 'git status --short'", repo)
+    assert decision == "ask", text
+    assert "cannot bind git status" in text, text
+
+
+@pytest.mark.parametrize("command", ["git status --short | cat", "git status --short &",
+                                     "git status --short <<EOF\nx\nEOF", "echo $(git status --short)"],
+                         ids=["pipeline", "background", "here-document", "substitution"])
+def test_r8_3_git_status_in_a_pipeline_background_here_document_or_substitution_is_not_bound(tmp_path, command):
+    """R8-3, second counterprobe, four cases: each form asks; with the unbinding lock for pipelines, the
+    background, here-documents and substitutions undone alone, each got no answer."""
+    repo = _repo(tmp_path)
+    decision, text = _decision(command, repo)
+    assert decision == "ask", text
+    assert "cannot bind git status" in text, text
+
+
+def _trace_reader():
+    """The trace reader of tests/test_plugin_evals.py, loaded by path, so this test judges the reader of the tree
+    it runs in (as tests/test_plugin_gate_runde7.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_r8_3_plugin_evals", ROOT / "tests" / "test_plugin_evals.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_r8_3_an_unknown_content_block_before_a_valid_verify_is_not_measured(tmp_path):
+    """R8-3, third counterprobe: an assistant content block of a type the reader does not know, carrying the
+    inspect name, before a valid verify, is not-measured; with the block-type lock undone alone it read 'ok'.
+    The control: the same block as tool_use is an order-violation."""
+    evals = _trace_reader()
+    events = [{"type": "assistant", "message": {"content": [{"type": "tool_call", "name": evals.I, "input": {}}]}},
+              evals._GOOD_VERIFY]
+    trace = tmp_path / "unknown-block.jsonl"
+    trace.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
+    assert evals.run_order_verdict(trace) == "not-measured"
+    events[0]["message"]["content"][0]["type"] = "tool_use"
+    trace.write_text("\n".join(json.dumps(e) for e in events), encoding="utf-8")
+    assert evals.run_order_verdict(trace) == "order-violation"
+
+
+# --- R8-3: function contracts of the other four locks, kept apart from the end-to-end proofs above -------------
+#
+# These four rollbacks stay uncaught end to end on purpose: in every public flow an earlier lock already stops
+# the case, as the reviewer reads it too. The carrying lock, named at each site in the gate:
+#   GIT_NO_LAZY_FETCH in _read_env            <- _refuse_partial_clone in the _git funnel (version-independent)
+#   _refuse_partial_clone in _blob_sha256s     <- tree_manifest's `ls-tree` through _git, before the batch read
+#   _refuse_partial_clone in _working_tree_problem <- run_evidence's tree_digest before it, and the function's
+#                                                 own `ls-tree` through _git
+#   the lexical path against the hook directory <- the resolved target against the directory's normalised and
+#                                                 resolved roots, and the identity with each entry's target
+# The tests below hold a function's own contract. They are not end-to-end proofs and claim no protection of a
+# public flow; the last lock has no contract test, because the gate makes no promise of its own for it.
+
+def _partial_clone_keys(repo: pathlib.Path) -> None:
+    _git(repo, "config", "--local", "remote.origin.promisor", "true")
+
+
+def test_r8_3_contract_the_gates_git_environment_turns_lazy_fetch_off():
+    """Function contract of _read_env: every git call of the gate runs with GIT_NO_LAZY_FETCH=1. Carried end to
+    end by _refuse_partial_clone in _git."""
+    assert gate._read_env()["GIT_NO_LAZY_FETCH"] == "1"
+
+
+def test_r8_3_contract_the_batch_reader_refuses_a_partial_clone(tmp_path):
+    """Function contract of _blob_sha256s: it reads no object of a partial clone, by itself, not through _git.
+    Carried end to end by tree_manifest's ls-tree through _git, which runs first."""
+    repo = _repo(tmp_path)
+    oid = _git(repo, "rev-parse", "HEAD:a.txt").encode()
+    assert len(gate._blob_sha256s(str(repo), [oid], _deadline())) == 1      # the control: a full clone is read
+    _partial_clone_keys(repo)
+    with pytest.raises(gate.GateError, match="partial clone"):
+        gate._blob_sha256s(str(repo), [oid], _deadline())
+
+
+def test_r8_3_contract_the_working_tree_comparison_refuses_a_partial_clone(tmp_path):
+    """Function contract of _working_tree_problem: it compares nothing in a partial clone. Carried end to end by
+    run_evidence's tree_digest before it; inside the function, its ls-tree through _git carries it too, so this
+    contract does not catch the removal of the explicit refusal alone."""
+    repo = _repo(tmp_path)
+    commit = _git(repo, "rev-parse", "HEAD")
+    assert gate._working_tree_problem(str(repo), commit, _deadline()) is None   # the control: a clean full clone
+    _partial_clone_keys(repo)
+    with pytest.raises(gate.GateError, match="partial clone"):
+        gate._working_tree_problem(str(repo), commit, _deadline())
