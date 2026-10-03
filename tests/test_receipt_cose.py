@@ -29,6 +29,10 @@ KEYS = {name: bytes.fromhex(value) for name, value in VECTORS["keys_hex"].items(
 #: Vector M2 of draft-gruszka-evaluation-receipt-mappings-00: its kid and the SHA-256 of its bytes.
 M2_KID = "c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb1561"
 M2_SHA256 = "5be4ea02851ee90fc0c44d65b9f77c78450255f237d7de11ce4b18636480a106"
+#: The Draft 1 PURE TEST seed of the issuer key, written out as in tests/test_signed_eval_receipt_conformance.py:
+#: a shipped test builds a throwaway key from a literal and loads no key from outside
+#: (tests/test_sdist_ohne_signierwerkzeug.py). A test below holds it equal to the fixture's seed.
+_DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
 needs_cbor2 = pytest.mark.skipif(importlib.util.find_spec("cbor2") is None,
                                  reason="the [scitt] extra (cbor2) is not installed")
 
@@ -45,7 +49,12 @@ def _receipt(vid: str) -> bytes:
 
 
 def _issuer_key() -> Ed25519PrivateKey:
-    return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(DRAFT1["issuer_seed_hex"]))
+    return Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
+
+
+def test_the_written_seed_is_the_draft_1_test_seed():
+    assert _DRAFT_TEST_SEED.hex() == DRAFT1["issuer_seed_hex"]
+    assert _issuer_key().public_key().public_bytes_raw() == KEYS["issuer"]
 
 
 def _check(vector: dict) -> rc.StatementCheck:

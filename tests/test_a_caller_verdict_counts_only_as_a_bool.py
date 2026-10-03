@@ -1473,6 +1473,7 @@ _OPTIONAL_EXTRAS = {
     "pq": {"cryptography": "cryptography"},
     "rootcommit": {"ecdsa": "ecdsa"},
     "formal": {"z3-solver": "z3"},
+    "scitt": {"cbor2": "cbor2"},
     "pytest": {"pytest": "pytest"},
     "test": {"pytest": "pytest", "hypothesis": "hypothesis", "pyyaml": "yaml", "jsonschema": "jsonschema",
              "sd-jwt": "sd_jwt", "rfc8785": "rfc8785"},

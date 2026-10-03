@@ -25,12 +25,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 from proofbundle import receipt_cose as rc  # noqa: E402
+from proofbundle._wire_b64 import decode_b64  # noqa: E402
 from proofbundle.signed_eval_receipt import RECEIPT_TYPE  # noqa: E402
 
 DRAFT1 = REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
 OUT = REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.json"
 ISSUER = "https://issuer.example/eval"
 FOREIGN_SEED_LABEL = "receipt-cose foreign statement key, PURE TEST KEY"
+#: The Draft 1 PURE TEST seed of the issuer key, written out; main() holds it equal to the fixture's seed.
+DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
 
 
 # ---- an encoder of this script's own, able to write what the rule forbids ----------------------------------
@@ -76,17 +79,18 @@ def sign1(protected_raw: bytes, payload, signature: bytes, *, unprotected=None, 
 
 def main() -> None:
     doc = json.loads(DRAFT1.read_text(encoding="utf-8"))
-    payloads = {n: (p["text"].encode() if "text" in p else base64.b64decode(p["b64"])) for n, p in doc["payloads"].items()}
+    payloads = {n: (p["text"].encode() if "text" in p else decode_b64(p["b64"])) for n, p in doc["payloads"].items()}
 
     def receipt(vid: str) -> bytes:
         v = next(x for x in doc["vectors"] if x["id"] == vid)
-        raw = v["receipt_text"].encode() if "receipt_text" in v else base64.b64decode(v["receipt_b64"])
+        raw = v["receipt_text"].encode() if "receipt_text" in v else decode_b64(v["receipt_b64"])
         for name, b in payloads.items():
             raw = raw.replace(b"@" + name.encode() + b"@", base64.b64encode(b))
         assert hashlib.sha256(raw).hexdigest() == v["receipt_sha256"], vid
         return raw
 
-    issuer_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(doc["issuer_seed_hex"]))
+    assert DRAFT_TEST_SEED.hex() == doc["issuer_seed_hex"]
+    issuer_key = Ed25519PrivateKey.from_private_bytes(DRAFT_TEST_SEED)
     foreign_key = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(FOREIGN_SEED_LABEL.encode()).digest())
     issuer_pub = issuer_key.public_key().public_bytes_raw()
     foreign_pub = foreign_key.public_key().public_bytes_raw()
@@ -116,8 +120,9 @@ def main() -> None:
     assert f1 and f2 and f6 and forward[2]["statement_hex"] == f1.hex()
 
     # ---- backward --------------------------------------------------------------------------------------
-    p1_b = json.loads(base64.b64decode(json.loads(receipt("P1"))["payload_b64"]))
-    digest = hashlib.sha256(base64.b64decode(json.loads(receipt("P1"))["payload_b64"])).digest()
+    p1_raw = decode_b64(json.loads(receipt("P1"))["payload_b64"])
+    p1_b = json.loads(p1_raw)
+    digest = hashlib.sha256(p1_raw).digest()
     kid_issuer, kid_foreign = rc.cose_key_thumbprint(issuer_pub), rc.cose_key_thumbprint(foreign_pub)
 
     def protected(**change):
