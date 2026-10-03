@@ -8,6 +8,7 @@ test first shows that plain git starts the marker, so the case is not vacuous. R
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pathlib
@@ -331,3 +332,149 @@ def test_r9_1_a_path_component_that_cannot_be_checked_is_refused(tmp_path, monke
     monkeypatch.setattr(gate, "_git", lambda *args, **kwargs: listing)
     problem = gate._working_tree_problem(str(tmp_path), oid, _deadline())
     assert problem is not None and "cannot check safely" in problem, problem
+
+
+# --- R9-4: a signed payload that repeats a key is ambiguous and binds nothing ---------------------------------------
+
+_GREEN_SUITE = "def test_one():\n    assert 1 + 1 == 2\n\n\ndef test_two():\n    assert 'a' in 'abc'\n"
+_BUNDLE, _POLICY = ".proofbundle/tests.bundle.json", ".proofbundle/policy.json"
+
+
+@pytest.fixture
+def signing_env(tmp_path: pathlib.Path) -> dict:
+    """The environment of run-evidence and of the gate's verifier: this checkout's package and a `uv` shim, as in
+    tests/test_plugin_run_evidence.py."""
+    import proofbundle
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "uv").write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\n'
+                                f'exec "{sys.executable}" "$@"\n', encoding="utf-8")
+    (bin_dir / "uv").chmod(0o755)
+    package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PROOFBUNDLE_", "PYTEST_"))}
+    env["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)
+    return env
+
+
+def _green_statement(tmp_path: pathlib.Path, env: dict) -> tuple[pathlib.Path, dict]:
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "tests" / "test_green.py").write_text(_GREEN_SUITE, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "green")
+    out = tmp_path / "statement.json"
+    argv = [sys.executable, str(GATE), "run-evidence", "--repo", str(repo), "--out", str(out), "--",
+            sys.executable, "-m", "pytest", "-q", "tests/"]
+    proc = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=tmp_path, timeout=300, check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return repo, json.loads(out.read_text(encoding="utf-8"))
+
+
+def _sign_raw_and_evaluate(repo: pathlib.Path, env: dict, payload: bytes, digest: str):
+    """Sign the payload bytes as they are with a key made here, pin that key in the policy, declare the bundle
+    for digest and let the gate evaluate HEAD (the review's end-to-end setup)."""
+    from proofbundle.emit import emit_bundle, generate_signer
+    bundle = emit_bundle(payload, generate_signer())
+    (repo / ".proofbundle").mkdir(exist_ok=True)
+    (repo / _BUNDLE).write_text(json.dumps(bundle), encoding="utf-8")
+    (repo / _POLICY).write_text(json.dumps({
+        "schema": "proofbundle/trust-policy/v0.1", "policy_id": "r9-4",
+        "allowed_issuers": [{"public_key_b64": bundle["signature"]["public_key_b64"]}],
+        "signature": {"require_expected_signer": True}}), encoding="utf-8")
+    (repo / gate.DECLARATION).write_text(json.dumps({"schema": gate.DECLARATION_SCHEMA, "evidence": [
+        {"kind": "bundle", "path": _BUNDLE, "policy": _POLICY,
+         "subject": {"algorithm": gate.TREE_ALGORITHM, "digest": digest}}]}), encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "declare")
+    saved = dict(os.environ)
+    os.environ.clear()
+    os.environ.update(env)
+    try:
+        return gate.evaluate_repository(str(repo), gate.time.monotonic() + gate.DEADLINE_SECONDS, check_range=False)
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+def _red(run: dict) -> dict:
+    red = json.loads(json.dumps(run))
+    red["exit_code"] = 1
+    red["counts"].update(failed=1, passed=red["counts"]["passed"] - 1)
+    return red
+
+
+@pytest.mark.parametrize("case", ["unique-green", "unique-red", "red-then-green-run", "wrong-then-right-subject"])
+def test_r9_4_a_signed_payload_that_repeats_a_key_is_refused(tmp_path, signing_env, case):
+    """R9-4, the review's end-to-end case with the plugin's MCP server and the pinned package: a unique green
+    payload passes and a unique red one is denied (the controls); a correctly signed payload with first a red and
+    then a green `run`, and one with first a wrong and then the matching `subject`, both passed, read by their last
+    value. Now each is denied as ambiguous before the subject or the run record is read. The verdict not_bound
+    (not verification_failed) shows that the signature verified."""
+    repo, statement = _green_statement(tmp_path, signing_env)
+    subject, run, digest = statement["subject"], statement["run"], statement["subject"]["digest"]
+    wrong = {"algorithm": gate.TREE_ALGORITHM, "digest": "0" * 64}
+    dump = json.dumps
+    payload = {"unique-green": dump({"subject": subject, "run": run}),
+               "unique-red": dump({"subject": subject, "run": _red(run)}),
+               "red-then-green-run": f'{{"subject": {dump(subject)}, "run": {dump(_red(run))}, "run": {dump(run)}}}',
+               "wrong-then-right-subject": f'{{"subject": {dump(wrong)}, "subject": {dump(subject)}, '
+                                           f'"run": {dump(run)}}}'}[case]
+    verdict = _sign_raw_and_evaluate(repo, signing_env, payload.encode(), digest)
+    if case == "unique-green":
+        assert (verdict.decision, verdict.reason_id) == ("pass", "verified"), verdict.text()
+        return
+    assert (verdict.decision, verdict.reason_id) == ("deny", "not_bound"), verdict.text()
+    if case != "unique-red":
+        assert "repeats the key" in verdict.text() and "ambiguous" in verdict.text(), verdict.text()
+
+
+def _bundle_with(payload: str) -> bytes:
+    return json.dumps({"payload_b64": base64.b64encode(payload.encode()).decode()}).encode()
+
+
+@pytest.mark.parametrize("payload", ['{"subject": 1, "subject": 2}', '{"run": {"counts": {"failed": 1, "failed": 0}}}',
+                                     '{"a": [{"b": 1, "b": 1}]}'], ids=["top", "nested", "in-a-list"])
+def test_r9_4_every_signed_payload_reader_refuses_a_repeated_key_at_any_depth(payload):
+    """R9-4, the readers as a function contract (second locks behind the check before binding): a repeated key at
+    any depth makes the payload ambiguous; the subject reader names nothing, the run reader names the problem and
+    the counts reader gives none."""
+    content = _bundle_with(payload)
+    assert "repeats the key" in gate.signed_payload_ambiguity("bundle", content)
+    assert gate.signed_subjects("bundle", content) == []
+    assert "repeats the key" in gate.signed_run_problem("bundle", content)
+    assert gate.signed_run_counts("bundle", content) is None
+    document = b'{"payload_b64": "e30=", "payload_b64": "e30="}'
+    assert "evidence document repeats the key" in gate.signed_payload_ambiguity("bundle", document)
+
+
+def test_r9_4_the_policy_pin_check_refuses_a_repeated_key():
+    """R9-4 siblings: the gate's own check that the policy pins a signer reads no value from an ambiguous policy
+    (the core refuses it as well, the reviewer's control)."""
+    raw = (b'{"allowed_issuers": [{"public_key_b64": "x"}], '
+           b'"signature": {"require_expected_signer": false, "require_expected_signer": true}}')
+    with pytest.raises(gate.GateError, match="repeats the key"):
+        gate.require_pinned_signer(raw, "the policy")
+
+
+def test_r9_4_a_hook_event_that_repeats_a_key_is_denied(tmp_path):
+    """R9-4 siblings: an event with two commands could be read as either; the gate denies it as unreadable."""
+    event = ('{"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": ' + json.dumps(str(tmp_path))
+             + ', "tool_input": {"command": "git push origin main", "command": "true"}}')
+    proc = subprocess.run([sys.executable, "-I", str(GATE)], input=event, capture_output=True, text=True,
+                          timeout=120, check=False, env={**os.environ, "CLAUDE_PLUGIN_DATA": str(tmp_path)})
+    answer = json.loads(proc.stdout)["hookSpecificOutput"]
+    assert answer["permissionDecision"] == "deny", answer
+    assert "repeats the key 'command'" in answer["permissionDecisionReason"], answer
+
+
+def test_r9_4_a_verifier_answer_that_repeats_a_key_is_no_answer(monkeypatch):
+    """R9-4 siblings: a reply of the verifier whose result text repeats a key is not read by its last value."""
+    reply = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text",
+                                                                "text": '{"exit_code": 1, "exit_code": 0}'}]}}
+    monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
+    monkeypatch.setattr(gate.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(reply) + "\n", ""))
+    with pytest.raises(gate.GateError, match="not one unambiguous JSON object"):
+        gate.verify_items([{"kind": "bundle"}], _deadline())

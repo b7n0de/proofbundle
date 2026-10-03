@@ -934,6 +934,49 @@ def subject_statement(digest: str) -> bytes:
     return json.dumps({"subject": {"algorithm": TREE_ALGORITHM, "digest": digest}}).encode()
 
 
+class AmbiguousJSON(ValueError):
+    """A JSON object that repeats a key. Readers disagree on which value counts (Python keeps the last), so the
+    gate reads no value from it (review Runde 9, R9-4)."""
+
+
+def _unique_pairs(pairs: list[tuple[str, object]]) -> dict:
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise AmbiguousJSON(f"repeats the key {key!r}")
+        seen.add(key)
+    return dict(pairs)
+
+
+def strict_json(data: str | bytes) -> object:
+    """json.loads that refuses a repeated key in every object, at any depth (AmbiguousJSON, a ValueError)."""
+    return json.loads(data.decode("utf-8") if isinstance(data, bytes) else data, object_pairs_hook=_unique_pairs)
+
+
+def signed_payload_ambiguity(kind: str, content: bytes) -> str | None:
+    """What makes the evidence document or its signed payload ambiguous, or None. A repeated key in any object
+    at any depth is refused before the subject, the run record or the counts are read: a correctly signed
+    payload with first a red and then a green run, or first a wrong and then the matching subject, was read by
+    its last value and passed (review Runde 9, R9-4, measured by the reviewer). Unreadable evidence is left to
+    the readers below, which bind nothing for it."""
+    try:
+        document = strict_json(content)
+    except AmbiguousJSON as exc:
+        return f"the evidence document {exc}, so it is ambiguous"
+    except (ValueError, UnicodeDecodeError):
+        return None
+    field = "payload_b64" if kind == "bundle" else "payload"
+    if not isinstance(document, dict) or not isinstance(document.get(field), str):
+        return None
+    try:
+        strict_json(base64.b64decode(document[field], validate=True))
+    except AmbiguousJSON as exc:
+        return f"the signed payload {exc}, so it is ambiguous"
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return None
+    return None
+
+
 def signed_subjects(kind: str, content: bytes) -> list[str]:
     """The tree digests the signed part of the evidence names; empty when it names none.
 
@@ -943,9 +986,9 @@ def signed_subjects(kind: str, content: bytes) -> list[str]:
     TREE_SUBJECT_URI and its digest in sha256.
     """
     try:
-        document = json.loads(content.decode("utf-8"))
+        document = strict_json(content)
         if kind == "bundle":
-            statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
+            statement = strict_json(base64.b64decode(document["payload_b64"], validate=True))
             keys = set(statement) if isinstance(statement, dict) else set()
             subject = statement["subject"] if keys in ({"subject"}, {"subject", "run"}) else None
             if (isinstance(subject, dict) and set(subject) == SUBJECT_KEYS
@@ -954,7 +997,7 @@ def signed_subjects(kind: str, content: bytes) -> list[str]:
                     return []
                 return [subject["digest"]]
             return []
-        statement = json.loads(base64.b64decode(document["payload"], validate=True).decode("utf-8"))
+        statement = strict_json(base64.b64decode(document["payload"], validate=True))
         snapshot = statement["predicate"]["inputSnapshot"]
         return [entry["digest"]["sha256"] for entry in snapshot
                 if isinstance(entry, dict) and entry.get("uri") == TREE_SUBJECT_URI
@@ -1046,7 +1089,9 @@ def require_pinned_signer(raw: bytes, where: str) -> None:
     expected-signer rule switched on. Everything else about the policy is the verifier's to judge.
     """
     try:
-        policy = json.loads(raw.decode("utf-8"))
+        policy = strict_json(raw)
+    except AmbiguousJSON as exc:
+        raise GateError(f"{where} {exc}, so it is ambiguous") from exc
     except (UnicodeDecodeError, ValueError) as exc:
         raise GateError(f"{where} is not JSON") from exc
     issuers = policy.get("allowed_issuers") if isinstance(policy, dict) else None
@@ -1090,8 +1135,8 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     replies = {}
     for line in proc.stdout.splitlines():
         try:
-            reply = json.loads(line)
-        except ValueError:
+            reply = strict_json(line)
+        except ValueError:   # AmbiguousJSON included: a reply that repeats a key is no answer
             continue
         if isinstance(reply, dict) and isinstance(reply.get("id"), int):
             replies[reply["id"]] = reply
@@ -1102,7 +1147,13 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
             tail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
             raise GateError(f"the verifier gave no answer for item {n} (exit {proc.returncode}: {tail[0]})")
         text = reply["result"]["content"][0]["text"]
-        results.append({"is_error": bool(reply["result"].get("isError")), **json.loads(text)})
+        try:
+            parsed = strict_json(text)
+        except ValueError as exc:
+            raise GateError(f"the verifier's answer for item {n} is not one unambiguous JSON object ({exc})") from exc
+        if not isinstance(parsed, dict):
+            raise GateError(f"the verifier's answer for item {n} is not a JSON object")
+        results.append({"is_error": bool(reply["result"].get("isError")), **parsed})
     return results
 
 
@@ -1739,6 +1790,10 @@ def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tai
                        digests=digests, repo=repo, head=commit)
     unbound = []
     for n, (item, content) in enumerate(zip(items, contents)):
+        ambiguity = signed_payload_ambiguity(item["kind"], content)
+        if ambiguity is not None:   # refused before the subject, the run record or the counts are read (R9-4)
+            unbound.append((n, item, ambiguity))
+            continue
         problem = signed_run_problem(item["kind"], content)
         named = signed_subjects(item["kind"], content)
         if problem is not None:
@@ -2552,8 +2607,10 @@ def signed_run_problem(kind: str, content: bytes) -> str | None:
     if kind != "bundle":
         return None
     try:
-        document = json.loads(content.decode("utf-8"))
-        statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
+        document = strict_json(content)
+        statement = strict_json(base64.b64decode(document["payload_b64"], validate=True))
+    except AmbiguousJSON as exc:
+        return f"the evidence {exc}, so its run record is ambiguous"
     except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):
         return None
     if not isinstance(statement, dict) or "run" not in statement:
@@ -2568,9 +2625,9 @@ def signed_run_counts(kind: str, content: bytes):
     if kind != "bundle":
         return None
     try:
-        document = json.loads(content.decode("utf-8"))
-        statement = json.loads(base64.b64decode(document["payload_b64"], validate=True).decode("utf-8"))
-    except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):
+        document = strict_json(content)
+        statement = strict_json(base64.b64decode(document["payload_b64"], validate=True))
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):   # AmbiguousJSON included
         return None
     if not isinstance(statement, dict) or not isinstance(statement.get("run"), dict):
         return None
@@ -2963,7 +3020,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         host = _host(argv)
         try:
-            event = json.loads(sys.stdin.read())
+            event = strict_json(sys.stdin.read())
+        except AmbiguousJSON as exc:
+            raise GateError(f"the hook input {exc}, so the gate cannot tell which call it describes") from exc
         except ValueError as exc:
             raise GateError("the hook input is not JSON") from exc
         tool = event.get("tool_name") if isinstance(event, dict) else None

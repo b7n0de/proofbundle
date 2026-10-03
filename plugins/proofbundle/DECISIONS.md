@@ -861,7 +861,12 @@ Chosen (smallest variant, 2026-09-30; the report binding tightened after the rev
   equal to the subject, exit code 0, no failure, no error, at least one passed, counts that add up, and a
   command. Otherwise it answers deny `not_bound` and names what the record shows. A signed record that
   reports a red run never binds; the gate reads the recorded values, not the run. A supplied run record
-  must report a green run. Subject-only evidence remains accepted and does not attest a test run.
+  must report a green run. Subject-only evidence remains accepted and does not attest a test run. An
+  evidence document or signed payload that repeats a key in any object, at any depth, is denied `not_bound`
+  as ambiguous before its subject, run record or counts are read; the policy the gate checks for a pinned
+  signer, the verifier's answers and the hook event are read the same way (review Runde 9, R9-4: a correctly
+  signed payload with first a red and then a green run, or first a wrong and then the matching subject, was
+  read by its last value and passed).
 - What the record proves is what the gate proves: who signed it and which tree it names. The runner records
   the process exit code, the JUnit counts and matching repository digests before and after the run. The
   gate checks the signed record, not whether the reported tests actually executed. Ignored files, external
