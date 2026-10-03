@@ -119,8 +119,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     command, a URL-scoped credential helper, an ssh signing command) is refused as well; a boolean value is exempted
     only for `pager.<cmd>`, the one family git reads as a switch, after the review measured `filter.<n>.clean=true`,
     `core.sshCommand=false` and `core.hooksPath=off` passing as booleans. The global and system configuration are read
-    from the null device and no program-selecting environment name is inherited. `.git/info/attributes` is not read,
-    and that the listed families are every program an attribute can select is not shown. `scripts/pre_tag_audit_gate.py`
+    from the null device and no program-selecting environment name is inherited. The verifier now queries Git for
+    the effective `filter`, `diff` and `merge` attributes of every committed file, including `.git/info/attributes`;
+    completeness of the listed program families remains unproven. `scripts/pre_tag_audit_gate.py`
     reads git only through the same funnel and inspects no working tree; `scripts/pre_tag_receipt.py` compares bytes
     with `git hash-object --no-filters` and never runs a worktree filter; RESTRISIKO_620.md records the sweep and the
     review.

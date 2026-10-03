@@ -237,9 +237,10 @@ run from the families the script lists (a `filter`, `diff` or `merge` driver, `c
 a difftool or mergetool command, a shell alias), a partial clone, whose object reads would fetch
 through a transport its configuration names, and a clone whose effective attributes, as git
 resolves them from the checkout's `.gitattributes` files, `.git/info/attributes` and macros, name a
-`filter`, `diff` or `merge` driver git does not ship; a full clone straight from the forge carries
-no such setting. That the listed families are every program git can be configured to run is not
-shown. A directory under `scripts/` or `src/` that cannot be listed refuses the measurement too.
+`filter`, `diff` or `merge` driver git does not ship, a driver named `set`, `unset` or
+`unspecified` included; an index that does not list exactly the commit's files, and a warning git
+prints while reading the attributes, refuse too. That the listed families are every program
+git can be configured to run is not shown. A directory under `scripts/` or `src/` that cannot be listed refuses the measurement too.
 Without `-I` the verifier still takes every directory of the checkout off its import path before its
 next import, and it refuses with exit 2 a run in which a module of the checkout was already loaded at
 start, such as a `sitecustomize.py` reached through `PYTHONPATH`. Code that runs before the first

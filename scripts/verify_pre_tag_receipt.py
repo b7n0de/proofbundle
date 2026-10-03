@@ -31,7 +31,10 @@ shell alias; ``_GIT_PROGRAM_KEYS`` and ``_GIT_PROGRAM_EXACT``) is refused; that 
 program-selecting key is not shown. So is a partial clone, whose object reads would fetch through a transport its
 configuration names, and a clone whose effective attributes (``.gitattributes`` of the checkout,
 ``.git/info/attributes``, macros, as ``git check-attr`` resolves them) name a ``filter``, ``diff`` or ``merge`` driver
-git does not ship. A directory under ``scripts/`` or ``src/`` that cannot be listed refuses the measurement as well.
+git does not ship, a driver named ``set``, ``unset`` or ``unspecified`` included (told from the state of that name by
+attribute pathspecs, over an index measured to list exactly the commit's files). An index that does not, and a warning
+git prints while reading the attributes, refuse too. A directory under ``scripts/`` or ``src/`` that cannot be listed
+refuses the measurement as well.
 Without ``-I`` the script still takes every directory of the checkout off its
 path before its first further import, and it refuses a run in which a module of the checkout was already loaded at
 start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line and hides itself is
@@ -651,11 +654,59 @@ _DIFF_EINGEBAUT = frozenset((
     "java", "markdown", "matlab", "objc", "pascal", "perl", "php", "python", "ruby", "rust", "scheme", "tex"))
 #: The merge drivers git ships (`git help gitattributes`, "Built-in merge drivers").
 _MERGE_EINGEBAUT = frozenset(("text", "binary", "union"))
-#: The three states `git check-attr` reports for an attribute that carries no value.
+#: The three states `git check-attr` reports for an attribute that carries no value. The SAME three words are also what it
+#: prints for an attribute ASSIGNED that string (`filter=set`); git documents the ambiguity (external review of 12d5a7cb,
+#: R3-1, which measured ten false passes through it). They are therefore never taken as a state on check-attr's word
+#: alone: `_mehrdeutige_werte` asks git again with attribute pathspecs, which do tell a state from a string value.
 _ATTR_OHNE_WERT = frozenset(("unspecified", "set", "unset"))
+_ATTR_GEPRUEFT = ("filter", "diff", "merge")
 
 
-def _git_attributes_select_a_driver(repo: Path, pfade) -> list:
+def _index_ist_der_commit(repo: Path, eintraege: dict) -> str | None:
+    """None when git's index lists exactly the non-directory entries of the commit (mode, id and path, all at stage 0);
+    otherwise the reason. The attribute pathspecs below select paths from the INDEX, and a selection the checkout could
+    change by editing its index (`git rm --cached`, a staged extra path) is not the set of committed files the attribute
+    contract is about (external review of 12d5a7cb, R3-1: the follow-up query "must keep covering every checked commit
+    path and must not leave their choice to a changeable index")."""
+    rc, aus, err = _git(repo, "ls-files", "-s", "-z")
+    if rc != 0 or err:
+        return f"git ls-files could not list the index: {err or 'git ls-files failed'}"
+    index = set()
+    for eintrag in aus.split(b"\0"):
+        if not eintrag:
+            continue
+        kopf, tab, pfad = eintrag.partition(b"\t")
+        teile = kopf.split(b" ")
+        if not tab or len(teile) != 3:
+            return "git ls-files answered in a form that is not mode, id, stage and path"
+        modus, oid, stufe = (t.decode("ascii", "replace") for t in teile)
+        if stufe != "0":
+            return f"the index holds {os.fsdecode(pfad)} at merge stage {stufe}"
+        index.add((modus, oid, os.fsdecode(pfad)))
+    commit = {(modus, oid, pfad) for pfad, (typ, oid, modus) in eintraege.items() if typ != "tree"}
+    if index != commit:
+        return (f"the index does not list exactly the files of the commit ({len(index - commit)} extra or changed, "
+                f"{len(commit - index)} missing)")
+    return None
+
+
+def _mehrdeutige_werte(repo: Path) -> list:
+    """Every path of the index whose `filter`, `diff` or `merge` attribute is the STRING `set`, `unset` or `unspecified`
+    (a driver of that name), as `path: attribute=value`, asked through attribute pathspecs (`:(attr:filter=set)`), which
+    match a string value and never a state (gitglossary, "attr"). An answer that is not a clean listing is a finding."""
+    funde = []
+    for attribut in _ATTR_GEPRUEFT:
+        for wert in sorted(_ATTR_OHNE_WERT):
+            rc, aus, err = _git(repo, "ls-files", "-z", "--", f":(top,attr:{attribut}={wert})")
+            if rc != 0 or err:
+                funde.append(f"git could not say which paths carry {attribut}={wert}: {err or 'git ls-files failed'}")
+                continue
+            funde += [f"{os.fsdecode(p)}: {attribut}={wert} (a driver of that name, not the state)"
+                      for p in aus.split(b"\0") if p]
+    return funde
+
+
+def _git_attributes_select_a_driver(repo: Path, eintraege: dict) -> list:
     """Every committed path whose EFFECTIVE `filter`, `diff` or `merge` attribute names a driver git does not ship, as
     `path: attribute=value` (owner decision OA-0a507fd998 A, after the external review of d97f6e7b did not confirm the
     configuration families as complete).
@@ -666,7 +717,11 @@ def _git_attributes_select_a_driver(repo: Path, pfade) -> list:
     attributes file is pinned to the null device (`core.attributesFile`). A search for driver names in one file would
     miss a directory rule, a macro and the precedence between them, which the review named. Refused: any named
     `filter` (git ships none), a `diff` that is not a built-in pattern (`_DIFF_EINGEBAUT`), a `merge` that is not a
-    built-in driver (`_MERGE_EINGEBAUT`). An attribute that is set, unset or unspecified names no driver.
+    built-in driver (`_MERGE_EINGEBAUT`). An attribute that is set, unset or unspecified names no driver, but check-attr
+    prints the same three words for a driver of that NAME (external review of 12d5a7cb, R3-1), so a second question
+    tells them apart (`_mehrdeutige_werte`), after the index is measured to be exactly the commit's files
+    (`_index_ist_der_commit`). Any warning git prints while reading the attributes refuses too (R3-5: a
+    `.git/info/attributes` over git's size limit was ignored with a warning and the empty answer passed as complete).
 
     WHAT THIS IS AND IS NOT. The verifier's own git calls read objects and run no worktree filter, diff or merge, so a
     driver named here would not run in them (`cat-file --batch` uses neither `--filters` nor `--textconv`); the review
@@ -674,13 +729,18 @@ def _git_attributes_select_a_driver(repo: Path, pfade) -> list:
     execution boundary. This refusal is the owner's contract: a clone that names a driver git would run for its files
     is not measured, whatever the configuration says. Consequence for this repository: a commit that adds such an
     attribute would be refused by its own verifier."""
-    pfade = [p for p in pfade if isinstance(p, str) and p]
+    pfade = [p for p, (typ, _oid, _modus) in sorted(eintraege.items()) if typ == "blob"]
     if not pfade:
         return []
-    rc, aus, err = _git(repo, "check-attr", "-z", "--stdin", "filter", "diff", "merge",
+    rc, aus, err = _git(repo, "check-attr", "-z", "--stdin", *_ATTR_GEPRUEFT,
                         eingabe=b"".join(os.fsencode(p) + b"\0" for p in pfade))
     if rc != 0:
         return [f"the attributes of the clone could not be read: {err or 'git check-attr failed'}"]
+    if err:
+        # A WARNING IS AN INCOMPLETE ANSWER (external review of 12d5a7cb, R3-5): git drops a rule it will not read (an
+        # attributes file over its size limit, an overly long line) with a warning and exit 0, and the empty answer
+        # looked like a clean tree. Read as complete only what git read without complaint.
+        return [f"git warned while reading the attributes, so its answer is not the complete set: {err[:200]}"]
     teile = aus.split(b"\0")
     if teile and teile[-1] == b"":
         teile = teile[:-1]
@@ -694,7 +754,14 @@ def _git_attributes_select_a_driver(repo: Path, pfade) -> list:
         if (attribut == "filter" or (attribut == "diff" and wert not in _DIFF_EINGEBAUT)
                 or (attribut == "merge" and wert not in _MERGE_EINGEBAUT)):
             funde.append(f"{pfad}: {attribut}={wert[:40]}")
-    return funde
+    if funde:
+        return funde
+    # THE THREE WORDS, TOLD APART (R3-1). Only once the index is the commit's file list may an index-based selection
+    # stand for "every committed path"; if it is not, nothing can be told apart, and that refuses.
+    abweichung = _index_ist_der_commit(repo, eintraege)
+    if abweichung is not None:
+        return [f"{abweichung}, so a state set, unset or unspecified cannot be told from a driver of that name"]
+    return _mehrdeutige_werte(repo)
 
 
 def _nennt_die_wurzel(antwort: bytes, root: Path) -> bool:
@@ -1105,12 +1172,13 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     # NO ATTRIBUTE OF THE CLONE NAMES A DRIVER GIT WOULD RUN (owner decision OA-0a507fd998 A, after the external review of
     # d97f6e7b did not confirm the configuration families as complete). Judged for every committed file, with the
     # attributes as git itself resolves them (see `_git_attributes_select_a_driver`).
-    treiber = _git_attributes_select_a_driver(repo, [p for p, (t, _o, _m) in eintraege.items() if t == "blob"])
+    treiber = _git_attributes_select_a_driver(repo, eintraege)
     if treiber:
-        out["reason"] = (f"an attribute of the clone names a driver git would run for its files ({treiber[0][:160]}"
-                         f"{' …' if len(treiber) > 1 else ''}); the attributes are read as git applies them "
-                         "(.gitattributes of the checkout, .git/info/attributes, macros), and a clone from the forge "
-                         "names no such driver, so clone afresh, then run again")
+        out["reason"] = (f"an attribute of the clone names a driver git would run for its files, or git's answer about "
+                         f"the attributes is not complete ({treiber[0][:160]}{' …' if len(treiber) > 1 else ''}); the "
+                         "attributes are read as git applies them (.gitattributes of the checkout, "
+                         ".git/info/attributes, macros). "
+                         "A fresh clone does not remove a driver selected by committed attributes.")
         return out
     # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the commit says nothing
     # about the files on disk; an uncommitted edit to the receipt library or to the signature primitive flipped a

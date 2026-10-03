@@ -1170,9 +1170,9 @@ starts the promisor remote's configured `remote.origin.uploadpack`, so that sent
 class decision, a clone whose own configuration names a program from the listed families is refused (a `filter`,
 `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor, alternate-ref, credential or interactive-filter
 command, a URL-scoped credential helper, an ssh signing command); the global and system configuration are read from
-the null device and no program-selecting environment name is inherited. `.git/info/attributes` is not read, and that
-the listed families are every program an attribute can select is not shown; this paragraph first said the
-attributes were refused too. Codex at d0e47397 named four more config families the first matching missed (P2, a
+the null device and no program-selecting environment name is inherited. At 65d8f8cd, `.git/info/attributes` was not
+read; the effective-attribute check added after d97f6e7b is described in R620-REV-OPEN-1, and completeness of the
+program families remains open. This paragraph first said the attributes were refused too. Codex at d0e47397 named four more config families the first matching missed (P2, a
 completeness gap); they are matched now, and the review found the boolean exemption of that fix too wide (F1 below).
 Its "measured per family and end to end" holds end to end for `filter.*.clean` only; the other families were checked
 at the function. The sweep over the neighbours found that `pre_tag_audit_gate.py` reaches git only through the shared funnel and inspects no working tree, while `pre_tag_receipt.py` compares bytes with `git hash-object --no-filters`; both now inherit the funnel's refusal of the partial-clone configuration keys listed below. The verifier also refuses a
@@ -1217,12 +1217,15 @@ yet; the next review decides whether they hold, and no line here says more than 
   configured program, that `.git/info/attributes` was refused, that an outside interpreter plus `-I` keeps every
   file of the checkout from running, and that every `lib-dynload` case gave a false VERIFIED. Corrected above and in
   those files; the correction of Codex comment 5961005011 is a draft for the owner and is not posted.
-- **R620-REV-OPEN-1, decided by the owner, fixed after d97f6e7b, not reviewed yet. `.git/info/attributes` was not
-  read.** The contract of OA-4496f29e70 named the configuration AND the attributes. The owner's rule on OA-0a507fd998
-  (A if the next review does not confirm the families) applied when the review of d97f6e7b did not: the verifier
-  now judges the effective `filter`, `diff` and `merge` attributes of every committed file as `git check-attr`
-  resolves them (the checkout's `.gitattributes` files, `.git/info/attributes`, macros) and refuses a driver git does
-  not ship. The system attributes file of the machine is not the clone's and is not judged.
+- **R620-REV-OPEN-1, OPEN until the review re-checks R3-1. The attributes of the clone.** The contract of
+  OA-4496f29e70 named the configuration AND the attributes. The owner's rule on OA-0a507fd998 (A if the next review
+  does not confirm the families) applied when the review of d97f6e7b did not: the verifier judges the effective
+  `filter`, `diff` and `merge` attributes of every committed file as `git check-attr` resolves them (the checkout's
+  `.gitattributes` files, `.git/info/attributes`, macros) and refuses a driver git does not ship. The review of
+  12d5a7cb measured ten false passes through that check (R3-1: `set`, `unset` and `unspecified` assigned as driver
+  names read as states) and a warning of git dropped with an empty answer (R3-5); both are addressed after 12d5a7cb
+  and not reviewed yet, so this line is not closed. The system attributes file of the machine is not the clone's and
+  is not judged.
 - **R620-REV-OPEN-2, open. Completeness of the program families is not shown.** The families are a list; a
   program-selecting key the list does not carry is not refused. The review of d97f6e7b found six such keys
   (`core.gitProxy`, a remote's `uploadpack`, `receivepack` and `vcs`, `difftool.<tool>.cmd`, a shell alias); they
@@ -1244,6 +1247,27 @@ CONFIRMED; owner B on OA-4954d09148). The fixes below are not reviewed yet.
   Both patterns take an empty subsection now.
 - **R620-REV2-3 and -4, small on the texts, corrected after d97f6e7b** with the review's own sentences: the CHANGELOG
   names the listed families, and the sweep sentence and the F5 sentence of this file claim only what was measured.
+
+From the third external review, of 813691c3, 0bfee205, f371ca79 and 12d5a7cb (2026-10-03, verdict FIX_FIRST, NOT
+CONFIRMED; owner B on OA-a77da552f6). R2-1 to R2-5 hold there, and f371ca79 opens no new path. The fixes below are not
+reviewed yet.
+- **R620-REV3-1, serious, fixed after 12d5a7cb. A driver named like a state passed the attribute check**: git
+  check-attr prints `set`, `unset` and `unspecified` for the states and for drivers assigned those names; the check
+  took all three as states, and the review measured nine combinations and one macro as false passes (VERIFIED where
+  the contract refuses). The check now asks git again with attribute pathspecs (`:(attr:filter=set)` and the other
+  eight), which match a string value and never a state, after measuring that the index lists exactly the files of the
+  commit; an index that does not, or an answer that is not a clean listing, refuses.
+- **R620-REV3-5, small, fixed after 12d5a7cb. A warning of git was dropped**: a `.git/info/attributes` over git's size
+  limit was ignored with a warning and exit 0, and the empty answer passed as complete. Any warning while the
+  attributes are read refuses now.
+- **R620-REV3-2, small, the red time run of the first full suite at 0bfee205 stays reported.** The test measures
+  process CPU time and takes the minimum of three runs per curve point, so the load average alone does not prove the
+  cause. The time exponent exceeded the limit in the first run under foreign load; isolated repeats at both heads and
+  the full rerun passed, so the cause of the deviation is not conclusively established. The threshold
+  (`EXPONENT_MAX = 1.2`, three runs per point) is unchanged.
+- **R620-REV3-3 and -4, small on the texts, corrected after 12d5a7cb** with the review's sentences: the CHANGELOG and
+  this file no longer say in the present tense that `.git/info/attributes` is not read; RELEASE.md and the refusal no
+  longer say that a fresh clone carries no such driver.
 
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless

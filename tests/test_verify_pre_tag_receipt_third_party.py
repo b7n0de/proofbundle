@@ -1323,3 +1323,106 @@ class TestExternalReviewRound2OfD97f6e7b:
         assert "selects a program from the listed families" in changelog
         assert "On Debian and Ubuntu builds" not in restrisiko
         assert "On the measured Debian build of Python 3.10.12" in restrisiko
+
+
+class TestExternalReviewRound3Of12d5a7cb:
+    """The third external review, of 813691c3, 0bfee205, f371ca79 and 12d5a7cb (FIX_FIRST, NOT CONFIRMED, 2026-10-03), one
+    case per finding, each the case the review measured. Owner B on OA-a77da552f6. Each case was run red with its fix
+    removed and against the scripts of 12d5a7cb, and green with the fix; the numbers stand in the round's report."""
+
+    _NEUN = [(a, w) for a in ("filter", "diff", "merge") for w in ("set", "unset", "unspecified")]
+
+    @staticmethod
+    def _info(repo, text):
+        info = repo / ".git" / "info"
+        info.mkdir(parents=True, exist_ok=True)
+        (info / "attributes").write_text(text)
+
+    def test_R3_1_a_driver_named_like_a_state_is_refused(self, welt):
+        """R3-1: check-attr prints `set`, `unset` and `unspecified` both for the states and for a driver ASSIGNED that
+        name, and at 12d5a7cb all nine assignments, and a macro `[attr]hidden filter=set`, came back VERIFIED. Each is
+        refused now, also under the documented `python -I`. The controls, the real states `filter`, `-filter`,
+        `!filter` and the built-ins `diff=python merge=union`, still verify."""
+        repo, env, _priv, _kand, commit = welt
+        for attribut, wert in self._NEUN:
+            self._info(repo, f"*.py {attribut}={wert}\n")
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 2 and "a driver of that name, not the state" in (res["reason"] or ""), (attribut, wert, roh)
+        self._info(repo, "[attr]hidden filter=set\n*.py hidden\n")
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and "a driver of that name, not the state" in (res["reason"] or ""), ("macro", roh)
+        self._info(repo, "*.py filter=set\n")
+        r = _run([sys.executable, "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", commit, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        assert r.returncode == 2 and '"NOT_MEASURABLE"' in r.stdout, ("-I", r.stdout[-300:])
+        for zustand in ("*.py filter\n", "*.py -filter\n", "*.py !filter\n", "*.py diff=python merge=union\n"):
+            self._info(repo, zustand)
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 0 and res["verdict"] == "VERIFIED", (zustand, roh)
+
+    def test_R3_1_the_selection_is_not_left_to_a_changed_index(self, welt):
+        """R3-1, the review's condition on the second question: it must cover every committed path and must not leave
+        their choice to a changeable index. The pathspec query lists the INDEX; a committed file taken out of it (`git rm
+        --cached`, the file still on disk and byte-identical) would escape it. Such an index refuses before anything is
+        told apart; with the file back in the index the same attribute is refused as a driver."""
+        repo, env, _priv, _kand, commit = welt
+        self._info(repo, "signature.py filter=set\n")
+        _git(["rm", "-q", "--cached", "src/proofbundle/signature.py"], repo)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and "the index does not list exactly the files of the commit" in (res["reason"] or ""), roh
+        _git(["add", "src/proofbundle/signature.py"], repo)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and "a driver of that name, not the state" in (res["reason"] or ""), roh
+        (repo / ".git" / "info" / "attributes").unlink()
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    def test_R3_5_a_warning_while_reading_the_attributes_refuses(self, welt):
+        """R3-5: a `.git/info/attributes` over git's size limit is ignored with a warning and exit 0; at 12d5a7cb the empty
+        answer passed and the run said VERIFIED. Any warning now refuses with git's diagnostic. The file is written
+        sparse (git reads its size first), so it takes no space. Skipped, after measuring, where this git has no
+        limit and prints no warning."""
+        repo, env, _priv, _kand, commit = welt
+        info = repo / ".git" / "info"
+        info.mkdir(parents=True, exist_ok=True)
+        with open(info / "attributes", "wb") as f:
+            f.truncate(110 * 1024 * 1024)
+        probe = _run(["git", "check-attr", "filter", "--", "scripts/" + VERIFIER], repo)
+        if "overly large" not in probe.stderr:
+            (info / "attributes").unlink()
+            pytest.skip(f"this git prints no warning for a 110 MiB attributes file: {probe.stderr.strip()[:120]!r}")
+        try:
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 2 and "git warned while reading the attributes" in (res["reason"] or ""), roh
+        finally:
+            (info / "attributes").unlink()
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    def test_R3_3_R3_4_the_texts_say_what_the_code_does(self):
+        """R3-3: CHANGELOG and RESTRISIKO_620 no longer say in the present tense that `.git/info/attributes` is not read,
+        and R620-REV-OPEN-1 stays open. R3-4: neither RELEASE.md nor the refusal says that a fresh clone carries no
+        such driver."""
+        changelog = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        release = " ".join((REPO / "RELEASE.md").read_text(encoding="utf-8").split())
+        verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
+        # count, not `not in`: a failing `not in` over a whole file makes pytest diff the file, minutes per run
+        assert changelog.count("`.git/info/attributes` is not read") == 0
+        assert "The verifier now queries Git for the effective `filter`, `diff` and `merge` attributes" in changelog
+        assert "At 65d8f8cd, `.git/info/attributes` was not read" in restrisiko
+        assert "R620-REV-OPEN-1, OPEN until the review re-checks R3-1" in restrisiko
+        assert release.count("straight from the forge carries no such setting") == 0
+        assert "A fresh clone does not remove a driver selected by committed attributes." in verifier
+
+    def test_R3_2_the_red_time_run_stays_reported_and_its_threshold_is_unchanged(self):
+        """R3-2: the first full suite at 0bfee205 failed the time exponent of `renewal_ats_chain`; the review asked that
+        the red run stay reported with its cause not established, and that the threshold not be loosened. The bound and
+        the number of runs per curve point are the ones at d0e47397, and RESTRISIKO_620 carries the red run."""
+        quelle = (REPO / "tests" / "test_budget_kostenkurve.py").read_text(encoding="utf-8")
+        assert "\nEXPONENT_MAX = 1.2\n" in quelle
+        assert "\nWIEDERHOLUNGEN = 3\n" in quelle
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        assert ("The time exponent exceeded the limit in the first run under foreign load; isolated repeats at both "
+                "heads and the full rerun passed, so the cause of the deviation is not conclusively established."
+                ) in restrisiko
