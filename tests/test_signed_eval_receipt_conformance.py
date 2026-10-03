@@ -107,6 +107,18 @@ class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
                     ser.emit_signed_eval_receipt(dict(payload, **change), signer)
 
 
+    def test_payload_bytes_refuses_a_digest_member_step_7_refuses(self):
+        """payload_bytes promises steps 4 to 8 as a Receiver applies them, so a criteria_digest with
+        uppercase digits fails there at step 7, as it does for a Receiver, not only later in the emitter's
+        own verification."""
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        payload = json.loads(base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
+        for change in ({"criteria_digest": "sha256:" + "A" * 64}, {"model_id_commit": "sha256:" + "B" * 64}):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(ValueError, "fails step 7"):
+                    ser.payload_bytes(dict(payload, **change))
+
+
 class TheProfileIsTheDraftsProfile(unittest.TestCase):
     def test_taming_the_many_eddsas_cases_get_the_strict_row(self):
         """The 12 cases of "Taming the Many EdDSAs" (vendored, tests/fixtures). The draft's profile
