@@ -55,6 +55,7 @@ import secrets
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -3029,28 +3030,89 @@ def signed_run_counts(kind: str, content: bytes):
     return counts if isinstance(counts, dict) and {"passed", "tests"} <= set(counts) else None
 
 
-def _working_tree_digest(repo: str, deadline: float) -> str:
-    """The v1 digest of the working tree as `git add -A` would stage it on top of HEAD. It goes through a
-    temporary index, so the repository's own index is left alone. Files git ignores are not in it."""
+#: git's object id of a blob: the hash of `blob <size>` NUL and the bytes; SHA-1 for 40 hexadecimal digits, SHA-256
+#: for 64 (the repository's object format, gitrepository-layout(5) extensions.objectFormat).
+_BLOB_HASHES = {40: hashlib.sha1, 64: hashlib.sha256}
+
+
+def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None:
+    """None when the working tree holds exactly the files of the commit's tree, outside the top-level
+    .proofbundle/ folder the tree digest leaves out, else the first difference (review Runde 8, R8-1).
+
+    The comparison is of the bytes a test run reads and of the path types it sees, not of what `git add`
+    would stage: every committed file must be a regular file (mode 100644, or 100755 with the owner's execute
+    bit) or a symbolic link (120000) whose own bytes, or link text, hash to the committed blob id, and no
+    other file that git does not ignore may exist. No configured clean or smudge filter, line-ending or
+    encoding rule, fsmonitor or hook runs, because none is asked: a content transformation of any kind makes
+    the bytes differ and is refused before the run, never staged into agreement with HEAD. The one git call
+    that lists the other files reads the ignore rules only, with an index that does not exist (so nothing
+    is refreshed or written), core.fsmonitor off and an empty hook directory. Measured by the reviewer: a
+    clean filter that wrote the committed value back while staging let a run on another working file be
+    recorded as a run on HEAD."""
     _refuse_partial_clone(repo, deadline)
-    with tempfile.TemporaryDirectory(prefix="proofbundle-index-") as scratch:
-        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(scratch, "index"), GIT_NO_LAZY_FETCH="1")
-        output = b""
-        for args in (("read-tree", "HEAD"), ("add", "-A"), ("write-tree",)):
-            left = deadline - time.monotonic()
-            if left <= 0:
-                raise GateError("the gate ran out of time")
-            try:
-                proc = subprocess.run(["git", "-C", repo, *args], env=env, capture_output=True, timeout=left,
-                                      check=False)
-            except FileNotFoundError as exc:
-                raise GateError("git is not on PATH") from exc
-            except subprocess.TimeoutExpired as exc:
-                raise GateError("git did not answer in time") from exc
-            if proc.returncode != 0:
-                raise GateError(f"git {args[0]} failed on the working tree")
-            output = proc.stdout
-        return tree_digest(repo, output.decode().strip(), deadline)
+    listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, deadline=deadline)
+    if listing.returncode != 0:
+        raise GateError(f"git could not list the tree of {commit[:12]}")
+    committed = {}
+    for record in listing.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, tab, path = record.partition(b"\t")
+        fields = meta.split(b" ")
+        if not tab or len(fields) != 3:
+            raise GateError("git ls-tree gave a line the gate cannot read")
+        mode, kind, oid = fields
+        if path.startswith(EVIDENCE_DIR.encode()):
+            continue
+        if kind != b"blob" or mode not in TREE_MODES or len(oid) not in _BLOB_HASHES:
+            raise GateError(f"the tree holds a {kind.decode(errors='replace')} at {path.decode(errors='replace')} "
+                            "that the gate cannot compare with the working tree")
+        committed[path] = (mode, oid.decode("ascii"))
+    root = os.fsencode(repo)
+    for path, (mode, oid) in sorted(committed.items()):
+        shown = path.decode(errors="replace")
+        full = os.path.join(root, path)
+        try:
+            st = os.lstat(full)
+        except OSError:
+            return f"{shown} is committed but absent from the working tree"
+        if mode == b"120000":
+            if not stat.S_ISLNK(st.st_mode):
+                return f"{shown} is a symbolic link in the commit but not in the working tree"
+            data = os.readlink(full)
+        else:
+            if not stat.S_ISREG(st.st_mode):
+                return f"{shown} is a file in the commit but not a regular file in the working tree"
+            if bool(st.st_mode & stat.S_IXUSR) != (mode == b"100755"):
+                return f"{shown} has another execute bit in the working tree than in the commit"
+            with open(full, "rb") as handle:
+                data = handle.read()
+        hasher = _BLOB_HASHES[len(oid)](b"blob %d\0" % len(data))
+        hasher.update(data)
+        if hasher.hexdigest() != oid:
+            return (f"{shown} in the working tree differs from the committed bytes (a local change, or a "
+                    "checkout filter, line-ending or encoding rule the gate does not model)")
+    with tempfile.TemporaryDirectory(prefix="proofbundle-untracked-") as scratch:
+        os.mkdir(os.path.join(scratch, "hooks"))
+        env = dict(_read_env(), GIT_INDEX_FILE=os.path.join(scratch, "no-index"))
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise GateError("the gate ran out of time")
+        try:
+            proc = subprocess.run(["git", *_READ_ONLY_GIT, "-c", "core.fsmonitor=false", "-c",
+                                   f"core.hooksPath={os.path.join(scratch, 'hooks')}", "-c", "core.untrackedCache=false",
+                                   "-C", repo, "ls-files", "-z", "--others", "--exclude-standard"],
+                                  env=env, capture_output=True, timeout=left, check=False)
+        except FileNotFoundError as exc:
+            raise GateError("git is not on PATH") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise GateError("git did not answer in time") from exc
+    if proc.returncode != 0:
+        raise GateError("git could not list the working tree's files")
+    for path in proc.stdout.split(b"\0"):
+        if path and not path.startswith(EVIDENCE_DIR.encode()) and path not in committed:
+            return f"{path.decode(errors='replace')} is in the working tree but not in the commit"
+    return None
 
 
 _PYTHON_NAME = re.compile(r"python(?:3(?:\.\d+)*)?")
@@ -3155,11 +3217,8 @@ def run_evidence(directory: str, out: str, command: list[str],
         if head.returncode != 0:
             return refuse("no_commit", f"{repo} has no commit at HEAD")
         commit = head.stdout.decode().strip()
-        digest = tree_digest(repo, commit, deadline)
-        if _working_tree_digest(repo, deadline) != digest:
-            return refuse("tree_not_clean", f"the working tree of {repo} differs from HEAD {commit[:12]}; commit "
-                                            "or remove the changes, then run again (files git ignores are not "
-                                            "compared)")
+        # The command is judged before the tree is read, so a call that cannot run is refused before any
+        # comparison (review Runde 8, R8-1: the old staging ran fsmonitor and hooks before this refusal).
         program = shutil.which(command[0])
         if program is None:
             return refuse("no_program", f"{command[0]!r} is not an executable file on PATH")
@@ -3167,6 +3226,12 @@ def run_evidence(directory: str, out: str, command: list[str],
             return refuse("not_pytest", f"{command[0]!r} is not a pytest command; run-evidence runs only pytest "
                                         "(an executable named pytest, or a Python interpreter with -m pytest)")
         program = os.path.abspath(program)
+        digest = tree_digest(repo, commit, deadline)
+        problem = _working_tree_problem(repo, commit, deadline)
+        if problem is not None:
+            return refuse("tree_not_clean", f"the working tree of {repo} differs from HEAD {commit[:12]}: "
+                                            f"{problem}; commit or remove the changes, then run again (files git "
+                                            "ignores are not compared)")
         with tempfile.TemporaryDirectory(prefix="proofbundle-run-") as scratch:
             junit = os.path.join(scratch, "report.xml")
             suite_name = "proofbundle-run-" + secrets.token_hex(16)
@@ -3192,10 +3257,11 @@ def run_evidence(directory: str, out: str, command: list[str],
             after = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
             if after.returncode != 0 or after.stdout.decode().strip() != commit:
                 return refuse("head_moved", f"the run moved HEAD away from {commit[:12]}")
-            tree_after = _working_tree_digest(repo, deadline)
-            if tree_after != digest:
-                return refuse("tree_changed", f"the run changed the working tree of {repo}, so it did not run on "
-                                              f"the tree it would name")
+            problem = _working_tree_problem(repo, commit, deadline)
+            if problem is not None:
+                return refuse("tree_changed", f"the run changed the working tree of {repo} ({problem}), so it did "
+                                              "not run on the tree it would name")
+            tree_after = digest   # the working tree still holds exactly the commit's files
             try:
                 counts, report_sha256 = _junit_counts(junit, suite_name)
             except StaleReport as exc:

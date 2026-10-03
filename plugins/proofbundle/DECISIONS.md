@@ -947,9 +947,15 @@ Chosen (smallest variant, 2026-09-30; the report binding tightened after the rev
   authenticate the executable or the reported test activity. Code of the repository that runs under pytest
   (a conftest.py, a plugin) can still write the report itself; see the limit below (review F6, F7, N7,
   Befund 2).
-- Before the run the working tree, as `git add -A` would stage it on top of HEAD through a temporary index,
-  must have the tree digest of HEAD. After the run HEAD must be the same commit and the working tree must
-  still have that digest. Files git ignores are not compared, and they can influence the run.
+- Before the run the working tree must hold exactly the files of HEAD's tree outside `.proofbundle/`: every
+  committed file a regular file with the committed execute bit, or a symbolic link, whose own bytes (or
+  link text) have the committed blob id, and no other file git does not ignore. After the run HEAD must be
+  the same commit and the working tree must still hold exactly those files. The comparison runs no clean or
+  smudge filter, line-ending or encoding rule, fsmonitor or hook: any content transformation makes the bytes
+  differ and is refused before the run. Until review Runde 8 (R8-1) the working tree was staged with `git
+  add -A` through a temporary index, and a clean filter that wrote the committed value back let a run on
+  another working file be recorded as a run on HEAD, measured by the reviewer. Files git ignores are not
+  compared, and they can influence the run. The command is judged before the tree is read.
 - Exit code and counts come from the run: the process exit code, and tests, failures, errors and skipped
   from the JUnit report it wrote. There is a statement only for exit 0, no failure, no error, at least one
   passed test and counts that add up. A timeout, a missing or unreadable report, or an existing output file
