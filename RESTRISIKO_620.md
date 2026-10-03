@@ -1269,6 +1269,23 @@ reviewed yet.
   this file no longer say in the present tense that `.git/info/attributes` is not read; RELEASE.md and the refusal no
   longer say that a fresh clone carries no such driver.
 
+From Codex on pull request 311 at 6d081424 (review 5401710426, 2026-10-03; owner A on OA-a4cbf870f1). Not reviewed
+yet; the external reviewer reads only this fix.
+- **R620-CODEX-6D08-1, serious, fixed after 6d081424. A startup path that CONTAINS the clone was not seen**
+  (thread 4173974268): a `.pth` line in an outside virtual environment naming the parent of a clone called
+  `sitecustomize`, with an untracked `__init__.py` that hides its origin, made Python import the clone itself as that
+  package at start; Codex measured exit 0 VERIFIED for a receipt that is not the tree. The startup path check under
+  `-I` and the path cleaning compared in one direction only (an entry IN the clone). Both now compare in both
+  directions, and the reader's precondition in RELEASE.md and in the verifier's description names a directory that
+  contains the clone as well. Code that runs before the first line and hides itself stays beyond any check inside
+  the script; the precondition is the boundary.
+- **R620-CODEX-6D08-2, P2, open for 6.2.1. A gitlink is not asked for its attributes** (thread 4173974273): the
+  attribute check asks git about every committed FILE (blobs, symbolic links included), not about a gitlink (a
+  submodule entry, mode 160000), so `sub diff=evil` on a gitlink passes it. A driver needs a program-selecting key
+  (`diff.<n>.command`, `filter.<n>.clean`, `merge.<n>.driver` and the rest), and the configuration refusal still
+  refuses those keys; the texts now say "committed file" and name the gitlink. Fix in 6.2.1: ask git about gitlinks
+  too.
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.

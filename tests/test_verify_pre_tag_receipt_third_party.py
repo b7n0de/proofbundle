@@ -775,7 +775,9 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
 
     def test_no_entry_in_the_checkout_stays_on_the_path(self, welt, monkeypatch, tmp_path):
         """At the function: every entry in the checkout goes, the top level, the working directory and the site
-        directory of an interpreter installed in the clone included; an entry outside stays."""
+        directory of an interpreter installed in the clone included; an entry outside stays. Since the fix for Codex at
+        6d081424 (thread 4173974268) an entry that CONTAINS the checkout goes too, so the working directory used as the
+        outside control here lies beside the clone, and a third step measures the parent as working directory."""
         repo, _env, _priv, _kand, _commit = welt
         import importlib.util as ilu  # noqa: PLC0415
         spec = ilu.spec_from_file_location("_t6_root_verifier", repo / "scripts" / VERIFIER)
@@ -786,7 +788,7 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         venv_sp = repo / ".venv" / "lib" / "python3" / "site-packages"
         venv_sp.mkdir(parents=True)
         (repo / "tests").mkdir(exist_ok=True)
-        monkeypatch.chdir(tmp_path)
+        monkeypatch.chdir(aussen)
         monkeypatch.setattr(sys, "path", [str(repo), str(repo / "tests"), str(repo / "scripts"), str(venv_sp),
                                           str(repo / "src"), str(aussen), ""])
         monkeypatch.setattr(sys, "prefix", str(repo / ".venv"))
@@ -796,6 +798,10 @@ class TestNoFileOfTheCheckoutRunsBeforeTheCheck:
         monkeypatch.setattr(sys, "path", ["", str(aussen)])
         mod._remove_the_judged_tree_from_sys_path()
         assert sys.path == [str(aussen)], "the empty entry is the working directory, here the checkout"
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "path", ["", str(aussen)])
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(aussen)], "the empty entry is the working directory, here the parent of the checkout"
 
     def test_the_overlap_check_covers_the_whole_installation_both_directions(self, welt, monkeypatch):
         """At the function: any prefix or site directory that contains the checkout, equals it, or lies in it is an
@@ -1426,3 +1432,91 @@ class TestExternalReviewRound3Of12d5a7cb:
         assert ("The time exponent exceeded the limit in the first run under foreign load; isolated repeats at both "
                 "heads and the full rerun passed, so the cause of the deviation is not conclusively established."
                 ) in restrisiko
+
+
+class TestCodexAt6d081424:
+    """Codex on PR 311 at 6d081424 (review 5401710426, 2026-10-03), owner A on OA-a4cbf870f1: the P1 fixed as a class
+    with a regression test for the case Codex measured, the P2 narrowed in the texts and recorded for 6.2.1. Each case
+    was run red with its fix taken back and against the verifier of 6d081424; the numbers stand in the report."""
+
+    def test_P1_a_startup_path_that_contains_the_clone_refuses(self, welt, tmp_path):
+        """Thread 4173974268, the condition Codex named: a `.pth` line in an OUTSIDE virtual environment names the PARENT
+        of the clone, not a directory of it. Under `python -I` that entry is on the search path at start, and a package
+        lookup descends from it into the clone. At 6d081424 the check compared in one direction only and the run
+        verified (exit 0); now it is refused with exit 2. The control: the same environment without the line verifies."""
+        repo, _env, _priv, _kand, good = welt
+        mit, _sp = _outside_venv(tmp_path, "venv_with_parent_line", extra_lines=(str(repo.parent),))
+        r = _run([str(mit), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        res = json.loads(r.stdout)
+        assert r.returncode == 2 and "search path at start" in res["reason"], r.stdout[-400:]
+        assert "or one that contains it" in res["reason"], res["reason"][:300]
+        ohne, _sp2 = _outside_venv(tmp_path, "venv_without_parent_line")
+        r = _run([str(ohne), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+
+    def test_P1_the_path_cleaning_drops_an_entry_that_contains_the_clone(self, welt, monkeypatch):
+        """Thread 4173974268, the second place Codex named: `_remove_the_judged_tree_from_sys_path` kept the parent of the
+        clone, from which a module of the clone's name is importable. Now an entry that contains the checkout goes as
+        well as one inside it; an entry beside the checkout stays (the control)."""
+        repo, _env, _priv, _kand, _commit = welt
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_codex_6d08_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        daneben = repo.parent / "daneben"
+        daneben.mkdir()
+        monkeypatch.setattr(sys, "path", [str(repo.parent), str(repo / "src"), str(daneben), *sys.path])
+        mod._remove_the_judged_tree_from_sys_path()
+        aufgeloest = {str(Path(p).resolve()) for p in sys.path if p}
+        assert str(repo.parent.resolve()) not in aufgeloest, "the parent of the clone stayed on the path"
+        assert str((repo / "src").resolve()) not in aufgeloest, "a directory of the clone stayed on the path"
+        assert str(daneben.resolve()) in aufgeloest, "an entry beside the clone was dropped"
+
+    def test_P1_GUARD_codex_case_a_clone_named_sitecustomize_never_yields_a_verdict(self, welt, tmp_path):
+        """Thread 4173974268, Codex's own case: the clone is called `sitecustomize`, the outside `.pth` names its parent,
+        and an untracked `__init__.py` at the top of the clone runs at start and hides its origin. Where the interpreter
+        under test finds a `sitecustomize` of its own first (measured on the Debian build of Python 3.10.12 here: its
+        standard library's), the clone is never imported; the case is measured to be absent there and skips, naming the
+        module that was loaded. Where it runs, the verifier must refuse with exit 2 and give no verdict."""
+        repo, _env, _priv, _kand, good = welt
+        eltern = tmp_path / "eltern"
+        eltern.mkdir()
+        klon = eltern / "sitecustomize"
+        _git(["clone", "-q", str(repo), str(klon)], tmp_path)
+        _git(["checkout", "-q", "--detach", good], klon)
+        marker = tmp_path / "_marker_codex_6d08"
+        (klon / "__init__.py").write_text(
+            "import sys\n"
+            f"open({str(marker)!r}, 'w').write('ran')\n"
+            "sys.modules.pop('sitecustomize', None)\n")
+        python, _sp = _outside_venv(tmp_path, "venv_codex_case", extra_lines=(str(eltern),))
+        probe = _run([str(python), "-I", "-c", "print('probe')"], tmp_path, {"PATH": "/usr/bin:/bin"})
+        if not marker.exists():
+            stdlib = _run([str(python), "-I", "-c",
+                           "import importlib.util as u; s = u.find_spec('sitecustomize'); print(getattr(s, 'origin', ''))"],
+                          tmp_path, {"PATH": "/usr/bin:/bin"}).stdout.strip()
+            pytest.skip(f"the case does not exist on this interpreter ({sys.version.split()[0]}): its start found the "
+                        f"sitecustomize at {stdlib or '(none)'} first, so the clone is never imported ({probe.returncode})")
+        marker.unlink()
+        r = _run([str(python), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], klon, {"PATH": "/usr/bin:/bin"})
+        assert marker.exists(), "the clone did not run as sitecustomize; the case would be vacuous"
+        res = json.loads(r.stdout)
+        assert r.returncode == 2 and res["verdict"] == "NOT_MEASURABLE", r.stdout[-400:]
+
+    def test_P1_P2_the_texts_say_what_is_checked(self):
+        """The reader's precondition names a directory that contains the clone (P1), and the attribute check is described
+        for committed FILES with the gitlink named, with the open line for 6.2.1 in RESTRISIKO_620.md (P2)."""
+        verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
+        release = " ".join((REPO / "RELEASE.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        for name, text in (("verifier", verifier), ("RELEASE.md", release)):
+            assert "names a directory of the clone or a directory that contains it" in text, name
+        assert verifier.count("Every committed path whose EFFECTIVE") == 0
+        assert "Every committed FILE (a blob, a symbolic link included)" in verifier
+        assert "A gitlink is not asked." in verifier
+        assert "(a gitlink is not asked)" in release
+        assert "R620-CODEX-6D08-1, serious, fixed after 6d081424" in restrisiko
+        assert "R620-CODEX-6D08-2, P2, open for 6.2.1" in restrisiko

@@ -103,9 +103,11 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     directory. An external review of 65d8f8cd then showed that disjoint prefixes and `-I` are not enough on their own:
     a `.pth` path line in an outside virtual environment puts the clone on the search path at start, and a
     `sitecustomize.py` of the clone ran under `-I`. That no startup file of the interpreter names a directory of the
-    clone is therefore a precondition the reader establishes before the start (RELEASE.md says so); under `-I` the
-    verifier refuses with exit 2 a run whose search path at start already named a directory of the clone, a tripwire
-    that cannot undo code that already ran. The cleanliness check is the byte-for-byte comparison of every committed
+    clone or a directory that contains it is therefore a precondition the reader establishes before the start
+    (RELEASE.md says so); under `-I` the verifier refuses with exit 2 a run whose search path at start already named a
+    directory of the clone or one that contains it, a tripwire that cannot undo code that already ran. The containing
+    directory came from Codex at 6d081424: a `.pth` line naming the parent of a clone called `sitecustomize` made
+    Python import the clone itself as that package, and the path cleaning now drops such an entry as well. The cleanliness check is the byte-for-byte comparison of every committed
     file under `scripts/` and `src/` with its blob, which calls no git worktree operation, so the `git status` that ran
     a `filter.*.clean` (measured at 653b5d67) is gone; it now compares the type of every committed path first, because
     the review measured that a committed directory replaced by a symbolic link to a byte-identical outside copy, with

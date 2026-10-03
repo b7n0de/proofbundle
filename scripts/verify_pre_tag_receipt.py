@@ -18,17 +18,19 @@ HOW TO RUN IT, from a clone, checked out at the commit the attestation names::
 path. Three things are the reader's to establish BEFORE the start, because Python runs the startup files of its
 installation (``.pth`` files, ``sitecustomize``) before the script's first line, ``-I`` included: ``python`` is
 installed outside the clone, the clone does not lie inside that interpreter's installation, and no startup file of
-that interpreter names a directory of the clone. The third is not implied by the first two: a ``.pth`` path line in an
-outside virtual environment puts the clone on the search path at start, and a ``sitecustomize.py`` of the clone then
-runs before the first line (external review of 65d8f8cd, F5, measured there with an outside venv under ``-I``). No
-check inside a process that has already started can replace that precondition; what this script refuses with exit 2
-is what it can still see: a virtual environment created inside the clone, a clone in the environment's own site
-directory, a clone under the interpreter's installation (``lib-dynload`` and the rest), and, under ``-I``, a run whose
-search path at start already named a directory of the clone. A clone whose own git configuration names a program for
-git to run from the listed families (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``, ``core.hooksPath``,
-an ssh, proxy, pager, editor or credential command, a remote's transport program, a difftool or mergetool command, a
-shell alias; ``_GIT_PROGRAM_KEYS`` and ``_GIT_PROGRAM_EXACT``) is refused; that these families are every
-program-selecting key is not shown. So is a partial clone, whose object reads would fetch through a transport its
+that interpreter names a directory of the clone or a directory that contains it. The third is not implied by the
+first two: a ``.pth`` path line in an outside virtual environment puts the clone on the search path at start, and a
+``sitecustomize.py`` of the clone then runs before the first line (external review of 65d8f8cd, F5, measured there
+with an outside venv under ``-I``); a line that names the PARENT of a clone called ``sitecustomize`` makes Python
+import the clone itself as that package (Codex on PR 311 at 6d081424, thread 4173974268). No check inside a process
+that has already started can replace that precondition; what this script refuses with exit 2 is what it can still
+see: a virtual environment created inside the clone, a clone in the environment's own site directory, a clone under
+the interpreter's installation (``lib-dynload`` and the rest), and, under ``-I``, a run whose search path at start
+already named a directory of the clone or a directory that contains it. A clone whose own git configuration names a
+program for git to run from the listed families (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``,
+``core.hooksPath``, an ssh, proxy, pager, editor or credential command, a remote's transport program, a difftool or
+mergetool command, a shell alias; ``_GIT_PROGRAM_KEYS`` and ``_GIT_PROGRAM_EXACT``) is refused; that these families are
+every program-selecting key is not shown. So is a partial clone, whose object reads would fetch through a transport its
 configuration names, and a clone whose effective attributes (``.gitattributes`` of the checkout,
 ``.git/info/attributes``, macros, as ``git check-attr`` resolves them) name a ``filter``, ``diff`` or ``merge`` driver
 git does not ship, a driver named ``set``, ``unset`` or ``unspecified`` included (told from the state of that name by
@@ -172,12 +174,15 @@ def _interpreter_overlaps_the_checkout() -> list:
 
 
 def _remove_the_judged_tree_from_sys_path() -> None:
-    """Drop every `sys.path` entry that lies in this checkout, its top level included, before any further import.
+    """Drop every `sys.path` entry that lies in this checkout, its top level included, or that CONTAINS it, before any
+    further import.
 
     The judged tree is code under judgement, not a library this script may import by name: the receipt library and
     the gate are loaded by path (`_lib`, `_gate`), and `src/` goes back on the path only after the checkout has been
     compared with the commit (`_measure`). An entry that cannot be resolved stays, as it can name no directory of the
-    checkout; an empty entry is the working directory."""
+    checkout; an empty entry is the working directory. BOTH DIRECTIONS (Codex on PR 311 at 6d081424, thread
+    4173974268): an entry that contains the checkout is a way into it as well, because a package lookup descends from
+    the entry, so a clone named like a module is importable from its parent."""
     wurzel = _checkout_root()
     behalten = []
     for eintrag in sys.path:
@@ -186,7 +191,7 @@ def _remove_the_judged_tree_from_sys_path() -> None:
         except (OSError, ValueError, TypeError):
             behalten.append(eintrag)
             continue
-        if _judged_location(ort, wurzel):
+        if _judged_location(ort, wurzel) or _judged_location(wurzel, ort):
             continue
         behalten.append(eintrag)
     sys.path[:] = behalten
@@ -231,7 +236,8 @@ def _checkout_code_that_ran_before_this_script() -> list:
 
 
 def _startup_search_paths_into_the_checkout() -> list:
-    """Under `-I`, every `sys.path` entry that names a directory of the checkout before this script changed the path.
+    """Under `-I`, every `sys.path` entry that names a directory of the checkout, or a directory that contains it, before
+    this script changed the path.
 
     External review of 65d8f8cd, F5: a `.pth` path line in an OUTSIDE virtual environment put the clone on the search
     path at start, and under `python -I` a `sitecustomize.py` of the clone ran before this script's first line, although
@@ -241,7 +247,11 @@ def _startup_search_paths_into_the_checkout() -> list:
     startup code may already have run, and code that removes its own entry is not seen. The boundary is the
     precondition in the module docstring. Read before the path is cleaned, with `os` and `sys` only. Outside isolated
     mode the entries a reader puts there on purpose (`PYTHONPATH`, the script's directory) cannot be told apart from
-    the others, so nothing is reported there; the empty entry is the working directory, which no `.pth` line adds."""
+    the others, so nothing is reported there; the empty entry is the working directory, which no `.pth` line adds.
+    BOTH DIRECTIONS (Codex on PR 311 at 6d081424, thread 4173974268): a `.pth` line naming the PARENT of a clone called
+    `sitecustomize` lets Python import the clone itself as that package at start, and an untracked `__init__.py` that
+    hides its origin passes the tripwire for loaded modules; Codex measured exit 0 VERIFIED for a receipt that is not
+    the tree. An entry that contains the checkout is therefore reported as well."""
     if not getattr(sys.flags, "isolated", 0):
         return []
     wurzel = _checkout_root()
@@ -253,7 +263,7 @@ def _startup_search_paths_into_the_checkout() -> list:
             ort = os.path.realpath(eintrag)
         except (OSError, ValueError, TypeError):
             continue
-        if _judged_location(ort, wurzel):
+        if _judged_location(ort, wurzel) or _judged_location(wurzel, ort):
             funde.append(eintrag)
     return funde
 
@@ -707,12 +717,12 @@ def _mehrdeutige_werte(repo: Path) -> list:
 
 
 def _git_attributes_select_a_driver(repo: Path, eintraege: dict) -> list:
-    """Every committed path whose EFFECTIVE `filter`, `diff` or `merge` attribute names a driver git does not ship, as
-    `path: attribute=value` (owner decision OA-0a507fd998 A, after the external review of d97f6e7b did not confirm the
-    configuration families as complete).
+    """Every committed FILE (a blob, a symbolic link included) whose EFFECTIVE `filter`, `diff` or `merge` attribute
+    names a driver git does not ship, as `path: attribute=value` (owner decision OA-0a507fd998 A, after the external
+    review of d97f6e7b did not confirm the configuration families as complete). A gitlink is not asked.
 
     The attributes are taken as git applies them, by git itself: `git check-attr --stdin` through this script's own
-    funnel, for every path of the commit, reads the `.gitattributes` of the checkout in every directory on the path,
+    funnel, for every committed file, reads the `.gitattributes` of the checkout in every directory on the path,
     `.git/info/attributes`, and the macros (`[attr]name ...`) they define, in git's order of precedence; the global
     attributes file is pinned to the null device (`core.attributesFile`). A search for driver names in one file would
     miss a directory rule, a macro and the precedence between them, which the review named. Refused: any named
@@ -757,7 +767,9 @@ def _git_attributes_select_a_driver(repo: Path, eintraege: dict) -> list:
     if funde:
         return funde
     # THE THREE WORDS, TOLD APART (R3-1). Only once the index is the commit's file list may an index-based selection
-    # stand for "every committed path"; if it is not, nothing can be told apart, and that refuses.
+    # stand for "every committed file"; if it is not, nothing can be told apart, and that refuses. A gitlink (a
+    # submodule entry, mode 160000) is not asked here (Codex on PR 311 at 6d081424, thread 4173974273);
+    # RESTRISIKO_620.md R620-CODEX-6D08-2 names it, for 6.2.1.
     abweichung = _index_ist_der_commit(repo, eintraege)
     if abweichung is not None:
         return [f"{abweichung}, so a state set, unset or unspecified cannot be told from a driver of that name"]
@@ -1101,11 +1113,13 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     if _STARTUP_PATH_INTO_CHECKOUT:
         # A STARTUP FILE PUT THE CHECKOUT ON THE PATH, under -I (see `_startup_search_paths_into_the_checkout`). Code of
         # the checkout may have run before this line; the precondition in the module docstring was not met.
-        out["reason"] = (f"under -I the search path at start already named a directory of this checkout "
+        out["reason"] = (f"under -I the search path at start already named a directory of this checkout or one that "
+                         "contains it "
                          f"({_STARTUP_PATH_INTO_CHECKOUT[0][:160]}); -I adds neither PYTHONPATH nor the script's "
                          "directory, so a startup file of the interpreter (a `.pth` path line) put it there, and Python "
                          "may have run a `sitecustomize.py` of the checkout before the verifier's first line -- run the "
-                         "verifier with a Python none of whose startup files names a directory of the clone")
+                         "verifier with a Python none of whose startup files names a directory of the clone or one "
+                         "that contains it")
         return out
     if _SCRIPT_CHECKOUT is not None and os.path.realpath(repo) != _SCRIPT_CHECKOUT:
         # THE CODE THAT JUDGES IS NOT THE CODE THAT IS COMPARED (see `_SCRIPT_CHECKOUT`).

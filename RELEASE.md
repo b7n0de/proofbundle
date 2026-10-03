@@ -222,22 +222,24 @@ run and its standard library.
 on the import path. Python runs the startup files of its installation (`.pth` files, `sitecustomize`)
 before the verifier's first line, `-I` included, so three things are yours to establish before you
 start it: the `python` you run is installed outside the clone, the clone does not lie inside that
-interpreter's installation, and no startup file of that interpreter names a directory of the clone.
-The third does not follow from the first two: a `.pth` path line in an outside virtual environment
-puts the clone on the search path at start, and a `sitecustomize.py` of the clone then runs before
-the first line, `-I` included (an external review measured this). A check inside the verifier runs
+interpreter's installation, and no startup file of that interpreter names a directory of the clone
+or a directory that contains it. The third does not follow from the first two: a `.pth` path line
+in an outside virtual environment puts the clone on the search path at start, and a
+`sitecustomize.py` of the clone then runs before the first line, `-I` included (an external review
+measured this); a line naming the parent of a clone called `sitecustomize` makes Python import the
+clone itself as that package (Codex measured this). A check inside the verifier runs
 only after that, so it cannot replace these preconditions; what it refuses with exit 2 is what it
 can still see. That is a virtual environment created inside the clone, a clone placed in the
 environment's own site directory or rooted at a directory under the interpreter such as
 `lib-dynload` (any clone that shares a directory with the interpreter's installation, in either
 direction), and, under `-I`, a run whose search path at start already named a directory of the
-clone. The verifier also refuses a clone whose own git configuration names a program for git to
+clone or a directory that contains it. The verifier also refuses a clone whose own git configuration names a program for git to
 run from the families the script lists (a `filter`, `diff` or `merge` driver, `core.fsmonitor`,
 `core.hooksPath`, an ssh, proxy, pager, editor or credential command, a remote's transport program,
 a difftool or mergetool command, a shell alias), a partial clone, whose object reads would fetch
 through a transport its configuration names, and a clone whose effective attributes, as git
 resolves them from the checkout's `.gitattributes` files, `.git/info/attributes` and macros, name a
-`filter`, `diff` or `merge` driver git does not ship, a driver named `set`, `unset` or
+`filter`, `diff` or `merge` driver git does not ship for a committed file (a gitlink is not asked), a driver named `set`, `unset` or
 `unspecified` included; an index that does not list exactly the commit's files, and a warning git
 prints while reading the attributes, refuse too. That the listed families are every program
 git can be configured to run is not shown. A directory under `scripts/` or `src/` that cannot be listed refuses the measurement too.
