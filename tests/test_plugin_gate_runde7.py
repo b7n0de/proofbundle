@@ -6,6 +6,7 @@ and only where a test first shows that plain git starts the marker, so the case 
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import shlex
@@ -305,3 +306,31 @@ def test_r7_6_a_codex_patch_without_a_proven_binding_is_denied(tmp_path):
     outcome = gate.decide_write("apply_patch", {"command": patch}, str(cwd), _deadline(), host="codex")
     assert outcome is not None and outcome.decision == "deny", outcome
     assert outcome.text.startswith("NOT MEASURED:") and "Environment ID" in outcome.text, outcome.text
+
+
+# --- R7-8: the eval trace reader and events of no known type ----------------------------------------------------
+
+def _evals_reader():
+    """The trace reader of tests/test_plugin_evals.py, loaded by path, so this test judges the reader of the tree
+    it runs in."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_r7_8_plugin_evals", ROOT / "tests" / "test_plugin_evals.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("kind, expected", [(None, "not-measured"), ("", "not-measured"),
+                                            ("assistant_v2", "not-measured"), ("assistant", "order-violation")])
+def test_r7_8_an_inspect_event_without_a_known_type_makes_the_trace_not_measured(tmp_path, kind, expected):
+    """R7-8: an inspect event with only its top-level `type` removed, followed by a valid verify event, read as
+    'ok'; an empty or unknown type did the same. With type "assistant" the same trace is 'order-violation' (the
+    control)."""
+    reader = _evals_reader()
+    inspect = {"type": kind, "message": {"content": [{"type": "tool_use", "name": reader.I, "input": {}}]}}
+    if kind is None:
+        del inspect["type"]
+    verify = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": reader.V, "input": {}}]}}
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text("\n".join(json.dumps(e) for e in (inspect, verify)), encoding="utf-8")
+    assert reader.run_order_verdict(trace) == expected

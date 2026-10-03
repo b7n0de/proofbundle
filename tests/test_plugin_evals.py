@@ -369,6 +369,18 @@ def inspect_not_before_verify(names: list[str]) -> bool:
     return not (verify and inspect and min(inspect) < min(verify))
 
 
+#: The event types a trace may carry besides assistant that hold no tool call by their schema, as Claude Code
+#: writes them (measured in the 65 traces saved from the eval runs of 2026-09-30 and 2026-10-01, Claude Code
+#: 2.1.285 and 2.1.286: assistant, user, system, result and rate_limit_event, nothing else). Only these are skipped;
+#: a missing, empty or unknown type could stand for an event that carries a tool call, so the trace is
+#: not-measured (review Runde 7, R7-8).
+_TRACE_SKIPPED_TYPES = frozenset({"user", "system", "result", "rate_limit_event"})
+#: The content block types of an assistant message that hold no tool call, measured in the same traces (tool_use,
+#: text and thinking, nothing else). A block of any other type makes the trace not-measured (R7-8, the sibling at
+#: the block level).
+_TRACE_SKIPPED_BLOCKS = frozenset({"text", "thinking"})
+
+
 def tool_calls_from_trace(path: pathlib.Path) -> list[str] | None:
     """The plugin tool-use names, in order, from an eval run's trace.jsonl, or None when the trace is not a
     complete transcript. R4-8: only a genuine tool_use block inside an assistant message counts (not a
@@ -385,27 +397,34 @@ def tool_calls_from_trace(path: pathlib.Path) -> list[str] | None:
             obj = json.loads(line)
         except ValueError:
             return None  # a corrupted line: NOT MEASURED, never a silent skip
-        # R6-3: every event line must be a JSON object with, if present, a string type. A list, a scalar or
-        # null is not what a transcript writes and could hide a relevant event (the reviewer's case: an
-        # assistant event wrapped in a JSON list before a valid verify read as 'ok'), so the whole trace is
-        # not-measured, never a silent skip.
-        if not isinstance(obj, dict) or not isinstance(obj.get("type", ""), str):
+        # R6-3: every event line must be a JSON object. A list, a scalar or null is not what a transcript writes
+        # and could hide a relevant event (the reviewer's case: an assistant event wrapped in a JSON list before
+        # a valid verify read as 'ok'), so the whole trace is not-measured, never a silent skip. R7-8: the type
+        # must be assistant or one of the known types without a tool call; an event without a type, with an
+        # empty one or with an unknown one (the reviewer's case: an inspect event with only its type removed,
+        # before a valid verify, read as 'ok') makes the trace not-measured.
+        if not isinstance(obj, dict) or not isinstance(obj.get("type"), str):
             return None
-        if obj.get("type") == "assistant":
-            message = obj.get("message")
-            # R5-3: an assistant event whose message.content is not a list could hide a tool_use the verdict
-            # must see (inspect_receipt in an object, then a valid verify_receipt, read as 'ok').
-            if not isinstance(message, dict) or not isinstance(message.get("content"), list):
+        if obj["type"] in _TRACE_SKIPPED_TYPES:
+            continue
+        if obj["type"] != "assistant":
+            return None
+        message = obj.get("message")
+        # R5-3: an assistant event whose message.content is not a list could hide a tool_use the verdict
+        # must see (inspect_receipt in an object, then a valid verify_receipt, read as 'ok').
+        if not isinstance(message, dict) or not isinstance(message.get("content"), list):
+            return None
+        for block in message["content"]:
+            # R6-3: every block must be an object with a string type; a nested list or null is unreadable
+            # and could hide a tool_use, and a tool_use without a string name is equally unreadable (R5-3).
+            if not isinstance(block, dict) or not isinstance(block.get("type"), str):
                 return None
-            for block in message["content"]:
-                # R6-3: every block must be an object with a string type; a nested list or null is unreadable
-                # and could hide a tool_use, and a tool_use without a string name is equally unreadable (R5-3).
-                if not isinstance(block, dict) or not isinstance(block.get("type"), str):
+            if block["type"] == "tool_use":
+                if not isinstance(block.get("name"), str):
                     return None
-                if block["type"] == "tool_use":
-                    if not isinstance(block.get("name"), str):
-                        return None
-                    names.append(block["name"])
+                names.append(block["name"])
+            elif block["type"] not in _TRACE_SKIPPED_BLOCKS:
+                return None   # R7-8 sibling: a block of an unknown type could be a tool call under another name
     return names
 
 
