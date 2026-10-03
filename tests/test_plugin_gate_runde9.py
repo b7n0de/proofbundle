@@ -426,8 +426,8 @@ def test_r9_4_a_signed_payload_that_repeats_a_key_is_refused(tmp_path, signing_e
         assert (verdict.decision, verdict.reason_id) == ("pass", "verified"), verdict.text()
         return
     assert (verdict.decision, verdict.reason_id) == ("deny", "not_bound"), verdict.text()
-    if case != "unique-red":
-        assert "repeats the key" in verdict.text() and "ambiguous" in verdict.text(), verdict.text()
+    if case != "unique-red":   # the check before binding names it, not a later reader
+        assert "the signed payload repeats the key" in verdict.text() and "ambiguous" in verdict.text(), verdict.text()
 
 
 def _bundle_with(payload: str) -> bytes:
@@ -447,6 +447,16 @@ def test_r9_4_every_signed_payload_reader_refuses_a_repeated_key_at_any_depth(pa
     assert gate.signed_run_counts("bundle", content) is None
     document = b'{"payload_b64": "e30=", "payload_b64": "e30="}'
     assert "evidence document repeats the key" in gate.signed_payload_ambiguity("bundle", document)
+
+
+def test_r9_4_a_repeated_key_yields_no_value_even_when_the_last_one_would_be_valid():
+    """R9-4, the readers' own locks: where the last value alone would read as a valid subject or valid counts,
+    the subject reader names nothing and the counts reader gives none."""
+    good = {"algorithm": gate.TREE_ALGORITHM, "digest": "1" * 64}
+    subject = _bundle_with(f'{{"subject": {{"algorithm": "x", "digest": "0"}}, "subject": {json.dumps(good)}}}')
+    assert gate.signed_subjects("bundle", subject) == []
+    counts = _bundle_with('{"run": {"counts": {"passed": 1, "tests": 1, "tests": 2}}}')
+    assert gate.signed_run_counts("bundle", counts) is None
 
 
 def test_r9_4_the_policy_pin_check_refuses_a_repeated_key():
@@ -469,12 +479,15 @@ def test_r9_4_a_hook_event_that_repeats_a_key_is_denied(tmp_path):
     assert "repeats the key 'command'" in answer["permissionDecisionReason"], answer
 
 
-def test_r9_4_a_verifier_answer_that_repeats_a_key_is_no_answer(monkeypatch):
-    """R9-4 siblings: a reply of the verifier whose result text repeats a key is not read by its last value."""
-    reply = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text",
-                                                                "text": '{"exit_code": 1, "exit_code": 0}'}]}}
+@pytest.mark.parametrize("where", ["result text", "reply line"])
+def test_r9_4_a_verifier_answer_that_repeats_a_key_is_no_answer(monkeypatch, where):
+    """R9-4 siblings: a reply of the verifier that repeats a key, in its result text or in the reply line itself,
+    is not read by its last value."""
+    text = '{"exit_code": 1, "exit_code": 0}' if where == "result text" else '{"exit_code": 0}'
+    line = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}})
+    if where == "reply line":
+        line = line.replace('"id": 1,', '"id": 1, "id": 1,')
     monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
-    monkeypatch.setattr(gate.subprocess, "run",
-                        lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(reply) + "\n", ""))
-    with pytest.raises(gate.GateError, match="not one unambiguous JSON object"):
+    monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, line + "\n", ""))
+    with pytest.raises(gate.GateError, match="not one unambiguous JSON object|gave no answer"):
         gate.verify_items([{"kind": "bundle"}], _deadline())
