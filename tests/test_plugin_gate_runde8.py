@@ -160,3 +160,35 @@ def test_r8_1_neither_fsmonitor_nor_post_index_change_starts_while_the_tree_is_c
     subprocess.run(["git", "-C", str(repo), "add", "-A"], capture_output=True, check=False,
                    env={**os.environ, "GIT_INDEX_FILE": str(tmp_path / "probe-index")})
     assert fsmonitor.exists() or hook.exists(), "neither marker is live for a plain git; the case would be vacuous"
+
+
+# --- R8-4: the file that leads git to the shared configuration and hooks --------------------------------------
+
+def _write_decision(path: pathlib.Path, cwd: pathlib.Path, host: str = "claude") -> str | None:
+    outcome = gate.decide_write("Write", {"file_path": str(path), "content": ".\n"}, str(cwd), _deadline(), host=host)
+    return None if outcome is None else outcome.decision
+
+
+@pytest.mark.parametrize("state", ["missing", "present"])
+def test_r8_4_a_write_to_commondir_of_a_normal_repository_asks(tmp_path, state):
+    """R8-4: a synthetic Write on the missing or present .git/commondir got no answer; git takes the shared
+    configuration and hooks from the directory commondir names (gitrepository-layout(5))."""
+    repo = _repo(tmp_path)
+    if state == "present":
+        (repo / ".git" / "commondir").write_text(".\n", encoding="utf-8")
+    assert _write_decision(repo / ".git" / "commondir", repo) == "ask"
+
+
+def test_r8_4_a_write_to_commondir_of_a_linked_worktree_asks(tmp_path):
+    """R8-4: the present commondir of a linked worktree got no answer either, while its .git file and
+    .git/config ask. The anti-vacuity half: git resolves the worktree's common directory through that file."""
+    repo = _repo(tmp_path)
+    worktree = tmp_path / "linked"
+    _git(repo, "worktree", "add", "-q", "-b", "side", str(worktree))
+    gitdir = pathlib.Path(_git(worktree, "rev-parse", "--path-format=absolute", "--git-dir"))
+    commondir = gitdir / "commondir"
+    assert commondir.is_file(), "precondition: a linked worktree has a commondir"
+    assert _write_decision(commondir, worktree) == "ask"
+    assert _write_decision(worktree / ".git", worktree) == "ask"   # the control the review names
+    common = _git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    assert pathlib.Path(common) == (gitdir / commondir.read_text(encoding="utf-8").strip()).resolve()

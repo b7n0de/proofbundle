@@ -2577,8 +2577,8 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     configuration was read from, every file it includes from any origin (also one that is empty or does not
     exist yet: git skips a missing include, so a write would add configuration; an include from the command
     scope a host injects through GIT_CONFIG_COUNT counts as one from a file, review Runde 7, R7-5), the default
-    global and system files, $GIT_DIR/config and config.worktree, a `.git` file that points to the repository,
-    and the effective hook directory."""
+    global and system files, $GIT_DIR/config, config.worktree and commondir (also a missing one, review Runde 8,
+    R8-4), a `.git` file that points to the repository, and the effective hook directory."""
     files, dirs = set(), set()
     entries, why = _config_entries(directory, deadline)
     if entries is None:
@@ -2616,7 +2616,10 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
         files.add(os.path.join(home, ".gitconfig"))
         files.add(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "git", "config"))
     for root in {paths["common"], paths["gitdir"]} - {None}:
-        files.update({os.path.join(root, "config"), os.path.join(root, "config.worktree")})
+        # commondir (gitrepository-layout(5)) names the directory git takes the shared configuration and hooks
+        # from, so a write to it, also one that creates it, redirects them (review Runde 8, R8-4)
+        files.update({os.path.join(root, "config"), os.path.join(root, "config.worktree"),
+                      os.path.join(root, "commondir")})
     if paths["toplevel"] and os.path.isfile(os.path.join(paths["toplevel"], ".git")):
         files.add(os.path.join(paths["toplevel"], ".git"))
     if paths["hooks"]:

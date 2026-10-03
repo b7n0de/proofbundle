@@ -475,7 +475,8 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
 - File tools (Nachtrag 19b, Punkt 6 to 8), through a third `PreToolUse` matcher, `^(Write|Edit|MultiEdit|NotebookEdit)$`
   under Claude Code and `^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$` under Codex. A write to a
   repository's configuration or hooks is NOT MEASURED, asked under Claude Code and denied under Codex
-  (reason id `write_to_repo_state`): `.git/config`, `config.worktree`, a `.git` file, any file under the
+  (reason id `write_to_repo_state`): `.git/config`, `config.worktree`, `commondir` (also a missing one, which
+  a write would create; review Runde 8, R8-4), a `.git` file, any file under the
   effective hook directory, every file the effective configuration was read from or includes from any origin
   (also an empty included file, and one that does not exist yet, which a write would create; an include the
   host injects through `GIT_CONFIG_COUNT`, origin `command line:`, counts like one from a file), and the
