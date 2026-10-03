@@ -268,7 +268,9 @@ creates its commits without a signing key (builtin/stash.c), so `gpg.program`, `
 `gpg.ssh.defaultKeyCommand`, which choose the program but start none, do not count on their own, while every
 key and option that starts signing or verification does. A hook counts for an entry only when githooks(5)
 names it for that command (`commit`: pre-commit, prepare-commit-msg, commit-msg, post-commit, plus
-reference-transaction, post-index-change and pre-auto-gc; pre-push only for `git push`); `stash`, whose internal paths githooks(5) does not name one by one, counts
+reference-transaction, post-index-change and pre-auto-gc; `symbolic-ref`: reference-transaction, which git
+2.43.0 does not start for a symbolic reference while git 2.51.1 does, review Runde 7, R7-3, so a profile read
+from one git version is not taken as the list of another; pre-push only for `git push`); `stash`, whose internal paths githooks(5) does not name one by one, counts
 every name.
 
 Left the list (fallback A), NOT MEASURED in every form, because their program lists were not justified
@@ -349,7 +351,7 @@ Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), the pa
 | `stash` | none, the bare form only | diff-driver, filter, fsmonitor, merge-driver, pager (`core.pager`), *submodules* | every githooks(5) name | git-stash(1): show diffs, apply/pop merge, writes refs/stash and the index |
 | `status` | `--branch`, `--color`, `--ignored`, `--long`, `--no-color`, `--no-untracked-files`, `--porcelain`, `--short`, `--show-stash`, `--untracked-files`, `--verbose`, `-b`, `-s`, `-u`, `-v`, `-z` | filter, fsmonitor, *submodules* | `post-index-change` | git-status(1) BACKGROUND REFRESH writes the index; submodules |
 | `switch` | none, the bare form only | filter, fsmonitor, *submodules* | `post-checkout`, `post-index-change`, `reference-transaction` | git-switch(1), githooks(5) post-checkout |
-| `symbolic-ref` | `--delete`, `--quiet`, `--short`, `-d`, `-q` | only the every-entry keys | none | githooks(5) reference-transaction does not cover symbolic references |
+| `symbolic-ref` | `--delete`, `--quiet`, `--short`, `-d`, `-q` | only the every-entry keys | `reference-transaction` | git-symbolic-ref(1); githooks(5) reference-transaction: git 2.43.0 does not start it for a symbolic reference (measured), git 2.51.1 does (review Runde 7, R7-3), so it counts for every form |
 | `tag` | `--color`, `--contains`, `--format`, `--list`, `--merged`, `--no-color`, `--no-contains`, `--no-merged`, `--points-at`, `--sort`, `-l`, `-n`; a word containing `signature` is NOT MEASURED | editor, signature-sort, pager (`core.pager`), `tag.gpgsign` true | `reference-transaction` | git-tag(1), tag.gpgSign, tag.sort |
 | `var` | none, the bare form only | only the every-entry keys | none | reads objects, refs or attributes only; runs no driver, editor or hook |
 | `whatchanged` | none, the bare form only; a word containing `%G` is NOT MEASURED | diff-driver, signature-format, pager (`core.pager`), `log.showsignature` true | none | git-whatchanged(1), as git log |

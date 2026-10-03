@@ -215,3 +215,19 @@ def test_r7_2_a_scheme_url_that_selects_a_remote_helper_on_path_is_not_free(tmp_
     assert not marker.exists(), "the gate's check started the helper"
     subprocess.run(["git", "-C", str(repo), *plain], capture_output=True, check=False, timeout=60)
     assert marker.exists(), "the helper is not live for a plain git; the case would be vacuous"
+
+
+# --- R7-3: a hook that depends on the git version --------------------------------------------------------------
+
+def test_r7_3_a_reference_transaction_hook_makes_symbolic_ref_not_measured(tmp_path):
+    """R7-3: the profile of symbolic-ref excluded reference-transaction; under git 2.51.1 `git symbolic-ref
+    refs/test-symbolic refs/heads/main` started that hook with no gate answer (the reviewer's measurement). No
+    anti-vacuity half here: git 2.43.0 does not start the hook for a symbolic reference (measured in Nachtrag 20),
+    so the hook is never run by this test."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-reference-transaction"
+    hooks = repo / ".git" / "hooks"
+    _marker_program(hooks, marker, "reference-transaction")
+    decision, text = _decision("git symbolic-ref refs/test-symbolic refs/heads/main", repo)
+    assert decision == "ask", text
+    assert "reference-transaction" in text, text
+    assert not marker.exists()

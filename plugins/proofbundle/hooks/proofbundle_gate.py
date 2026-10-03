@@ -613,7 +613,9 @@ _REPO_PROFILE = {
     **{sub: _READ_ONLY for sub in ("rev-parse", "show-ref", "for-each-ref", "cat-file", "ls-tree", "merge-base",
                                    "rev-list", "name-rev", "count-objects", "var", "check-ref-format",
                                    "check-attr", "check-ignore", "check-mailmap", "config")},
-    "symbolic-ref": _profile(sources="githooks(5) reference-transaction does not cover symbolic references"),
+    "symbolic-ref": _profile(hooks=_REFS, sources="git-symbolic-ref(1); githooks(5) reference-transaction: git "
+                                                  "2.43.0 does not start it for a symbolic reference (measured), git "
+                                                  "2.51.1 does (review Runde 7, R7-3), so it counts for every form"),
     "cherry": _profile(sources="git-cherry(1): patch ids by the internal diff, no driver"),
     "log": _profile(("diff-driver", "signature-format"), pages=True, triggers=("log.showsignature",),
                     sources="git-log(1), git-config(1) diff.*, log.showSignature, format.pretty, pretty.*"),
