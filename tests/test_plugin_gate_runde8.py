@@ -162,6 +162,45 @@ def test_r8_1_neither_fsmonitor_nor_post_index_change_starts_while_the_tree_is_c
     assert fsmonitor.exists() or hook.exists(), "neither marker is live for a plain git; the case would be vacuous"
 
 
+@pytest.mark.parametrize("change", ["execute-bit", "file-becomes-link", "executable-becomes-link",
+                                    "link-becomes-file"])
+def test_r8_1_a_path_type_other_than_the_commits_gives_no_evidence(tmp_path, change):
+    """R8-1, the path types of the review's proposal (the catch proof of the three type locks, beyond the
+    review's measured case): the bytes read may equal the committed blob while the path type differs; each is
+    refused before the run. A link's own mode carries the execute bit, so a plain file that becomes a link is
+    also caught by the execute-bit check; an executable that becomes a link is caught by the type check alone.
+    The control: the unchanged tree gives evidence."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _write(repo / "tests" / "test_green.py", "def test_green():\n    assert True\n")
+    _write(repo / "data.txt", "data\n")
+    _write(repo / "run.sh", "#!/bin/sh\nexit 0\n")
+    (repo / "run.sh").chmod(0o755)
+    os.symlink("data.txt", repo / "link")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "types")
+    code, report = _run_evidence(repo, tmp_path / "control.json")
+    assert (code, report["outcome"]) == (0, "evidence"), report
+    if change == "execute-bit":
+        (repo / "data.txt").chmod(0o755)
+    elif change == "file-becomes-link":
+        outside = tmp_path / "outside.txt"
+        outside.write_text("data\n", encoding="utf-8")   # the same bytes, reached through a link
+        (repo / "data.txt").unlink()
+        os.symlink(str(outside), repo / "data.txt")
+    elif change == "executable-becomes-link":
+        outside = tmp_path / "outside.sh"
+        outside.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (repo / "run.sh").unlink()
+        os.symlink(str(outside), repo / "run.sh")
+    else:
+        (repo / "link").unlink()
+        (repo / "link").write_text("data.txt", encoding="utf-8")   # the bytes of the committed link text
+    code, report = _run_evidence(repo, tmp_path / "statement.json")
+    assert (code, report["outcome"], report["reason_id"]) == (1, "no_evidence", "tree_not_clean"), report
+
+
 # --- R8-4: the file that leads git to the shared configuration and hooks --------------------------------------
 
 def _write_decision(path: pathlib.Path, cwd: pathlib.Path, host: str = "claude") -> str | None:
@@ -232,11 +271,13 @@ def test_r8_6_a_padded_boolean_word_in_core_fsmonitor_is_a_command_and_asks(tmp_
     assert marker.exists(), f"git does not start the command ' {word} '; the case would be vacuous"
 
 
-def _status_on_a_terminal(repo: pathlib.Path) -> None:
-    """git status with its output on a local pseudo terminal, where git pages."""
+def _status_on_a_terminal(repo: pathlib.Path, bin_dir: pathlib.Path | None = None) -> None:
+    """git status with its output on a local pseudo terminal, where git pages; bin_dir first on PATH."""
     master, slave = os.openpty()
     try:
         env = {k: v for k, v in os.environ.items() if k != "GIT_PAGER_IN_USE"}
+        if bin_dir is not None:
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
         subprocess.run(["git", "-C", str(repo), "status"], stdin=subprocess.DEVNULL, stdout=slave,
                        stderr=subprocess.DEVNULL, check=False, env=env, timeout=60)
     finally:
@@ -261,6 +302,20 @@ def test_r8_6_a_valueless_pager_key_is_true_and_asks(tmp_path):
     assert not marker.exists(), "the gate started the pager"
     _status_on_a_terminal(repo)
     assert marker.exists(), "git status does not start core.pager on a terminal; the case would be vacuous"
+
+
+def test_r8_6_a_padded_false_word_in_a_pager_key_is_a_command_and_asks(tmp_path):
+    """R8-6, the untrimmed comparison at the pager key (the catch proof of that lock, beyond the review's
+    measured case): pager.status stored as ` no ` is no false word for git but the pager command `no`. The
+    anti-vacuity half: git status on a terminal starts the marker program of that name."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-pager-no"
+    _marker_program(tmp_path / "bin", marker, "no", "cat >/dev/null\n")
+    _git(repo, "config", "pager.status", " no ")
+    decision, text = _decision("git status", repo)
+    assert decision == "ask", text
+    assert not marker.exists(), "the gate started the pager"
+    _status_on_a_terminal(repo, tmp_path / "bin")
+    assert marker.exists(), "git status does not start the pager ' no '; the case would be vacuous"
 
 
 # --- R8-2: the promisor key with an empty remote subsection --------------------------------------------------
