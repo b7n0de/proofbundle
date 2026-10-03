@@ -211,3 +211,53 @@ def test_r8_5_a_program_path_named_git_is_not_free_without_a_subcommand(tmp_path
     assert not marker.exists()
     subprocess.run([str(program), *words.split()], capture_output=True, check=False)
     assert marker.exists(), "the program at the path is not live; the case would be vacuous"
+
+
+# --- R8-6: git's value semantics, untrimmed, and the valueless pager key ---------------------------------------
+
+@pytest.mark.parametrize("word", ["on", "off", "yes", "no", "0", "1"])
+def test_r8_6_a_padded_boolean_word_in_core_fsmonitor_is_a_command_and_asks(tmp_path, word):
+    """R8-6: core.fsmonitor stored as ` on ` (and ` off `, ` yes `, ` no `, ` 0 `, ` 1 `) was trimmed into a
+    boolean word and stayed free; git compares untrimmed and starts the local command `on`. The anti-vacuity
+    half: a plain git status starts the marker program of that name."""
+    repo, marker = _repo(tmp_path), tmp_path / f"marker-fsmonitor-{word}"
+    _marker_program(tmp_path / "bin", marker, word)
+    _git(repo, "config", "core.fsmonitor", f" {word} ")
+    decision, text = _decision("git status --short", repo)
+    assert decision == "ask", text
+    assert not marker.exists(), "the gate started the fsmonitor command"
+    env = {**os.environ, "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}"}
+    subprocess.run(["git", "-C", str(repo), "status", "--short"], capture_output=True, check=False, env=env,
+                   timeout=60)
+    assert marker.exists(), f"git does not start the command ' {word} '; the case would be vacuous"
+
+
+def _status_on_a_terminal(repo: pathlib.Path) -> None:
+    """git status with its output on a local pseudo terminal, where git pages."""
+    master, slave = os.openpty()
+    try:
+        env = {k: v for k, v in os.environ.items() if k != "GIT_PAGER_IN_USE"}
+        subprocess.run(["git", "-C", str(repo), "status"], stdin=subprocess.DEVNULL, stdout=slave,
+                       stderr=subprocess.DEVNULL, check=False, env=env, timeout=60)
+    finally:
+        os.close(slave)
+        os.close(master)
+
+
+def test_r8_6_a_valueless_pager_key_is_true_and_asks(tmp_path):
+    """R8-6: pager.status without a value, together with a configured core.pager, stayed free; a key without a
+    value is true (git-config(1)), and git status on a terminal starts core.pager. The anti-vacuity half: without
+    the key git status starts no pager and the gate stays free; with it git starts the marker."""
+    repo, marker = _repo(tmp_path), tmp_path / "marker-pager"
+    _git(repo, "config", "core.pager", str(_marker_program(tmp_path / "bin", marker, "pager.sh", "cat >/dev/null\n")))
+    assert _decision("git status", repo) == (None, "")
+    _status_on_a_terminal(repo)
+    assert not marker.exists(), "git status pages without pager.status; the case would not isolate the key"
+    with (repo / ".git" / "config").open("a", encoding="utf-8") as config:
+        config.write("[pager]\n\tstatus\n")
+    assert _git(repo, "config", "--bool", "pager.status") == "true"
+    decision, text = _decision("git status", repo)
+    assert decision == "ask", text
+    assert not marker.exists(), "the gate started the pager"
+    _status_on_a_terminal(repo)
+    assert marker.exists(), "git status does not start core.pager on a terminal; the case would be vacuous"

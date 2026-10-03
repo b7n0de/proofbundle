@@ -499,6 +499,9 @@ _GITHOOKS = frozenset({
     "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman",
     "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change",
 })
+#: git compares a boolean value as stored, case-insensitive and untrimmed (config.c git_parse_maybe_bool_text,
+#: strcasecmp): ` on ` is no boolean word but a command name for core.fsmonitor and pager.<cmd> (review Runde 8,
+#: R8-6). No non-ASCII letter lowers to a letter of these words, so str.lower agrees with strcasecmp here.
 _BOOLEAN_WORDS = frozenset({"true", "false", "yes", "no", "on", "off", "1", "0", ""})
 
 
@@ -516,7 +519,7 @@ def _helper_url(value: str | None) -> bool:
 #: protocol: fetch and ls-remote, the entries that talk to a remote, left the list. The families stay as the
 #: record of what a joint check of the transport would have to read, and are named in D3.
 _KEY_FAMILIES = {
-    "fsmonitor": (r"core\.fsmonitor", lambda k, v: v is not None and v.strip().lower() not in _BOOLEAN_WORDS,
+    "fsmonitor": (r"core\.fsmonitor", lambda k, v: v is not None and v.lower() not in _BOOLEAN_WORDS,
                   "git-config(1) core.fsmonitor: a pathname names a hook command (true is the built-in daemon)"),
     "filter": (r"filter\..+\.(clean|smudge|process)", None,
                "gitattributes(5) filter: filter.<driver>.clean, .smudge, .process are commands"),
@@ -715,7 +718,9 @@ def _repo_state(directory: str, sub: str, deadline: float) -> tuple[str, list[st
             pattern, test, _source = _KEY_FAMILIES[family]
             if re.fullmatch(pattern, k) and (test is None or test(k, value)):
                 hits.append(f"{key} ({scope} configuration, {family})")
-        if k == f"pager.{sub}" and value is not None and value.strip().lower() not in ("false", "no", "off", "0"):
+        # pager.<cmd> without a value is true and pages with core.pager; a value that is no false word, untrimmed,
+        # is true or names the pager command itself (git-config(1) pager.<cmd>; review Runde 8, R8-6).
+        if k == f"pager.{sub}" and (value is None or value.lower() not in ("false", "no", "off", "0")):
             hits.append(f"{key} ({scope} configuration, pager)")
         if k in prof["triggers"] and _truthy(value):
             hits.append(f"{key} ({scope} configuration, runs the signature program)")
