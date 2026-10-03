@@ -966,6 +966,13 @@ def _code_on_disk_that_is_not_the_commit(repo: Path, baum: dict) -> list:
     for teil in _CODE_PFADE:
         if teil in abgelehnt:
             continue                            # already refused above; `os.walk` would follow a linked top
+        # A top that is not on disk holds nothing to compare: if the commit names it, the comparison above already
+        # reported it as missing; if not, there is no directory and no file in it. Walked anyway, `os.walk` reports
+        # its absence through `onerror`, and the full suite at 0bfee205 measured exactly that: a tree without
+        # `scripts/` was refused as "cannot be listed (FileNotFoundError)". Only a directory that exists and cannot
+        # be listed is an incomplete measurement.
+        if not os.path.lexists(wurzel / teil):
+            continue
         for ordner, unterordner, dateien in os.walk(wurzel / teil, followlinks=False,
                                                     onerror=nicht_gelistet.append):
             unterordner[:] = [d for d in unterordner if d != "__pycache__"]
