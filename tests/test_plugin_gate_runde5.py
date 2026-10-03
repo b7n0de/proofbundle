@@ -127,9 +127,9 @@ def test_an_alias_configured_in_the_repo_is_a_not_measured_possible_push():
 @pytest.mark.parametrize("command", [
     "git status", "git log --oneline", "git diff origin/main", "git config user.name t",
 ])   # git fetch left the allow-list in review Runde 7 (R7-2); tests/test_plugin_gate_runde7.py
-def test_a_local_subcommand_is_still_left_alone(command):
-    # Left alone by the command text; decide() still reads the repository state behind it (Nachtrag 19b).
-    assert gate.gated_calls(command) == []
+def test_a_local_subcommand_is_not_free(command):
+    # Review Runde 9, owner choice B: no repository form is left alone any more; each is NOT MEASURED.
+    assert gate.gated_calls(command) == [(f"git {command.split()[1]}", gate.UNKNOWN, [gate._NOT_FREE])]
 
 
 @pytest.mark.parametrize("command", ["git rebase main", "git bisect start", "git submodule status"])

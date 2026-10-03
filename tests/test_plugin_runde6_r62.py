@@ -5,6 +5,7 @@ and Git configuration can select helpers, filters, hooks or editors. These tests
 only (via the gate's `_strict_git`); they run no helper programs and transfer nothing.
 
 Red against 2b813de2 (the four forms returned None = free); green after the fix (NOT MEASURED).
+Since review Runde 9 (owner choice B) no form here is free any more; only the bare `git --version` is.
 """
 import importlib.util
 import os
@@ -24,7 +25,8 @@ def _gate():
 
 def _not_measured(g, words):
     r = g._strict_git(words, "/repo")
-    return r is not None and r[1] is g.UNKNOWN and r[2] == [g._MAYBE_PUSH]
+    # review Runde 9, owner choice B: a repository form carries _NOT_FREE, a possible transfer _MAYBE_PUSH
+    return r is not None and r[1] is g.UNKNOWN and r[2] in ([g._MAYBE_PUSH], [g._NOT_FREE])
 
 
 def _free(g, words):
@@ -76,13 +78,15 @@ def test_unmodelled_transports_stay_not_measured():
     assert _not_measured(g, ["frobnicate"])          # unknown subcommand
 
 
-def test_checked_forms_stay_free():
-    """Bare forms and vetted inert options remain free, so the gate does not become uselessly noisy."""
+def test_the_formerly_checked_forms_are_not_free():
+    """Review Runde 9, owner choice B: the bare forms and vetted options that were free are NOT MEASURED now;
+    only the bare `git --version` stays free."""
     g = _gate()
     for words in (["status"], ["status", "-s"], ["log", "--oneline"], ["diff", "--stat"],
                   ["show", "HEAD"], ["grep", "needle"], ["branch", "-a"],   # fetch left the list (R7-2)
                   ["-C", "/path", "status"], ["log", "--oneline", "-n", "5"]):
-        assert _free(g, words), words
+        assert not _free(g, words) and _not_measured(g, words), words
+    assert _free(g, ["--version"])
     # Nachtrag 19b: rebase left the allow-list (S1, fallback A), so even its bare form is NOT MEASURED now
     assert _not_measured(g, ["rebase", "HEAD~1"])
 
@@ -125,8 +129,12 @@ def test_environment_and_config_writes_that_can_select_a_program_are_not_measure
     "LC_ALL=C git status", "git config user.name t", "git config --get remote.origin.url",
     "git config --list", "git config get user.email", "git status && git diff --stat",
 ])
-def test_vetted_assignments_and_config_reads_stay_free(command):
-    assert _calls(_gate(), command) == [], command
+def test_vetted_assignments_and_config_reads_are_not_free(command):
+    """Review Runde 9, owner choice B: a vetted assignment or a configuration read leaves the form a repository
+    form, and none is free."""
+    g = _gate()
+    calls = _calls(g, command)
+    assert calls and all(c[2] == [g._NOT_FREE] for c in calls), (command, calls)
 
 
 def test_an_unvetted_askpass_makes_a_push_not_measured():

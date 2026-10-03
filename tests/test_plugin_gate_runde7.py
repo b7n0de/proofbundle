@@ -71,6 +71,14 @@ def _decision(command: str, repo: pathlib.Path, host: str = "claude") -> tuple[s
     return outcome.decision, outcome.text
 
 
+def _not_free(command: str, repo: pathlib.Path, host: str = "claude") -> bool:
+    """Review Runde 9, owner choice B: the form asks with the reason that no git form is free (a Codex ask is
+    turned into a deny by answer())."""
+    outcome = gate.decide(command, str(repo), _deadline(), host=host)
+    return (outcome is not None and outcome.decision == "ask"
+            and "git_form_not_free" in {v.reason_id for v in outcome.verdicts})
+
+
 def _marker_program(tmp_path: pathlib.Path, marker: pathlib.Path, name: str) -> pathlib.Path:
     """A script inside the test folder that leaves marker when something starts it."""
     program = tmp_path / name
@@ -108,9 +116,7 @@ def test_r7_7_a_free_object_read_in_a_partial_clone_is_not_measured(tmp_path):
     subprocess.run(["git", "-C", str(repo), "cat-file", "-p", oid], capture_output=True, check=False)
     assert marker.exists(), "the promisor transport is not live for a plain git; the case would be vacuous"
     marker.unlink()
-    decision, text = _decision(f"git cat-file -p {oid}", repo)
-    assert decision == "ask", text
-    assert "promisor" in text, text
+    assert _not_free(f"git cat-file -p {oid}", repo)   # review Runde 9: no free form, the gate reads no object
     assert not marker.exists(), "the gate's check started the promisor transport"
 
 
@@ -149,9 +155,7 @@ def test_r7_4_a_wrapper_that_changes_the_directory_is_not_bound(tmp_path):
     _git(other, "config", "core.fsmonitor", str(_fsmonitor_marker(tmp_path, marker)))
     subprocess.run(["git", "-C", str(other), "status", "--short"], capture_output=True, check=False)
     assert marker.exists(), "the other repository's fsmonitor is not live; the case would be vacuous"
-    decision, text = _decision(f"env --chdir={shlex.quote(str(other))} git status --short", repo)
-    assert decision == "ask", text
-    assert "cannot bind git status" in text, text
+    assert _not_free(f"env --chdir={shlex.quote(str(other))} git status --short", repo)   # review Runde 9
 
 
 def test_r7_4_a_program_path_named_git_is_not_free(tmp_path):
@@ -159,9 +163,8 @@ def test_r7_4_a_program_path_named_git_is_not_free(tmp_path):
     repo, marker = _repo(tmp_path), tmp_path / "marker-path"
     (tmp_path / "bin").mkdir()
     program = _marker_program(tmp_path / "bin", marker, "git")
-    decision, text = _decision(f"{shlex.quote(str(program))} status --short", repo)
-    assert decision == "ask", text
-    assert "cannot bind git status" in text, text
+    assert _not_free(f"{shlex.quote(str(program))} status --short", repo)   # review Runde 9
+    assert not marker.exists()
 
 
 def test_r7_4_a_free_form_after_a_command_that_writes_the_configuration_is_not_free(tmp_path):
@@ -171,9 +174,7 @@ def test_r7_4_a_free_form_after_a_command_that_writes_the_configuration_is_not_f
     repo, marker = _repo(tmp_path), tmp_path / "marker-fsmonitor"
     program = _fsmonitor_marker(tmp_path, marker)
     command = f"printf '[core]\\n\\tfsmonitor = {program}\\n' >> .git/config; git status --short"
-    decision, text = _decision(command, repo)
-    assert decision == "ask", text
-    assert "cannot bind git status" in text, text
+    assert _not_free(command, repo)   # review Runde 9: the git form after the append asks, as every git form
     with open(repo / ".git" / "config", "a", encoding="utf-8") as config:
         config.write(f"[core]\n\tfsmonitor = {program}\n")
     subprocess.run(["git", "-C", str(repo), "status", "--short"], capture_output=True, check=False)
@@ -228,10 +229,8 @@ def test_r7_3_a_reference_transaction_hook_makes_symbolic_ref_not_measured(tmp_p
     repo, marker = _repo(tmp_path), tmp_path / "marker-reference-transaction"
     hooks = repo / ".git" / "hooks"
     _marker_program(hooks, marker, "reference-transaction")
-    decision, text = _decision("git symbolic-ref refs/test-symbolic refs/heads/main", repo)
-    assert decision == "ask", text
-    assert "reference-transaction" in text, text
-    assert not marker.exists()
+    assert _not_free("git symbolic-ref refs/test-symbolic refs/heads/main", repo)   # review Runde 9: the hook is
+    assert not marker.exists()                                                      # not read, the form asks
 
 
 # --- R7-5: protected write targets -------------------------------------------------------------------------------
@@ -339,11 +338,12 @@ def test_r7_8_an_inspect_event_without_a_known_type_makes_the_trace_not_measured
 # --- review question 5: the Codex rule covers repository-dependent calls, not every git form -------------------
 
 def test_q5_under_codex_a_call_that_reads_no_repository_stays_free_and_a_repository_dependent_one_does_not(tmp_path):
-    """The texts say "repository-dependent calls without a bound execution context", not "every git form": a bare
-    `git --version` stays free under Codex, `git status` is NOT MEASURED (the host answer denies it), also with a
-    literal -C, which alone binds no execution filesystem."""
+    """The texts say "repository-dependent calls", not "every git form": a bare `git --version` stays free under
+    Codex, `git status` is NOT MEASURED and the host answer denies it, also with a literal -C. Since review Runde 9
+    (owner choice B) the reason is the same as under Claude Code: no git form that acts on a repository is free."""
     repo = _repo(tmp_path)
     assert _decision("git --version", repo, host="codex") == (None, "")
     for command in ("git status", f"git -C {shlex.quote(str(repo))} status"):
+        assert _not_free(command, repo, host="codex"), command
         decision, text = _decision(command, repo, host="codex")
-        assert decision == "ask" and "repository-dependent call has no bound execution context" in text, text
+        assert gate.answer(decision, text, host="codex")["hookSpecificOutput"]["permissionDecision"] == "deny"

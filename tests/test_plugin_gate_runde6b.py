@@ -1,4 +1,4 @@
-"""Nachtrag 19b (S1): before Ebene 1 frees an allow-listed git form it reads the bound repository's effective
+"""Nachtrag 19b (S1), until review Runde 9: before Ebene 1 freed an allow-listed git form it read the bound repository's effective
 configuration (local, global, system, every included file) and its effective hook directory with the hook's
 environment. The form stays free only when no key that selects a program for this subcommand is set and no
 executable hook this subcommand starts is present; an unknown directory, unreadable configuration or an
@@ -7,6 +7,10 @@ MEASURED too: ask under Claude, deny under Codex.
 
 These tests judge only the gate's verdict. They run no helper program, no hook and no editor, and transfer
 nothing: every helper path below is a file that is never executed. Red against c159b817, green after.
+
+Since review Runde 9 (owner choice B) no git form that acts on a repository is free: the cases that stayed
+free here now ask (`_not_free`), and the gate no longer reads the repository state for a git form. The write
+gate's cases are unchanged.
 """
 from __future__ import annotations
 
@@ -93,6 +97,14 @@ def _decision(command: str, repo: pathlib.Path, host: str = "claude") -> tuple[s
     return outcome.decision, outcome.text
 
 
+def _not_free(command: str, repo: pathlib.Path) -> bool:
+    """Review Runde 9, owner choice B: the form asks with the reason that no git form is free, whatever the
+    repository holds."""
+    outcome = gate.decide(command, str(repo), _deadline())
+    return (outcome is not None and outcome.decision == "ask"
+            and "git_form_not_free" in {v.reason_id for v in outcome.verdicts})
+
+
 # --- the six S1 forms: with a program-selecting key or hook NOT MEASURED, without it free -------------------
 
 def _set_fsmonitor(repo, tmp_path):
@@ -142,17 +154,18 @@ def test_s1_form_with_a_program_selecting_key_or_hook_is_not_measured(tmp_path, 
 
 
 @pytest.mark.parametrize("command", [c for c, _ in S1_FORMS if c != "git fetch origin"])   # fetch left (R7-2)
-def test_s1_form_in_a_repository_without_such_keys_or_hooks_stays_free(tmp_path, command):
+def test_s1_form_in_a_repository_without_such_keys_or_hooks_is_not_free_either(tmp_path, command):
     repo = _repo(tmp_path)
-    assert _decision(command, repo) == (None, ""), command
+    assert _not_free(command, repo), command
 
 
-def test_a_pre_commit_hook_makes_git_commit_not_measured_but_leaves_git_status_free(tmp_path):
-    """Point 4: a repository with a pre-commit hook, as the pre-commit framework installs it."""
+def test_a_pre_commit_hook_and_git_status_both_ask(tmp_path):
+    """Point 4: a repository with a pre-commit hook, as the pre-commit framework installs it. Since review Runde 9
+    git status asks too."""
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", "pre-commit")
     assert _decision("git commit", repo)[0] == "ask"
-    assert _decision("git status", repo) == (None, "")
+    assert _not_free("git status", repo)
 
 
 # --- unreadable configuration, core.hooksPath ---------------------------------------------------------------
@@ -183,7 +196,7 @@ def test_core_hookspath_to_another_directory_is_where_hooks_are_read(tmp_path):
     empty.mkdir()
     _git(repo2, "config", "core.hooksPath", str(empty))
     _hook(repo2 / ".git" / "hooks", "post-checkout")
-    assert _decision("git checkout side", repo2) == (None, "")
+    assert _not_free("git checkout side", repo2)   # review Runde 9: no free form, wherever the hooks are read
 
 
 def test_a_global_program_key_counts(tmp_path, monkeypatch):
@@ -202,7 +215,7 @@ def test_a_free_form_after_a_directory_change_is_not_measured(tmp_path):
     # Review Runde 7, R7-4: only the first run of a chain acts in the state the gate reads, so the free form of a
     # later run is NOT MEASURED; the first run stays free.
     assert _decision("git status && git log --oneline -n 3", repo)[0] == "ask"
-    assert _decision("git status; true", repo) == (None, "")
+    assert _not_free("git status; true", repo)   # review Runde 9: the first run is not free either
 
 
 @pytest.mark.parametrize("command", ["git merge side", "git pull", "git rebase side", "git cherry-pick side",
@@ -320,14 +333,14 @@ def test_a_fsmonitor_hook_counts_for_every_entry_because_any_index_read_queries_
     _git(repo, "config", "core.fsmonitor", _helper(tmp_path))
     decision, text = _decision(command, repo)
     assert decision == "ask", (command, text)
-    assert "core.fsmonitor" in text, text
+    assert _not_free(command, repo), text   # review Runde 9: asked as a git form, the key is not read
 
 
 def test_the_built_in_fsmonitor_daemon_is_a_boolean_and_selects_no_configured_program(tmp_path):
     repo = _repo(tmp_path)
     _git(repo, "config", "core.fsmonitor", "true")
-    assert _decision("git rev-parse HEAD", repo) == (None, "")
-    assert _decision("git status", repo) == (None, "")
+    assert _not_free("git rev-parse HEAD", repo)   # review Runde 9: no free form
+    assert _not_free("git status", repo)
 
 
 @pytest.mark.parametrize("command", ["git log --format=%G?", "git log --pretty=format:%GS",
@@ -345,9 +358,9 @@ def test_a_format_or_sort_value_that_verifies_signatures_is_not_measured(tmp_pat
 @pytest.mark.parametrize("command", ["git log --format=%h", "git log --pretty=oneline",
                                      "git for-each-ref --format='%(refname)'", "git branch --sort=-committerdate",
                                      "git tag -l --sort=version:refname"])
-def test_a_format_or_sort_value_without_a_signature_stays_free(tmp_path, command):
+def test_a_format_or_sort_value_without_a_signature_is_not_free_either(tmp_path, command):
     repo = _repo(tmp_path)
-    assert _decision(command, repo) == (None, ""), command
+    assert _not_free(command, repo), command
 
 
 @pytest.mark.parametrize("key, value, command", [
@@ -356,15 +369,14 @@ def test_a_format_or_sort_value_without_a_signature_stays_free(tmp_path, command
 def test_a_configured_default_format_or_sort_that_verifies_signatures_counts(tmp_path, key, value, command):
     repo = _repo(tmp_path)
     _git(repo, "config", key, value)
-    decision, text = _decision(command, repo)
-    assert decision == "ask" and key in text, (command, text)
-    assert _decision("git status", repo) == (None, "")
+    assert _not_free(command, repo), command   # review Runde 9: asked as a git form, the key is not read
+    assert _not_free("git status", repo)
 
 
-def test_a_default_format_without_a_signature_stays_free(tmp_path):
+def test_a_default_format_without_a_signature_is_not_free_either(tmp_path):
     repo = _repo(tmp_path)
     _git(repo, "config", "format.pretty", "oneline")
-    assert _decision("git log", repo) == (None, "")
+    assert _not_free("git log", repo)
 
 
 @pytest.mark.parametrize("args, output", [
@@ -372,7 +384,8 @@ def test_a_default_format_without_a_signature_stays_free(tmp_path):
     (("rev-parse", "--path-format=absolute", "--git-common-dir"), b"/x/.git\n/x/.git\n")])
 def test_git_output_the_gate_cannot_read_is_not_measured_not_a_partial_read(tmp_path, monkeypatch, args, output):
     """A check that branches on the shape of git's output has an else branch: an unexpected shape is
-    unreadable, never a shorter list of keys or paths."""
+    unreadable, never a shorter list of keys or paths. Since review Runde 9 only the write gate reads these two
+    outputs, so the readers are held to it directly (a function contract)."""
     repo = _repo(tmp_path)
     real = gate._git
 
@@ -382,8 +395,9 @@ def test_git_output_the_gate_cannot_read_is_not_measured_not_a_partial_read(tmp_
         return real(directory, *a, deadline=deadline)
 
     monkeypatch.setattr(gate, "_git", fake)
-    decision, text = _decision("git status", repo)
-    assert decision == "ask" and "cannot read" in text, text
+    reader = gate._config_entries if args[0] == "config" else gate._repo_paths
+    value, why = reader(str(repo), _deadline())
+    assert value is None and "cannot read" in why, why
 
 
 def test_a_write_to_the_system_file_git_var_names_asks(tmp_path, monkeypatch):
@@ -421,109 +435,39 @@ def test_a_program_selecting_variable_in_the_hooks_environment_counts_like_its_k
     """Point 1: the hook's own environment is read; the command inherits it from the same host."""
     repo = _repo(tmp_path)
     monkeypatch.setenv(name, {"HELPER": _helper(tmp_path), "DIR": str(tmp_path)}.get(value, value))
-    decision, text = _decision(command, repo)
-    assert decision == "ask" and f"${name}" in text, (command, text)
+    assert _not_free(command, repo), command   # review Runde 9: asked as a git form, the variable is not read
 
 
 @pytest.mark.parametrize("name, value, command", [
     ("GIT_EDITOR", "true", "git commit"), ("GIT_EDITOR", ":", "git commit"), ("PAGER", "cat", "git log"),
     ("GIT_PAGER", "", "git log"), ("GIT_EXTERNAL_DIFF", "HELPER", "git status"), ("GIT_ASKPASS", "HELPER", "git log")])
-def test_a_neutral_value_or_a_variable_the_entry_does_not_use_stays_free(tmp_path, monkeypatch, name, value, command):
+def test_a_neutral_value_or_a_variable_the_entry_does_not_use_is_not_free_either(tmp_path, monkeypatch, name,
+                                                                                   value, command):
     repo = _repo(tmp_path)
     monkeypatch.setenv(name, {"HELPER": _helper(tmp_path)}.get(value, value))
-    assert _decision(command, repo) == (None, ""), (name, command)
+    assert _not_free(command, repo), (name, command)
 
 
-def test_the_gate_reads_exactly_the_program_selecting_variables_these_tests_clean():
-    read = {n for names, _ in gate._ENV_FAMILIES.values() for n in names} | set(gate._ENV_EVERY_ENTRY)
-    assert read == set(_PROGRAM_ENV)
-
-
-# --- D3 names, per allow-list entry, what is checked (Nachtrag 19b, Punkt 9); the text is the code's -------
-
-DECISIONS = GATE.parent.parent / "DECISIONS.md"
-_BEGIN, _END = "<!-- d3-entries:begin (generated from the gate; tests/test_plugin_gate_runde6b.py) -->", \
-    "<!-- d3-entries:end -->"
-#: What counts in each family, in words; the citation is the gate's own source string.
-_FAMILY_WORDS = {
-    "fsmonitor": "`core.fsmonitor` with a value other than a boolean (a boolean selects git's built-in daemon)",
-    "filter": "`filter.<driver>.clean`, `filter.<driver>.smudge`, `filter.<driver>.process`",
-    "diff-driver": "`diff.external`, `diff.<driver>.command`, `diff.<driver>.textconv`",
-    "merge-driver": "`merge.<driver>.driver`",
-    "editor": "`core.editor`",
-    "transport": "`core.sshCommand`, `core.gitProxy`, `core.askPass`, `core.alternateRefsCommand`, "
-                 "`credential.helper`, `credential.<url>.helper`, `remote.<name>.uploadpack`, `remote.<name>.vcs`",
-    "transport-helper-url": "`remote.<name>.url`, `remote.<name>.pushurl` with a `<transport>::<address>` value",
-    "rewrite-to-helper": "`url.<base>.insteadOf`, `url.<base>.pushInsteadOf` with a `<transport>::` base",
-    "protocol": "`protocol.allow` of `always` or `user`; `protocol.ext.allow`, `protocol.fd.allow` other than "
-                "`never`",
-    "pager": "`core.pager` for an entry that pages by default; `pager.<entry>` for every entry unless false",
-    "signature-format": "`format.pretty`, `pretty.<name>` with a value containing `%G`",
-    "signature-sort": "`branch.sort`, `tag.sort` with a value containing `signature`",
-    "promisor": "`extensions.partialClone`, `remote.<name>.promisor`, `remote.<name>.partialclonefilter`, "
-                "whatever the value",
-}
-
-
-def _cell(text: str) -> str:
-    return text.replace("|", "\\|")
-
-
-def _d3_entries_block() -> str:
-    out = [_BEGIN, "",
-           "Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), the partial-clone keys "
-           "(family promisor), `pager.<entry>`, "
-           "`$GIT_EXEC_PATH` in the hook's environment, and the hook `fsmonitor-watchman` only through "
-           "`core.fsmonitor`. A row with *submodules* also counts every `submodule.*` key and a `.gitmodules` "
-           "file, because the gate does not read a submodule's own configuration.", "",
-           "| Family | Keys and values that count | Variables in the hook's environment | Source |",
-           "|---|---|---|---|"]
-    for name, (_pattern, _test, source) in gate._KEY_FAMILIES.items():
-        names, _ = gate._ENV_FAMILIES.get(name, ((), None))
-        env = ", ".join(f"`${n}`" for n in names) or "none"
-        out.append(f"| {name} | {_cell(_FAMILY_WORDS[name])} | {env} | {_cell(source)} |")
-    out += ["", "| Entry | Options vetted beyond the bare form | Keys that make it NOT MEASURED | Hooks git starts "
-                "for it (githooks(5)) | Source |", "|---|---|---|---|---|"]
-    for sub in sorted(gate._GIT_LOCAL_SUBCOMMANDS):
-        prof = gate._REPO_PROFILE[sub]
-        if sub == "config":
-            options = ("reads: " + ", ".join(f"`{o}`" for o in sorted(gate._CONFIG_READ_OPTIONS))
-                       + ", " + ", ".join(f"`git config {s}`" for s in sorted(gate._CONFIG_READ_SUBCOMMANDS))
-                       + "; writes only of " + ", ".join(f"`{k}`" for k in sorted(gate._CONFIG_INERT_KEYS))
-                       + "; with " + ", ".join(f"`{o}`" for o in sorted(gate._CONFIG_VETTED_OPTIONS
-                                                                       - gate._CONFIG_READ_OPTIONS)))
-        else:
-            vetted = sorted(gate._GIT_VETTED_OPTIONS.get(sub, ()))
-            options = ", ".join(f"`{o}`" for o in vetted) or "none, the bare form only"
-        if sub in gate._SIGNATURE_WORDS:
-            options += f"; a word containing `{gate._SIGNATURE_WORDS[sub]}` is NOT MEASURED"
-        keys = sorted(prof["keys"]) + (["pager (`core.pager`)"] if prof["pages"] else [])
-        keys += [f"`{t}` true" for t in sorted(prof["triggers"])] + (["*submodules*"] if prof["submodules"] else [])
-        hooks = ("every githooks(5) name" if prof["hooks"] == gate._ALL
-                 else ", ".join(f"`{h}`" for h in sorted(prof["hooks"])) or "none")
-        out.append(f"| `{sub}` | {_cell(options)} | {_cell(', '.join(keys) or 'only the every-entry keys')} | "
-                   f"{hooks} | {_cell(prof['sources'])} |")
-    out += ["", _END]
-    return "\n".join(out)
-
-
-def test_d3_names_the_checked_options_keys_and_hooks_of_every_allow_list_entry_as_the_code_has_them():
-    assert set(_FAMILY_WORDS) == set(gate._KEY_FAMILIES)
-    text = DECISIONS.read_text(encoding="utf-8")
-    assert text.count(_BEGIN) == 1 and text.count(_END) == 1
-    block = text[text.index(_BEGIN):text.index(_END) + len(_END)]
-    assert block == _d3_entries_block()
+def test_the_free_list_machinery_is_gone():
+    """Review Runde 9, owner choice B: the free list, the per-entry profiles, the key and environment families,
+    the option tables and the repository-state check are removed, not patched; a free list comes back only with
+    an owner choice of its own. The two readers the write gate needs stay."""
+    for name in ("_REPO_PROFILE", "_KEY_FAMILIES", "_ENV_FAMILIES", "_ENV_EVERY_ENTRY", "_TRIGGER_SOURCES",
+                 "_GIT_VETTED_OPTIONS", "_SIGNATURE_WORDS", "_options_inert", "_repo_state", "_free_call_verdicts",
+                 "_note_free", "_FREE_CALLS", "_truthy"):
+        assert not hasattr(gate, name), name
+    assert callable(gate._config_entries) and callable(gate._repo_paths)
 
 
 # --- hooks per githooks(5): commit and fetch carry the hooks named for them, not every name ----------------
 
 @pytest.mark.parametrize("command", ["git commit", "git status", "git log --oneline -n 1"])   # fetch left (R7-2)
-def test_the_ebene_2_pre_push_hook_does_not_make_a_form_that_never_pushes_not_measured(tmp_path, command):
+def test_a_form_that_never_pushes_asks_with_or_without_the_ebene_2_pre_push_hook(tmp_path, command):
     """githooks(5): pre-push is called by git-push(1) only. Measured in Nachtrag 19b: with every githooks(5)
     name counted for fetch, the installed Ebene-2 hook made every git fetch NOT MEASURED."""
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", "pre-push")
-    assert _decision(command, repo) == (None, ""), command
+    assert _not_free(command, repo), command   # review Runde 9: every form asks, with the hook or without
 
 
 @pytest.mark.parametrize("hook, command", [
@@ -533,8 +477,7 @@ def test_the_ebene_2_pre_push_hook_does_not_make_a_form_that_never_pushes_not_me
 def test_a_hook_githooks_names_for_the_entry_counts(tmp_path, hook, command):
     repo = _repo(tmp_path)
     _hook(repo / ".git" / "hooks", hook)
-    decision, text = _decision(command, repo)
-    assert decision == "ask" and hook in text, (hook, command, text)
+    assert _not_free(command, repo), (hook, command)   # review Runde 9: asked as a git form, the hook is not read
 
 
 
@@ -542,7 +485,7 @@ def test_a_hook_githooks_names_for_the_entry_counts(tmp_path, hook, command):
 
 @pytest.mark.parametrize("command", ["git log", "git show HEAD", "git branch", "git tag -l", "git commit",
                                      "git stash list"])
-def test_a_configured_signing_program_alone_leaves_the_form_free(tmp_path, command):
+def test_a_form_with_only_a_configured_signing_program_is_not_free_either(tmp_path, command):
     """gpg.program and gpg.<format>.program choose which program signs or verifies; log and show verify only
     under show_signature (log-tree.c), stash never signs (builtin/stash.c). Measured in Nachtrag 19b: the
     shape of this cloud container (gpg.ssh.program set) made git log NOT MEASURED while it ran nothing."""
@@ -550,7 +493,7 @@ def test_a_configured_signing_program_alone_leaves_the_form_free(tmp_path, comma
     _git(repo, "config", "gpg.format", "ssh")
     _git(repo, "config", "gpg.ssh.program", _helper(tmp_path))
     _git(repo, "config", "gpg.program", _helper(tmp_path))
-    assert _decision(command, repo) == (None, ""), command
+    assert _not_free(command, repo), command   # review Runde 9: no free form
 
 
 @pytest.mark.parametrize("key, command", [("commit.gpgsign", "git commit"), ("log.showsignature", "git log"),
@@ -558,5 +501,4 @@ def test_a_configured_signing_program_alone_leaves_the_form_free(tmp_path, comma
 def test_the_key_that_triggers_signing_or_verification_counts(tmp_path, key, command):
     repo = _repo(tmp_path)
     _git(repo, "config", key, "true")
-    decision, text = _decision(command, repo)
-    assert decision == "ask" and key in text.lower(), (command, text)
+    assert _not_free(command, repo), command   # review Runde 9: asked as a git form, the key is not read

@@ -271,7 +271,7 @@ def reason(answer: dict) -> str:
     ("cd a && cd b && git push", [("git push", gate.UNKNOWN, None)]),   # Nachtrag 15: a cd chain is NOT MEASURED
     ("cd sub && git push", [("git push", gate.UNKNOWN, None)]),         # Punkt 6: cd sub is now NOT MEASURED
     ("cd $HOME && git push", [("git push", gate.UNKNOWN, None)]),
-    ("git status\ngit push", [("git push", gate.UNKNOWN, None)]),
+    ("git status\ngit push", [("git status", gate.UNKNOWN, [gate._NOT_FREE]), ("git push", gate.UNKNOWN, None)]),
     ("popd; git push", [("git push", gate.UNKNOWN, None)]),
     ("x=$(git push)", [("git push", gate.UNKNOWN, None)]),
     ("`git push`", [("git push", gate.UNKNOWN, None)]),
@@ -283,15 +283,25 @@ def reason(answer: dict) -> str:
     ("git config core.hooksPath /x", [("git config core.hooksPath", ".", [gate._HOOKS_DISABLE])]),
     # An unparsable command (an unbalanced quote) still names its gated call through the fallback.
     ("git commit -m 'no closing quote; git push", [("unparsed command", gate.UNKNOWN, None)]),
-    # Runde 6, R6-2: a per-command -c sets NOT MEASURED, which an allow-listed subcommand no longer drops.
-    ("git -c a=b status push", [("git status", gate.UNKNOWN, [gate._MAYBE_PUSH])]),
+    # Runde 9 (owner choice B): a repository form is never free; a per-command -c changes nothing about that.
+    ("git -c a=b status push", [("git status", gate.UNKNOWN, [gate._NOT_FREE])]),
 ])
 def test_a_gated_call_is_found_in_every_shell_form(command, expected):
     assert gate.gated_calls(command) == expected
 
 
+@pytest.mark.parametrize("command, label", [
+    ("git status", "git status"), ("git stash push", "git stash"), ("git log --grep push", "git log"),
+    ("git config push.default simple", "git config"),
+])
+def test_a_git_form_that_acts_on_a_repository_is_never_free(command, label):
+    """Review Runde 9, owner choice B: these four forms were left alone as local subcommands; every git form that
+    acts on a repository is NOT MEASURED now, whatever its words."""
+    assert gate.gated_calls(command) == [(label, gate.UNKNOWN, [gate._NOT_FREE])]
+
+
 @pytest.mark.parametrize("command", [
-    "git status", "git stash push", "git log --grep push", "git config push.default simple",
+    "git --version",
     "gh pr view 3", "gh pr list", "gh release list", "npm publish", "ls -la",
     "git commit -m 'no closing quote",
     "echo 'git push'",   # Nachtrag 15: echo does not execute its argument, so it is not a gated call
@@ -361,7 +371,9 @@ def test_a_malformed_declaration_is_refused(raw):
 # --- the answers -------------------------------------------------------------------------------------
 
 def test_a_call_the_gate_does_not_know_gets_no_answer(shim, repo):
-    assert run_gate(shim, repo, "git status && ls") is None
+    assert run_gate(shim, repo, "ls -la && echo done") is None
+    assert run_gate(shim, repo, "git --version") is None
+    assert decision(run_gate(shim, repo, "git status && ls")) == "ask"   # review Runde 9: no free git form
 
 
 def test_declared_evidence_that_verifies_gets_no_permission_decision(shim, repo):
@@ -859,7 +871,7 @@ def test_the_hook_runs_the_gate_on_every_shell_call_with_room_for_its_deadline()
 
 def test_the_hook_blocks_the_call_when_the_gate_cannot_run(tmp_path, repo):
     (entry,) = _hook_entries()
-    event = json.dumps({"cwd": str(repo), "tool_input": {"command": "git status"}})
+    event = json.dumps({"cwd": str(repo), "tool_input": {"command": "git --version"}})
     ok = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
                         env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), check=False)
     assert (ok.returncode, ok.stdout) == (0, "")

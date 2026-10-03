@@ -72,6 +72,13 @@ def _decision(command: str, repo: pathlib.Path, host: str = "claude") -> tuple[s
     return outcome.decision, outcome.text
 
 
+def _not_free(command: str, repo: pathlib.Path, host: str = "claude") -> bool:
+    """Review Runde 9, owner choice B: the form asks with the reason that no git form is free."""
+    outcome = gate.decide(command, str(repo), _deadline(), host=host)
+    return (outcome is not None and outcome.decision == "ask"
+            and "git_form_not_free" in {v.reason_id for v in outcome.verdicts})
+
+
 def _repo(tmp_path: pathlib.Path, name: str = "r") -> pathlib.Path:
     """A plain repository with one commit and a bare remote `origin`, no hook and no helper."""
     repo, bare = tmp_path / name, tmp_path / f"{name}.git"
@@ -288,10 +295,11 @@ def _status_on_a_terminal(repo: pathlib.Path, bin_dir: pathlib.Path | None = Non
 def test_r8_6_a_valueless_pager_key_is_true_and_asks(tmp_path):
     """R8-6: pager.status without a value, together with a configured core.pager, stayed free; a key without a
     value is true (git-config(1)), and git status on a terminal starts core.pager. The anti-vacuity half: without
-    the key git status starts no pager and the gate stays free; with it git starts the marker."""
+    the key git status starts no pager; with it git starts the marker. Since review Runde 9 git status asks with
+    the key and without it, and the gate does not read the key."""
     repo, marker = _repo(tmp_path), tmp_path / "marker-pager"
     _git(repo, "config", "core.pager", str(_marker_program(tmp_path / "bin", marker, "pager.sh", "cat >/dev/null\n")))
-    assert _decision("git status", repo) == (None, "")
+    assert _not_free("git status", repo)
     _status_on_a_terminal(repo)
     assert not marker.exists(), "git status pages without pager.status; the case would not isolate the key"
     with (repo / ".git" / "config").open("a", encoding="utf-8") as config:
@@ -330,34 +338,33 @@ def test_r8_2_a_promisor_key_with_an_empty_remote_subsection_is_a_partial_clone(
     assert _git(repo, "config", "--get-regexp", r"^remote\.\.promisor$") == "remote..promisor true"
     with pytest.raises(gate.GateError, match="partial clone"):
         gate.tree_digest(str(repo), "HEAD", _deadline())
-    decision, text = _decision("git cat-file -p HEAD", repo)
-    assert decision == "ask", text
-    assert "remote..promisor" in text, text
+    assert _not_free("git cat-file -p HEAD", repo)   # review Runde 9: asked as a git form, the key is not read
 
 
 # --- R8-3: the reviewer's counterprobes for three locks no test caught alone (end-to-end, the gate's verdict) ---
 
-def test_r8_3_git_status_in_a_nested_shell_is_not_bound(tmp_path):
-    """R8-3, first counterprobe: a nested shell running `git status --short` asks, because the gate cannot bind
-    the inner git to a repository; with the nested-shell lock undone alone it got no answer. The control: the
-    same form, bare, in the same clean repository, stays free."""
+def test_r8_3_git_version_in_a_nested_shell_is_not_bound(tmp_path):
+    """R8-3, first counterprobe: a nested shell running a git form asks, because the gate cannot bind the inner
+    git; with the nested-shell lock undone alone it got no answer. Since review Runde 9 the only free form is the
+    bare `git --version`, so the lock is shown on it: bare it stays free (the control), inside `sh -c` it asks.
+    `git status --short` asks bare and nested alike."""
     repo = _repo(tmp_path)
-    assert _decision("git status --short", repo) == (None, "")
-    decision, text = _decision("sh -c 'git status --short'", repo)
-    assert decision == "ask", text
-    assert "cannot bind git status" in text, text
+    assert _decision("git --version", repo) == (None, "")
+    assert _not_free("sh -c 'git --version'", repo)
+    assert _not_free("sh -c 'git status --short'", repo)
 
 
-@pytest.mark.parametrize("command", ["git status --short | cat", "git status --short &",
-                                     "git status --short <<EOF\nx\nEOF", "echo $(git status --short)"],
+@pytest.mark.parametrize("command", ["git --version | cat", "git --version &",
+                                     "git --version <<EOF\nx\nEOF", "echo $(git --version)"],
                          ids=["pipeline", "background", "here-document", "substitution"])
-def test_r8_3_git_status_in_a_pipeline_background_here_document_or_substitution_is_not_bound(tmp_path, command):
+def test_r8_3_git_version_in_a_pipeline_background_here_document_or_substitution_is_not_bound(tmp_path, command):
     """R8-3, second counterprobe, four cases: each form asks; with the unbinding lock for pipelines, the
-    background, here-documents and substitutions undone alone, each got no answer."""
+    background, here-documents and substitutions undone alone, each got no answer. Since review Runde 9 shown on
+    the bare `git --version`, the only free form; the same four forms with `git status --short` ask too."""
     repo = _repo(tmp_path)
-    decision, text = _decision(command, repo)
-    assert decision == "ask", text
-    assert "cannot bind git status" in text, text
+    assert _decision("git --version", repo) == (None, "")
+    assert _not_free(command, repo), command
+    assert _not_free(command.replace("git --version", "git status --short"), repo), command
 
 
 def _trace_reader():
