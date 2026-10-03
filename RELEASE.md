@@ -232,11 +232,14 @@ environment's own site directory or rooted at a directory under the interpreter 
 `lib-dynload` (any clone that shares a directory with the interpreter's installation, in either
 direction), and, under `-I`, a run whose search path at start already named a directory of the
 clone. The verifier also refuses a clone whose own git configuration names a program for git to
-run, a `filter`, `diff` or `merge` driver, `core.fsmonitor`, an ssh, pager, editor or credential
-command and the other families the script lists, and a partial clone, whose object reads would
-fetch through a transport its configuration names; a full clone straight from the forge carries no
-such setting. It does not read `.git/info/attributes`: an attribute selects a program only through a
-configured driver command, and that the refused families are every such command is not shown.
+run from the families the script lists (a `filter`, `diff` or `merge` driver, `core.fsmonitor`,
+`core.hooksPath`, an ssh, proxy, pager, editor or credential command, a remote's transport program,
+a difftool or mergetool command, a shell alias), a partial clone, whose object reads would fetch
+through a transport its configuration names, and a clone whose effective attributes, as git
+resolves them from the checkout's `.gitattributes` files, `.git/info/attributes` and macros, name a
+`filter`, `diff` or `merge` driver git does not ship; a full clone straight from the forge carries
+no such setting. That the listed families are every program git can be configured to run is not
+shown. A directory under `scripts/` or `src/` that cannot be listed refuses the measurement too.
 Without `-I` the verifier still takes every directory of the checkout off its import path before its
 next import, and it refuses with exit 2 a run in which a module of the checkout was already loaded at
 start, such as a `sitecustomize.py` reached through `PYTHONPATH`. Code that runs before the first

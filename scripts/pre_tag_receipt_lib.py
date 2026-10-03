@@ -132,7 +132,9 @@ def git_environment(root: Path) -> dict:
 #: repository format's `extensions.partialClone`. A repository that carries any of them, whatever the value, is asked
 #: nothing further by either funnel, so no object is read from it and nothing is fetched. A full clone from the forge
 #: carries none. The verifier carries the same pattern; the funnel contract holds the two equal.
-_TEILKLON_SCHLUESSEL = r"^(extensions\.partialclone|remote\..+\.(promisor|partialclonefilter))$"
+#: The subsection may be EMPTY (`remote..promisor`, which git accepts; external review of d97f6e7b, R2-2), so the middle
+#: of the pattern is `.*`, not `.+`.
+_TEILKLON_SCHLUESSEL = r"^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$"
 
 
 def _nennt_die_wurzel(antwort: bytes, root: Path) -> bool:

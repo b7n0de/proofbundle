@@ -25,11 +25,14 @@ check inside a process that has already started can replace that precondition; w
 is what it can still see: a virtual environment created inside the clone, a clone in the environment's own site
 directory, a clone under the interpreter's installation (``lib-dynload`` and the rest), and, under ``-I``, a run whose
 search path at start already named a directory of the clone. A clone whose own git configuration names a program for
-git to run (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``, an ssh, pager, editor or credential command,
-and the other families listed in ``_GIT_PROGRAM_KEYS`` and ``_GIT_PROGRAM_EXACT``) is refused, and so is a partial
-clone, whose object reads would fetch through a transport its configuration names. ``.git/info/attributes`` is not
-read: an attribute selects a program only through a configured driver command, and whether the refused families are
-every such command is not shown here. Without ``-I`` the script still takes every directory of the checkout off its
+git to run from the listed families (a ``filter``/``diff``/``merge`` driver, ``core.fsmonitor``, ``core.hooksPath``,
+an ssh, proxy, pager, editor or credential command, a remote's transport program, a difftool or mergetool command, a
+shell alias; ``_GIT_PROGRAM_KEYS`` and ``_GIT_PROGRAM_EXACT``) is refused; that these families are every
+program-selecting key is not shown. So is a partial clone, whose object reads would fetch through a transport its
+configuration names, and a clone whose effective attributes (``.gitattributes`` of the checkout,
+``.git/info/attributes``, macros, as ``git check-attr`` resolves them) name a ``filter``, ``diff`` or ``merge`` driver
+git does not ship. A directory under ``scripts/`` or ``src/`` that cannot be listed refuses the measurement as well.
+Without ``-I`` the script still takes every directory of the checkout off its
 path before its first further import, and it refuses a run in which a module of the checkout was already loaded at
 start (a ``sitecustomize.py`` reached through ``PYTHONPATH``); code that runs before the first line and hides itself is
 beyond what any check inside the script can see. Run the script of the clone you verify: only the checkout ``--repo``
@@ -532,8 +535,9 @@ def _git_environment(root: Path) -> dict:
 
 #: The keys that make a repository a partial clone (the library's `_TEILKLON_SCHLUESSEL`; the reason is there). External
 #: review of 65d8f8cd, F3: a missing object of such a clone ran the configured `remote.origin.uploadpack` from `_objekte`,
-#: `_baum` and `_measure` before any refusal. `_git` asks nothing further of a repository that carries one of them.
-_TEILKLON_SCHLUESSEL = r"^(extensions\.partialclone|remote\..+\.(promisor|partialclonefilter))$"
+#: `_baum` and `_measure` before any refusal. `_git` asks nothing further of a repository that carries one of them. The
+#: subsection may be empty (`remote..promisor`, external review of d97f6e7b, R2-2).
+_TEILKLON_SCHLUESSEL = r"^(extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$"
 #: How the funnel's refusal of a partial clone begins, so `_measure` can give it as the reason it is.
 _TEILKLON_GRUND = "the clone is a partial clone"
 
@@ -547,6 +551,10 @@ _GIT_PROGRAM_KEYS = {
     ("filter", "clean"), ("filter", "smudge"), ("filter", "process"),
     ("diff", "command"), ("diff", "textconv"), ("merge", "driver"),
     ("credential", "helper"), ("gpg", "program"),
+    # External review of d97f6e7b, question 2 (measured there: each of these came back `[]`): the transport programs of
+    # a remote, and the external tool commands. `difftool`/`mergetool` `.path` are the same family as `.cmd`.
+    ("remote", "uploadpack"), ("remote", "receivepack"), ("remote", "vcs"),
+    ("difftool", "cmd"), ("difftool", "path"), ("mergetool", "cmd"), ("mergetool", "path"),
 }
 #: First components whose every subkey names a program (`pager.<cmd>`), unless the value is a plain boolean. This is
 #: the ONLY family whose boolean value is exempted; see the reason at the matching below.
@@ -557,8 +565,28 @@ _GIT_PROGRAM_EXACT = {
     "credential.helper", "uploadpack.packobjectshook", "pack.packsizelimit.command",
     "interactive.difffilter", "gpg.ssh.defaultkeycommand", "gpg.ssh.allowedsignerscommand",
     "gpg.ssh.revocationfile",
+    # External review of d97f6e7b, question 2: the proxy command of the git transport.
+    "core.gitproxy",
 }
+#: Program keys for which git reads EXACTLY the empty value as "none": an empty `core.fsmonitor` switches the monitor
+#: off (and the funnel itself pins `-c core.fsmonitor=`), an empty filter command applies no filter, an empty
+#: credential helper resets the list. Every other program key is refused when present, even empty; white space is never
+#: empty here, because the value is compared as git stores it, not stripped. `core.hooksPath` is deliberately NOT in this
+#: set: its value is a DIRECTORY, an empty one is not an off switch (git resolves the hooks against the file system
+#: root), and one of white space names a real relative directory (external review of d97f6e7b, R2-1, measured there
+#: with one space), so it is refused whenever it is set.
+_GIT_PROGRAM_EMPTY_IS_OFF = {"core.fsmonitor", "filter.*.clean", "filter.*.smudge", "filter.*.process",
+                             "credential.helper", "credential.*.helper"}
+#: A shell alias (`alias.<name>=!command`) runs a program when the alias is used; a plain alias names a git command.
+_GIT_ALIAS_SHELL = "!"
 _GIT_BOOLEAN = {"", "true", "false", "0", "1", "yes", "no", "on", "off"}
+
+
+def _leer_heisst_aus(key_l: str) -> bool:
+    """Whether git reads exactly the empty value of the program key `key_l` as "none" (`_GIT_PROGRAM_EMPTY_IS_OFF`)."""
+    teile = key_l.split(".")
+    form = key_l if len(teile) < 3 else f"{teile[0]}.*.{teile[-1]}"
+    return key_l in _GIT_PROGRAM_EMPTY_IS_OFF or form in _GIT_PROGRAM_EMPTY_IS_OFF
 
 
 def _git_configuration_selects_a_program(repo: Path) -> list:
@@ -566,15 +594,17 @@ def _git_configuration_selects_a_program(repo: Path) -> list:
 
     Read through this script's own funnel, with the global and system configuration already sent to the null device
     (`_git_environment`), so `git config --list --includes` returns the clone's own `.git/config` and the files it
-    includes (`include`, `includeIf`) and nothing from outside. A key is reported when it names a program and its value
-    is not empty: a `filter.<name>.clean`/`.smudge`/`.process`, a `diff.<name>.command`/`.textconv`, a
-    `merge.<name>.driver`, or one of the exact program-naming keys (`core.fsmonitor`, `core.hooksPath`, an ssh or
-    alternate-ref command, a configured pager or editor, a credential helper). A boolean value is exempted for
-    `pager.<cmd>` only, the one family git reads as a switch. An unparsable line is reported as a refusal of its own,
-    never dropped. `.git/info/attributes` is NOT read: an attribute `filter=x` runs code only when `filter.x.*` names a
-    command, which this refuses, but whether these families are every configured command an attribute can select is
-    not shown (external review of 65d8f8cd, F2), so this is a refusal of the listed families and not a proof that no
-    clone-chosen program exists."""
+    includes (`include`, `includeIf`) and nothing from outside. A key is reported when it names a program from the
+    listed families: a `filter.<name>.clean`/`.smudge`/`.process`, a `diff.<name>.command`/`.textconv`, a
+    `merge.<name>.driver`, a remote's `uploadpack`/`receivepack`/`vcs`, a `difftool`/`mergetool` command or path, a
+    shell alias, or one of the exact program-naming keys (`core.fsmonitor`, `core.hooksPath`, `core.gitProxy`, an ssh
+    or alternate-ref command, a configured pager or editor, a credential helper). The value is compared as git stores
+    it; `core.hooksPath` is refused whenever it is set, and an empty value passes only for the keys where git reads it
+    as "none". A boolean value is exempted for `pager.<cmd>` only, the one family git reads as a switch. An unparsable
+    line is reported as a refusal of its own, never dropped. This is a refusal of the listed families, measured family
+    by family, and not a proof that no clone-chosen program exists: the external review of d97f6e7b showed the earlier
+    list incomplete, and that the present one is complete is not shown. The attributes that select drivers are judged
+    separately (`_git_attributes_select_a_driver`)."""
     rc, aus, err = _git(repo, "config", "--list", "-z", "--includes")
     if rc != 0:
         # No configuration at all is rc 1 with empty output; a real failure carries a message.
@@ -598,12 +628,72 @@ def _git_configuration_selects_a_program(repo: Path) -> list:
         # and as a pager command otherwise, so only that family keeps the exemption. For every other key the value IS
         # the program or the directory: `filter.<n>.clean=true` runs the command `true`, `core.sshCommand=false` runs
         # `false`, `core.hooksPath=off` names a directory `off`, and `core.fsmonitor` is a hook command on the git this
-        # was measured with (2.34.1, whose `git help config` names no boolean form), so it is not exempted either. An
-        # empty value selects no program and stays allowed; the funnel's own `-c core.fsmonitor=` is one.
+        # was measured with (2.34.1, whose `git help config` names no boolean form), so it is not exempted either.
+        # THE VALUE IS COMPARED AS GIT STORES IT (external review of d97f6e7b, R2-1): stripping it made one space look
+        # empty, and `core.hooksPath` of one space names a real directory. A program key is allowed empty only where git
+        # reads the empty value as "none" (`_GIT_PROGRAM_EMPTY_IS_OFF`, the funnel's own `-c core.fsmonitor=` among
+        # them); `core.hooksPath` is not among them, so it is refused whenever it is set.
         if len(teile) >= 2 and teile[0] in _GIT_PROGRAM_FIRST:
-            gewaehlt = value.strip().lower() not in _GIT_BOOLEAN
-        if gewaehlt and value.strip():
-            funde.append(f"{key}={value[:60]}")
+            gewaehlt = value.lower() not in _GIT_BOOLEAN
+        if teile[0] == "alias" and value.lstrip().startswith(_GIT_ALIAS_SHELL):
+            gewaehlt = True
+        if gewaehlt and (value != "" or not _leer_heisst_aus(key_l)):
+            funde.append(f"{key}={value[:60]!r}")
+    return funde
+
+
+#: The diff patterns git ships (git 2.34.1, `git help gitattributes`, "The following built in patterns are
+#: available"). A built-in pattern sets a hunk header and word rule and names no program. A name git added later
+#: (`kotlin`, say) is not in this list and is refused: fail closed, a refusal of a harmless name, never a pass of a
+#: driver.
+_DIFF_EINGEBAUT = frozenset((
+    "ada", "bash", "bibtex", "cpp", "csharp", "css", "dts", "elixir", "fortran", "fountain", "golang", "html",
+    "java", "markdown", "matlab", "objc", "pascal", "perl", "php", "python", "ruby", "rust", "scheme", "tex"))
+#: The merge drivers git ships (`git help gitattributes`, "Built-in merge drivers").
+_MERGE_EINGEBAUT = frozenset(("text", "binary", "union"))
+#: The three states `git check-attr` reports for an attribute that carries no value.
+_ATTR_OHNE_WERT = frozenset(("unspecified", "set", "unset"))
+
+
+def _git_attributes_select_a_driver(repo: Path, pfade) -> list:
+    """Every committed path whose EFFECTIVE `filter`, `diff` or `merge` attribute names a driver git does not ship, as
+    `path: attribute=value` (owner decision OA-0a507fd998 A, after the external review of d97f6e7b did not confirm the
+    configuration families as complete).
+
+    The attributes are taken as git applies them, by git itself: `git check-attr --stdin` through this script's own
+    funnel, for every path of the commit, reads the `.gitattributes` of the checkout in every directory on the path,
+    `.git/info/attributes`, and the macros (`[attr]name ...`) they define, in git's order of precedence; the global
+    attributes file is pinned to the null device (`core.attributesFile`). A search for driver names in one file would
+    miss a directory rule, a macro and the precedence between them, which the review named. Refused: any named
+    `filter` (git ships none), a `diff` that is not a built-in pattern (`_DIFF_EINGEBAUT`), a `merge` that is not a
+    built-in driver (`_MERGE_EINGEBAUT`). An attribute that is set, unset or unspecified names no driver.
+
+    WHAT THIS IS AND IS NOT. The verifier's own git calls read objects and run no worktree filter, diff or merge, so a
+    driver named here would not run in them (`cat-file --batch` uses neither `--filters` nor `--textconv`); the review
+    measured a clone with unconfigured driver names still VERIFIED, a narrow separation it confirmed, not a complete
+    execution boundary. This refusal is the owner's contract: a clone that names a driver git would run for its files
+    is not measured, whatever the configuration says. Consequence for this repository: a commit that adds such an
+    attribute would be refused by its own verifier."""
+    pfade = [p for p in pfade if isinstance(p, str) and p]
+    if not pfade:
+        return []
+    rc, aus, err = _git(repo, "check-attr", "-z", "--stdin", "filter", "diff", "merge",
+                        eingabe=b"".join(os.fsencode(p) + b"\0" for p in pfade))
+    if rc != 0:
+        return [f"the attributes of the clone could not be read: {err or 'git check-attr failed'}"]
+    teile = aus.split(b"\0")
+    if teile and teile[-1] == b"":
+        teile = teile[:-1]
+    if len(teile) % 3:
+        return ["git check-attr answered in a form that is not path, attribute and value"]
+    funde = []
+    for i in range(0, len(teile), 3):
+        pfad, attribut, wert = (os.fsdecode(x) for x in teile[i:i + 3])
+        if wert in _ATTR_OHNE_WERT:
+            continue
+        if (attribut == "filter" or (attribut == "diff" and wert not in _DIFF_EINGEBAUT)
+                or (attribut == "merge" and wert not in _MERGE_EINGEBAUT)):
+            funde.append(f"{pfad}: {attribut}={wert[:40]}")
     return funde
 
 
@@ -866,10 +956,18 @@ def _code_on_disk_that_is_not_the_commit(repo: Path, baum: dict) -> list:
         h.update(b"blob " + str(len(inhalt)).encode("ascii") + b"\0" + inhalt)
         if h.hexdigest() != oid:
             funde.append(f"{rel}: its bytes in the checkout are not the committed blob")
+    # A DIRECTORY THAT CANNOT BE LISTED IS AN INCOMPLETE MEASUREMENT, NOT A CLEAN ONE (external review of d97f6e7b,
+    # R2-5). `os.walk` without `onerror` drops every `scandir` error silently, so a directory the walk could not list
+    # left no finding, and the library was loaded next. The comparison of committed paths above does not cover it,
+    # because it is exactly the uncommitted files it does not know; and a directory that can be searched but not listed
+    # still lets Python import a module from it by name. Every error of the walk is a finding now, and any finding
+    # refuses with exit 2 before the library is loaded.
+    nicht_gelistet: list = []
     for teil in _CODE_PFADE:
         if teil in abgelehnt:
             continue                            # already refused above; `os.walk` would follow a linked top
-        for ordner, unterordner, dateien in os.walk(wurzel / teil, followlinks=False):
+        for ordner, unterordner, dateien in os.walk(wurzel / teil, followlinks=False,
+                                                    onerror=nicht_gelistet.append):
             unterordner[:] = [d for d in unterordner if d != "__pycache__"]
             rel_ordner = Path(ordner).relative_to(wurzel).as_posix()
             for name in sorted(unterordner) + sorted(dateien):
@@ -878,6 +976,14 @@ def _code_on_disk_that_is_not_the_commit(repo: Path, baum: dict) -> list:
                     continue
                 if os.path.islink(os.path.join(ordner, name)) or (name in dateien and name.endswith(suffixe)):
                     funde.append(f"{rel}: not in the commit, and Python could import it or follow it")
+    for fehler in nicht_gelistet:
+        ort = getattr(fehler, "filename", None)
+        try:
+            rel = Path(os.fsdecode(ort)).relative_to(wurzel).as_posix() if ort is not None else "?"
+        except (ValueError, TypeError):
+            rel = os.fsdecode(ort) if isinstance(ort, (str, bytes)) else "?"
+        funde.append(f"{rel}: cannot be listed ({type(fehler).__name__}), so the files in it were not compared; "
+                     "Python may still import a module from it by name")
     return funde
 
 
@@ -955,9 +1061,10 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     # check further down is `_code_on_disk_that_is_not_the_commit`, which hashes the bytes on disk itself and calls no
     # git worktree operation, so the `git status` that ran a `filter.*.clean` (measured on 2026-10-02 at 653b5d67) is
     # gone. As the owner's class decision (OA-4496f29e70), a clone whose own configuration names a program from the
-    # families of `_git_configuration_selects_a_program` is refused; its `.git/info/attributes` is not read, and that
-    # the families are complete is not shown. The global and system configuration are read from the null device and no
-    # program-selecting environment name is inherited (`_git_environment`).
+    # families of `_git_configuration_selects_a_program` is refused, and that the families are complete is not shown;
+    # the attributes are judged after the tree is read (`_git_attributes_select_a_driver`, owner OA-0a507fd998 A). The
+    # global and system configuration are read from the null device and no program-selecting environment name is
+    # inherited (`_git_environment`).
     programme = _git_configuration_selects_a_program(repo)
     if programme:
         out["reason"] = (f"keys of the clone's own git configuration select a program to run "
@@ -988,6 +1095,16 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         out["reason"] = _kein_objekt_grund(exc)
         return out
     baum = {pfad: (typ, oid) for pfad, (typ, oid, _modus) in eintraege.items()}
+    # NO ATTRIBUTE OF THE CLONE NAMES A DRIVER GIT WOULD RUN (owner decision OA-0a507fd998 A, after the external review of
+    # d97f6e7b did not confirm the configuration families as complete). Judged for every committed file, with the
+    # attributes as git itself resolves them (see `_git_attributes_select_a_driver`).
+    treiber = _git_attributes_select_a_driver(repo, [p for p, (t, _o, _m) in eintraege.items() if t == "blob"])
+    if treiber:
+        out["reason"] = (f"an attribute of the clone names a driver git would run for its files ({treiber[0][:160]}"
+                         f"{' …' if len(treiber) > 1 else ''}); the attributes are read as git applies them "
+                         "(.gitattributes of the checkout, .git/info/attributes, macros), and a clone from the forge "
+                         "names no such driver, so clone afresh, then run again")
+        return out
     # THE CODE THAT JUDGES MUST BE THE COMMITTED CODE (lens A, 2026-09-18, P0). HEAD equal to the commit says nothing
     # about the files on disk; an uncommitted edit to the receipt library or to the signature primitive flipped a
     # garbage receipt to VERIFIED with HEAD untouched. Every committed file under scripts/ and src/ is compared with

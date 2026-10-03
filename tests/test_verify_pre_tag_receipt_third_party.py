@@ -1147,9 +1147,11 @@ class TestExternalReviewOf65d8f8cd:
         """F5, the review's own case: a `sitecustomize.py` at the top of the clone, reached through the `.pth` path line.
         It runs before the first line (the review measured it on CPython 3.12.14); the verifier cannot prevent that and
         must not give a verdict after it. GUARD: at 40f52da4 the tripwire for a loaded module of the checkout already
-        refused it with exit 2, as the review saw. Where the interpreter's own standard library carries a
-        `sitecustomize` (Debian and Ubuntu builds), Python takes that one first and the clone's never runs; the case is
-        measured to be absent there and skips, naming the module that was taken."""
+        refused it with exit 2, as the review saw. Where the start of the interpreter under test loads a `sitecustomize`
+        from outside the clone first (measured on the Debian build of Python 3.10.12 here: its standard library's own),
+        the clone's never runs; the case is measured to be absent on that interpreter and skips, naming the module that
+        was loaded. The review ran it on CPython 3.12.14 (external review of d97f6e7b, R2-4: one measured build says
+        nothing about every build of a distribution)."""
         repo, _env, _priv, _kand, good = welt
         marker = tmp_path / "_marker_sitecustomize"
         (repo / "sitecustomize.py").write_text(f"open({str(marker)!r}, 'w').write('ran')\n")
@@ -1185,3 +1187,139 @@ class TestExternalReviewOf65d8f8cd:
                          "configuration or `.git/info/attributes` names a program",
                          "the remaining git calls read objects (`cat-file --batch`, `ls-tree`, `rev-parse`) and run no"):
                 assert satz not in flach, (name, satz)
+
+
+class TestExternalReviewRound2OfD97f6e7b:
+    """The second external review, of 6e05e186, 48d58901 and d97f6e7b (FIX_FIRST, families NOT CONFIRMED, 2026-10-03), one
+    case per finding, each the case the review named. Owner B on OA-4954d09148 and the rule of OA-0a507fd998 ("if he does
+    not confirm them, A applies, with a fix of our own and a regression test before the tag"). Each case was run red with
+    its fix removed and against the scripts of d97f6e7b, and green with the fix; the numbers stand in the round's report."""
+
+    def test_R2_5_a_directory_that_cannot_be_listed_refuses(self, welt):
+        """R2-5: `os.walk` without `onerror` dropped the error of a directory it could not list, so an uncommitted
+        directory under `src/` that cannot be listed left no finding and the run went on to the library. Now that is an
+        incomplete measurement: exit 2, before the library is loaded. The readable positive control: the same directory,
+        listable, is refused for the module in it; without the directory the good receipt verifies."""
+        import os  # noqa: PLC0415
+        import stat  # noqa: PLC0415
+        repo, env, _priv, _kand, commit = welt
+        ordner = repo / "src" / "proofbundle" / "_nicht_gelistet"
+        ordner.mkdir()
+        (ordner / "modul.py").write_text("X = 1\n")
+        ordner.chmod(stat.S_IWUSR | stat.S_IXUSR)                 # searchable, not listable
+        try:
+            try:
+                os.listdir(ordner)
+            except PermissionError:
+                pass
+            else:
+                pytest.skip("this user can list a directory without its read bit (root?): the case does not exist here")
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 2 and res["verdict"] == "NOT_MEASURABLE", roh
+            assert "cannot be listed" in res["reason"], res["reason"]
+        finally:
+            ordner.chmod(stat.S_IRWXU)
+        rc, res, roh = _verify(repo, env, commit)                  # listable: the module itself is the finding
+        assert rc == 2 and "not in the commit" in res["reason"], roh
+        shutil.rmtree(ordner)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    def test_R2_1_a_hooks_path_of_white_space_or_empty_is_refused(self, welt):
+        """R2-1: the value was stripped, so `core.hooksPath` of one space looked empty and came back `[]`; it names a real
+        relative directory. A directory key is refused whenever it is set, even empty. The control: the funnel's own
+        empty `core.fsmonitor`, which git reads as off, stays free."""
+        repo, env, _priv, _kand, commit = welt
+        mod = _load_by_path(repo / "scripts" / VERIFIER, "_r2_1_verifier")
+        for wert in (" ", ""):
+            _git(["config", "--local", "core.hooksPath", wert], repo)
+            gefunden = mod._git_configuration_selects_a_program(repo)
+            assert [z for z in gefunden if z.lower().startswith("core.hookspath=")], (repr(wert), gefunden)
+            rc, res, roh = _verify(repo, env, commit)
+            assert rc == 2 and "select a program" in (res["reason"] or ""), (repr(wert), roh)
+        _git(["config", "--local", "--unset", "core.hooksPath"], repo)
+        # White space is not empty for a key whose EMPTY value git reads as off: `core.fsmonitor` of one space is a hook
+        # path, not the switch. This is the half that catches a stripped comparison; `core.hooksPath` above is refused
+        # with or without it.
+        _git(["config", "--local", "core.fsmonitor", " "], repo)
+        assert [z for z in mod._git_configuration_selects_a_program(repo) if z.lower().startswith("core.fsmonitor")]
+        _git(["config", "--local", "core.fsmonitor", ""], repo)
+        assert not [z for z in mod._git_configuration_selects_a_program(repo) if z.lower().startswith("core.fsmonitor")]
+        _git(["config", "--local", "--unset", "core.fsmonitor"], repo)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    def test_R2_2_an_empty_remote_subsection_is_a_partial_clone(self, welt):
+        """R2-2: `remote..promisor`, a remote with an EMPTY name, was not matched by `remote\\..+`; both funnels refuse it
+        now before any object is read. Written into `.git/config` as git stores it (`[remote ""]`)."""
+        repo, env, _priv, _kand, commit = welt
+        with open(repo / ".git" / "config", "a", encoding="utf-8") as f:
+            f.write('[remote ""]\n\tpromisor = true\n')
+        assert "promisor" in _git(["config", "--local", "--get-regexp", "promisor"], repo), \
+            "precondition: git reads the empty subsection"
+        lib = _load_by_path(repo / "scripts" / "pre_tag_receipt_lib.py", "_r2_2_lib")
+        with pytest.raises(lib.BaumNichtLesbar, match="partial clone"):
+            lib.git_run(repo, "rev-parse", "HEAD")
+        verifier = _load_by_path(repo / "scripts" / VERIFIER, "_r2_2_verifier")
+        rc, _out, err = verifier._git(repo, "rev-parse", "HEAD")
+        assert rc == 128 and "partial clone" in err, (rc, err)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and res["reason"].startswith("the clone is a partial clone"), roh
+
+    def test_R2_families_named_by_the_review_are_refused(self, welt):
+        """Question 2 of the review: `core.gitProxy`, `remote.origin.uploadpack`, `remote.origin.receivepack`,
+        `remote.origin.vcs`, `difftool.demo.cmd` and a shell alias each came back `[]` at d97f6e7b. Each is refused now,
+        at the function and, for one, end to end. Controls: a plain alias and the remote's URL name no program."""
+        repo, env, _priv, _kand, commit = welt
+        mod = _load_by_path(repo / "scripts" / VERIFIER, "_r2_families_verifier")
+        faelle = {"core.gitProxy": "proxy-programm", "remote.origin.uploadpack": "upload-programm",
+                  "remote.origin.receivepack": "receive-programm", "remote.origin.vcs": "fremd",
+                  "difftool.demo.cmd": "diff-programm", "alias.lauf": "!touch marker"}
+        for key, value in faelle.items():
+            _git(["config", "--local", key, value], repo)
+        _git(["config", "--local", "alias.st", "status"], repo)
+        _git(["config", "--local", "remote.origin.url", str(repo.parent / "nirgends")], repo)
+        gefunden = {z.split("=", 1)[0].lower() for z in mod._git_configuration_selects_a_program(repo)}
+        for key in faelle:
+            assert key.lower() in gefunden, (key, sorted(gefunden))
+        assert "alias.st" not in gefunden and "remote.origin.url" not in gefunden, sorted(gefunden)
+        for key in faelle:
+            if key != "core.gitProxy":
+                _git(["config", "--local", "--unset", key], repo)
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 2 and "core.gitproxy" in (res["reason"] or "").lower(), roh
+
+    def test_R2_attributes_that_name_a_driver_are_refused_as_git_resolves_them(self, welt):
+        """Owner OA-0a507fd998 A, as the review describes it: the EFFECTIVE attributes per path, including
+        `.git/info/attributes`, a rule in a subdirectory's `.gitattributes` and a macro. At d97f6e7b a clone with
+        unconfigured driver names verified (the review's own control); each of the three forms is refused now. Controls:
+        built-in patterns and drivers (`diff=python`, `merge=union`), `-text` and a harmless macro still verify."""
+        repo, env, _priv, _kand, commit = welt
+        info = repo / ".git" / "info"
+        info.mkdir(parents=True, exist_ok=True)
+        unter = repo / "src" / "proofbundle" / ".gitattributes"
+        faelle = {
+            "info/attributes": lambda: (info / "attributes").write_text("*.py filter=boese\n"),
+            "subdirectory rule": lambda: unter.write_text("signature.py diff=boese\n"),
+            "macro": lambda: (info / "attributes").write_text("[attr]tarnung merge=boese\nscripts/*.py tarnung\n"),
+        }
+        for name, pflanze in faelle.items():
+            pflanze()
+            try:
+                rc, res, roh = _verify(repo, env, commit)
+                assert rc == 2 and "names a driver" in (res["reason"] or ""), (name, roh)
+            finally:
+                (info / "attributes").unlink(missing_ok=True)
+                unter.unlink(missing_ok=True)
+        (info / "attributes").write_text("[attr]harmlos -diff\n*.py diff=python merge=union\n*.md -text\n* harmlos\n")
+        rc, res, roh = _verify(repo, env, commit)
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+
+    def test_R2_3_R2_4_the_texts_claim_only_what_was_measured(self):
+        """R2-3 and R2-4: the CHANGELOG names the refusal of the LISTED families, not of every program-selecting
+        configuration; RESTRISIKO_620 no longer generalises one measured Debian build to every Debian and Ubuntu build."""
+        changelog = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        assert "selects a program from the listed families" in changelog
+        assert "On Debian and Ubuntu builds" not in restrisiko
+        assert "On the measured Debian build of Python 3.10.12" in restrisiko

@@ -130,8 +130,12 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     another type than the commit names, on a run in which a module of the checkout was loaded before its first line or,
     under `-I`, whose search path at start named a directory of the checkout, when the Python running it shares any
     directory with the clone in either direction, when it is started from another checkout than `--repo`, on a clone
-    whose own git configuration selects a program, and on a partial clone; the release gate and the receipt producer
-    refuse a partial clone too.
+    whose own git configuration selects a program from the listed families, and on a partial clone; it also exits 2 on
+    a clone whose effective attributes name a `filter`, `diff` or `merge` driver git does not ship, and when a
+    directory under `scripts/` or `src/` cannot be listed; the release gate and the receipt producer refuse a partial
+    clone too. A
+    second external review (of d97f6e7b) showed the listed families incomplete; the transport, proxy, difftool and
+    shell-alias keys it named are listed now, and that the list is complete is not claimed.
 
 - **Nothing of the caller reaches a body but what an argument's contract names, and every rule a policy sets is
   applied by its command or the policy is refused** (deep gate of the 6.2.0 release preparation at fda55f98, run 6:

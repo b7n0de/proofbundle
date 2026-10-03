@@ -1175,10 +1175,7 @@ the listed families are every program an attribute can select is not shown; this
 attributes were refused too. Codex at d0e47397 named four more config families the first matching missed (P2, a
 completeness gap); they are matched now, and the review found the boolean exemption of that fix too wide (F1 below).
 Its "measured per family and end to end" holds end to end for `filter.*.clean` only; the other families were checked
-at the function. The sweep over the neighbours: `pre_tag_audit_gate.py`
-reaches git only through the shared funnel (hardened the same way) and inspects no working tree, and
-`pre_tag_receipt.py` compares bytes with `git hash-object --no-filters` and never runs a worktree filter, so neither
-runs a clone-chosen program; both are covered without a source change of their own logic. The verifier also refuses a
+at the function. The sweep over the neighbours found that `pre_tag_audit_gate.py` reaches git only through the shared funnel and inspects no working tree, while `pre_tag_receipt.py` compares bytes with `git hash-object --no-filters`; both now inherit the funnel's refusal of the partial-clone configuration keys listed below. The verifier also refuses a
 script started from another checkout than `--repo` (only `--repo` is compared, while the library loads from the
 script's own checkout; an edited library there gave exit 0 VERIFIED against a clean `--repo`) and a run in which a
 module of the checkout was loaded before its first line, and documents `python -I` with a Python installed outside
@@ -1214,20 +1211,39 @@ yet; the next review decides whether they hold, and no line here says more than 
   `sitecustomize.py` of the clone ran under `-I` (measured by the review on CPython 3.12.14). The verifier cannot keep
   such code from running; the documents now name "no startup file of the interpreter names a directory of the clone"
   as the reader's precondition, and under `-I` a search path at start that names the clone refuses with exit 2. Code
-  that runs at start and removes both its module and its path entry is not seen. On Debian and Ubuntu builds the
-  standard library's own `sitecustomize` is found first and the review's case does not run (measured on 3.10.12,
-  the GUARD case skips there naming the module).
+  that runs at start and removes both its module and its path entry is not seen. On the measured Debian build of Python 3.10.12, the standard library's own `sitecustomize` was found first, so the review's case did not run and the GUARD test skipped, naming the module that was loaded.
 - **R620-REV-F2, small on the texts. The texts said more than was checked**: CHANGELOG, RELEASE.md, this file and
   the verifier's own description said that removing `git status` removed the only git call that could start a
   configured program, that `.git/info/attributes` was refused, that an outside interpreter plus `-I` keeps every
   file of the checkout from running, and that every `lib-dynload` case gave a false VERIFIED. Corrected above and in
   those files; the correction of Codex comment 5961005011 is a draft for the owner and is not posted.
-- **R620-REV-OPEN-1, open, owner decision. `.git/info/attributes` is not read.** The contract of OA-4496f29e70 named
-  the configuration AND the attributes; the verifier refuses the configured program families and does not read the
-  attributes. Whether the narrower contract suffices needs that decision; until then it is not called fulfilled.
+- **R620-REV-OPEN-1, decided by the owner, fixed after d97f6e7b, not reviewed yet. `.git/info/attributes` was not
+  read.** The contract of OA-4496f29e70 named the configuration AND the attributes. The owner's rule on OA-0a507fd998
+  (A if the next review does not confirm the families) applied when the review of d97f6e7b did not: the verifier
+  now judges the effective `filter`, `diff` and `merge` attributes of every committed file as `git check-attr`
+  resolves them (the checkout's `.gitattributes` files, `.git/info/attributes`, macros) and refuses a driver git does
+  not ship. The system attributes file of the machine is not the clone's and is not judged.
 - **R620-REV-OPEN-2, open. Completeness of the program families is not shown.** The families are a list; a
-  program-selecting key the list does not carry is not refused. With partial clones refused, no transport key is
-  reached by an object read; that every other key is unreachable by the verifier's calls is not shown either.
+  program-selecting key the list does not carry is not refused. The review of d97f6e7b found six such keys
+  (`core.gitProxy`, a remote's `uploadpack`, `receivepack` and `vcs`, `difftool.<tool>.cmd`, a shell alias); they
+  are listed now with their direct neighbours (`difftool`/`mergetool` `.path`, `mergetool.<tool>.cmd`). With partial
+  clones refused, no transport key is reached by an object read; that every other key is unreachable by the
+  verifier's calls is not shown.
+
+From the second external review, of 6e05e186, 48d58901 and d97f6e7b (2026-10-03, verdict FIX_FIRST, families NOT
+CONFIRMED; owner B on OA-4954d09148). The fixes below are not reviewed yet.
+- **R620-REV2-5, serious, fixed after d97f6e7b. A directory that cannot be listed passed as clean**: the walk for
+  uncommitted importable files ran `os.walk` without `onerror`, which drops `scandir` errors, so such a directory left
+  no finding and the library was loaded next (derived by the review from the code; its probe was stopped, so a false
+  VERIFIED was not measured there). Every error of the walk is a finding now and refuses with exit 2.
+- **R620-REV2-1, small, fixed after d97f6e7b. White space was read as empty**: the value was stripped, and
+  `core.hooksPath` of one space names a real directory. Values are compared as git stores them; `core.hooksPath` is
+  refused whenever set, and an empty program key passes only where git reads it as "none".
+- **R620-REV2-2, small, fixed after d97f6e7b. An empty remote name was not a partial clone**: `remote..promisor` was not
+  matched by the pattern of either funnel (git 2.51.1 still failed the read with exit 128 and no marker in the review).
+  Both patterns take an empty subsection now.
+- **R620-REV2-3 and -4, small on the texts, corrected after d97f6e7b** with the review's own sentences: the CHANGELOG
+  names the listed families, and the sweep sentence and the F5 sentence of this file claim only what was measured.
 
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
