@@ -280,7 +280,7 @@ default; git-init(1) TEMPLATE DIRECTORY), which later calls run.
 
 <!-- d3-entries:begin (generated from the gate; tests/test_plugin_gate_runde6b.py) -->
 
-Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), `pager.<entry>`, `$GIT_EXEC_PATH` in the hook's environment, and the hook `fsmonitor-watchman` only through `core.fsmonitor`. A row with *submodules* also counts every `submodule.*` key and a `.gitmodules` file, because the gate does not read a submodule's own configuration.
+Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), the partial-clone keys (family promisor), `pager.<entry>`, `$GIT_EXEC_PATH` in the hook's environment, and the hook `fsmonitor-watchman` only through `core.fsmonitor`. A row with *submodules* also counts every `submodule.*` key and a `.gitmodules` file, because the gate does not read a submodule's own configuration.
 
 | Family | Keys and values that count | Variables in the hook's environment | Source |
 |---|---|---|---|
@@ -296,6 +296,7 @@ Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), `pager
 | pager | `core.pager` for an entry that pages by default; `pager.<entry>` for every entry unless false | `$GIT_PAGER`, `$PAGER` | git-config(1) core.pager |
 | signature-format | `format.pretty`, `pretty.<name>` with a value containing `%G` | none | git-config(1) format.pretty, pretty.<name>; pretty-formats %G placeholders verify the signature (pretty.c, lines 1631-1633, check_commit_signature runs gpg.program or gpg) |
 | signature-sort | `branch.sort`, `tag.sort` with a value containing `signature` | none | git-config(1) branch.sort, tag.sort; the ref-filter atom signature verifies (ref-filter.c, line 1749) |
+| promisor | `extensions.partialClone`, `remote.<name>.promisor`, `remote.<name>.partialclonefilter`, whatever the value | none | git-config(1) remote.<name>.promisor, remote.<name>.partialclonefilter; partial-clone (extensions.partialClone): a missing object is fetched from the promisor remote with the transport its configuration names, by any command that reads it (review Runde 7, R7-7) |
 
 | Entry | Options vetted beyond the bare form | Keys that make it NOT MEASURED | Hooks git starts for it (githooks(5)) | Source |
 |---|---|---|---|---|

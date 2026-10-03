@@ -457,6 +457,8 @@ _FAMILY_WORDS = {
     "pager": "`core.pager` for an entry that pages by default; `pager.<entry>` for every entry unless false",
     "signature-format": "`format.pretty`, `pretty.<name>` with a value containing `%G`",
     "signature-sort": "`branch.sort`, `tag.sort` with a value containing `signature`",
+    "promisor": "`extensions.partialClone`, `remote.<name>.promisor`, `remote.<name>.partialclonefilter`, "
+                "whatever the value",
 }
 
 
@@ -466,7 +468,8 @@ def _cell(text: str) -> str:
 
 def _d3_entries_block() -> str:
     out = [_BEGIN, "",
-           "Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), `pager.<entry>`, "
+           "Every entry, in addition to its row: `core.fsmonitor` (family fsmonitor), the partial-clone keys "
+           "(family promisor), `pager.<entry>`, "
            "`$GIT_EXEC_PATH` in the hook's environment, and the hook `fsmonitor-watchman` only through "
            "`core.fsmonitor`. A row with *submodules* also counts every `submodule.*` key and a `.gitmodules` "
            "file, because the gate does not read a submodule's own configuration.", "",

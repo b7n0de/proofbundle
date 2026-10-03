@@ -536,6 +536,10 @@ _KEY_FAMILIES = {
     "signature-sort": (r"(branch|tag)\.sort", lambda k, v: "signature" in (v or ""),
                        "git-config(1) branch.sort, tag.sort; the ref-filter atom signature verifies "
                        "(ref-filter.c, line 1749)"),
+    "promisor": (r"extensions\.partialclone|remote\..+\.(promisor|partialclonefilter)", None,
+                 "git-config(1) remote.<name>.promisor, remote.<name>.partialclonefilter; partial-clone "
+                 "(extensions.partialClone): a missing object is fetched from the promisor remote with the "
+                 "transport its configuration names, by any command that reads it (review Runde 7, R7-7)"),
 }
 #: gpg.program, gpg.<format>.program and gpg.ssh.defaultKeyCommand only choose WHICH program signs or verifies;
 #: alone they start nothing, so they are no family here. What starts it counts instead: these trigger keys, a
@@ -584,8 +588,10 @@ _READ_ONLY = _profile(sources="reads objects, refs or attributes only; runs no d
 #: core.fsmonitor counts for every entry, not only those that compare the worktree: any read of the index
 #: queries the fsmonitor hook (read-cache.c post_read_index_from, line 1971, calls tweak_fsmonitor;
 #: fsmonitor.c, lines 551-614, refresh_fsmonitor), and a revision of the form :<path> reads the index
-#: (gitrevisions(7)), so a mapping per entry would not be sure (Nachtrag 19b, Punkt 3).
-_EVERY_ENTRY = frozenset({"fsmonitor"})
+#: (gitrevisions(7)), so a mapping per entry would not be sure (Nachtrag 19b, Punkt 3). A partial clone counts
+#: for every entry too: any read of a missing object fetches it from the promisor remote and starts its
+#: transport, and an index, a revision or a path can name such an object (review Runde 7, R7-7).
+_EVERY_ENTRY = frozenset({"fsmonitor", "promisor"})
 _WORKTREE = ("filter", "fsmonitor")
 #: Per allow-listed subcommand: the key families and trigger keys that select a program for it, the hooks it
 #: starts (githooks(5)), whether it pages by default (then core.pager counts; pager.<subcommand> counts for
@@ -1163,14 +1169,30 @@ def _read_env() -> dict:
     view git reads while the pack transfer sends the originals, so the range or tree the gate judges would
     otherwise differ from what the push sends (review R3-8). Measured: a graft that reparents the tip hid a
     middle commit from the gate's rev-list until GIT_GRAFT_FILE was emptied; object alternates cannot change
-    what an object id resolves to, so they are not such a rewrite."""
+    what an object id resolves to, so they are not such a rewrite. GIT_NO_LAZY_FETCH=1 keeps a git that
+    honours it from fetching a missing object of a partial clone (review Runde 7, R7-7; measured effective on
+    git 2.43.0 as Ubuntu builds it, 1:2.43.0-1ubuntu7.3). A git that ignores it is caught by
+    _refuse_partial_clone, which does not depend on the version."""
     env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
+    env["GIT_NO_LAZY_FETCH"] = "1"
     return env
 
 
-def _git(repo: str, *args: str, deadline: float) -> subprocess.CompletedProcess:
+#: The configuration keys that make a repository a partial clone, as `git config --get-regexp` matches them
+#: (review Runde 7, R7-7; the same pattern as the release funnel's refusal, Z309, commit 6e05e186). git fetches
+#: an object a partial clone does not hold from the promisor remote the moment a command asks for it, and the
+#: fetch starts the program that remote's configuration names (remote.<name>.uploadpack, an ssh command, a
+#: remote helper). Measured by the reviewer and again here on git 2.43.0: `git cat-file -p <missing>` started a
+#: marker uploadpack, and decide_mcp's diagnosis started it while it read a declaration this clone did not hold.
+#: git makes a remote a promisor through remote.<name>.promisor and remote.<name>.partialclonefilter and through
+#: the repository format's extensions.partialClone; whatever the value, the gate reads no object from such a
+#: repository.
+_PARTIAL_CLONE_KEYS = r"^(extensions\.partialclone|remote\..+\.(promisor|partialclonefilter))$"
+
+
+def _run_git(repo: str, args: tuple, deadline: float) -> subprocess.CompletedProcess:
     left = deadline - time.monotonic()
     if left <= 0:
         raise GateError("the gate ran out of time")
@@ -1181,6 +1203,43 @@ def _git(repo: str, *args: str, deadline: float) -> subprocess.CompletedProcess:
         raise GateError("git is not on PATH") from exc
     except subprocess.TimeoutExpired as exc:
         raise GateError("git did not answer in time") from exc
+
+
+def _refuse_partial_clone(repo: str, deadline: float) -> None:
+    """GateError when repo is a partial clone (_PARTIAL_CLONE_KEYS), asked before an object read, so no read of
+    the gate can fetch. `git config --get-regexp` reads the configuration and no object; exit 1 with no output
+    is "no such key", anything else refuses. A directory that does not exist is left to the call itself, which
+    then fails as before without reading an object."""
+    if not os.path.isdir(repo):
+        return
+    probe = _run_git(repo, ("config", "-z", "--get-regexp", _PARTIAL_CLONE_KEYS), deadline)
+    if probe.returncode == 0 and probe.stdout:
+        names = sorted({e.split(b"\n", 1)[0].decode("utf-8", "replace") for e in probe.stdout.split(b"\0") if e})
+        raise GateError(f"{repo} is a partial clone ({', '.join(names)[:160]}): git fetches an object it does not "
+                        "hold from the promisor remote and starts the program that remote's configuration names, "
+                        "so the gate reads no object from it (NOT MEASURED); clone the repository in full")
+    if probe.returncode != 1 or probe.stdout:
+        why = probe.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise GateError(f"git could not say whether {repo} is a partial clone" + (f": {why[0]}" if why else ""))
+
+
+#: The gate's git calls that read the configuration or the repository layout and no object: the reads of the
+#: state check (_config_entries, _repo_paths) and of the write gate (_state_files). Every other call is asked
+#: _refuse_partial_clone first, so a call not on this list is treated as an object read.
+_OBJECT_FREE_CALLS = frozenset({
+    ("config", "--list", "--null", "--show-origin", "--show-scope"),
+    ("rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir", "--git-path", "hooks"),
+    ("rev-parse", "--path-format=absolute", "--show-toplevel"),
+    ("var", "GIT_CONFIG_GLOBAL"), ("var", "GIT_CONFIG_SYSTEM"),
+})
+
+
+def _git(repo: str, *args: str, deadline: float) -> subprocess.CompletedProcess:
+    """One git call of the gate. Unless the call is one of _OBJECT_FREE_CALLS, the repository must not be a
+    partial clone (review Runde 7, R7-7)."""
+    if args not in _OBJECT_FREE_CALLS:
+        _refuse_partial_clone(repo, deadline)
+    return _run_git(repo, args, deadline)
 
 
 def _blob(repo: str, head: str, path: str, deadline: float, limit: int) -> bytes | None:
@@ -1218,6 +1277,7 @@ def _feed(stream, data: bytes) -> None:
 
 def _blob_sha256s(repo: str, oids: list[bytes], deadline: float) -> list[str]:
     """sha256 of each object's bytes, read through one `git cat-file --batch`, in order."""
+    _refuse_partial_clone(repo, deadline)
     left = deadline - time.monotonic()
     if left <= 0:
         raise GateError("the gate ran out of time")
@@ -2900,8 +2960,9 @@ def signed_run_counts(kind: str, content: bytes):
 def _working_tree_digest(repo: str, deadline: float) -> str:
     """The v1 digest of the working tree as `git add -A` would stage it on top of HEAD. It goes through a
     temporary index, so the repository's own index is left alone. Files git ignores are not in it."""
+    _refuse_partial_clone(repo, deadline)
     with tempfile.TemporaryDirectory(prefix="proofbundle-index-") as scratch:
-        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(scratch, "index"))
+        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(scratch, "index"), GIT_NO_LAZY_FETCH="1")
         output = b""
         for args in (("read-tree", "HEAD"), ("add", "-A"), ("write-tree",)):
             left = deadline - time.monotonic()
