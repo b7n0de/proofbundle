@@ -128,12 +128,18 @@ def _judged_location(ort: str, wurzel: str) -> bool:
     covers every second spelling of the same directory at once, case, Unicode normal form or another alias. The chain
     starts at `ort` itself and ends at the root `os.path.dirname` reaches, which is checked before the walk stops.
 
-    A FAILED STAT PROVES NO SEPARATION (external review of 6cab813e, question 4). A path that does not exist
-    (`FileNotFoundError`, `NotADirectoryError`) leads nowhere and contains nothing, so the walk goes on to its
-    ancestors, and a container that does not exist contains nothing. Any other failure of `stat` (a permission, a
-    broken mount, a name the system refuses) leaves open whether the two are the same directory, and an open answer
-    counts as containment: every caller then removes the entry, reports it or refuses with exit 2, before any further
-    import. Only `os` is used, which is loaded at interpreter start."""
+    SPELLING FIRST, THEN IDENTITY (external review of 6cab813e, question 4; card OA-efb0df3845). The lexical
+    prefix test above is the FIRST test and it never stats a path, so an entry that spells its way into the
+    checkout is caught whether or not it exists: a missing directory OF the checkout is removed and refused by its
+    spelling alone, exactly like one that exists. Existence enters only in the IDENTITY test that follows, reached
+    only when the spelling did not match. There a path that does not exist (`FileNotFoundError`,
+    `NotADirectoryError`) leads nowhere and "contains nothing": the walk skips that ancestor and goes on, and a
+    container `wurzel` that does not exist contains nothing, so the two are separate (`False`). "Contains nothing"
+    is therefore a statement of the identity test about a `stat` that failed, never a verdict of the spelling
+    test, and it separates two paths only when neither spelling nor an existing directory ties them together. Any
+    other failure of `stat` (a permission, a broken mount, a name the system refuses) leaves open whether the two
+    are the same directory, and an open answer counts as containment: every caller then removes the entry, reports
+    it or refuses with exit 2, before any further import. Only `os` is used, which is loaded at interpreter start."""
     if ort == wurzel:
         return True
     praefix = wurzel if wurzel.endswith(os.sep) else wurzel + os.sep
