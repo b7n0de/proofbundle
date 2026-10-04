@@ -266,10 +266,18 @@ def _derive_verify_fields(result, *, aud_requested: bool, nonce_requested: bool,
         # key-binding is invalid (sd-jwt-key-binding=False) — none of those may read as sd_jwt_ok=True
         # (No-Fake). `is False` only, so a not-applicable (None) sub-check never downgrades.
         if any(by_name.get(n) is False for n in
-               ("sd-jwt-bundle-binding", "sd-jwt-issuer-identity", "sd-jwt-key-binding")):
+               ("sd-jwt-bundle-binding", "sd-jwt-issuer-identity", "sd-jwt-key-binding",
+                "sd-jwt-issuer-trust")):
             sd_jwt_ok = False
 
+    # N38 (Z309 / PR 311 P1): a KB-JWT verdict (holder binding, and the audience/nonce equality folded into it)
+    # reads positive only under a trusted issuer. When sd-jwt-issuer-trust FAILED, the holder-binding verdict is
+    # not trustworthy — the KB-JWT verified under an attacker-chosen issuer key supplied outside the bundle
+    # signature — so key_binding_ok, and audience_ok / nonce_ok derived from it, report False, never the raw
+    # crypto key-binding result.
     key_binding_ok = by_name.get("sd-jwt-key-binding")   # None when no KB-JWT / no cnf binding in play
+    if by_name.get("sd-jwt-issuer-trust") is False:
+        key_binding_ok = False
 
     # audience_ok / nonce_ok: the aud/nonce EQUALITY is enforced INSIDE the key-binding check
     # (kbjwt.verify_key_binding), and bundle.verify_bundle fails closed (F4) when aud/nonce were
@@ -826,9 +834,17 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                 f"anchor trust or permission given without an anchor requirement ({', '.join(lose)}): no anchor is "
                 "checked without --require-anchor, --anchor-type, --anchor-target or the policy's "
                 "anchors.require_anchor / require_anchor_target, so it would be applied by nothing")
+        # N38 (Z309 / PR 311 P1): a KB-JWT verdict (holder binding, audience, nonce) is reported positive only
+        # under a trusted issuer. The anchor without a policy is the SD-JWT's payload binding (an eval receipt);
+        # with a policy it is additionally sd_jwt.issuer_key_pin, threaded into the crypto layer so the verdict,
+        # the single-field contract and the exit code all honour one rule (Owner card OA-44d4a016e9 Wahl B).
+        sd_jwt_pin = None
+        if policy is not None and isinstance(policy.get("sd_jwt"), dict):
+            sd_jwt_pin = policy["sd_jwt"].get("issuer_key_pin")
         result = verify_bundle(bundle, expected_aud=effective_aud, expected_nonce=flag_nonce,
                                expected_root_b64=expected_root,
-                               expected_tree_size=expected_tree_size)
+                               expected_tree_size=expected_tree_size,
+                               sd_jwt_issuer_key_pin=sd_jwt_pin)
         if cp_supplied:
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
@@ -2878,9 +2894,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="print the recomputed Merkle root next to the stated root")
     verify.add_argument("--aud", default=None,
                         help="expected KB-JWT audience (RFC 9901 §7.3 replay/audience binding); required to "
-                             "bind a Key Binding JWT presentation to this verifier")
+                             "bind a Key Binding JWT presentation to this verifier. A positive audience/nonce/"
+                             "holder-binding verdict is reported only under a TRUSTED issuer (an eval receipt "
+                             "bound to the signed payload, or --policy with sd_jwt.issuer_key_pin); without an "
+                             "anchor the KB-JWT presentation fails closed (Nachtrag 38, Z309)")
     verify.add_argument("--nonce", default=None,
-                        help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding)")
+                        help="expected KB-JWT nonce (RFC 9901 §7.3 replay binding); reported positive only under "
+                             "a trusted issuer, see --aud")
     verify.add_argument("--expected-root", dest="expected_root", default=None, metavar="B64",
                         help="authenticate the merkle root against a base64 value the relying party "
                              "obtained OUT OF BAND (a pinned root, a signed checkpoint). The stated root "

@@ -1116,61 +1116,16 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     return rp or None
 
 
-def _sd_jwt_issuer_fingerprint(sd) -> "str | None":
-    """The algorithm-bound fingerprint of the key that verified the SD-JWT's issuer signature, or None
-    (Nachtrag 32, the Critical). Re-derived from the bundle's own ``sd_jwt_vc``: the key is attacker-chosen, so
-    this value is only ever COMPARED to a policy pin, never trusted on its own. Fail-closed — any decode or
-    verification problem, or a signature that does not actually verify under that key, yields None, so the pin
-    comparison fails and the vct is not trusted."""
-    if not isinstance(sd, dict):
-        return None
-    pub_b64, compact = sd.get("issuer_public_key_b64"), sd.get("compact")
-    if not isinstance(pub_b64, str) or not isinstance(compact, str):
-        return None
-    try:
-        pub = decode_b64(pub_b64)
-    except (ValueError, TypeError):
-        return None
-    from .sdjwt import issuer_key_fingerprint, verify_sd_jwt  # noqa: PLC0415
-    try:
-        res = verify_sd_jwt(compact, pub)
-    except (ProofBundleError, ValueError, KeyError, IndexError, TypeError):
-        return None
-    if res.get("sig_ok") is not True:
-        return None
-    return issuer_key_fingerprint(res.get("alg"), pub)
-
-
 def _sd_jwt_issuer_trusted(sd, result, sdj) -> "tuple[bool, str]":
-    """Whether an SD-JWT / KB-JWT value may be trusted, as a class (Nachtrag 36, Z309 / PR 311 P1).
-
-    A KB-JWT hangs on the ``cnf`` holder key inside the issuer-signed SD-JWT payload, and that payload's
-    verifying key (``sd_jwt_vc.issuer_public_key_b64``) is supplied OUTSIDE the bundle's signed payload — so a
-    valid issuer signature alone is attacker-chosen (a self-signed SD-JWT with any cnf and a matching KB-JWT
-    verifies). A value read from the SD-JWT or from its KB-JWT is trustworthy only when the issuer signature
-    verified AND its key matches a policy pin set independently of the bundle (``sd_jwt.issuer_key_pin``,
-    algorithm-bound), OR the SD-JWT is bound to the signed payload (the crypto layer's ``sd-jwt-bundle-binding``
-    check passed). Otherwise fail-closed with a clear reason. This is the single gate every issuer-trusting
-    ``sd_jwt`` rule uses; it generalises the Nachtrag 32 Critical fix (which closed the class only at
-    ``expected_vct``) to the whole class. Returns ``(trusted, detail)``."""
-    sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
-    if sig_check is None or sig_check.ok is not True:
-        return False, ("the SD-JWT issuer signature was never verified (supply "
-                       "sd_jwt_vc.issuer_public_key_b64)")
-    pin = sdj.get("issuer_key_pin")
-    if pin is not None:
-        fp = _sd_jwt_issuer_fingerprint(sd)
-        if fp is not None and fp == pin:
-            return True, "the SD-JWT issuer key matches the policy's pinned sd_jwt.issuer_key_pin"
-        return False, ("the SD-JWT issuer key does not match the policy's pinned issuer key "
-                       "sd_jwt.issuer_key_pin")
-    binding_check = next((c for c in result.checks if c.name == "sd-jwt-bundle-binding"), None)
-    if binding_check is not None and binding_check.ok is True:
-        return True, "the SD-JWT is bound to the signed payload"
-    return False, ("nothing ties the SD-JWT to a trusted issuer — its verifying key "
-                   "(sd_jwt_vc.issuer_public_key_b64) is supplied outside the bundle's signed payload, so a "
-                   "self-signed SD-JWT would verify. Set sd_jwt.issuer_key_pin to the trusted issuer key, or "
-                   "use an eval receipt whose SD-JWT binds to the signed payload")
+    """Whether an SD-JWT / KB-JWT value may be trusted, as a class (Nachtrag 36, Z309 / PR 311 P1; the shared
+    gate moved to bundle.py in Nachtrag 38 so the crypto layer and the policy layer apply one rule). Delegates to
+    the bundle-level ``_sd_jwt_issuer_is_trusted`` with the policy's ``sd_jwt.issuer_key_pin`` as the pin: the
+    issuer signature must have verified AND either the SD-JWT is bound to the signed payload (an eval receipt) or
+    its key matches the pin the relying party supplied independently of the bundle. Every issuer-trusting
+    ``sd_jwt`` policy rule and the direct ``verify``/``verify_bundle`` KB-JWT path now share this one decision.
+    Returns ``(trusted, detail)``."""
+    from .bundle import _sd_jwt_issuer_is_trusted  # noqa: PLC0415
+    return _sd_jwt_issuer_is_trusted(sd, result, sdj.get("issuer_key_pin"))
 
 
 @_ein_stand(aussen={"now": "uhr"})
