@@ -1150,6 +1150,11 @@ _OHNE_STAND = {
     ("proofbundle.verifier_block", "attach"): ("fills the caller's predicate in place by contract (\"Returns the same "
                                                "predicate object\"); it judges nothing, and the block it attaches is "
                                                "read once (`_block_once`) and validated as that one copy"),
+    ("proofbundle.sdjwt", "issuer_key_fingerprint"): ("a pure formatter of an already-verified algorithm string and "
+                                                      "the issuer key bytes; it reads its two positional arguments "
+                                                      "once and returns the '<alg>:<base64>' fingerprint or None, "
+                                                      "holding no caller-supplied mutable value to read once "
+                                                      "(Nachtrag 32)"),
 }
 
 
