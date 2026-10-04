@@ -750,20 +750,154 @@ _NET_BEFORE = frozenset(_NET_SEP)
 _NET_SPLIT = re.compile("[" + re.escape(_NET_SEP) + "]+")
 
 
-def _net_normal_form(command: str) -> str:
-    """A normal form of the whole command text — comments and substitutions included — for the net's word test
-    (review Runde 12, R12-1 and R12-3). The shell of an ANSI-C or locale quote (`$'…'`, `$"…"`) is dropped, every
-    single and double quote and every backslash is removed, and only the letters A to Z are lower-cased, each in
-    place. Search and the word boundaries then read one and the same string, so an expanding case fold (U+0130
-    and the like) can no longer shift the indices (R12-3). What the normal form cannot be built from safely is
-    NOT MEASURED, but the transform below is total, so every command yields a normal form."""
-    text = command.replace("$'", "'").replace('$"', '"')
-    out = []
-    for ch in text:
-        if ch in "'\"\\":
+#: Byte for byte, the one-letter ANSI-C escapes of a `$'…'` quote (the bash manual, QUOTING). chr() keeps this
+#: source free of backslash literals, which the gate's own normal form would otherwise have to re-escape.
+_BACKSLASH = chr(92)
+_ANSI_C_SIMPLE = {"a": chr(7), "b": chr(8), "e": chr(27), "E": chr(27), "f": chr(12), "n": chr(10), "r": chr(13),
+                  "t": chr(9), "v": chr(11), _BACKSLASH: _BACKSLASH, "'": "'", '"': '"', "?": "?"}
+_HEX_DIGITS = "0123456789abcdefABCDEF"
+_OCTAL_DIGITS = "01234567"
+
+
+def _safe_chr(code: int) -> str:
+    """chr() for a decoded escape, but never a crash: a code point out of range is not a letter, so it cannot form
+    a git or gh command word; it is dropped. Dropping a non-letter can at worst merge neighbours, i.e. overmatch."""
+    try:
+        return chr(code)
+    except ValueError:
+        return ""
+
+
+def _decode_ansi_c(text: str, i: int) -> tuple[str, int]:
+    """Decode the body of an ANSI-C quote `$'…'` to the exact bytes bash runs, from text[i] (the first byte after
+    `$'`). Returns the decoded string and the index just past the closing quote (or the end of the text, for an
+    unterminated quote). The escapes are the bash manual's: the one-letter set above, octal `\\nnn`, hex `\\xHH`,
+    Unicode `\\uHHHH`/`\\UHHHHHHHH`, and control `\\cX`. An unrecognised escape keeps its backslash, exactly as
+    bash does — measured on bash 5.2: `$'\\z'` is the two bytes `\\z`, `$'\\x'` is `\\x`, `$'\\xZZ'` is `\\xZZ`
+    (Nachtrag 33, K1)."""
+    out: list[str] = []
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'":
+            return "".join(out), i + 1
+        if ch != _BACKSLASH or i + 1 >= n:
+            out.append(ch)
+            i += 1
             continue
-        out.append(chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch)
-    return "".join(out)
+        nxt = text[i + 1]
+        if nxt in _ANSI_C_SIMPLE:
+            out.append(_ANSI_C_SIMPLE[nxt])
+            i += 2
+        elif nxt in _OCTAL_DIGITS:
+            j, digits = i + 1, ""
+            while j < n and len(digits) < 3 and text[j] in _OCTAL_DIGITS:
+                digits, j = digits + text[j], j + 1
+            out.append(_safe_chr(int(digits, 8) & 0xFF))
+            i = j
+        elif nxt == "x":
+            j, digits = i + 2, ""
+            while j < n and len(digits) < 2 and text[j] in _HEX_DIGITS:
+                digits, j = digits + text[j], j + 1
+            if digits:
+                out.append(_safe_chr(int(digits, 16)))
+                i = j
+            else:
+                out.append(_BACKSLASH)  # a lone \x keeps its backslash (measured)
+                i += 1
+        elif nxt in "uU":
+            width = 4 if nxt == "u" else 8
+            j, digits = i + 2, ""
+            while j < n and len(digits) < width and text[j] in _HEX_DIGITS:
+                digits, j = digits + text[j], j + 1
+            if digits:
+                out.append(_safe_chr(int(digits, 16)))
+                i = j
+            else:
+                out.append(_BACKSLASH + nxt)
+                i += 2
+        elif nxt == "c" and i + 2 < n:
+            out.append(_safe_chr(ord(text[i + 2]) & 0x1F))
+            i += 3
+        else:
+            out.append(_BACKSLASH + nxt)  # an unrecognised escape: the backslash stays, as in bash
+            i += 2
+    return "".join(out), i
+
+
+def _net_fold(ch: str) -> str:
+    """Lower-case only A to Z, each code point in place, so an expanding case fold (U+0130 and the like) cannot
+    shift the word boundaries against the search (review Runde 12, R12-3)."""
+    return chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch
+
+
+def _net_scan(command: str) -> tuple[str, bool]:
+    """(normal form, unresolved) for the net's word test (review Runde 12, R12-1/R12-3; Nachtrag 33, K1). The
+    normal form is the whole command text — comments and substitutions included — with every ANSI-C quote `$'…'`
+    evaluated to the bytes bash would run, single and double quotes and backslashes removed, and only A to Z
+    lower-cased in place. Search and the word boundaries then read one and the same string.
+
+    `unresolved` is True when the text holds a form whose executed bytes the normal form cannot build exactly like
+    bash: a locale quote `$"…"`, whose message-catalogue translation the gate cannot read (the bash manual,
+    Locale Translation). Such a command is NOT MEASURED whatever its git/gh word count (Nachtrag 33, K1): the
+    normal form evaluates `$'…'` exactly (the lower everyday-cost way, DECISIONS.md D8), and a form it cannot
+    evaluate exactly, like `$"…"`, is reported NOT MEASURED rather than read as the untranslated bytes. Further
+    expansions that can construct a command word (brace expansion, pathname globbing) are named open in D8; the
+    scan does not model them. The scan is total: every command yields a normal form."""
+    out: list[str] = []
+    unresolved = False
+    i, n = 0, len(command)
+    single = double = False  # inside a plain '…' or "…" region
+    while i < n:
+        ch = command[i]
+        if single:
+            if ch == "'":
+                single = False
+            else:
+                out.append(_net_fold(ch))
+            i += 1
+        elif double:
+            if ch == '"':
+                double = False
+                i += 1
+            elif ch == _BACKSLASH and i + 1 < n and command[i + 1] in ("$", chr(96), '"', _BACKSLASH, chr(10)):
+                if command[i + 1] != chr(10):  # in "…" a backslash is literal except before $ ` " \ newline
+                    out.append(_net_fold(command[i + 1]))
+                i += 2
+            else:
+                out.append(_net_fold(ch))
+                i += 1
+        elif ch == "$" and i + 1 < n and command[i + 1] == "'":
+            decoded, i = _decode_ansi_c(command, i + 2)
+            out.append("".join(_net_fold(c) for c in decoded))
+        elif ch == "$" and i + 1 < n and command[i + 1] == '"':
+            unresolved = True  # a locale quote: its translation is not knowable here (Nachtrag 33, K1)
+            double, i = True, i + 2
+        elif ch == "'":
+            single, i = True, i + 1
+        elif ch == '"':
+            double, i = True, i + 1
+        elif ch == _BACKSLASH:
+            if i + 1 < n:  # a backslash escapes the next byte; the byte stays, the backslash goes
+                out.append(_net_fold(command[i + 1]))
+                i += 2
+            else:
+                i += 1
+        else:
+            out.append(_net_fold(ch))
+            i += 1
+    return "".join(out), unresolved
+
+
+def _net_normal_form(command: str) -> str:
+    """The normal form of _net_scan (its string half). See _net_scan for the transform."""
+    return _net_scan(command)[0]
+
+
+def _net_unresolved(command: str) -> bool:
+    """Whether the command holds a form whose executed bytes the normal form cannot build exactly like bash, so
+    the whole command is NOT MEASURED (Nachtrag 33, K1). See _net_scan."""
+    return _net_scan(command)[1]
 
 
 def _net_command_word(token: str) -> bool:
@@ -1286,11 +1420,21 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
             raise GateError(f"the verifier gave no answer for item {n} (exit {proc.returncode}: {tail[0]})")
         result_obj = reply["result"]
         content = result_obj.get("content") if isinstance(result_obj, dict) else None
-        if not (isinstance(content, list) and content and isinstance(content[0], dict)
-                and isinstance(content[0].get("text"), str)):
-            raise GateError(f"the verifier's result for item {n} has no text content the gate can read")
+        # Every element of content is checked against the measured contract, not only the first (review Runde 13,
+        # K2). Measured at proofbundle 6.1.0: the MCP server wraps each tool result as content with exactly one
+        # element, the object {"type": "text", "text": <json string>} (server _call_tool). A schema-breaking
+        # sibling block — a second element, a non-object, a wrong type, a non-string text — is not ignored; it
+        # refuses the whole run with GateError, so an invalid stream can never reach a pass (envelope-error status,
+        # R12-4). There is no element the reader leaves unexamined.
+        if not isinstance(content, list) or len(content) != 1:
+            raise GateError(f"the verifier's result for item {n} does not carry exactly one content element, as the "
+                            "proofbundle 6.1.0 tool-result contract requires, which refuses the whole verifier run")
+        block = content[0]
+        if not (isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)):
+            raise GateError(f"the verifier's result for item {n} is not one text block the gate can read, which "
+                            "refuses the whole verifier run")
         try:
-            parsed = strict_json(content[0]["text"])
+            parsed = strict_json(block["text"])
         except ValueError as exc:
             raise GateError(f"the verifier's answer for item {n} is not one unambiguous JSON object ({exc})") from exc
         if not isinstance(parsed, dict):
@@ -2240,20 +2384,23 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Out
     (review Runde 9, owner choice B; wording of review Runde 10, R10-3).
 
     After the structured scan, a safety net always runs (review Runde 12, R12-1 and R12-2): it builds a normal
-    form of the whole command text — comments and substitutions included, quotes and backslashes removed, the
-    shell of $'…'/$"…" dropped, only A to Z lower-cased in place — and counts the command words that name git or
-    gh. Every such word must correspond to a call the scan resolved; a word it did not account for, whether the
-    scan found nothing or found fewer calls than the net sees, is NOT MEASURED, never a pass or an inactive gate.
-    An overmatch asks under Claude Code and denies under Codex. The one exemption stays the exact bare
-    `git --version`."""
+    form of the whole command text — comments and substitutions included, quotes and backslashes removed, every
+    ANSI-C quote $'…' evaluated to the bytes bash runs, only A to Z lower-cased in place — and counts the command
+    words that name git or gh. Every such word must correspond to a call the scan resolved; a word it did not
+    account for, whether the scan found nothing or found fewer calls than the net sees, is NOT MEASURED, never a
+    pass or an inactive gate. The net also reports NOT MEASURED a form whose executed bytes it cannot build
+    exactly like bash — a locale quote $"…", whose translation it cannot read (Nachtrag 33, K1) — even when no
+    git/gh word is visible. An overmatch asks under Claude Code and denies under Codex. The one exemption stays
+    the exact bare `git --version`."""
     calls = gated_calls(command)
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
         return _judge(calls, cwd, deadline, host) if calls else None
     nw = _net_words(command)
+    unresolved = _net_unresolved(command)
     if not calls:
-        return _judge([net_call], cwd, deadline, host) if nw >= 1 else None
-    if nw > len(calls):
+        return _judge([net_call], cwd, deadline, host) if (nw >= 1 or unresolved) else None
+    if nw > len(calls) or unresolved:
         return _judge(list(calls) + [net_call], cwd, deadline, host)
     return _judge(calls, cwd, deadline, host)
 
@@ -2526,13 +2673,16 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             continue
         if detail == [_NET]:
             verdicts.append(Verdict(
-                "ask", f"NOT MEASURED: the command names {name} as a command word, but the gate's structured scan "
-                       "reached no decision for it (a shell form Level 1 does not model, such as an unsupported "
-                       "quote or substitution, a comment under a changed comment character, or a program name in "
-                       "a different letter case). The safety net reports it NOT MEASURED rather than let it pass "
-                       "unchecked (review Runde 11, owner choice A).",
-                "net_unmodeled_git", evidence="the git or gh command the gate could not resolve",
-                failed="the structured scan produced no gated call for a git/gh command word present in the text",
+                "ask", "NOT MEASURED: the safety net found a git or gh command word, or a quote whose executed "
+                       "bytes it cannot build exactly like bash (a locale quote $\"…\" whose translation it cannot "
+                       "read), that the gate's structured scan did not account for. A shell form Level 1 does not "
+                       "model — an unsupported quote or substitution, a comment under a changed comment character, "
+                       "a program name in a different letter case, or a word built by an expansion — is reported "
+                       "NOT MEASURED rather than let it pass unchecked (review Runde 11, owner choice A; Nachtrag "
+                       "33, K1).",
+                "net_unmodeled_git", evidence="a git or gh command, or an unevaluable quote, the gate could not resolve",
+                failed="the structured scan produced no gated call for a git/gh command word or an unevaluable "
+                       "quote present in the text",
                 next_step="run the call in a plain form the gate resolves (a single `git`/`gh` command, no "
                           "unusual quoting, substitution or letter case), or have a person review it"))
             continue
