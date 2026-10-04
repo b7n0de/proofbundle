@@ -119,11 +119,34 @@ def _judged_location(ort: str, wurzel: str) -> bool:
     A `wurzel` that already ends with the separator, the filesystem root above all, gets no second one. Codex on PR
     311 at 553989ae (thread 4175430079): `wurzel + os.sep` made the root `/` into the prefix `//`, which no resolved
     path carries, so a search path entry `/` was never found to contain the checkout, in the startup path check and
-    in the path cleaning alike. Every caller asks through this one function, so the fix is here."""
+    in the path cleaning alike. Every caller asks through this one function, so the fix is here.
+
+    IDENTITY, NOT SPELLING (Codex on PR 311 at 6cab813e, thread 4175660286). A resolved path keeps the spelling it
+    was given on a volume that does not tell upper from lower case, so `/Users/X/Repo/child` and `/users/x/repo` name
+    one directory and share no prefix. The spelling is therefore only the first test: when it does not match, `ort`
+    and each of its ancestors are compared with `wurzel` by the identity of the directory (`os.path.samestat`), which
+    covers every second spelling of the same directory at once, case, Unicode normal form or another alias. A path
+    that cannot be read keeps the answer of the spelling, as before."""
     if ort == wurzel:
         return True
     praefix = wurzel if wurzel.endswith(os.sep) else wurzel + os.sep
-    return ort.startswith(praefix)
+    if ort.startswith(praefix):
+        return True
+    try:
+        ziel = os.stat(wurzel)
+    except (OSError, ValueError):
+        return False
+    pfad = ort
+    while True:
+        try:
+            if os.path.samestat(os.stat(pfad), ziel):
+                return True
+        except (OSError, ValueError):
+            pass
+        oben = os.path.dirname(pfad)
+        if not oben or oben == pfad:
+            return False
+        pfad = oben
 
 
 def _interpreter_startaugen() -> list:

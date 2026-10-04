@@ -1310,6 +1310,19 @@ OA-e0920176d2). Not reviewed yet; the external reviewer reads only this fix.
   separator; every caller asks through it, so the startup path check, the path cleaning, the overlap with the
   interpreter's directories and the check of loaded modules are fixed together.
 
+From Codex on pull request 311 at 6cab813e (review 5403733452, threads 4175660286 and 4175660289, 2026-10-04; owner A
+on OA-04bf10e6e1). Not reviewed yet; the external reviewer reads only this fix.
+- **R620-CODEX-6CAB-1, serious, fixed after 6cab813e. A second spelling of the same directory was no container**:
+  `_judged_location` compared spellings only, and on a volume that does not tell upper from lower case a resolved
+  path keeps the spelling it was given, so an ancestor of the clone in another case was never found to contain it.
+  Codex measured the helper and traced the end-to-end case from the source. The helper now compares the identity of
+  the directory (`os.path.samestat` over `ort` and its ancestors) when the spelling does not match, which covers case,
+  Unicode normal form and other aliases at once; a path that cannot be read keeps the answer of the spelling. A volume
+  without case distinction was not available for the tests; two spellings of one directory are made with an alias.
+- **R620-CODEX-6CAB-2, P3 on the tests, open for 6.2.1. The root cases generate POSIX roots only** (thread
+  4175660289): on Windows the generator's oracle and the cases that put `/` on the path do not represent a drive or
+  UNC root. They are skipped on Windows with this reason; generating platform-native roots is planned for 6.2.1.
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.

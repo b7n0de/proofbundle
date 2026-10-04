@@ -1540,6 +1540,8 @@ class TestCodexAt553989ae:
         spec.loader.exec_module(mod)
         return mod
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX roots: drive and UNC roots are not generated here, "
+                        "R620-CODEX-6CAB-2 for 6.2.1 (Codex on PR 311 at 6cab813e, thread 4175660289)")
     def test_P1_the_helper_agrees_with_an_independent_containment_over_generated_paths(self, welt):
         """Every pair of generated resolved paths, the root included, against `os.path.commonpath` as the oracle: `ort`
         is judged inside `wurzel` exactly when their common path is `wurzel`."""
@@ -1558,6 +1560,8 @@ class TestCodexAt553989ae:
         # ANTI-VACUITY: the generated set holds the case of the finding, the root containing every other path.
         assert all(mod._judged_location(o, "/") for o in orte)
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX roots: drive and UNC roots are not generated here, "
+                        "R620-CODEX-6CAB-2 for 6.2.1 (Codex on PR 311 at 6cab813e, thread 4175660289)")
     def test_P1_the_root_on_the_path_is_reported_at_start_and_dropped_by_the_cleaning(self, welt, monkeypatch):
         """Both functions Codex named, with `/` on the path: the startup path check under `-I` reports it, and the path
         cleaning drops it. The control: an entry beside the clone is neither reported nor dropped."""
@@ -1572,6 +1576,8 @@ class TestCodexAt553989ae:
         mod._remove_the_judged_tree_from_sys_path()
         assert sys.path == [str(daneben)], sys.path
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX roots: drive and UNC roots are not generated here, "
+                        "R620-CODEX-6CAB-2 for 6.2.1 (Codex on PR 311 at 6cab813e, thread 4175660289)")
     def test_P1_the_root_on_the_search_path_at_start_refuses(self, welt, tmp_path):
         """End to end: a `.pth` line in an outside virtual environment adds `/`, and under `python -I` the run is refused
         with exit 2. The control without the line verifies the good receipt."""
@@ -1592,3 +1598,65 @@ class TestCodexAt553989ae:
         restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         assert "R620-CODEX-5539-1, serious, fixed after 553989ae" in restrisiko
         assert "thread 4175430079" in verifier
+
+
+class TestCodexAt6cab813e:
+    """Codex on PR 311 at 6cab813e (review 5403733452, 2026-10-04): thread 4175660286 (P1), a second spelling of the same
+    directory, as on a volume that does not tell upper from lower case, was no container, because the helper compared
+    spellings only; thread 4175660289 (P2), the root cases above are POSIX roots. The helper now compares the identity
+    of the directory when the spelling does not match. A volume without case distinction is not available here; two
+    spellings of one directory are made with an alias, and a resolution that keeps the spelling is simulated."""
+
+    @staticmethod
+    def _pruefer(repo):
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_codex_6cab_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_P1_two_spellings_of_one_directory_are_one_container(self, welt, tmp_path):
+        """The helper with two spellings of one directory, in both directions; the controls are a sibling directory
+        and a directory whose name only starts like the container's."""
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        echt = tmp_path / "Echt"
+        (echt / "child").mkdir(parents=True)
+        alias = tmp_path / "alias"
+        alias.symlink_to(echt, target_is_directory=True)
+        (tmp_path / "Andere" / "child").mkdir(parents=True)
+        (tmp_path / "EchtX" / "child").mkdir(parents=True)
+        assert mod._judged_location(str(alias / "child"), str(echt))
+        assert mod._judged_location(str(echt / "child"), str(alias))
+        assert mod._judged_location(str(alias), str(echt))
+        assert not mod._judged_location(str(tmp_path / "Andere" / "child"), str(echt))
+        assert not mod._judged_location(str(tmp_path / "EchtX" / "child"), str(echt))
+        assert not mod._judged_location(str(tmp_path), str(echt))
+
+    def test_P1_a_second_spelling_on_the_path_is_reported_and_dropped(self, welt, tmp_path, monkeypatch):
+        """Codex's condition at the two functions: the resolution keeps the spelling it was given (simulated), and a
+        second spelling of the clone's parent is on the path. It is reported at start under -I and dropped by the path
+        cleaning; an entry beside the clone stays."""
+        import types  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        zweite = tmp_path / "zweite_schreibweise"
+        zweite.symlink_to(repo.parent, target_is_directory=True)
+        daneben = tmp_path / "daneben_6cab"
+        daneben.mkdir()
+        wurzel = mod._checkout_root()
+        monkeypatch.setattr(mod.os.path, "realpath", lambda p, *a, **k: mod.os.path.abspath(p))
+        assert mod._checkout_root() == wurzel
+        monkeypatch.setattr(sys, "flags", types.SimpleNamespace(isolated=1))
+        monkeypatch.setattr(sys, "path", [str(zweite), str(daneben)])
+        assert mod._startup_search_paths_into_the_checkout() == [str(zweite)]
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(daneben)], sys.path
+
+    def test_P1_P2_the_risk_sheet_records_both_threads(self):
+        """RESTRISIKO_620.md carries the P1 as fixed and the P2 as open for 6.2.1, and the helper names the P1."""
+        verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        assert "R620-CODEX-6CAB-1, serious, fixed after 6cab813e" in restrisiko
+        assert "R620-CODEX-6CAB-2, P3 on the tests, open for 6.2.1" in restrisiko
+        assert "thread 4175660286" in verifier
