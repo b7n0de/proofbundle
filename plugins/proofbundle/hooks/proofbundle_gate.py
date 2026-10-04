@@ -833,16 +833,30 @@ def _net_fold(ch: str) -> str:
 
 def _balanced_paren(text: str, start: int) -> tuple[str, int, bool]:
     """From text[start] == '(', the inner text up to the matching ')', the index just past it, and whether it
-    was balanced. Quotes inside suppress a `)` (review Runde 11, R11-1 case 3). An unbalanced opener yields the
-    rest of the text and ok=False, so the caller treats the context as NOT MEASURED."""
+    was balanced. A `)` is suppressed inside a quote (review Runde 11, R11-1 case 3), after a backslash escape,
+    and inside a `#` comment (Nachtrag 37, R14-3): a backslash-escaped paren, a quoted paren and a paren in a
+    comment do not close the substitution, so the boundary is found under understood syntax. An unbalanced opener
+    yields the rest of the text and ok=False, so the caller treats the context as NOT MEASURED."""
     depth, j, quote, n = 0, start, None, len(text)
     while j < n:
         ch = text[j]
         if quote is not None:
+            if quote == '"' and ch == _BACKSLASH and j + 1 < n:
+                j += 2
+                continue
             if ch == quote:
                 quote = None
-        elif ch in "'\"":
+            j += 1
+            continue
+        if ch == _BACKSLASH:            # a backslash escapes the next char, a `)` or `(` included (R14-3)
+            j += 2
+            continue
+        if ch in "'\"":
             quote = ch
+        elif ch == "#" and (j == start + 1 or text[j - 1] in " \t\n("):  # a comment runs to the line end (R14-3)
+            nl = text.find(chr(10), j)
+            j = n if nl < 0 else nl
+            continue
         elif ch == "(":
             depth += 1
         elif ch == ")":
@@ -853,9 +867,33 @@ def _balanced_paren(text: str, start: int) -> tuple[str, int, bool]:
     return text[start + 1:], n, False
 
 
-#: Command-prefix words that keep the next word in command-word position (the net's brace/glob test, R13-4).
-_NET_EXPANSION_WRAPPERS = frozenset({"sudo", "env", "command", "builtin", "exec", "time", "nice", "nohup",
-                                     "ionice", "setsid", "stdbuf", "nocorrect", "then", "do", "else", "elif"})
+#: How the first words of a simple command bear on its program position (Nachtrag 37, R14-1). The net frees an
+#: active expansion only as a data argument of a program word it has positively identified; these sets say when
+#: that identification does NOT hold, so an expansion at or after the word is NOT MEASURED instead of free. They
+#: only ADD strictness: a word in none of them is treated as an ordinary program, which for a genuinely unknown
+#: program is a named recognition boundary (like an alias or a function), never the silent git/gh pass R14-1
+#: shows. Extending them can only move more forms to NOT MEASURED, never free one — this is why the fix is the
+#: positive-role rule and not a longer wrapper list ("keine weitere Namensliste als Schließung", review Runde 14).
+#:
+#: _NET_PREFIX_TRANSPARENT: reserved words after which a real command (a program position) follows immediately,
+#: with no option in between — the next word is re-examined as the program word (so `if gi* …` tests `gi*`).
+_NET_PREFIX_TRANSPARENT = frozenset({"if", "while", "until", "then", "elif", "else", "do", "!"})
+#: Known command wrappers that run another program given as their argument, and reserved words (`time`, `coproc`)
+#: that do the same. An option of the wrapper can shift the program further right (`env -- gi*`, `time -p gi*`),
+#: and the net does not model each wrapper's options, so once a wrapper heads the command the program position is
+#: unproven and any active expansion after it is NOT MEASURED (R14-1, R14-5).
+_NET_EXPANSION_WRAPPERS = frozenset({"sudo", "env", "command", "builtin", "exec", "nice", "nohup", "ionice",
+                                     "setsid", "stdbuf", "nocorrect", "xargs", "timeout", "time", "doas",
+                                     "chroot", "runuser", "watch", "nix-shell", "coproc"})
+#: Reserved words that open or close shell grammar the net does not model as a simple command (a `case`/`for`
+#: head, a `[[ … ]]` test). An active expansion inside such grammar is not a proven data argument, so it is
+#: NOT MEASURED rather than free.
+_NET_STRUCTURAL_KEYWORDS = frozenset({"case", "esac", "for", "select", "function", "in", "fi", "done",
+                                      "[[", "]]"})
+#: The program position is unproven when the head word is one of these.
+_NET_POSITION_UNSAFE = _NET_EXPANSION_WRAPPERS | _NET_STRUCTURAL_KEYWORDS
+#: Operators (as _lex reports them) after which a new simple command, hence a new program position, begins.
+_NET_CMD_START = frozenset({";", "&&", "||", "|", "&", "(", "{"})
 
 
 def _unquoted_active_expansion(raw: str) -> bool:
@@ -912,29 +950,150 @@ def _unquoted_active_expansion(raw: str) -> bool:
     return False
 
 
-def _net_expansion_in_command_word(command: str) -> bool:
-    """Whether an active expansion (brace or pathname glob) sits in a command-word position (review Runde 14,
-    R13-4): such a word can expand to a git/gh program name (`g{i..i}t`, `gi*`, `g?`), so it is NOT MEASURED. An
-    expansion safely in an argument position (`ls *.py`, `cp f.{txt,bak}`) stays free. The command word is the
-    first word of each simple command after a control operator, past leading assignments and known wrappers. An
-    unparsable command yields False here; the lexer fallback and the net's word test handle it."""
-    toks = _lex(_drop_comments(command))
-    if toks is None:
-        return False
-    at_cmd = True
+def _net_position_unmodeled(toks: list) -> bool:
+    """Whether any simple command in toks carries an active expansion whose data-argument role is NOT proven
+    (Nachtrag 37, R14-1). The role is proven only inside a simple command whose program word is a plain literal
+    command the net recognises in place — not an active expansion itself (`gi*`, `g{i..i}t`), not a substitution,
+    not `--`, not a wrapper and not a reserved word that opens other grammar. Then, and only then, an active
+    expansion in a following argument is data and stays free (`ls *.py`, `cp f.{txt,bak}`). A prefix assignment
+    keeps the program position (its right side does not glob in bash). A reserved word after which a command
+    follows (`if`, `while`, `then`, …) is transparent, so the next word is examined as the program. A wrapper, a
+    structural reserved word, `--`, a substitution or an expansion in the program position leaves the real
+    program unproven, and then any active expansion at or after it is NOT MEASURED — because it could be the
+    program bash actually runs. Adding wrapper names would only move more forms here, never free one (R14-5)."""
+    state = "prefix"   # prefix: before the program word | args: after a proven program word | blocked: unproven
     for t in toks:
         if t[0] == "op":
-            at_cmd = t[1] in (";", "&&", "||", "|", "&", "(", "{")
+            if t[1] in _NET_CMD_START:
+                state = "prefix"
             continue
         value, raw = t[1], t[3]
-        if not at_cmd:
+        active = _unquoted_active_expansion(raw)
+        if state == "args":
+            continue                       # an argument of a proven program: an expansion here is data
+        if state == "blocked":
+            if active:
+                return True                # the real program position is unknown; this expansion could be it
             continue
-        if _ASSIGNMENT.match(value) or os.path.basename(value) in _NET_EXPANSION_WRAPPERS:
-            continue  # a leading assignment or a known wrapper keeps command-word position
-        if _unquoted_active_expansion(raw):
-            return True
-        at_cmd = False
+        if _ASSIGNMENT.match(value):
+            continue                       # a leading prefix assignment; its right side is a literal value
+        base = os.path.basename(value)
+        if base in _NET_PREFIX_TRANSPARENT:
+            continue                       # a reserved word after which a command follows: examine the next word
+        if active:
+            return True                    # the program word itself is an active expansion → NOT MEASURED
+        if t[2] or value == "--" or base in _NET_POSITION_UNSAFE:
+            state = "blocked"              # a substitution, `--`, a wrapper or structural grammar: unproven
+            continue
+        state = "args"                     # a plain literal program word: its later expansions are data
     return False
+
+
+def _net_case_balanced(body: str) -> bool:
+    """Whether a command-substitution body opens and closes its `case` statements in balance (Nachtrag 37,
+    R14-3). An extracted body with more `case` than `esac` keywords means a `)` case-pattern terminator was taken
+    for the substitution's end, so the boundary _balanced_paren found is not the one bash uses, and the whole call
+    must be NOT MEASURED. An unparsable body is reported balanced here — the recursive _net_unmodeled on it already
+    returns NOT MEASURED for the unparsable reason, so this axis does not need to."""
+    toks = _lex(_drop_comments(body))
+    if toks is None:
+        return True
+    opens = sum(1 for t in toks if t[0] == "word" and t[1] == "case")
+    closes = sum(1 for t in toks if t[0] == "word" and t[1] == "esac")
+    return opens <= closes
+
+
+def _net_subcontexts(text: str) -> tuple[list, bool]:
+    """The bodies of the executable contexts embedded at the top level of text — a command substitution `$(…)` or
+    a backtick (inside double quotes too) and a process substitution `<(…)`/`>(…)` outside quotes — and whether
+    every boundary was found under understood syntax (Nachtrag 37, R14-2/R14-3). A single quote suppresses them.
+    boundary_ok is False when an opener never closes and when an extracted `$(…)`/backtick body does not balance
+    its `case`/`esac`; the caller then treats the whole command as NOT MEASURED. Escaped parens, quoted parens and
+    parens in a comment are already excluded by _balanced_paren, so they do not falsify a boundary here."""
+    bodies: list = []
+    ok = True
+    i, n = 0, len(text)
+    single = double = False
+    while i < n:
+        ch = text[i]
+        if single:
+            if ch == "'":
+                single = False
+            i += 1
+            continue
+        if ch == "$" and i + 1 < n and text[i + 1] == "(" and not (i + 2 < n and text[i + 2] == "("):
+            inner, j, closed = _balanced_paren(text, i + 1)
+            bodies.append(inner)
+            ok = ok and closed and _net_case_balanced(inner)
+            i = j
+            continue
+        if ch == chr(96):
+            j = text.find(chr(96), i + 1)
+            if j < 0:
+                ok = False
+                break
+            inner = text[i + 1:j]
+            bodies.append(inner)
+            ok = ok and _net_case_balanced(inner)
+            i = j + 1
+            continue
+        if not double and ch in "<>" and i + 1 < n and text[i + 1] == "(":
+            inner, j, closed = _balanced_paren(text, i + 1)
+            bodies.append(inner)
+            ok = ok and closed
+            i = j
+            continue
+        if double:
+            if ch == '"':
+                double = False
+            elif ch == _BACKSLASH and i + 1 < n and text[i + 1] in ('"', _BACKSLASH, "$", chr(96)):
+                i += 2
+                continue
+            i += 1
+            continue
+        if ch == "'":
+            single = True
+        elif ch == '"':
+            double = True
+        elif ch == _BACKSLASH and i + 1 < n:
+            i += 2
+            continue
+        i += 1
+    return bodies, ok
+
+
+def _net_unmodeled(text: str, depth: int = 0) -> bool:
+    """THE single site that decides understood versus NOT MEASURED for the net (Nachtrag 37, Punkt 2). Every path
+    on which the net reaches no git/gh answer passes through here, so decide() never frees a form it did not
+    positively understand. It returns True — NOT MEASURED — for a closed set of reasons, each a class of the
+    review:
+      · the normal form itself cannot be built from understood bytes: a locale quote `$"…"`, a decoded NUL, an
+        unbalanced or too-deep substitution (Nachtrag 35, R13-1..R13-3), measured once by _net_render;
+      · a context the lexer cannot parse, so its program position is unknown (R14-2);
+      · a simple command whose active expansion sits in an unproven program position (R14-1), via
+        _net_position_unmodeled;
+      · an embedded executable context whose boundary is not found under understood syntax (R14-3), or which is
+        itself not understood — every subcontext runs this same site (R14-2).
+    The recursion is bounded the same way _net_render bounds its own."""
+    if depth > MAX_NESTING:
+        return True
+    if depth == 0 and _net_render(text)[1]:
+        return True
+    toks = _lex(_drop_comments(text))
+    if toks is None:
+        # The lexer cannot place the words (R14-2). A non-parseable context must not count as expansion-free: when
+        # an active expansion is present its program position is unclear, so NOT MEASURED. A non-parseable context
+        # with no active expansion — a benign ANSI-C quote in an everyday command (`IFS=$'\\n' read`,
+        # `printf $'…'`, `echo $'a message'`) — keeps the silent pass the word test gives it; its decoded bytes
+        # carry no git/gh word, and the lexer failure alone does not make it a git call.
+        if _unquoted_active_expansion(text):
+            return True
+    elif _net_position_unmodeled(toks):
+        return True
+    bodies, boundary_ok = _net_subcontexts(text)
+    if not boundary_ok:
+        return True
+    return any(_net_unmodeled(body, depth + 1) for body in bodies)
 
 
 def _net_render(text: str, depth: int = 0) -> tuple[str, bool]:
@@ -1030,15 +1189,17 @@ def _net_render(text: str, depth: int = 0) -> tuple[str, bool]:
 
 
 def _net_scan(command: str) -> tuple[str, bool]:
-    """(normal form, unresolved) for the net's word test (review Runde 12/14). The normal form is the command
+    """(normal form, unresolved) for the net's word test (review Runde 12/14/15). The normal form is the command
     text rendered by _net_render (ANSI-C quotes evaluated, quotes and backslashes removed, line continuations
-    removed, substitutions read as their own commands, only A to Z lower-cased in place). `unresolved` is True
-    when the text holds a form whose executed bytes the normal form cannot build safely and completely, so the
-    whole command is NOT MEASURED (Nachtrag 35): a locale quote, a decoded NUL byte, an unbalanced or too-deep
-    substitution, or an active brace/glob in a command-word position. Exact evaluation stays only where it is
-    provably complete (DECISIONS.md D8). The scan is total: every command yields a normal form."""
-    normal, unresolved = _net_render(command)
-    return normal, unresolved or _net_expansion_in_command_word(command)
+    removed, substitutions read as their own commands, only A to Z lower-cased in place). `unresolved` is the one
+    verdict of _net_unmodeled, the single site that decides understood versus NOT MEASURED (Nachtrag 37, Punkt 2):
+    True when the command's executed bytes or its program positions are not positively understood — a locale
+    quote, a decoded NUL byte, an unbalanced or too-deep substitution, an unparsable context, an active
+    brace/glob in an unproven program position, or an embedded context whose boundary is not understood. Exact
+    evaluation and a free verdict stay only where they are provably complete (DECISIONS.md D8). The scan is total:
+    every command yields a normal form, and every free exit of the net goes through _net_unmodeled."""
+    normal, _render_unresolved = _net_render(command)
+    return normal, _net_unmodeled(command)
 
 
 def _net_normal_form(command: str) -> str:
@@ -1498,6 +1659,57 @@ def _isolated_env() -> dict:
     return {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
 
 
+#: The MCP protocol versions the gate accepts in an initialize result (Nachtrag 37, R14-4). The gate sends
+#: "2025-06-18" and the pinned proofbundle server answers the same (measured at 0.3.0); an initialize result that
+#: names any other version is a handshake the gate did not agree to, so the whole verifier run is refused.
+_MCP_PROTOCOL_VERSIONS = frozenset({"2025-06-18"})
+
+
+def _mcp_init_result_ok(result: object) -> str | None:
+    """Why an initialize result breaks the MCP 2025-06-18 contract the gate requires before it reads any answer
+    (Nachtrag 37, R14-4), or None when it is well formed. A result that is merely present no longer suffices: it
+    must be an object (not null, not false, not a bare value), name a protocolVersion the gate agreed to, and
+    carry the mandatory capabilities object and a serverInfo object with a string name and version (the schema's
+    InitializeResult). Without this a `result: null`, `result: false`, `result: {}`, an unsupported version or a
+    `capabilities: null` / `serverInfo: false` passed the handshake and a later green answer read as pass."""
+    if not isinstance(result, dict):
+        return "an initialisation result that is not an object"
+    version = result.get("protocolVersion")
+    if not isinstance(version, str) or version not in _MCP_PROTOCOL_VERSIONS:
+        return "an initialisation result without a protocol version the gate supports"
+    if not isinstance(result.get("capabilities"), dict):
+        return "an initialisation result without a capabilities object"
+    info = result.get("serverInfo")
+    if not (isinstance(info, dict) and isinstance(info.get("name"), str) and isinstance(info.get("version"), str)):
+        return "an initialisation result without a serverInfo that names the server"
+    return None
+
+
+def _mcp_notification_contract(method: str, params: object) -> str | None:
+    """Why a server notification breaks the contract of the notifications the gate permits (Nachtrag 37, R14-4),
+    or None when it is well formed and may be set aside. The gate's pinned server sends no notification during a
+    verify run (measured at 0.3.0), so only the two notifications whose contract the gate models are permitted,
+    each checked against the MCP 2025-06-18 schema: a progress carries a progressToken that is a string or a
+    non-boolean integer and a progress that is a non-boolean number; a logging message carries a string level. A
+    malformed permitted notification (a progress with a null token or a `false` progress) is a contract break, not
+    a message to skip, and any other method is a notification the gate does not model and refuses outright."""
+    if method == "notifications/progress":
+        if not isinstance(params, dict):
+            return "a progress notification without an object params"
+        token = params.get("progressToken")
+        if not (isinstance(token, (str, int)) and not isinstance(token, bool)):
+            return "a progress notification whose progressToken is not a string or an integer"
+        progress = params.get("progress")
+        if not (isinstance(progress, (int, float)) and not isinstance(progress, bool)):
+            return "a progress notification whose progress is not a number"
+        return None
+    if method == "notifications/message":
+        if not isinstance(params, dict) or not isinstance(params.get("level"), str):
+            return "a logging notification without a string level"
+        return None
+    return f"a notification the gate does not model (method {method!r})"
+
+
 def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     """Call verify_receipt once per request on the plugin's MCP server and return the tool results."""
     uv = shutil.which("uv")
@@ -1526,6 +1738,7 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     # for diagnostics, so any non-empty stdout line that is not JSON is a protocol error that refuses the whole
     # run too; a later valid reply does not heal it (review Runde 11, R11-4, Geschwister 8). Blank lines carry no
     # message and are skipped.
+    sent_ids = set(range(len(requests) + 1))  # id 0 is initialize; ids 1..len are the tool calls the gate sent
     replies = {}
     for line in proc.stdout.splitlines():
         if not line.strip():
@@ -1555,11 +1768,23 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
             if "params" in reply and not isinstance(reply["params"], dict):
                 raise GateError("the verifier sent a notification whose params is not an object, which refuses the "
                                 "whole verifier run")
-            continue  # a valid notification carries no answer; it is set aside
+            # A permitted notification is validated against its contract before it is set aside (Nachtrag 37,
+            # R14-4): a malformed progress or logging notification, or a notification method the gate does not
+            # model, refuses the whole run instead of being skipped.
+            why = _mcp_notification_contract(reply["method"], reply.get("params"))
+            if why is not None:
+                raise GateError(f"the verifier sent {why}, which refuses the whole verifier run")
+            continue  # a valid, modelled notification carries no answer; it is set aside
         rid = reply["id"]
         if not isinstance(rid, int) or isinstance(rid, bool):
             raise GateError("the verifier sent a reply whose id is not an integer, which refuses the whole "
                             "verifier run")
+        # Every answer must belong to a request the gate sent (Nachtrag 37, R14-4): a reply whose id is none of
+        # the initialize or tool-call ids is a message the gate cannot match to a request, so it refuses the whole
+        # run rather than ignore it, closing the same contract class as the duplicate-reply refusal below.
+        if rid not in sent_ids:
+            raise GateError(f"the verifier sent a reply for request {rid}, which the gate did not send, which "
+                            "refuses the whole verifier run")
         if "method" in reply:
             raise GateError("the verifier sent a request (an id and a method), which the gate does not answer "
                             "and which refuses the whole verifier run")
@@ -1578,6 +1803,12 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
         tail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
         raise GateError(f"the verifier did not initialise (exit {proc.returncode}: {tail[0]}), which refuses the "
                         "whole verifier run")
+    # The initialisation result's own contract is checked before any answer is read (Nachtrag 37, R14-4): a result
+    # that is present but null, false, empty, of an unsupported protocol version, or without the mandatory
+    # capabilities and serverInfo objects is a broken handshake no later green answer can ride.
+    why = _mcp_init_result_ok(init["result"])
+    if why is not None:
+        raise GateError(f"the verifier sent {why}, which refuses the whole verifier run")
     results = []
     for n in range(len(requests)):
         reply = replies.get(n + 1)
@@ -2704,9 +2935,15 @@ def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] 
     push, a gh call, an unknown or transfer-capable subcommand, a program-path invocation, a chain, a pipe, a
     wrapper, a substitution, a comment-bearing form, or any global option (`-C`, `-c`, …) yields None, so a rule
     can never free them: push and gh are never freeable, and the state digest binds only the plain form's
-    repository (N24)."""
+    repository (N24).
+
+    A form the net reports NOT MEASURED is never a candidate either, in with-approvals mode as in strict
+    (Nachtrag 37): the net's single decision site (_net_unmodeled, via _net_unresolved) is consulted here, so a
+    rule can free a form only when the net also positively understood it. Without this a rule could free a plain
+    `git <local>` form the net could not build exactly like bash — a locale quote `$"…"`, a decoded NUL — which is
+    the one way a human rule might otherwise free something NOT MEASURED."""
     calls = gated_calls(command)
-    if len(calls) != 1 or _net_words(command) > 1:
+    if len(calls) != 1 or _net_words(command) > 1 or _net_unresolved(command):
         return None
     name, _directory, detail = calls[0]
     if detail != [_NOT_FREE] or not name.startswith("git ") or name in ("git", "git --version"):
