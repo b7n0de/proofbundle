@@ -95,9 +95,18 @@ def _bound_bundle():
     return bundle, _jwt_payload(bundle["sd_jwt_vc"]["compact"]).get("vct")
 
 
-def _check(bundle, sdj, name):
-    result = verify_bundle(bundle)
-    assert result.ok, f"the bundle must verify (crypto ok) to reach the policy rules; checks={[ (c.name,c.ok) for c in result.checks]}"
+def _verify(bundle, sdj):
+    """Verify, threading the rule's issuer_key_pin into the crypto layer (Nachtrag 38: the shared issuer-trust
+    gate now lives in verify_bundle, so an untrusted KB-JWT fails crypto before the policy runs)."""
+    return verify_bundle(bundle, sd_jwt_issuer_key_pin=(sdj or {}).get("issuer_key_pin"))
+
+
+def _issuer_trust_ok(result):
+    return next((c.ok for c in result.checks if c.name == "sd-jwt-issuer-trust"), None)
+
+
+def _policy_rule(bundle, result, sdj, name):
+    """Evaluate the sd_jwt policy rule over an already-trusted crypto result; returns (policy_ok, rule_ok)."""
     policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "n36",
               "sd_jwt": {"require_key_binding_when_cnf_present": False, "require_nonce": False, **sdj}}
     res = evaluate_policy(bundle, result, policy, now=_NOW)
@@ -107,7 +116,9 @@ def _check(bundle, sdj, name):
 
 
 class _RuleClassMixin:
-    """Each KB-JWT/SD-JWT rule: untrusted fails, foreign pin fails, matching pin passes, payload-bound passes."""
+    """Each KB-JWT/SD-JWT rule, four outcomes. Since Nachtrag 38 the untrusted and foreign-pin cases fail at the
+    crypto layer (sd-jwt-issuer-trust) before the policy runs; the matching-pin and payload-bound cases reach the
+    policy and pass. Either way: a KB-JWT verdict is positive only under a trusted issuer."""
     check_name = ""
 
     def _rule(self, *, vct=None):
@@ -115,24 +126,33 @@ class _RuleClassMixin:
 
     def test_untrusted_issuer_fails_closed(self):
         bundle, _pub, vct = _generic_bundle()
-        policy_ok, ok = _check(bundle, self._rule(vct=vct), self.check_name)
-        self.assertFalse(ok, f"{self.check_name} must fail closed under an untrusted self-signed issuer")
-        self.assertIsNot(policy_ok, True)
+        result = _verify(bundle, self._rule(vct=vct))
+        self.assertFalse(result.ok, f"{self.check_name}: crypto must fail closed under an untrusted self-signed "
+                                    "issuer (N38)")
+        self.assertIs(_issuer_trust_ok(result), False)
 
     def test_a_foreign_pin_fails_closed(self):
         bundle, _pub, vct = _generic_bundle()
-        _policy_ok, ok = _check(bundle, {**self._rule(vct=vct), "issuer_key_pin": _FOREIGN_PIN}, self.check_name)
-        self.assertFalse(ok, f"{self.check_name} must fail closed when the pin is not the verifying key")
+        result = _verify(bundle, {**self._rule(vct=vct), "issuer_key_pin": _FOREIGN_PIN})
+        self.assertFalse(result.ok, f"{self.check_name}: crypto must fail closed when the pin is not the "
+                                    "verifying key")
+        self.assertIs(_issuer_trust_ok(result), False)
 
     def test_a_matching_pin_passes(self):
         bundle, pub, vct = _generic_bundle()
-        policy_ok, ok = _check(bundle, {**self._rule(vct=vct), "issuer_key_pin": "ed25519:" + pub}, self.check_name)
+        sdj = {**self._rule(vct=vct), "issuer_key_pin": "ed25519:" + pub}
+        result = _verify(bundle, sdj)
+        self.assertTrue(result.ok, f"{self.check_name}: crypto must pass when the issuer key matches the pin")
+        policy_ok, ok = _policy_rule(bundle, result, sdj, self.check_name)
         self.assertTrue(ok, f"{self.check_name} must pass when the issuer key matches the pin")
         self.assertIs(policy_ok, True)
 
     def test_bound_to_the_signed_payload_passes(self):
         bundle, vct = _bound_bundle()
-        policy_ok, ok = _check(bundle, self._rule(vct=vct), self.check_name)
+        sdj = self._rule(vct=vct)
+        result = _verify(bundle, sdj)
+        self.assertTrue(result.ok, f"{self.check_name}: crypto must pass when the SD-JWT binds to the payload")
+        policy_ok, ok = _policy_rule(bundle, result, sdj, self.check_name)
         self.assertTrue(ok, f"{self.check_name} must pass when the SD-JWT binds to the signed payload")
         self.assertIs(policy_ok, True)
 
@@ -188,8 +208,10 @@ class TheClassIsHeldClosed(unittest.TestCase):
         self.assertEqual(set(value_for), set(_SDJWT_KEYS_NEED_ISSUER_TRUST),
                          "every 'needs issuer trust' key must have an untrusted-issuer case here")
         for key, (value, name) in value_for.items():
-            _policy_ok, ok = _check(bundle, {key: value}, name)
-            self.assertFalse(ok, f"{key} ({name}) must fail closed under an untrusted issuer (no helper bypass)")
+            result = _verify(bundle, {key: value})
+            self.assertFalse(result.ok, f"{key} ({name}) must fail closed under an untrusted issuer (N38 gate)")
+            self.assertIs(_issuer_trust_ok(result), False,
+                          f"{key} ({name}) must fail closed via sd-jwt-issuer-trust, not a helper bypass")
 
 
 if __name__ == "__main__":
