@@ -525,6 +525,14 @@ _OHNE_EIGENE_WIRKUNG = {
     ("decision verify", ("decision_receipt", "allow_pending")):
         "without `--anchors` no anchor is checked, so `require_external_anchor` fails and the permission has nothing "
         "to relax: exit 3 with and without it (fail-closed); beside `--anchors` it is measured",
+    ("verify", ("sd_jwt", "issuer_key_pin")):
+        "qualifies sd_jwt.expected_vct only (Nachtrag 32, the Critical): the pin is read solely inside the "
+        "expected_vct check, to decide whether the attacker-chosen SD-JWT issuer key may be trusted. Set without "
+        "expected_vct it changes no verdict; beside expected_vct its effect (a wrong-key pin fails, a matching pin "
+        "passes) is measured in tests/test_security_fix_620_n32.py",
+    ("evaluate_policy", ("sd_jwt", "issuer_key_pin")):
+        "same as the verify path: the pin is consulted only by the expected_vct check, so it flips no verdict on "
+        "its own; its effect beside expected_vct is measured in tests/test_security_fix_620_n32.py",
 }
 
 

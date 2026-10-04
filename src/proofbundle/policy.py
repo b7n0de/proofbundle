@@ -191,7 +191,11 @@ _CHECKPOINT_KEYS = {"origin", "root", "treeSize", "hashAlg", "checkpointSigner",
                     "issuedAt", "validUntil", "signature"}
 _CHECKPOINT_REQUIRED = ("origin", "root", "treeSize", "hashAlg", "checkpointSigner", "signature")
 _SDJWT_KEYS = {"require_key_binding_when_cnf_present", "expected_aud", "require_nonce",
-               "max_iat_age_seconds", "expected_vct"}
+               "max_iat_age_seconds", "expected_vct", "issuer_key_pin"}
+#: The algorithm prefixes a trust policy's ``sd_jwt.issuer_key_pin`` may carry (Nachtrag 32, the Critical).
+#: The pin is algorithm-bound: ``"<alg>:<standard-base64 of the raw issuer public key>"``, matched byte-exact
+#: against the fingerprint of the key that actually verified the SD-JWT issuer signature.
+_ISSUER_KEY_PIN_PREFIXES = ("ed25519:", "es256:")
 _STATUS_KEYS = {"reject_self_issued", "allowed_status_authorities"}
 _ASSURANCE_KEYS = {"minimum_level", "reject_self_attested_without_prereg"}
 
@@ -582,6 +586,26 @@ def _felder_pruefen(policy: dict, *, schema_gate: bool) -> None:
         # construction, same as sdjwt_vc.py — see evaluate_policy for the "verified vs. merely present"
         # gating this field requires).
         _require_str_or_null(sdj, "expected_vct", "sd_jwt")
+        # Nachtrag 32 (the Critical): the issuer key the SD-JWT is verified under
+        # (sd_jwt_vc.issuer_public_key_b64) lives OUTSIDE the bundle's signed payload, so it is
+        # attacker-chosen. expected_vct is trustworthy only when that key is pinned here, independently of
+        # the bundle, or when the SD-JWT binds to the signed payload. The pin is algorithm-bound:
+        # "<alg>:<standard-base64 of the raw issuer public key>", matched byte-exact at evaluation time.
+        _require_str_or_null(sdj, "issuer_key_pin", "sd_jwt")
+        _pin = sdj.get("issuer_key_pin")
+        if isinstance(_pin, str):
+            _pref = next((p for p in _ISSUER_KEY_PIN_PREFIXES if _pin.startswith(p)), None)
+            if _pref is None:
+                raise PolicyError(
+                    "sd_jwt.issuer_key_pin must start with an algorithm prefix, one of "
+                    f"{list(_ISSUER_KEY_PIN_PREFIXES)} (algorithm-bound), e.g. 'ed25519:<base64 key>'")
+            try:
+                if not decode_b64(_pin[len(_pref):]):
+                    raise ValueError("empty key")
+            except (ValueError, TypeError) as exc:
+                raise PolicyError(
+                    "sd_jwt.issuer_key_pin must carry a non-empty base64 public key after its algorithm "
+                    f"prefix ({exc})") from exc
     if "status" in policy:
         st = _require_dict(policy["status"], "status")
         _require_bool(st, "reject_self_issued", "status")
@@ -1082,6 +1106,31 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     return rp or None
 
 
+def _sd_jwt_issuer_fingerprint(sd) -> "str | None":
+    """The algorithm-bound fingerprint of the key that verified the SD-JWT's issuer signature, or None
+    (Nachtrag 32, the Critical). Re-derived from the bundle's own ``sd_jwt_vc``: the key is attacker-chosen, so
+    this value is only ever COMPARED to a policy pin, never trusted on its own. Fail-closed — any decode or
+    verification problem, or a signature that does not actually verify under that key, yields None, so the pin
+    comparison fails and the vct is not trusted."""
+    if not isinstance(sd, dict):
+        return None
+    pub_b64, compact = sd.get("issuer_public_key_b64"), sd.get("compact")
+    if not isinstance(pub_b64, str) or not isinstance(compact, str):
+        return None
+    try:
+        pub = decode_b64(pub_b64)
+    except (ValueError, TypeError):
+        return None
+    from .sdjwt import issuer_key_fingerprint, verify_sd_jwt  # noqa: PLC0415
+    try:
+        res = verify_sd_jwt(compact, pub)
+    except (ProofBundleError, ValueError, KeyError, IndexError, TypeError):
+        return None
+    if res.get("sig_ok") is not True:
+        return None
+    return issuer_key_fingerprint(res.get("alg"), pub)
+
+
 @_ein_stand(aussen={"now": "uhr"})
 def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """Evaluate a trust policy OVER a completed crypto verification.
@@ -1406,11 +1455,38 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     expected_vct = sdj.get("expected_vct")
     if expected_vct is not None:
         sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
+        # Nachtrag 32 (the Critical, fixed as a class): a valid issuer signature is NOT enough. The verifying
+        # key comes from sd_jwt_vc.issuer_public_key_b64, which lives OUTSIDE the bundle's signed payload, so it
+        # is attacker-chosen — a self-signed SD-JWT carrying any vct verifies with sig_ok True. The vct is
+        # trustworthy only when the verifying key matches a pin the policy set INDEPENDENTLY of the bundle
+        # (sd_jwt.issuer_key_pin, algorithm-bound), OR when the SD-JWT is BOUND to the signed payload (the
+        # crypto layer's sd-jwt-bundle-binding check passed). Without one of those, the vct proves nothing and
+        # the check fails closed, whatever the vct value is. The identity check (sd-jwt-issuer-identity) is NOT
+        # a substitute: it binds the key to a DISCLOSED issuer claim that is itself attacker-chosen.
+        pin = sdj.get("issuer_key_pin")
+        binding_check = next((c for c in result.checks if c.name == "sd-jwt-bundle-binding"), None)
+        bound_to_payload = binding_check is not None and binding_check.ok is True
+        trusted, trust_detail = False, ""
         if sig_check is None or sig_check.ok is not True:
+            trust_detail = ("the SD-JWT issuer signature was never verified (supply "
+                            "sd_jwt_vc.issuer_public_key_b64)")
+        elif pin is not None:
+            fp = _sd_jwt_issuer_fingerprint(sd)
+            if fp is not None and fp == pin:
+                trusted = True
+            else:
+                trust_detail = ("the SD-JWT issuer key does not match the policy's pinned issuer key "
+                                "sd_jwt.issuer_key_pin")
+        elif bound_to_payload:
+            trusted = True
+        else:
+            trust_detail = ("nothing ties the SD-JWT to a trusted issuer — its verifying key "
+                            "(sd_jwt_vc.issuer_public_key_b64) is supplied outside the bundle's signed payload, "
+                            "so a self-signed SD-JWT with any vct would verify. Set sd_jwt.issuer_key_pin to the "
+                            "trusted issuer key, or use an eval receipt whose SD-JWT binds to the signed payload")
+        if not trusted:
             add("policy:expected_vct", False,
-                "policy requires a specific vct but the SD-JWT issuer signature was never verified "
-                "(fail-closed: an unverified vct claim proves nothing — supply "
-                "sd_jwt_vc.issuer_public_key_b64)")
+                f"policy requires a specific vct but {trust_detail} (fail-closed)")
         else:
             from .sdjwt_issue import _jwt_payload as _sd_issuer_payload  # noqa: PLC0415
             # evaluate_policy is a public function a caller may invoke with a hand-built `result` that
@@ -1430,7 +1506,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             got_vct = _issuer_payload.get("vct") if isinstance(_issuer_payload, dict) else None
             vct_ok = got_vct == expected_vct
             add("policy:expected_vct", vct_ok,
-                f"vct {got_vct!r} matches expected {expected_vct!r}" if vct_ok
+                f"vct {got_vct!r} matches expected {expected_vct!r} (issuer key "
+                f"{'pinned' if pin is not None else 'bound to the signed payload'})" if vct_ok
                 else f"vct {got_vct!r} does not match policy's expected_vct {expected_vct!r} "
                      "(fail-closed)")
 
@@ -1542,7 +1619,13 @@ def explain_policy(policy: dict) -> list:
         # Bounded (`_nennen`): a huge int passes the loader and raised a raw ValueError here (int->str cap).
         lines.append(f"eval claim freshness <= {_nennen(sdj['max_iat_age_seconds'])}s")
     if sdj.get("expected_vct") is not None:
-        lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (from a VERIFIED issuer signature)")
+        if sdj.get("issuer_key_pin") is not None:
+            lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} from the pinned issuer key "
+                         f"{sdj['issuer_key_pin']!r} (Nachtrag 32: the verifying key is attacker-chosen unless "
+                         "pinned)")
+        else:
+            lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (only from an SD-JWT bound to the signed "
+                         "payload; set sd_jwt.issuer_key_pin to trust a stand-alone issuer key — Nachtrag 32)")
     st = _as_dict(policy.get("status"))
     if st.get("reject_self_issued") or _as_list(st.get("allowed_status_authorities")):
         lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")

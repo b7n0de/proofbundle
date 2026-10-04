@@ -2543,6 +2543,11 @@ const POLICY_SEKTIONEN: &[(&str, &[&str])] = &[
             "require_nonce",
             "max_iat_age_seconds",
             "expected_vct",
+            // Nachtrag 32 (the Critical): keep the Rust shape-validator's known keys identical to Python's
+            // _SDJWT_KEYS, so a 6.2.0 trust policy carrying the new issuer_key_pin is accepted by both readers
+            // (a key one knows and the other rejects would be a Python/Rust divergence). This reader validates
+            // policy SHAPE only; it does not evaluate the sd_jwt section, so no pin logic is added here.
+            "issuer_key_pin",
         ],
     ),
     (
