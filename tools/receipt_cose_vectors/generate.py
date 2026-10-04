@@ -113,7 +113,7 @@ def main() -> None:
 
     f1 = fwd("F1", "P1", -19, "issuer", "P1 with alg -19: byte for byte vector M2 of the mappings draft")
     f2 = fwd("F2", "P1", -8, "issuer", "P1 with alg -8: the same rule, only label 1 differs")
-    fwd("F3", "P3", -19, "issuer", "P3, another inclusion proof of the same B: the statement of F1")
+    fwd("F3", "P4", -19, "issuer", "P4, other receipt bytes of the same B: the statement of F1 again")
     fwd("F4", "N7", -19, "issuer", "N7 fails step 11 of the receipt procedure: no statement")
     fwd("F5", "P1", -19, "foreign", "P1 under a key the receipt was not made with: fails step 10, no statement")
     f6 = fwd("F6", "P2", -19, "issuer", "P2, another B: the statement B4 presents with P1")

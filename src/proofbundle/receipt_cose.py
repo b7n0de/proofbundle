@@ -32,7 +32,7 @@ and the check never raises for what it is given to read.
 
 WHAT IS LOST. The statement carries the digest and the model commitment of B, nothing else of the receipt:
 not the score, threshold, comparator, verdict, suite or timestamp, not the dataset commitment, not the
-receipt's signature, key hint, inclusion proof or root. A Receiver that relies on the assertion needs the
+receipt's signature or key hint. A Receiver that relies on the assertion needs the
 receipt itself; the statement only names it. The statement's signature is not the receipt's signature,
 even when one key makes both.
 """
