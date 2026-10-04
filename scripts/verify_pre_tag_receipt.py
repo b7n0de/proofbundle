@@ -125,8 +125,15 @@ def _judged_location(ort: str, wurzel: str) -> bool:
     was given on a volume that does not tell upper from lower case, so `/Users/X/Repo/child` and `/users/x/repo` name
     one directory and share no prefix. The spelling is therefore only the first test: when it does not match, `ort`
     and each of its ancestors are compared with `wurzel` by the identity of the directory (`os.path.samestat`), which
-    covers every second spelling of the same directory at once, case, Unicode normal form or another alias. A path
-    that cannot be read keeps the answer of the spelling, as before."""
+    covers every second spelling of the same directory at once, case, Unicode normal form or another alias. The chain
+    starts at `ort` itself and ends at the root `os.path.dirname` reaches, which is checked before the walk stops.
+
+    A FAILED STAT PROVES NO SEPARATION (external review of 6cab813e, question 4). A path that does not exist
+    (`FileNotFoundError`, `NotADirectoryError`) leads nowhere and contains nothing, so the walk goes on to its
+    ancestors, and a container that does not exist contains nothing. Any other failure of `stat` (a permission, a
+    broken mount, a name the system refuses) leaves open whether the two are the same directory, and an open answer
+    counts as containment: every caller then removes the entry, reports it or refuses with exit 2, before any further
+    import. Only `os` is used, which is loaded at interpreter start."""
     if ort == wurzel:
         return True
     praefix = wurzel if wurzel.endswith(os.sep) else wurzel + os.sep
@@ -134,15 +141,19 @@ def _judged_location(ort: str, wurzel: str) -> bool:
         return True
     try:
         ziel = os.stat(wurzel)
-    except (OSError, ValueError):
+    except (FileNotFoundError, NotADirectoryError):
         return False
+    except (OSError, ValueError):
+        return True
     pfad = ort
     while True:
         try:
             if os.path.samestat(os.stat(pfad), ziel):
                 return True
-        except (OSError, ValueError):
+        except (FileNotFoundError, NotADirectoryError):
             pass
+        except (OSError, ValueError):
+            return True
         oben = os.path.dirname(pfad)
         if not oben or oben == pfad:
             return False
@@ -210,17 +221,18 @@ def _remove_the_judged_tree_from_sys_path() -> None:
 
     The judged tree is code under judgement, not a library this script may import by name: the receipt library and
     the gate are loaded by path (`_lib`, `_gate`), and `src/` goes back on the path only after the checkout has been
-    compared with the commit (`_measure`). An entry that cannot be resolved stays, as it can name no directory of the
-    checkout; an empty entry is the working directory. BOTH DIRECTIONS (Codex on PR 311 at 6d081424, thread
-    4173974268): an entry that contains the checkout is a way into it as well, because a package lookup descends from
-    the entry, so a clone named like a module is importable from its parent."""
+    compared with the commit (`_measure`). An empty entry is the working directory. BOTH DIRECTIONS (Codex on PR 311
+    at 6d081424, thread 4173974268): an entry that contains the checkout is a way into it as well, because a package
+    lookup descends from the entry, so a clone named like a module is importable from its parent. AN ENTRY THAT CANNOT
+    BE RESOLVED GOES as well (external review of 6cab813e, question 4): whether it names a directory of the checkout
+    is open, and an open answer is removed rather than kept; the standard library this script imports next is never
+    such an entry."""
     wurzel = _checkout_root()
     behalten = []
     for eintrag in sys.path:
         try:
             ort = os.path.realpath(eintrag or os.getcwd())
         except (OSError, ValueError, TypeError):
-            behalten.append(eintrag)
             continue
         if _judged_location(ort, wurzel) or _judged_location(wurzel, ort):
             continue
@@ -282,7 +294,9 @@ def _startup_search_paths_into_the_checkout() -> list:
     BOTH DIRECTIONS (Codex on PR 311 at 6d081424, thread 4173974268): a `.pth` line naming the PARENT of a clone called
     `sitecustomize` lets Python import the clone itself as that package at start, and an untracked `__init__.py` that
     hides its origin passes the tripwire for loaded modules; Codex measured exit 0 VERIFIED for a receipt that is not
-    the tree. An entry that contains the checkout is therefore reported as well."""
+    the tree. An entry that contains the checkout is therefore reported as well, and so is an entry that cannot be
+    resolved (external review of 6cab813e, question 4): whether it names a directory of the checkout is open, and an
+    open answer refuses with exit 2."""
     if not getattr(sys.flags, "isolated", 0):
         return []
     wurzel = _checkout_root()
@@ -293,6 +307,7 @@ def _startup_search_paths_into_the_checkout() -> list:
         try:
             ort = os.path.realpath(eintrag)
         except (OSError, ValueError, TypeError):
+            funde.append(eintrag)
             continue
         if _judged_location(ort, wurzel) or _judged_location(wurzel, ort):
             funde.append(eintrag)
@@ -1145,7 +1160,7 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         # A STARTUP FILE PUT THE CHECKOUT ON THE PATH, under -I (see `_startup_search_paths_into_the_checkout`). Code of
         # the checkout may have run before this line; the precondition in the module docstring was not met.
         out["reason"] = (f"under -I the search path at start already named a directory of this checkout or one that "
-                         "contains it "
+                         "contains it, or an entry whose place could not be established "
                          f"({_STARTUP_PATH_INTO_CHECKOUT[0][:160]}); -I adds neither PYTHONPATH nor the script's "
                          "directory, so a startup file of the interpreter (a `.pth` path line) put it there, and Python "
                          "may have run a `sitecustomize.py` of the checkout before the verifier's first line -- run the "

@@ -1660,3 +1660,140 @@ class TestCodexAt6cab813e:
         assert "R620-CODEX-6CAB-1, serious, fixed after 6cab813e" in restrisiko
         assert "R620-CODEX-6CAB-2, P3 on the tests, open for 6.2.1" in restrisiko
         assert "thread 4175660286" in verifier
+
+
+class TestReview5Question4:
+    """External review of round 5 at 6cab813e, question 4 (owner order Z309-RUNDE5-PUSH-UND-IDENTITAET-RUECKFALL-01): the
+    identity test of the containment helper must walk from the path itself to the platform's root, need no import
+    before the path is cleaned, never read a failed `stat` as separation, and tell a missing path from one whose answer
+    is open; open answers are removed, reported or refused before any further import. One case per requirement."""
+
+    @staticmethod
+    def _pruefer(repo):
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_review5_q4_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @staticmethod
+    def _orte(tmp_path):
+        behaelter = tmp_path / "behaelter"
+        behaelter.mkdir()
+        fremd = tmp_path / "fremd" / "a" / "b"
+        fremd.mkdir(parents=True)
+        return behaelter, fremd
+
+    def test_Q4_1_the_chain_starts_at_the_path_and_ends_at_the_root(self, welt, tmp_path, monkeypatch):
+        """Every `stat` the helper takes, in order: the container, then the path itself, then each ancestor up to the
+        root `os.path.dirname` reaches; for an unrelated pair the answer is no containment."""
+        import os  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        behaelter, fremd = self._orte(tmp_path)
+        gesehen = []
+        echt = os.stat
+
+        def spion(p, *a, **k):
+            gesehen.append(p)
+            return echt(p, *a, **k)
+
+        monkeypatch.setattr(mod.os, "stat", spion)
+        ergebnis = mod._judged_location(str(fremd), str(behaelter))
+        monkeypatch.undo()
+        assert ergebnis is False
+        assert gesehen[0] == str(behaelter), gesehen[:3]
+        assert gesehen[1] == str(fremd), gesehen[:3]
+        assert gesehen[-1] == os.path.abspath(os.sep), gesehen[-3:]
+        assert len(gesehen) == 1 + len(Path(fremd).parts), gesehen
+
+    def test_Q4_2_the_helper_imports_nothing(self, welt, tmp_path, monkeypatch):
+        """No import while the helper answers, for a lexical hit, an identity walk, a missing path and an unreadable
+        one: it runs before the path is cleaned, where an import could take a planted module."""
+        import builtins  # noqa: PLC0415
+        import os  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        behaelter, fremd = self._orte(tmp_path)
+        echt_stat = os.stat
+        sperre = {"an": False}
+
+        def stat_gesperrt(p, *a, **k):
+            if sperre["an"] and p == str(fremd):
+                raise PermissionError(13, "Permission denied", p)
+            return echt_stat(p, *a, **k)
+
+        importe = []
+        echt_import = builtins.__import__
+
+        def spion(name, *a, **k):
+            importe.append(name)
+            return echt_import(name, *a, **k)
+
+        # Both patches are set BEFORE the spy listens, so it records the helper's imports and not the test's own
+        # (pytest's monkeypatch imports `inspect` when it sets an attribute; measured on the first run of this case).
+        monkeypatch.setattr(mod.os, "stat", stat_gesperrt)
+        monkeypatch.setattr(builtins, "__import__", spion)
+        mod._judged_location(str(behaelter / "x"), str(behaelter))
+        mod._judged_location(str(fremd), str(behaelter))
+        mod._judged_location(str(tmp_path / "fehlt" / "x"), str(behaelter))
+        sperre["an"] = True
+        offen = mod._judged_location(str(fremd), str(behaelter))
+        monkeypatch.undo()
+        assert importe == [], importe
+        assert offen is True
+
+    def test_Q4_3_an_unexplained_stat_failure_is_no_separation(self, welt, tmp_path, monkeypatch):
+        """An unexplained `stat` failure on an ancestor or on the container counts as containment; the control without
+        the failure is no containment, and a lexical hit is containment either way."""
+        import os  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        behaelter, fremd = self._orte(tmp_path)
+        assert mod._judged_location(str(fremd), str(behaelter)) is False
+        echt = os.stat
+        for gesperrt in (str(fremd.parent), str(behaelter)):
+            def stat_mit_fehler(p, *a, _g=gesperrt, **k):
+                if p == _g:
+                    raise PermissionError(13, "Permission denied", p)
+                return echt(p, *a, **k)
+
+            monkeypatch.setattr(mod.os, "stat", stat_mit_fehler)
+            ergebnis = mod._judged_location(str(fremd), str(behaelter))
+            treffer = mod._judged_location(str(behaelter / "x"), str(behaelter))
+            monkeypatch.undo()
+            assert ergebnis is True, gesperrt
+            assert treffer is True, gesperrt
+
+    def test_Q4_4_a_missing_path_is_told_apart_and_the_callers_hold(self, welt, tmp_path, monkeypatch):
+        """A missing path and a missing container are no containment; an entry whose place cannot be established is
+        reported at start under -I and removed by the path cleaning, while an entry beside the clone stays."""
+        import types  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        behaelter, fremd = self._orte(tmp_path)
+        assert mod._judged_location(str(tmp_path / "fehlt" / "x"), str(behaelter)) is False
+        assert mod._judged_location(str(fremd), str(tmp_path / "fehlt")) is False
+        daneben = tmp_path / "daneben_q4"
+        daneben.mkdir()
+        unklar = str(tmp_path / "unklar_q4")
+        echt = mod.os.path.realpath
+
+        def realpath_mit_fehler(p, *a, **k):
+            if p == unklar:
+                raise ValueError("the place of this entry cannot be established")
+            return echt(p, *a, **k)
+
+        monkeypatch.setattr(mod.os.path, "realpath", realpath_mit_fehler)
+        monkeypatch.setattr(sys, "flags", types.SimpleNamespace(isolated=1))
+        monkeypatch.setattr(sys, "path", [unklar, str(daneben)])
+        assert mod._startup_search_paths_into_the_checkout() == [unklar]
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(daneben)], sys.path
+
+    def test_Q4_R5_1_the_risk_sheet_records_both_lines(self):
+        """RESTRISIKO_620.md carries the requirement as met and R5-1 with the reviewer's wording for 6.2.1."""
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        assert "R620-REV5-Q4, requirement on R620-CODEX-6CAB-1, met after 4e3779d5" in restrisiko
+        assert "R5-1, small, open for 6.2.1" in restrisiko
+        assert '"for a committed file (a gitlink is not asked)"' in restrisiko

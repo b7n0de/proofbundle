@@ -1323,6 +1323,20 @@ on OA-04bf10e6e1). Not reviewed yet; the external reviewer reads only this fix.
   4175660289): on Windows the generator's oracle and the cases that put `/` on the path do not represent a drive or
   UNC root. They are skipped on Windows with this reason; generating platform-native roots is planned for 6.2.1.
 
+From the external review of round 5 at 6cab813e (2026-10-04, PUSH and CONFIRMED for the four points; owner order
+Z309-RUNDE5-PUSH-UND-IDENTITAET-RUECKFALL-01). Not reviewed yet; the external reviewer reads only this fix.
+- **R620-REV5-Q4, requirement on R620-CODEX-6CAB-1, met after 4e3779d5. A failed `stat` read as separation**: the
+  identity test of 86169aa2 answered "not contained" when `stat` failed for an unexplained reason, on the container
+  or on an ancestor, and the path cleaning kept an entry it could not resolve while the startup path check skipped it.
+  A path that does not exist (`FileNotFoundError`, `NotADirectoryError`) is still no container and leads nowhere; any
+  other failure now counts as containment, so the entry is removed, reported or refused with exit 2 before any
+  further import, and an entry that cannot be resolved is removed by the cleaning and reported by the startup check.
+  The ancestor chain starts at the path itself and ends at the root, and the helper uses only `os`, loaded at start.
+- **R5-1, small, open for 6.2.1. A remaining broad text on the gitlink gap**: the module docstring of
+  `scripts/verify_pre_tag_receipt.py` and the CHANGELOG still say without restriction that such effective attributes
+  refuse; RELEASE.md and the function docstring say it precisely. No regression and no wrong verdict. Fix in 6.2.1,
+  in both places right after "effective attributes", word for word: "for a committed file (a gitlink is not asked)".
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.
