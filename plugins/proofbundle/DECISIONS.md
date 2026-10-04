@@ -347,6 +347,15 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
 - Since review Runde 9 (owner choice B, D3) every other git form that acts on a repository is gated too,
   found the same way: it is NOT MEASURED, asked under Claude Code and denied under Codex. Only the bare
   `git --version` is not gated.
+- A safety net closes what the lexer misses (review Runde 11, owner choice A of 2026-10-04). After the
+  structured scan, the gate reads the whole raw text once more — comment, quoted and substitution bytes
+  included — and when the scan produced no gated call but the text still names `git` or `gh` as a command
+  word, in any ASCII casing, the call is NOT MEASURED (ask under Claude Code, deny under Codex, reason id
+  `net_unmodeled_git`). A command word is one at the start of the text or after a control operator
+  (whitespace, `;` `&` `|` `(` `)` `{` `}` newline backtick), optionally behind a path (`…/git`); a name
+  inside a longer word (`.gitignore`, `digit`, `foo-git`), right after a quote (`echo 'git push'`) or after
+  `name=` does not count. The exemption stays the exact bare `git --version`. The net never frees a call and
+  never resolves a push; it only catches a git/gh form the structured scan left without a decision.
 - MCP tools, through a second `PreToolUse` matcher,
   `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`,
   on any server. Both hosts name an MCP tool `mcp__<server>__<tool>` in the hook event, and both read a

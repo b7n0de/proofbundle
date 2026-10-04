@@ -338,6 +338,10 @@ _MAYBE_PUSH = "\x00maybe-push"
 #: Detail marker for a git form that acts on a repository and is not a push the gate resolves: it is never free
 #: (owner choice B of 2026-10-03, review Runde 9). It asks under Claude Code and is denied under Codex.
 _NOT_FREE = "\x00not-free"
+#: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
+#: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
+#: the gate resolves; it asks under Claude Code and is denied under Codex.
+_NET = "\x00net"
 #: git global options (before the subcommand) that take their value as the next word.
 _GIT_GLOBAL_VALUE = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
                                "--config-env", "--super-prefix"})
@@ -735,6 +739,48 @@ def _overmatch(command: str, toks: list, depth: int,
         for body in _subst_bodies(command):
             emit(gated_calls(body, UNKNOWN, depth + 1, inherited_env=env_set))
     return calls
+
+
+#: Path and word characters a program name may be built from, for the net's command-word test.
+_NET_WORD = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./+-")
+#: What may stand right before a command word: the start of the text, a control operator, a brace, a backtick,
+#: or the `(` of a `$(`/`<(` opener, or blank. Quotes and `=` are deliberately absent, so a name inside a
+#: quoted string or after `name=` is not a command word.
+_NET_BEFORE = frozenset(" \t\n;&|(){}`")
+#: The program names the net watches for, longest first so `git-push` wins over `git`.
+_NET_NAMES = ("git-push", "git", "gh")
+
+
+def _net_hit(command: str) -> bool:
+    """Whether the raw command names git/gh as a command word, in any ASCII casing (review Runde 11, owner
+    choice A). The whole text is read — comment, quoted and substitution bytes included — because the
+    structured scan may drop or mis-split them (R11-1, R11-2). A name counts only at a command-word position:
+    the start of the text or just after a control operator (whitespace, ; & | ( ) { } newline backtick),
+    optionally behind a path (…/git). A name inside a longer word (.gitignore, digit, foo-git), one right
+    after a quote (echo 'git push') or after name= is not a command word. The caller uses this only as a
+    backstop, when the structured scan produced no gated call, so an over-match costs at most one NOT MEASURED
+    ask and never frees a call."""
+    low = command.lower()
+    for name in _NET_NAMES:
+        start = 0
+        while True:
+            k = low.find(name, start)
+            if k < 0:
+                break
+            start = k + 1
+            end = k + len(name)
+            if end < len(command) and command[end] in _NET_WORD:
+                continue  # part of a longer word such as gitignore or github
+            j = k
+            while j > 0 and command[j - 1] in _NET_WORD:
+                j -= 1
+            prefix = command[j:k]
+            if prefix and not prefix.endswith("/"):
+                continue  # part of a longer word such as foo-git, or a value after name=
+            if j > 0 and command[j - 1] not in _NET_BEFORE:
+                continue  # preceded by a quote or other non-separator: not a command word
+            return True
+    return False
 
 
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
@@ -2155,9 +2201,16 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Out
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
     judgment as a git form. The separate push path remains. Under Claude Code it may return `pass` or
     `inactive` after its checks; under Codex every push is denied because its execution context is unbound
-    (review Runde 9, owner choice B; wording of review Runde 10, R10-3)."""
+    (review Runde 9, owner choice B; wording of review Runde 10, R10-3).
+
+    After the structured scan, a safety net reads the whole raw text once more (review Runde 11, owner choice
+    A): when the scan produced no gated call but the text still names git or gh as a command word (in any
+    ASCII casing, and whatever the lexer made of comments, quotes or substitutions), the call is NOT MEASURED,
+    ask under Claude Code and deny under Codex. The one exemption stays the exact bare `git --version`."""
     calls = gated_calls(command)
     if not calls:
+        if _net_hit(command) and not _BARE_VERSION.fullmatch(command):
+            return _judge([("git or gh (a form the gate does not model)", UNKNOWN, [_NET])], cwd, deadline, host)
         return None
     return _judge(calls, cwd, deadline, host)
 
@@ -2427,6 +2480,18 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "remote environment",
                 next_step="run the push under a host that binds the execution directory to the gate, or have "
                           "a person review the push"))
+            continue
+        if detail == [_NET]:
+            verdicts.append(Verdict(
+                "ask", f"NOT MEASURED: the command names {name} as a command word, but the gate's structured scan "
+                       "reached no decision for it (a shell form Level 1 does not model, such as an unsupported "
+                       "quote or substitution, a comment under a changed comment character, or a program name in "
+                       "a different letter case). The safety net reports it NOT MEASURED rather than let it pass "
+                       "unchecked (review Runde 11, owner choice A).",
+                "net_unmodeled_git", evidence="the git or gh command the gate could not resolve",
+                failed="the structured scan produced no gated call for a git/gh command word present in the text",
+                next_step="run the call in a plain form the gate resolves (a single `git`/`gh` command, no "
+                          "unusual quoting, substitution or letter case), or have a person review it"))
             continue
         if detail == [_NOT_FREE]:
             verdicts.append(Verdict(
