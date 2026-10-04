@@ -68,7 +68,25 @@ from ._membership import is_member
 # ES256 path already refuses a point that is not on P-256.
 _ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}
 
-__all__ = ["verify_sd_jwt", "canonical_sd_jwt_compact"]
+#: The algorithm prefix of an issuer-key fingerprint, one per accepted signature algorithm. The prefix binds
+#: the fingerprint to the algorithm that actually verified, so a key pinned for one algorithm can never match a
+#: signature made under another (no algorithm confusion). The verdict strings of bundle.py's
+#: ``sd-jwt-issuer-identity`` check use the same form, and so does ``sd_jwt.issuer_key_pin`` in a trust policy.
+_ISSUER_FP_PREFIX = {"EdDSA": "ed25519:", "ES256": "es256:"}
+
+
+def issuer_key_fingerprint(alg, pub) -> Optional[str]:
+    """The algorithm-bound fingerprint of an SD-JWT issuer key: ``"<alg-prefix><standard-base64 of the raw
+    public key>"`` (for example ``"ed25519:ABCD…"``). ``None`` when the algorithm is not one this verifier
+    accepts or the key is not bytes, so a caller fails closed rather than guessing a prefix — an
+    algorithm-confused or key-absent pin must never match a verifying key (Nachtrag 32, the Critical's pin)."""
+    prefix = _ISSUER_FP_PREFIX.get(alg) if isinstance(alg, str) else None
+    if prefix is None or not isinstance(pub, (bytes, bytearray)):
+        return None
+    return prefix + base64.b64encode(bytes(pub)).decode("ascii")
+
+
+__all__ = ["verify_sd_jwt", "canonical_sd_jwt_compact", "issuer_key_fingerprint"]
 
 _HASH_ALG = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
 
