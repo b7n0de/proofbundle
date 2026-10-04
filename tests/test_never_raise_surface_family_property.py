@@ -236,6 +236,11 @@ _OUT_OF_SCOPE = frozenset({
     "measure_build", "measure_vector_set", "measure_verifier_block", "build_verifier_block",
     "build_test_result_statement", "sign_test_result_statement", "attach", "statement_digest",
     "test_result_ref", "join_test_result", "report",
+    # Nachtrag 32 (Z309 Critical): issuer_key_fingerprint consumes no untrusted serialized input. `alg` is the
+    # algorithm the SD-JWT issuer signature already verified under, and `pub` is the already-decoded issuer key
+    # bytes; it only formats the "<alg>:<base64>" fingerprint, guards its two argument types, and returns None
+    # instead of raising. It parses nothing, so it cannot violate the never-raise property — it lies outside.
+    "issuer_key_fingerprint",
     # 2026-09-04, Teil A2 des v0.2-Vorgabewechsels. DREI neue oeffentliche Flaechen, und nur EINE
     # gehoert hierher — die Trennung ist die Entscheidung, die dieser Riegel erzwingt:
     #

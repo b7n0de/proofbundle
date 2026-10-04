@@ -2153,6 +2153,7 @@ _LENGTH_32 = {
     ("checkpoint.py", "_mldsa_cosigned_message"): (1, "a root, no key"),
     ("cli.py", "_build_rp_trust"): (1, "a root, no key"),
     ("cli.py", "_resolve_canonical_root"): (1, "a root, no key"),
+    ("cli.py", "_expected_pack_root"): (1, "a root, no key"),
     ("cli.py", "_parse_bundled_headers"): (1, "a root, no key"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),

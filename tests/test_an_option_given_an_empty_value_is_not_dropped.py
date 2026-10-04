@@ -623,6 +623,11 @@ _DATEI_OPTIONEN_OHNE_FALL = {
                                           "(exit 2, provide --target-file or --canonical-root-hex), and with it the "
                                           "file's bytes are the target itself, whose hash the proof must commit to, so "
                                           "every content, the empty file included, names a target (verify lane V1)"),
+    ("anchor verify-pack", "--target-file"): ("no absent state a content could reach: without it (and without "
+                                              "--expected-root) the command is refused (exit 2), and with it the file's "
+                                              "bytes are hashed to the expected target the pack's canonicalRoot must "
+                                              "equal, so every content, the empty file included, names a target "
+                                              "(Nachtrag 32, the Z309 High)"),
     ("emit", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
     ("verify-proof", "--payload-file"): _PFLICHT + "; its bytes are the payload itself",
     ("emit-eval", "--claim"): _PFLICHT,
