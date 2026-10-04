@@ -202,13 +202,15 @@ def test_r11_4_a_single_valid_reply_is_still_read(monkeypatch):
     ("git push origin main", True), ("GIT push", True), ("/usr/bin/git push", True),
     ("true ; git push", True), ("x=$(git push)", True), ("gh pr create", True),
     (".gitignore", False), ("echo digit", False), ("foo-git bar", False),
-    ("echo 'git push'", False), ("name=git value", False), ("echo github.com", False),
+    ("echo 'git push'", True), ("name=git value", False), ("echo github.com", False),
     ("git --version", True), ("ls -la", False),
 ])
 def test_net_hit_names_only_command_words(command, hit):
-    """The net's command-word test: git/gh count at a command-word position in any case, not inside a longer word,
-    a quoted string or after name= (review Runde 11, owner choice A). git --version is a hit here; decide exempts
-    only that exact bare text separately."""
+    """The net's command-word test on the normal form (review Runde 12, R12-1): git/gh count as a command word
+    in any ASCII case, behind a path or not, but not inside a longer word (.gitignore, digit, foo-git) nor as a
+    value the separators leave whole (name=git). The quote exception of earlier rounds is gone, so the normal
+    form of `echo 'git push'` names git as a command word. git --version is a hit here; decide exempts only that
+    exact bare text separately."""
     assert gate._net_hit(command) is hit, command
 
 
@@ -217,8 +219,10 @@ def test_net_leaves_the_bare_version_free_and_non_git_commands_alone(tmp_path):
     repo = _repo(tmp_path)
     for host in ("claude", "codex"):
         assert gate.decide("git --version", str(repo), gate.time.monotonic() + 30, host=host) is None, host
-        assert gate.decide("echo 'git push'", str(repo), gate.time.monotonic() + 30, host=host) is None, host
         assert gate.decide("ls -la", str(repo), gate.time.monotonic() + 30, host=host) is None, host
+        # `echo 'git push'` is no longer free: under the Runde-12 normal form the quote is removed and git is a
+        # command word, so it is NOT MEASURED (ask under Claude, deny under Codex). See test_plugin_gate_runde12.
+        assert gate.decide("echo 'git push'", str(repo), gate.time.monotonic() + 30, host=host) is not None, host
 
 
 # --- R10-1-C..F: the four comment-strip bounds -------------------------------------------------------------------

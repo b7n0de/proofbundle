@@ -347,15 +347,20 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
 - Since review Runde 9 (owner choice B, D3) every other git form that acts on a repository is gated too,
   found the same way: it is NOT MEASURED, asked under Claude Code and denied under Codex. Only the bare
   `git --version` is not gated.
-- A safety net closes what the lexer misses (review Runde 11, owner choice A of 2026-10-04). After the
-  structured scan, the gate reads the whole raw text once more — comment, quoted and substitution bytes
-  included — and when the scan produced no gated call but the text still names `git` or `gh` as a command
-  word, in any ASCII casing, the call is NOT MEASURED (ask under Claude Code, deny under Codex, reason id
-  `net_unmodeled_git`). A command word is one at the start of the text or after a control operator
-  (whitespace, `;` `&` `|` `(` `)` `{` `}` newline backtick), optionally behind a path (`…/git`); a name
-  inside a longer word (`.gitignore`, `digit`, `foo-git`), right after a quote (`echo 'git push'`) or after
-  `name=` does not count. The exemption stays the exact bare `git --version`. The net never frees a call and
-  never resolves a push; it only catches a git/gh form the structured scan left without a decision.
+- A safety net closes what the lexer misses (review Runde 11, owner choice A of 2026-10-04; Runde 12, R12-1
+  and R12-2). It always runs, not only when the structured scan found nothing. The gate builds a normal form
+  of the whole command text — comments and substitutions included — in which the shell of `$'…'`/`$"…'` is
+  dropped, every single and double quote and every backslash is removed, and only the letters A to Z are
+  lower-cased, each in place (so an expanding case fold such as U+0130 cannot shift the indices, R12-3). A
+  command word is a word of that normal form, split on the separators (whitespace, `;` `&` `|` `(` `)` `{` `}`
+  newline backtick), whose basename is `git`, `gh` or a `git-<subcommand>`, behind a path (`…/git`) or not. A
+  longer word (`.gitignore`, `digit`, `foo-git`, an assignment `X=git` the separators leave whole) is not a
+  command word; the quote and `name=` exceptions of earlier rounds fall away, because the normal form has
+  already removed the quotes. Every command word must correspond to a call the structured scan resolved; one
+  it did not account for — the scan found nothing, or found fewer calls than the net counts — is NOT MEASURED
+  (reason id `net_unmodeled_git`), never a pass or an inactive gate. An overmatch asks under Claude Code and
+  denies under Codex. The exemption stays the exact bare `git --version`. The net never frees a call and never
+  resolves a push.
 - MCP tools, through a second `PreToolUse` matcher,
   `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`,
   on any server. Both hosts name an MCP tool `mcp__<server>__<tool>` in the hook event, and both read a

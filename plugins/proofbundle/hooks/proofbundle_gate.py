@@ -744,46 +744,49 @@ def _overmatch(command: str, toks: list, depth: int,
     return calls
 
 
-#: Path and word characters a program name may be built from, for the net's command-word test.
-_NET_WORD = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./+-")
-#: What may stand right before a command word: the start of the text, a control operator, a brace, a backtick,
-#: or the `(` of a `$(`/`<(` opener, or blank. Quotes and `=` are deliberately absent, so a name inside a
-#: quoted string or after `name=` is not a command word.
-_NET_BEFORE = frozenset(" \t\n;&|(){}`")
-#: The program names the net watches for, longest first so `git-push` wins over `git`.
-_NET_NAMES = ("git-push", "git", "gh")
+#: The separators (D8) that split the net's normal form into words: whitespace and the shell control bytes.
+_NET_SEP = " \t\n;&|(){}`"
+_NET_BEFORE = frozenset(_NET_SEP)
+_NET_SPLIT = re.compile("[" + re.escape(_NET_SEP) + "]+")
+
+
+def _net_normal_form(command: str) -> str:
+    """A normal form of the whole command text — comments and substitutions included — for the net's word test
+    (review Runde 12, R12-1 and R12-3). The shell of an ANSI-C or locale quote (`$'…'`, `$"…"`) is dropped, every
+    single and double quote and every backslash is removed, and only the letters A to Z are lower-cased, each in
+    place. Search and the word boundaries then read one and the same string, so an expanding case fold (U+0130
+    and the like) can no longer shift the indices (R12-3). What the normal form cannot be built from safely is
+    NOT MEASURED, but the transform below is total, so every command yields a normal form."""
+    text = command.replace("$'", "'").replace('$"', '"')
+    out = []
+    for ch in text:
+        if ch in "'\"\\":
+            continue
+        out.append(chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch)
+    return "".join(out)
+
+
+def _net_command_word(token: str) -> bool:
+    """Whether a word of the normal form names git or gh as a command, behind a path or not: its basename is
+    `git`, `gh`, or a `git-<subcommand>`. A longer word (gitignore, foo-git, digit, a value such as X=git that
+    the separators leave whole) is not a command word. The quote and name= exceptions of earlier rounds fall
+    away: the normal form has already removed the quotes, and an assignment stays one word that is not a name."""
+    base = token.rsplit("/", 1)[-1]
+    return base in ("git", "gh") or base.startswith("git-")
+
+
+def _net_words(command: str) -> int:
+    """How many command words of the normal form name git or gh (review Runde 12). The net always runs; the
+    caller compares this count with the calls the structured scan resolved, so a command word the scan did not
+    account for is NOT MEASURED, never a pass or an inactive gate. An overmatch asks under Claude Code and
+    denies under Codex."""
+    return sum(1 for token in _NET_SPLIT.split(_net_normal_form(command)) if token and _net_command_word(token))
 
 
 def _net_hit(command: str) -> bool:
-    """Whether the raw command names git/gh as a command word, in any ASCII casing (review Runde 11, owner
-    choice A). The whole text is read — comment, quoted and substitution bytes included — because the
-    structured scan may drop or mis-split them (R11-1, R11-2). A name counts only at a command-word position:
-    the start of the text or just after a control operator (whitespace, ; & | ( ) { } newline backtick),
-    optionally behind a path (…/git). A name inside a longer word (.gitignore, digit, foo-git), one right
-    after a quote (echo 'git push') or after name= is not a command word. The caller uses this only as a
-    backstop, when the structured scan produced no gated call, so an over-match costs at most one NOT MEASURED
-    ask and never frees a call."""
-    low = command.lower()
-    for name in _NET_NAMES:
-        start = 0
-        while True:
-            k = low.find(name, start)
-            if k < 0:
-                break
-            start = k + 1
-            end = k + len(name)
-            if end < len(command) and command[end] in _NET_WORD:
-                continue  # part of a longer word such as gitignore or github
-            j = k
-            while j > 0 and command[j - 1] in _NET_WORD:
-                j -= 1
-            prefix = command[j:k]
-            if prefix and not prefix.endswith("/"):
-                continue  # part of a longer word such as foo-git, or a value after name=
-            if j > 0 and command[j - 1] not in _NET_BEFORE:
-                continue  # preceded by a quote or other non-separator: not a command word
-            return True
-    return False
+    """Whether the normal form names git or gh as a command word at all (review Runde 12; owner choice A of
+    Runde 11). An overmatch asks under Claude Code and denies under Codex."""
+    return _net_words(command) > 0
 
 
 def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
@@ -1248,27 +1251,53 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
         except ValueError as exc:
             raise GateError("the verifier wrote a non-empty stdout line that is not JSON, which refuses the "
                             "whole verifier run") from exc
-        # JSON-RPC ids are numbers; a boolean is a different type and never matches a request the gate numbered
-        # (review Runde 11, R11-4, Geschwister 7). bool is a subclass of int in Python, so it is excluded here.
-        if isinstance(reply, dict) and isinstance(reply.get("id"), int) and not isinstance(reply.get("id"), bool):
-            if reply["id"] in replies:
-                raise GateError(f"the verifier sent a second reply for request {reply['id']}, which refuses the "
-                                "whole verifier run")
-            replies[reply["id"]] = reply
+        # The whole run is refused for any line that is not a well-formed JSON-RPC 2.0 message (review Runde 12,
+        # R12-4): the envelope must say jsonrpc 2.0; a notification carries a method and no id and is set aside;
+        # a response carries an id that is a real integer (a boolean, string, float or null id is not an answer
+        # the gate numbered — bool is a subclass of int, so it is excluded), exactly one of result or error, and
+        # no method. An invalid object is never silently skipped, so a later valid reply cannot heal it.
+        if not isinstance(reply, dict) or reply.get("jsonrpc") != "2.0":
+            raise GateError("the verifier wrote a line that is not a JSON-RPC 2.0 message, which refuses the "
+                            "whole verifier run")
+        if "id" not in reply:
+            if isinstance(reply.get("method"), str):
+                continue  # a valid notification carries no answer; it is set aside
+            raise GateError("the verifier sent a message with neither an id nor a method, which refuses the "
+                            "whole verifier run")
+        rid = reply["id"]
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            raise GateError("the verifier sent a reply whose id is not an integer, which refuses the whole "
+                            "verifier run")
+        if "method" in reply:
+            raise GateError("the verifier sent a request (an id and a method), which the gate does not answer "
+                            "and which refuses the whole verifier run")
+        if ("result" in reply) == ("error" in reply):
+            raise GateError("the verifier sent a reply that does not carry exactly one of result or error, "
+                            "which refuses the whole verifier run")
+        if rid in replies:
+            raise GateError(f"the verifier sent a second reply for request {rid}, which refuses the whole "
+                            "verifier run")
+        replies[rid] = reply
     results = []
     for n in range(len(requests)):
         reply = replies.get(n + 1)
         if reply is None or "result" not in reply:
             tail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
             raise GateError(f"the verifier gave no answer for item {n} (exit {proc.returncode}: {tail[0]})")
-        text = reply["result"]["content"][0]["text"]
+        result_obj = reply["result"]
+        content = result_obj.get("content") if isinstance(result_obj, dict) else None
+        if not (isinstance(content, list) and content and isinstance(content[0], dict)
+                and isinstance(content[0].get("text"), str)):
+            raise GateError(f"the verifier's result for item {n} has no text content the gate can read")
         try:
-            parsed = strict_json(text)
+            parsed = strict_json(content[0]["text"])
         except ValueError as exc:
             raise GateError(f"the verifier's answer for item {n} is not one unambiguous JSON object ({exc})") from exc
         if not isinstance(parsed, dict):
             raise GateError(f"the verifier's answer for item {n} is not a JSON object")
-        results.append({"is_error": bool(reply["result"].get("isError")), **parsed})
+        # The envelope's tool-error status is authoritative; the payload never overrides it (review Runde 12,
+        # R12-4). is_error is written last, so a parsed is_error cannot weaken the envelope's isError.
+        results.append({**parsed, "is_error": bool(result_obj.get("isError"))})
     return results
 
 
@@ -1893,8 +1922,12 @@ def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tai
     failed, version = [], "unknown"
     for n, (item, result) in enumerate(zip(items, results)):
         version = result.get("proofbundle_version", version)
-        if result["is_error"] or result.get("exit_code") != 0:
-            why = result.get("error") or f"exit {result.get('exit_code')}: {result.get('meaning')}"
+        # exit_code counts only as a real integer: a boolean (false) is not success, though bool == int 0 in
+        # Python, and a missing or non-integer exit_code is a failure, not a pass (review Runde 12, R12-4).
+        exit_code = result.get("exit_code")
+        ok_exit = isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code == 0
+        if result["is_error"] or not ok_exit:
+            why = result.get("error") or f"exit {exit_code!r}: {result.get('meaning')}"
             failed.append((n, item, why))
     if failed:
         return Verdict("deny", f"proofbundle gate: verification failed at {where} (proofbundle {version}). "
@@ -2206,15 +2239,22 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Out
     `inactive` after its checks; under Codex every push is denied because its execution context is unbound
     (review Runde 9, owner choice B; wording of review Runde 10, R10-3).
 
-    After the structured scan, a safety net reads the whole raw text once more (review Runde 11, owner choice
-    A): when the scan produced no gated call but the text still names git or gh as a command word (in any
-    ASCII casing, and whatever the lexer made of comments, quotes or substitutions), the call is NOT MEASURED,
-    ask under Claude Code and deny under Codex. The one exemption stays the exact bare `git --version`."""
+    After the structured scan, a safety net always runs (review Runde 12, R12-1 and R12-2): it builds a normal
+    form of the whole command text — comments and substitutions included, quotes and backslashes removed, the
+    shell of $'…'/$"…" dropped, only A to Z lower-cased in place — and counts the command words that name git or
+    gh. Every such word must correspond to a call the scan resolved; a word it did not account for, whether the
+    scan found nothing or found fewer calls than the net sees, is NOT MEASURED, never a pass or an inactive gate.
+    An overmatch asks under Claude Code and denies under Codex. The one exemption stays the exact bare
+    `git --version`."""
     calls = gated_calls(command)
+    net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
+    if _BARE_VERSION.fullmatch(command):
+        return _judge(calls, cwd, deadline, host) if calls else None
+    nw = _net_words(command)
     if not calls:
-        if _net_hit(command) and not _BARE_VERSION.fullmatch(command):
-            return _judge([("git or gh (a form the gate does not model)", UNKNOWN, [_NET])], cwd, deadline, host)
-        return None
+        return _judge([net_call], cwd, deadline, host) if nw >= 1 else None
+    if nw > len(calls):
+        return _judge(list(calls) + [net_call], cwd, deadline, host)
     return _judge(calls, cwd, deadline, host)
 
 
