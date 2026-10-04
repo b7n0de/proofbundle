@@ -87,6 +87,15 @@ policy that pins no signer. In `verify` itself, a PASSING policy that pins no si
   attacker-chosen audience, nonce and holder binding; without a pin or binding these rules fail closed (the
   Nachtrag 32 Critical fix for `expected_vct`, generalised to the whole class). Set `sd_jwt.issuer_key_pin`
   whenever you rely on a KB-JWT presentation that is not an eval receipt bound to the bundle.
+- The SAME issuer-trust gate now also governs the DIRECT paths (Nachtrag 38, Z309 / PR 311 P1): the
+  `key_binding_ok` / `audience_ok` / `nonce_ok` fields and the exit code of `verify` (and `verify_bundle` with
+  `expected_aud` / `expected_nonce` or `sd_jwt_issuer_key_pin`), not just the policy rules. A KB-JWT verdict —
+  holder binding, audience, nonce — is reported positive only when the SD-JWT is bound to the signed payload or
+  its issuer key matches a pin supplied out of band (`sd_jwt.issuer_key_pin` in a `--policy`, or the
+  `verify_bundle` `sd_jwt_issuer_key_pin` argument). Without an anchor the KB-JWT presentation fails closed
+  (`sd-jwt-issuer-trust`, exit non-zero) — a self-signed SD-JWT can no longer read `--aud`/`--nonce` as bound.
+  **Breaking:** `verify --aud`/`--nonce` on a self-signed presentation now exits non-zero; supply the pin
+  (a `--policy` with `sd_jwt.issuer_key_pin`) or present an eval receipt bound to the bundle.
 - `sd_jwt.require_nonce` enforces that a nonce is present in a **verified** Key Binding JWT under a trusted
   issuer (an unauthenticated or untrusted-issuer nonce is refused, fail-closed). It does NOT by itself bind the
   nonce *value* to your transaction — that is a challenge you supply with `--nonce`, exactly as
