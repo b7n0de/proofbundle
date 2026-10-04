@@ -1523,3 +1523,72 @@ class TestCodexAt6d081424:
         assert "(a gitlink is not asked)" in release
         assert "R620-CODEX-6D08-1, serious, fixed after 6d081424" in restrisiko
         assert "R620-CODEX-6D08-2, P2, open for 6.2.1" in restrisiko
+
+
+class TestCodexAt553989ae:
+    """Codex on PR 311 at 553989ae (review 5403492349, thread 4175430079, 2026-10-03): the containment helper made the
+    filesystem root `/` into the prefix `//`, so a search path entry `/` was never found to contain the checkout. The
+    fix is in the one helper every caller asks; the cases measure the helper against an independent containment and
+    the two functions Codex named. A clone directly under the root is not built here; the condition is measured at
+    the helper and at the functions, and end to end with the root on the search path."""
+
+    @staticmethod
+    def _pruefer(repo):
+        import importlib.util as ilu  # noqa: PLC0415
+        spec = ilu.spec_from_file_location("_codex_5539_verifier", repo / "scripts" / VERIFIER)
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_P1_the_helper_agrees_with_an_independent_containment_over_generated_paths(self, welt):
+        """Every pair of generated resolved paths, the root included, against `os.path.commonpath` as the oracle: `ort`
+        is judged inside `wurzel` exactly when their common path is `wurzel`."""
+        import os  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        teile = ("", "a", "ab", "a/b", "a/bc", "ab/c", "a/b/c")
+        orte = sorted({"/" + t for t in teile})
+        geprueft = 0
+        for wurzel in orte:
+            for ort in orte:
+                erwartet = os.path.commonpath([ort, wurzel]) == wurzel
+                assert mod._judged_location(ort, wurzel) is erwartet, (ort, wurzel)
+                geprueft += 1
+        assert geprueft == len(orte) ** 2 == 49
+        # ANTI-VACUITY: the generated set holds the case of the finding, the root containing every other path.
+        assert all(mod._judged_location(o, "/") for o in orte)
+
+    def test_P1_the_root_on_the_path_is_reported_at_start_and_dropped_by_the_cleaning(self, welt, monkeypatch):
+        """Both functions Codex named, with `/` on the path: the startup path check under `-I` reports it, and the path
+        cleaning drops it. The control: an entry beside the clone is neither reported nor dropped."""
+        import types  # noqa: PLC0415
+        repo, _env, _priv, _kand, _commit = welt
+        mod = self._pruefer(repo)
+        daneben = repo.parent / "daneben_5539"
+        daneben.mkdir()
+        monkeypatch.setattr(sys, "flags", types.SimpleNamespace(isolated=1))
+        monkeypatch.setattr(sys, "path", ["/", str(daneben)])
+        assert mod._startup_search_paths_into_the_checkout() == ["/"]
+        mod._remove_the_judged_tree_from_sys_path()
+        assert sys.path == [str(daneben)], sys.path
+
+    def test_P1_the_root_on_the_search_path_at_start_refuses(self, welt, tmp_path):
+        """End to end: a `.pth` line in an outside virtual environment adds `/`, and under `python -I` the run is refused
+        with exit 2. The control without the line verifies the good receipt."""
+        repo, _env, _priv, _kand, good = welt
+        mit, _sp = _outside_venv(tmp_path, "venv_with_root_line", extra_lines=("/",))
+        r = _run([str(mit), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        res = json.loads(r.stdout)
+        assert r.returncode == 2 and "search path at start" in res["reason"], r.stdout[-400:]
+        ohne, _sp2 = _outside_venv(tmp_path, "venv_without_root_line")
+        r = _run([str(ohne), "-I", "scripts/" + VERIFIER, "--repo", ".", "--commit", good, "--version", "5.0.0",
+                  "--json"], repo, {"PATH": "/usr/bin:/bin"})
+        assert r.returncode == 0 and '"VERIFIED"' in r.stdout, (r.stdout + r.stderr)[-400:]
+
+    def test_P1_the_risk_sheet_records_the_root_case(self):
+        """RESTRISIKO_620.md carries the finding with its state, and the verifier's helper names it."""
+        verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        assert "R620-CODEX-5539-1, serious, fixed after 553989ae" in restrisiko
+        assert "thread 4175430079" in verifier

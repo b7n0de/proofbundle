@@ -114,8 +114,16 @@ def _checkout_root() -> str:
 
 
 def _judged_location(ort: str, wurzel: str) -> bool:
-    """True iff the resolved path `ort` is the checkout `wurzel` or lies below it."""
-    return ort == wurzel or ort.startswith(wurzel + os.sep)
+    """True iff the resolved path `ort` is the checkout `wurzel` or lies below it.
+
+    A `wurzel` that already ends with the separator, the filesystem root above all, gets no second one. Codex on PR
+    311 at 553989ae (thread 4175430079): `wurzel + os.sep` made the root `/` into the prefix `//`, which no resolved
+    path carries, so a search path entry `/` was never found to contain the checkout, in the startup path check and
+    in the path cleaning alike. Every caller asks through this one function, so the fix is here."""
+    if ort == wurzel:
+        return True
+    praefix = wurzel if wurzel.endswith(os.sep) else wurzel + os.sep
+    return ort.startswith(praefix)
 
 
 def _interpreter_startaugen() -> list:

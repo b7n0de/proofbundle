@@ -1300,6 +1300,16 @@ OA-dd2cfee22c). Not reviewed yet; the external reviewer reads only this fix.
   the next candidate, 6.3.0, names no branch in its In section, so it cannot judge the title. It is not a required
   context of main and changes no verdict of the package or of a release script.
 
+From Codex on pull request 311 at 553989ae (review 5403492349, thread 4175430079, 2026-10-03; owner A on
+OA-e0920176d2). Not reviewed yet; the external reviewer reads only this fix.
+- **R620-CODEX-5539-1, serious, fixed after 553989ae. The filesystem root was never found to contain the checkout**:
+  the containment helper `_judged_location` built its prefix as the containing path plus the separator, so the root
+  `/` became `//`, which no resolved path carries. A search path entry `/` was therefore neither reported by the
+  startup path check under `-I` nor dropped by the path cleaning, and a clone directly under the root, named like a
+  module imported early, could run before the comparison with the commit. The helper no longer adds a second
+  separator; every caller asks through it, so the startup path check, the path cleaning, the overlap with the
+  interpreter's directories and the check of loaded modules are fixed together.
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.
