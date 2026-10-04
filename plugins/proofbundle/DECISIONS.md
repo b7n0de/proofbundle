@@ -350,7 +350,8 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
 - A safety net closes what the lexer misses (review Runde 11, owner choice A of 2026-10-04; Runde 12, R12-1
   and R12-2; Nachtrag 33, K1). It always runs, not only when the structured scan found nothing. The gate builds
   a normal form of the whole command text — comments and substitutions included — in which every ANSI-C quote
-  `$'…'` is evaluated to the bytes bash would run, every single and double quote and every backslash is removed,
+  `$'…'` is evaluated toward the bytes bash would run, as far as the normal form can build them safely and
+  completely — otherwise the command is NOT MEASURED, see below — every single and double quote and every backslash is removed,
   and only the letters A to Z are lower-cased, each in place (so an expanding case fold such as U+0130 cannot
   shift the indices, R12-3). A command word is a word of that normal form, split on the separators (whitespace,
   `;` `&` `|` `(` `)` `{` `}` newline backtick), whose basename is `git`, `gh` or a `git-<subcommand>`, behind a
@@ -361,28 +362,43 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
   NOT MEASURED (reason id `net_unmodeled_git`), never a pass or an inactive gate. An overmatch asks under Claude
   Code and denies under Codex. The exemption stays the exact bare `git --version`. The net never frees a call and
   never resolves a push.
-  - The ANSI-C quote and the K1 class (Nachtrag 33). A command word whose executed bytes the normal form cannot
-    build exactly like bash is a defect class, not one spelling: at 096b7191 the net dropped the `$'…'` shell and
-    stripped the quote without evaluating the escape, so `$'\147it'` (octal), `$'\x67'it` (hex), `$'git'`
-    (Unicode) read as `147it`/`x67it`/`u0067it` and no answer was given, though bash — and zsh, measured 5.9 —
-    run each as `git`. Two ways were weighed. (a) Evaluate `$'…'` exactly like bash in the normal form (octal,
-    hex `\x`, Unicode `\u`/`\U`, control `\cX`, the named escapes; an unrecognised escape keeps its backslash,
-    as measured). (b) Report every `$'…'` that carries an escape NOT MEASURED. Chosen: (a), the lower
-    everyday-cost way. A non-git ANSI-C quote is common in an agent's own commands (`IFS=$'\n'`, `grep $'\t'`,
-    `sort -t$'\t'`); way (a) evaluates these to a newline or a tab, which are not command words, so they keep
-    their silent pass, whereas way (b) would make every one of them NOT MEASURED — ask under Claude Code, and
-    under Codex a hard deny of ordinary commands. Way (a) costs only the ANSI-C quotes that actually spell a
-    git/gh word, which is exactly the attack. A form whose executed bytes the net still cannot build exactly —
-    the locale quote `$"…"`, whose message-catalogue translation the gate cannot read — is itself NOT MEASURED
-    whatever its word count, rather than read as its untranslated bytes.
-  - Open, named not folded (Nachtrag 33). Two further `man bash` expansions can construct a command word from
-    text that is not literally `git`: brace expansion (`{g,}it` → `git it`, `g{it,}` → `git g`) and pathname
-    globbing (`gi*` where a file `git` exists). The net does not model either and does not claim to. Folding
-    them in exactly has a real cost that the owner should weigh, not the agent: a bounded brace expander adds a
-    combinatorial-blow-up guard to a hot path, and a blanket NOT MEASURED for every active brace (`cp f.{txt,bak}`)
-    or every glob (`ls *.py`) would deny ordinary commands under Codex. Both are named here and in the report as
-    open, for an owner decision; meanwhile a brace- or glob-built git command word is still a silent miss, as it
-    was before this round.
+  - The ANSI-C quote and the executable-form class (Nachtrag 33, widened to a rule by Nachtrag 35). A command
+    word whose executed bytes the normal form cannot build SAFELY AND COMPLETELY is a defect class, not one
+    spelling, and its answer is NOT MEASURED — asked under Claude Code, denied under Codex, never no answer. Exact
+    evaluation stays only where the normal form can reproduce the executed bytes completely AND it lowers the
+    everyday cost; in doubt the answer is NOT MEASURED. At 096b7191 the net dropped the `$'…'` shell and stripped
+    the quote without evaluating the escape, so `$'\147it'` (octal), `$'\x67'it` (hex), `$'\u0067it'`
+    (Unicode) read as `147it`/`x67it`/`\u0067it` and no answer was given, though bash — and zsh, measured 5.9 —
+    run each as `git`. The net now evaluates `$'…'` (octal, hex `\x`, Unicode `\u`/`\U`, control `\cX`, the
+    named escapes; an unrecognised escape keeps its backslash) only so that the common non-git ANSI-C quote in an
+    agent's own commands (`IFS=$'\n'`, `grep $'\t'`, `sort -t$'\t'`) keeps its silent pass; evaluation that
+    saves no everyday cost is not a goal in itself. The earlier claim that the net evaluates `$'…'` exactly like
+    bash is withdrawn: where the executed bytes cannot be built completely the answer is NOT MEASURED, not the
+    net's own untranslated bytes. Named, each measured against bash and zsh at the fixed commit:
+    - A decoded NUL (`$'\0'`, `$'\x00'`, `$'\u0000'`, `$'\c@'`) truncates the ANSI-C sub-word in bash and
+      the rest of the word is appended, so `$'g\0'it` runs `git`; the normal form does not model that
+      concatenation, so the whole command is NOT MEASURED (review Runde 14, R13-1).
+    - An active backslash line continuation is removed before the word test, so `$'g'\<newline>it` reads as the one
+      word `git` and is gated; a literal backslash kept in single quotes stays a word character (R13-2).
+    - Every embedded executable context is read as its own executable text, and its ANSI-C quotes are evaluated
+      there: a command substitution `$(…)`, a backquote inside double quotes as well, a process substitution
+      `<(…)`/`>(…)`. A single global quote-state variable cannot model nested execution, so the net recurses into
+      each body to a bounded depth (R13-3).
+    - The locale quote `$"…"`, whose message-catalogue translation the gate cannot read, stays NOT MEASURED
+      whatever its word count (Nachtrag 33).
+  - Active expansion in a command-word position (review Runde 14, R13-4, now closed — it was named open in
+    Nachtrag 33). Two `man bash` expansions can construct a command word from text that is not literally `git`:
+    brace expansion (`{g,}it` → `git it`, `g{it,}` → `git g`, the range `g{i..i}t`) and pathname globbing
+    (`gi*`, `g?`, `g[i]t` where a matching file exists). The net does not enumerate the expansion; instead an
+    unquoted active brace or glob metacharacter (`{…,…}`, `{a..b}`, `*`, `?`, `[`) in a command-word position
+    is NOT MEASURED, because it can expand to a git/gh program name. A command-word position is the program word,
+    or a command position that is not a safe assignment, read through the wrappers `sudo env command builtin exec
+    time nice nohup` and nested calls so a wrapped or substituted program word is covered too. The same
+    metacharacters safely in an argument position (`ls *.py`, `cp f.{txt,bak}`, `grep -n foo *.py`) keep their
+    silent pass: only the command-word position is gated, so ordinary data-argument expansions are not denied under
+    Codex. This closes the brace/glob miss that Nachtrag 33 named open; a glob or brace that spells a program word
+    is now NOT MEASURED rather than a silent miss.
+
 - MCP tools, through a second `PreToolUse` matcher,
   `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`,
   on any server. Both hosts name an MCP tool `mcp__<server>__<tool>` in the hook event, and both read a
