@@ -154,6 +154,28 @@ A pass proves what the declared evidence proves, for the tree at HEAD: the decla
 statement that names this tree, and the signed bytes are unchanged. It does not prove that any recorded
 value is true (D2).
 
+### Two modes: strict, or with human approvals
+
+Since the free list was removed, every repository-dependent git form asks. Two modes, set only by a human,
+can spare a repeated question without the model ever freeing anything (D25):
+
+- `strict` (the default): every such form asks; no rule and no click act.
+- `with-approvals`: a rule the human wrote in advance can free one plain `git` form in one repository. `push`
+  and `gh` are never freeable, and a form that touches the mode, the rules or the log is never free.
+
+The mode, the rules and the log live in a user-wide directory the model cannot reach through a repository:
+`$PROOFBUNDLE_GATE_DIR` when absolute, else `$XDG_CONFIG_HOME/proofbundle`, else `~/.config/proofbundle`.
+`mode` holds one word; a missing or unreadable mode is `strict`. `rules.json` is a JSON array the human writes
+and the plugin only reads; each rule is `{repo, form, effect, state_digest}`, where `effect` is `free` or
+`ask` and `state_digest` binds the rule to the repository's program-selecting state (its config, hooks,
+attributes and environment) at the time it was written. A human computes that digest with
+`proofbundle_gate.py state-digest [--repo DIR]`. If any of that state changes, the digest differs and the rule
+stops acting — the gate asks again. A write by a file tool to anything under the gate directory is **denied**,
+not asked, under both hosts, so the model can never create or change an approval. Under Codex both modes deny.
+The mode, and any applied rule, appear in every gate-log line. A human revokes an approval by editing
+`rules.json`. The one-time click path is deferred to a measured owner choice (D25, card 1); until then only the
+read-only rule file acts.
+
 ### The gate's log
 
 Every gate call appends one line to `gate-log.jsonl` in the plugin data directory: time, host, gate

@@ -1011,3 +1011,64 @@ Options:
 - C. Rely on Level 1 alone. Rejected: the reviewer showed a shell gate is not a boundary.
 - D. Rely on Level 3 (CI) alone. The honest fallback, but it catches a bad push only after it reaches the
   remote; Level 2 catches it at the contributor's machine.
+
+## D25. Approval by a human click or a pre-set rule (Nachtrag 24)
+
+Owner word (2026-10-03, 16:51 Berlin): after the free list was removed (D3/owner choice B, Runde 9), every
+repository-dependent git form asks. The human wants two ways to spare a repeated question without the model ever
+freeing anything itself — a one-time click for a command form in a repository, or a rule the human sets in
+advance. The principle (Z355): gate yes, own judgment no. The decision never comes from the model; it comes from
+the human's click or a pre-set rule, and the plugin only executes the rule.
+
+Chosen (owner choice A, 2026-10-04, two modes in the plugin):
+- Two modes, set only by a human. `strict` is the default: every repository-dependent git form asks, and
+  neither a click nor a rule acts. `with-approvals` lets a pre-set rule act (the click path is deferred, see
+  the cards). The model cannot change the mode: a write to the mode location is deny, like the rule file.
+  A missing or unreadable mode is strict. Under Codex both modes deny (D12/D16: the Codex hook does not bind the
+  execution directory). The mode is named in every gate-log entry and in the answer.
+- Where the mode, the rules and the log live (owner card 3, stricter default): an absolute, user-wide directory,
+  never inside a repository. `$PROOFBUNDLE_GATE_DIR` when it is absolute, else `$XDG_CONFIG_HOME/proofbundle`,
+  else `~/.config/proofbundle`. A relative override or no home yields no directory, and the gate stays strict.
+  A file the model could reach through the repository it works in, or by a relative path, is not a human-only
+  location. `<dir>/mode` (one word), `<dir>/rules.json` (the human writes it, the plugin only reads it),
+  `<dir>/gate-log.jsonl` (the audit log).
+- The rule file is a JSON array; each rule is exactly `{repo, form, effect, state_digest}`. `repo` is an
+  absolute repository path, `form` the exact text of one plain strict `git` command (as the strict grammar
+  produces it), `effect` is `free` or `ask`, `state_digest` is the hex sha256 of the repository's
+  program-selecting state at the time the human wrote the rule. A rule acts on a call only if the mode is
+  `with-approvals`, the host is not Codex, the resolved repository matches, the command text matches exactly,
+  the effect is `free`, and the current state digest equals the rule's. `push` and `gh` are never freeable, and
+  a form that touches the gate directory (the mode, the rules or the log) is never free. `effect: ask` lets a
+  human force a question even in `with-approvals` mode. Any mismatch, a malformed, duplicate-keyed, oversized or
+  unreadable rule file, or a state digest that cannot be computed falls through to the normal decision, which
+  asks. What cannot be measured, asks.
+- The state binding (Punkt 4): the digest is the sha256 of a canonical serialization of the repository's
+  effective configuration (`git config` with scope and origin), its effective hook directory (each hook's name,
+  mode and sha256, including a `core.hooksPath` override), its attributes source, and the program-selecting
+  environment. A rule carries the digest of the state when the human wrote it; the gate recomputes and compares.
+  If the configuration, the hooks or that environment change, the digest differs and the rule stops acting — the
+  gate asks again. A human computes the digest for a rule with `proofbundle_gate.py state-digest [--repo DIR]`.
+- The model can never create an approval (Punkt 3): `decide_write` denies — not asks — every write by a file
+  tool whose target is the mode file, the rule file, the log file, or anything under the gate directory, under
+  both hosts. A git command that would change those paths is never free. There is no code path by which the
+  model writes a rule or an approval; the rule file is read-only to the gate.
+- Logging (Punkt 5): each gate-log entry carries the `mode`, and when a rule acted, `applied_rule`
+  (origin `rule`, the form, the effect, the state match). A human revokes an approval by editing the rule file;
+  the gate re-reads it on every call. The click path, when it ships, logs origin `click`.
+
+Open owner cards (Nachtrag 24, Punkt 9; built strict until answered):
+- Card 1 — the click path. Owner choice A (2026-10-04, 11:0x Berlin): measure by behavior which approval
+  mechanisms the host Claude Code version offers and who can trigger each, with a small `claude -p` run and a
+  logging hook, without reading the Claude Code binary (the classifier refusal stands). Until the click path is
+  measured and chosen, it is absent: only the read-only rule file acts, so the model can never trigger an
+  approval. The report carries the measured table.
+- Card 3 — the rule-file location. The stricter default above (user-wide, never in a repository) is built now,
+  because a rule file inside a repository is writable by the model through the Bash tool and by anyone who can
+  push. Whether the owner also wants to allow a repository-local rule, under a human-owned control, is the card.
+
+Options:
+- A. Two modes in the plugin, a human-only gate directory, a read-only rule file bound by a state digest,
+  write-deny on the gate directory, the click path deferred to a measured owner choice (chosen).
+- B. One mode with always-on rules. Rejected: the owner asked for two modes, and a strict default is the safe
+  one when the setting is missing.
+- C. Rules inside the repository. Rejected as the default: the model and any pusher could write them (card 3).
