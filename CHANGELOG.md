@@ -49,7 +49,8 @@ The deep gate at 1a3cd672 (run 7) found a rule that `evaluate_policy` listed as 
 `sd_jwt.expected_aud`, the same at v6.0.0 and v6.1.0, and a receipt verifier that a module the tree hides from git could take
 over; both are closed, and every rule a check path lists as applied is now measured to turn its verdict.
 A security scan of the release head found two more, both in the released 6.0.0 and 6.1.0, and their fixes
-break two calls on purpose: `sd_jwt.expected_vct` needs the new `sd_jwt.issuer_key_pin` unless the SD-JWT is
+break two calls on purpose: the SD-JWT rules of a trust policy need the new `sd_jwt.issuer_key_pin` unless the
+SD-JWT is
 bound to the signed eval claim, and `anchor verify-pack` needs `--target-file` or `--expected-root`.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
@@ -65,6 +66,12 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     (`sd-jwt-bundle-binding`); otherwise `policy:expected_vct` fails. **Breaking:** a policy with `expected_vct` for a
     stand-alone SD-JWT needs the pin, or `verify --policy` exits 3. `load_policy` validates the pin, `policy explain`
     lists it, and the Rust policy reader knows the key.
+  - The same boundary held for the key binding rules (Codex thread 4178190750 at 94f6dd3e, owner decision A on
+    card OA-0da6ff5b9a): `expected_aud`, `require_nonce` and `require_key_binding_when_cnf_present` trusted a Key
+    Binding JWT whose SD-JWT verified only under the self-supplied issuer key. All four SD-JWT rules now share one
+    check (`_sd_jwt_issuer_trusted`), and every `sd_jwt` policy key is classified as needing issuer trust or not,
+    which `tests/test_security_fix_620_kb_n36.py` holds. **Breaking:** a policy that sets one of these rules for a
+    stand-alone SD-JWT needs `sd_jwt.issuer_key_pin`, or `verify --policy` exits 3.
   - `anchor verify-pack` checked the proof against the pack's own `canonicalRoot` and read no target. It now requires
     exactly one of `--target-file` (its SHA-256 is the expected root) or `--expected-root` (standard base64 of 32
     bytes), compares it with the pack's root before the OpenTimestamps proof is read, and refuses a difference as

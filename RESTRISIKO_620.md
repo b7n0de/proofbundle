@@ -1358,6 +1358,12 @@ external reviewer reads these fixes with round 6.
 - **R620-SEC-3, open for 6.2.1, the library neighbour of R620-SEC-2. `verify_evidence_pack` takes no target**: the
   Python function still checks the proof against the pack's own `canonicalRoot`. A caller binds the root before trusting
   the result, as `docs/ANCHORS.md` says; the CLI is bound.
+- **R620-SEC-4, serious, fixed after 94f6dd3e (Codex thread 4178190750, owner A on OA-0da6ff5b9a). The key binding
+  rules trusted a Key Binding JWT under an unpinned issuer**: `expected_aud`, `require_nonce` and
+  `require_key_binding_when_cnf_present` asked only whether `sd-jwt-key-binding` passed, while the holder key it
+  checks comes from an SD-JWT verified under `sd_jwt_vc.issuer_public_key_b64`, outside the signed payload; the class
+  of R620-SEC-1. Codex traced it from the source; it was not executed here. All four SD-JWT rules now go through one
+  check, and every `sd_jwt` key is classified, held by `tests/test_security_fix_620_kb_n36.py`.
 - **R620-CODEX-F65E-1, P2 on the text, fixed after f65e9ec1 (Codex thread 4176949434, owner B on OA-efb0df3845). The
   docstring of `_judged_location` said that a container that does not exist contains nothing**, which the spelling test
   does not hold: a missing path inside the clone is contained by its spelling and refused, as the external review of
