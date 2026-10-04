@@ -2533,19 +2533,268 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
     return _evaluate_targets(repo, head_commit or targets[0].source, targets, deadline, remote_state=True)
 
 
+# --- Nachtrag 24: approval by a human-written rule (no click path yet, owner choice A) ----------------
+#
+# A human may free one plain local git form in one repository by writing a rule, but only in "with-approvals"
+# mode and never under Codex. The model can neither set the mode nor write a rule: the gate's own directory is a
+# deny target for every file-writing tool, under both hosts (decide_write). push and gh are never freed, and a
+# freed form stops being free the moment the repository's program-selecting state changes, because every rule
+# carries the digest of that state at the time a human wrote it (DECISIONS.md D25). There is no click path: owner
+# choice A of Nachtrag 31 measures the host's approval behaviour by running the host first, and until that is
+# measured the stricter rule-file mechanism stands alone.
+
+_GATE_MODES = ("strict", "with-approvals")
+MAX_MODE_BYTES = 64
+MAX_RULES_BYTES = 64 * 1024
+MAX_RULES = 256
+MAX_HOOK_BYTES = 4 * 1024 * 1024
+_RULE_KEYS = frozenset({"repo", "form", "effect", "state_digest"})
+_RULE_EFFECTS = ("free", "ask")
+GATE_STATE_SCHEMA = "proofbundle-plugin/gate-state/v1"
+#: Environment names, beside every GIT_* name, that select the programs or configuration a git call runs with.
+_DIGEST_ENV_EXTRA = frozenset({"PATH", "HOME", "XDG_CONFIG_HOME", "PAGER", "EDITOR", "VISUAL", "SSH_ASKPASS"})
+
+
+def _gate_dir(environ: dict) -> str | None:
+    """The absolute directory that holds the approval mode, the human-written rules and the audit log, or None.
+    `$PROOFBUNDLE_GATE_DIR` when it is an absolute path, else `$XDG_CONFIG_HOME/proofbundle` or ~/.config/
+    proofbundle (owner card 3, stricter default: user-wide, never inside a repository). A relative override, or
+    no home at all, yields None, and the gate stays strict: a file the model could reach through the repository
+    it works in, or by a relative path, is not a human-only location."""
+    override = environ.get("PROOFBUNDLE_GATE_DIR")
+    if override:
+        return override if os.path.isabs(override) else None
+    base = environ.get("XDG_CONFIG_HOME")
+    if base and os.path.isabs(base):
+        return os.path.join(base, "proofbundle")
+    home = environ.get("HOME")
+    if home and os.path.isabs(home):
+        return os.path.join(home, ".config", "proofbundle")
+    return None
+
+
+def _read_mode(environ: dict) -> str:
+    """The approval mode a human set: "strict" (the default) or "with-approvals". Anything the gate cannot read
+    as one of those two words — no directory, no file, an unreadable or oversized file, an unknown word — is
+    strict. The mode is set only by a human at the gate directory; the model cannot write it, because
+    decide_write denies every write to that directory (N24 Punkt 3)."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return "strict"
+    try:
+        with open(os.path.join(directory, "mode"), "rb") as handle:
+            raw = handle.read(MAX_MODE_BYTES + 1)
+    except OSError:
+        return "strict"
+    if len(raw) > MAX_MODE_BYTES:
+        return "strict"
+    word = raw.decode("utf-8", "replace").strip()
+    return word if word in _GATE_MODES else "strict"
+
+
+def _read_rules(environ: dict) -> list[dict]:
+    """The human-written rules, each a dict with exactly {repo, form, effect, state_digest}; [] on any problem
+    (no directory, an unreadable or oversized file, JSON that is not a list, a repeated key at any depth, too
+    many rules, a malformed entry, a non-absolute repo or an empty form). Fail-closed: a rule file the gate
+    cannot read in full as a list of well-formed rules frees nothing. The gate only ever reads this file."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return []
+    try:
+        with open(os.path.join(directory, "rules.json"), "rb") as handle:
+            raw = handle.read(MAX_RULES_BYTES + 1)
+    except OSError:
+        return []
+    if len(raw) > MAX_RULES_BYTES:
+        return []
+    try:
+        data = strict_json(raw)   # a repeated key at any depth is AmbiguousJSON, a ValueError
+    except (ValueError, UnicodeDecodeError):
+        return []
+    if not isinstance(data, list) or len(data) > MAX_RULES:
+        return []
+    rules: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict) or set(item) != _RULE_KEYS:
+            return []
+        if not (isinstance(item["repo"], str) and os.path.isabs(item["repo"])
+                and isinstance(item["form"], str) and item["form"].strip()
+                and item["effect"] in _RULE_EFFECTS and isinstance(item["state_digest"], str)):
+            return []
+        rules.append(item)
+    return rules
+
+
+def _config_value(entries: list, key: str) -> str | None:
+    """The effective value of a lower-cased config key from _config_entries (git's last value wins), or None."""
+    value = None
+    for _scope, _origin, name, raw in entries:
+        if name.lower() == key:
+            value = raw
+    return value
+
+
+def _bound_state_digest(directory: str, deadline: float, environ: dict | None = None) -> str | None:
+    """The hex sha256 of the program-selecting state of the repository at directory, or None when any part
+    cannot be read (so the gate asks). It binds a human rule to the state at the time the rule was written: the
+    effective git configuration, the effective hook directory (each entry's name, permission bits and content
+    hash, core.hooksPath included because git resolves it into this directory), the gitattributes git honours
+    (info/attributes and core.attributesFile) and the GIT_* and program-selecting environment (PATH included).
+    A change to any of these — a new hook, an edited config, a prepended PATH — changes the digest, so the rule
+    stops acting and the gate asks again (N24 Punkt 4). Computed the same way by the `state-digest` CLI a human
+    runs and by the gate on every call, so the two compare."""
+    environ = os.environ if environ is None else environ
+    paths, _why = _repo_paths(directory, deadline)
+    if paths is None or paths["common"] is None:
+        return None
+    entries, _why = _config_entries(directory, deadline)
+    if entries is None:
+        return None
+    common = os.path.realpath(paths["common"])
+    hooks_dir = paths["hooks"]
+    hooks: list = []
+    if hooks_dir and os.path.isdir(hooks_dir):
+        try:
+            names = sorted(os.listdir(hooks_dir))
+        except OSError:
+            return None
+        for name in names:
+            full = os.path.join(hooks_dir, name)
+            try:
+                info = os.stat(full)   # follows a symlink to its target, so a redirected hook changes the hash
+            except OSError:
+                return None
+            if not stat.S_ISREG(info.st_mode):
+                hooks.append([name, oct(stat.S_IMODE(info.st_mode)), "nonfile"])
+                continue
+            try:
+                with open(full, "rb") as handle:
+                    content = handle.read(MAX_HOOK_BYTES + 1)
+            except OSError:
+                return None
+            marker = "toolarge" if len(content) > MAX_HOOK_BYTES else hashlib.sha256(content).hexdigest()
+            hooks.append([name, oct(stat.S_IMODE(info.st_mode)), marker])
+    attrs: list = []
+    attrs_file = _config_value(entries, "core.attributesfile")
+    for label, path in (("info/attributes", os.path.join(common, "info", "attributes")),
+                        ("core.attributesFile", os.path.expanduser(attrs_file) if attrs_file else None)):
+        if path is None:
+            attrs.append([label, "none"])
+            continue
+        try:
+            with open(path, "rb") as handle:
+                attrs.append([label, hashlib.sha256(handle.read()).hexdigest()])
+        except FileNotFoundError:
+            attrs.append([label, "absent"])
+        except OSError:
+            return None
+    env = sorted((name, value) for name, value in environ.items()
+                 if name.startswith("GIT_") or name in _DIGEST_ENV_EXTRA)
+    document = {"schema": GATE_STATE_SCHEMA, "repo": common,
+                "config": [[scope, origin, key, value] for scope, origin, key, value in entries],
+                "hooks_dir": os.path.realpath(hooks_dir) if hooks_dir else None,
+                "hooks": hooks, "attributes": attrs, "env": [[name, value] for name, value in env]}
+    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] | None:
+    """(repo, form) when command is exactly one plain local git form a human rule may free — a bare
+    `git <local-subcommand> …` with no prefix assignment and no global option, acting on the repository at cwd —
+    else None. repo is that repository's git-common-dir (realpath); form is the command's own text, stripped. A
+    push, a gh call, an unknown or transfer-capable subcommand, a program-path invocation, a chain, a pipe, a
+    wrapper, a substitution, a comment-bearing form, or any global option (`-C`, `-c`, …) yields None, so a rule
+    can never free them: push and gh are never freeable, and the state digest binds only the plain form's
+    repository (N24)."""
+    calls = gated_calls(command)
+    if len(calls) != 1 or _net_words(command) > 1:
+        return None
+    name, _directory, detail = calls[0]
+    if detail != [_NOT_FREE] or not name.startswith("git ") or name in ("git", "git --version"):
+        return None
+    toks = _lex(_drop_comments(command))
+    if toks is None or any(t[0] == "op" for t in toks) or _expansion_present(command):
+        return None
+    words = [t[1] for t in toks if t[0] == "word"]
+    if len(words) < 2 or words[0] != "git" or words[1].startswith("-"):
+        return None
+    if words[1] not in _GIT_LOCAL_SUBCOMMANDS or f"git {words[1]}" != name:
+        return None
+    paths, _why = _repo_paths(cwd, deadline)
+    if paths is None or paths["common"] is None:
+        return None
+    return os.path.realpath(paths["common"]), command.strip()
+
+
+def _match_rule(command: str, cwd: str, deadline: float, environ: dict) -> tuple[str, dict] | None:
+    """How a human rule bears on command under with-approvals mode and a non-codex host: ("free", rule) when a
+    rule frees this exact form in this repository and the bound-state digest still matches; ("ask", rule) when a
+    rule names this form with effect "ask" (a human forcing a question even in with-approvals mode, which wins
+    over any freeing rule); None when no rule applies, when the digest no longer matches, or when it cannot be
+    computed — the gate then asks as usual."""
+    candidate = _rule_candidate(command, cwd, deadline)
+    if candidate is None:
+        return None
+    repo, form = candidate
+    matching = [rule for rule in _read_rules(environ)
+                if rule["form"].strip() == form and os.path.realpath(rule["repo"]) == repo]
+    if not matching:
+        return None
+    forced = next((rule for rule in matching if rule["effect"] == "ask"), None)
+    if forced is not None:
+        return ("ask", forced)
+    # The digest is computed from the directory the command runs in, the same way the `state-digest` CLI computes
+    # it from the repository a human points it at; computing it from the git-common-dir instead would read a
+    # different configuration and never match.
+    digest = _bound_state_digest(cwd, deadline, environ)
+    if digest is None:
+        return None
+    freeing = next((rule for rule in matching
+                    if rule["effect"] == "free" and rule["state_digest"] == digest), None)
+    return ("free", freeing) if freeing is not None else None
+
+
+def _approved_outcome(rule: dict) -> "Outcome":
+    """The free outcome for a call a human rule frees: a `pass`, with an applied-rule note for the log."""
+    detail = (f"proofbundle gate: a human rule frees this form in with-approvals mode. Approved form "
+              f"{rule['form']!r} in {rule['repo']}; the gate recomputed the repository's program-selecting state "
+              f"(configuration, hooks, gitattributes and the GIT_* environment) and it matches the digest the "
+              f"rule carries. The gate asks again if that state changes; push and gh are never freed, and the "
+              f"model can neither set the mode nor write a rule (N24; DECISIONS.md D25).")
+    verdict = Verdict("pass", detail, "approved_by_rule", repo=rule["repo"])
+    applied = {"origin": "rule", "repo": rule["repo"], "form": rule["form"], "effect": "free", "state_match": True}
+    return Outcome("pass", verdict.text(), [verdict], applied_rule=applied)
+
+
+def _within_gate_dir(path: str, cwd: str, gate_dir: str) -> str | None:
+    """Why path is the gate directory itself or a file inside it — lexically and after resolving symlinks — or
+    None. A relative path with no known cwd is None (the general write path handles an unresolvable target)."""
+    if not os.path.isabs(path):
+        if not (isinstance(cwd, str) and os.path.isabs(cwd)):
+            return None
+        path = os.path.join(cwd, path)
+    roots = {os.path.normpath(gate_dir), os.path.realpath(gate_dir)}
+    for candidate in {os.path.normpath(path), os.path.realpath(path)}:
+        for root in roots:
+            if candidate == root or candidate.startswith(root.rstrip(os.sep) + os.sep):
+                return f"{candidate} is the gate directory {gate_dir} or a file inside it"
+    return None
+
+
 class Outcome:
-    """The combined answer for one call: the decision, its text, and the verdict of every repository."""
+    """The combined answer for one call: the decision, its text, the verdict of every repository, and, when a
+    human rule freed the call, the applied-rule note for the log (N24)."""
 
-    __slots__ = ("decision", "text", "verdicts")
+    __slots__ = ("decision", "text", "verdicts", "applied_rule")
 
-    def __init__(self, decision: str, text: str, verdicts: list):
-        self.decision, self.text, self.verdicts = decision, text, verdicts
+    def __init__(self, decision: str, text: str, verdicts: list, applied_rule: dict | None = None):
+        self.decision, self.text, self.verdicts, self.applied_rule = decision, text, verdicts, applied_rule
 
     def __iter__(self):
         return iter((self.decision, self.text))
 
 
-def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
+def decide(command: str, cwd: str, deadline: float, host: str = "claude",
+           environ: dict | None = None) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
@@ -2562,11 +2811,22 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude") -> Out
     pass or an inactive gate. The net also reports NOT MEASURED a form whose executed bytes it cannot build
     exactly like bash — a locale quote $"…", whose translation it cannot read (Nachtrag 33, K1) — even when no
     git/gh word is visible. An overmatch asks under Claude Code and denies under Codex. The one exemption stays
-    the exact bare `git --version`."""
+    the exact bare `git --version`.
+
+    One repository-asking form can become free (Nachtrag 24): in "with-approvals" mode (a human set it at the
+    gate directory) and never under Codex, a human rule may free exactly one plain local git form, bound by a
+    digest to the repository's program-selecting state. push and gh never reach this path; a rule with effect
+    "ask", a digest that no longer matches, strict mode, Codex, or no rule at all all fall through to the normal
+    decision, which asks. The model can neither set the mode nor write a rule."""
+    environ = os.environ if environ is None else environ
     calls = gated_calls(command)
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
         return _judge(calls, cwd, deadline, host) if calls else None
+    if host != "codex" and _read_mode(environ) == "with-approvals":
+        applied = _match_rule(command, cwd, deadline, environ)
+        if applied is not None and applied[0] == "free":
+            return _approved_outcome(applied[1])
     nw = _net_words(command)
     unresolved = _net_unresolved(command)
     if not calls:
@@ -2751,16 +3011,36 @@ def _protected_write(path: str, cwd: str, deadline: float) -> str | None:
     return None
 
 
-def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude") -> Outcome | None:
+def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host: str = "claude",
+                 environ: dict | None = None) -> Outcome | None:
     """None for a file-tool write the gate does not gate; else NOT MEASURED, ask under Claude and deny under
     Codex (Nachtrag 19b, Punkt 6): a write to the configuration or the hooks of a repository changes which
     programs later git calls run, and a path the gate cannot map for sure is treated the same way.
 
-    Under Codex every file-tool write is NOT MEASURED and denied (review Runde 7, R7-6): an apply_patch without
-    `*** Environment ID:` writes into the turn's primary environment (codex-rs/core/src/tools/handlers/mod.rs at
-    14a477ea, resolve_tool_environment, lines 160-178), which need not be the filesystem and directory of the
-    hook's cwd, and the hook input carries nothing that binds the two. A missing environment line is no proof of
-    binding, so the gate cannot tell for any path whether it is configuration or a hook."""
+    A write to the gate's own directory (the approval mode, the human-written rules, the audit log) is denied
+    under both hosts (Nachtrag 24, Punkt 3): the model must never be able to set the mode, create or change an
+    approval, or edit the log. This check runs before the host split, so Codex and Claude alike deny it.
+
+    Under Codex every other file-tool write is NOT MEASURED and denied (review Runde 7, R7-6): an apply_patch
+    without `*** Environment ID:` writes into the turn's primary environment (codex-rs/core/src/tools/handlers/
+    mod.rs at 14a477ea, resolve_tool_environment, lines 160-178), which need not be the filesystem and directory
+    of the hook's cwd, and the hook input carries nothing that binds the two. A missing environment line is no
+    proof of binding, so the gate cannot tell for any path whether it is configuration or a hook."""
+    environ = os.environ if environ is None else environ
+    gate_dir = _gate_dir(environ)
+    targets = _write_targets(tool, tool_input)
+    if gate_dir is not None and targets is not None:
+        for target in (targets or []):
+            why = _within_gate_dir(target, cwd, gate_dir)
+            if why:
+                verdict = Verdict("deny", f"the gate's own directory holds the approval mode, the human-written "
+                                          f"rules and the audit log, so {tool} must never write it: the model "
+                                          f"cannot set the mode, create or change an approval, or edit the log. "
+                                          f"{why}.",
+                                  "write_to_gate_dir", evidence="the gate mode, rules and log",
+                                  failed=f"{tool} would write {target} inside the gate directory {gate_dir}",
+                                  next_step="a human edits the gate's mode and rules directly, outside the agent")
+                return Outcome("deny", verdict.text(), [verdict])
     if host == "codex":
         why = (f"under Codex the hook does not bind {tool} to the filesystem and directory the write acts in: an "
                "apply_patch without `*** Environment ID:` writes into the turn's primary environment, which need "
@@ -2772,7 +3052,6 @@ def decide_write(tool: str, tool_input: object, cwd: str, deadline: float, host:
                           next_step="make the change under a host whose hook binds the write's directory, or have "
                                     "a person make it")
         return Outcome("deny", verdict.text(), [verdict])
-    targets = _write_targets(tool, tool_input)
     reasons = [f"the gate cannot tell for sure which files this {tool} call writes"] if targets is None else []
     for target in targets or []:
         try:
@@ -2953,6 +3232,35 @@ def tree_digest_command(argv: list[str]) -> int:
     return 0
 
 
+def state_digest_command(argv: list[str]) -> int:
+    """`state-digest [--repo DIR]`: print the bound-state digest a human puts in a rule, with the repository's
+    canonical path and a ready rule skeleton. The gate recomputes this digest on every call and frees the form
+    only while it matches, so a human runs this in the same environment the agent runs in (Nachtrag 24)."""
+    options, i = {"--repo": "."}, 0
+    while i < len(argv):
+        if argv[i] in options and i + 1 < len(argv):
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"usage: state-digest [--repo DIR]; unknown {argv[i]!r}", file=sys.stderr)
+            return 2
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    paths, why = _repo_paths(options["--repo"], deadline)
+    if paths is None or paths["common"] is None:
+        print(f"state-digest: not a git repository, or its layout cannot be read ({why or options['--repo']})",
+              file=sys.stderr)
+        return 1
+    digest = _bound_state_digest(options["--repo"], deadline)
+    if digest is None:
+        print("state-digest: the program-selecting state cannot be read in full, so there is no digest; the gate "
+              "will ask for every form in this repository", file=sys.stderr)
+        return 1
+    skeleton = {"repo": os.path.realpath(paths["common"]), "form": "git <the exact command to free>",
+                "effect": "free", "state_digest": digest}
+    sys.stdout.write(digest + "\n")
+    sys.stdout.write(json.dumps(skeleton, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def log_directory(host: str, environ: dict | None = None) -> str | None:
     """The first plugin data directory the host names that is, or can be made, a writable directory."""
     environ = os.environ if environ is None else environ
@@ -2969,8 +3277,12 @@ def log_directory(host: str, environ: dict | None = None) -> str | None:
     return None
 
 
-def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list[str]) -> dict:
-    """What one call leaves in the log: no evidence content, no environment, no key."""
+def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list[str],
+              environ: dict | None = None) -> dict:
+    """What one call leaves in the log: no evidence content, no environment, no key. The approval mode is
+    recorded on every entry, and the applied rule (origin, repo, form, effect, state_match) when a human rule
+    freed the call, so the log shows each approval and a human can audit and revoke it (Nachtrag 24, Punkt 5)."""
+    environ = os.environ if environ is None else environ
     session = event.get("session_id") if isinstance(event, dict) else None
     tool = event.get("tool_name") if isinstance(event, dict) else None
     verdict = outcome.decision if outcome is not None else "not_gated"
@@ -2978,10 +3290,14 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
     repos = [] if outcome is None else [
         {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests)}
         for v in outcome.verdicts]
-    return {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "host": host, "gate_version": GATE_VERSION,
-            "session_id": session if isinstance(session, str) else None,
-            "tool": tool if isinstance(tool, str) else None, "actions": actions, "decision": sent,
-            "verdict": verdict, "reason_ids": [r["reason_id"] for r in repos] or [verdict], "repos": repos}
+    entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "host": host, "gate_version": GATE_VERSION,
+             "session_id": session if isinstance(session, str) else None,
+             "tool": tool if isinstance(tool, str) else None, "actions": actions, "decision": sent,
+             "verdict": verdict, "mode": _read_mode(environ),
+             "reason_ids": [r["reason_id"] for r in repos] or [verdict], "repos": repos}
+    if outcome is not None and outcome.applied_rule is not None:
+        entry["applied_rule"] = outcome.applied_rule
+    return entry
 
 
 def write_log(entry: dict, host: str) -> str | None:
@@ -3507,6 +3823,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["tree-digest"]:
         return tree_digest_command(argv[1:])
+    if argv[:1] == ["state-digest"]:
+        return state_digest_command(argv[1:])
     if argv[:1] == ["ci-check"]:
         return ci_check_command(argv[1:])
     if argv[:1] == ["run-evidence"]:

@@ -59,7 +59,7 @@ def _clean_git_config(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
 ENTRY_KEYS = {"ts", "host", "gate_version", "session_id", "tool", "actions", "decision", "verdict", "reason_ids",
-              "repos"}
+              "repos", "mode"}   # Nachtrag 24: the approval mode is recorded on every entry
 
 
 def _git(repo: pathlib.Path, *args: str) -> None:
