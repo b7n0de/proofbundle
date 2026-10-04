@@ -1517,6 +1517,8 @@ def _expected_pack_root(args: argparse.Namespace) -> bytes:
             for _chunk in iter(lambda: handle.read(1 << 20), b""):
                 h.update(_chunk)
         return h.digest()
+    if er is None:   # never reached after the check above; it narrows the type for mypy
+        raise ValueError("anchor verify-pack needs exactly one of --target-file or --expected-root")
     try:
         root = decode_b64(er)
     except (ValueError, TypeError) as exc:

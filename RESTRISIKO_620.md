@@ -1343,7 +1343,7 @@ Z309-RUNDE5-PUSH-UND-IDENTITAET-RUECKFALL-01). Not reviewed yet; the external re
   gives the surface a fixed `time_created`. The package is unchanged; the same job passed at the heads before.
 
 From a security scan of the release head (one critical and one high finding, checked at f65e9ec1 on 2026-10-04; owner
-order Z309-SECURITY-CRITICAL-HIGH-VOR-DEM-TAG-01, owner A on OA-9847e624e4 and OA-4a8b54fc40). Not reviewed yet; the
+order on the security scan, line Z309, owner A on OA-9847e624e4 and OA-4a8b54fc40). Not reviewed yet; the
 external reviewer reads these fixes with round 6.
 - **R620-SEC-1, critical, fixed after f65e9ec1. `sd_jwt.expected_vct` trusted a vct under a key the policy never
   pinned**: the SD-JWT issuer key is read from `sd_jwt_vc.issuer_public_key_b64`, outside the bundle's signed payload,

@@ -57,7 +57,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
 
 - **Two security-driven breaking changes: a vct needs a pinned issuer key, and an evidence pack needs a target**
   (a security scan of the release head, one critical and one high finding, both present at v6.0.0 and v6.1.0; owner
-  order Z309-SECURITY-CRITICAL-HIGH-VOR-DEM-TAG-01, owner decision A on cards OA-9847e624e4 and OA-4a8b54fc40).
+  order on the security scan, line Z309, owner decision A on cards OA-9847e624e4 and OA-4a8b54fc40).
   - `sd_jwt.expected_vct` took a vct as trusted once the SD-JWT issuer signature verified, but the key it verified
     under comes from `sd_jwt_vc.issuer_public_key_b64`, outside the bundle's signed payload. The check now passes only
     when that key matches the new trust-policy field `sd_jwt.issuer_key_pin` (`ed25519:` or `es256:` followed by the
