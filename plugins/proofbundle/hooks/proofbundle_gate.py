@@ -1184,16 +1184,24 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
         raise GateError("the verifier did not finish in time") from exc
     # A reply line that repeats a key could be read as an answer to any request, and a second reply for the same
     # request leaves two answers to choose from: either refuses the whole run, so no other reply counts and no
-    # reply is overwritten (review Runde 10, R10-2). A line that is no JSON at all is still skipped.
+    # reply is overwritten (review Runde 10, R10-2). The MCP server reserves stdout for JSON messages and stderr
+    # for diagnostics, so any non-empty stdout line that is not JSON is a protocol error that refuses the whole
+    # run too; a later valid reply does not heal it (review Runde 11, R11-4, Geschwister 8). Blank lines carry no
+    # message and are skipped.
     replies = {}
     for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
         try:
             reply = strict_json(line)
         except AmbiguousJSON as exc:
             raise GateError(f"a reply line of the verifier {exc}, which refuses the whole verifier run") from exc
-        except ValueError:
-            continue
-        if isinstance(reply, dict) and isinstance(reply.get("id"), int):
+        except ValueError as exc:
+            raise GateError("the verifier wrote a non-empty stdout line that is not JSON, which refuses the "
+                            "whole verifier run") from exc
+        # JSON-RPC ids are numbers; a boolean is a different type and never matches a request the gate numbered
+        # (review Runde 11, R11-4, Geschwister 7). bool is a subclass of int in Python, so it is excluded here.
+        if isinstance(reply, dict) and isinstance(reply.get("id"), int) and not isinstance(reply.get("id"), bool):
             if reply["id"] in replies:
                 raise GateError(f"the verifier sent a second reply for request {reply['id']}, which refuses the "
                                 "whole verifier run")
