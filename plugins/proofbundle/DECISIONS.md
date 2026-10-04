@@ -549,11 +549,14 @@ DECISION AFTER REVIEW RUNDE 6 (Nachtrag 19; the reviewer's decision, recorded he
   denied.
 
 GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7; review Runde 9)
-- Since review Runde 9 (owner choice B, D3) no git form that acts on a repository is free on either host:
-  it asks under Claude Code and is denied under Codex, with the same reason id `git_form_not_free`. A
-  literal `-C` binds nothing on either host. Only the bare `git --version`, exactly that text, reads no
-  repository and stays free (review Runde 7, question 5: "every git form" was too broad). A bare `git`
-  without a subcommand is no longer free.
+- Since review Runde 9 (owner choice B, D3) the former free list for local git commands has been removed.
+  Those forms ask under Claude Code and are denied under Codex, with the same reason id `git_form_not_free`;
+  a literal `-C` on such a local form does not change that decision (it never frees it). Only the exact bare
+  command text `git --version` is exempt (review Runde 7, question 5: "every git form" was too broad; wording
+  of review Runde 11, R11-5). The separate push path remains: under Claude Code it may return `pass` or
+  `inactive` after its checks; under Codex every push is denied because its execution context is unbound — the
+  `-C` sentence above is about the freed local forms, not that push path. A bare `git` without a subcommand is
+  no longer free.
 - MEASURED in the Codex source at 14a477ea89712071944244022e8a10142845456e (read, not run): the dispatcher
   asks every tool for a PreToolUse payload (`codex-rs/core/src/tools/registry.rs` line 602); a function
   tool fires the hook under its own name with its JSON arguments (lines 133-142, 833-842); `apply_patch`,

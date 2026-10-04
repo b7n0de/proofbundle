@@ -365,8 +365,11 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: git starting a program through configuration, a configured value or an indirect path that list did not know
 #: (numeric booleans, empty driver names, automatic maintenance). The vetted options, the signature markers, the
 #: per-entry profiles, the key and environment families and the repository-state check are removed, not patched.
-#: Every git form that acts on a repository now asks under Claude Code and is denied under Codex (_NOT_FREE);
-#: only the bare `git --version`, the whole command, stays free. The two readers below remain for the write gate.
+#: The former free list for local git commands has been removed. Those forms ask under Claude Code and are denied
+#: under Codex; a literal `-C` does not change that decision. Only the exact bare command text `git --version` is
+#: exempt. The separate push path remains: under Claude Code it may return `pass` or `inactive` after its checks;
+#: under Codex every push is denied because its execution context is unbound (review Runde 11, R11-5). The two
+#: readers below remain for the write gate.
 
 
 def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
