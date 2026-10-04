@@ -386,18 +386,34 @@ request, `push_files`, `create_or_update_file` and `merge_pull_request`, gated a
       each body to a bounded depth (R13-3).
     - The locale quote `$"…"`, whose message-catalogue translation the gate cannot read, stays NOT MEASURED
       whatever its word count (Nachtrag 33).
-  - Active expansion in a command-word position (review Runde 14, R13-4, now closed — it was named open in
-    Nachtrag 33). Two `man bash` expansions can construct a command word from text that is not literally `git`:
-    brace expansion (`{g,}it` → `git it`, `g{it,}` → `git g`, the range `g{i..i}t`) and pathname globbing
-    (`gi*`, `g?`, `g[i]t` where a matching file exists). The net does not enumerate the expansion; instead an
-    unquoted active brace or glob metacharacter (`{…,…}`, `{a..b}`, `*`, `?`, `[`) in a command-word position
-    is NOT MEASURED, because it can expand to a git/gh program name. A command-word position is the program word,
-    or a command position that is not a safe assignment, read through the wrappers `sudo env command builtin exec
-    time nice nohup` and nested calls so a wrapped or substituted program word is covered too. The same
-    metacharacters safely in an argument position (`ls *.py`, `cp f.{txt,bak}`, `grep -n foo *.py`) keep their
-    silent pass: only the command-word position is gated, so ordinary data-argument expansions are not denied under
-    Codex. This closes the brace/glob miss that Nachtrag 33 named open; a glob or brace that spells a program word
-    is now NOT MEASURED rather than a silent miss.
+  - Active expansion in a command-word position, as a positive-role rule (review Runde 14, R13-4; Runde 15,
+    R14-1/R14-2/R14-3; Nachtrag 37). Two `man bash` expansions can construct a command word from text that is not
+    literally `git`: brace expansion (`{g,}it` → `git it`, the range `g{i..i}t`) and pathname globbing (`gi*`,
+    `g?`, `g[i]t` where a matching file exists). The net does not enumerate the expansion. Instead it frees an
+    active brace or glob (`{…,…}`, `{a..b}`, `*`, `?`, `[`) ONLY when it can prove the expansion is a data
+    argument of a program word it has positively recognised in place — a plain literal that is not itself an
+    expansion or a substitution, not `--`, not a known wrapper and not a reserved word. Only then is the expansion
+    data and free (`ls *.py`, `cp f.{txt,bak}`, `grep -n foo *.py`, `if true; then ls *.py; fi`). In every other
+    position the role is not proven and the expansion is NOT MEASURED:
+    - A wrapper option, `--` or a reserved word shifts the real program position. The net does not model each
+      wrapper's options, so once a known wrapper (`sudo`, `env`, `command`, `exec`, `time`, `xargs`, `timeout`, …)
+      or a reserved word (`if`, `while`, `case`, `for`, …) heads the command, the program position is unproven and
+      any active expansion at or after it is NOT MEASURED — `env -- gi*`, `command -- gi*`, `time -p gi*` and
+      `if gi* …` all run git under bash. The wrapper and reserved-word lists only ADD strictness: a word in neither
+      is treated as an ordinary program, so a genuinely unknown program (like an alias or a function) is a named
+      recognition boundary, never a silent git/gh pass. Extending the lists can only move more forms to NOT
+      MEASURED, never free one — the fix is this positive-role rule, not a longer wrapper list (R14-1, R14-5).
+    - The expansion check runs inside every executable subcontext (`echo "$(gi* status)"`), and a context the
+      lexer cannot parse (`: $'x'; gi* status`) is NOT MEASURED at an unclear program position, not treated as
+      expansion-free (R14-2).
+    - An embedded command's boundary counts only under understood syntax: a backslash-escaped `)`, a `)` in a
+      comment and a `case`-pattern `)` no longer end a `$(…)` early, and a `$(…)` body whose `case`/`esac` do not
+      balance is NOT MEASURED because the boundary cannot be trusted (R14-3).
+    The whole understood-versus-NOT-MEASURED decision is made at one site (`_net_unmodeled`); every free exit of
+    the net goes through it, and a per-class test fails if a form bypasses it (Punkt 2). The named recognition
+    boundaries the net does not see — a program word built in a variable, an alias, a function, an executable
+    context nested past the depth limit, and the locale quote `$"…"` — can still pass without a gate answer; that
+    is the declared scope of NOT MEASURED, and no claim is made that the net catches a git/gh word behind them.
 
 - MCP tools, through a second `PreToolUse` matcher,
   `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`,
@@ -1055,6 +1071,11 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
 - Logging (Punkt 5): each gate-log entry carries the `mode`, and when a rule acted, `applied_rule`
   (origin `rule`, the form, the effect, the state match). A human revokes an approval by editing the rule file;
   the gate re-reads it on every call. The click path, when it ships, logs origin `click`.
+- A rule never frees a form the net reports NOT MEASURED (owner correction to Nachtrag 37, part of the Punkt-2
+  class). `_rule_candidate` consults the net's single decision site (`_net_unresolved`/`_net_unmodeled`), so an
+  approval is possible only for a form the net also positively understood, in `with-approvals` mode as in `strict`.
+  Without this a plain `git <local>` form the net could not build exactly like bash — a locale quote `$"…"`, a
+  decoded NUL — could have been freed by a rule; now it is NOT MEASURED first and the rule cannot reach it.
 
 Open owner cards (Nachtrag 24, Punkt 9; built strict until answered):
 - Card 1 — the click path. Owner choice A (2026-10-04, 11:0x Berlin): measure by behavior which approval
