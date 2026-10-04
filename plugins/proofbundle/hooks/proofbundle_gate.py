@@ -831,55 +831,195 @@ def _net_fold(ch: str) -> str:
     return chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch
 
 
-def _net_scan(command: str) -> tuple[str, bool]:
-    """(normal form, unresolved) for the net's word test (review Runde 12, R12-1/R12-3; Nachtrag 33, K1). The
-    normal form is the whole command text — comments and substitutions included — with every ANSI-C quote `$'…'`
-    evaluated to the bytes bash would run, single and double quotes and backslashes removed, and only A to Z
-    lower-cased in place. Search and the word boundaries then read one and the same string.
+def _balanced_paren(text: str, start: int) -> tuple[str, int, bool]:
+    """From text[start] == '(', the inner text up to the matching ')', the index just past it, and whether it
+    was balanced. Quotes inside suppress a `)` (review Runde 11, R11-1 case 3). An unbalanced opener yields the
+    rest of the text and ok=False, so the caller treats the context as NOT MEASURED."""
+    depth, j, quote, n = 0, start, None, len(text)
+    while j < n:
+        ch = text[j]
+        if quote is not None:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:j], j + 1, True
+        j += 1
+    return text[start + 1:], n, False
 
-    `unresolved` is True when the text holds a form whose executed bytes the normal form cannot build exactly like
-    bash: a locale quote `$"…"`, whose message-catalogue translation the gate cannot read (the bash manual,
-    Locale Translation). Such a command is NOT MEASURED whatever its git/gh word count (Nachtrag 33, K1): the
-    normal form evaluates `$'…'` exactly (the lower everyday-cost way, DECISIONS.md D8), and a form it cannot
-    evaluate exactly, like `$"…"`, is reported NOT MEASURED rather than read as the untranslated bytes. Further
-    expansions that can construct a command word (brace expansion, pathname globbing) are named open in D8; the
-    scan does not model them. The scan is total: every command yields a normal form."""
+
+#: Command-prefix words that keep the next word in command-word position (the net's brace/glob test, R13-4).
+_NET_EXPANSION_WRAPPERS = frozenset({"sudo", "env", "command", "builtin", "exec", "time", "nice", "nohup",
+                                     "ionice", "setsid", "stdbuf", "nocorrect", "then", "do", "else", "elif"})
+
+
+def _unquoted_active_expansion(raw: str) -> bool:
+    """Whether a word's raw text carries an unquoted active expansion: a pathname glob (`*`, `?`, `[`) or a brace
+    group with a top-level `,` or `..` (`{a,b}`, `{1..9}`). A quoted metacharacter is literal, `${…}` is a
+    parameter expansion not a brace, and a `{…}` with neither `,` nor `..` is a literal brace (review Runde 14,
+    R13-4)."""
+    i, n = 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "'":
+            j = raw.find("'", i + 1)
+            if j < 0:
+                return False
+            i = j + 1
+        elif c == '"':
+            i += 1
+            while i < n and raw[i] != '"':
+                i += 2 if raw[i] == _BACKSLASH else 1
+            i += 1
+        elif c == _BACKSLASH:
+            i += 2
+        elif c == "$" and i + 1 < n and raw[i + 1] == "{":
+            depth, j = 0, i + 1
+            while j < n:
+                if raw[j] == "{":
+                    depth += 1
+                elif raw[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            i = j + 1
+        elif c in "*?[":
+            return True
+        elif c == "{":
+            depth, j, active = 0, i, False
+            while j < n:
+                cj = raw[j]
+                if cj == "{":
+                    depth += 1
+                elif cj == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                elif depth == 1 and (cj == "," or raw.startswith("..", j)):
+                    active = True
+                j += 1
+            if active and j < n:
+                return True
+            i += 1
+        else:
+            i += 1
+    return False
+
+
+def _net_expansion_in_command_word(command: str) -> bool:
+    """Whether an active expansion (brace or pathname glob) sits in a command-word position (review Runde 14,
+    R13-4): such a word can expand to a git/gh program name (`g{i..i}t`, `gi*`, `g?`), so it is NOT MEASURED. An
+    expansion safely in an argument position (`ls *.py`, `cp f.{txt,bak}`) stays free. The command word is the
+    first word of each simple command after a control operator, past leading assignments and known wrappers. An
+    unparsable command yields False here; the lexer fallback and the net's word test handle it."""
+    toks = _lex(_drop_comments(command))
+    if toks is None:
+        return False
+    at_cmd = True
+    for t in toks:
+        if t[0] == "op":
+            at_cmd = t[1] in (";", "&&", "||", "|", "&", "(", "{")
+            continue
+        value, raw = t[1], t[3]
+        if not at_cmd:
+            continue
+        if _ASSIGNMENT.match(value) or os.path.basename(value) in _NET_EXPANSION_WRAPPERS:
+            continue  # a leading assignment or a known wrapper keeps command-word position
+        if _unquoted_active_expansion(raw):
+            return True
+        at_cmd = False
+    return False
+
+
+def _net_render(text: str, depth: int = 0) -> tuple[str, bool]:
+    """The recursive core of the net's normal form (review Runde 12; Nachtrag 35, R13-1/R13-2/R13-3). It walks the
+    text with its own quote state and reads every embedded executable context as its own command: a command
+    substitution `$(…)` or backtick (also inside double quotes) and a process substitution `<(…)`/`>(…)` are
+    scanned recursively, so a git word their own ANSI-C quotes build is seen (R13-3); a global quote-state
+    variable alone would miss it. An active backslash line-continuation (`\\` then newline) is removed before the
+    word test, outside and inside double quotes (R13-2). An ANSI-C quote `$'…'` is evaluated to the bytes bash
+    runs; a decoded NUL byte makes the command NOT MEASURED, because bash truncates the sub-word there and the
+    net does not model the resulting concatenation (R13-1). A locale quote `$"…"` is NOT MEASURED (its
+    translation is not knowable). An unbalanced substitution, or nesting past the limit, is NOT MEASURED."""
     out: list[str] = []
     unresolved = False
-    i, n = 0, len(command)
-    single = double = False  # inside a plain '…' or "…" region
+    i, n = 0, len(text)
+    single = double = False
     while i < n:
-        ch = command[i]
+        ch = text[i]
         if single:
             if ch == "'":
                 single = False
             else:
                 out.append(_net_fold(ch))
             i += 1
-        elif double:
+            continue
+        # executable contexts, read as their own command (not as data of an outer double quote)
+        if ch == "$" and i + 1 < n and text[i + 1] == "(" and not (i + 2 < n and text[i + 2] == "("):
+            inner, j, ok = _balanced_paren(text, i + 1)
+            if not ok or depth >= MAX_NESTING:
+                unresolved = True
+            else:
+                s, u = _net_render(inner, depth + 1)
+                out.append(" " + s + " ")
+                unresolved = unresolved or u
+            i = j if ok else n
+            continue
+        if ch == chr(96):  # a backtick command substitution, in a double quote too
+            j = text.find(chr(96), i + 1)
+            if j < 0 or depth >= MAX_NESTING:
+                unresolved = True
+                i = n
+            else:
+                s, u = _net_render(text[i + 1:j], depth + 1)
+                out.append(" " + s + " ")
+                unresolved = unresolved or u
+                i = j + 1
+            continue
+        if not double and ch in "<>" and i + 1 < n and text[i + 1] == "(":
+            inner, j, ok = _balanced_paren(text, i + 1)
+            if not ok or depth >= MAX_NESTING:
+                unresolved = True
+            else:
+                s, u = _net_render(inner, depth + 1)
+                out.append(" " + s + " ")
+                unresolved = unresolved or u
+            i = j if ok else n
+            continue
+        if double:
             if ch == '"':
                 double = False
                 i += 1
-            elif ch == _BACKSLASH and i + 1 < n and command[i + 1] in ("$", chr(96), '"', _BACKSLASH, chr(10)):
-                if command[i + 1] != chr(10):  # in "…" a backslash is literal except before $ ` " \ newline
-                    out.append(_net_fold(command[i + 1]))
+            elif ch == _BACKSLASH and i + 1 < n and text[i + 1] in ("$", chr(96), '"', _BACKSLASH, chr(10)):
+                if text[i + 1] != chr(10):  # in "…" a backslash is literal except before $ ` " \ newline
+                    out.append(_net_fold(text[i + 1]))
                 i += 2
             else:
                 out.append(_net_fold(ch))
                 i += 1
-        elif ch == "$" and i + 1 < n and command[i + 1] == "'":
-            decoded, i = _decode_ansi_c(command, i + 2)
+            continue
+        if ch == "$" and i + 1 < n and text[i + 1] == "'":
+            decoded, i = _decode_ansi_c(text, i + 2)
+            if chr(0) in decoded:  # bash truncates the sub-word at a NUL; the concatenation is not modelled (R13-1)
+                unresolved = True
             out.append("".join(_net_fold(c) for c in decoded))
-        elif ch == "$" and i + 1 < n and command[i + 1] == '"':
-            unresolved = True  # a locale quote: its translation is not knowable here (Nachtrag 33, K1)
-            double, i = True, i + 2
+        elif ch == "$" and i + 1 < n and text[i + 1] == '"':
+            unresolved, double, i = True, True, i + 2
         elif ch == "'":
             single, i = True, i + 1
         elif ch == '"':
             double, i = True, i + 1
         elif ch == _BACKSLASH:
-            if i + 1 < n:  # a backslash escapes the next byte; the byte stays, the backslash goes
-                out.append(_net_fold(command[i + 1]))
+            if i + 1 < n and text[i + 1] == chr(10):
+                i += 2  # an active line continuation is removed before the word test (R13-2)
+            elif i + 1 < n:
+                out.append(_net_fold(text[i + 1]))
                 i += 2
             else:
                 i += 1
@@ -889,14 +1029,26 @@ def _net_scan(command: str) -> tuple[str, bool]:
     return "".join(out), unresolved
 
 
+def _net_scan(command: str) -> tuple[str, bool]:
+    """(normal form, unresolved) for the net's word test (review Runde 12/14). The normal form is the command
+    text rendered by _net_render (ANSI-C quotes evaluated, quotes and backslashes removed, line continuations
+    removed, substitutions read as their own commands, only A to Z lower-cased in place). `unresolved` is True
+    when the text holds a form whose executed bytes the normal form cannot build safely and completely, so the
+    whole command is NOT MEASURED (Nachtrag 35): a locale quote, a decoded NUL byte, an unbalanced or too-deep
+    substitution, or an active brace/glob in a command-word position. Exact evaluation stays only where it is
+    provably complete (DECISIONS.md D8). The scan is total: every command yields a normal form."""
+    normal, unresolved = _net_render(command)
+    return normal, unresolved or _net_expansion_in_command_word(command)
+
+
 def _net_normal_form(command: str) -> str:
     """The normal form of _net_scan (its string half). See _net_scan for the transform."""
     return _net_scan(command)[0]
 
 
 def _net_unresolved(command: str) -> bool:
-    """Whether the command holds a form whose executed bytes the normal form cannot build exactly like bash, so
-    the whole command is NOT MEASURED (Nachtrag 33, K1). See _net_scan."""
+    """Whether the command holds a form whose executed bytes the normal form cannot build safely and completely,
+    so the whole command is NOT MEASURED (Nachtrag 35). See _net_scan."""
     return _net_scan(command)[1]
 
 
@@ -1394,10 +1546,16 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
             raise GateError("the verifier wrote a line that is not a JSON-RPC 2.0 message, which refuses the "
                             "whole verifier run")
         if "id" not in reply:
-            if isinstance(reply.get("method"), str):
-                continue  # a valid notification carries no answer; it is set aside
-            raise GateError("the verifier sent a message with neither an id nor a method, which refuses the "
-                            "whole verifier run")
+            # A notification is validated before it is set aside (review Runde 14, R13-5): it carries a string
+            # method, and, when params is present, that params is an object (the MCP schema). A string method with
+            # a non-object params (for example `params: 0`) is a contract break, not a message to skip.
+            if not isinstance(reply.get("method"), str):
+                raise GateError("the verifier sent a message with neither an id nor a method, which refuses the "
+                                "whole verifier run")
+            if "params" in reply and not isinstance(reply["params"], dict):
+                raise GateError("the verifier sent a notification whose params is not an object, which refuses the "
+                                "whole verifier run")
+            continue  # a valid notification carries no answer; it is set aside
         rid = reply["id"]
         if not isinstance(rid, int) or isinstance(rid, bool):
             raise GateError("the verifier sent a reply whose id is not an integer, which refuses the whole "
@@ -1412,6 +1570,14 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
             raise GateError(f"the verifier sent a second reply for request {rid}, which refuses the whole "
                             "verifier run")
         replies[rid] = reply
+    # The initialisation response (id 0) is evaluated, not set aside (review Runde 14, R13-5): it must be present
+    # and carry a result. A failed initialisation (an error on id 0) or a missing one refuses the whole run, so a
+    # later valid reply cannot ride a broken handshake.
+    init = replies.get(0)
+    if init is None or "result" not in init:
+        tail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
+        raise GateError(f"the verifier did not initialise (exit {proc.returncode}: {tail[0]}), which refuses the "
+                        "whole verifier run")
     results = []
     for n in range(len(requests)):
         reply = replies.get(n + 1)
@@ -1440,8 +1606,13 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
         if not isinstance(parsed, dict):
             raise GateError(f"the verifier's answer for item {n} is not a JSON object")
         # The envelope's tool-error status is authoritative; the payload never overrides it (review Runde 12,
-        # R12-4). is_error is written last, so a parsed is_error cannot weaken the envelope's isError.
-        results.append({**parsed, "is_error": bool(result_obj.get("isError"))})
+        # R12-4). A present isError must be a real boolean; its absence is a valid false (review Runde 14, R13-5):
+        # bool([]) / bool(None) / bool(0) would have read a schema-breaking isError as not-an-error. is_error is
+        # written last, so a parsed is_error cannot weaken the envelope's isError.
+        if "isError" in result_obj and not isinstance(result_obj["isError"], bool):
+            raise GateError(f"the verifier's result for item {n} has an isError that is not a boolean, which "
+                            "refuses the whole verifier run")
+        results.append({**parsed, "is_error": result_obj.get("isError", False)})
     return results
 
 

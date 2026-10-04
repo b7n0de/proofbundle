@@ -188,10 +188,15 @@ def test_r11_4_an_invalid_reply_stream_does_not_pass(monkeypatch, stream, ident)
         gate.verify_items([{"kind": "bundle"}], gate.time.monotonic() + 30)
 
 
+_INIT_OK = json.dumps({"jsonrpc": "2.0", "id": 0, "result": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                             "serverInfo": {"name": "proofbundle", "version": "1"}}})
+
+
 def test_r11_4_a_single_valid_reply_is_still_read(monkeypatch):
-    """R11-4 control: one well-formed integer-id reply is read as it is, so the refusals above are not blanket."""
+    """R11-4 control: a valid initialisation response followed by one well-formed integer-id reply is read as it
+    is, so the refusals above are not blanket (the init response is now evaluated, review Runde 14, R13-5)."""
     monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
-    out = _reply(1, 1) + "\n"
+    out = _INIT_OK + "\n" + _reply(1, 1) + "\n"
     monkeypatch.setattr(gate.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, out, ""))
     assert gate.verify_items([{"kind": "bundle"}], gate.time.monotonic() + 30)[0]["exit_code"] == 1
 

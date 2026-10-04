@@ -99,6 +99,10 @@ def _reply(request_id: int, exit_code: int) -> str:
 
 
 _AMBIGUOUS = _reply(1, 0).replace('"id": 1,', '"id": 1, "id": 1,')
+# A valid initialisation reply (id 0) is prepended to every stream so the test isolates the R10-2 condition and
+# not the Runde-14 R13-5 handshake check, which now refuses a run whose initialisation response is missing.
+_INIT_OK = json.dumps({"jsonrpc": "2.0", "id": 0, "result": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                             "serverInfo": {"name": "proofbundle", "version": "1"}}})
 
 
 @pytest.mark.parametrize("stream", [
@@ -112,7 +116,7 @@ def test_r10_2_an_ambiguous_or_repeated_reply_refuses_the_whole_verifier_run(mon
     exit 0 (pass verified) and the third as exit 1; now each refuses the whole verifier run, which the judge answers
     as deny (gate_error)."""
     monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
-    for lines, refused in (([_reply(1, 1)], False), (stream, True)):   # the control: one reply is read as it is
+    for lines, refused in (([_INIT_OK, _reply(1, 1)], False), ([_INIT_OK] + stream, True)):   # the control: one reply is read as it is
         out = "".join(line + "\n" for line in lines)
         monkeypatch.setattr(gate.subprocess, "run", lambda *a, _o=out, **k: subprocess.CompletedProcess(a, 0, _o, ""))
         if not refused:

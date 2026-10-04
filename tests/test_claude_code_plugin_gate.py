@@ -703,7 +703,9 @@ def test_a_verifier_that_cannot_start_denies(shim, repo, tmp_path):
     (broken / "uv").chmod(0o755)
     answer = run_gate(dict(shim, PATH=os.pathsep.join([str(broken), no_uv["PATH"]])), repo, "git push")
     assert decision(answer) == "deny"
-    assert "no answer" in reason(answer)
+    # A uv that exits before any message writes no initialisation response, so the Runde-14 R13-5 handshake check
+    # refuses the run and names the cause: the verifier did not initialise. Still a deny, with a more precise reason.
+    assert "did not initialise" in reason(answer)
 
 
 @pytest.mark.parametrize("raw", ["not json", "[]", '{"tool_input": {}}', '{"tool_input": {"command": 5}}'])

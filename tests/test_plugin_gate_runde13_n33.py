@@ -190,9 +190,15 @@ def test_k1_net_never_misses_a_git_bash_runs(command):
 
 
 # --- K2: verify_items checks every content element against the measured 6.1.0 contract -----------------------------
+_INIT_OK = json.dumps({"jsonrpc": "2.0", "id": 0, "result": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                             "serverInfo": {"name": "proofbundle", "version": "1"}}})
+
+
 def _run_stream(monkeypatch, lines):
+    """A valid initialisation response (id 0) is prepended, as the real server sends one and verify_items now
+    evaluates it (review Runde 14, R13-5)."""
     monkeypatch.setattr(gate.shutil, "which", lambda name: "/usr/bin/true")
-    out = "".join(line + "\n" for line in lines)
+    out = "".join(line + "\n" for line in [_INIT_OK] + list(lines))
     monkeypatch.setattr(gate.subprocess, "run",
                         lambda *a, _o=out, **k: subprocess.CompletedProcess(a, 0, _o, ""))
     return gate.verify_items([{"kind": "bundle"}], time.monotonic() + 30)
