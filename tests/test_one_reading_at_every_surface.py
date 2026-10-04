@@ -995,7 +995,8 @@ def _flaechen():
         # verify surfaces
         ("bundle.verify_bundle", lambda w: bm.verify_bundle(
             w(sd_bundle), expected_aud=w("v"), expected_nonce=w("n"),
-            expected_root_b64=w(sd_bundle["merkle"]["root_b64"]), expected_tree_size=w(1))),
+            expected_root_b64=w(sd_bundle["merkle"]["root_b64"]), expected_tree_size=w(1),
+            sd_jwt_issuer_key_pin=w("ed25519:" + _b64pub(_T)))),
         ("evalclaim.decode_eval_claim", lambda w: ec.decode_eval_claim(w(ev_bundle), expected_context=w("sweep"))),
         ("evalclaim.classify_eval_claim", lambda w: ec.classify_eval_claim(w(ev_bundle), expected_context=w("sweep"))),
         ("dsse.verify_envelope", lambda w: dsse.verify_envelope(w(dec_env), w(pub), payload_type=w(
@@ -1350,6 +1351,12 @@ _NICHT_IM_SWEEP = {
     "trust_pack.verify_trust_pack": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON "
                                      "values. Read once (canonical._zeitpunkt_von); a datetime subclass is held "
                                      "by tests/test_one_reading_reaches_every_argument.py"},
+    "hf_evals.verify_receipt_token": {"sd_jwt_issuer_key_pin": "the relying-party SD-JWT issuer-trust pin "
+                                      "(Nachtrag 38, Z309); forwarded verbatim to bundle.verify_bundle, where its "
+                                      "one reading (canonical._zeichen_von) is measured by the entry above"},
+    "hf_evals.verify_eval_results_entry": {"sd_jwt_issuer_key_pin": "the relying-party SD-JWT issuer-trust pin "
+                                           "(Nachtrag 38, Z309); forwarded verbatim through verify_receipt_token to "
+                                           "bundle.verify_bundle, where its one reading is measured by the entry above"},
 }
 
 
