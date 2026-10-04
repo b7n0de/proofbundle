@@ -1342,6 +1342,28 @@ Z309-RUNDE5-PUSH-UND-IDENTITAET-RUECKFALL-01). Not reviewed yet; the external re
   and the sweep calls it twice, so a second boundary between the two calls made the outputs differ. The sweep now
   gives the surface a fixed `time_created`. The package is unchanged; the same job passed at the heads before.
 
+From a security scan of the release head (one critical and one high finding, checked at f65e9ec1 on 2026-10-04; owner
+order Z309-SECURITY-CRITICAL-HIGH-VOR-DEM-TAG-01, owner A on OA-9847e624e4 and OA-4a8b54fc40). Not reviewed yet; the
+external reviewer reads these fixes with round 6.
+- **R620-SEC-1, critical, fixed after f65e9ec1. `sd_jwt.expected_vct` trusted a vct under a key the policy never
+  pinned**: the SD-JWT issuer key is read from `sd_jwt_vc.issuer_public_key_b64`, outside the bundle's signed payload,
+  and the policy asked only whether `sd-jwt-issuer-signature` passed, so a valid signature under that key showed
+  self-consistency, not a trusted issuer. Read at the code of f65e9ec1, v6.0.0 and v6.1.0; the scan's own reproduction
+  was not repeated here. `expected_vct` now passes only when the verifying key matches `sd_jwt.issuer_key_pin` or the
+  SD-JWT is bound to the signed eval claim, whose binding requires the claim's issuer and whose identity check requires
+  that issuer's key to be the one that signed; otherwise it fails closed.
+- **R620-SEC-2, high, fixed after f65e9ec1. `anchor verify-pack` did not bind the timestamp to a target**: it took
+  `canonicalRoot` from the pack itself. It now requires exactly one of `--target-file` or `--expected-root` and refuses
+  a pack whose root differs before the proof is read (exit 1); without a target it exits 2.
+- **R620-SEC-3, open for 6.2.1, the library neighbour of R620-SEC-2. `verify_evidence_pack` takes no target**: the
+  Python function still checks the proof against the pack's own `canonicalRoot`. A caller binds the root before trusting
+  the result, as `docs/ANCHORS.md` says; the CLI is bound.
+- **R620-CODEX-F65E-1, P2 on the text, fixed after f65e9ec1 (Codex thread 4176949434, owner B on OA-efb0df3845). The
+  docstring of `_judged_location` said that a container that does not exist contains nothing**, which the spelling test
+  does not hold: a missing path inside the clone is contained by its spelling and refused, as the external review of
+  6cab813e allows. The behaviour stays; the docstring now says the spelling test runs first and "contains nothing"
+  belongs to the identity test, and `tests/test_pre_tag_missing_entry_contract.py` holds the behaviour.
+
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
 they say otherwise.

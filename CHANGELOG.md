@@ -48,10 +48,33 @@ body now but what an argument's contract names, and every rule a policy sets is 
 The deep gate at 1a3cd672 (run 7) found a rule that `evaluate_policy` listed as applied and never read,
 `sd_jwt.expected_aud`, the same at v6.0.0 and v6.1.0, and a receipt verifier that a module the tree hides from git could take
 over; both are closed, and every rule a check path lists as applied is now measured to turn its verdict.
+A security scan of the release head found two more, both in the released 6.0.0 and 6.1.0, and their fixes
+break two calls on purpose: `sd_jwt.expected_vct` needs the new `sd_jwt.issuer_key_pin` unless the SD-JWT is
+bound to the signed eval claim, and `anchor verify-pack` needs `--target-file` or `--expected-root`.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
 
+- **Two security-driven breaking changes: a vct needs a pinned issuer key, and an evidence pack needs a target**
+  (a security scan of the release head, one critical and one high finding, both present at v6.0.0 and v6.1.0; owner
+  order Z309-SECURITY-CRITICAL-HIGH-VOR-DEM-TAG-01, owner decision A on cards OA-9847e624e4 and OA-4a8b54fc40).
+  - `sd_jwt.expected_vct` took a vct as trusted once the SD-JWT issuer signature verified, but the key it verified
+    under comes from `sd_jwt_vc.issuer_public_key_b64`, outside the bundle's signed payload. The check now passes only
+    when that key matches the new trust-policy field `sd_jwt.issuer_key_pin` (`ed25519:` or `es256:` followed by the
+    standard base64 of the raw key, compared byte for byte) or when the SD-JWT is bound to the signed eval claim
+    (`sd-jwt-bundle-binding`); otherwise `policy:expected_vct` fails. **Breaking:** a policy with `expected_vct` for a
+    stand-alone SD-JWT needs the pin, or `verify --policy` exits 3. `load_policy` validates the pin, `policy explain`
+    lists it, and the Rust policy reader knows the key.
+  - `anchor verify-pack` checked the proof against the pack's own `canonicalRoot` and read no target. It now requires
+    exactly one of `--target-file` (its SHA-256 is the expected root) or `--expected-root` (standard base64 of 32
+    bytes), compares it with the pack's root before the OpenTimestamps proof is read, and refuses a difference as
+    `target_mismatch`, exit 1. **Breaking:** without a target the command exits 2. The library function
+    `verify_evidence_pack` takes no target (R620-SEC-3).
+  - Tests: `tests/test_security_fix_620_n32.py` holds the fail-closed behaviour of both, without a pin, with a foreign
+    key and with the matching key, and without a target, with a wrong one and with the right one; its seven cases fail
+    at f65e9ec1 and pass after. The docstring of `_judged_location` in `scripts/verify_pre_tag_receipt.py` now says
+    that the spelling test runs first (Codex thread 4176949434), and `tests/test_pre_tag_missing_entry_contract.py`
+    holds that behaviour in both directions.
 - **Every rule a check path lists as applied turns its verdict, and the receipt verifier judges only the commit's
   code** (deep gate of the 6.2.0 release preparation at 1a3cd672, run 7: two P1 findings,
   L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-UNAPPLIED-01 and L6-620v7-T6-VERIFIER-SELF-HIDDEN-SHADOW-01, each confirmed
