@@ -162,22 +162,35 @@ class GateError(Exception):
 
 def _consume_subst(s: str, i: int) -> int | None:
     """From a `$` at index `i`, the index just past the substitution it begins (`$(...)`, `${...}` or
-    `$name`), or None if a `$(` or `${` is never closed."""
+    `$name`), or None when the form is one the lexer does not model and the whole command must fall back to
+    the text search (review Runde 11, R11-1): a `$(` or `${` that never closes, and `$'…'`/`$"…"`, whose
+    quoting differs from the lexer's own `'`/`"`. A `$` that begins no substitution at all — a `$` before a
+    space, an operator, a newline or the end of the text — consumes only the dollar, so the next character
+    keeps its meaning (`$` then a newline leaves the newline a separator, R11-1 case 1)."""
     n = len(s)
     if i + 1 >= n:
         return i + 1
     c = s[i + 1]
     if c == "(":
-        depth, j = 0, i + 1
+        # Track quotes so a `)` inside '…' or "…" does not close the substitution (R11-1 case 3).
+        depth, j, quote = 0, i + 1, None
         while j < n:
-            if s[j] == "(":
+            ch = s[j]
+            if quote is not None:
+                if ch == quote:
+                    quote = None
+            elif ch in "'\"":
+                quote = ch
+            elif ch == "(":
                 depth += 1
-            elif s[j] == ")":
+            elif ch == ")":
                 depth -= 1
                 if depth == 0:
                     return j + 1
             j += 1
         return None
+    if c in "'\"":
+        return None  # $'…' / $"…": an unmodelled quote form; fall back to the text search (R11-1 case 2)
     if c == "{":
         j = s.find("}", i + 2)
         return j + 1 if j >= 0 else None
@@ -187,7 +200,7 @@ def _consume_subst(s: str, i: int) -> int | None:
         while j < n and (s[j].isalnum() or s[j] == "_"):
             j += 1
         return j
-    return i + 2
+    return i + 1  # a bare `$` that starts no name or substitution: consume only the dollar (R11-1 case 1)
 
 
 def _drop_comments(command: str) -> str:
@@ -566,11 +579,17 @@ def _subst_bodies(raw: str) -> list[str]:
                 break
             bodies.append(raw[i + 1:j]); i = j + 1; continue
         if c == "$" and i + 1 < n and raw[i + 1] == "(":
-            depth, j = 0, i + 1
-            while j < n:
-                if raw[j] == "(":
+            depth, j, quote = 0, i + 1, None
+            while j < n:  # track quotes so a `)` inside '…'/"…" does not close the body (R11-1 case 3)
+                ch = raw[j]
+                if quote is not None:
+                    if ch == quote:
+                        quote = None
+                elif ch in "'\"":
+                    quote = ch
+                elif ch == "(":
                     depth += 1
-                elif raw[j] == ")":
+                elif ch == ")":
                     depth -= 1
                     if depth == 0:
                         break
