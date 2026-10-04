@@ -1096,7 +1096,10 @@ def _flaechen():
             w(tp_pred), _baue_signer(w, {"root-0": wurzeln[0], "root-1": wurzeln[1]}))),
         ("intoto.export_intoto_dsse", lambda w: intoto.export_intoto_dsse(w(_claim("0.80")), _T)),
         ("intoto.export_eval_result_dsse", lambda w: intoto.export_eval_result_dsse(w(_claim("0.80")), _T)),
-        ("intoto.export_svr_dsse", lambda w: intoto.export_svr_dsse(w(ev_bundle), _T)),
+        # A FIXED time_created (hermetic-cleanroom at 6cab813e, run 37167336188): without it the surface reads the clock
+        # in seconds, and the sweep calls it twice, so a second boundary between the calls made the outputs differ.
+        ("intoto.export_svr_dsse", lambda w: intoto.export_svr_dsse(w(ev_bundle), _T,
+                                                                    time_created=w("2026-10-04T00:00:00Z"))),
         ("dsse.sign_envelope", lambda w: dsse.sign_envelope(w(b"body"), _T, payload_type=w("text/plain"),
                                                             keyid=w("k1"))),
         ("checkpoint.sign_checkpoint", lambda w: cp.sign_checkpoint(w(origin), w(3), w(wurzel3), _T, w(origin))),

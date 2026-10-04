@@ -1336,6 +1336,11 @@ Z309-RUNDE5-PUSH-UND-IDENTITAET-RUECKFALL-01). Not reviewed yet; the external re
   `scripts/verify_pre_tag_receipt.py` and the CHANGELOG still say without restriction that such effective attributes
   refuse; RELEASE.md and the function docstring say it precisely. No regression and no wrong verdict. Fix in 6.2.1,
   in both places right after "effective attributes", word for word: "for a committed file (a gitlink is not asked)".
+- **R620-CI-6CAB-1, test instrument, fixed after 562b2ca8. A sweep case that read the clock twice**: hermetic-cleanroom
+  at 6cab813e (run 37167336188) failed one subtest, `intoto.export_svr_dsse` in
+  `test_no_surface_runs_a_method_of_the_callers_values`. Without `time_created` the surface takes the time in seconds,
+  and the sweep calls it twice, so a second boundary between the two calls made the outputs differ. The sweep now
+  gives the surface a fixed `time_created`. The package is unchanged; the same job passed at the heads before.
 
 These lines enter with the iteration that fixes them, before run 8 (owner decision of 2026-10-02 on card
 OA-bdad1b7352, option A). Each was judged real by at least two of three blind jurors; lines are as at 1a3cd672 unless
