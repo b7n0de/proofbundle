@@ -30,7 +30,7 @@ from typing import Any, Optional, Union
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
-from .canonical import _ein_stand, _plain_for_jcs
+from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -329,8 +329,9 @@ def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin) -> "tuple[bool, str]":
         return False, ("the SD-JWT issuer signature was never verified (supply "
                        "sd_jwt_vc.issuer_public_key_b64)")
     if issuer_key_pin is not None:
+        pin = _zeichen_von(issuer_key_pin)   # one reading, by the characters the pin stores (round 12 discipline)
         fp = _sd_jwt_issuer_fingerprint(sd)
-        if fp is not None and fp == issuer_key_pin:
+        if fp is not None and pin is not None and fp == pin:
             return True, "the SD-JWT issuer key matches the pinned issuer key"
         return False, "the SD-JWT issuer key does not match the pinned issuer key"
     binding_check = next((c for c in result.checks if c.name == "sd-jwt-bundle-binding"), None)
