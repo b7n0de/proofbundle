@@ -1499,6 +1499,33 @@ def _resolve_canonical_root(args: argparse.Namespace) -> bytes:
     raise ValueError("need --target-file or --canonical-root-hex (the exact bytes the proof stamps)")
 
 
+def _expected_pack_root(args: argparse.Namespace) -> bytes:
+    """The 32-byte root the relying party expects the evidence pack's timestamp to commit to (Nachtrag 32, the
+    High): the SHA-256 of ``--target-file`` OR the 32 bytes of ``--expected-root`` (standard base64). Exactly
+    one is required; neither or both is malformed input (ValueError → exit 2). Computed INDEPENDENTLY of the
+    pack, so it is compared to, never taken from, the pack's own canonicalRoot."""
+    import hashlib  # noqa: PLC0415
+    tf = getattr(args, "target_file", None)
+    er = getattr(args, "expected_root", None)
+    if (tf is None) == (er is None):
+        raise ValueError("anchor verify-pack needs exactly one of --target-file or --expected-root: the proof "
+                         "timestamps a root, and without the target you mean, a valid timestamp over an "
+                         "attacker-chosen root proves nothing about your evidence")
+    if tf is not None:
+        h = hashlib.sha256()
+        with open(tf, "rb") as handle:
+            for _chunk in iter(lambda: handle.read(1 << 20), b""):
+                h.update(_chunk)
+        return h.digest()
+    try:
+        root = decode_b64(er)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("--expected-root is not valid base64") from exc
+    if len(root) != 32:
+        raise ValueError("--expected-root must decode to 32 bytes (a SHA-256 canonical root)")
+    return root
+
+
 def _parse_bundled_headers(specs) -> dict:
     """Parse repeatable ``HEIGHT:MERKLEROOT_HEX`` into a ``{height: root_hex}`` map for the pack's frozen
     EVIDENCE block (WP-A1: producer-controlled, never trusted at verify). Malformed → ValueError."""
@@ -1623,6 +1650,31 @@ def _cmd_anchor_verify_pack(args: argparse.Namespace) -> int:
             pack = loads_strict(_read_capped(handle))
         if not isinstance(pack, dict):
             raise ValueError("evidence pack must be a JSON object")
+        # Nachtrag 32 (the High): bind the timestamp to the target the relying party means, BEFORE the OTS proof
+        # is evaluated. verify_evidence_pack takes canonicalRoot from the pack itself, so a self-consistent
+        # (proof, canonicalRoot) pair timestamps whatever root the pack carries — not necessarily the evidence
+        # the verifier cares about. Compute the expected root independently and reject a mismatch here.
+        expected_root = _expected_pack_root(args)   # exactly one of --target-file/--expected-root (else exit 2)
+        try:
+            pack_root = decode_b64(pack["canonicalRoot"])
+        except (KeyError, ValueError, TypeError) as exc:
+            detail = f"evidence pack is missing or has a non-base64 canonicalRoot: {exc}"
+            if getattr(args, "json", False):
+                print(json.dumps({"schema": "proofbundle.anchor_verify_pack.v1", "ok": False,
+                                  "status": "malformed_pack", "detail": detail}, indent=2, ensure_ascii=False))
+            else:
+                print(f"[anchor verify-pack] MALFORMED_PACK — {_safe_line(detail)}")
+            return 1
+        if expected_root != pack_root:
+            detail = ("the pack's canonicalRoot is not the expected target root (from --target-file/"
+                      "--expected-root): the timestamp does not commit to the evidence you named, so it is "
+                      "refused before the OpenTimestamps proof is even read (fail-closed)")
+            if getattr(args, "json", False):
+                print(json.dumps({"schema": "proofbundle.anchor_verify_pack.v1", "ok": False,
+                                  "status": "target_mismatch", "detail": detail}, indent=2, ensure_ascii=False))
+            else:
+                print(f"[anchor verify-pack] TARGET_MISMATCH — {detail}")
+            return 1
         rp = _build_rp_trust(args)   # bitcoin headers (relying-party trust material)
         res = verify_evidence_pack(pack, rp_trust=rp)
         # No-Fake (adversarial deep audit follow-up, 2026-07-17): NEVER echo the pack's own calendar/self-contained
@@ -3329,6 +3381,15 @@ def build_parser() -> argparse.ArgumentParser:
                      "and is never trusted (WP-A1); supply your own header from a pruned Bitcoin node "
                      "or a trusted checkpoint."))
     a_vp.add_argument("pack", help="path to the evidence pack JSON")
+    # Nachtrag 32 (the High): bind the timestamp to the target the relying party means. Exactly one of these is
+    # REQUIRED; the expected root is computed/decoded INDEPENDENTLY and compared to the pack's canonicalRoot
+    # before the OTS proof is evaluated (a timestamp over a root nobody pinned proves nothing about your evidence).
+    a_vp.add_argument("--target-file", dest="target_file", default=None, metavar="FILE",
+                      help="the artifact the proof must commit to; its SHA-256 must equal the pack's "
+                           "canonicalRoot (required unless --expected-root is given)")
+    a_vp.add_argument("--expected-root", dest="expected_root", default=None, metavar="B64",
+                      help="the expected canonical root as standard base64 of 32 bytes; must equal the pack's "
+                           "canonicalRoot (required unless --target-file is given)")
     a_vp.add_argument("--bitcoin-header", dest="bitcoin_header", action="append", default=None,
                       metavar="HEIGHT:MERKLEROOT_HEX",
                       help="relying-party-supplied Bitcoin block header (internal byte order, from your "

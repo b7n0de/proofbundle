@@ -193,30 +193,40 @@ OpenTimestamps client; proofbundle owns the two steps that need no calendar:
 #    ots stamp receipt.canonical-root ; ... wait ... ; ots upgrade receipt.canonical-root.ots
 # 2. bundle the UPGRADED proof into a self-contained, calendar-independent evidence pack:
 proofbundle anchor upgrade --proof proof.ots --target-file target.bytes --out pack.json
-# 3. verify the pack OFFLINE against a relying-party Bitcoin header (your own node or a trusted checkpoint):
-proofbundle anchor verify-pack pack.json --bitcoin-header 800000:<MERKLEROOT_HEX_INTERNAL_ORDER>
+# 3. verify the pack OFFLINE, BOUND to the target you mean, against a relying-party Bitcoin header:
+#    exactly one of --target-file (the bytes the proof must commit to) or --expected-root (its base64 root)
+#    is REQUIRED; the pack's self-declared canonicalRoot is compared to it before the proof is even read.
+proofbundle anchor verify-pack pack.json --target-file target.bytes \
+    --bitcoin-header 800000:<MERKLEROOT_HEX_INTERNAL_ORDER>
 # transparency, no crypto trust: show the lifecycle state and which calendars carry a proof:
 proofbundle anchor inspect proof.ots
 ```
 
 Exit contract: `anchor upgrade` exits 3 (never a fake pass) on a still-PENDING proof and writes no pack;
 `anchor verify-pack` exits 0 confirmed, 3 pending or upgraded-without-a-relying-party-header (honest
-not-pass), 1 hard fail (unbound / block mismatch / malformed pack), 2 malformed input. A calendar outage
+not-pass), 1 hard fail (unbound / block mismatch / **target mismatch** / malformed pack), 2 malformed input
+(**including neither or both of `--target-file` / `--expected-root`**). A calendar outage
 or a calendar defunding therefore affects only STAMPING availability, never the verifiability of a proof
 that is already upgraded: `verify-pack` opens no socket, and it never trusts the pack's own bundled header
 (a producer could self-commit a backdated one), only a header the relying party supplies.
 
-**A pack's `canonicalRoot` is self-declared (read this before trusting a standalone `verify-pack`).**
+**A pack's `canonicalRoot` is self-declared, so `verify-pack` now REQUIRES a target to bind it to.**
 Just as a self-fabricated Chia tree passes level i (see `chia-datalayer/v1` below), a self-fabricated OTS
 pack must not be read as proof of time on its own. In `anchor verify-pack` the `canonicalRoot` is taken
-from the pack verbatim, so it is producer testimony, not a binding to any receipt. Two defences apply.
-First, `verify-pack` refuses a **Null-Op** pack: a `BitcoinBlockHeaderAttestation` planted directly on the
+from the pack verbatim, so it is producer testimony, not a binding to any receipt. Three defences apply.
+First (Nachtrag 32, 6.2.0, breaking), `verify-pack` demands exactly one of `--target-file` or
+`--expected-root`: it computes or decodes that root **independently** of the pack and refuses, before the
+OpenTimestamps proof is even read, any pack whose `canonicalRoot` does not equal it (`target_mismatch`, exit
+1). A timestamp over a root nobody named proves nothing about your evidence, so a bare `verify-pack` with no
+target is no longer accepted (exit 2). Second, `verify-pack` refuses a **Null-Op** pack: a
+`BitcoinBlockHeaderAttestation` planted directly on the
 `canonicalRoot` with no cryptographic op chain (leaf equals root) is not a real Bitcoin timestamp, so it is
 reported `null_op` and is never `confirmed`, even when its attested value equals the relying-party header a
-producer supplies. Second, and this is the guarantee a relying party should depend on, a standalone
-`verify-pack CONFIRMED` does **not** prove the pack anchors YOUR target: the relying party must bind the
-anchor to the receipt independently, which `proofbundle verify --require-anchor` does by cross-checking the
-anchor's `canonicalRoot` against the root it recomputes from the receipt itself. Use `--require-anchor` for
+producer supplies. Third, for a receipt the relying party must still bind the anchor to the receipt's own
+recomputed root: `verify-pack --target-file/--expected-root` binds the proof to a root YOU name, but
+`proofbundle verify --require-anchor` is what cross-checks the anchor's `canonicalRoot` against the root it
+recomputes from the receipt itself, so the target you pass is the receipt's root and not merely asserted. Use
+`--require-anchor` for
 a trust decision; treat a bare `verify-pack` as a lifecycle and header check, not as an existence proof.
 
 ### Calendar transparency and running your own calendar (WP-B)
