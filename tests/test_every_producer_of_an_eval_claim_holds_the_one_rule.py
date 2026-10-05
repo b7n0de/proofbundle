@@ -705,7 +705,11 @@ class TestSvrPropertiesHoldsTheRule(_Basis):
                     intoto.svr_properties(self._ergebnis(), claim)
 
     def test_control_a_valid_claim_still_earns_its_properties(self):
-        props = intoto.svr_properties(self._ergebnis(), self.basis)
+        # Nachtrag 48/48b (F3): svr_properties earns a property only for a result bound to exactly this claim and
+        # produced by this process's verify_bundle; use the real (result, claim) pair of one eval receipt.
+        from _svr_binding import bound_svr_result  # type: ignore  # noqa: PLC0415
+        result, claim = bound_svr_result(self.basis, self.signer)
+        props = intoto.svr_properties(result, claim)
         self.assertEqual(props, ["PROOFBUNDLE_SIGNATURE_VALID", "PROOFBUNDLE_RECEIPT_UNCHANGED",
                                  "PROOFBUNDLE_THRESHOLD_MET"])
 
@@ -2818,11 +2822,14 @@ class TestACallerAttestedFlagIsABoolean(_Basis):
                                       f"{type(wert).__name__}", str(ctx.exception))
 
     def test_control_true_and_false_attest_as_before(self):
+        from _svr_binding import bound_svr_result  # type: ignore  # noqa: PLC0415
         buendel = emit_eval_receipt(self.basis, self.signer)
         mit_prereg = dict(self.basis, prereg_sha256="a" * 64)
+        # Nachtrag 48/48b (F3): the caller-attested flags still ride on a result bound to exactly this claim.
+        result, claim = bound_svr_result(mit_prereg, self.signer)
         for wert in (True, False):
             with self.subTest(wert=wert):
-                props = intoto.svr_properties(_Ergebnis(), mit_prereg, prereg_verified=wert,
+                props = intoto.svr_properties(result, claim, prereg_verified=wert,
                                               anchor_verified=wert)
                 self.assertEqual("PROOFBUNDLE_PREREG_BOUND" in props, wert)
                 self.assertEqual("PROOFBUNDLE_ANCHOR_VALID" in props, wert)
@@ -3379,12 +3386,17 @@ class TestAFlagIsReadAsABoolean(_Basis):
                 self.assertEqual(gesehen, [])
 
     def test_control_true_earns_the_check_properties_and_false_and_zero_do_not(self):
-        from proofbundle.errors import Check, VerificationResult  # noqa: PLC0415
+        from proofbundle.errors import Check  # noqa: PLC0415
+        from _svr_binding import bound_svr_result  # type: ignore  # noqa: PLC0415
+        # Nachtrag 48/48b (F3): start from a real result bound to this claim, then set its checks to the ok
+        # value under test. The origin token binds the signer, payload digest and Merkle root — not the checks —
+        # so the binding still holds while svr_properties reads each check's ok (True earns, False/0 do not).
         for ok, erwartet in ((True, ["PROOFBUNDLE_SIGNATURE_VALID", "PROOFBUNDLE_RECEIPT_UNCHANGED"]),
                              (False, []), (0, [])):
             with self.subTest(ok=ok):
-                ergebnis = VerificationResult([Check("ed25519-signature", ok), Check("merkle-inclusion", ok)])
-                props = intoto.svr_properties(ergebnis, self.basis)
+                result, claim = bound_svr_result(self.basis, self.signer)
+                result.checks = [Check("ed25519-signature", ok), Check("merkle-inclusion", ok)]
+                props = intoto.svr_properties(result, claim)
                 self.assertEqual([p for p in props if p in ("PROOFBUNDLE_SIGNATURE_VALID",
                                                             "PROOFBUNDLE_RECEIPT_UNCHANGED")], erwartet)
 
