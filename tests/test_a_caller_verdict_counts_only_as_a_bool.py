@@ -177,11 +177,19 @@ def _sd_jwt_bundle(vct: str) -> dict:
 
 
 def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult:
-    """The same checks, with the one named ``name`` carrying ``ok`` (appended when absent)."""
+    """The same checks, with the one named ``name`` carrying ``ok`` (appended when absent).
+
+    Nachtrag 46: this rebuilds the result from ``result`` (a real verify_bundle result of the paired bundle)
+    only to probe how a check's ``ok`` is read, so it carries the result's recorded verified signer and payload
+    digest through unchanged — the rebuilt result still represents the verification of that same bundle, which
+    evaluate_policy now requires (F2: a result must be bound to the bundle it judges)."""
     checks = [Check(c.name, ok if c.name == name else c.ok, c.detail) for c in result.checks]
     if not any(c.name == name for c in result.checks):
         checks.append(Check(name, ok))
-    return VerificationResult(checks)
+    out = VerificationResult(checks)
+    out.verified_signer_pub = result.verified_signer_pub
+    out.verified_payload_digest = result.verified_payload_digest
+    return out
 
 
 # ── verifier_block ────────────────────────────────────────────────────────────────────────────────

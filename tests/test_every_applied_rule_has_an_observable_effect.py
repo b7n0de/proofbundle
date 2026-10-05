@@ -645,10 +645,16 @@ class EveryAppliedRuleHasAnObservableEffect(unittest.TestCase):
         from proofbundle.errors import Check, VerificationResult
         from proofbundle.evalclaim import emit_eval_receipt
         from proofbundle.policy import evaluate_policy
+        import hashlib  # noqa: PLC0415
         presented, issuer, _ = kb._issue_presented()
         pub = base64.b64encode(kb._raw_pub(issuer)).decode("ascii")
         b = emit_eval_receipt(kb._EV_CLAIM, issuer, sd_jwt={"compact": presented})
         ergebnis = VerificationResult(checks=[Check("signature", True, "caller-built")])
+        # Nachtrag 46 (F2): evaluate_policy now requires the result to be bound to the bundle it judges. This
+        # caller-built result stands in for a verify_bundle result of exactly this bundle, so it carries the
+        # signer and payload digest of `b`; the rule's observable effect (PASS without, FAIL with) is unchanged.
+        ergebnis.verified_signer_pub = base64.b64decode(b["signature"]["public_key_b64"])
+        ergebnis.verified_payload_digest = hashlib.sha256(base64.b64decode(b["payload_b64"])).hexdigest()
         basis = {(None, "allowed_issuers"): [{"public_key_b64": pub}]}
         regel = ("sd_jwt", "require_key_binding_when_cnf_present")
         ohne = _urteil_bib(evaluate_policy(b, ergebnis, _politik(basis)), ok_feld=False)
