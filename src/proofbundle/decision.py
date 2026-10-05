@@ -1036,10 +1036,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # section is no relations rule.
     if _rel is not _FEHLT and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
-        from .relation import _abschnitt_urteil  # noqa: PLC0415
+        from .relation import _abschnitt_urteil, _stamp_lineage_origin  # noqa: PLC0415
+        # Nachtrag 48/48b (Z309, F2): stamp the lineage result with the key this receipt verified under, so
+        # relation_signer is bound to the verified successor receipt (only on a passing signature, which this
+        # branch already requires). A relation_signer rule confers trust only on a lineage result so stamped.
+        _successor_b64 = _b64_rel.b64encode(schluessel).decode()
+        _stamp_lineage_origin(r.get("lineage"), _successor_b64)
         _viol = _abschnitt_urteil(
             _rel, _as_dict(r.get("lineage")),
-            successor_key_b64=_b64_rel.b64encode(schluessel).decode())
+            successor_key_b64=_successor_b64)
         if _viol:
             r["policy_ok"] = False
             # WP-A3 / F5 driver: any relations violation means a REQUESTED relation surface did not
