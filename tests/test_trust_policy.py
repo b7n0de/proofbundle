@@ -593,12 +593,15 @@ class TestExpectedVct(unittest.TestCase):
         # Nachtrag 46 (F2): evaluate_policy requires the result to be bound to the bundle it judges. These
         # stand-in results carry the signer and payload digest of `bundle`, so the vct gate under test is still
         # reached — the vct is then refused because the SD-JWT issuer signature was never verified, as before.
+        # Nachtrag 46b: evaluate_policy also requires an authentic origin token verify_bundle stamps; these
+        # stand-ins simulate that verifier output, so they stamp it (a passing result would carry one).
         _signer_b64 = _b64mod.b64encode(bytes(32)).decode("ascii")
         _payload_b64 = _b64mod.b64encode(b"{}").decode("ascii")
 
         def _bind(r: VerificationResult) -> VerificationResult:
             r.verified_signer_pub = _b64mod.b64decode(_signer_b64)
             r.verified_payload_digest = _hashlib.sha256(_b64mod.b64decode(_payload_b64)).hexdigest()
+            r.stamp_origin()
             return r
 
         def _NeverRan() -> VerificationResult:

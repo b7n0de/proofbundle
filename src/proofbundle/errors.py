@@ -2,8 +2,41 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional
+
+# Nachtrag 46b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): the ORIGIN of a verification result.
+# A per-process ephemeral key stamps a token over exactly the verified state a result records. A downstream
+# judge (policy.evaluate_policy) that takes a result and the judged data separately needs the result to come
+# from THIS process's real verifier, not from a hand-built object whose fields merely match — aptly-filled
+# result fields are no proof (the review). The key is random per process and is never
+# serialised; the threat model is caller mis-wiring (a hand-built or mutated result), NOT arbitrary in-process
+# code that could read this key. A hand-built VerificationResult has no token (None) and is refused.
+_ORIGIN_KEY = os.urandom(32)
+
+
+def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[str],
+                          merkle_root: Optional[bytes]) -> str:
+    """HMAC over the captured verified state, type-tagged and length-prefixed so no two distinct field
+    tuples collide. Recomputed by the judge from the result's recorded fields and compared with
+    ``hmac.compare_digest``; a match proves the token was stamped by this process over exactly these
+    fields (origin AND no post-stamp mutation). The sd_jwt_vc block needs no field here: a downstream
+    judge's SD-JWT rules are already bound to this bundle through the verified signer (Nachtrag 44, the
+    SD-JWT issuer MUST be the bundle signer) and that signer (Nachtrag 46), so a swapped sd_jwt is
+    refused — measured in the N46b gegenproben."""
+    h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
+    for part in (signer_pub, payload_digest, merkle_root):
+        if part is None:
+            h.update(b"\x00")
+            continue
+        b = bytes(part) if isinstance(part, (bytes, bytearray)) else str(part).encode("utf-8")
+        h.update(b"\x01")
+        h.update(len(b).to_bytes(8, "big"))
+        h.update(b)
+    return h.hexdigest()
 
 
 class ProofBundleError(Exception):
@@ -53,6 +86,33 @@ class VerificationResult:
     # from equality/repr and from as_dict so ok, serialisation and existing comparisons are unchanged.
     verified_signer_pub: Optional[bytes] = field(default=None, compare=False, repr=False)
     verified_payload_digest: Optional[str] = field(default=None, compare=False, repr=False)
+    # Nachtrag 46b (Z309): the verified state OUTSIDE the payload the N46 digest does not cover. The payload
+    # digest binds the signed bytes; it does NOT bind the stated Merkle root (not signed — a coherent one-leaf
+    # rewrap re-anchors the same payload under a different root). verified_merkle_root is the stated root bytes
+    # the root-authenticity check verified (set only when that check passed). verified_origin is the per-process
+    # token over the verified state — see _compute_origin_token. Both are set ONLY on a passing bundle signature;
+    # excluded from equality, repr and as_dict so ok, serialisation and existing comparisons are unchanged. The
+    # sd_jwt_vc block needs no field: a judge's SD-JWT rules bind to this bundle through the verified signer
+    # (N44 issuer==signer + N46), so a swapped sd_jwt is refused — measured in the N46b gegenproben.
+    verified_merkle_root: Optional[bytes] = field(default=None, compare=False, repr=False)
+    verified_origin: Optional[str] = field(default=None, compare=False, repr=False)
+
+    def stamp_origin(self) -> None:
+        """Record the origin token over the verified state currently on this result. Called by the verifier
+        exactly once, after the signature and the out-of-payload Merkle root are captured."""
+        self.verified_origin = _compute_origin_token(
+            self.verified_signer_pub, self.verified_payload_digest, self.verified_merkle_root)
+
+    def origin_authentic(self) -> bool:
+        """True only when this result carries a token this process's verifier stamped over exactly the fields
+        it now holds. A hand-built result (no token) or one whose verified_* fields were changed after stamping
+        fails. Not a defence against code that can read _ORIGIN_KEY (out of scope per the review)."""
+        if not isinstance(self.verified_origin, str):
+            return False
+        return hmac.compare_digest(
+            self.verified_origin,
+            _compute_origin_token(self.verified_signer_pub, self.verified_payload_digest,
+                                  self.verified_merkle_root))
 
     @property
     def ok(self) -> bool:
