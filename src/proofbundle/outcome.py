@@ -328,6 +328,12 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
     verdict it reports is bound to the key that signed, never to a self-declared keyId (deep gate
     2026-09-05, L1-600-02).
 
+    N43 (security-fix 6.2.0): this function reports ROLE MEMBERSHIP, which is NOT trust. A genesis pack
+    self-authenticates with no relying-party input, so membership alone must never read as trusted.
+    ``verify_outcome_receipt`` reports ``executor_role_trusted`` True only when, in addition to this
+    membership + key-binding, the pack is bound to a relying-party ANCHOR (``trust_pack.trust_pack_is_pinned``
+    is True). A caller using this helper directly must apply the same gate.
+
     Fail-closed: a missing/malformed role, a missing/malformed ``executor.keyId``, a revoked key, or a
     keyId whose pack key material is absent or differs from the signing key are all False — never a
     silent pass. Never raises on malformed input. The executor and the pack are read once, into the
@@ -378,7 +384,9 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     of ``trust_pack``'s ``outcomeReceivers`` role (Finding 16, mirrors :func:`executor_trusted_by_role`
     exactly). ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — same caller
     contract as ``executor_trusted_by_role``: this function checks ROLE MEMBERSHIP only, it never re-derives
-    trust in the pack itself.
+    trust in the pack itself. N43 (security-fix 6.2.0): membership is not trust —
+    ``verify_outcome_receipt`` reports ``receiver_role_trusted`` True only when the pack is ALSO bound to a
+    relying-party anchor (``trust_pack.trust_pack_is_pinned`` is True); a direct caller applies the same gate.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
     False — never a silent pass. Never raises on malformed input. The key id must be a plain ``str``
@@ -606,6 +614,9 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
                                     expected_nonce: str | None = None,
                                     require_derived_subject: bool = False,
                                     trust_pack: dict | None = None,
+                                    trust_pack_expected_genesis_digest: str | None = None,
+                                    trust_pack_expected_root_keys: dict | None = None,
+                                    trust_pack_pinned: bool | None = None,
                                     evidence_resolver: Callable[[dict], bool] | None = None,
                                     receiver_attestation_resolver: Callable[[dict], bool] | None = None,
                                     related: dict | None = None, policy: dict | None = None) -> dict:
@@ -617,7 +628,9 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         envelope, public_key, strict=strict, expected_decision_ref=expected_decision_ref,
         decision_maker_id=decision_maker_id, expected_audience=expected_audience,
         expected_nonce=expected_nonce, require_derived_subject=require_derived_subject,
-        trust_pack=trust_pack, evidence_resolver=evidence_resolver,
+        trust_pack=trust_pack, trust_pack_expected_genesis_digest=trust_pack_expected_genesis_digest,
+        trust_pack_expected_root_keys=trust_pack_expected_root_keys, trust_pack_pinned=trust_pack_pinned,
+        evidence_resolver=evidence_resolver,
         receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
         _raise_on_malformed=True)
 
@@ -627,6 +640,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
+                           trust_pack_expected_genesis_digest: str | None = None,
+                           trust_pack_expected_root_keys: dict | None = None,
+                           trust_pack_pinned: bool | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
                            receiver_attestation_resolver: Callable[[dict], bool] | None = None,
                            related: dict | None = None, policy: dict | None = None,
@@ -641,12 +657,19 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       An executor witnessing their own decision fails (False + error).
     - ``execution_proven`` — status=executed with a real effect/action digest is True; self-asserted executed
       is False + a No-Overclaim warning (not a hard aggregate fail — it is an honest limit, not tampering).
-    - ``executor_role_trusted`` (Finding 01, additive) — when ``trust_pack`` is supplied (the PREDICATE of an
-      ALREADY-authenticated Trust Pack, verified separately by the caller via
+    - ``executor_role_trusted`` (Finding 01, additive; N43 hardened) — when ``trust_pack`` is supplied (the
+      PREDICATE of an ALREADY-authenticated Trust Pack, verified separately by the caller via
       ``trust_pack.verify_trust_pack``), the executor's ``keyId`` MUST be a non-revoked member of the pack's
-      ``outcomeExecutors`` role (``outcome.executor_trusted_by_role``) — the "independent attestation of
-      executor.id" gap docs/predicates/action-outcome.md §7 lists as open. Fail-closed when supplied; stays
-      None (not evaluated) when ``trust_pack`` is omitted — fully backward compatible.
+      ``outcomeExecutors`` role (``outcome.executor_trusted_by_role``), bound to the signing key AND the pack
+      MUST be bound to a RELYING-PARTY ANCHOR. Role membership is a fact about the pack; it becomes TRUST only
+      under an anchor — a genesis pack self-authenticates with no caller input, so membership alone must not
+      read as trusted (N43, security-fix 6.2.0). Supply the anchor via ``trust_pack_expected_genesis_digest``
+      (the pack's content-root ``sha256(JCS(predicate))``) or ``trust_pack_expected_root_keys`` (a
+      ``{keyId: publicKey_b64}`` / key-object map covering the pack's declared root), both recomputed here
+      against the supplied predicate; a rotation anchor is forwarded as ``trust_pack_pinned=True`` from a
+      rotation-authorized ``verify_trust_pack``. Fail-closed when a pack is supplied without a matching anchor
+      (``executor_role_trusted`` False, ``TRUST_PACK_NOT_ANCHORED``); stays None (not evaluated) when
+      ``trust_pack`` is omitted — the no-trust_pack path is fully backward compatible.
 
     Read ``ok`` (or ``crypto_ok``) — never an individual ``*_ok`` alone. On a forged envelope every trust-
     derived field stays None and an error is recorded, so a consumer cannot read a claim about unsigned bytes.
@@ -698,6 +721,21 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         trust_pack = _plain_pack(trust_pack)
         if trust_pack is None:
             trust_pack = {}
+    # N43 (security-fix 6.2.0): a Trust Pack confers TRUST on a role only when the relying party has PINNED
+    # it to an anchor (trust_pack.trust_pack_is_pinned) — membership + key-binding is a fact about the pack,
+    # trust is the relying party's act. outcome.py holds the PREDICATE, so it recomputes the genesis-digest and
+    # root-key anchors directly against THESE bytes; a rotation anchor (which needs the pack envelope + the old
+    # root) is not recomputable here and is forwarded by the caller as `trust_pack_pinned=True` from a rotation-
+    # authorized verify_trust_pack. None (no anchor supplied / unpinnable) and False (anchor supplied, no match)
+    # both leave every derived role statement NOT positive (fail-closed). An empty/malformed pack is never pinned.
+    _tp_pinned: bool | None = None
+    if trust_pack:
+        from .trust_pack import trust_pack_is_pinned  # noqa: PLC0415
+        _tp_pinned = trust_pack_is_pinned(
+            trust_pack, expected_genesis_digest=trust_pack_expected_genesis_digest,
+            expected_root_keys=trust_pack_expected_root_keys)
+        if _tp_pinned is not True and trust_pack_pinned is True:
+            _tp_pinned = True   # caller forwarded a verified anchor this function cannot recompute (rotation)
     # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L1-620-T3-01 and L4-620-01), as in
     # decision.verify_decision_receipt: the key the signature was checked under was read again for the
     # executor key binding and the relation-signer pin, after the caller's resolvers ran, and the policy
@@ -844,7 +882,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # can tell "wrong signer for this keyId" from "keyId not in the role".
             _bound = _member and pack_key_binds_signer(
                 _ex.get("keyId") if isinstance(_ex, dict) else None, trust_pack, schluessel)
-            r["executor_role_trusted"] = bool(_member and _bound)
+            # N43: membership + key-binding is a FACT about the pack; it becomes TRUST only when the relying
+            # party has pinned the pack to an anchor (_tp_pinned). Unpinned → not positive (fail-closed).
+            _anchored = _tp_pinned is True
+            r["executor_role_trusted"] = bool(_member and _bound and _anchored)
             if not _member:
                 r["errors"].append(
                     "executor.keyId is not a non-revoked member of the trust pack's outcomeExecutors role "
@@ -857,6 +898,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "self-declared keyId is a label, not a signer (fail-closed)")
             else:
                 r["executor_key_bound"] = True
+                if not _anchored:
+                    r["errors"].append(
+                        "TRUST_PACK_NOT_ANCHORED: executor.keyId is a bound member of outcomeExecutors, but the "
+                        "trust pack is not bound to a relying-party anchor — role membership is not trust "
+                        "(pass trust_pack_expected_genesis_digest / trust_pack_expected_root_keys, or "
+                        "trust_pack_pinned=True from a rotation-authorized verify_trust_pack; fail-closed)")
 
         # Finding 03 (additive): classify the same execution-proof digest(s) onto the EvidenceLevel ladder.
         # OR semantics (mirrors outcome_execution_proven: either digest satisfies the claim) — the STRONGER
@@ -960,7 +1007,16 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # verdict, see the verify docstring). L1-600-02: membership of a LABEL is reported as trusted
             # only if no signer key contradicts it; when the resolver returned the signer key it must be the
             # pack's key for that receiverKeyId, and a bound entry is recorded in receiver_key_bound.
-            if trust_pack is not None:
+            if trust_pack is not None and _tp_pinned is not True:
+                # N43: a supplied pack that the relying party has NOT pinned confers no receiver trust — the
+                # role membership below is a fact, not a trust statement (fail-closed, mirrors the executor gate).
+                r["receiver_role_trusted"] = False
+                r["errors"].append(
+                    "TRUST_PACK_NOT_ANCHORED: receiverRefs name an outcomeReceivers role, but the trust pack is "
+                    "not bound to a relying-party anchor — role membership is not trust (pass "
+                    "trust_pack_expected_genesis_digest / trust_pack_expected_root_keys, or trust_pack_pinned="
+                    "True from a rotation-authorized verify_trust_pack; fail-closed — receiverRefs never gates ok)")
+            elif trust_pack is not None:
                 _trusted = False
                 _rbound: bool | None = None
                 for i, x in enumerate(_recv):
@@ -1173,6 +1229,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _blk_kid = r["automation"].setdefault("automationBlockers", [])
         if "KEY_ID_NOT_BOUND_TO_SIGNER" not in _blk_kid:
             _blk_kid.append("KEY_ID_NOT_BOUND_TO_SIGNER")
+        r["automation"]["safeForAutomation"] = False
+    # N43: the executor was a bound role member, but the pack was never anchored by the relying party — the
+    # policy dimension already blocks (executor_role_trusted is False); name WHY it is not trust, not just POLICY.
+    if (isinstance(r.get("automation"), dict) and trust_pack is not None and _tp_pinned is not True
+            and r.get("executor_role_trusted") is False and r.get("executor_key_bound") is True):
+        _blk_anchor = r["automation"].setdefault("automationBlockers", [])
+        if "TRUST_PACK_NOT_ANCHORED" not in _blk_anchor:
+            _blk_anchor.append("TRUST_PACK_NOT_ANCHORED")
         r["automation"]["safeForAutomation"] = False
     if isinstance(r.get("automation"), dict) and (r.get("relations_policy_failed") or r.get("policy_ok") is False):
         _blk = r["automation"].setdefault("automationBlockers", [])
