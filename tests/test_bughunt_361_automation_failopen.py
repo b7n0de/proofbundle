@@ -85,7 +85,11 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
         pol = load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "rel",
                            "relations": policy_relations})
         env = emit_outcome_receipt(pred, s, strict=False)
-        return verify_outcome_receipt(env, pub, policy=pol, trust_pack=trust_pack)
+        # N43 (security-fix 6.2.0): executor_role_trusted now requires a relying-party anchor. This test isolates
+        # the RELATIONS policy failure (executor stays trusted), so the pack's declared root is pinned to keep
+        # executor_role_trusted True; the relations/policy behaviour under test is unchanged.
+        return verify_outcome_receipt(env, pub, policy=pol, trust_pack=trust_pack,
+                                      trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
 
     def test_unresolved_required_relation_blocks_outcome_automation(self):
         # relations-ONLY policy (executor_role_trusted stays True) isolates the relations failure
@@ -123,7 +127,10 @@ class OutcomeRelationsViolationNotAutomationSafe(unittest.TestCase):
                        "kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")}}, "nonClaims": ["x"]}
         env = emit_outcome_receipt(pred, s, strict=False)
         for bad in (42, ["x"], "str"):
-            r = verify_outcome_receipt(env, pub, policy=bad, trust_pack=tp)
+            # N43: pin the pack's declared root so executor_role_trusted stays True and this test still isolates
+            # the malformed-policy failure (not the anchor). The malformed-policy behaviour under test is unchanged.
+            r = verify_outcome_receipt(env, pub, policy=bad, trust_pack=tp,
+                                       trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
             self.assertIs(r["policy_ok"], False)
             self.assertTrue(r["executor_role_trusted"])   # the executor IS trusted; only the policy failed
             self.assertFalse(r["automation"]["safeForAutomation"])

@@ -618,9 +618,12 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
             for trust_pack in (None, pack):
                 with self.subTest(answer=label, trust_pack=trust_pack is not None):
                     calls.clear()
+                    # N43: pin the pack (forwarded verdict) so the receiver-role path runs; the property under
+                    # test (a non-key answer binds nothing and nothing escapes) is unchanged. Harmless when
+                    # trust_pack is None (the forward applies only to a supplied pack).
                     r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                                receiver_attestation_resolver=lambda d, a=answer: a,
-                                               trust_pack=trust_pack)
+                                               trust_pack=trust_pack, trust_pack_pinned=True)
                     self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
                     self.assertIsNot(r["receiver_key_bound"], True)
                     self.assertIs(r["ok"], True, r["errors"])
@@ -644,13 +647,17 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
         pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
                 "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
+        # N43: the receiver role verdict is positive only under a relying-party anchor; pin the pack (forwarded
+        # verdict) so the binding behaviour under test is exercised exactly as before.
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
-                                   receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack)
+                                   receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack,
+                                   trust_pack_pinned=True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
         self.assertIs(r["receiver_key_bound"], True)
         self.assertIs(r["receiver_role_trusted"], True)
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
-                                   receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack)
+                                   receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack,
+                                   trust_pack_pinned=True)
         self.assertIs(r["receiver_key_bound"], False)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
@@ -1405,7 +1412,8 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
                 "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: _RaisingValue(calls),
-                                   receiver_attestation_resolver=lambda d: _RaisingValue(calls), trust_pack=pack)
+                                   receiver_attestation_resolver=lambda d: _RaisingValue(calls), trust_pack=pack,
+                                   trust_pack_pinned=True)   # N43: pin so the receiver path is exercised
         self.assertEqual(r["evidence_levels"]["effect"]["level"], EvidenceLevel.REFERENCE_WELL_FORMED)
         self.assertIsNot(r["receiver_key_bound"], True)
         dec_p = copy.deepcopy(json.loads((EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8")))

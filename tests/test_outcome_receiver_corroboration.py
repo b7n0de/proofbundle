@@ -371,7 +371,11 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub))
+        # N43: receiver-role trust requires a relying-party anchor. Property under test (a role MEMBER is
+        # trusted) is unchanged; the pack's declared root ("root-0") is pinned so the anchor precondition holds.
+        # OLD: True under an unpinned pack. NEW: True under a pinned pack.
+        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub),
+                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
         self.assertTrue(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)
 
@@ -382,7 +386,10 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-unknown"}])
         env = emit_outcome_receipt(p, s)
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub))
+        # N43: anchor pinned so the NON-member (not the missing anchor) is the reason trust is False; ok still
+        # unaffected. OLD: False under an unpinned pack. NEW: False under a pinned pack, non-member reason.
+        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub),
+                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
         self.assertFalse(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)   # deliberately NOT gated — see docstring
 

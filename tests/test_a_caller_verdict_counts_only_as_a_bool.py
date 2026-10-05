@@ -1342,6 +1342,13 @@ _SWITCHES = {
         "public_transparency_ok", "replay_ok", "requires_identity_overlay", "signer_trusted",
         "tree_context_authenticated")},
     ("proofbundle.public_transparency", "evaluate_public_transparency", "consistency_confirmed"): _VERDICT_INPUT,
+    # N43 (security-fix 6.2.0): the relying-party trust-pack pin, reported as a verdict and counted only as the
+    # exact bool. `trust_pack_pinned` is the pin verdict the caller forwards from a rotation-authorized
+    # verify_trust_pack; `rotation_authorized` is the rotation-vouch verdict trust_pack_is_pinned reads (None =
+    # no rotation anchor, True = vouched, False = supplied-but-unmatched). All default None.
+    ("proofbundle.outcome", "verify_outcome_receipt", "trust_pack_pinned"): _VERDICT_INPUT,
+    ("proofbundle.outcome", "verify_outcome_receipt_or_raise", "trust_pack_pinned"): _VERDICT_INPUT,
+    ("proofbundle.trust_pack", "trust_pack_is_pinned", "rotation_authorized"): _VERDICT_INPUT,
     # presentation
     ("proofbundle.budget", "render_safe", "quote"): _PRESENTATION,
     ("proofbundle.demo", "run_demo", "as_json"): _PRESENTATION,

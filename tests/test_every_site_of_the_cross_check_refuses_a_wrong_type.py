@@ -303,7 +303,9 @@ class TheSitesTheVerifyLensesFound(unittest.TestCase):
                     "keys": {"kid-exec": {"publicKey": _b64(_A)}}, **revoked}
 
         def vertraut(p) -> tuple:
-            r = verify_outcome_receipt(umschlag, _roh(_A), trust_pack=p)
+            # N43: the executor role verdict is positive only under a relying-party anchor; pin the pack
+            # (forwarded verdict) so this test still measures the REVOCATION behaviour, not the missing anchor.
+            r = verify_outcome_receipt(umschlag, _roh(_A), trust_pack=p, trust_pack_pinned=True)
             return r["executor_role_trusted"], r["ok"], r["automation"]["safeForAutomation"]
 
         self.assertEqual(vertraut(pack())[:2], (True, True))                 # base: not revoked
