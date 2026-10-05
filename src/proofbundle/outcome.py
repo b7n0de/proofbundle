@@ -759,12 +759,18 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       self-fixable half of Finding 16;
       ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
       ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
-    - ``receiver_role_trusted`` (Finding 16, additive) — when ``trust_pack`` is supplied AND ``receiverRefs``
-      is non-empty, True iff AT LEAST ONE entry's ``receiverKeyId`` is a non-revoked member of the pack's
-      ``outcomeReceivers`` role (``outcome.receiver_trusted_by_role``); ``None`` when there is nothing to
-      evaluate. Deliberately NOT wired into the aggregate ``ok`` (unlike ``executor_role_trusted``):
-      ``receiverRefs`` is OPTIONAL supplementary evidence, so an untrusted-labeled receiver must not break an
-      otherwise-valid outcome's own core verdict — it only affects the STRENGTH classification above.
+    - ``receiver_role_trusted`` (Finding 16, additive; N45B hardened) — when ``trust_pack`` is supplied AND
+      ``receiverRefs`` is non-empty and the pack is bound to a relying-party anchor (N45): ``True`` iff AT LEAST
+      ONE entry's ``receiverKeyId`` is a non-revoked member of the pack's ``outcomeReceivers`` role AND a signer
+      key of that receiver's statement was RESOLVED (via ``receiver_attestation_resolver``) and BINDS to the pack
+      key for that ``receiverKeyId`` (``receiver_key_bound`` True). ``False`` when a resolved key does NOT bind,
+      or when ``receiverRefs`` name no role member at all. ``None`` (N45B) when a member is present by LABEL only
+      — no signer key was resolved to bind it — because a label is not a positive trust statement without the key
+      that carries it; a named reason and the by-LABEL-only warning are recorded. ``None`` also when there is
+      nothing to evaluate (no ``trust_pack``). Deliberately NOT wired into the aggregate ``ok`` (unlike
+      ``executor_role_trusted``): ``receiverRefs`` is OPTIONAL supplementary evidence, so neither an untrusted-
+      labeled nor a label-only receiver breaks an otherwise-valid outcome's own core verdict — it only affects the
+      STRENGTH classification above.
 
     None of the receiverRefs/sequence additions change any field documented above them, or the aggregate
     ``ok`` — fully backward compatible with every existing caller.
@@ -1108,8 +1114,16 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "trust_pack_pinned=True or a declared-root-identity-only match is not accepted here "
                     "(fail-closed — receiverRefs never gates ok)")
             elif trust_pack is not None:
-                _trusted = False
-                _rbound: bool | None = None
+                # N45B (KRAXO-CLOUD-N45B-EMPFAENGER-NUR-MIT-GEBUNDENEM-SCHLUESSEL-01, Z309): receiver-role trust
+                # is positive ONLY when a signer key of the receiver statement was RESOLVED and BINDS to the pack
+                # key for that receiverKeyId (the pack is already content-anchored, N45, via the outer _tp_pinned
+                # gate). A role member by LABEL only (no resolved signer key) was read True+warning at ae4a4c1d —
+                # that is a positive trust field with no binding to the key that carries the statement. It is now
+                # None (receiver_key_bound None), with the warning below and a named reason. A resolved key that
+                # does not bind stays False (as today). receiverRefs never gate ok (point 3).
+                _bound = False        # a member entry whose resolved signer key BINDS to the pack key
+                _nonbind = False      # a member entry whose resolved signer key does NOT bind
+                _label_only = False   # a member entry with NO resolved signer key (label only)
                 for i, x in enumerate(_recv):
                     _kid = x.get("receiverKeyId") if isinstance(x, dict) else None
                     if not receiver_trusted_by_role(_kid, trust_pack):
@@ -1120,23 +1134,39 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     # raised a raw TypeError out of this never-raise function) and it binds nothing.
                     if _is_key_material(_ans):
                         if pack_key_binds_signer(_kid, trust_pack, bytes(_ans)):
-                            _trusted = True
-                            _rbound = True
+                            _bound = True
                         else:
-                            _rbound = False if _rbound is None else _rbound
+                            _nonbind = True
                             r["errors"].append(
                                 "KEY_ID_NOT_BOUND_TO_SIGNER: receiverRefs[%d].receiverKeyId is a member of "
                                 "outcomeReceivers, but the referenced statement is signed by a different key than "
                                 "the trust pack holds for it (advisory: receiverRefs never gates ok)" % i)
                     else:
-                        _trusted = True
-                        if _rbound is None:
-                            r["warnings"].append(
-                                "receiverRefs[%d].receiverKeyId is a role member by LABEL only — no signer key "
-                                "was resolved to bind it (return the 32-byte signer key from "
-                                "receiver_attestation_resolver to bind the label)" % i)
-                r["receiver_role_trusted"] = _trusted
-                r["receiver_key_bound"] = _rbound
+                        _label_only = True
+                        r["warnings"].append(
+                            "receiverRefs[%d].receiverKeyId is a role member by LABEL only — no signer key "
+                            "was resolved to bind it (return the 32-byte signer key from "
+                            "receiver_attestation_resolver to bind the label)" % i)
+                # OR semantics: one corroborating receiver with a bound key suffices (True). Otherwise a resolved
+                # key that did not bind is False; a member we could only see by label is None (not positive); and
+                # receiverRefs that name no role member at all stay False (the non-member case, unchanged).
+                if _bound:
+                    r["receiver_role_trusted"] = True
+                    r["receiver_key_bound"] = True
+                elif _nonbind:
+                    r["receiver_role_trusted"] = False
+                    r["receiver_key_bound"] = False
+                elif _label_only:
+                    r["receiver_role_trusted"] = None
+                    r["receiver_key_bound"] = None
+                    r["errors"].append(
+                        "RECEIVER_ROLE_NOT_BOUND: receiverRefs name an outcomeReceivers role member, but no signer "
+                        "key of the receiver statement was resolved to bind the label — receiver_role_trusted is "
+                        "None, not positive (N45B). Return the 32-byte signer key from receiver_attestation_resolver "
+                        "to bind it (advisory: receiverRefs never gates ok)")
+                else:
+                    r["receiver_role_trusted"] = False
+                    r["receiver_key_bound"] = None
         else:
             r["evidence_levels"]["receiverRefs"] = None
 
