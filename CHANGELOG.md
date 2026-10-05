@@ -49,14 +49,15 @@ The deep gate at 1a3cd672 (run 7) found a rule that `evaluate_policy` listed as 
 `sd_jwt.expected_aud`, the same at v6.0.0 and v6.1.0, and a receipt verifier that a module the tree hides from git could take
 over; both are closed, and every rule a check path lists as applied is now measured to turn its verdict.
 A security scan of the release head found two more, both in the released 6.0.0 and 6.1.0, and their fixes
-break two calls on purpose: the SD-JWT rules of a trust policy need the new `sd_jwt.issuer_key_pin` unless the
-SD-JWT is
-bound to the signed eval claim, and `anchor verify-pack` needs `--target-file` or `--expected-root`.
+break calls on purpose: the SD-JWT rules of a trust policy and `verify` itself report a value of a stand-alone
+SD-JWT or its Key Binding JWT only under the new `sd_jwt.issuer_key_pin` or a binding to the signed eval claim,
+and `anchor verify-pack` needs `--target-file` or `--expected-root`.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
 
-- **Two security-driven breaking changes: a vct needs a pinned issuer key, and an evidence pack needs a target**
+- **Security-driven breaking changes: an SD-JWT value needs a pinned or bound issuer, and an evidence pack needs a
+  target**
   (a security scan of the release head, one critical and one high finding, both present at v6.0.0 and v6.1.0; owner
   order on the security scan, line Z309, owner decision A on cards OA-9847e624e4 and OA-4a8b54fc40).
   - `sd_jwt.expected_vct` took a vct as trusted once the SD-JWT issuer signature verified, but the key it verified
@@ -72,6 +73,15 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     check (`_sd_jwt_issuer_trusted`), and every `sd_jwt` policy key is classified as needing issuer trust or not,
     which `tests/test_security_fix_620_kb_n36.py` holds. **Breaking:** a policy that sets one of these rules for a
     stand-alone SD-JWT needs `sd_jwt.issuer_key_pin`, or `verify --policy` exits 3.
+  - One level down (Codex thread 4179140693 at e5b00d7d, owner decision B on card OA-44d4a016e9): `verify_bundle`
+    with `expected_aud`/`expected_nonce` and `verify --aud`/`--nonce` without a policy reported the audience, nonce
+    and holder binding of a Key Binding JWT under the self-supplied issuer key. `verify_bundle` now fails the new
+    check `sd-jwt-issuer-trust` when a Key Binding JWT verified but its SD-JWT is neither bound to the signed payload
+    nor matched by the new argument `sd_jwt_issuer_key_pin` (the CLI passes the policy's `sd_jwt.issuer_key_pin`),
+    and `key_binding_ok`, `audience_ok` and `nonce_ok` read false then; `verify_receipt_token`,
+    `to_eval_results_entry` and `verify_eval_results_entry` take the pin too. **Breaking:** `verify` of a bundle whose
+    stand-alone SD-JWT carries a Key Binding JWT exits 1 without a policy that pins the issuer, with or without
+    `--aud`/`--nonce`; `tests/test_security_fix_620_aud_n38.py` holds each surface.
   - `anchor verify-pack` checked the proof against the pack's own `canonicalRoot` and read no target. It now requires
     exactly one of `--target-file` (its SHA-256 is the expected root) or `--expected-root` (standard base64 of 32
     bytes), compares it with the pack's root before the OpenTimestamps proof is read, and refuses a difference as
