@@ -1116,16 +1116,20 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     return rp or None
 
 
-def _sd_jwt_issuer_trusted(sd, result, sdj) -> "tuple[bool, str]":
+def _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=None) -> "tuple[bool, str]":
     """Whether an SD-JWT / KB-JWT value may be trusted, as a class (Nachtrag 36, Z309 / PR 311 P1; the shared
     gate moved to bundle.py in Nachtrag 38 so the crypto layer and the policy layer apply one rule). Delegates to
     the bundle-level ``_sd_jwt_issuer_is_trusted`` with the policy's ``sd_jwt.issuer_key_pin`` as the pin: the
     issuer signature must have verified AND either the SD-JWT is bound to the signed payload (an eval receipt) or
     its key matches the pin the relying party supplied independently of the bundle. Every issuer-trusting
     ``sd_jwt`` policy rule and the direct ``verify``/``verify_bundle`` KB-JWT path now share this one decision.
-    Returns ``(trusted, detail)``."""
+    Returns ``(trusted, detail)``.
+
+    Nachtrag 44 (Z309 / PR 311 review 5409929917 P1): the payload-binding path trusts the SD-JWT only when its
+    verifying key is the BUNDLE signer — ``bundle_signer_pub`` is the bundle's own signing key (decoded), so the
+    policy layer applies the same binding the crypto layer and ``decode_eval_claim`` do."""
     from .bundle import _sd_jwt_issuer_is_trusted  # noqa: PLC0415
-    return _sd_jwt_issuer_is_trusted(sd, result, sdj.get("issuer_key_pin"))
+    return _sd_jwt_issuer_is_trusted(sd, result, sdj.get("issuer_key_pin"), bundle_signer_pub=bundle_signer_pub)
 
 
 @_ein_stand(aussen={"now": "uhr"})
@@ -1384,6 +1388,17 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     #    reconciled effective aud); this function applies it itself as well (5a), so a library caller is bound too.
     sdj = _as_dict(policy.get("sd_jwt"))
     sd = bundle.get("sd_jwt_vc")
+    # Nachtrag 44: the bundle's own signing key, decoded, so _sd_jwt_issuer_trusted can require the SD-JWT's
+    # verifying key to BE the bundle signer on the payload-binding path (the same binding decode_eval_claim
+    # makes). Fail-closed: an absent or malformed signer key reads None, and the binding comparison then fails.
+    _signer_pub = None
+    _sig = bundle.get("signature") if isinstance(bundle, dict) else None
+    _pk = _sig.get("public_key_b64") if isinstance(_sig, dict) else None
+    if isinstance(_pk, str):
+        try:
+            _signer_pub = decode_b64(_pk)
+        except (ValueError, TypeError):
+            _signer_pub = None
     kb = None
     if isinstance(sd, dict) and isinstance(sd.get("compact"), str):
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)
@@ -1397,7 +1412,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             # cnf holder key the KB-JWT proves possession of lives in the issuer-signed SD-JWT payload, whose
             # verifying key is attacker-chosen (outside the signed bundle) — so a "verified key binding" from an
             # untrusted self-signed SD-JWT binds an attacker-chosen holder key and must fail closed.
-            kb_trusted, kb_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj)
+            kb_trusted, kb_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
             if kb_check.ok is not True:
                 add("policy:key_binding_present", False, f"key binding failed: {kb_check.detail}")
             elif not kb_trusted:
@@ -1427,7 +1442,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # Nachtrag 36 (the class): a nonce is only replay protection when it comes from a KB-JWT under a TRUSTED
         # issuer. Under an untrusted self-signed SD-JWT the attacker chose the cnf and signed the KB-JWT, so its
         # nonce is attacker-written and binds nothing — require issuer trust alongside the crypto verdict.
-        kb_trusted, _kb_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj)
+        kb_trusted, _kb_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
         verified_nonce = bool(kb_trusted and kb_check is not None and kb_check.ok is True and kb and kb.get("nonce"))
         add("policy:nonce_present", verified_nonce,
             "a verified KB-JWT under a trusted issuer carries a nonce" if verified_nonce
@@ -1447,7 +1462,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         compact = sd.get("compact") if isinstance(sd, dict) else None
         # Nachtrag 36 (the class): the KB-JWT audience is only a binding target when it comes from a KB-JWT under
         # a TRUSTED issuer; an untrusted self-signed SD-JWT's KB-JWT carries an attacker-chosen aud.
-        aud_trusted, _aud_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj)
+        aud_trusted, _aud_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
         if kb_check is None or kb_check.ok is not True or not isinstance(compact, str) or not aud_trusted:
             add("policy:expected_aud", False,
                 f"policy requires the KB-JWT audience {_nennen(expected_aud)} from a VERIFIED key binding under a "
@@ -1477,7 +1492,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # SD-JWT bound to the signed payload. The identity check (sd-jwt-issuer-identity) is NOT a substitute: it
         # binds the key to a DISCLOSED issuer claim that is itself attacker-chosen.
         pin = sdj.get("issuer_key_pin")
-        trusted, trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj)
+        trusted, trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
         if not trusted:
             add("policy:expected_vct", False,
                 f"policy requires a specific vct but {trust_detail} (fail-closed)")

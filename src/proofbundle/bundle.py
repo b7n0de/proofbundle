@@ -311,7 +311,17 @@ def _sd_jwt_issuer_fingerprint(sd) -> "str | None":
     return issuer_key_fingerprint(res.get("alg"), pub)
 
 
-def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin) -> "tuple[bool, str]":
+def _bundle_signer_fingerprint(bundle_signer_pub) -> "str | None":
+    """The ``ed25519:<standard-base64>`` fingerprint of the key that signed THIS bundle — the key the
+    ``ed25519-signature`` check verified the payload under, passed in as its already-decoded bytes — in the
+    exact form ``decode_eval_claim`` binds the eval-claim's ``issuer`` to (``evalclaim._claim_of_verified``).
+    None when no signer key is available, so a binding comparison fails closed rather than guessing a prefix."""
+    if not isinstance(bundle_signer_pub, (bytes, bytearray)):
+        return None
+    return "ed25519:" + base64.b64encode(bytes(bundle_signer_pub)).decode("ascii")
+
+
+def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin, bundle_signer_pub=None) -> "tuple[bool, str]":
     """Whether a KB-JWT verdict (holder binding, and the audience/nonce equality folded into it) may be reported
     positive, as a class (Nachtrag 38, Z309 / PR 311 P1). The shared successor of the Nachtrag 36 policy helper,
     at the bundle.py level so the crypto verdict, the single-field contract and the exit code all honour it.
@@ -320,10 +330,18 @@ def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin) -> "tuple[bool, str]":
     key (``sd_jwt_vc.issuer_public_key_b64``) is supplied OUTSIDE the bundle's signed payload — so a valid issuer
     signature alone is attacker-chosen (a self-signed SD-JWT with any cnf and a matching KB-JWT verifies). The
     verdict is trustworthy only when the issuer signature verified AND either the SD-JWT is bound to the signed
-    payload (the ``sd-jwt-bundle-binding`` check passed — an eval receipt) OR its issuer key matches a pin the
-    relying party supplied out of band (``issuer_key_pin``, algorithm-bound, from a trust policy's
-    ``sd_jwt.issuer_key_pin`` or the ``verify_bundle`` argument). Otherwise fail-closed with a clear reason.
-    Returns ``(trusted, detail)``."""
+    payload AND verified under the BUNDLE-SIGNING key (the ``sd-jwt-bundle-binding`` check passed and the key
+    that verified the SD-JWT is ``bundle_signer_pub``) OR its issuer key matches a pin the relying party supplied
+    out of band (``issuer_key_pin``, algorithm-bound, from a trust policy's ``sd_jwt.issuer_key_pin`` or the
+    ``verify_bundle`` argument). Otherwise fail-closed with a clear reason. Returns ``(trusted, detail)``.
+
+    Nachtrag 44 (Z309 / PR 311 review 5409929917 P1) closed the gap in the binding path: payload binding alone
+    was treated as trust, but it only matches the SD-JWT's disclosed ``issuer`` to the claim and (via
+    ``sd-jwt-issuer-identity``) to the SD-JWT's own verifying key — it never tied that verifying key to the
+    bundle signer. A payload signed by K_bundle whose ``issuer`` names K_issuer, with an SD-JWT self-signed by
+    K_issuer != K_bundle, was reported positive although the bundle signer never authorized it. The binding path
+    now requires the SD-JWT's verifying key to BE the bundle signer (``bundle_signer_pub``), the same binding
+    ``decode_eval_claim`` makes on the claim's ``issuer`` (``evalclaim._claim_of_verified``)."""
     sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
     if sig_check is None or sig_check.ok is not True:
         return False, ("the SD-JWT issuer signature was never verified (supply "
@@ -336,7 +354,27 @@ def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin) -> "tuple[bool, str]":
         return False, "the SD-JWT issuer key does not match the pinned issuer key"
     binding_check = next((c for c in result.checks if c.name == "sd-jwt-bundle-binding"), None)
     if binding_check is not None and binding_check.ok is True:
-        return True, "the SD-JWT is bound to the signed payload"
+        # Nachtrag 44 (Z309 / PR 311 review 5409929917 P1): payload binding alone is NOT the bundle signer's
+        # authorization. sd-jwt-bundle-binding matches the SD-JWT's disclosed always-open fields (passed /
+        # threshold / comparator / suite / issuer + receipt root) to the signed eval-claim, and
+        # sd-jwt-issuer-identity ties that disclosed `issuer` to the SD-JWT's OWN verifying key — but nothing
+        # tied that verifying key to the key that SIGNED THE BUNDLE. A payload signed by K_bundle whose `issuer`
+        # names K_issuer, carrying an SD-JWT self-signed by K_issuer != K_bundle, satisfied the binding and read
+        # the KB-JWT verdict positive, though the bundle signer never authorized that holder binding (K_issuer
+        # did, and K_issuer is attacker-chosen outside the bundle signature). Require the SAME binding
+        # decode_eval_claim enforces on the claim's issuer (evalclaim._claim_of_verified): the key that verified
+        # the SD-JWT MUST be the bundle signer.
+        fp = _sd_jwt_issuer_fingerprint(sd)
+        signer_fp = _bundle_signer_fingerprint(bundle_signer_pub)
+        if fp is not None and signer_fp is not None and fp == signer_fp:
+            return True, "the SD-JWT is bound to the signed payload and verified under the bundle-signing key"
+        return False, ("the SD-JWT is bound to the signed payload but its verifying key "
+                       "(sd_jwt_vc.issuer_public_key_b64) is NOT the key that signed the bundle (reason: "
+                       "binding-signer-mismatch — the eval-claim's issuer is a different key, so a valid SD-JWT "
+                       "signature by it is not the bundle signer's authorization; this is the binding "
+                       "decode_eval_claim enforces on the claim issuer). Pin the issuer key "
+                       "(sd_jwt.issuer_key_pin in a --policy, or the verify_bundle sd_jwt_issuer_key_pin "
+                       "argument), or sign the SD-JWT with the bundle-signing key")
     return False, ("nothing ties the SD-JWT to a trusted issuer — its verifying key "
                    "(sd_jwt_vc.issuer_public_key_b64) is supplied outside the bundle's signed payload, so a "
                    "self-signed SD-JWT would verify. Pin the issuer key (sd_jwt.issuer_key_pin in a --policy, or "
@@ -706,7 +744,10 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
     # and pinned issuers are unaffected.
     kb_ok = next((c.ok for c in result.checks if c.name == "sd-jwt-key-binding"), None)
     if kb_binding_checked and kb_ok is True:
-        trusted, trust_detail = _sd_jwt_issuer_is_trusted(sd, result, sd_jwt_issuer_key_pin)
+        # Nachtrag 44: `pub` is the key the ed25519-signature check verified the payload under (the bundle
+        # signer); the binding path trusts the SD-JWT only when its verifying key is that same key.
+        trusted, trust_detail = _sd_jwt_issuer_is_trusted(sd, result, sd_jwt_issuer_key_pin,
+                                                          bundle_signer_pub=pub)
         if not trusted:
             result.add(
                 "sd-jwt-issuer-trust", False,
