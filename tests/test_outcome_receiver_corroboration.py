@@ -78,16 +78,20 @@ def _jsonschema_valid(instance: dict) -> bool:
         return False
 
 
-def _trust_pack(*, receiver_key_id="kid-recv", revoked=None, executor_pub=None):
+def _trust_pack(*, receiver_key_id="kid-recv", revoked=None, executor_pub=None, receiver_pub=None):
     # Also trusts _pred()'s default executor keyId ("kid-exec") as an outcomeExecutors member, so passing
     # this pack to verify_outcome_receipt does not ALSO trip the (pre-existing, Finding 01) executor_role_
     # trusted hard-gate — these tests isolate the receiver-role concern, not the executor-role one.
     # Deep gate 2026-09-05 (L1-600-02): the executor's key MATERIAL must be in `keys` for the role to bind
     # to the signer, so callers pass the verifying key as executor_pub.
+    # N45B: pass receiver_pub to put key MATERIAL for the receiver_key_id into `keys`, so a resolved signer
+    # key can BIND to it (receiver_key_bound True). Without it the pack holds no receiver key (label only).
     import base64
     keys = {"root-0": {"publicKey": "A" * 43 + "="}}
     if executor_pub is not None:
         keys["kid-exec"] = {"publicKey": base64.b64encode(executor_pub).decode("ascii")}
+    if receiver_pub is not None:
+        keys[receiver_key_id] = {"publicKey": base64.b64encode(receiver_pub).decode("ascii")}
     return {
         "schemaVersion": "0.1.0", "trustPackId": "tp-1", "version": 1,
         "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
@@ -377,15 +381,20 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
-        # N43: receiver-role trust requires a relying-party anchor. Property under test (a role MEMBER is
-        # trusted) is unchanged; the pack is anchored so the anchor precondition holds.
-        # N45 (nachbesserung): OLD positive anchor trust_pack_expected_root_keys -> NEW anchor
-        # trust_pack_expected_genesis_digest = sha256(JCS(pack)). Reason: the root-key anchor alone no longer
-        # binds the predicate's content at outcome.
-        pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub)
+        # N43: receiver-role trust requires a relying-party anchor. N45: the anchor must bind the predicate's
+        # content (trust_pack_expected_genesis_digest). N45B: a role member is trusted only with a RESOLVED and
+        # BOUND signer key, not by label alone — so this positive control now holds a receiver key in the pack and
+        # resolves it. OLD: True for a label-only member under a root-key anchor. NEW: True for a member whose
+        # resolved signer key binds to the pack key, under a content-bound anchor. Reason: label alone is not a
+        # positive trust field (N45B).
+        recv_pub = generate_signer().public_key().public_bytes_raw()
+        pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub, receiver_pub=recv_pub)
         r = verify_outcome_receipt(env, pub, trust_pack=pack,
-                                   trust_pack_expected_genesis_digest=_n45_digest(pack))
+                                   trust_pack_expected_genesis_digest=_n45_digest(pack),
+                                   evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: recv_pub)
         self.assertTrue(r["receiver_role_trusted"])
+        self.assertTrue(r["receiver_key_bound"])
         self.assertTrue(r["ok"], r)
 
     def test_receiver_role_trusted_false_but_ok_unaffected(self):
