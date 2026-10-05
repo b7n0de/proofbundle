@@ -18,12 +18,14 @@ from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
 from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
                         _pruefkopie, _richtlinie_von, _zeichen_von)
-from .errors import BundleFormatError, ProofBundleError
+from .errors import BundleFormatError, ProofBundleError, origin_token
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
+# Nachtrag 48/48b (Z309): domain tag for the decision-receipt verified-snapshot origin token (errors.origin_token).
+_DECISION_ORIGIN_DOMAIN = b"decision-receipt-v1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
@@ -510,6 +512,13 @@ def _empty_result() -> dict:
         # relations policy is evaluated; the stable violation codes (LINEAGE_REQUIREMENT_FAILED /
         # RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH) drive the automation blockers + F5.
         "relations_policy_failed": None, "relations_policy_codes": None,
+        # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): what this verification
+        # actually verified, captured ONLY on a passing DSSE signature (crypto_ok True). verified_signer_pub_b64
+        # is the base64 key the signature verified under; verified_payload_digest is sha256 of the EXACT signed
+        # statement bytes (hex). verified_origin is the per-process origin token over these. evaluate_decision_policy
+        # binds the result it is handed to the statement + signer it judges with these, so a result that was not
+        # produced by this process's verifier for exactly this statement confers no positive verdict. None until set.
+        "verified_signer_pub_b64": None, "verified_payload_digest": None, "verified_origin": None,
         "warnings": [], "errors": [],
     }
 
@@ -671,6 +680,18 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
+        # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): capture what this verification
+        # verified — the signer key and the digest of the EXACT signed statement bytes — and stamp the origin
+        # token, ONLY on a passing DSSE signature. evaluate_decision_policy binds the result it is handed to the
+        # statement + signer it judges through these; a result not produced by this process's verifier for exactly
+        # this statement (a hand-built dict, or one of another receipt) then confers no positive verdict.
+        if r["crypto_ok"]:
+            import base64 as _b64_cap  # noqa: PLC0415
+            _signer_b64 = _b64_cap.b64encode(bytes(schluessel)).decode("ascii")
+            _payload_digest = hashlib.sha256(body).hexdigest()
+            r["verified_signer_pub_b64"] = _signer_b64
+            r["verified_payload_digest"] = _payload_digest
+            r["verified_origin"] = origin_token(_DECISION_ORIGIN_DOMAIN, (_signer_b64, _payload_digest))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
         # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw

@@ -45,6 +45,10 @@ from proofbundle.policy import (
     policy_warnings,
 )
 
+# Nachtrag 48/48b: a decision result stand-in bound to its statement + signer (evaluate_decision_policy now
+# refuses an unbound result); used only where a positive policy verdict is expected in isolation.
+from _decision_result_binding import bound_decision_result  # type: ignore  # noqa: E402
+
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 _V02 = "proofbundle/trust-policy/v0.2"
 
@@ -218,7 +222,8 @@ class TheEvaluatorsJudgeAPolicyByTheLoadersRule(unittest.TestCase):
         self.assertIs(r["policy_ok"], False, r)
         self.assertIn("signer key is not in trusted_decision_makers", r["errors"])
         # A partial policy without schema or policy_id stays acceptable to the evaluators.
-        r = evaluate_decision_policy(self.statement, {}, {"decision_receipt": {"trusted_decision_makers": self.tdm}},
+        r = evaluate_decision_policy(self.statement, bound_decision_result(self.statement, self.pub_b64),
+                                     {"decision_receipt": {"trusted_decision_makers": self.tdm}},
                                      signer_public_key_b64=self.pub_b64)
         self.assertIs(r["policy_ok"], True, r)
         self.assertIs(evaluate_policy(self.bundle, self.real, {"signature": {"allowed_algs": ["ed25519"]}})[

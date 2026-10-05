@@ -934,6 +934,38 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     grund = _regelfehler(policy, "evaluate_decision_policy")
     if grund is not None:
         return {"policy_ok": False, "signer_trusted": False, "errors": [grund]}
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F1): the result must be the one
+    # THIS process's verify_decision_receipt produced for exactly this statement and signer. This function took
+    # verify_result and never read it, so signer_trusted/policy_ok came from the caller-supplied pin alone — an
+    # empty or hand-built result with a merely-named signer was trusted (measured). Bind the three:
+    #   - crypto_ok is EXACTLY True (never a total `ok` that itself depends on this policy — no circularity);
+    #   - the result's captured payload digest equals sha256 of this statement's RFC-8785 canonicalization (the
+    #     bytes the signature covered — hash_binding makes them equal for a valid receipt);
+    #   - the result's captured verified signer equals signer_public_key_b64; AND
+    #   - the result carries an authentic origin token this process stamped over exactly those fields.
+    # Missing or divergent -> fail-closed, no decision rule evaluated, no positive verdict.
+    from .decision import _DECISION_ORIGIN_DOMAIN, _rfc8785_available, _rfc8785_bytes  # noqa: PLC0415
+    from .errors import origin_authentic as _origin_authentic  # noqa: PLC0415
+    _res = verify_result if issubclass(type(verify_result), dict) else {}
+    _bound = False
+    if _res.get("crypto_ok") is True and _rfc8785_available():
+        try:
+            _stmt_digest = hashlib.sha256(_rfc8785_bytes(statement)).hexdigest()
+        except Exception:   # noqa: BLE001 - a non-canonicalizable statement is simply not bound (fail-closed)
+            _stmt_digest = None
+        _rsig = _res.get("verified_signer_pub_b64")
+        _rdig = _res.get("verified_payload_digest")
+        if (isinstance(_rdig, str) and _stmt_digest is not None and hmac.compare_digest(_rdig, _stmt_digest)
+                and isinstance(_rsig, str) and signer_public_key_b64 is not None
+                and hmac.compare_digest(_rsig, signer_public_key_b64)
+                and _origin_authentic(_DECISION_ORIGIN_DOMAIN, _res.get("verified_origin"), (_rsig, _rdig))):
+            _bound = True
+    if not _bound:
+        return {"policy_ok": False, "signer_trusted": False, "errors": [
+            "the verification result was not produced by this process's verify_decision_receipt for exactly "
+            "this statement and signer (crypto_ok must be True and the result's captured signer, payload digest "
+            "and origin token must bind this statement; a hand-built, empty or mismatched result is refused, "
+            "fail-closed)"]}
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
         # The shared fields apply without the section too (owner point 6): an expired policy, one for another path
