@@ -152,7 +152,7 @@ MUTATIONS = [
      'if require_verified:', 'if False:',
      "hf: broken-receipt guard disabled", True),
     ("src/proofbundle/hf_evals.py",
-     'return verify_bundle(bundle), bundle',
+     'return verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin), bundle',
      'from .errors import VerificationResult as _VR; r=_VR(); r.add("x", True, ""); return r, bundle',
      "hf: token verify returns fake OK", True),
     ("src/proofbundle/adapters/promptfoo.py",
