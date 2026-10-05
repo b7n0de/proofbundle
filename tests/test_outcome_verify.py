@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import unittest
 
@@ -35,6 +36,11 @@ from proofbundle.outcome import (
 _DEC_ROOT = "a" * 64        # a plausible decision content root (sha256 hex)
 _OTHER_ROOT = "b" * 64
 _DIG = "c" * 64
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound genesis-digest anchor at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 def _pred(**over) -> dict:
@@ -325,15 +331,16 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
         self.assertTrue(r["ok"], r)   # unaffected: fully backward compatible
 
     def test_member_key_id_is_trusted(self):
-        # N43 (security-fix 6.2.0): a member key is TRUSTED only under a relying-party anchor. OLD expectation:
-        # executor_role_trusted True for a supplied-but-unpinned pack. NEW: True only under a pin — here the
-        # pack's declared root ("root-0") is pinned via trust_pack_expected_root_keys. Reason: a genesis pack
-        # self-authenticates with no caller input, so membership alone must not read as trusted (the K2 class).
+        # N43 (security-fix 6.2.0): a member key is TRUSTED only under a relying-party anchor.
+        # N45 (nachbesserung to N43): OLD positive anchor was trust_pack_expected_root_keys (the declared-root
+        # identity, which a naked predicate copying the public root keys also matched); NEW positive anchor is
+        # trust_pack_expected_genesis_digest = sha256(JCS(pack)). Reason: the root-key anchor alone no longer
+        # binds the predicate's content at the outcome layer, so the pack must be anchored by its content root.
         s, pub = _keys()
         env = emit_outcome_receipt(_pred(), s)   # _pred()'s executor.keyId == "kid-exec"
         pack = self._trust_pack(member_key_id="kid-exec", executor_pub=pub)
         r = verify_outcome_receipt(env, pub, trust_pack=pack,
-                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
+                                   trust_pack_expected_genesis_digest=_n45_digest(pack))
         self.assertTrue(r["executor_role_trusted"], r)
         self.assertTrue(r["ok"], r)
 

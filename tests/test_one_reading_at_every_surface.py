@@ -1363,7 +1363,14 @@ _NICHT_IM_SWEEP = {
                                        "from a rotation-authorized verify_trust_pack (Nachtrag 43, Z309); a bool/None "
                                        "read by identity (`is True`), which cannot carry a second reading — it is a "
                                        "switch, classified in tests/test_a_caller_verdict_counts_only_as_a_bool.py. The "
-                                       "recomputed digest/root-key anchors (trust_pack_expected_*) ARE swept above."},
+                                       "recomputed digest/root-key anchors (trust_pack_expected_*) ARE swept above.",
+                                       "trust_pack_envelope": "N45: the trust-pack DSSE envelope; forwarded verbatim "
+                                       "to trust_pack.verify_trust_pack, whose own one reading (dsse._read_once) is "
+                                       "measured by the verify_trust_pack entry — not re-read here.",
+                                       "trust_pack_pinned_digest": "N45: the content digest the forwarded "
+                                       "trust_pack_pinned verdict was computed over; read once as a str and compared "
+                                       "by value to the recomputed predicate digest (a switch-like value, like "
+                                       "trust_pack_pinned above)."},
 }
 
 

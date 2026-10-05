@@ -22,14 +22,20 @@ verdict is then forwarded -> positive. Fail-closed only, no attack rebuild beyon
 from __future__ import annotations
 
 import base64
+import hashlib
 import unittest
 from datetime import datetime, timezone
 
 from proofbundle.emit import generate_signer
 from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
-from proofbundle.trust_pack import build_trust_pack_statement, sign_trust_pack, verify_trust_pack
+from proofbundle.trust_pack import _rfc8785_bytes, build_trust_pack_statement, sign_trust_pack, verify_trust_pack
 
 _NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound anchor digest at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 def _pub_b64(sk) -> str:
@@ -108,8 +114,11 @@ class TestOutcomeNakedV2PackIsNotTrusted(unittest.TestCase):
         self.assertIs(pack_verdict["rotation_authorized"], True)
         self.assertIs(pack_verdict["pinned"], True)
         self.assertIs(pack_verdict["ok"], True)
-        # the relying party forwards the verified+pinned verdict to the outcome surface
-        r = verify_outcome_receipt(env, out_pub, trust_pack=v2_pred, trust_pack_pinned=True)
+        # the relying party forwards the verified+pinned verdict to the outcome surface.
+        # N45: OLD positive anchor was a bare trust_pack_pinned=True; NEW anchor adds trust_pack_pinned_digest
+        # = sha256(JCS(v2_pred)). Reason: a bare pinned=True no longer binds the predicate's content at outcome.
+        r = verify_outcome_receipt(env, out_pub, trust_pack=v2_pred, trust_pack_pinned=True,
+                                   trust_pack_pinned_digest=_n45_digest(v2_pred))
         self.assertIs(r["executor_role_trusted"], True)
         self.assertIs(r["executor_key_bound"], True)
         self.assertIs(r["ok"], True)
