@@ -606,6 +606,55 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+def _trust_pack_predicate_digest(predicate: Any) -> "str | None":
+    """N45 (security-fix 6.2.0, nachbesserung to N43): the content root ``sha256(JCS(predicate))`` of the
+    trust-pack PREDICATE passed to ``verify_outcome_receipt`` — the exact value ``trust_pack_is_pinned``'s
+    genesis anchor compares and ``build_trust_pack_statement`` writes as the subject digest. None when it cannot
+    be canonicalised (no RFC-8785), so a binding comparison fails closed rather than guessing."""
+    from .trust_pack import _rfc8785_bytes  # noqa: PLC0415
+    try:
+        return hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
+    except Exception:  # noqa: BLE001 — cannot canonicalise ⇒ no digest to bind against (fail-closed)
+        return None
+
+
+def _trust_pack_digest_eq(forwarded: Any, pred_digest: "str | None") -> bool:
+    """N45: exact equality of a forwarded content digest with this predicate's digest, fail-closed. Both must be
+    non-empty ``str`` (a forwarded digest of any other type, or a missing predicate digest, never matches). The
+    values are PUBLIC content roots, so plain equality is the correct test; the type guards make a non-str
+    forwarded value a non-match instead of a raise."""
+    return (type(forwarded) is str and type(pred_digest) is str
+            and forwarded != "" and forwarded == pred_digest)
+
+
+def _trust_pack_envelope_binds_predicate(envelope: Any, pred_digest: "str | None", *,
+                                         expected_root_keys: Any, now=None) -> bool:
+    """N45 (Vertrag 3): True iff ``envelope`` is a trust-pack DSSE envelope whose threshold signature verified
+    UNDER the relying-party-pinned root keys AND whose VERIFIED predicate content is exactly this predicate.
+    outcome holds only the predicate and checks no signature, so the root-key anchor counts here only together
+    with the envelope verified by ``verify_trust_pack``. Two independent verifies isolate the two anchors through
+    ``pinned`` (each with a SINGLE anchor supplied), so a match on one anchor can never stand in for the other:
+
+      (1) ``expected_root_keys`` only  → ``ok`` (a threshold of the pack's declared root validly signed its
+          content) AND ``pinned`` (declared root ⊆ the pinned set) ⇒ a threshold of the PINNED root keys signed;
+      (2) ``expected_genesis_digest=pred_digest`` only → ``ok`` AND ``pinned`` ⇒ the envelope's verified
+          predicate content digest equals this predicate's (content binding to exactly what outcome uses).
+
+    Fail-closed: a missing predicate digest, a non-dict envelope, a missing root-key pin, any non-True verdict,
+    or a raise is a non-binding (False) — never a positive and never an exception out of the never-raise caller."""
+    if pred_digest is None or not isinstance(envelope, dict) or expected_root_keys is None:
+        return False
+    try:
+        from .trust_pack import verify_trust_pack  # noqa: PLC0415
+        vr_identity = verify_trust_pack(envelope, expected_root_keys=expected_root_keys, now=now)
+        if vr_identity.get("ok") is not True or vr_identity.get("pinned") is not True:
+            return False
+        vr_content = verify_trust_pack(envelope, expected_genesis_digest=pred_digest, now=now)
+        return vr_content.get("ok") is True and vr_content.get("pinned") is True
+    except Exception:  # noqa: BLE001 — an unverifiable envelope is simply not a binding anchor
+        return False
+
+
 @_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                     expected_decision_ref: str | None = None,
@@ -617,6 +666,8 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
                                     trust_pack_expected_genesis_digest: str | None = None,
                                     trust_pack_expected_root_keys: dict | None = None,
                                     trust_pack_pinned: bool | None = None,
+                                    trust_pack_envelope: dict | None = None,
+                                    trust_pack_pinned_digest: str | None = None,
                                     evidence_resolver: Callable[[dict], bool] | None = None,
                                     receiver_attestation_resolver: Callable[[dict], bool] | None = None,
                                     related: dict | None = None, policy: dict | None = None) -> dict:
@@ -630,6 +681,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         expected_nonce=expected_nonce, require_derived_subject=require_derived_subject,
         trust_pack=trust_pack, trust_pack_expected_genesis_digest=trust_pack_expected_genesis_digest,
         trust_pack_expected_root_keys=trust_pack_expected_root_keys, trust_pack_pinned=trust_pack_pinned,
+        trust_pack_envelope=trust_pack_envelope, trust_pack_pinned_digest=trust_pack_pinned_digest,
         evidence_resolver=evidence_resolver,
         receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
         _raise_on_malformed=True)
@@ -643,6 +695,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            trust_pack_expected_genesis_digest: str | None = None,
                            trust_pack_expected_root_keys: dict | None = None,
                            trust_pack_pinned: bool | None = None,
+                           trust_pack_envelope: dict | None = None,
+                           trust_pack_pinned_digest: str | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
                            receiver_attestation_resolver: Callable[[dict], bool] | None = None,
                            related: dict | None = None, policy: dict | None = None,
@@ -661,15 +715,21 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       PREDICATE of an ALREADY-authenticated Trust Pack, verified separately by the caller via
       ``trust_pack.verify_trust_pack``), the executor's ``keyId`` MUST be a non-revoked member of the pack's
       ``outcomeExecutors`` role (``outcome.executor_trusted_by_role``), bound to the signing key AND the pack
-      MUST be bound to a RELYING-PARTY ANCHOR. Role membership is a fact about the pack; it becomes TRUST only
-      under an anchor — a genesis pack self-authenticates with no caller input, so membership alone must not
-      read as trusted (N43, security-fix 6.2.0). Supply the anchor via ``trust_pack_expected_genesis_digest``
-      (the pack's content-root ``sha256(JCS(predicate))``) or ``trust_pack_expected_root_keys`` (a
-      ``{keyId: publicKey_b64}`` / key-object map covering the pack's declared root), both recomputed here
-      against the supplied predicate; a rotation anchor is forwarded as ``trust_pack_pinned=True`` from a
-      rotation-authorized ``verify_trust_pack``. Fail-closed when a pack is supplied without a matching anchor
-      (``executor_role_trusted`` False, ``TRUST_PACK_NOT_ANCHORED``); stays None (not evaluated) when
-      ``trust_pack`` is omitted — the no-trust_pack path is fully backward compatible.
+      MUST be bound to a RELYING-PARTY ANCHOR that binds the CONTENT of EXACTLY this predicate. Role membership
+      is a fact about the pack; it becomes TRUST only under such an anchor — a genesis pack self-authenticates
+      with no caller input, so membership alone must not read as trusted (N43, security-fix 6.2.0). N45
+      (nachbesserung to N43): the anchor MUST bind this predicate's content, because outcome verifies no
+      signature over the predicate. Supply ONE of:
+      ``trust_pack_expected_genesis_digest`` (the content-root ``sha256(JCS(predicate))`` — content-bound);
+      ``trust_pack_envelope`` together with ``trust_pack_expected_root_keys`` (the pack's DSSE envelope, verified
+      here by ``verify_trust_pack`` so a threshold of the PINNED root keys signed it AND its content is exactly
+      this predicate — a root-key set that only matches the declared root identity, with no verified envelope, is
+      NOT accepted); or ``trust_pack_pinned=True`` together with ``trust_pack_pinned_digest`` equal to
+      ``sha256(JCS(predicate))`` (a rotation needs the old root, not recomputable here, so its verdict is
+      forwarded — but bound to this predicate's content; a bare ``trust_pack_pinned=True`` is NOT accepted). Fail-
+      closed when a pack is supplied without a matching content-bound anchor (``executor_role_trusted`` False,
+      ``TRUST_PACK_NOT_ANCHORED``); stays None (not evaluated) when ``trust_pack`` is omitted — the no-trust_pack
+      path is fully backward compatible.
 
     Read ``ok`` (or ``crypto_ok``) — never an individual ``*_ok`` alone. On a forged envelope every trust-
     derived field stays None and an error is recorded, so a consumer cannot read a claim about unsigned bytes.
@@ -721,21 +781,43 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         trust_pack = _plain_pack(trust_pack)
         if trust_pack is None:
             trust_pack = {}
-    # N43 (security-fix 6.2.0): a Trust Pack confers TRUST on a role only when the relying party has PINNED
-    # it to an anchor (trust_pack.trust_pack_is_pinned) — membership + key-binding is a fact about the pack,
-    # trust is the relying party's act. outcome.py holds the PREDICATE, so it recomputes the genesis-digest and
-    # root-key anchors directly against THESE bytes; a rotation anchor (which needs the pack envelope + the old
-    # root) is not recomputable here and is forwarded by the caller as `trust_pack_pinned=True` from a rotation-
-    # authorized verify_trust_pack. None (no anchor supplied / unpinnable) and False (anchor supplied, no match)
-    # both leave every derived role statement NOT positive (fail-closed). An empty/malformed pack is never pinned.
+    # N43 (security-fix 6.2.0): a Trust Pack confers TRUST on a role only when the relying party has PINNED it to
+    # an anchor — membership + key-binding is a fact about the pack, trust is the relying party's act.
+    # N45 (security-fix 6.2.0, nachbesserung to N43): at outcome the anchor must bind to the CONTENT of EXACTLY
+    # this trust-pack predicate. outcome holds only the predicate and verifies NO signature over it, so two N43
+    # paths were not content binding and are removed here:
+    #   - the root-key anchor of trust_pack_is_pinned is only a DECLARED-identity match (declared root ⊆ pinned)
+    #     — a naked predicate copying the public pinned root keys matched it; so expected_root_keys is NOT passed
+    #     to the bare call below. It now counts only via a verified ENVELOPE (anchor B).
+    #   - a bare forwarded trust_pack_pinned=True was bound to no predicate; it now counts only with the digest
+    #     of the verified predicate (anchor C).
+    # Three content-bound anchors, any ONE suffices:
+    #   A) pinned genesis/content digest: sha256(JCS(predicate)) == trust_pack_expected_genesis_digest.
+    #   B) a verified pack ENVELOPE whose threshold signature verified UNDER the pinned root keys AND whose
+    #      verified content is exactly this predicate (trust_pack_envelope + trust_pack_expected_root_keys).
+    #   C) a forwarded rotation verdict trust_pack_pinned=True carrying trust_pack_pinned_digest ==
+    #      sha256(JCS(this predicate)) (a rotation needs the old root, not recomputable here, so it is forwarded —
+    #      but bound to this predicate's content).
+    # None (no anchor supplied) and False (an anchor was supplied but none matched) both leave every derived role
+    # statement NOT positive (fail-closed). An empty/malformed pack is never pinned.
     _tp_pinned: bool | None = None
     if trust_pack:
         from .trust_pack import trust_pack_is_pinned  # noqa: PLC0415
+        _pred_digest = _trust_pack_predicate_digest(trust_pack)
+        # Anchor A — pinned genesis/content digest (content-bound). expected_root_keys intentionally omitted.
         _tp_pinned = trust_pack_is_pinned(
-            trust_pack, expected_genesis_digest=trust_pack_expected_genesis_digest,
-            expected_root_keys=trust_pack_expected_root_keys)
-        if _tp_pinned is not True and trust_pack_pinned is True:
-            _tp_pinned = True   # caller forwarded a verified anchor this function cannot recompute (rotation)
+            trust_pack, expected_genesis_digest=trust_pack_expected_genesis_digest)
+        # Anchor B — a verified envelope under the pinned root keys, content == this predicate.
+        if (_tp_pinned is not True and trust_pack_envelope is not None
+                and trust_pack_expected_root_keys is not None
+                and _trust_pack_envelope_binds_predicate(
+                    trust_pack_envelope, _pred_digest,
+                    expected_root_keys=trust_pack_expected_root_keys, now=None)):
+            _tp_pinned = True
+        # Anchor C — a forwarded rotation verdict bound to this predicate's content digest.
+        if (_tp_pinned is not True and trust_pack_pinned is True
+                and _trust_pack_digest_eq(trust_pack_pinned_digest, _pred_digest)):
+            _tp_pinned = True
     # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L1-620-T3-01 and L4-620-01), as in
     # decision.verify_decision_receipt: the key the signature was checked under was read again for the
     # executor key binding and the relation-signer pin, after the caller's resolvers ran, and the policy
@@ -901,9 +983,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 if not _anchored:
                     r["errors"].append(
                         "TRUST_PACK_NOT_ANCHORED: executor.keyId is a bound member of outcomeExecutors, but the "
-                        "trust pack is not bound to a relying-party anchor — role membership is not trust "
-                        "(pass trust_pack_expected_genesis_digest / trust_pack_expected_root_keys, or "
-                        "trust_pack_pinned=True from a rotation-authorized verify_trust_pack; fail-closed)")
+                        "trust pack is not bound to a relying-party anchor that binds THIS predicate's content "
+                        "(N45) — role membership is not trust. Pass trust_pack_expected_genesis_digest "
+                        "(sha256(JCS(predicate))); or trust_pack_envelope together with trust_pack_expected_root_keys "
+                        "(a pack envelope whose threshold signature verifies under the pinned root keys and whose "
+                        "content is this predicate); or trust_pack_pinned=True together with trust_pack_pinned_digest "
+                        "equal to sha256(JCS(predicate)) from a rotation-authorized verify_trust_pack. A bare "
+                        "trust_pack_pinned=True or a root-key set that only matches the declared root identity is "
+                        "not accepted here (fail-closed)")
 
         # Finding 03 (additive): classify the same execution-proof digest(s) onto the EvidenceLevel ladder.
         # OR semantics (mirrors outcome_execution_proven: either digest satisfies the claim) — the STRONGER
@@ -1013,9 +1100,13 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 r["receiver_role_trusted"] = False
                 r["errors"].append(
                     "TRUST_PACK_NOT_ANCHORED: receiverRefs name an outcomeReceivers role, but the trust pack is "
-                    "not bound to a relying-party anchor — role membership is not trust (pass "
-                    "trust_pack_expected_genesis_digest / trust_pack_expected_root_keys, or trust_pack_pinned="
-                    "True from a rotation-authorized verify_trust_pack; fail-closed — receiverRefs never gates ok)")
+                    "not bound to a relying-party anchor that binds THIS predicate's content (N45) — role "
+                    "membership is not trust. Pass trust_pack_expected_genesis_digest (sha256(JCS(predicate))); or "
+                    "trust_pack_envelope with trust_pack_expected_root_keys (a pack envelope whose threshold "
+                    "signature verifies under the pinned root keys and whose content is this predicate); or "
+                    "trust_pack_pinned=True with trust_pack_pinned_digest == sha256(JCS(predicate)). A bare "
+                    "trust_pack_pinned=True or a declared-root-identity-only match is not accepted here "
+                    "(fail-closed — receiverRefs never gates ok)")
             elif trust_pack is not None:
                 _trusted = False
                 _rbound: bool | None = None
