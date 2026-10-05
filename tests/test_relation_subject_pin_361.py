@@ -13,6 +13,7 @@ must fail with a stable error code whenever the resolved target subject digest i
 malformed, or unequal. Python and Rust must pass the same negative vectors.*
 """
 import base64
+import hashlib
 import json
 import pathlib
 import tempfile
@@ -33,6 +34,7 @@ from proofbundle.relation import (
     validate_relationships,
     verify_relationship_edges,
 )
+from proofbundle.trust_pack import _rfc8785_bytes
 
 V02 = "proofbundle/trust-policy/v0.2"
 _INTOTO = "application/vnd.in-toto+json"
@@ -246,11 +248,13 @@ class AutomationGateProjection(unittest.TestCase):
             "performedAt": "2026-07-17T00:00:00Z", "policyPurpose": "outcome", "relationships": [self.edge],
         }
         env = emit_outcome_receipt(pred, self.successor, strict=False)
-        # N43: pin the pack's declared root so safeForAutomation=False here is caused by the SUBJECT-PIN /
-        # lineage failure under test, not merely by the (otherwise-missing) relying-party anchor.
+        # N43/N45: anchor the pack so safeForAutomation=False here is caused by the SUBJECT-PIN / lineage
+        # failure under test, not merely by the (otherwise-missing) relying-party anchor. N45 narrows the
+        # anchor to one bound to this predicate's content, so a content digest is used (a root-key identity
+        # match alone no longer anchors).
         r = verify_outcome_receipt(env, _pub_bytes(self.successor), policy=self.policy,
                                    related=self.related, trust_pack=trust_pack,
-                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
+                                   trust_pack_expected_genesis_digest=hashlib.sha256(_rfc8785_bytes(trust_pack)).hexdigest())
         self.assertNotEqual((r.get("lineage") or {}).get("lineage"), LINEAGE_VERIFIED)
         self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True)
 
