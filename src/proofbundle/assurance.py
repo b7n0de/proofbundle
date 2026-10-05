@@ -26,6 +26,7 @@ __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
     "classify_receiver_corroboration",
     "evidence_ladder_summary", "evidence_ladder_best", "EFFECT_OBSERVED_NOT_IMPLEMENTED",
+    "INDEPENDENTLY_ATTESTED_NOT_VERIFIED",
 ]
 
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
@@ -64,9 +65,22 @@ EVIDENCE_LEVEL_NAMES: tuple[str, ...] = tuple(level.name for level in EvidenceLe
 # sign anything — real-world side-channel monitoring is ecosystem adoption outside this repo).
 EFFECT_OBSERVED_NOT_IMPLEMENTED = (
     "EvidenceLevel.EFFECT_OBSERVED is not reachable by any verify_* path in this repo (Finding 16's "
-    "self-fixable receiver-corroboration part now reaches INDEPENDENTLY_ATTESTED; EFFECT_OBSERVED itself "
-    "still needs a real-world effect-observation channel, which is an inherent, not-yet-built limit outside "
-    "proofbundle's own control) — TODO, tracked, not silently absent."
+    "receiver corroboration is capped at CONTENT_RESOLVED, see INDEPENDENTLY_ATTESTED_NOT_VERIFIED; "
+    "EFFECT_OBSERVED itself still needs a real-world effect-observation channel, which is an inherent, "
+    "not-yet-built limit outside proofbundle's own control) — TODO, tracked, not silently absent."
+)
+# N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309): INDEPENDENTLY_ATTESTED is not reachable
+# by any verify_* path in 6.2.0. The library does not itself verify the referenced receiver statement — it
+# never fetches the statement for the receiverRef digest, checks that the bytes hash to it, or verifies a
+# signature under the key a caller resolver returned — so a resolver answer (a bare True or 32 bytes) cannot
+# establish independent attestation. The level stays in the enum but is honestly unreachable, like
+# EFFECT_OBSERVED; the verified path (statement bytes + digest + signature) comes with the unified anchor check
+# after the tag.
+INDEPENDENTLY_ATTESTED_NOT_VERIFIED = (
+    "(INDEPENDENTLY_ATTESTED is not reachable in 6.2.0: the library does not verify the referenced receiver "
+    "statement — it neither fetches the statement for the receiverRef digest nor checks a signature under the "
+    "resolver-returned key — so a resolver answer cannot attest independence; receiver corroboration is capped "
+    "at CONTENT_RESOLVED, N47)"
 )
 
 
@@ -318,10 +332,15 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                     "bool; only the exact True promotes)"}
     if not attested:
         return base
-    return {"level": EvidenceLevel.INDEPENDENTLY_ATTESTED,
-            "level_name": EvidenceLevel.INDEPENDENTLY_ATTESTED.name,
-            "detail": "the referenced content is itself a validly-signed statement from a party distinct "
-                      "from the original claimant (receiver/observer corroboration)"}
+    # N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309): even an answer that would have
+    # attested does NOT promote. The library does not itself verify the referenced receiver statement — it
+    # never fetches the statement for the receiverRef digest, checks that the bytes hash to it, or verifies a
+    # signature under the key the resolver returned — so a caller resolver that merely returns True or 32 bytes
+    # cannot establish independent attestation. The content-resolved base is kept, with a named reason.
+    # INDEPENDENTLY_ATTESTED stays in the enum but is honestly unreachable here, like EFFECT_OBSERVED
+    # (EFFECT_OBSERVED_NOT_IMPLEMENTED); the verified path (statement bytes + digest + signature) comes with
+    # the unified anchor check after the tag.
+    return {**base, "detail": base["detail"] + " " + INDEPENDENTLY_ATTESTED_NOT_VERIFIED}
 
 
 def _has_level(field: Any) -> bool:

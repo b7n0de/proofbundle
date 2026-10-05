@@ -104,9 +104,11 @@ classification of the execution-proof digest, optionally strengthened to `CONTEN
 **Finding 16 additions (self-fixable part, additive, NOT wired into the aggregate `ok`):**
 `result["receiver_bound"]` mirrors `evidence_bound` (digest-shape only, over `receiverRefs[]`);
 `result["evidence_levels"]["receiverRefs"]` classifies the STRONGEST `receiverRefs[]` entry via
-`assurance.classify_receiver_corroboration`, which can reach `EvidenceLevel.INDEPENDENTLY_ATTESTED` given a
-`receiver_attestation_resolver` that confirms independent signing — a genuine capability upgrade beyond what
-`evidence_resolver` alone can ever provide (its own documented ceiling is `CONTENT_RESOLVED`);
+`assurance.classify_receiver_corroboration`, which is capped at `EvidenceLevel.CONTENT_RESOLVED`:
+`EvidenceLevel.INDEPENDENTLY_ATTESTED` is NOT reachable (N47) — a caller `receiver_attestation_resolver` answer
+cannot confer independent attestation, because the library does not itself verify the referenced receiver
+statement (it neither fetches the statement for the `receiverRefs[]` digest nor checks a signature under the
+resolver-returned key); see `assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED`;
 `result["receiver_role_trusted"]` mirrors `executor_role_trusted` against the Trust Pack's `outcomeReceivers`
 role but is deliberately advisory, not fail-closed (`receiverRefs` is optional supplementary evidence — see
 §7 for the honest limit this does NOT close).
@@ -127,8 +129,9 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
   the right Trust Pack for a given executor automatically is still future work.
 - ~~Third-party corroboration of an outcome (the "overwhelmingly executor-self-attested" gap, Finding 16)~~
   — SELF-FIXABLE PART CLOSED: `receiverRefs[]` (digest-bound, mirrors `evidenceRefs[]`) +
-  `assurance.classify_receiver_corroboration` (reaches `INDEPENDENTLY_ATTESTED` given a
-  `receiver_attestation_resolver`) + the `outcomeReceivers` Trust Pack role
+  `assurance.classify_receiver_corroboration` (capped at `CONTENT_RESOLVED`; `INDEPENDENTLY_ATTESTED` is NOT
+  reachable from a resolver answer, N47 — the library does not itself verify the referenced receiver statement) +
+  the `outcomeReceivers` Trust Pack role
   (`outcome.receiver_trusted_by_role`) give proofbundle the CAPABILITY to carry and verify a genuine
   receiver/observer corroboration once one exists. **INHERENT LIMIT, NOT closable from inside this repo:**
   proofbundle cannot itself make a downstream/receiving system SIGN an acknowledgement — whether a receiver
