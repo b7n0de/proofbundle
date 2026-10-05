@@ -499,6 +499,19 @@ def _zweimal_gelesen(stellen: "list[_Stelle]") -> "tuple[list, int]":
     return gemischt, gesamt
 
 
+# N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`): the three receiver sites below no longer
+# reach a verdict through the resolver answer. A resolver answer confers no receiver trust and never reaches
+# INDEPENDENTLY_ATTESTED, so an honest and a lying answer map to the same non-promoting verdict by design. The
+# two answer-reaches-verdict controls exclude them; the contract-match test and the one-state test still cover
+# them (both states of the answer give the one capped verdict). The capping itself is measured directly in
+# test_security_fix_620_trustpack_n47_receiver.py.
+_N47_RESOLVER_CAPPED = frozenset({
+    ("assurance.classify_receiver_corroboration", "independent_attestation_resolver"),
+    ("outcome.verify_outcome_receipt", "receiver_attestation_resolver"),
+    ("outcome.verify_outcome_receipt_or_raise", "receiver_attestation_resolver"),
+})
+
+
 class EveryCallbackSiteJudgesTheAnswerAsItStores(_Registriert):
 
     def test_every_callback_parameter_of_the_contract_has_a_site(self) -> None:
@@ -511,6 +524,8 @@ class EveryCallbackSiteJudgesTheAnswerAsItStores(_Registriert):
     def test_control_each_site_reaches_its_verdict_through_the_answer(self) -> None:
         gleich = []
         for s in _STELLEN:
+            if (s.funktion, s.parameter) in _N47_RESOLVER_CAPPED:
+                continue  # N47: a resolver answer reaches no receiver-trust verdict; one-state test still covers it
             aufruf, _ = s.bauen()
             ja = aufruf(_ehrlich(s, s.ja))
             aufruf, _ = s.bauen()
@@ -520,8 +535,11 @@ class EveryCallbackSiteJudgesTheAnswerAsItStores(_Registriert):
         self.assertEqual(gleich, [], "a site whose verdict the answer does not reach")
 
     def test_a_lying_answer_promotes_nothing(self) -> None:
-        befoerdert, geprueft = _befoerdert(_STELLEN)
-        print(f"\nLYING ANSWERS: {geprueft} checked over {len(_STELLEN)} sites")
+        # N47: the capped receiver sites have no promoting verdict at all, so the honest answer is no reference
+        # for one; their fail-closed property is measured directly in test_security_fix_620_trustpack_n47_receiver.
+        stellen = [s for s in _STELLEN if (s.funktion, s.parameter) not in _N47_RESOLVER_CAPPED]
+        befoerdert, geprueft = _befoerdert(stellen)
+        print(f"\nLYING ANSWERS: {geprueft} checked over {len(stellen)} sites")
         self.assertEqual(befoerdert, [], f"{len(befoerdert)} lying answers got the promoting verdict")
 
     def test_an_answer_changed_after_it_returned_is_read_as_one_state(self) -> None:

@@ -177,11 +177,17 @@ class TestReceiverKeyIdIsBoundWhenThePackNamesTheKey(unittest.TestCase):
                                       evidence_resolver=lambda d: True,
                                       receiver_attestation_resolver=resolver)
 
-    def test_resolver_returning_the_packs_key_binds_the_label_and_promotes(self):
+    def test_resolver_returning_the_packs_key_is_not_positive_statement_not_verified(self):
+        # N47 (KRAXO-CLOUD-N47): a resolver returning the pack's key for the label used to promote this to
+        # receiver_role_trusted True / receiver_key_bound True / INDEPENDENTLY_ATTESTED. A caller resolver answer
+        # can no longer confer receiver trust (the library does not verify the referenced receiver statement), so
+        # it is now None / None with a RECEIVER_STATEMENT_NOT_VERIFIED error, and the ladder is capped at
+        # CONTENT_RESOLVED. ok is unaffected.
         r = self._verify(lambda d: _pub(self.recv))
-        self.assertTrue(r["receiver_role_trusted"])
-        self.assertIs(r["receiver_key_bound"], True)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]), r["errors"])
 
     def test_resolver_returning_another_key_is_the_finding_on_the_receiver_side(self):
         r = self._verify(lambda d: _pub(self.attacker))
@@ -204,17 +210,24 @@ class TestReceiverKeyIdIsBoundWhenThePackNamesTheKey(unittest.TestCase):
         self.assertTrue(any("LABEL only" in w for w in r["warnings"]), r["warnings"])
         self.assertTrue(r["ok"], "receiverRefs is advisory and never gates ok — unchanged")
 
-    def test_without_a_pack_the_bool_resolver_contract_is_unchanged(self):
+    def test_without_a_pack_receiver_role_is_none_and_ladder_is_capped(self):
+        # Without a pack the receiver role is not evaluated (receiver_role_trusted None) — unchanged. N47: the
+        # receiver evidence ladder is capped at CONTENT_RESOLVED; a bare-True resolver no longer reaches
+        # INDEPENDENTLY_ATTESTED.
         r = verify_outcome_receipt(self.env, _pub(self.exec_), evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertIsNone(r["receiver_role_trusted"])
 
     def test_classifier_direct_expected_key_must_match_and_a_short_key_never_attests(self):
         base = dict(digest_obj={"sha256": _DIG}, evidence_resolver=lambda d: True,
                     executor_key_id="root-0", receiver_key_id="root-1", expected_receiver_public_key=_pub(self.recv))
+        # N47: a matching key no longer attests (the library does not verify the referenced statement), so the
+        # once-promoting case is now capped at CONTENT_RESOLVED with the N47 marker. The counter-probes below
+        # (a non-matching key -> KEY_ID_NOT_BOUND_TO_SIGNER; a short key -> not attested) are unchanged.
         good = classify_receiver_corroboration(independent_attestation_resolver=lambda d: _pub(self.recv), **base)
-        self.assertEqual(good["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertEqual(good["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", good["detail"])
         wrong = classify_receiver_corroboration(independent_attestation_resolver=lambda d: _pub(self.attacker), **base)
         self.assertEqual(wrong["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", wrong["detail"])

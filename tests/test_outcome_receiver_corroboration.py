@@ -289,9 +289,13 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
-    def test_receiver_ref_with_attestation_resolver_reaches_independently_attested(self):
-        # A receiver DISTINCT from the executor (receiverKeyId "kid-recv" != executor "kid-exec") that a
-        # resolver confirms is validly signed reaches INDEPENDENTLY_ATTESTED.
+    def test_receiver_ref_with_attestation_resolver_stays_content_resolved_not_independently_attested(self):
+        # A receiver DISTINCT from the executor (receiverKeyId "kid-recv" != executor "kid-exec") that a resolver
+        # confirms is validly signed used to reach INDEPENDENTLY_ATTESTED. N47: a caller resolver answer can no
+        # longer confer independent attestation (the library does not itself verify the referenced receiver
+        # statement), so it is capped at CONTENT_RESOLVED. ok stays unaffected. (The per-entry detail that names
+        # the cap is asserted on the direct classify_receiver_corroboration surface, not here: verify_outcome_
+        # receipt rolls the entries up via evidence_ladder_best, which keeps level/level_name, not detail.)
         s, pub = _keys()
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
@@ -299,7 +303,7 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"],
-                         EvidenceLevel.INDEPENDENTLY_ATTESTED)
+                         EvidenceLevel.CONTENT_RESOLVED)
         self.assertTrue(r["ok"], r)
 
     def test_receiver_ref_that_is_the_executor_is_not_independent(self):
@@ -376,25 +380,27 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
                                    receiver_attestation_resolver=_boom)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
-    def test_receiver_role_trusted_true_when_member(self):
+    def test_receiver_role_not_positive_from_resolver_answer_when_member(self):
         s, pub = _keys()
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
         # N43: receiver-role trust requires a relying-party anchor. N45: the anchor must bind the predicate's
-        # content (trust_pack_expected_genesis_digest). N45B: a role member is trusted only with a RESOLVED and
-        # BOUND signer key, not by label alone — so this positive control now holds a receiver key in the pack and
-        # resolves it. OLD: True for a label-only member under a root-key anchor. NEW: True for a member whose
-        # resolved signer key binds to the pack key, under a content-bound anchor. Reason: label alone is not a
-        # positive trust field (N45B).
+        # content (trust_pack_expected_genesis_digest). N45B: a role member was trusted only with a RESOLVED and
+        # BOUND signer key, not by label alone. N47: even a resolved signer key that byte-matches the pack key no
+        # longer confers trust, because the library does not itself verify the referenced receiver statement — so
+        # a member whose resolved key binds is now receiver_role_trusted None, receiver_key_bound None, with a
+        # RECEIVER_STATEMENT_NOT_VERIFIED error. OLD: True/True. NEW: None/None. ok stays unaffected (receiverRefs
+        # never gate ok). Reason: a caller resolver answer cannot confer receiver trust (N47).
         recv_pub = generate_signer().public_key().public_bytes_raw()
         pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub, receiver_pub=recv_pub)
         r = verify_outcome_receipt(env, pub, trust_pack=pack,
                                    trust_pack_expected_genesis_digest=_n45_digest(pack),
                                    evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: recv_pub)
-        self.assertTrue(r["receiver_role_trusted"])
-        self.assertTrue(r["receiver_key_bound"])
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
         self.assertTrue(r["ok"], r)
 
     def test_receiver_role_trusted_false_but_ok_unaffected(self):
