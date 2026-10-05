@@ -105,9 +105,15 @@ def receipt_token_identity(token: str) -> bytes:
 
 
 @_ein_stand
-def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]]:
+def verify_receipt_token(token: str, *, sd_jwt_issuer_key_pin: Optional[str] = None
+                         ) -> Tuple[VerificationResult, Optional[dict]]:
     """Unpack and verify a ``pb1.`` receipt token. Returns (VerificationResult, bundle_dict).
     Malformed tokens raise BundleFormatError — never a crash, never a silent pass.
+
+    ``sd_jwt_issuer_key_pin`` (Nachtrag 38, Z309 / PR 311 P1): forwarded verbatim to
+    :func:`~proofbundle.bundle.verify_bundle`. A KB-JWT verdict carried by the token (holder binding,
+    audience, nonce) is reported positive only under a trusted SD-JWT issuer — the SD-JWT bound to the
+    signed payload, or its issuer key matching this pin — otherwise ``sd-jwt-issuer-trust`` fails closed.
 
     The returned bundle is the one the token carries, byte for byte in every field: a foreign
     issuer's ES256 signature keeps the spelling the token held (finding D1). Two tokens of one
@@ -122,7 +128,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
     # token never escapes as a different exception type (release-review fix).
     try:
-        return verify_bundle(bundle), bundle
+        return verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin), bundle
     except ProofBundleError as exc:
         # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
         # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
@@ -171,7 +177,7 @@ def _unpack_receipt_token(token) -> dict:
 
 
 @_ein_stand
-def verify_eval_results_entry(entry: dict) -> dict:
+def verify_eval_results_entry(entry: dict, *, sd_jwt_issuer_key_pin: Optional[str] = None) -> dict:
     """VERIFIER-side check of one ``.eval_results`` entry (WP-I2): the builder's value↔verdict
     consistency was emit-side only, so an entry whose ``value`` was edited AFTER the token was
     minted verified fine (``verify_receipt_token`` checks only the bundle inside the token, and a
@@ -224,7 +230,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # missing pb1. prefix or bad base64/zlib; a batch verifier over an untrusted third-party .eval_results list
     # must map that to a fail-closed verdict, not crash. Catch the BASE ProofBundleError so no sibling escapes.
     try:
-        result, bundle = verify_receipt_token(token)
+        result, bundle = verify_receipt_token(token, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)
     except ProofBundleError as exc:
         out["detail"] = f"malformed verifyToken — not verifiable, fail-closed ({exc})"
         return out
@@ -282,7 +288,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                           date: Optional[str] = None, source_url: Optional[str] = None,
                           source_name: Optional[str] = None, source_user: Optional[str] = None,
                           notes: Optional[str] = None, include_token: bool = True,
-                          require_verified: bool = True,
+                          require_verified: bool = True, sd_jwt_issuer_key_pin: Optional[str] = None,
                           allow_value_mismatch: bool = False) -> dict:
     """Build one HF `.eval_results/*.yaml` entry for a receipt.
 
@@ -349,7 +355,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     from .evalclaim import _eine_lesung  # noqa: PLC0415
     bundle = _eine_lesung(bundle)
     if require_verified:
-        result = verify_bundle(bundle)
+        result = verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)
         if not result.ok:
             raise BundleFormatError(
                 "refusing to build an eval_results entry from a bundle that does not verify: "
