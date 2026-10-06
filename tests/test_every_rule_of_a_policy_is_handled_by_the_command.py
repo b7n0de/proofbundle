@@ -264,8 +264,11 @@ class _Welt:
         elif ziel == "evaluate_policy":
             r = evaluate_policy(self.buendel, verify_bundle(self.buendel), politik)
         else:
+            from _decision_result_binding import bound_decision_result  # type: ignore
             aussage = json.loads(base64.b64decode(self.decision["payload"]))
-            r = evaluate_decision_policy(aussage, {"ok": True}, politik, signer_public_key_b64=self.pub)
+            # Nachtrag 48/48b (F1): bind the result to this statement + signer so the rule under test is reached.
+            r = evaluate_decision_policy(aussage, bound_decision_result(aussage, self.pub), politik,
+                                         signer_public_key_b64=self.pub)
         return {"policy_ok": r.get("policy_ok"), "ok": r.get("ok")}
 
 

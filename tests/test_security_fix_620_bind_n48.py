@@ -28,10 +28,16 @@ from proofbundle.decision import (_rfc8785_bytes, build_decision_statement, emit
                                    verify_decision_receipt)
 from proofbundle.emit import generate_signer
 from proofbundle.policy import evaluate_decision_policy, load_policy
+from proofbundle.relation import LINEAGE_VERIFIED, evaluate_relations_policy
 
-# The WP5 decision-policy fixtures (test keys only) and the Nachtrag 48 bound-result helper.
+# The WP5 decision-policy fixtures (test keys only) and the Nachtrag 48 bound-result/lineage helpers.
 from _decision_result_binding import bound_decision_result  # type: ignore
+from _lineage_binding import bound_lineage, bound_lineage_copy  # type: ignore
 from test_decision_policy import _pred, _policy_trusting  # type: ignore
+
+
+def _b64pub(signer) -> str:
+    return base64.b64encode(signer.public_key().public_bytes_raw()).decode("ascii")
 
 
 def _keypair():
@@ -99,6 +105,69 @@ class F1ADecisionPolicyResultMustBeBoundToTheStatementAndSigner(unittest.TestCas
         self.assertIs(r["policy_ok"], True)
         self.assertIs(r["signer_trusted"], True)
         self.assertIsInstance(r.get("verified_origin"), str)
+
+
+class F2ARelationSignerMustBeBoundToTheVerifiedSuccessorReceipt(unittest.TestCase):
+    """F2 counter-probes + controls: evaluate_relations_policy satisfies relation_signer only for a lineage
+    result bound to the verified successor receipt for exactly this key and its relation data. The review's
+    required gegenproben: a genuinely verified receipt with foreign relation data under the same signer key,
+    and a result of one receipt judged with another key."""
+
+    def _lineage(self, verified_under):
+        return {"lineage": LINEAGE_VERIFIED,
+                "edges": [{"relation": "supersedes", "targetDigest": "a" * 64, "resolution": LINEAGE_VERIFIED,
+                           "verified_under": verified_under}]}
+
+    def _pinned(self, key):
+        return {"relation_signer": {"supersedes": {"mode": "pinned", "keys": [key]}}}
+
+    def _codes(self, out):
+        return [v["code"] for v in out]
+
+    def test_a_merely_named_key_does_not_satisfy_a_pinned_rule(self):
+        key = _b64pub(generate_signer())
+        target = _b64pub(generate_signer())
+        # a hand-built (unstamped) lineage + the caller-supplied key == the pinned key
+        out = evaluate_relations_policy(self._pinned(key), self._lineage(target), successor_key_b64=key)
+        self.assertIn("RELATION_SIGNER_UNAUTHORIZED", self._codes(out))
+
+    def test_control_a_bound_lineage_with_a_pinned_member_is_satisfied(self):
+        key = _b64pub(generate_signer())
+        target = _b64pub(generate_signer())
+        lineage = bound_lineage(self._lineage(target), key)
+        out = evaluate_relations_policy(self._pinned(key), lineage, successor_key_b64=key)
+        self.assertNotIn("RELATION_SIGNER_UNAUTHORIZED", self._codes(out))
+
+    def test_a_verified_receipt_with_foreign_relation_data_under_the_same_key_is_refused(self):
+        key = _b64pub(generate_signer())
+        target = _b64pub(generate_signer())
+        lineage = bound_lineage(self._lineage(target), key)
+        # swap in foreign relation data AFTER stamping, keeping the same successor key
+        lineage["edges"] = [{"relation": "supersedes", "targetDigest": "b" * 64, "resolution": LINEAGE_VERIFIED,
+                             "verified_under": target}]
+        out = evaluate_relations_policy(self._pinned(key), lineage, successor_key_b64=key)
+        self.assertIn("RELATION_SIGNER_UNAUTHORIZED", self._codes(out))
+
+    def test_a_result_bound_to_one_key_does_not_satisfy_another_key(self):
+        key = _b64pub(generate_signer())
+        other = _b64pub(generate_signer())
+        lineage = bound_lineage_copy(self._lineage(other), key)   # bound to key
+        out = evaluate_relations_policy(self._pinned(other), lineage, successor_key_b64=other)
+        self.assertIn("RELATION_SIGNER_UNAUTHORIZED", self._codes(out))
+
+    def test_control_a_full_verify_with_a_relation_signer_policy_binds_the_successor(self):
+        # the in-verify path stamps the lineage; a bundle without relationship edges has nothing to violate, so
+        # a relation_signer policy over it is vacuously satisfied (no RELATION_SIGNER_UNAUTHORIZED).
+        signer = generate_signer()
+        env = emit_decision_receipt(_pred("deny"), signer)
+        r = verify_decision_receipt(
+            env, signer.public_key().public_bytes_raw(), strict=True,
+            policy=load_policy({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "t",
+                                "decision_receipt": {"trusted_decision_makers": [{"public_key_b64": _b64pub(signer)}]},
+                                "relations": {"relation_signer": {"supersedes": {"mode": "pinned",
+                                                                                "keys": [_b64pub(signer)]}}}}))
+        self.assertIs(r["crypto_ok"], True)
+        self.assertNotIn("RELATION_SIGNER_UNAUTHORIZED", r.get("relations_policy_codes") or [])
 
 
 if __name__ == "__main__":

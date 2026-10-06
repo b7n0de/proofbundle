@@ -1301,10 +1301,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # at 2a2d59b2). Only an absent section is no relations rule.
         if _rel is not _FEHLT and r["crypto_ok"]:
             import base64 as _b64_rel  # noqa: PLC0415
-            from .relation import _abschnitt_urteil  # noqa: PLC0415
+            from .relation import _abschnitt_urteil, _stamp_lineage_origin  # noqa: PLC0415
+            # Nachtrag 48/48b (Z309, F2): bind relation_signer to the verified successor receipt by stamping the
+            # lineage result with the key this receipt verified under (only on a passing signature, as required here).
+            _successor_b64 = _b64_rel.b64encode(schluessel).decode()
+            _stamp_lineage_origin(r.get("lineage"), _successor_b64)
             _viol = _abschnitt_urteil(
                 _rel, _as_dict(r.get("lineage")),
-                successor_key_b64=_b64_rel.b64encode(schluessel).decode())
+                successor_key_b64=_successor_b64)
             r["policy_ok"] = not _viol
             if _viol:
                 r["relations_policy_failed"] = True

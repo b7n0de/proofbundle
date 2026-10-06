@@ -100,6 +100,11 @@ from proofbundle.verifier_block import (
     sign_test_result_statement,
 )
 
+# Nachtrag 48/48b: the decision policy and the relations policy now bind their result/lineage to the verified
+# statement/successor receipt; a test exercising them in isolation stamps that binding as a passing verify does.
+from _decision_result_binding import bound_decision_result  # type: ignore  # noqa: E402
+from _lineage_binding import bound_lineage  # type: ignore  # noqa: E402
+
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 _V01 = "proofbundle/trust-policy/v0.1"
 _V02 = "proofbundle/trust-policy/v0.2"
@@ -983,22 +988,26 @@ class TestAStrVerdictIsReadOnlyAsAPlainStr(unittest.TestCase):
         env = emit_decision_receipt(copy.deepcopy(json.loads(
             (EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))), signer, strict=True)
         statement = json.loads(dsse.load_payload(env))
-        pol = {"decision_receipt": {"trusted_decision_makers": [{"public_key_b64": base64.b64encode(pub).decode()}],
+        pub_b64 = base64.b64encode(pub).decode()
+        pol = {"decision_receipt": {"trusted_decision_makers": [{"public_key_b64": pub_b64}],
                                     "require_external_anchor": True, "allow_pending": True}}
+        # Nachtrag 48/48b (F1): evaluate_decision_policy binds the result to the statement + signer; pass a result
+        # bound to exactly this statement and signer so the anchor_status rule under test is still reached.
+        bound = bound_decision_result(statement, pub_b64)
         calls: list = []
         for label, status in (("__class__ says str, equals 'PASS'", _ClaimsStr(calls, "PASS")),
                               ("__class__ says str, equals 'WARN'", _ClaimsStr(calls, "WARN"))):
             with self.subTest(anchor_status=label):
                 calls.clear()
-                r = evaluate_decision_policy(statement, {}, copy.deepcopy(pol),
-                                             signer_public_key_b64=base64.b64encode(pub).decode(),
+                r = evaluate_decision_policy(statement, bound, copy.deepcopy(pol),
+                                             signer_public_key_b64=pub_b64,
                                              anchor_status=status)
                 self.assertIs(r["policy_ok"], False)
                 self.assertEqual(calls, [], "the value's own methods ran")
         for status, want in (("PASS", True), ("WARN", True), ("FAIL", False), (None, False)):
             with self.subTest(control=status):
-                r = evaluate_decision_policy(statement, {}, copy.deepcopy(pol),
-                                             signer_public_key_b64=base64.b64encode(pub).decode(),
+                r = evaluate_decision_policy(statement, bound, copy.deepcopy(pol),
+                                             signer_public_key_b64=pub_b64,
                                              anchor_status=status)
                 self.assertIs(r["policy_ok"], want, r["errors"])
 
@@ -1075,8 +1084,10 @@ class TestTheRelationsEvaluatorReadsALineageResultOnlyAsPlainValues(unittest.Tes
         unresolved = dict(verified, resolution="DECLARED_UNRESOLVED")
         self.assertEqual([x["code"] for x in self._viol({"require_relation_resolution": ["supersedes"]},
                                                         {"edges": [unresolved]})], ["LINEAGE_REQUIREMENT_FAILED"])
+        # Nachtrag 48/48b (F2): a VERIFIED same-key edge is satisfied only for a lineage bound to the verified
+        # successor receipt; stamp it for _KEY, as a passing verify does. A declared-only edge needs no binding.
         self.assertEqual(self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}},
-                                    {"edges": [verified]}), [])
+                                    bound_lineage({"edges": [verified]}, _KEY)), [])
         self.assertEqual(self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}},
                                     {"edges": [unresolved]}), [])
         self.assertEqual(self._viol({"require_relation_target": {"supersedes": "b" * 64}}, {"edges": [verified]}),

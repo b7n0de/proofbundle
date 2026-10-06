@@ -1571,8 +1571,11 @@ class ALineageResultWithoutAPlainCopyIsReadByWhatItStores(unittest.TestCase):
                        "verified_under": _b64pub(_T)}
         self.assertEqual(self._lauf({"require_relation_resolution": ["supersedes"]}, {"edges": [verifiziert]}),
                          [])
+        # Nachtrag 48/48b (F2): same-key is satisfied only for a lineage bound to the verified successor receipt;
+        # stamp it for _T (the _lauf successor key), as a passing verify does.
+        from _lineage_binding import bound_lineage  # type: ignore  # noqa: PLC0415
         self.assertEqual(self._lauf({"relation_signer": {"supersedes": {"mode": "same-key"}}},
-                                    {"edges": [verifiziert]}), [])
+                                    bound_lineage({"edges": [verifiziert]}, _b64pub(_T))), [])
         self.assertEqual(self._lauf({"reject_superseded": True}, {"edges": [], "supersededByAttached": "by X"}),
                          ["LINEAGE_REQUIREMENT_FAILED"])
 

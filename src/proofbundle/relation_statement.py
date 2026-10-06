@@ -225,6 +225,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         LINEAGE_VERIFIED,
         SUCCESSOR_RELATIONS,
         _abschnitt_urteil,
+        _stamp_lineage_origin,
         verify_relationship_edges,
     )
     r = _empty_result()
@@ -384,9 +385,13 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # the plain copy of the section; a section with no plain copy has already failed the gate.
         _abschnitt = _abschnitt_von(policy, richtlinie, "relations")
         relations = _richtlinie_von(_abschnitt) or {}
+        # Nachtrag 48/48b (Z309, F2): bind relation_signer to the verified successor receipt by stamping the
+        # lineage result with the key this statement verified under (only on a passing signature, as required here).
+        _successor_b64 = _b64.b64encode(schluessel).decode()
+        _stamp_lineage_origin(r.get("lineage"), _successor_b64)
         _viol = _abschnitt_urteil(
             _abschnitt, _as_dict(r.get("lineage")),
-            successor_key_b64=_b64.b64encode(schluessel).decode())
+            successor_key_b64=_successor_b64)
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a
         # (pinned/authorized) signer is a LIVE blocker for a relying party who asks "is my target still
         # safe for automation?". reject_retracted covers `retracts`; reject_superseded covers the

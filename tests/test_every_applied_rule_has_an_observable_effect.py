@@ -306,10 +306,14 @@ class _Flaechen:
             return _urteil_bib(evaluate_policy(b, verify_bundle(b), politik), ok_feld=False)
         if flaeche == "evaluate_decision_policy":
             from proofbundle.policy import evaluate_decision_policy
+            from _decision_result_binding import bound_decision_result  # type: ignore
             aussage = json.loads(base64.b64decode(w.objekte[welt]["payload"]))
             status = {"ok": "PASS", "wartet": "WARN"}.get(anker or "")
-            return _urteil_bib(evaluate_decision_policy(aussage, {"ok": True}, politik, signer_public_key_b64=w.pub,
-                                                        anchor_status=status), ok_feld=False)
+            # Nachtrag 48/48b (F1): evaluate_decision_policy binds the result to the statement + signer; pass a
+            # result bound to exactly this statement and signer so the rule under test is still reached.
+            return _urteil_bib(evaluate_decision_policy(aussage, bound_decision_result(aussage, w.pub), politik,
+                                                        signer_public_key_b64=w.pub, anchor_status=status),
+                               ok_feld=False)
         if flaeche == "verify_decision_receipt":
             from proofbundle.decision import verify_decision_receipt
             a = w.objekte[f"{welt}.anker_{anker}"] if anker else None

@@ -26,14 +26,62 @@ binding-00 FULL TEXT, 2026-07-16 — that draft has NO `amends` relation):
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
 from .budget import render_keys_safe
 from .canonical import _ein_stand, _pruefkopie, _zeichen_von
-from .errors import ProofBundleError
+from .errors import ProofBundleError, origin_authentic, origin_token
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
+
+# Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F2): domain tag for the lineage-result
+# verified-snapshot origin token. The relation_signer rule binds the SUCCESSOR issuer key of the receipt under
+# verification; the caller passes that key separately, so a merely-named key once satisfied a `pinned`/`same-key`
+# rule (measured). A passing verify now stamps the lineage result with the key it actually verified under and an
+# origin token over (key, a digest of the relation data), so evaluate_relations_policy adopts a relation_signer
+# verdict only when the result it is handed names exactly the successor receipt whose verified relation data it
+# judges — a key or digest of another receipt, or swapped-in foreign relation data, does not satisfy.
+_RELATION_LINEAGE_DOMAIN = b"relation-lineage-v1"
+
+
+def _lineage_edges_digest(lineage_result: Any) -> str:
+    """A stable digest of the relation data (the edges) a lineage result carries, so the origin token binds the
+    successor key to exactly that relation data. Swapped-in foreign edges give a different digest."""
+    edges = lineage_result.get("edges") if isinstance(lineage_result, dict) else None
+    try:
+        serialised = json.dumps(edges, sort_keys=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        serialised = repr(edges)
+    return hashlib.sha256(serialised.encode("utf-8")).hexdigest()
+
+
+def _stamp_lineage_origin(lineage_result: Any, successor_key_b64: str) -> None:
+    """Stamp a lineage result (from :func:`verify_relationship_edges`) with the successor key it was verified
+    under and an origin token over (key, relation-data digest). Called by a verify path ONLY on a passing
+    receipt signature; a downstream relation_signer check recomputes the token and refuses a result this process
+    did not stamp for exactly this successor receipt. No-op on a non-dict lineage."""
+    if not isinstance(lineage_result, dict):
+        return
+    lineage_result["verified_successor_key_b64"] = successor_key_b64
+    lineage_result["verified_origin"] = origin_token(
+        _RELATION_LINEAGE_DOMAIN, (successor_key_b64, _lineage_edges_digest(lineage_result)))
+
+
+def _lineage_signer_bound(lineage_result: Any, successor_key_b64: str | None) -> bool:
+    """True only when ``lineage_result`` carries an authentic origin token this process stamped over exactly
+    this successor key and its current relation data. A result with no token (hand-built, or from
+    verify_relationship_edges without a receipt-signature verify), one whose recorded key is not
+    ``successor_key_b64``, or one whose relation data was changed after stamping, is not bound."""
+    if not isinstance(lineage_result, dict) or not isinstance(successor_key_b64, str):
+        return False
+    recorded = lineage_result.get("verified_successor_key_b64")
+    if not isinstance(recorded, str) or recorded != successor_key_b64:
+        return False
+    return origin_authentic(_RELATION_LINEAGE_DOMAIN, lineage_result.get("verified_origin"),
+                            (successor_key_b64, _lineage_edges_digest(lineage_result)))
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -1038,6 +1086,18 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
     _signer = relations_section.get("relation_signer")  # adversarial re-audit round 4: non-dict guard (.get below)
     signer = _signer if isinstance(_signer, dict) else {}
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F2): the relation_signer rule binds
+    # the SUCCESSOR issuer key, but successor_key_b64 is passed in — a merely-named key once satisfied a pinned or
+    # same-key rule (measured). A rule is satisfied only when this lineage result is bound to the verified successor
+    # receipt for exactly this key AND its relation data (an authentic origin token this process stamped on a
+    # passing receipt signature). A hand-built or unverified lineage, a key of another receipt, or swapped-in
+    # foreign relation data under the same key is not bound; the per-mode checks below add this to their conditions
+    # so the gap closes without turning a DECLARED-ONLY edge (the resolution pin's job, not the signer's) into a
+    # violation. `_unbound` names why the lineage confers no relation_signer trust.
+    _signer_bound = _lineage_signer_bound(lineage_result, successor_key_b64)
+    _unbound = ("; and the lineage result is not bound to the verified successor receipt for this key (no "
+                "authentic origin token from this process's verify for exactly this successor key and its "
+                "relation data)") if not _signer_bound else ""
     for e in edges:
         # R7-2b: a non-str edge['relation'] is unhashable (list/dict/set/bytearray) and crashed the
         # dict-key lookup; relations are always strings, so a non-str never names a rule (fail-closed None).
@@ -1051,10 +1111,11 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         mode = rule.get("mode")
         if mode == "pinned":
             keys = _as_list(rule.get("keys"))
-            if not any(_keys_equal(successor_key_b64, k) for k in keys):
+            # bound to this successor receipt AND a member of the pinned set; either missing -> unauthorized.
+            if not _signer_bound or not any(_keys_equal(successor_key_b64, k) for k in keys):
                 out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
                             "message": (f"relation {_rel!r}: successor issuer key is not "
-                                        "a member of the pinned relation_signer set")})
+                                        "a member of the pinned relation_signer set" + _unbound)})
         elif mode == "same-key":
             # same-key can only be confirmed against a RESOLVED target's real verify key; absence on a
             # DECLARED-ONLY edge is the resolution pin's job, not the signer's (no false unauthorized there).
@@ -1064,14 +1125,17 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
             # it) — treat it as unauthorized, never as satisfied.
             # Checked unless the resolution is a plain str other than VERIFIED: `== LINEAGE_VERIFIED`
             # ran the caller's __eq__, and an object answering False skipped the key check (measured).
+            # Nachtrag 48/48b (F2): a VERIFIED same-key edge is satisfied only when the lineage result is also
+            # bound to this verified successor receipt (`_signer_bound`), so a merely-named successor key does not
+            # satisfy it; a DECLARED-ONLY edge is untouched, exactly as before.
             _res = e.get("resolution")
             if not (type(_res) is str and _res != LINEAGE_VERIFIED):
                 vu = e.get("verified_under")
-                if vu is None or not _keys_equal(successor_key_b64, vu):
+                if not _signer_bound or vu is None or not _keys_equal(successor_key_b64, vu):
                     out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
                                 "message": (f"relation {_rel!r}: same-key requires a target "
                                             "verified_under that byte-matches the successor key; got "
-                                            f"{'none' if vu is None else 'a differing key'}")})
+                                            f"{'none' if vu is None else 'a differing key'}" + _unbound)})
 
     # (4) require_relation_target (WP-A2 / O1) — a named relation's edge must resolve to one of the
     #     RP-pinned parent roots. Fires on EVERY such edge, accept-path (T2) included — this is the
