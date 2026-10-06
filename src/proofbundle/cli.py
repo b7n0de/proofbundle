@@ -1821,18 +1821,26 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
 
 
 def _historical_now_posix(value):
-    """Nachtrag 49b (CX-02/CX-05): an explicit historical evaluation instant (ISO-8601 'Z') as POSIX seconds for
-    a verify that takes a `now`. None stays None (the wall clock / not judged, unchanged). A value that is not an
-    ISO-8601 timestamp, or is not in the past, is a fail-closed ValueError (never silent back- or forward-dating).
-    The integer is the ONE evaluation time the receipt/attestation is judged at."""
+    """Addendum 49b (CX-02/CX-05) / 49c: an explicit historical evaluation instant as POSIX seconds for a verify
+    that takes a `now`. None stays None (the wall clock / not judged, unchanged). The value MUST be an ISO-8601
+    UTC timestamp ending in a literal `Z` (with or without a fractional second); a zone offset (`+00:00`
+    included) or a naive timestamp is a format error, NOT silently re-read as UTC. Any non-`Z` form, any
+    otherwise-unparseable value, and any value not in the past is a fail-closed ValueError (never a silent back-
+    or forward-date). The integer is the ONE evaluation time the receipt/attestation is judged at.
+
+    Addendum 49c narrows ONLY this shared helper of the two 49b surfaces (`decision verify --verification-time`
+    and `verify-enclave --verification-time`), whose help names the `Z` format. `policy._parse_iso_utc` — used by
+    the older `verify --policy --verification-time` path and others — stays broad and unchanged."""
     if value is None:
         return None
     from datetime import datetime, timezone  # noqa: PLC0415
     from .policy import _parse_iso_utc  # noqa: PLC0415
-    dt = _parse_iso_utc(value)
+    # 49c: require a literal-`Z` (UTC) instant. _parse_iso_utc would read an offset or a naive time as UTC, so
+    # the `Z` promise is enforced HERE, before parsing — a non-`Z` string never reaches the lenient parser.
+    dt = _parse_iso_utc(value) if isinstance(value, str) and value.endswith("Z") else None
     if dt is None:
-        raise ValueError(f"--verification-time {value!r} is not an ISO-8601 timestamp "
-                         "(e.g. 2026-01-01T00:00:00Z)")
+        raise ValueError(f"--verification-time {value!r} is not an ISO-8601 UTC 'Z' timestamp "
+                         "(e.g. 2026-01-01T00:00:00Z) — a zone offset or a naive time is not accepted")
     if dt >= datetime.now(timezone.utc):
         raise ValueError("--verification-time must be in the past — it evaluates AS OF a historical instant; "
                          "a future instant is not a historical query")
