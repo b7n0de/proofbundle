@@ -13,6 +13,7 @@ exists (deferred, see the roadmap).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from collections import Counter
 from typing import Any, Optional
@@ -1211,6 +1212,14 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # (measured at ee489403 and on main 20e91c8e), R-B4 at the flags. A NumPy boolean, an int 0 or 1
     # and a string are refused.
     claim = _eigen(claim, "svr_properties")
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F3): the digest of the claim exactly
+    # as passed, under the same fixed JCS encoding verify_bundle recorded over the signed payload bytes. Used by
+    # the result<->claim binding below; captured before require_eval_claim normalises, from the plain copy.
+    from .decision import _rfc8785_available as _jcs_ok, _rfc8785_bytes as _jcs  # noqa: PLC0415
+    try:
+        _claim_digest = hashlib.sha256(_jcs(claim)).hexdigest() if _jcs_ok() else None
+    except Exception:   # noqa: BLE001 - a non-canonicalizable claim is simply not bound (fail-closed below)
+        _claim_digest = None
     prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
     anchor_verified = _eigene_flagge(anchor_verified, "anchor_verified")
     require_bool_verdict(claim, wo="svr_properties")
@@ -1247,6 +1256,20 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     def _verdient(name: str) -> bool:
         oks = verdikte.get(name, [])
         return bool(oks) and all(ok is True for ok in oks)
+
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F3): no property derived from the
+    # result and the claim without binding to EXACTLY this verified claim. The result must be one this process's
+    # verify_bundle produced — an authentic origin token, not a hand-built result with matching checks (the
+    # svr_properties reproducer the review names) — AND its recorded payload digest must equal this claim's digest
+    # under the fixed JCS encoding. Merkle-root equality alone is not enough; a result of another claim, or a
+    # mutated claim with a reused result, is refused with no property. export_svr_dsse passes the result and the
+    # claim of the same verified bundle, so it keeps its internally-bound positive path.
+    _vpd = getattr(result, "verified_payload_digest", None)
+    _origin_ok = callable(getattr(result, "origin_authentic", None)) and result.origin_authentic()
+    _claim_bound = (_origin_ok and isinstance(_vpd, str) and isinstance(_claim_digest, str)
+                    and hmac.compare_digest(_vpd, _claim_digest))
+    if not _claim_bound:
+        return []
 
     props = []
     if _verdient("ed25519-signature"):

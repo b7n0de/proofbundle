@@ -22,18 +22,25 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import unittest
 
 from proofbundle.decision import (_rfc8785_bytes, build_decision_statement, emit_decision_receipt,
                                    verify_decision_receipt)
 from proofbundle.emit import generate_signer
+from proofbundle.evalclaim import (build_eval_claim, decode_eval_claim, emit_eval_receipt,
+                                    issuer_fingerprint)
+from proofbundle.intoto import export_svr_dsse, svr_properties
 from proofbundle.policy import evaluate_decision_policy, load_policy
 from proofbundle.relation import LINEAGE_VERIFIED, evaluate_relations_policy
 
-# The WP5 decision-policy fixtures (test keys only) and the Nachtrag 48 bound-result/lineage helpers.
+# The WP5 decision-policy fixtures (test keys only) and the Nachtrag 48 bound-result/lineage/svr helpers.
 from _decision_result_binding import bound_decision_result  # type: ignore
 from _lineage_binding import bound_lineage, bound_lineage_copy  # type: ignore
+from _svr_binding import bound_svr_result  # type: ignore
 from test_decision_policy import _pred, _policy_trusting  # type: ignore
+
+_FIXED_SALT = b"\x11" * 16
 
 
 def _b64pub(signer) -> str:
@@ -168,6 +175,66 @@ class F2ARelationSignerMustBeBoundToTheVerifiedSuccessorReceipt(unittest.TestCas
                                                                                 "keys": [_b64pub(signer)]}}}}))
         self.assertIs(r["crypto_ok"], True)
         self.assertNotIn("RELATION_SIGNER_UNAUTHORIZED", r.get("relations_policy_codes") or [])
+
+
+class F3SvrPropertiesMustBeBoundToTheVerifiedClaim(unittest.TestCase):
+    """F3 counter-probes + controls: svr_properties derives a property only for a VerificationResult this
+    process's verify_bundle produced (an authentic origin token) whose recorded payload digest equals the
+    passed claim's digest under the same fixed JCS encoding verify_bundle recorded over the signed payload.
+    A result of one claim combined with a different or mutated claim earns nothing; a hand-built result with
+    a matching digest but no origin earns nothing (the review's svr reproducer). export_svr_dsse passes the
+    result and the claim of one verified bundle, so its internally-bound positive path stays positive."""
+
+    def _claim(self, signer, *, score="0.99", threshold="0.98", n=500):
+        # the decoded eval claim carries the verdict and commitments, not the raw score, so two passing
+        # claims differ only by a STORED field (here n, the sample count) — enough for a distinct JCS digest.
+        claim, _ = build_eval_claim(
+            suite="safety-refusals", suite_version="1.2.0", metric="refusal_rate", comparator=">=",
+            threshold=threshold, score=score, n=n, model_id="acme/secret-model",
+            dataset_id="acme/secret-set", issuer=issuer_fingerprint(signer),
+            timestamp="2026-07-05T12:00:00Z", model_salt=_FIXED_SALT, dataset_salt=_FIXED_SALT)
+        return claim
+
+    def test_control_a_result_earns_its_properties_for_its_own_verified_claim(self):
+        s = generate_signer()
+        result, claim = bound_svr_result(self._claim(s), s)
+        props = svr_properties(result, claim)
+        self.assertIn("PROOFBUNDLE_SIGNATURE_VALID", props)
+        self.assertIn("PROOFBUNDLE_RECEIPT_UNCHANGED", props)
+        self.assertIn("PROOFBUNDLE_THRESHOLD_MET", props)
+
+    def test_a_result_of_one_claim_earns_nothing_for_a_different_claim(self):
+        # the base gap: a good result of receipt A + a different passing claim B emitted B's THRESHOLD_MET
+        # under A's crypto. Different claim content -> different JCS digest -> the result does not bind it.
+        s = generate_signer()
+        result_a, _claim_a = bound_svr_result(self._claim(s, n=500), s)
+        _result_b, claim_b = bound_svr_result(self._claim(s, n=250), s)
+        self.assertEqual(svr_properties(result_a, claim_b), [])
+
+    def test_a_mutated_claim_with_a_reused_result_earns_nothing(self):
+        s = generate_signer()
+        result, claim = bound_svr_result(self._claim(s, n=500), s)
+        mutated = dict(claim, n=250)   # a stored field changed -> different JCS digest, result still bound to 500
+        self.assertEqual(svr_properties(result, mutated), [])
+
+    def test_a_hand_built_result_with_a_matching_digest_but_no_origin_earns_nothing(self):
+        # a VerificationResult with passing checks and the exact payload digest, but NOT stamped by this
+        # process's verifier (no authentic origin token) earns nothing. Hand-built, not emitted by verify.
+        from proofbundle.errors import Check, VerificationResult
+        s = generate_signer()
+        claim = decode_eval_claim(emit_eval_receipt(self._claim(s), s))
+        hand = VerificationResult([Check("ed25519-signature", True), Check("merkle-inclusion", True)])
+        hand.verified_payload_digest = hashlib.sha256(_rfc8785_bytes(claim)).hexdigest()
+        # deliberately NO stamp_origin()
+        self.assertEqual(svr_properties(hand, claim), [])
+
+    def test_control_export_svr_dsse_stays_positive(self):
+        s = generate_signer()
+        env = export_svr_dsse(emit_eval_receipt(self._claim(s), s), s)
+        props = json.loads(base64.b64decode(env["payload"]))["predicate"]["properties"]
+        self.assertIn("PROOFBUNDLE_SIGNATURE_VALID", props)
+        self.assertIn("PROOFBUNDLE_RECEIPT_UNCHANGED", props)
+        self.assertIn("PROOFBUNDLE_THRESHOLD_MET", props)
 
 
 if __name__ == "__main__":
