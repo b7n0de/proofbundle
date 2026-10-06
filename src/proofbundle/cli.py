@@ -846,6 +846,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
                                expected_tree_size=expected_tree_size,
                                sd_jwt_issuer_key_pin=sd_jwt_pin)
         if cp_supplied:
+            # Nachtrag 46f: a re-stamp must authenticate nothing that was not authenticated before. The 46d
+            # re-stamp below re-binds the origin token to the full check list, but verify_bundle stamps the
+            # origin ONLY on a passing bundle signature (sig_ok True); a bundle whose signature failed comes
+            # back UNSTAMPED (verified_origin None, origin_authentic() False). Read that state BEFORE adding
+            # the checkpoint check — the add itself would make origin_authentic() False either way — and
+            # re-stamp only when the result already carried an authentic origin, so a failed-signature result
+            # never gains origin from the checkpoint re-stamp (OA-a9986c2e64 A.1). Narrowing only.
+            _origin_authentic_before = result.origin_authentic()
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
             # Nachtrag 46d: the checkpoint-authenticity check is part of the crypto verdict, so the origin
@@ -855,8 +863,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             # (policy:result_origin, exit 3). Re-stamping re-binds the token to the full, final check list;
             # a check mutated AFTER this re-stamp is still rejected (origin_authentic recomputes → mismatch),
             # and result.ok is unaffected by the stamp. Only in the cp_supplied branch (only here was a check
-            # added after the verify_bundle stamp).
-            result.stamp_origin()
+            # added after the verify_bundle stamp), and only (N46f) when the pre-add origin was authentic.
+            if _origin_authentic_before:
+                result.stamp_origin()
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, OverflowError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
