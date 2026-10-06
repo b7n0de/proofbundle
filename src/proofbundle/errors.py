@@ -19,14 +19,22 @@ _ORIGIN_KEY = os.urandom(32)
 
 
 def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[str],
-                          merkle_root: Optional[bytes]) -> str:
-    """HMAC over the captured verified state, type-tagged and length-prefixed so no two distinct field
-    tuples collide. Recomputed by the judge from the result's recorded fields and compared with
-    ``hmac.compare_digest``; a match proves the token was stamped by this process over exactly these
-    fields (origin AND no post-stamp mutation). The sd_jwt_vc block needs no field here: a downstream
-    judge's SD-JWT rules are already bound to this bundle through the verified signer (Nachtrag 44, the
-    SD-JWT issuer MUST be the bundle signer) and that signer (Nachtrag 46), so a swapped sd_jwt is
-    refused — measured in the N46b gegenproben."""
+                          merkle_root: Optional[bytes], checks=()) -> str:
+    """HMAC over the captured verified state AND the result's checks, type-tagged and length-prefixed so
+    no two distinct inputs collide. Recomputed by the judge from the result's recorded fields and checks
+    and compared with ``hmac.compare_digest``; a match proves the token was stamped by this process over
+    exactly these fields and checks (origin AND no post-stamp mutation).
+
+    Nachtrag 46c (`KRAXO-CLOUD-N46C-HERKUNFT-DECKT-DIE-CHECKS-01`, Z309): the token additionally covers
+    every adopted check (its name, its ``ok`` as an EXACT truth value, and its detail), counted and in
+    list order, so a check changed, removed or added after stamping, an ``ok`` flipped (including to a
+    truthy non-bool) or a detail changed makes the token no longer match — and no derived verdict stays
+    positive (``svr_properties`` reads each check's ``ok`` for ``PROOFBUNDLE_SIGNATURE_VALID`` /
+    ``PROOFBUNDLE_RECEIPT_UNCHANGED``; ``policy.evaluate_policy`` gates on this token). Narrowing only.
+
+    The sd_jwt_vc block still needs no field here: a downstream judge's SD-JWT rules are already bound to
+    this bundle through the verified signer (Nachtrag 44, the SD-JWT issuer MUST be the bundle signer) and
+    that signer (Nachtrag 46), so a swapped sd_jwt is refused — measured in the N46b gegenproben."""
     h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
     for part in (signer_pub, payload_digest, merkle_root):
         if part is None:
@@ -36,6 +44,17 @@ def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[
         h.update(b"\x01")
         h.update(len(b).to_bytes(8, "big"))
         h.update(b)
+    # Nachtrag 46c: the checks block, after the three state parts, with a fixed section tag and a count so
+    # a removed or added check changes the token. The three parts always run exactly above, so this tag is
+    # never confused with a part marker. `ok` is read by identity (`is True`/`is False`), never by its
+    # truth, so a lying `__bool__` runs no code and a truthy non-bool is a third, distinct marker.
+    h.update(b"\x02checks")
+    h.update(len(checks).to_bytes(8, "big"))
+    for c in checks:
+        h.update(b"\x01" if c.ok is True else b"\x02" if c.ok is False else b"\x03")
+        for field_bytes in (str(c.name).encode("utf-8"), str(c.detail).encode("utf-8")):
+            h.update(len(field_bytes).to_bytes(8, "big"))
+            h.update(field_bytes)
     return h.hexdigest()
 
 
@@ -121,7 +140,7 @@ class VerificationResult:
     # digest binds the signed bytes; it does NOT bind the stated Merkle root (not signed — a coherent one-leaf
     # rewrap re-anchors the same payload under a different root). verified_merkle_root is the stated root bytes
     # the root-authenticity check verified (set only when that check passed). verified_origin is the per-process
-    # token over the verified state — see _compute_origin_token. Both are set ONLY on a passing bundle signature;
+    # token over the verified state AND the result's checks (Nachtrag 46c) — see _compute_origin_token. Both are set ONLY on a passing bundle signature;
     # excluded from equality, repr and as_dict so ok, serialisation and existing comparisons are unchanged. The
     # sd_jwt_vc block needs no field: a judge's SD-JWT rules bind to this bundle through the verified signer
     # (N44 issuer==signer + N46), so a swapped sd_jwt is refused — measured in the N46b gegenproben.
@@ -129,21 +148,23 @@ class VerificationResult:
     verified_origin: Optional[str] = field(default=None, compare=False, repr=False)
 
     def stamp_origin(self) -> None:
-        """Record the origin token over the verified state currently on this result. Called by the verifier
-        exactly once, after the signature and the out-of-payload Merkle root are captured."""
+        """Record the origin token over the verified state AND the checks currently on this result. Called by
+        the verifier exactly once, after the signature, the out-of-payload Merkle root and ALL checks are
+        recorded (Nachtrag 46c: the token covers the checks, so it must be stamped after the last check)."""
         self.verified_origin = _compute_origin_token(
-            self.verified_signer_pub, self.verified_payload_digest, self.verified_merkle_root)
+            self.verified_signer_pub, self.verified_payload_digest, self.verified_merkle_root, self.checks)
 
     def origin_authentic(self) -> bool:
         """True only when this result carries a token this process's verifier stamped over exactly the fields
-        it now holds. A hand-built result (no token) or one whose verified_* fields were changed after stamping
-        fails. Not a defence against code that can read _ORIGIN_KEY (out of scope per the review)."""
+        AND checks it now holds. A hand-built result (no token), one whose verified_* fields were changed, or
+        one whose checks were changed/removed/added after stamping (Nachtrag 46c) fails. Not a defence against
+        code that can read _ORIGIN_KEY (out of scope per the review)."""
         if not isinstance(self.verified_origin, str):
             return False
         return hmac.compare_digest(
             self.verified_origin,
             _compute_origin_token(self.verified_signer_pub, self.verified_payload_digest,
-                                  self.verified_merkle_root))
+                                  self.verified_merkle_root, self.checks))
 
     @property
     def ok(self) -> bool:

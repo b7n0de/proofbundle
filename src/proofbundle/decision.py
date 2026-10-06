@@ -813,10 +813,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
         # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
         # where it always stood, so the order of the warnings is unchanged.
+        _sw = None  # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below.
         if _linie is not None:
             r["lineage"] = _linie
             # Advisory by default; the policy's reject_superseded turns it into a blocker below. Set by the engine
-            # over the one reading of the map, and only read here.
+            # over the one reading of the map, and only read here (and passed to the origin stamp, not re-read).
             _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
@@ -1041,7 +1042,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # relation_signer is bound to the verified successor receipt (only on a passing signature, which this
         # branch already requires). A relation_signer rule confers trust only on a lineage result so stamped.
         _successor_b64 = _b64_rel.b64encode(schluessel).decode()
-        _stamp_lineage_origin(r.get("lineage"), _successor_b64)
+        _stamp_lineage_origin(r.get("lineage"), _successor_b64, _sw)
         _viol = _abschnitt_urteil(
             _rel, _as_dict(r.get("lineage")),
             successor_key_b64=_successor_b64)

@@ -58,30 +58,39 @@ def _lineage_edges_digest(lineage_result: Any) -> str:
     return hashlib.sha256(serialised.encode("utf-8")).hexdigest()
 
 
-def _stamp_lineage_origin(lineage_result: Any, successor_key_b64: str) -> None:
+def _stamp_lineage_origin(lineage_result: Any, successor_key_b64: str, superseded: Any = None) -> None:
     """Stamp a lineage result (from :func:`verify_relationship_edges`) with the successor key it was verified
-    under and an origin token over (key, relation-data digest). Called by a verify path ONLY on a passing
-    receipt signature; a downstream relation_signer check recomputes the token and refuses a result this process
-    did not stamp for exactly this successor receipt. No-op on a non-dict lineage."""
+    under and an origin token over (key, relation-data digest, supersededByAttached). Called by a verify path
+    ONLY on a passing receipt signature; a downstream relation_signer check recomputes the token and refuses a
+    result this process did not stamp for exactly this successor receipt. No-op on a non-dict lineage.
+
+    Nachtrag 46c (`KRAXO-CLOUD-N46C-HERKUNFT-DECKT-DIE-CHECKS-01`, Z309): the token also covers ``superseded``
+    — the lineage result's ``supersededByAttached``, which ``reject_superseded`` adopts as a positive (not
+    superseded) verdict. The caller reads it ONCE and passes it in ('only read here' stays true), so clearing or
+    changing an attached supersession after stamping makes the token no longer match and confers no
+    relation_signer trust. The per-edge fields (resolution, verified_under, targetDigest) are already bound
+    through the edges digest (Nachtrag 48)."""
     if not isinstance(lineage_result, dict):
         return
     lineage_result["verified_successor_key_b64"] = successor_key_b64
     lineage_result["verified_origin"] = _origin_token(
-        _RELATION_LINEAGE_DOMAIN, (successor_key_b64, _lineage_edges_digest(lineage_result)))
+        _RELATION_LINEAGE_DOMAIN, (successor_key_b64, _lineage_edges_digest(lineage_result), superseded))
 
 
-def _lineage_signer_bound(lineage_result: Any, successor_key_b64: str | None) -> bool:
+def _lineage_signer_bound(lineage_result: Any, successor_key_b64: str | None, superseded: Any = None) -> bool:
     """True only when ``lineage_result`` carries an authentic origin token this process stamped over exactly
-    this successor key and its current relation data. A result with no token (hand-built, or from
-    verify_relationship_edges without a receipt-signature verify), one whose recorded key is not
-    ``successor_key_b64``, or one whose relation data was changed after stamping, is not bound."""
+    this successor key, its current relation data, and its supersededByAttached. A result with no token
+    (hand-built, or from verify_relationship_edges without a receipt-signature verify), one whose recorded key
+    is not ``successor_key_b64``, one whose relation data was changed after stamping, or (Nachtrag 46c) one
+    whose attached supersession was cleared or changed after stamping, is not bound. ``superseded`` is the
+    caller's single reading of ``supersededByAttached`` (passed in so it is not read twice)."""
     if not isinstance(lineage_result, dict) or not isinstance(successor_key_b64, str):
         return False
     recorded = lineage_result.get("verified_successor_key_b64")
     if not isinstance(recorded, str) or recorded != successor_key_b64:
         return False
     return _origin_authentic(_RELATION_LINEAGE_DOMAIN, lineage_result.get("verified_origin"),
-                             (successor_key_b64, _lineage_edges_digest(lineage_result)))
+                             (successor_key_b64, _lineage_edges_digest(lineage_result), superseded))
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -1094,7 +1103,7 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # foreign relation data under the same key is not bound; the per-mode checks below add this to their conditions
     # so the gap closes without turning a DECLARED-ONLY edge (the resolution pin's job, not the signer's) into a
     # violation. `_unbound` names why the lineage confers no relation_signer trust.
-    _signer_bound = _lineage_signer_bound(lineage_result, successor_key_b64)
+    _signer_bound = _lineage_signer_bound(lineage_result, successor_key_b64, _sba)
     _unbound = ("; and the lineage result is not bound to the verified successor receipt for this key (no "
                 "authentic origin token from this process's verify for exactly this successor key and its "
                 "relation data)") if not _signer_bound else ""

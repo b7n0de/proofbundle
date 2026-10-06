@@ -388,7 +388,7 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # Nachtrag 48/48b (Z309, F2): bind relation_signer to the verified successor receipt by stamping the
         # lineage result with the key this statement verified under (only on a passing signature, as required here).
         _successor_b64 = _b64.b64encode(schluessel).decode()
-        _stamp_lineage_origin(r.get("lineage"), _successor_b64)
+        _stamp_lineage_origin(r.get("lineage"), _successor_b64, _sw)
         _viol = _abschnitt_urteil(
             _abschnitt, _as_dict(r.get("lineage")),
             successor_key_b64=_successor_b64)
