@@ -2200,6 +2200,21 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     return related, errs
 
 
+def _without_origin_token(obj):
+    """Nachtrag 46g (Z309): return a deep copy of ``obj`` with every ``verified_origin`` key removed, at
+    any nesting. The per-process origin token (``errors._origin_token`` / ``_compute_origin_token``) lives
+    in a verify result and in the ``lineage`` sub-dict so that a downstream check IN THE SAME PROCESS can
+    recompute and compare it; it is meaningless outside this process (the HMAC key is per-process and never
+    serialised). It must not travel in the CLI's ``--json`` output, where it would otherwise survive a JSON
+    round-trip and let a re-read copy confer a positive origin verdict in this process. Stripping it from the
+    OUTPUT copy only — the live result dict is untouched — so no verdict changes (narrowing)."""
+    if isinstance(obj, dict):
+        return {k: _without_origin_token(v) for k, v in obj.items() if k != "verified_origin"}
+    if isinstance(obj, list):
+        return [_without_origin_token(v) for v in obj]
+    return obj
+
+
 def _cmd_decision_verify(args: argparse.Namespace) -> int:
     from .decision import verify_decision_receipt  # noqa: PLC0415
     if not args.pub:
@@ -2302,7 +2317,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
             "automation", "evidence_levels", "lineage", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
-        print(json.dumps(report, indent=2, default=str))
+        # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
+        print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         if result["policy_ok"] is None:
@@ -2515,7 +2531,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             # WP-B: the relations trust-policy verdict on the outcome path (mirrors decision --json).
             "lineage", "policy_ok", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
-        print(json.dumps(report, indent=2, default=str))
+        # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
+        print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
@@ -2680,7 +2697,8 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             "subject_derived_ok", "lineage", "policy_ok", "relations_policy_codes",
             "warnings", "errors",
         ) if k in result}
-        print(json.dumps(report, indent=2, default=str))
+        # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
+        print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
         print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
