@@ -33,7 +33,7 @@ from typing import Any
 
 from .budget import render_keys_safe
 from .canonical import _ein_stand, _pruefkopie, _zeichen_von
-from .errors import ProofBundleError, origin_authentic, origin_token
+from .errors import ProofBundleError, _origin_authentic, _origin_token
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
 
@@ -66,7 +66,7 @@ def _stamp_lineage_origin(lineage_result: Any, successor_key_b64: str) -> None:
     if not isinstance(lineage_result, dict):
         return
     lineage_result["verified_successor_key_b64"] = successor_key_b64
-    lineage_result["verified_origin"] = origin_token(
+    lineage_result["verified_origin"] = _origin_token(
         _RELATION_LINEAGE_DOMAIN, (successor_key_b64, _lineage_edges_digest(lineage_result)))
 
 
@@ -80,8 +80,8 @@ def _lineage_signer_bound(lineage_result: Any, successor_key_b64: str | None) ->
     recorded = lineage_result.get("verified_successor_key_b64")
     if not isinstance(recorded, str) or recorded != successor_key_b64:
         return False
-    return origin_authentic(_RELATION_LINEAGE_DOMAIN, lineage_result.get("verified_origin"),
-                            (successor_key_b64, _lineage_edges_digest(lineage_result)))
+    return _origin_authentic(_RELATION_LINEAGE_DOMAIN, lineage_result.get("verified_origin"),
+                             (successor_key_b64, _lineage_edges_digest(lineage_result)))
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 

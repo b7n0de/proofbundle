@@ -37,6 +37,7 @@ for _p in (str(REPO / "src"), str(REPO / "tests")):
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
 from proofbundle.errors import ProofBundleError  # noqa: E402
+from _decision_result_binding import bound_decision_result  # noqa: E402  (Nachtrag 48 F1: a bound decision result)
 from test_a_verifier_reads_a_callers_value_once import (  # noqa: E402
     _POLICY, _lineage_verdict, _related_full, fx, sweep)
 
@@ -241,7 +242,10 @@ class ARelationThatIsNoTextIsJudgedNotRaised(unittest.TestCase):
             with self.subTest(relation=type(relation).__name__):
                 aussage = {"predicateType": "x", "predicate": {"evidenceRefs": [{"relation": relation}]}}
                 try:
-                    r = evaluate_decision_policy(aussage, {"ok": True}, politik, signer_public_key_b64="k")
+                    # Nachtrag 48 F1: the result must be bound to exactly this statement and signer, else the
+                    # policy fails closed before the relation; a bound result reaches the relation-type check.
+                    r = evaluate_decision_policy(aussage, bound_decision_result(aussage, "k"), politik,
+                                                 signer_public_key_b64="k")
                 except ProofBundleError:
                     continue
                 except TypeError as exc:
@@ -249,8 +253,8 @@ class ARelationThatIsNoTextIsJudgedNotRaised(unittest.TestCase):
                 self.assertIs(r["policy_ok"], False, "a relation that is no text satisfied a required relation")
         # control: a text relation
         aussage = {"predicateType": "x", "predicate": {"evidenceRefs": [{"relation": "input"}]}}
-        self.assertIs(evaluate_decision_policy(aussage, {"ok": True}, politik, signer_public_key_b64="k")["policy_ok"],
-                      True)
+        self.assertIs(evaluate_decision_policy(aussage, bound_decision_result(aussage, "k"), politik,
+                                               signer_public_key_b64="k")["policy_ok"], True)
 
 
 # ── L2: work counted, not time ──────────────────────────────────────────────────────────────────────────────────

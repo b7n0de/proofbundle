@@ -523,13 +523,13 @@ MUTATIONS = [
     # (ii) pinned-set membership ignored (successor always authorized): killed by the same test +
     #      the Hypothesis membership property.
     ("src/proofbundle/relation.py",
-     "            if not any(_keys_equal(successor_key_b64, k) for k in keys):",
+     "            if not _signer_bound or not any(_keys_equal(successor_key_b64, k) for k in keys):",
      "            if False:",
      "relation_signer: pinned-set membership ignored (never unauthorized)", True),
     # (iii) same-key verified_under binding removed (cross-issuer sneaks past same-key): killed by
     #       test_same_key_cross_issuer_rejected / verified-under-not-claim vector.
     ("src/proofbundle/relation.py",
-     "if vu is None or not _keys_equal(successor_key_b64, vu):",
+     "if not _signer_bound or vu is None or not _keys_equal(successor_key_b64, vu):",
      "if False:",
      "relation_signer: same-key verified_under binding removed", True),
     # (iv) require_relation_target equality check disabled (the DECOY parent slips through): killed by

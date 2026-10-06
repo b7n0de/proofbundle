@@ -39,7 +39,7 @@ def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[
     return h.hexdigest()
 
 
-def origin_token(domain: bytes, parts) -> str:
+def _origin_token(domain: bytes, parts) -> str:
     """The same per-process origin token for the DICT-result verify paths (decision, relation, svr), which do
     not return a VerificationResult. ``domain`` is a path tag so a token of one path never validates on another;
     ``parts`` is the captured verified state (bytes/str/None), type-tagged and length-prefixed as above. The
@@ -61,13 +61,13 @@ def origin_token(domain: bytes, parts) -> str:
     return h.hexdigest()
 
 
-def origin_authentic(domain: bytes, token, parts) -> bool:
-    """True only when ``token`` is the str this process stamped with :func:`origin_token` over exactly
+def _origin_authentic(domain: bytes, token, parts) -> bool:
+    """True only when ``token`` is the str this process stamped with :func:`_origin_token` over exactly
     ``(domain, parts)``. A dict result carrying no token (hand-built) or one whose captured fields were
     changed after stamping fails. Not a defence against code that can read ``_ORIGIN_KEY``."""
     if not isinstance(token, str):
         return False
-    return hmac.compare_digest(token, origin_token(domain, parts))
+    return hmac.compare_digest(token, _origin_token(domain, parts))
 
 
 class ProofBundleError(Exception):

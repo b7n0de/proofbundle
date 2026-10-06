@@ -18,13 +18,13 @@ from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
 from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
                         _pruefkopie, _richtlinie_von, _zeichen_von)
-from .errors import BundleFormatError, ProofBundleError, origin_token
+from .errors import BundleFormatError, ProofBundleError, _origin_token
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
-# Nachtrag 48/48b (Z309): domain tag for the decision-receipt verified-snapshot origin token (errors.origin_token).
+# Nachtrag 48/48b (Z309): domain tag for the decision-receipt verified-snapshot origin token (errors._origin_token).
 _DECISION_ORIGIN_DOMAIN = b"decision-receipt-v1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
@@ -691,7 +691,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             _payload_digest = hashlib.sha256(body).hexdigest()
             r["verified_signer_pub_b64"] = _signer_b64
             r["verified_payload_digest"] = _payload_digest
-            r["verified_origin"] = origin_token(_DECISION_ORIGIN_DOMAIN, (_signer_b64, _payload_digest))
+            r["verified_origin"] = _origin_token(_DECISION_ORIGIN_DOMAIN, (_signer_b64, _payload_digest))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
         # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw
