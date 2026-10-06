@@ -1014,6 +1014,7 @@ def _flaechen():
             anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w("a" * 64), trust_pack=w(tp_pred),
+            trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),
             decision_maker_id=w("maker:x"), expected_audience=w("rp"), expected_nonce=w("n"),
             policy=w({"relations": relationen}), related=w(verwandt))),
         ("run_ledger.verify_run_ledger", lambda w: rl.verify_run_ledger(w(rl.emit_run_ledger(rl_pred, _T)), w(pub))),
@@ -1032,7 +1033,8 @@ def _flaechen():
         ("agent_review.receipt_digest", lambda w: ar.receipt_digest(w(ar_env))),
         ("trust_pack.verify_trust_pack", lambda w: tp.verify_trust_pack(
             w(tp_env), now=jetzt, prev_version_digest=w("a" * 64), prev_root_keys=w(dict(tp_keys)),
-            prev_version=w(1), prev_root_threshold=w(2))),
+            prev_version=w(1), prev_root_threshold=w(2),
+            expected_genesis_digest=w("a" * 64), expected_root_keys=w(dict(tp_keys)))),
         ("policy.evaluate_policy", lambda w: pol.evaluate_policy(
             w(ev_bundle), bm.verify_bundle(ev_bundle), w(policy))),
         ("policy.evaluate_decision_policy", lambda w: pol.evaluate_decision_policy(
@@ -1357,6 +1359,11 @@ _NICHT_IM_SWEEP = {
     "hf_evals.verify_eval_results_entry": {"sd_jwt_issuer_key_pin": "the relying-party SD-JWT issuer-trust pin "
                                            "(Nachtrag 38, Z309); forwarded verbatim through verify_receipt_token to "
                                            "bundle.verify_bundle, where its one reading is measured by the entry above"},
+    "outcome.verify_outcome_receipt": {"trust_pack_pinned": "the relying-party trust-pack pin verdict forwarded "
+                                       "from a rotation-authorized verify_trust_pack (Nachtrag 43, Z309); a bool/None "
+                                       "read by identity (`is True`), which cannot carry a second reading — it is a "
+                                       "switch, classified in tests/test_a_caller_verdict_counts_only_as_a_bool.py. The "
+                                       "recomputed digest/root-key anchors (trust_pack_expected_*) ARE swept above."},
 }
 
 

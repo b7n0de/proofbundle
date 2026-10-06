@@ -306,7 +306,11 @@ def _ergebnis_bauen(parameter: str, oder_raise: bool):
             kw = {parameter: rueckruf}
             if parameter == "receiver_attestation_resolver":
                 kw["evidence_resolver"] = lambda d: True
-            return _verdikt(lambda: fn(objekte[0], objekte[1], trust_pack=objekte[2], **kw),
+            # N43 (security-fix 6.2.0): a trust pack confers role/receiver trust only under a relying-party
+            # anchor. This site measures how a callback ANSWER is judged (a lying key must bind nothing), which
+            # is downstream of the anchor, so the pack is pinned here (forwarded verdict) to exercise the
+            # binding path; the anchor requirement itself is measured in test_trust_pack_pin_620_n43.py.
+            return _verdikt(lambda: fn(objekte[0], objekte[1], trust_pack=objekte[2], trust_pack_pinned=True, **kw),
                             lambda r: (r["ok"], r["evidence_levels"]["effect"]["level"],
                                        (r["evidence_levels"]["receiverRefs"] or {}).get("level"),
                                        r.get("receiver_key_bound"), r.get("receiver_role_trusted")))

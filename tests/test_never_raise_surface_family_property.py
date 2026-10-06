@@ -106,6 +106,12 @@ _NAME_PATTERN = re.compile(
     # verliessen 7 von 7 bzw. 6 von 6 feindliche Formen sie als roher AttributeError. Sie
     # gehoeren in den NENNER, nicht daneben; die Typboeden sitzen jetzt an der Quelle.
     r"|split_key_binding|holder_key_from_cnf"
+    # 2026-10 (Nachtrag 43, security-fix 6.2.0): `trust_pack_is_pinned` is a PREDICATE over a caller-supplied
+    # trust-pack predicate (untrusted) that decides whether the relying party has anchored it. It falls in no
+    # prefix family and must JUDGE — True / False / None — for every input instead of crashing (the content-root
+    # digest computation is wrapped fail-closed; every other read is `_as_dict`/`_as_list`/`_zeichen_von`/
+    # `_richtlinie_von`, none of which raise). In the denominator, like `is_conformant` above.
+    r"|trust_pack_is_pinned"
     # 2026-09-05, Tiefen-Gate-Fund L4-02: `subject_cardinality` liest die Subjektzahl aus einem vom
     # AUFRUFER gelieferten Statement und entscheidet damit, ob ueberhaupt gebunden werden darf. Sie
     # faellt in keine Praefix-Familie und ist trotzdem ein Verbraucher unvertrauter Eingabe — also in

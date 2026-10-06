@@ -325,11 +325,28 @@ class TestOutcomeExecutorRoleTrust(unittest.TestCase):
         self.assertTrue(r["ok"], r)   # unaffected: fully backward compatible
 
     def test_member_key_id_is_trusted(self):
+        # N43 (security-fix 6.2.0): a member key is TRUSTED only under a relying-party anchor. OLD expectation:
+        # executor_role_trusted True for a supplied-but-unpinned pack. NEW: True only under a pin — here the
+        # pack's declared root ("root-0") is pinned via trust_pack_expected_root_keys. Reason: a genesis pack
+        # self-authenticates with no caller input, so membership alone must not read as trusted (the K2 class).
         s, pub = _keys()
         env = emit_outcome_receipt(_pred(), s)   # _pred()'s executor.keyId == "kid-exec"
-        r = verify_outcome_receipt(env, pub, trust_pack=self._trust_pack(member_key_id="kid-exec", executor_pub=pub))
+        pack = self._trust_pack(member_key_id="kid-exec", executor_pub=pub)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack,
+                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
         self.assertTrue(r["executor_role_trusted"], r)
         self.assertTrue(r["ok"], r)
+
+    def test_member_key_id_without_anchor_is_not_trusted(self):
+        # N43 COUNTER-PROBE to the test above: the SAME member pack, with NO relying-party anchor, must not be
+        # positive (red at f2443ed8: executor_role_trusted True, ok True). Fail-closed.
+        s, pub = _keys()
+        env = emit_outcome_receipt(_pred(), s)
+        pack = self._trust_pack(member_key_id="kid-exec", executor_pub=pub)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack)
+        self.assertIs(r["executor_role_trusted"], False)
+        self.assertIs(r["ok"], False)
+        self.assertIn("TRUST_PACK_NOT_ANCHORED", r["automation"]["automationBlockers"])
 
     def test_non_member_key_id_fails_closed(self):
         s, pub = _keys()

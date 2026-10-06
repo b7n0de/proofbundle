@@ -64,7 +64,11 @@ class TestExecutorKeyIdIsBoundToTheSigner(unittest.TestCase):
 
     def test_control_the_real_role_key_is_trusted_and_bound(self):
         env = emit_outcome_receipt(_outcome(), self.root0)
-        r = verify_outcome_receipt(env, _pub(self.root0), trust_pack=self.pack)
+        # N43 (security-fix 6.2.0): a role becomes TRUST only under a relying-party anchor. This test's
+        # property is the KEY BINDING (membership bound to the signer), unchanged — so the anchor is
+        # established here (the caller forwards a pinned verify_trust_pack verdict) and the binding is then
+        # asserted exactly as before. OLD: trust under an unpinned pack. NEW: trust under a pinned pack.
+        r = verify_outcome_receipt(env, _pub(self.root0), trust_pack=self.pack, trust_pack_pinned=True)
         self.assertTrue(r["ok"], r["errors"])
         self.assertTrue(r["executor_role_trusted"])
         self.assertTrue(r["executor_key_bound"])
@@ -152,7 +156,11 @@ class TestReceiverKeyIdIsBoundWhenThePackNamesTheKey(unittest.TestCase):
             {"relation": "acknowledges", "digest": {"sha256": _DIG}, "receiverKeyId": "root-1"}]), self.exec_)
 
     def _verify(self, resolver):
+        # N43: the receiver-binding property under test is unchanged; the relying-party anchor is a precondition
+        # for any derived role trust, so it is forwarded here (trust_pack_pinned=True) and the binding behaviour
+        # is asserted as before. OLD: receiver trust under an unpinned pack. NEW: under a pinned pack.
         return verify_outcome_receipt(self.env, _pub(self.exec_), trust_pack=self.pack,
+                                      trust_pack_pinned=True,
                                       evidence_resolver=lambda d: True,
                                       receiver_attestation_resolver=resolver)
 

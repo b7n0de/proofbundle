@@ -351,7 +351,10 @@ class AResolverAnswerIsJudgedAsItWasGiven(unittest.TestCase):
                     puffer[:] = _raw(_P)
                 return False
 
-            return verify_outcome_receipt(umschlag, _raw(_A), trust_pack=pack, evidence_resolver=lambda d: True,
+            # N43: the receiver-binding path this test measures runs only under a relying-party anchor; the pack
+            # is pinned here (forwarded verdict) so the binding is exercised, as before.
+            return verify_outcome_receipt(umschlag, _raw(_A), trust_pack=pack, trust_pack_pinned=True,
+                                          evidence_resolver=lambda d: True,
                                           receiver_attestation_resolver=bezeugen)
 
         kontrolle = lauf(False)
@@ -698,7 +701,9 @@ class ACallbackThatEmptiesEveryArgumentChangesNoVerdict(_Registriert):
                 return _antwort
 
             rest = {k: v for k, v in args.items() if k != "public_key"}
-            r = verify_outcome_receipt(umschlag, args["public_key"], **rest,
+            # N43: pin the pack (forwarded verdict) so the receiver-binding path this test tampers with actually
+            # runs; ok stays False for the retraction reason either way.
+            r = verify_outcome_receipt(umschlag, args["public_key"], **rest, trust_pack_pinned=True,
                                        evidence_resolver=lambda d, _r=rueckruf: (_r(), True)[1],
                                        receiver_attestation_resolver=bezeugen)
             if not verwuesten:

@@ -246,8 +246,11 @@ class AutomationGateProjection(unittest.TestCase):
             "performedAt": "2026-07-17T00:00:00Z", "policyPurpose": "outcome", "relationships": [self.edge],
         }
         env = emit_outcome_receipt(pred, self.successor, strict=False)
+        # N43: pin the pack's declared root so safeForAutomation=False here is caused by the SUBJECT-PIN /
+        # lineage failure under test, not merely by the (otherwise-missing) relying-party anchor.
         r = verify_outcome_receipt(env, _pub_bytes(self.successor), policy=self.policy,
-                                   related=self.related, trust_pack=trust_pack)
+                                   related=self.related, trust_pack=trust_pack,
+                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
         self.assertNotEqual((r.get("lineage") or {}).get("lineage"), LINEAGE_VERIFIED)
         self.assertIsNot((r.get("automation") or {}).get("safeForAutomation"), True)
 
