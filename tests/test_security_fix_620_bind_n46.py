@@ -51,16 +51,22 @@ def _broken_signature_bundle() -> dict:
 
 
 class F1AnInvalidBundleSignatureGatesTheSdJwtFields(unittest.TestCase):
-    """F1 counter-probe + control: a failed bundle signature confers no positive SD-JWT field, at verify_bundle
-    and at the CLI; a valid bundle stays positive."""
+    """F1 counter-probe + control, adapted per the Nachtrag 46b review (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-
+    REVIEW-01`, point 3): a failed bundle signature closes the BUNDLE-BINDING path and the KB / audience /
+    nonce fields that depend on it, at verify_bundle and at the CLI. A genuinely successful SD-JWT
+    issuer-signature check is a separate crypto finding and may stay positive — the earlier "no positive field
+    from the SD-JWT" was broader than the contract. The independent pin path stays unchanged (class F2)."""
 
     def test_verify_bundle_reports_the_kb_verdict_gated(self):
         r = verify_bundle(_broken_signature_bundle(), expected_aud=_AUD, expected_nonce=_NONCE)
         ch = _checks(r)
         self.assertIs(ch.get("ed25519-signature"), False)
         self.assertIs(r.ok, False)
-        # the KB-JWT verdict is explicitly gated closed, not silently left positive
+        # the bundle-binding trust verdict is explicitly gated closed, not silently left positive
         self.assertIs(ch.get("sd-jwt-issuer-trust"), False)
+        # review point 3: the SD-JWT's own issuer signature is a separate crypto fact; a genuinely valid one
+        # stays a positive finding (the flipped byte is the BUNDLE signature, not the SD-JWT issuer signature).
+        self.assertIs(ch.get("sd-jwt-issuer-signature"), True)
 
     def test_cli_single_fields_are_not_positive(self):
         rc, j = _cli_json(["verify", _write(_broken_signature_bundle()), "--aud", _AUD, "--nonce", _NONCE, "--json"])

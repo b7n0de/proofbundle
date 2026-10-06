@@ -560,6 +560,13 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         result.add("root-authenticity", root_ok,
                    "stated root matches the expected authenticated root" if root_ok
                    else "stated root does NOT match the expected root — possible root/rewrap substitution")
+        # Nachtrag 46b (Z309): record the exact stated root this root-authenticity check verified, but only
+        # on a passing bundle signature AND a passing root check. The stated Merkle root is NOT in the signed
+        # payload, so payload+signer equality does not pin it; a downstream judge that adopts a positive
+        # root-authenticity (policy.evaluate_policy) must confirm the result verified THIS bundle's root, not
+        # a different one re-anchoring the same payload (the review's root/rewrap case). Left None otherwise.
+        if sig_ok is True and root_ok is True:
+            result.verified_merkle_root = root
     if expected_tree_size is not None:
         # strict: a real int only — reject bool (1==True) and float (1==1.0), matching _require_int.
         # type() and not isinstance(): isinstance believes an object's own __class__, and the == below then ran
@@ -766,6 +773,13 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
             result.add(
                 "sd-jwt-issuer-trust", False,
                 "a Key Binding JWT verdict (holder binding / audience / nonce) was reported, but " + trust_detail)
+
+    # Nachtrag 46b (Z309): stamp the ORIGIN token over the captured verified state (signer, payload digest,
+    # Merkle root, sd_jwt_vc digest), once, only on a passing bundle signature. A downstream judge recomputes
+    # it from the result's recorded fields and refuses a result that was not produced by this process's verifier
+    # (a hand-built or mutated result) — aptly-filled result fields are no proof (review).
+    if sig_ok is True:
+        result.stamp_origin()
 
     return result, payload
 

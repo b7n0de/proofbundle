@@ -182,13 +182,19 @@ def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult
     Nachtrag 46: this rebuilds the result from ``result`` (a real verify_bundle result of the paired bundle)
     only to probe how a check's ``ok`` is read, so it carries the result's recorded verified signer and payload
     digest through unchanged — the rebuilt result still represents the verification of that same bundle, which
-    evaluate_policy now requires (F2: a result must be bound to the bundle it judges)."""
+    evaluate_policy now requires (F2: a result must be bound to the bundle it judges).
+
+    Nachtrag 46b: it also carries the verified Merkle root through (the authenticated-root rule now adopts a
+    positive root-authenticity only for the root the result verified) and stamps the origin token verify_bundle
+    stamps over these fields (evaluate_policy refuses a result that carries none)."""
     checks = [Check(c.name, ok if c.name == name else c.ok, c.detail) for c in result.checks]
     if not any(c.name == name for c in result.checks):
         checks.append(Check(name, ok))
     out = VerificationResult(checks)
     out.verified_signer_pub = result.verified_signer_pub
     out.verified_payload_digest = result.verified_payload_digest
+    out.verified_merkle_root = result.verified_merkle_root
+    out.stamp_origin()
     return out
 
 
@@ -238,7 +244,10 @@ class TestACallerBuiltCheckPassesTheCryptoGateOnlyAsTrue(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bundle = _eval_bundle()
-        cls.real = verify_bundle(cls.bundle)
+        # Nachtrag 46b: the root-authenticity site needs a result that actually verified THIS bundle's stated
+        # root — the authenticated-root rule now adopts a positive verdict only for the root the result recorded.
+        # Verifying with the bundle's own stated root makes root-authenticity pass and records verified_merkle_root.
+        cls.real = verify_bundle(cls.bundle, expected_root_b64=cls.bundle["merkle"]["root_b64"])
         cls.vct = "https://example.test/vct/mine"
         cls.sd_bundle = _sd_jwt_bundle(cls.vct)
         cls.sd_real = verify_bundle(cls.sd_bundle)

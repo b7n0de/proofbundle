@@ -36,11 +36,16 @@ def _R() -> VerificationResult:
 
     Nachtrag 46 (F2): verify_bundle now records on the result the signer and payload digest it verified, and
     evaluate_policy requires them to match the bundle it judges. This stand-in carries the signer and digest of
-    ``_BUNDLE`` so the hull-check assertions (the point of this file) still reach the rule body."""
+    ``_BUNDLE`` so the hull-check assertions (the point of this file) still reach the rule body.
+
+    Nachtrag 46b: evaluate_policy also requires the result to carry an authentic origin token verify_bundle
+    stamps over its verified fields. This stand-in simulates that verifier output, so it stamps the token over
+    its own fields (in-process stamping is explicitly out of the review's threat model for a hand-off)."""
     r = VerificationResult()
     r.add("crypto", True)
     r.verified_signer_pub = base64.b64decode(_SIGNER_B64)
     r.verified_payload_digest = hashlib.sha256(base64.b64decode(_PAYLOAD_B64)).hexdigest()
+    r.stamp_origin()
     return r
 
 

@@ -653,8 +653,11 @@ class EveryAppliedRuleHasAnObservableEffect(unittest.TestCase):
         # Nachtrag 46 (F2): evaluate_policy now requires the result to be bound to the bundle it judges. This
         # caller-built result stands in for a verify_bundle result of exactly this bundle, so it carries the
         # signer and payload digest of `b`; the rule's observable effect (PASS without, FAIL with) is unchanged.
+        # Nachtrag 46b: evaluate_policy also requires an authentic origin token; the stand-in stamps it over its
+        # own fields, as a verify_bundle result of this bundle would carry one.
         ergebnis.verified_signer_pub = base64.b64decode(b["signature"]["public_key_b64"])
         ergebnis.verified_payload_digest = hashlib.sha256(base64.b64decode(b["payload_b64"])).hexdigest()
+        ergebnis.stamp_origin()
         basis = {(None, "allowed_issuers"): [{"public_key_b64": pub}]}
         regel = ("sd_jwt", "require_key_binding_when_cnf_present")
         ohne = _urteil_bib(evaluate_policy(b, ergebnis, _politik(basis)), ok_feld=False)

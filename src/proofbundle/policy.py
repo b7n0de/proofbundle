@@ -1252,6 +1252,19 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         return {"policy_ok": False,
                 "checks": [{"name": "policy:result_bundle_binding", "ok": False, "detail": grund}],
                 "reason": grund}
+    # Nachtrag 46b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): the signer + payload digest above
+    # bind the SIGNED bytes, but merely-filled result fields are no proof of a verification run — a hand-built
+    # or post-stamp-mutated result with matching signer+digest would pass. Require the result to carry an
+    # authentic ORIGIN token this process's verify_bundle stamped over exactly the fields it now holds. A
+    # non-VerificationResult, a hand-built one (no token) or a mutated one is refused; no rule is evaluated.
+    _origin_ok = callable(getattr(result, "origin_authentic", None)) and result.origin_authentic()
+    if not _origin_ok:
+        grund = ("the verification result carries no authentic origin token — it was not produced by this "
+                 "process's verify_bundle for these verified fields (a hand-built or mutated result is refused; "
+                 "pass the VerificationResult that verify_bundle returned for exactly this bundle)")
+        return {"policy_ok": False,
+                "checks": [{"name": "policy:result_origin", "ok": False, "detail": grund}],
+                "reason": grund}
 
     # 0. A-P0-2 §6 + A-P0-4 §8: policy LIFECYCLE and PURPOSE are part of the policy evaluation
     # itself (POLICY: FAIL, exit 3) — parity with the decision path's AP-2 sibling gate. Previously
@@ -1389,13 +1402,21 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     require_auth_root = bool(mk_pol.get("require_authenticated_root"))
     trusted_roots = _as_list(mk_pol.get("trusted_roots"))
     if require_auth_root or trusted_roots:
-        ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
-        via_expected = ra_check is not None and ra_check.ok is True   # exact, as the crypto gate above
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
             stated_root = decode_b64(stated_root_b64) if isinstance(stated_root_b64, str) else b""
         except (ValueError, TypeError):
             stated_root = b""
+        ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
+        # Nachtrag 46b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): a positive root-authenticity
+        # check is adopted ONLY for the root the result actually verified. The stated Merkle root is not signed,
+        # so a bundle re-anchoring the SAME payload under a DIFFERENT root (same signer + payload digest, which
+        # the N46 binding alone accepts) would otherwise inherit an old positive verdict. Require the result's
+        # recorded verified_merkle_root to equal THIS bundle's stated root.
+        _vmr = getattr(result, "verified_merkle_root", None)
+        via_expected = (ra_check is not None and ra_check.ok is True
+                        and isinstance(_vmr, (bytes, bytearray)) and bool(stated_root)
+                        and hmac.compare_digest(bytes(_vmr), stated_root))   # exact, as the crypto gate above
         via_trusted = False
         for tr in trusted_roots:
             try:
