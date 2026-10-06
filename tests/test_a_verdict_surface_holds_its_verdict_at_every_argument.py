@@ -650,6 +650,7 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "decision.emit_decision_receipt(signer)",
     "decision.verify_decision_receipt(expected_audience)",
     "decision.verify_decision_receipt(expected_nonce)",
+    "decision.verify_decision_receipt(now)",
     "decision.verify_decision_receipt(rp_trust)",
     "decision.verify_decision_receipt_or_raise(expected_audience)",
     "decision.verify_decision_receipt_or_raise(expected_nonce)",
