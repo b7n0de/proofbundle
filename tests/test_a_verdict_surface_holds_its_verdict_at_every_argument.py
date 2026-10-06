@@ -466,6 +466,11 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("subject_binding.require_derived_subject", lambda w: sb.require_derived_subject(w(nutzlast(dec_env)))),
         ("subject_binding.subject_cardinality", lambda w: sb.subject_cardinality(w(nutzlast(dec_env)))),
         ("trust_pack.require_valid_trust_pack_predicate", lambda w: tp.require_valid_trust_pack_predicate(w(tp_pred))),
+        # N43: trust_pack_is_pinned is a tri-state relying-party anchor predicate. Its base case pins the declared
+        # root keys, so it answers True, and a change to the predicate or to the pinned set reaches the verdict.
+        ("trust_pack.trust_pack_is_pinned",
+         lambda w: tp.trust_pack_is_pinned(w(tp_pred), expected_root_keys={
+             kid: {"publicKey": tp_keys[kid]["publicKey"]} for kid in tp_pred["roles"]["root"]["keyIds"]})),
         ("verification_summary.require_valid_summary_predicate",
          lambda w: vs.require_valid_summary_predicate(w(vs_pred))),
         ("verification_summary.validate_summary_predicate", lambda w: vs.validate_summary_predicate(w(vs_pred))),
@@ -666,6 +671,8 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "outcome.verify_outcome_receipt(decision_maker_id)",
     "outcome.verify_outcome_receipt(expected_audience)",
     "outcome.verify_outcome_receipt(expected_nonce)",
+    "outcome.verify_outcome_receipt(trust_pack_expected_genesis_digest)",
+    "outcome.verify_outcome_receipt(trust_pack_expected_root_keys)",
     "policy.evaluate_decision_policy(statement)",
     "policy.evaluate_decision_policy(verify_result)",
     "policy.evaluate_policy(result)",
@@ -692,6 +699,8 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "sdjwt_vc.verify_sdjwt_vc(offline_metadata)",
     "statuslist.issue_status_list_token(signer)",
     "subject_binding.subject_cardinality(statement)",
+    "trust_pack.verify_trust_pack(expected_genesis_digest)",
+    "trust_pack.verify_trust_pack(expected_root_keys)",
     "trust_pack.verify_trust_pack(now)",
     "trust_pack.verify_trust_pack(prev_version_digest)",
     "verification_summary.emit_verification_summary(signer)",

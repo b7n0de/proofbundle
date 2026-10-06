@@ -106,7 +106,7 @@ policy that pins no signer. In `verify` itself, a PASSING policy that pins no si
 - There is **no key-rotation or root-of-trust delegation in the trust *policy*** (no TUF-like signed
   root/targets roles with `expires`, see `INTEROP.md`). `allowed_issuers[]` is a static pinned list;
   rotating a signer means re-distributing the policy file. A trust policy pins keys; it does not manage
-  their lifecycle. (The separate `trust-pack`/v0.1 predicate IS the TUF-inspired signed root with
-  roles, `expires` and a two-stage rotation chain — but it is trusted only once the relying party pins
-  it to an anchor, see the **Trust Pack root of trust** row above; a genesis pack confers no trust on
-  its own.)
+  their lifecycle. (The separate `trust-pack`/v0.1 predicate IS the TUF-inspired root of trust — a role
+  set authenticated by a threshold of its own declared root KEYS, with `expires` and a two-stage rotation
+  chain — but it is trusted only once the relying party pins it to an anchor, see the **Trust Pack root of
+  trust** row above; a genesis pack confers no trust on its own.)
