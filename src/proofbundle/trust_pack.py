@@ -464,14 +464,60 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
 # `ok`, which stays the documented self-authentication verdict.
 
 
+def _root_key_identity(value: Any) -> bytes | None:
+    """Addendum R6a-3 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the canonical IDENTITY token of ONE root
+    key, covering the ALGORITHM and BOTH legs, not the classical ``publicKey`` alone. So a hybrid key and an
+    Ed25519 key that happen to share the classical public bytes are DIFFERENT identities — a relying party's
+    pin that declares ``hybrid-ed25519-mldsa65`` is NOT satisfied by a pack whose root key is Ed25519-only (no
+    downgrade, docs/predicates/trust-pack.md §roles/keys). Accepts the same shapes as ``prev_root_keys``: a
+    bare base64 string (legacy Ed25519-only) or a key object ``{"publicKey", "alg"?, "publicKeyPq"?}``.
+
+    Fail-closed (``None``, counted nowhere, so it can neither be a declared root key nor a pin):
+      - an unknown ``alg`` (never silently reduced to its classical leg);
+      - an unreadable / missing ``publicKey``;
+      - a hybrid key whose ``publicKeyPq`` leg is absent or not decodable (an INCOMPLETE hybrid key).
+    ``alg`` absent defaults to ``ed25519`` (backward compatible with every pre-agility pack and bare-string
+    pin). The token is length-prefixed, so no two distinct ``(alg, publicKey, publicKeyPq)`` triples collide."""
+    alg: str
+    pub_b64: Any
+    pq_b64: Any
+    if isinstance(value, str):
+        alg, pub_b64, pq_b64 = "ed25519", value, None
+    elif isinstance(value, dict):
+        alg = value.get("alg", "ed25519")
+        if alg not in _KEY_ALGS:
+            return None   # R6a-3: an unknown algorithm is rejected closed, never read as its classical leg
+        pub_b64, pq_b64 = value.get("publicKey"), value.get("publicKeyPq")
+    else:
+        return None
+    if not isinstance(pub_b64, str):
+        return None
+    try:
+        pub = decode_b64(pub_b64)
+    except Exception:  # noqa: BLE001 — an unreadable public key is no identity
+        return None
+    pq: bytes | None = None
+    if alg == "hybrid-ed25519-mldsa65":
+        if not isinstance(pq_b64, str):
+            return None   # R6a-3: a hybrid key WITHOUT its PQ leg is incomplete — rejected closed, no downgrade
+        try:
+            pq = decode_b64(pq_b64)
+        except Exception:  # noqa: BLE001 — an undecodable PQ leg is an incomplete hybrid key
+            return None
+    pq_part = b"" if pq is None else str(len(pq)).encode("ascii") + b":" + pq
+    return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|" + pq_part
+
+
 def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
-    """The pack's own DECLARED, non-revoked root role: ``(set of root public-key bytes, declared threshold)``.
+    """The pack's own DECLARED, non-revoked root role: ``(set of root key IDENTITY tokens, declared threshold)``.
 
     Mirrors ``verify_trust_pack``'s own root extraction (count distinct KEY MATERIAL, not keyId labels): for
-    each non-revoked root keyId, the decoded ``keys[kid].publicKey``. Fail-closed — an unreadable key, a
-    malformed role or a non-int threshold contributes nothing (empty set / ``None`` threshold), never a raise.
-    The threshold is returned only as an exact int (``_is_int``), so an int subclass cannot later decide a
-    comparison; a non-int threshold comes back ``None`` and no pin via the root-key anchor can pass."""
+    each non-revoked root keyId, the full normalized identity of ``keys[kid]`` (R6a-3: algorithm + both legs,
+    via ``_root_key_identity``, not ``publicKey`` alone). Fail-closed — an unreadable key, an unknown or
+    incomplete algorithm, a malformed role or a non-int threshold contributes nothing (empty set / ``None``
+    threshold), never a raise. The threshold is returned only as an exact int (``_is_int``), so an int subclass
+    cannot later decide a comparison; a non-int threshold comes back ``None`` and no pin via the root-key anchor
+    can pass."""
     if not isinstance(predicate, dict):
         return set(), None
     keys = _as_dict(predicate.get("keys"))
@@ -484,38 +530,28 @@ def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
         kv = keys.get(kid)
         if not isinstance(kv, dict):
             continue
-        pub_b64 = kv.get("publicKey")
-        if not isinstance(pub_b64, str):
-            continue
-        try:
-            material.add(decode_b64(pub_b64))
-        except Exception:  # noqa: BLE001 — an unreadable key is simply not part of the declared root
-            continue
+        token = _root_key_identity(kv)   # R6a-3: full normalized identity, never the classical leg alone
+        if token is not None:
+            material.add(token)
     threshold = root.get("threshold")
     return material, (threshold if _is_int(threshold) else None)
 
 
 def _pinned_root_material(expected_root_keys: Any) -> set[bytes]:
-    """The set of root public-key bytes a relying party PINNED. Accepts the same shape as ``prev_root_keys``:
-    a ``{keyId: publicKey_b64}`` map, or ``{keyId: {"publicKey": ..., ...}}``. Read ONCE through
-    ``canonical._richtlinie_von`` so a caller's mapping subclass cannot decide membership through its own
-    ``get`` / ``__iter__`` / ``values``. Fail-closed — an entry whose public key is unreadable, or any value
-    that is no base64 string / key object, contributes nothing."""
+    """The set of root key IDENTITY tokens a relying party PINNED. Accepts the same shape as ``prev_root_keys``:
+    a ``{keyId: publicKey_b64}`` map, or ``{keyId: {"publicKey": ..., "alg"?: ..., "publicKeyPq"?: ...}}``. Read
+    ONCE through ``canonical._richtlinie_von`` so a caller's mapping subclass cannot decide membership through
+    its own ``get`` / ``__iter__`` / ``values``. R6a-3: each entry is normalized to its full identity
+    (``_root_key_identity``: algorithm + both legs), so a pin that declares a hybrid key is matched ONLY by a
+    declared hybrid key with the same classical AND post-quantum leg — never by an Ed25519-only key that shares
+    the classical bytes. Fail-closed — an entry whose public key is unreadable, whose algorithm is unknown, or
+    which is an incomplete hybrid key (no decodable ``publicKeyPq``), contributes nothing."""
     m = _richtlinie_von(expected_root_keys) or {}
     material: set[bytes] = set()
     for v in m.values():
-        if isinstance(v, str):
-            pub_b64: Any = v
-        elif isinstance(v, dict):
-            pub_b64 = v.get("publicKey")
-        else:
-            continue
-        if not isinstance(pub_b64, str):
-            continue
-        try:
-            material.add(decode_b64(pub_b64))
-        except Exception:  # noqa: BLE001
-            continue
+        token = _root_key_identity(v)   # R6a-3: same full normalized identity on both sides of the match
+        if token is not None:
+            material.add(token)
     return material
 
 
