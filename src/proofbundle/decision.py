@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
@@ -35,6 +37,21 @@ _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches be
 _SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
+
+
+def _expiresat_posix(value: Any) -> "float | None":
+    """POSIX seconds for a strict RFC3339-`Z` timestamp, or None when ``value`` is not such a string.
+
+    Nachtrag 49 K4-01 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): the single strict reader for
+    ``validity.expiresAt`` in the verify verdict. Anything that is not an RFC3339-`Z` string (the only
+    time form this module accepts) returns None, which the caller treats as fail-closed."""
+    if not (isinstance(value, str) and _RFC3339_Z.match(value)):
+        return None
+    fmt = "%Y-%m-%dT%H:%M:%S.%fZ" if "." in value else "%Y-%m-%dT%H:%M:%SZ"
+    try:
+        return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc).timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
 _OUTCOME_STATUS = {"notAttempted", "blocked", "refused", "attempted", "executed", "failed", "unknown"}
 
@@ -544,7 +561,7 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
                                      anchors: list | None = None, rp_trust: dict | None = None,
                                      require_derived_subject: bool = False,
                                      evidence_resolver: Callable[[dict], bool] | None = None,
-                                     related: dict | None = None) -> dict:
+                                     related: dict | None = None, now: int | None = None) -> dict:
     """Explicit-exception variant of :func:`verify_decision_receipt`: raises :class:`BundleFormatError`
     when the payload is not a well-formed in-toto Statement (malformed JSON, duplicate key, bad UTF-8),
     instead of returning a fail-closed verdict. Use :func:`verify_decision_receipt` (never-raise) for
@@ -554,7 +571,7 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         envelope, public_key, strict=strict, expected_audience=expected_audience,
         expected_nonce=expected_nonce, policy=policy, anchors=anchors, rp_trust=rp_trust,
         require_derived_subject=require_derived_subject, evidence_resolver=evidence_resolver,
-        related=related, _raise_on_malformed=True)
+        related=related, now=now, _raise_on_malformed=True)
 
 
 @_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
@@ -563,7 +580,8 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                             policy: dict | None = None, anchors: list | None = None,
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
                             evidence_resolver: Callable[[dict], bool] | None = None,
-                            related: dict | None = None, _raise_on_malformed: bool = False) -> dict:
+                            related: dict | None = None, now: int | None = None,
+                            _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -861,6 +879,24 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
+        # Nachtrag 49 K4-01 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a declared validity.expiresAt is
+        # part of the verdict, judged against ONE evaluation time — the `now` POSIX-seconds parameter when the
+        # relying party supplies it, else the wall clock read once here (never an artifact time). An expired or
+        # unreadable expiry fails closed via `freshness_ok`; an ABSENT expiresAt leaves freshness_ok None (not
+        # applicable), the behaviour as before this Nachtrag. Judged only here, over authenticated bytes.
+        _exp = _validity.get("expiresAt")
+        if _exp is not None:
+            _exp_posix = _expiresat_posix(_exp)
+            _eval_now = now if (isinstance(now, (int, float)) and not isinstance(now, bool)) else time.time()
+            if _exp_posix is None:
+                r["freshness_ok"] = False
+                r["errors"].append("validity.expiresAt is not a readable RFC3339 'Z' timestamp (fail-closed)")
+            elif _eval_now >= _exp_posix:
+                r["freshness_ok"] = False
+                r["errors"].append("decision receipt is expired: validity.expiresAt is at or before the "
+                                   "evaluation time (fail-closed)")
+            else:
+                r["freshness_ok"] = True
 
     # Subject binding (Finding 05, release-review #4 parity with outcome.py): classify whether the subject
     # genuinely commits to the predicate so a consumer never gets ZERO signal on a subject-rehang override.
@@ -1064,6 +1100,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["policy_ok"] is not False and r["signer_trusted"] is not False
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
+        and r["freshness_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
         and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False)
 

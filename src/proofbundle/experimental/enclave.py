@@ -181,6 +181,12 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
             result["fresh"] = None            # unbounded — cannot judge (relying-party policy)
         else:
             result["fresh"] = (iat is None or iat <= now) and now < exp
+            if result["fresh"] is False:
+                # Nachtrag 49 K4-04 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): an attestation expired
+                # or not yet valid at the evaluation time is never a positive authenticated verdict. A missing
+                # `now` or a missing `exp` leaves `fresh` None (unbounded — relying-party policy), unchanged.
+                result["detail"] = "enclave attestation is not fresh (expired or not yet valid) at the evaluation time"
+                return result
 
     result["ok"] = True
     result["detail"] = f"enclave attestation verified (tier={result['tier']!r})"

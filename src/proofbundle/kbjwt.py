@@ -148,6 +148,16 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     return raw if len(raw) == 32 else None
 
 
+# Nachtrag 49 K4-02 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a KB-JWT is a PRESENTATION-freshness
+# proof. When the relying party supplies an evaluation time (`now`, POSIX seconds), the holder's `iat` is judged
+# against it: a conservative default presentation age (5 minutes) bounds replay, and a small skew window absorbs
+# clock drift. Without `now` the freshness CANNOT be judged (offline/historical verification), so `fresh` stays
+# None and the verdict is unchanged — exactly as the sibling status-list and enclave verifiers treat a missing
+# `now`. A relying party verifying an older presentation on purpose passes its own `now`/`max_age_seconds`.
+_KB_DEFAULT_MAX_AGE_SECONDS = 300
+_KB_FUTURE_SKEW_SECONDS = 60
+
+
 @_ein_stand
 def verify_key_binding(
     compact: str,
@@ -155,6 +165,8 @@ def verify_key_binding(
     *,
     expected_aud: Optional[str] = None,
     expected_nonce: Optional[str] = None,
+    now: Optional[int] = None,
+    max_age_seconds: Optional[int] = None,
 ) -> dict:
     """Verify the Key Binding JWT of a compact SD-JWT presentation.
 
@@ -167,7 +179,8 @@ def verify_key_binding(
     available (the issuer's binding is authoritative), else from
     ``holder_pubkey``. If neither exists the check fails — never skips.
     """
-    result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None}
+    result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None,
+              "fresh": None}
     # One reading of the presentation, by its characters (round 12): the sd_hash, the issuer payload
     # and the KB-JWT below all come from the same text, and no method of a `str` subclass runs.
     compact = _zeichen_von(compact) if _zeichen_von(compact) is not None else compact
@@ -298,6 +311,26 @@ def verify_key_binding(
     if not sig_ok:
         result["detail"] = f"KB-JWT signature invalid ({key_source})"
         return result
+
+    # Nachtrag 49 K4-02 (Z309): presentation freshness, judged only when the relying party gives one evaluation
+    # time. `iat` is a number here (checked above). A `now` that is not a real number is a malformed relying-party
+    # argument when freshness was requested — fail-closed, never a silent pass. Default presentation age applies
+    # when `now` is given but `max_age_seconds` is not; an explicit non-negative `max_age_seconds` overrides it.
+    if now is not None:
+        if isinstance(now, bool) or not isinstance(now, (int, float)):
+            result["detail"] = "KB-JWT freshness: `now` (evaluation time) must be a number (fail-closed)"
+            return result
+        _max_age = (max_age_seconds if (isinstance(max_age_seconds, int) and not isinstance(max_age_seconds, bool)
+                                        and max_age_seconds >= 0) else _KB_DEFAULT_MAX_AGE_SECONDS)
+        if iat > now + _KB_FUTURE_SKEW_SECONDS:
+            result["fresh"] = False
+            result["detail"] = "KB-JWT iat is in the future beyond the allowed clock skew (fail-closed)"
+            return result
+        if iat < now - _max_age:
+            result["fresh"] = False
+            result["detail"] = "KB-JWT iat is older than the allowed presentation age (fail-closed)"
+            return result
+        result["fresh"] = True
 
     result["ok"] = True
     result["detail"] = f"key binding valid ({key_source})"
