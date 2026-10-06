@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 
 from proofbundle.decision import _DECISION_ORIGIN_DOMAIN, _rfc8785_bytes
-from proofbundle.errors import origin_token
+from proofbundle.errors import _origin_token
 
 
 def bound_decision_result(statement: dict, signer_public_key_b64: str, **extra) -> dict:
@@ -23,7 +23,7 @@ def bound_decision_result(statement: dict, signer_public_key_b64: str, **extra) 
         "crypto_ok": True,
         "verified_signer_pub_b64": signer_public_key_b64,
         "verified_payload_digest": digest,
-        "verified_origin": origin_token(_DECISION_ORIGIN_DOMAIN, (signer_public_key_b64, digest)),
+        "verified_origin": _origin_token(_DECISION_ORIGIN_DOMAIN, (signer_public_key_b64, digest)),
     }
     result.update(extra)
     return result

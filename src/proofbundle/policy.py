@@ -945,7 +945,7 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     #   - the result carries an authentic origin token this process stamped over exactly those fields.
     # Missing or divergent -> fail-closed, no decision rule evaluated, no positive verdict.
     from .decision import _DECISION_ORIGIN_DOMAIN, _rfc8785_available, _rfc8785_bytes  # noqa: PLC0415
-    from .errors import origin_authentic as _origin_authentic  # noqa: PLC0415
+    from .errors import _origin_authentic  # noqa: PLC0415
     _res = verify_result if issubclass(type(verify_result), dict) else {}
     _bound = False
     if _res.get("crypto_ok") is True and _rfc8785_available():
