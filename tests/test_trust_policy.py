@@ -586,13 +586,26 @@ class TestExpectedVct(unittest.TestCase):
         # Both results are VerificationResults, as `verify_bundle` returns them. Until the fix of deep gate run 6 two
         # classes of the test's own with ``ok`` and ``checks`` served; since then an object of a caller's class reaches
         # evaluate_policy as a stand-in that holds nothing of the caller, and the policy is not evaluated at all.
+        import base64 as _b64mod  # noqa: PLC0415
+        import hashlib as _hashlib  # noqa: PLC0415
         from proofbundle.errors import VerificationResult  # noqa: PLC0415
+
+        # Nachtrag 46 (F2): evaluate_policy requires the result to be bound to the bundle it judges. These
+        # stand-in results carry the signer and payload digest of `bundle`, so the vct gate under test is still
+        # reached — the vct is then refused because the SD-JWT issuer signature was never verified, as before.
+        _signer_b64 = _b64mod.b64encode(bytes(32)).decode("ascii")
+        _payload_b64 = _b64mod.b64encode(b"{}").decode("ascii")
+
+        def _bind(r: VerificationResult) -> VerificationResult:
+            r.verified_signer_pub = _b64mod.b64decode(_signer_b64)
+            r.verified_payload_digest = _hashlib.sha256(_b64mod.b64decode(_payload_b64)).hexdigest()
+            return r
 
         def _NeverRan() -> VerificationResult:
             r = VerificationResult()
             r.add("ed25519-signature", True)
             r.add("sd-jwt-disclosures", True)
-            return r
+            return _bind(r)
 
         def _Failed() -> VerificationResult:
             r = _NeverRan()
@@ -604,7 +617,9 @@ class TestExpectedVct(unittest.TestCase):
         compact = issue_sd_jwt(
             full_eval_claim("placeholder", suite="x", threshold="0.8"),
             issuer, root_b64="cm9vdA==", vct="https://attacker.example/vct")
-        bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact}}
+        bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact},
+                  "payload_b64": _payload_b64,
+                  "signature": {"alg": "ed25519", "public_key_b64": _signer_b64}}
         policy = load_policy(_base_policy(sd_jwt={"expected_vct": "https://attacker.example/vct"}))
         res = evaluate_policy(bundle, _NeverRan(), policy)
         self.assertFalse(res["policy_ok"])
