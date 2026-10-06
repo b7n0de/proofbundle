@@ -17,6 +17,7 @@ proves nothing to you.
 | **Samples root** (`claim.samples.root_b64`) | IN-BAND, **signed** | Nothing extra — it is covered by the bundle signature; the verifier re-checks `samples.n == n`. Audit challenges use a **fresh nonce you choose** (or a public beacon). | A self-challenge (no nonce) is grindable by re-salting — use a fresh nonce for real audits. |
 | **TEE Verifier key** (`verify_enclave_attestation(verifier_pubkey=…)`, v2.0 preview) | OUT-OF-BAND | Supply the RATS Verifier's key; you also implicitly trust that its appraisal of the raw TEE evidence is sound. | An enclave attestation is only as good as the Verifier you trust; proofbundle checks its signature + receipt binding, not the raw hardware quote. |
 | **Pre-registration protocol** (`prereg_sha256`) | Hash IN-BAND signed; the protocol FILE is out of band | You must obtain the protocol file to check it hashes to the committed value. | You have a commitment to a plan you can't see — ask for the file. |
+| **Trust Pack root of trust** (`trust-pack`/v0.1) | A genesis pack self-authenticates IN-BAND from its own declared root keys | OUT-OF-BAND: pin the genesis **content-root digest** (`verify_trust_pack(expected_genesis_digest=…)` — the `sha256(JCS(predicate))` a successor carries as `prevVersionDigest`), or the **root-key set** (`expected_root_keys=…`), or verify a **rotation** against a pinned predecessor (`prev_root_keys` + `prev_root_threshold`). The result field `pinned` names which, if any, held. | An unpinned pack is `ok=True` (form, threshold, expiry, chain — self-authentication only) but `pinned=None` and `automation.safeForAutomation=False`; every derived role trust (`outcome` executor/receiver) stays not-established. A genesis pack proves nothing *to you* until you pin it — you'd be trusting a root of trust you never chose (security-fix 6.2.0). |
 
 Rule of thumb: **in-band, self-asserting anchors (the bundle/SD-JWT issuer key, the samples root)
 prove internal consistency; out-of-band anchors (log, witness, status keys, the protocol file) are
@@ -102,6 +103,10 @@ policy that pins no signer. In `verify` itself, a PASSING policy that pins no si
   `sd_jwt.expected_aud` / `--aud` bind the audience. Use `--nonce` for real challenge-response.
 - If `--aud` and the policy's `sd_jwt.expected_aud` are both set and differ, that is an ambiguity, not
   a silent override: `verify` exits 2.
-- There is **no key-rotation or root-of-trust delegation** (no TUF-like signed root/targets roles with
-  `expires`, see `INTEROP.md`). `allowed_issuers[]` is a static pinned list; rotating a signer means
-  re-distributing the policy file. A trust policy pins keys; it does not manage their lifecycle.
+- There is **no key-rotation or root-of-trust delegation in the trust *policy*** (no TUF-like signed
+  root/targets roles with `expires`, see `INTEROP.md`). `allowed_issuers[]` is a static pinned list;
+  rotating a signer means re-distributing the policy file. A trust policy pins keys; it does not manage
+  their lifecycle. (The separate `trust-pack`/v0.1 predicate IS the TUF-inspired signed root with
+  roles, `expires` and a two-stage rotation chain — but it is trusted only once the relying party pins
+  it to an anchor, see the **Trust Pack root of trust** row above; a genesis pack confers no trust on
+  its own.)

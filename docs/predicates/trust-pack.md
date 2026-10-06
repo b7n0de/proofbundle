@@ -72,6 +72,29 @@ Each check fail-closed; read the aggregate `ok`, never an individual field:
 
 `root_signers` lists the distinct root key ids whose signatures were counted, for auditability.
 
+### 4a. `ok` is self-authentication; trust needs a relying-party anchor (N43, security-fix 6.2.0)
+
+The checks above are the pack's SELF-authentication: its form validates, a threshold of its OWN declared root
+keys signed it, it is unexpired, and (when it claims a predecessor) the chain is intact. A GENESIS pack carries
+its own root keys, so it self-authenticates with NO relying-party input — `ok` can be True for a pack the
+relying party has never seen and never chose to trust. **`ok` alone is not trust.** A root of trust is trusted
+only because a relying party PINNED it out of band.
+
+`verify_trust_pack` therefore returns a field **`pinned`** — `True` (bound to a supplied anchor), `False` (an
+anchor was supplied but none matched), `None` (no anchor supplied) — and takes the anchors:
+
+- `expected_genesis_digest` — the pack's content-root digest `sha256(JCS(predicate))` (the value a successor
+  carries as its `prevVersionDigest`, and what `build_trust_pack_statement` writes as the subject digest);
+- `expected_root_keys` — a `{keyId: publicKey_b64}` / key-object map that must COVER the pack's declared,
+  non-revoked root role (every declared root key pinned, the declared threshold reachable within it);
+- a rotation anchor — `prev_root_keys` + `prev_root_threshold`: the relying party pins the PREDECESSOR's root,
+  and `rotation_authorized` being True binds this pack.
+
+`pinned` does NOT change `ok`. It is the "policy" dimension of the uniform automation verdict:
+`automation.safeForAutomation` is positive only under an anchor (unanchored → `POLICY_NOT_EVALUATED`;
+mismatch → `POLICY_FAILED`). Pinning is OUT-OF-BAND (`docs/TRUST_ANCHORS.md`, the **Trust Pack root of trust**
+row): the relying party obtains the genesis digest or root keys from a channel other than the pack itself.
+
 ## 5. How the other predicates use it
 
 A Trust Pack is DESIGNED to resolve *who* is trusted for a role — e.g. `outcomeExecutors` names the key ids
@@ -83,7 +106,13 @@ WHETHER-THRESHOLD-SIGNED (a claim's content root binds its identity; trust in it
 **Wiring status (honest, updated).** `outcomeExecutors` role membership IS wired into `verify_outcome_
 receipt` (Finding 01, verify-layer hardening): a caller-supplied `trust_pack` param (the PREDICATE of an
 ALREADY-authenticated pack) is checked via `outcome.executor_trusted_by_role` and is FAIL-CLOSED — an
-untrusted executor breaks the outcome's aggregate `ok`. `outcomeReceivers` is ALSO wired (Finding 16, same
+untrusted executor breaks the outcome's aggregate `ok`. **N43 (security-fix 6.2.0):** role membership is a
+fact about the pack, not trust; `verify_outcome_receipt` reports `executor_role_trusted` / `receiver_role_
+trusted` as True only when the pack is ALSO bound to a relying-party anchor — supply it through the additive
+`trust_pack_expected_genesis_digest` / `trust_pack_expected_root_keys` params (recomputed against the supplied
+predicate via `trust_pack.trust_pack_is_pinned`), or forward a rotation-authorized verdict as
+`trust_pack_pinned=True`. Without an anchor a supplied pack's role verdict is not positive
+(`TRUST_PACK_NOT_ANCHORED`), exactly as a genesis pack's own `safeForAutomation` is not. `outcomeReceivers` is ALSO wired (Finding 16, same
 `trust_pack` param, `outcome.receiver_trusted_by_role`) but deliberately NOT fail-closed against `ok` — a
 `receiverRefs[]` entry is optional supplementary evidence, so an untrusted-labeled receiver only downgrades
 the `evidence_levels["receiverRefs"]` strength classification, never the outcome's own core verdict (see
