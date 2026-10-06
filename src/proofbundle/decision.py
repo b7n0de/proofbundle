@@ -883,9 +883,13 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # part of the verdict, judged against ONE evaluation time — the `now` POSIX-seconds parameter when the
         # relying party supplies it, else the wall clock read once here (never an artifact time). An expired or
         # unreadable expiry fails closed via `freshness_ok`; an ABSENT expiresAt leaves freshness_ok None (not
-        # applicable), the behaviour as before this Nachtrag. Judged only here, over authenticated bytes.
-        _exp = _validity.get("expiresAt")
-        if _exp is not None:
+        # applicable). Judged only here, over authenticated bytes.
+        # Nachtrag 49b CX-01 (`KRAXO-CLOUD-N49B-ZEIT-AN-JEDEM-RAND-01`, Z309): the gate is KEY presence, not VALUE
+        # presence. A declared expiresAt whose value is unreadable — a JSON null included — is a present-but-
+        # unreadable expiry and fails closed (via `_expiresat_posix(None) -> None` below), never silently
+        # not-applicable. Only a MISSING key is not-applicable. (At N49 a null value read as a missing key.)
+        if "expiresAt" in _validity:
+            _exp = _validity.get("expiresAt")
             from ._plain_value import plain_int  # noqa: PLC0415
             _exp_posix = _expiresat_posix(_exp)
             # The clock as an exact int, read once (the one rule for a caller's number, _plain_value.plain_int):
@@ -1049,9 +1053,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             elif _regel is not None:
                 pe = {"policy_ok": False, "signer_trusted": None, "errors": [_regel]}
             else:
+                # Nachtrag 49b CX-03: one evaluation time at this edge — the receipt's POSIX `now` becomes the
+                # policy clock (an aware datetime) so evaluate_decision_policy judges the policy lifecycle at the
+                # SAME instant as the receipt, not a fresh wall-clock read. None (or a malformed `now`, which the
+                # freshness check above already fails closed on when expiresAt is present) -> None -> the wall
+                # clock, the documented no-now behaviour.
+                from ._plain_value import plain_int as _plain_int  # noqa: PLC0415
+                _np = _plain_int(now)
+                try:
+                    _pol_now = datetime.fromtimestamp(_np, tz=timezone.utc) if _np is not None else None
+                except (OverflowError, OSError, ValueError):
+                    _pol_now = None
                 pe = evaluate_decision_policy(
                     statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
-                    signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status)
+                    signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status,
+                    now=_pol_now)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])

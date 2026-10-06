@@ -387,7 +387,9 @@ def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin, bundle_signer_pub=None
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
                   expected_root_b64: Optional[str] = None,
                   expected_tree_size: Optional[int] = None,
-                  sd_jwt_issuer_key_pin: Optional[str] = None) -> VerificationResult:
+                  sd_jwt_issuer_key_pin: Optional[str] = None,
+                  now: Optional[int] = None,
+                  max_age_seconds: Optional[int] = None) -> VerificationResult:
     """Verify an evidence bundle (a dict or a path to a JSON file).
 
     ``expected_aud`` / ``expected_nonce`` (v1.3): when the bundle carries a Key Binding JWT, these enforce
@@ -415,17 +417,27 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     ``root-authenticity`` / ``tree-size`` checks). ``expected_root_b64`` is decoded and compared to the
     stated root's BYTES (canonicalization-agnostic). Absent, root authenticity stays NOT_EVALUATED and
     the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
+
+    ``now`` / ``max_age_seconds`` (Nachtrag 49b CX-04): the one evaluation time (POSIX seconds) for the KB-JWT
+    iat freshness on this composed path. When the bundle carries a Key Binding JWT and ``now`` is given, the iat
+    is judged against the presentation age — the default is 300 s with a 60 s future-clock-skew window; a
+    non-negative ``max_age_seconds`` overrides the age, an invalid one falls back to the default (kbjwt). Without
+    ``now`` the KB-JWT freshness is NOT judged (``fresh`` None), the behaviour before this Nachtrag (narrowing);
+    the signature + disclosure + aud/nonce binding are checked either way.
     """
     return _verify_bundle(bundle, expected_aud=expected_aud, expected_nonce=expected_nonce,
                           expected_root_b64=expected_root_b64,
                           expected_tree_size=expected_tree_size,
-                          sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)[0]
+                          sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin,
+                          now=now, max_age_seconds=max_age_seconds)[0]
 
 
 def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
                    expected_root_b64: Optional[str] = None,
                    expected_tree_size: Optional[int] = None,
-                   sd_jwt_issuer_key_pin: Optional[str] = None) -> tuple[VerificationResult, bytes]:
+                   sd_jwt_issuer_key_pin: Optional[str] = None,
+                   now: Optional[int] = None,
+                   max_age_seconds: Optional[int] = None) -> tuple[VerificationResult, bytes]:
     """`verify_bundle`, and the payload bytes its signature and inclusion checks read.
 
     For a reader of the payload (round 11, `evalclaim.decode_eval_claim`): it parses exactly the
@@ -634,7 +646,11 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
             sd_part, kb = split_key_binding(compact)
             if kb is not None:
-                kb_res = verify_key_binding(compact, expected_aud=expected_aud, expected_nonce=expected_nonce)
+                # Nachtrag 49b CX-04: the one evaluation time reaches the KB-JWT iat freshness on the composed
+                # path too. Without `now` the freshness is not judged (fresh None), the N49 behaviour (narrowing);
+                # with `now` the iat is judged against the presentation age (default 300 s, 60 s future skew).
+                kb_res = verify_key_binding(compact, expected_aud=expected_aud, expected_nonce=expected_nonce,
+                                            now=now, max_age_seconds=max_age_seconds)
                 result.add("sd-jwt-key-binding", kb_res["ok"], kb_res["detail"])
                 kb_binding_checked = True
             elif _issuer_requires_holder_binding(sd_part):

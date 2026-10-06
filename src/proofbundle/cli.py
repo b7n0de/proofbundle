@@ -1838,6 +1838,25 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
         return 2
 
 
+def _historical_now_posix(value):
+    """Nachtrag 49b (CX-02/CX-05): an explicit historical evaluation instant (ISO-8601 'Z') as POSIX seconds for
+    a verify that takes a `now`. None stays None (the wall clock / not judged, unchanged). A value that is not an
+    ISO-8601 timestamp, or is not in the past, is a fail-closed ValueError (never silent back- or forward-dating).
+    The integer is the ONE evaluation time the receipt/attestation is judged at."""
+    if value is None:
+        return None
+    from datetime import datetime, timezone  # noqa: PLC0415
+    from .policy import _parse_iso_utc  # noqa: PLC0415
+    dt = _parse_iso_utc(value)
+    if dt is None:
+        raise ValueError(f"--verification-time {value!r} is not an ISO-8601 timestamp "
+                         "(e.g. 2026-01-01T00:00:00Z)")
+    if dt >= datetime.now(timezone.utc):
+        raise ValueError("--verification-time must be in the past — it evaluates AS OF a historical instant; "
+                         "a future instant is not a historical query")
+    return int(dt.timestamp())
+
+
 def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     from .bundle import load_bundle  # noqa: PLC0415
     from .experimental.enclave import (enclave_binding_for,  # noqa: PLC0415
@@ -1847,9 +1866,12 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         with _open_input(args.eat) as handle:
             eat = _read_capped(handle).strip()
         verifier_pub = decode_b64(args.verifier_key)
+        # Nachtrag 49b CX-05: a relying party may pin the enclave evaluation time (historical, fixed integer) so
+        # an expired EAT exits negative; without it the freshness is not judged (fresh None), the N49 behaviour.
         res = verify_enclave_attestation(
             eat, verifier_pubkey=verifier_pub, expected_binding=enclave_binding_for(bundle),
-            expected_profile=args.profile)
+            expected_profile=args.profile,
+            now=_historical_now_posix(getattr(args, "verification_time", None)))
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2295,11 +2317,14 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # The anchors section was applied above as the relying party's trust, so the verifier gets the policy
         # without it; it refuses any rule it does not apply itself (T16).
         _politik = None if policy is None else {k: v for k, v in policy.items() if k != "anchors"}
+        # Nachtrag 49b CX-02: an explicit historical evaluation time (fixed integer) pins the receipt freshness
+        # (validity.expiresAt) and, with a policy, the policy lifecycle at one instant; without it the wall clock.
+        _eval_now = _historical_now_posix(getattr(args, "verification_time", None))
         result = verify_decision_receipt(env, pub, strict=args.strict, expected_audience=args.aud,
                                          expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
-                                         related=related or None)
+                                         related=related or None, now=_eval_now)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2373,6 +2398,15 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         return 2
     if result["policy_ok"] is False:
         return 3
+    # Nachtrag 49b CX-02: a declared validity.expiresAt that is expired or unreadable is a validity failure —
+    # fail-closed, never a silent exit 0 (the Codex finding: an expired but otherwise-valid receipt exited 0).
+    # It sits LAST, after the policy check, so it changes ONLY the would-be-exit-0 case: a receipt that is both
+    # expired and policy-unmet keeps exit 3 (policy), matching the Rust verify-relation exit code on the same
+    # bytes — placing it before the policy check would diverge from Rust (a finding). freshness_ok None = the
+    # receipt declared no expiresAt (not applicable); result["ok"] already folds freshness. (outcome/relation
+    # verify carry no freshness_ok axis — no sibling.)
+    if result["freshness_ok"] is False:
+        return 2
     return 0
 
 
@@ -3106,6 +3140,9 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="the RATS Verifier's Ed25519 public key (base64)")
     verify_enclave.add_argument("--profile", help="pin an expected eat_profile URI (optional)")
     verify_enclave.add_argument("--json", action="store_true", help="machine readable output")
+    verify_enclave.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                                help="Nachtrag 49b: judge the EAT freshness AS OF this past instant "
+                                     "(ISO-8601 'Z'); without it the attestation freshness is not judged")
     verify_enclave.set_defaults(func=_cmd_verify_enclave)
 
     demo = sub.add_parser(
@@ -3278,6 +3315,10 @@ def build_parser() -> argparse.ArgumentParser:
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
                                "self-attested/rehung subject_sha256 override. Default off: an "
                                "EXTERNAL_ATTESTED subject is still warned, never silent")
+    d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                          help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
+                               "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
+                               "one time; without it the wall clock. An expired/unreadable expiresAt exits 2")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
     d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")

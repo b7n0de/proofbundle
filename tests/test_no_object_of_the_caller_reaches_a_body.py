@@ -199,6 +199,7 @@ _VERTRAG: "dict[tuple[str, str], str]" = {
     ("verifier_block.measure_verifier_block", "package_dir"): _PFAD,
     ("evalclaim.check_freshness", "now"): _UHR,
     ("policy.evaluate_policy", "now"): _UHR,
+    ("policy.evaluate_decision_policy", "now"): _UHR,   # Nachtrag 49b CX-03: the policy-lifecycle clock, read once (_zeitpunkt_von)
     ("policy.lint_policy", "now"): _UHR,
     ("policy.policy_expired", "now"): _UHR,
     ("policy.policy_not_yet_valid", "now"): _UHR,

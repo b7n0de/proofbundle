@@ -883,9 +883,9 @@ def _relations_felder_pruefen(rel: dict) -> None:
                                       "non-empty list of them")
 
 
-@_ein_stand
+@_ein_stand(aussen={"now": "uhr"})
 def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
-                             signer_public_key_b64: str, anchor_status: str | None = None) -> dict:
+                             signer_public_key_b64: str, anchor_status: str | None = None, now=None) -> dict:
     """Apply the v0.2 decision_receipt policy section over an already crypto-verified Decision Receipt. Returns
     ``{"policy_ok": bool|None, "signer_trusted": bool|None, "errors": [...]}``. Never trusts decisionMaker.id on
     the JSON claim alone: the signer key (that verified the DSSE) is matched against trusted_decision_makers.
@@ -893,7 +893,12 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
 
     ``anchor_status`` is the PASS/WARN/FAIL/SKIP verdict from the DETACHED anchor verification done in
     verify_decision_receipt (anchors are not in the signed predicate; Fix 2). require_external_anchor gates on
-    it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object)."""
+    it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object).
+
+    ``now`` (Nachtrag 49b CX-03): the ONE evaluation time for the policy lifecycle (``valid_until`` /
+    ``valid_from``), an aware ``datetime`` or None. When given, ``policy_expired`` / ``policy_not_yet_valid``
+    judge against it instead of reading the wall clock themselves (so a historical verify judges the policy at
+    the same instant as the receipt). None → the wall clock, the behaviour before this Nachtrag (narrowing)."""
     # RE-GATE never-raise (F2 / REGATE-CRYPTO-02, layer a): a non-dict `policy` (a caller-supplied JSON
     # scalar/list) must not raise a raw AttributeError from policy.get(...) — the never-raise verify surfaces
     # reach here with attacker-influenceable input. Fail-closed: a malformed policy is a hard policy fail, not
@@ -920,6 +925,14 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
                 "errors": [f"policy or statement is not a JSON object (fail-closed): {exc}"]}
     policy = policy_kopie
     signer_public_key_b64 = _zeichen_von(signer_public_key_b64)
+    # Nachtrag 49b CX-03: the policy-lifecycle clock is read once here (mirrors evaluate_policy), so a historical
+    # verify judges valid_until/valid_from at the caller's evaluation time, not a fresh wall-clock read. A `now`
+    # that is neither None nor an aware datetime is a malformed clock -> fail-closed (never silently the wall clock).
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        return {"policy_ok": False, "signer_trusted": False,
+                "errors": [f"now must be a datetime, got {type(now).__name__} (fail-closed)"]}
+    now = _uhr
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
@@ -970,7 +983,7 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if not isinstance(section, dict):
         # The shared fields apply without the section too (owner point 6): an expired policy, one for another path
         # or a raw template authorises no decision, whatever section it lacks.
-        fehler = _gemeinsame_fehler(policy, "decision")
+        fehler = _gemeinsame_fehler(policy, "decision", now=now)
         if fehler:
             return {"policy_ok": False, "signer_trusted": None, "errors": fehler}
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
@@ -989,10 +1002,10 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if policy.get("requiresIdentityOverlay") is True:
         errors.append("policy is a raw template (requiresIdentityOverlay:true) — instantiate it with "
                       "decision_receipt.trusted_decision_makers before using it to authorise a decision")
-    if policy_expired(policy):
+    if policy_expired(policy, now=now):
         errors.append(f"policy valid_until {policy.get('valid_until')!r} is in the past — expired, cannot "
                       "authorise a decision (re-instantiate with a current validity window)")
-    if policy_not_yet_valid(policy):
+    if policy_not_yet_valid(policy, now=now):
         errors.append(f"policy valid_from {policy.get('valid_from')!r} is in the future — not yet valid, "
                       "cannot authorise a decision (A-P0-2 lifecycle parity)")
     # A-P0-4 §8.2: the decision verifier accepts only a decision-purpose policy. Absent = transitional

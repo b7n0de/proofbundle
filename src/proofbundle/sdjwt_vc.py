@@ -204,7 +204,8 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
 def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None = None,
                     holder_pubkey: bytes | None = None,
                     expected_aud: str | None = None, expected_nonce: str | None = None,
-                    offline_metadata: dict | None = None) -> dict:
+                    offline_metadata: dict | None = None,
+                    now: int | None = None, max_age_seconds: int | None = None) -> dict:
     """Full SD-JWT VC relying-party check: the ISSUER SIGNATURE (sdjwt.verify_sd_jwt) AND the VC PROFILE
     (check_vc_profile) AND, when the policy requires it, the holder KEY BINDING (kbjwt.verify_key_binding).
     NO network I/O.
@@ -217,7 +218,12 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
 
     ``requireKeyBinding`` defaults to True (a VC without a valid holder binding is FAIL — the holder key is taken
     from ``cnf.jwk`` inside the issuer payload, so it is only trustworthy once the issuer signature above is
-    verified). Returns ``{ok, profile, issuer, binding}``; read ``ok`` — never an individual field alone."""
+    verified). Returns ``{ok, profile, issuer, binding}``; read ``ok`` — never an individual field alone.
+
+    ``now`` / ``max_age_seconds`` (Nachtrag 49b CX-04): the one evaluation time (POSIX seconds) for the holder
+    KB-JWT iat freshness — default age 300 s, 60 s future-clock-skew window; a non-negative ``max_age_seconds``
+    overrides the age, an invalid one falls back to the default. Without ``now`` the freshness is not judged
+    (``fresh`` None), the behaviour before this Nachtrag (narrowing)."""
     from . import kbjwt, sdjwt  # noqa: PLC0415
     # ONE READING of the credential for all three checks (round 12): at cd5d39f4 the profile, the
     # issuer signature and the key binding each split the caller's `compact` again, so a `str`
@@ -276,8 +282,12 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
     binding = None
     binding_ok = True
     if require_binding:
+        # Nachtrag 49b CX-04: the one evaluation time reaches the KB-JWT iat freshness here too. Without `now`
+        # the freshness is not judged (fresh None), the N49 behaviour; with `now` the iat is judged against the
+        # presentation age (default 300 s, 60 s future skew).
         binding = kbjwt.verify_key_binding(compact, holder_pubkey,
-                                           expected_aud=expected_aud, expected_nonce=expected_nonce)
+                                           expected_aud=expected_aud, expected_nonce=expected_nonce,
+                                           now=now, max_age_seconds=max_age_seconds)
         binding_ok = bool(binding.get("present") and binding.get("ok"))
 
     return {"ok": bool(profile["ok"] and issuer_ok and binding_ok),
