@@ -561,6 +561,13 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
             f"anchored at index {leaf_index} of {tree_size} (Merkle-consistent under the STATED root)"
             if incl_ok else "inclusion proof failed",
         )
+        # Addendum R6a-2 (Z309): record the Merkle root this inclusion check passed under (origin-covered),
+        # set only on a passing bundle signature AND a passing inclusion. A downstream judge that authenticates
+        # a pinned/expected/checkpoint root (policy.evaluate_policy) confirms the result proved inclusion UNDER
+        # that exact root — a pin authenticates a root but is no inclusion proof for THIS bundle's data, so a
+        # copy that only relabels merkle.root_b64 to a pinned foreign root is refused. Left None otherwise.
+        if sig_ok is True and incl_ok is True:
+            result.verified_inclusion_root = root
 
     # 2b. P0-A (§6.2): relying-party root authentication. The stated root is NOT signed, so inclusion
     # alone does not authenticate it; only a bit-exact match against a root/size the relying party
@@ -610,6 +617,14 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         compact = _require(sd, "compact", "sd_jwt_vc.compact")
         if not isinstance(compact, str):   # malformed input → BundleFormatError, never a raw traceback
             raise BundleFormatError("field sd_jwt_vc.compact must be a string")
+        # Addendum R6a-1 (Z309): record the exact sd_jwt_vc.compact this result verified (origin-covered),
+        # set on a passing bundle signature. The sd_jwt_vc block is OUTSIDE the signed payload, so a copy that
+        # changes only the KB-JWT signature (same signer and payload) would otherwise let policy.evaluate_policy
+        # adopt this result's sd-jwt-key-binding / nonce verdict for a DIFFERENT presentation; the policy binds
+        # the passed bundle's compact to this. Set here (before the sd-jwt checks run) so it always reflects the
+        # block the result's sd-jwt checks describe, verified issuer signature or not.
+        if sig_ok is True:
+            result.verified_sd_jwt_vc_compact = compact
         issuer_pub = None
         if sd.get("issuer_public_key_b64"):
             issuer_pub = _b64d(sd["issuer_public_key_b64"], "sd_jwt_vc.issuer_public_key_b64")
@@ -794,10 +809,10 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
     # Merkle root) AND the result's checks (Nachtrag 46c), once, only on a passing bundle signature — after the
     # last check is added. A downstream judge recomputes it from the result's recorded fields and checks and
     # refuses a result that was not produced by this process's verifier, or whose checks were changed after
-    # stamping (a hand-built or mutated result) — aptly-filled result fields are no proof (review). The token
-    # needs no sd_jwt_vc digest: the SD-JWT issuer is already bound to this bundle through the verified signer
-    # (N44 issuer==signer + N46), so a swapped sd_jwt is refused without a separate field (the earlier
-    # "sd_jwt_vc digest" wording overstated the coverage — corrected in N46c; see errors._compute_origin_token).
+    # stamping (a hand-built or mutated result) — aptly-filled result fields are no proof (review). Addendum
+    # R6a (Z309): the token ALSO covers verified_inclusion_root (R6a-2) and verified_sd_jwt_vc_compact (R6a-1),
+    # both recorded above — reviewer round 6a disproved the earlier claim that the verified signer alone bound
+    # the sd_jwt_vc block and the via_trusted root, so each now has its own origin-covered field.
     if sig_ok is True:
         result.stamp_origin()
 

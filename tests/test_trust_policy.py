@@ -595,12 +595,17 @@ class TestExpectedVct(unittest.TestCase):
         # reached — the vct is then refused because the SD-JWT issuer signature was never verified, as before.
         # Nachtrag 46b: evaluate_policy also requires an authentic origin token verify_bundle stamps; these
         # stand-ins simulate that verifier output, so they stamp it (a passing result would carry one).
+        # Addendum R6a-1: evaluate_policy also binds the result's verified sd_jwt_vc.compact to the bundle's.
+        # A real verifier sets it on a passing bundle signature, so the stand-in sets it to `bundle`'s compact
+        # (captured below) — else the vct gate would be short-circuited by the result↔sd_jwt binding gate rather
+        # than reached. `compact` is assigned before either stand-in is called, so the closure resolves it.
         _signer_b64 = _b64mod.b64encode(bytes(32)).decode("ascii")
         _payload_b64 = _b64mod.b64encode(b"{}").decode("ascii")
 
         def _bind(r: VerificationResult) -> VerificationResult:
             r.verified_signer_pub = _b64mod.b64decode(_signer_b64)
             r.verified_payload_digest = _hashlib.sha256(_b64mod.b64decode(_payload_b64)).hexdigest()
+            r.verified_sd_jwt_vc_compact = compact   # as verify_bundle records it for this bundle (R6a-1)
             r.stamp_origin()
             return r
 

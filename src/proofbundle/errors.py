@@ -56,8 +56,9 @@ def _tag_part(h, part) -> None:
 
 
 def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[str],
-                          merkle_root: Optional[bytes], checks=()) -> str:
-    """HMAC over the captured verified state AND the result's checks. Each part — the three state parts and
+                          merkle_root: Optional[bytes], checks=(), inclusion_root: Optional[bytes] = None,
+                          sd_jwt_vc_compact: Optional[str] = None) -> str:
+    """HMAC over the captured verified state AND the result's checks. Each part — the five state parts and
     every check's name and detail — is type-marked (None / bytes / str / other, see :func:`_tag_part`) and
     length-prefixed, and the checks are counted and in list order, so two states that differ in any part's
     VALUE or TYPE, or in a check's name, detail, order or count, produce different tokens (Nachtrag 46e closed
@@ -75,15 +76,21 @@ def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[
     positive (``svr_properties`` reads each check's ``ok`` for ``PROOFBUNDLE_SIGNATURE_VALID`` /
     ``PROOFBUNDLE_RECEIPT_UNCHANGED``; ``policy.evaluate_policy`` gates on this token). Narrowing only.
 
-    The sd_jwt_vc block still needs no field here: a downstream judge's SD-JWT rules are already bound to
-    this bundle through the verified signer (Nachtrag 44, the SD-JWT issuer MUST be the bundle signer) and
-    that signer (Nachtrag 46), so a swapped sd_jwt is refused — measured in the N46b gegenproben."""
+    Addendum R6a-1/R6a-2 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): the token covers two
+    out-of-payload states the signer and payload digest do NOT pin — ``inclusion_root``, the Merkle root
+    the inclusion check passed under (R6a-2), and ``sd_jwt_vc_compact``, the exact ``sd_jwt_vc.compact`` the
+    result verified (R6a-1). Reviewer round 6a showed the earlier claim here — that the sd_jwt_vc block and
+    the ``via_trusted`` root needed no field because the verified signer alone bound them — was WRONG: a
+    swapped KB-JWT signature (same signer and payload) and a pinned foreign root each kept an old positive
+    ``evaluate_policy`` verdict. Both new parts are type-marked and length-prefixed like the other state
+    parts; ``policy.evaluate_policy`` now compares the passed bundle's sd_jwt_vc and stated root against
+    these, so a result cannot adopt its checks or authenticate a root for other data."""
     h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
-    for part in (signer_pub, payload_digest, merkle_root):
+    for part in (signer_pub, payload_digest, merkle_root, inclusion_root, sd_jwt_vc_compact):
         _tag_part(h, part)   # Nachtrag 46e: type-marked (None/bytes/str/other), so bytes and str never collide
-    # Nachtrag 46c: the checks block, after the three state parts, with a fixed section tag and a count so
-    # a removed or added check changes the token. The three parts always run exactly above (a fixed count of
-    # three), so this section tag sits at a determined position and is never confused with a part marker. `ok`
+    # Nachtrag 46c: the checks block, after the five state parts, with a fixed section tag and a count so
+    # a removed or added check changes the token. The five parts always run exactly above (a fixed count of
+    # five), so this section tag sits at a determined position and is never confused with a part marker. `ok`
     # is read by identity (`is True`/`is False`), never by its truth, so a lying `__bool__` runs no code and a
     # truthy non-bool is a third, distinct marker.
     h.update(b"\x02checks")
@@ -177,10 +184,17 @@ class VerificationResult:
     # rewrap re-anchors the same payload under a different root). verified_merkle_root is the stated root bytes
     # the root-authenticity check verified (set only when that check passed). verified_origin is the per-process
     # token over the verified state AND the result's checks (Nachtrag 46c) — see _compute_origin_token. Both are set ONLY on a passing bundle signature;
-    # excluded from equality, repr and as_dict so ok, serialisation and existing comparisons are unchanged. The
-    # sd_jwt_vc block needs no field: a judge's SD-JWT rules bind to this bundle through the verified signer
-    # (N44 issuer==signer + N46), so a swapped sd_jwt is refused — measured in the N46b gegenproben.
+    # excluded from equality, repr and as_dict so ok, serialisation and existing comparisons are unchanged.
+    # Addendum R6a (Z309): two further out-of-payload states, both origin-covered and both set only on a passing
+    # bundle signature. verified_inclusion_root is the Merkle root the merkle-inclusion check passed under
+    # (R6a-2: a judge authenticating a pinned/expected root must confirm the result proved inclusion UNDER that
+    # root, not merely that it is pinned). verified_sd_jwt_vc_compact is the exact sd_jwt_vc.compact the result
+    # verified (R6a-1: the sd_jwt_vc block is outside the signed payload, so a swapped KB-JWT signature — same
+    # signer and payload — would otherwise let a judge adopt the old key-binding / nonce verdict for a different
+    # presentation). The earlier "sd_jwt_vc needs no field" note was disproved by reviewer round 6a.
     verified_merkle_root: Optional[bytes] = field(default=None, compare=False, repr=False)
+    verified_inclusion_root: Optional[bytes] = field(default=None, compare=False, repr=False)
+    verified_sd_jwt_vc_compact: Optional[str] = field(default=None, compare=False, repr=False)
     verified_origin: Optional[str] = field(default=None, compare=False, repr=False)
 
     def stamp_origin(self) -> None:
@@ -188,7 +202,8 @@ class VerificationResult:
         the verifier exactly once, after the signature, the out-of-payload Merkle root and ALL checks are
         recorded (Nachtrag 46c: the token covers the checks, so it must be stamped after the last check)."""
         self.verified_origin = _compute_origin_token(
-            self.verified_signer_pub, self.verified_payload_digest, self.verified_merkle_root, self.checks)
+            self.verified_signer_pub, self.verified_payload_digest, self.verified_merkle_root, self.checks,
+            inclusion_root=self.verified_inclusion_root, sd_jwt_vc_compact=self.verified_sd_jwt_vc_compact)
 
     def origin_authentic(self) -> bool:
         """True only when this result carries a token this process's verifier stamped over exactly the fields
@@ -200,7 +215,9 @@ class VerificationResult:
         return hmac.compare_digest(
             self.verified_origin,
             _compute_origin_token(self.verified_signer_pub, self.verified_payload_digest,
-                                  self.verified_merkle_root, self.checks))
+                                  self.verified_merkle_root, self.checks,
+                                  inclusion_root=self.verified_inclusion_root,
+                                  sd_jwt_vc_compact=self.verified_sd_jwt_vc_compact))
 
     @property
     def ok(self) -> bool:

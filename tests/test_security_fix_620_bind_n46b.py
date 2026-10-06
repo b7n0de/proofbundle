@@ -136,7 +136,13 @@ class AnOutOfPayloadSdJwtConfersNothing(unittest.TestCase):
     """Review point 1 (SD-JWT): sd_jwt_vc lives outside the signed payload. Swapping it leaves the payload and
     the bundle signer unchanged, yet it confers no positive SD-JWT rule. Already fail-closed at 40a6a09c
     (Nachtrag 44 + 46: the SD-JWT issuer must be the bundle signer, taken from the result), so this is the
-    review's required gegenprobe, not a new fix; measured both at 40a6a09c and after."""
+    review's required gegenprobe, not a new fix; measured both at 40a6a09c and after.
+
+    Addendum R6a-1 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`) now binds the authentic result's verified
+    ``sd_jwt_vc.compact`` and refuses a bundle whose ``sd_jwt_vc`` differs BEFORE any SD-JWT rule runs, so the
+    swap is caught at the ``policy:result_sd_jwt_binding`` gate (strictly stronger and earlier than the per-rule
+    Nachtrag 44 defence, which still covers the issuer≠signer class in test_security_fix_620_bind_n44.py). The
+    review's property — a swapped out-of-payload sd_jwt confers no positive rule — is unchanged and reinforced."""
 
     def test_a_swapped_sd_jwt_confers_no_positive_rule(self):
         bundle = _control_bundle()
@@ -150,9 +156,13 @@ class AnOutOfPayloadSdJwtConfersNothing(unittest.TestCase):
         out = evaluate_policy(swapped, good, copy.deepcopy(_SD_POLICY))
         self.assertIsNot(out["policy_ok"], True)
         names = {c["name"]: c["ok"] for c in out.get("checks", [])}
+        # R6a-1: the swap is refused at the result↔sd_jwt binding gate, before any SD-JWT rule is evaluated.
+        self.assertIn("policy:result_sd_jwt_binding", names)
+        self.assertIs(names["policy:result_sd_jwt_binding"], False,
+                      "a swapped out-of-payload sd_jwt must be refused at the result binding gate")
+        # No SD-JWT rule may read a positive verdict from the unbound sd_jwt (whether reached or short-circuited).
         for name in ("policy:key_binding_present", "policy:nonce_present", "policy:expected_aud"):
-            self.assertIn(name, names)
-            self.assertIsNot(names[name], True, f"{name} must not be positive on a swapped sd_jwt")
+            self.assertIsNot(names.get(name), True, f"{name} must not be positive on a swapped sd_jwt")
 
 
 if __name__ == "__main__":
