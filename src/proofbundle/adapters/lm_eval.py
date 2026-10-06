@@ -10,10 +10,10 @@ optional `provenance` field so a verifier can trace exactly which run produced i
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
+from .._strict_json import loads_reject_duplicate_keys
 from ..evalclaim import build_eval_claim
 from ..canonical import _ein_stand
 
@@ -44,7 +44,9 @@ def from_lm_eval_results(path, task: str, metric: str, *, comparator: str, thres
     `metric` is the bare name (e.g. "acc"); the real key may be "acc,none". The score is read as a STRING
     to avoid float canonicalization issues. Returns (claim, salts).
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    # Nachtrag 51 (K6-04): reject a duplicate JSON key fail-closed before the metric value feeds `passed`
+    # (last-wins would sign the LAST value a differing reader disagrees with). No new size cap.
+    data = loads_reject_duplicate_keys(Path(path).read_text(encoding="utf-8"))
     res = data.get("results", {}).get(task)
     if res is None:
         raise ValueError(f"task not found in results: {task!r}")

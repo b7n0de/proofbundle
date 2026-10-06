@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .._membership import require_switch
+from .._strict_json import loads_reject_duplicate_keys
+from ..errors import BundleFormatError
 from ..evalclaim import build_eval_claim
 from ._provenance import add_provenance
 from ..canonical import _ein_stand
@@ -47,8 +49,11 @@ def _load(source: Union[str, Path, dict]) -> dict:
         from .._plain_value import plain_json  # noqa: PLC0415
         return plain_json(source, what="the EEE record", error=EEEAdapterError)
     try:
-        return json.loads(Path(source).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
+        # Nachtrag 51 (K6-02): a duplicate JSON key is rejected fail-closed BEFORE a score feeds `passed`
+        # (last-wins would sign the LAST value a differing reader disagrees with). No new size cap — a
+        # dup-free dataset of any size reads exactly as before.
+        return loads_reject_duplicate_keys(Path(source).read_text(encoding="utf-8"))
+    except (OSError, ValueError, BundleFormatError) as e:
         raise EEEAdapterError(f"could not read EEE dataset {source!r}: {e}") from e
 
 
