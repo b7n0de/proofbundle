@@ -206,14 +206,20 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     receiver_key_id: Optional[str] = None,
                                     expected_receiver_public_key: Optional[bytes] = None,
                                     ) -> dict:
-    """Classify a receiver/observer corroboration ref (Finding 16, additive) ONE STEP BEYOND
-    :func:`classify_digest_evidence` — reaches ``EvidenceLevel.INDEPENDENTLY_ATTESTED`` when
-    ``independent_attestation_resolver`` confirms the referenced content is ITSELF a validly-signed
-    statement from a party DISTINCT from the original claimant (e.g. a receiver's or observer's own
-    DSSE-signed acknowledgement of an Action Outcome) — never merely a resolved digest, which is
-    :func:`classify_digest_evidence`'s own documented ceiling (its docstring: "RECEIPT_CRYPTO_VERIFIED /
-    POLICY_AUTHORIZED / INDEPENDENTLY_ATTESTED are each a STRONGER claim this classifier does not itself
-    verify").
+    """Classify a receiver/observer corroboration ref (Finding 16, additive). In 6.2.0 this classifier is
+    CAPPED at ``EvidenceLevel.CONTENT_RESOLVED`` and does NOT reach ``EvidenceLevel.INDEPENDENTLY_ATTESTED``
+    from a resolver answer (N47): a caller
+    ``independent_attestation_resolver`` answer — a bare ``True`` or 32 bytes of key material — confers no
+    independent attestation, because the library does not itself verify the referenced receiver statement (it
+    never fetches the statement for the digest, checks the bytes hash to it, or checks a signature under the
+    resolver-returned key). ``INDEPENDENTLY_ATTESTED`` stays in the enum but is honestly unreachable here, like
+    ``EFFECT_OBSERVED`` (see ``INDEPENDENTLY_ATTESTED_NOT_VERIFIED`` / ``EFFECT_OBSERVED_NOT_IMPLEMENTED``); the
+    verified path (statement bytes + digest + signature) comes with the unified anchor check after the tag. It
+    would classify ONE STEP BEYOND :func:`classify_digest_evidence` (whose own documented ceiling is a resolved
+    digest: "RECEIPT_CRYPTO_VERIFIED / POLICY_AUTHORIZED / INDEPENDENTLY_ATTESTED are each a STRONGER claim this
+    classifier does not itself verify"), and the gates BELOW (provable key-id distinctness, key binding) are the
+    structural pre-conditions an eventual verified path will also require — but on their own, in 6.2.0, they never
+    promote: even an answer that passes every gate is kept at the content-resolved base with a named reason.
 
     The three-tier informal ladder a caller might reach for here — SELF_ASSERTED / DIGEST_REFERENCED /
     RECEIVER_CORROBORATED — maps onto this module's EXISTING orderable :class:`EvidenceLevel` rather than
@@ -241,8 +247,9 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
 
     STRUCTURAL independence (crypto-review, 2026-07-15): "INDEPENDENTLY_ATTESTED" means the corroborating
     statement is from a party DISTINCT from the executor/claimant. proofbundle asserts this only when it can
-    PROVE it: a receiver reaches INDEPENDENTLY_ATTESTED ONLY IF BOTH ``executor_key_id`` AND
-    ``receiver_key_id`` are present AND they differ. An ABSENT ``executor_key_id`` blocks promotion just as
+    PROVE it: distinctness is a NECESSARY pre-condition for any independence claim (in 6.2.0 never sufficient —
+    the N47 cap above keeps the result at the content-resolved base regardless): both ``executor_key_id`` AND
+    ``receiver_key_id`` must be present AND differ. An ABSENT ``executor_key_id`` blocks promotion just as
     an absent/equal receiver key id does — the executor authors and signs its own outcome predicate and
     ``executor.keyId`` is schema-optional, so a one-sided check (fire only when executor_key_id is supplied)
     would be trivially evaded by simply omitting one's own keyId. Without knowing BOTH parties' key ids

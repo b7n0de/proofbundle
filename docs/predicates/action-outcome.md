@@ -109,8 +109,11 @@ classification of the execution-proof digest, optionally strengthened to `CONTEN
 cannot confer independent attestation, because the library does not itself verify the referenced receiver
 statement (it neither fetches the statement for the `receiverRefs[]` digest nor checks a signature under the
 resolver-returned key); see `assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED`;
-`result["receiver_role_trusted"]` mirrors `executor_role_trusted` against the Trust Pack's `outcomeReceivers`
-role but is deliberately advisory, not fail-closed (`receiverRefs` is optional supplementary evidence — see
+`result["receiver_role_trusted"]` checks the Trust Pack's `outcomeReceivers` role but, unlike
+`executor_role_trusted`, is at most `None` or `False` in 6.2.0 — NEVER `True` from a resolver answer (N47),
+because the library does not itself verify the referenced receiver statement; `receiver_key_bound` is likewise at
+most `None`/`False`. The verified receiver path (statement + digest + signature) comes after the tag. It is
+deliberately advisory, not wired into the aggregate `ok` (`receiverRefs` is optional supplementary evidence — see
 §7 for the honest limit this does NOT close).
 
 ## 6. Subject binding
@@ -132,8 +135,10 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
   `assurance.classify_receiver_corroboration` (capped at `CONTENT_RESOLVED`; `INDEPENDENTLY_ATTESTED` is NOT
   reachable from a resolver answer, N47 — the library does not itself verify the referenced receiver statement) +
   the `outcomeReceivers` Trust Pack role
-  (`outcome.receiver_trusted_by_role`) give proofbundle the CAPABILITY to carry and verify a genuine
-  receiver/observer corroboration once one exists. **INHERENT LIMIT, NOT closable from inside this repo:**
+  (`outcome.receiver_trusted_by_role`) give proofbundle the CAPABILITY to carry the digest-bound reference to a
+  genuine receiver/observer corroboration once one exists; VERIFYING that referenced statement (fetching it,
+  checking it hashes to the digest, checking its signature under the receiver key) is NOT done in 6.2.0 and comes
+  after the tag — until then `receiver_role_trusted` is never positive from a resolver answer. **INHERENT LIMIT, NOT closable from inside this repo:**
   proofbundle cannot itself make a downstream/receiving system SIGN an acknowledgement — whether a receiver
   produces one is ecosystem adoption outside this repo's control (SOTA: Notarized Agents arXiv:2606.04193,
   Proof of Execution arXiv:2607.05397). Until a receiver actually signs, `receiverRefs` stays empty and the
