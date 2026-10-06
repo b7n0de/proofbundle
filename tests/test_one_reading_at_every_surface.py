@@ -1352,6 +1352,20 @@ _NICHT_IM_SWEEP = {
     "trust_pack.verify_trust_pack": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON "
                                      "values. Read once (canonical._zeitpunkt_von); a datetime subclass is held "
                                      "by tests/test_one_reading_reaches_every_argument.py"},
+    "bundle.verify_bundle": {
+        "now": "a POSIX-seconds evaluation time (Nachtrag 49b CX-04); forwarded verbatim to kbjwt.verify_key_binding "
+               "for the KB-JWT iat freshness, read there once as a plain int (N49) — verify_bundle folds no value of "
+               "it into its own verdict",
+        "max_age_seconds": "the KB-JWT presentation-age bound in seconds (Nachtrag 49b CX-04); forwarded verbatim to "
+                           "kbjwt.verify_key_binding, read there once as a plain int (N49) — verify_bundle folds no "
+                           "value of it into its own verdict"},
+    "sdjwt_vc.verify_sdjwt_vc": {
+        "now": "a POSIX-seconds evaluation time (Nachtrag 49b CX-04); forwarded verbatim to kbjwt.verify_key_binding "
+               "for the KB-JWT iat freshness, read there once as a plain int (N49) — verify_sdjwt_vc folds no value "
+               "of it into its own verdict",
+        "max_age_seconds": "the KB-JWT presentation-age bound in seconds (Nachtrag 49b CX-04); forwarded verbatim to "
+                           "kbjwt.verify_key_binding, read there once as a plain int (N49) — verify_sdjwt_vc folds no "
+                           "value of it into its own verdict"},
     "hf_evals.verify_receipt_token": {"sd_jwt_issuer_key_pin": "the relying-party SD-JWT issuer-trust pin "
                                       "(Nachtrag 38, Z309); forwarded verbatim to bundle.verify_bundle, where its "
                                       "one reading (canonical._zeichen_von) is measured by the entry above"},
