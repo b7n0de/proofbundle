@@ -363,14 +363,17 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
 # receipt cannot close from inside proofbundle alone is producing an independent receiver signature —
 # whether a downstream/receiving system is willing to sign an acknowledgement is ecosystem adoption outside
 # this repo's control (SOTA motivation: Notarized Agents arXiv:2606.04193, Proof of Execution
-# arXiv:2607.05397). What IS self-fixable and built here: the CAPABILITY to carry + verify such a receiver's
+# arXiv:2607.05397). What IS self-fixable and built here: the CAPABILITY to CARRY such a receiver's
 # corroboration once it exists — a `receiverRefs[]` field (digest-bound exactly like decision.py's
 # `evidenceRefs[]`), an `outcomeReceivers` Trust Pack role (mirrors `outcomeExecutors`) analogous to
-# `executor_trusted_by_role`, and wiring into `assurance.classify_receiver_corroboration` so a genuinely
-# independent, cryptographically verified corroboration reaches `EvidenceLevel.INDEPENDENTLY_ATTESTED` — see
-# `verify_outcome_receipt`'s `receiver_attestation_resolver` parameter. `EvidenceLevel.EFFECT_OBSERVED`
-# stays honestly unreachable (see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver
-# receipt is a RECEIPT about the effect, never a live observation of the real-world effect itself.
+# `executor_trusted_by_role`, and wiring into `assurance.classify_receiver_corroboration`. VERIFYING the
+# referenced receiver statement is NOT built in 6.2.0: a resolver answer does not reach
+# `EvidenceLevel.INDEPENDENTLY_ATTESTED` (N47 — see `assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED`), which
+# stays honestly unreachable here, and `verify_outcome_receipt` never reports `receiver_role_trusted` True
+# from a resolver answer; the verified path (statement + digest + signature) comes after the tag.
+# `EvidenceLevel.EFFECT_OBSERVED` stays honestly unreachable too (see
+# `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver receipt is a RECEIPT about the
+# effect, never a live observation of the real-world effect itself.
 _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
 
 #: The expected receiver key for a pack entry that holds no usable key: plain bytes no 32-byte signer key equals,
@@ -384,9 +387,12 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     of ``trust_pack``'s ``outcomeReceivers`` role (Finding 16, mirrors :func:`executor_trusted_by_role`
     exactly). ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — same caller
     contract as ``executor_trusted_by_role``: this function checks ROLE MEMBERSHIP only, it never re-derives
-    trust in the pack itself. N43 (security-fix 6.2.0): membership is not trust —
-    ``verify_outcome_receipt`` reports ``receiver_role_trusted`` True only when the pack is ALSO bound to a
-    relying-party anchor (``trust_pack.trust_pack_is_pinned`` is True); a direct caller applies the same gate.
+    trust in the pack itself. This function returns role MEMBERSHIP (True/False) only; it is NOT the
+    ``receiver_role_trusted`` verdict of :func:`verify_outcome_receipt`. N43 (security-fix 6.2.0): membership is
+    not trust — a positive verdict would also require the pack to be bound to a relying-party anchor
+    (``trust_pack.trust_pack_is_pinned`` is True). N47 (6.2.0): and even then ``verify_outcome_receipt`` never
+    reports ``receiver_role_trusted`` True from a resolver answer — it is at most ``None``/``False`` until the
+    verified receiver path (statement + digest + signature) lands after the tag.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
     False — never a silent pass. Never raises on malformed input. The key id must be a plain ``str``
@@ -747,30 +753,33 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     - ``receiver_bound`` — mirrors ``evidence_bound``: True iff every present ``receiverRefs[]`` entry is
       digest-shaped, ``None`` when ``receiverRefs`` is absent/empty (nothing to bind is not "bound").
     - ``evidence_levels["receiverRefs"]`` — the STRONGEST applicable entry (OR semantics: one corroborating
-      receiver suffices), classified via ``assurance.classify_receiver_corroboration``. ``evidence_resolver``
-      (reused, same param) lets an entry reach ``CONTENT_RESOLVED``; the NEW ``receiver_attestation_resolver``
-      (an optional callable ``f(digest_obj) -> bool`` confirming the referenced content is itself a validly-
-      signed statement from a party DISTINCT from the executor) lets it reach
-      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` only when it answers the exact ``True`` or the
-      32-byte signer key in a plain ``bytes`` or ``bytearray`` object; any other answer, a truthy one or an
-      object that only claims to be ``bytes`` included, does not promote, none of its methods runs, and
-      nothing it does escapes this function (see ``assurance.classify_receiver_corroboration``; the same
-      rule decides ``receiver_role_trusted`` and ``receiver_key_bound`` below) — this is the built,
-      self-fixable half of Finding 16;
-      ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
+      receiver suffices), classified via ``assurance.classify_receiver_corroboration``, which is CAPPED at
+      ``CONTENT_RESOLVED``. ``evidence_resolver`` (reused, same param) lets an entry reach ``CONTENT_RESOLVED``;
+      the ``receiver_attestation_resolver`` (an optional callable ``f(digest_obj) -> bool``) does NOT promote
+      beyond it in 6.2.0: ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` is NOT reachable from a resolver
+      answer (N47), because the library does not itself verify the referenced receiver statement (it neither
+      fetches the statement for the digest nor checks a signature under the resolver-returned key). Its answer is
+      still read in one fixed way (the exact ``True`` or the 32-byte signer key in a plain ``bytes`` or
+      ``bytearray`` object; any other answer, a truthy one or an object that only claims to be ``bytes``
+      included, runs none of its methods and nothing it does escapes this function — the same rule decides
+      ``receiver_role_trusted`` and ``receiver_key_bound`` below), but even an answer that passes every gate
+      confers no attestation and no trust. See ``assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED``; the verified
+      path (statement + digest + signature) comes after the tag.
+      ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable too (see
       ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
-    - ``receiver_role_trusted`` (Finding 16, additive; N45B hardened) — when ``trust_pack`` is supplied AND
-      ``receiverRefs`` is non-empty and the pack is bound to a relying-party anchor (N45): ``True`` iff AT LEAST
-      ONE entry's ``receiverKeyId`` is a non-revoked member of the pack's ``outcomeReceivers`` role AND a signer
-      key of that receiver's statement was RESOLVED (via ``receiver_attestation_resolver``) and BINDS to the pack
-      key for that ``receiverKeyId`` (``receiver_key_bound`` True). ``False`` when a resolved key does NOT bind,
-      or when ``receiverRefs`` name no role member at all. ``None`` (N45B) when a member is present by LABEL only
-      — no signer key was resolved to bind it — because a label is not a positive trust statement without the key
-      that carries it; a named reason and the by-LABEL-only warning are recorded. ``None`` also when there is
-      nothing to evaluate (no ``trust_pack``). Deliberately NOT wired into the aggregate ``ok`` (unlike
-      ``executor_role_trusted``): ``receiverRefs`` is OPTIONAL supplementary evidence, so neither an untrusted-
-      labeled nor a label-only receiver breaks an otherwise-valid outcome's own core verdict — it only affects the
-      STRENGTH classification above.
+    - ``receiver_role_trusted`` (Finding 16, additive; N45B hardened; N47 capped) — in 6.2.0 it is at most
+      ``None`` or ``False``, NEVER ``True`` from a resolver answer, because the library does not itself verify
+      the referenced receiver statement. ``False`` when a resolved key does NOT bind to the pack key for its
+      ``receiverKeyId`` (``receiver_key_bound`` False), or when ``receiverRefs`` name no role member at all.
+      ``None`` (N45B) when a member is present by LABEL only — no signer key was resolved to bind it —
+      because a label is not a positive trust statement without the key that carries it (``RECEIVER_ROLE_NOT_BOUND``,
+      with the by-LABEL-only warning). ``None`` also when there is nothing to evaluate (no ``trust_pack``); and
+      (N47) when a resolved key WOULD bind — role membership plus a bound signer key — BOTH ``receiver_role_trusted``
+      and ``receiver_key_bound`` are still ``None`` with ``RECEIVER_STATEMENT_NOT_VERIFIED``, never ``True``: the
+      positive receiver verdict (statement + digest + signature verified) comes after the tag. Deliberately NOT
+      wired into the aggregate ``ok`` (unlike ``executor_role_trusted``): ``receiverRefs`` is OPTIONAL
+      supplementary evidence, so neither an untrusted-labeled nor a label-only receiver breaks an otherwise-valid
+      outcome's own core verdict — it only affects the STRENGTH classification above.
 
     None of the receiverRefs/sequence additions change any field documented above them, or the aggregate
     ``ok`` — fully backward compatible with every existing caller.
@@ -1026,8 +1035,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             r["receiver_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in _recv)
             # Structural independence (crypto-review, 2026-07-15): pass the executor's own key id so
             # classify_receiver_corroboration can REFUSE to promote a receiver that is the executor itself
-            # (self-corroboration). A receiverRefs entry only reaches INDEPENDENTLY_ATTESTED when its
-            # receiverKeyId is present AND distinct from the executor — never on a resolver-says-signed alone.
+            # (self-corroboration). Distinctness is one gate inside that classifier; N47 then caps the result at
+            # CONTENT_RESOLVED regardless — INDEPENDENTLY_ATTESTED is not reachable from a resolver answer at all.
             _executor = predicate.get("executor")
             _executor_key_id = _executor.get("keyId") if isinstance(_executor, dict) else None
             # L1-600-02 (receiver half): when a trust pack names key material for a receiverKeyId, the
