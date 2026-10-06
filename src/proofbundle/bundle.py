@@ -774,10 +774,14 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
                 "sd-jwt-issuer-trust", False,
                 "a Key Binding JWT verdict (holder binding / audience / nonce) was reported, but " + trust_detail)
 
-    # Nachtrag 46b (Z309): stamp the ORIGIN token over the captured verified state (signer, payload digest,
-    # Merkle root, sd_jwt_vc digest), once, only on a passing bundle signature. A downstream judge recomputes
-    # it from the result's recorded fields and refuses a result that was not produced by this process's verifier
-    # (a hand-built or mutated result) — aptly-filled result fields are no proof (review).
+    # Nachtrag 46b/46c (Z309): stamp the ORIGIN token over the captured verified state (signer, payload digest,
+    # Merkle root) AND the result's checks (Nachtrag 46c), once, only on a passing bundle signature — after the
+    # last check is added. A downstream judge recomputes it from the result's recorded fields and checks and
+    # refuses a result that was not produced by this process's verifier, or whose checks were changed after
+    # stamping (a hand-built or mutated result) — aptly-filled result fields are no proof (review). The token
+    # needs no sd_jwt_vc digest: the SD-JWT issuer is already bound to this bundle through the verified signer
+    # (N44 issuer==signer + N46), so a swapped sd_jwt is refused without a separate field (the earlier
+    # "sd_jwt_vc digest" wording overstated the coverage — corrected in N46c; see errors._compute_origin_token).
     if sig_ok is True:
         result.stamp_origin()
 

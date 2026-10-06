@@ -22,7 +22,7 @@ import hashlib
 import hmac
 import re
 from datetime import datetime, timezone
-from typing import Union
+from typing import Union, cast
 
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
@@ -1262,7 +1262,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     _result_signer = getattr(result, "verified_signer_pub", None)
     _result_digest = getattr(result, "verified_payload_digest", None)
     try:
-        _bundle_digest = hashlib.sha256(decode_b64(bundle.get("payload_b64"))).hexdigest()
+        # Nachtrag 46c: cast is a runtime no-op; a None/non-str payload_b64 still raises below and is caught.
+        _bundle_digest = hashlib.sha256(decode_b64(cast(Union[str, bytes], bundle.get("payload_b64")))).hexdigest()
     except (ValueError, TypeError):
         _bundle_digest = None
     _bundle_signer = None
@@ -1482,7 +1483,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # binding gate above already proved result.verified_signer_pub equals this bundle's signer, and the result is
     # the authenticated source (set only on a passing signature), so a claimed-but-unverified bundle key can
     # never reach the binding path.
-    _signer_pub = bytes(_result_signer)
+    _signer_pub = bytes(cast(bytes, _result_signer))   # Nachtrag 46c: non-None here, proven by the binding gate above; cast is a runtime no-op
     kb = None
     if isinstance(sd, dict) and isinstance(sd.get("compact"), str):
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)

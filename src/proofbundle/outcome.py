@@ -809,6 +809,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # parent stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one.
         from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
         _related_gelesen = _related_lesen(related)
+        _sw = None  # Nachtrag 46c: single reading of supersededByAttached, reused by the relation origin stamp below.
         if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
             try:
@@ -816,7 +817,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             except Exception:
                 _subject_hex = None
             r["lineage"] = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
-            # Set by the engine over the one reading of the map, and only read here.
+            # Set by the engine over the one reading of the map, and only read here (and passed to the origin stamp).
             _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
@@ -1104,7 +1105,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # Nachtrag 48/48b (Z309, F2): bind relation_signer to the verified successor receipt by stamping the
             # lineage result with the key this receipt verified under (only on a passing signature, as required here).
             _successor_b64 = _b64_rel.b64encode(schluessel).decode()
-            _stamp_lineage_origin(r.get("lineage"), _successor_b64)
+            _stamp_lineage_origin(r.get("lineage"), _successor_b64, _sw)
             _viol = _abschnitt_urteil(
                 _rel, _as_dict(r.get("lineage")),
                 successor_key_b64=_successor_b64)

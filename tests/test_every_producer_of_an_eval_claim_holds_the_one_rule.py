@@ -3388,14 +3388,17 @@ class TestAFlagIsReadAsABoolean(_Basis):
     def test_control_true_earns_the_check_properties_and_false_and_zero_do_not(self):
         from proofbundle.errors import Check  # noqa: PLC0415
         from _svr_binding import bound_svr_result  # type: ignore  # noqa: PLC0415
-        # Nachtrag 48/48b (F3): start from a real result bound to this claim, then set its checks to the ok
-        # value under test. The origin token binds the signer, payload digest and Merkle root — not the checks —
-        # so the binding still holds while svr_properties reads each check's ok (True earns, False/0 do not).
+        # Nachtrag 48/48b (F3), updated for Nachtrag 46c: start from a real result bound to this claim, set its
+        # checks to the ok value under test, and RE-STAMP. The origin token now covers the checks (N46c), so a
+        # result must be stamped over its FINAL checks for svr_properties to read each check's ok (True earns,
+        # False/0 do not). Setting checks without re-stamping now invalidates the token — that is the N46c
+        # counter-probe, tested in test_security_fix_620_bind_n46c.py.
         for ok, erwartet in ((True, ["PROOFBUNDLE_SIGNATURE_VALID", "PROOFBUNDLE_RECEIPT_UNCHANGED"]),
                              (False, []), (0, [])):
             with self.subTest(ok=ok):
                 result, claim = bound_svr_result(self.basis, self.signer)
                 result.checks = [Check("ed25519-signature", ok), Check("merkle-inclusion", ok)]
+                result.stamp_origin()  # Nachtrag 46c: the token covers the checks, so re-stamp over the set checks
                 props = intoto.svr_properties(result, claim)
                 self.assertEqual([p for p in props if p in ("PROOFBUNDLE_SIGNATURE_VALID",
                                                             "PROOFBUNDLE_RECEIPT_UNCHANGED")], erwartet)
