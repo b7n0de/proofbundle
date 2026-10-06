@@ -848,6 +848,15 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         if cp_supplied:
             # a real verification step: a non-verifying checkpoint fails the crypto verdict (exit 1).
             result.add("checkpoint-authenticity", bool(cp_ok), cp_detail)
+            # Nachtrag 46d: the checkpoint-authenticity check is part of the crypto verdict, so the origin
+            # token must cover it — re-stamp AFTER the add. N46c stamped the origin inside verify_bundle
+            # (over result.checks as they stood there), but this CLI adds one more check afterwards, so the
+            # stamp no longer matched and evaluate_policy's origin_authentic() rejected a genuine bundle
+            # (policy:result_origin, exit 3). Re-stamping re-binds the token to the full, final check list;
+            # a check mutated AFTER this re-stamp is still rejected (origin_authentic recomputes → mismatch),
+            # and result.ok is unaffected by the stamp. Only in the cp_supplied branch (only here was a check
+            # added after the verify_bundle stamp).
+            result.stamp_origin()
         roots = recompute_merkle_root_b64(bundle) if args.verbose else None
     except (ProofBundleError, OSError, ValueError, OverflowError, RecursionError, MemoryError) as exc:   # file/JSON/format/policy/OOM errors → clean exit 2, never a raw traceback (DEEP gate RT-04 file/path class)
         # RecursionError: deeply-nested JSON overflows json.load's recursion; catch it here too so it
