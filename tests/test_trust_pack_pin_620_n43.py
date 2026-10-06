@@ -218,17 +218,31 @@ class TestOutcomeExecutorRolePin(unittest.TestCase):
         self.assertIs(r["automation"]["safeForAutomation"], True)
 
     def test_root_keys_pin_makes_executor_trusted(self):
-        # CONTROL.
-        env, pub, pack = self._env_pub_pack()
+        # CONTROL (N45): the root-key anchor now counts ONLY with a verifying pack ENVELOPE whose threshold
+        # signature verifies under the pinned root keys AND whose content is this predicate — a root-key
+        # identity match alone no longer anchors (N45). So the pack carries a real root key and a real
+        # envelope here, and the root-keys pin is forwarded together with that envelope.
+        s = generate_signer()
+        pub = s.public_key().public_bytes_raw()
+        env = emit_outcome_receipt(_outcome_pred(), s)
+        root_sk = generate_signer()
+        pack = _outcome_pack(pub)
+        pack["keys"]["root-0"] = {"publicKey": _pub(root_sk)}   # a real root key so an envelope can verify
+        pack_env = sign_trust_pack(pack, {"root-0": root_sk})
         r = verify_outcome_receipt(env, pub, trust_pack=pack,
-                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
+                                   trust_pack_envelope=pack_env,
+                                   trust_pack_expected_root_keys=_root_keys_pin(pack))
         self.assertIs(r["executor_role_trusted"], True)
         self.assertIs(r["ok"], True)
 
     def test_forwarded_rotation_verdict_makes_executor_trusted(self):
-        # CONTROL: the caller forwards a rotation-authorized verify_trust_pack verdict this path cannot recompute.
+        # CONTROL (N45): the caller forwards a rotation-authorized verify_trust_pack verdict this path cannot
+        # recompute. Under N45 that forwarded verdict counts only when the caller also forwards the digest it
+        # was computed over (trust_pack_pinned_digest == sha256(JCS(predicate))); a naked trust_pack_pinned=True
+        # no longer anchors.
         env, pub, pack = self._env_pub_pack()
-        r = verify_outcome_receipt(env, pub, trust_pack=pack, trust_pack_pinned=True)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack, trust_pack_pinned=True,
+                                   trust_pack_pinned_digest=hashlib.sha256(_rfc8785_bytes(pack)).hexdigest())
         self.assertIs(r["executor_role_trusted"], True)
         self.assertIs(r["ok"], True)
 
@@ -276,15 +290,17 @@ class TestOutcomeReceiverRolePin(unittest.TestCase):
         self.assertTrue(any("TRUST_PACK_NOT_ANCHORED" in e for e in r["errors"]), r["errors"])
 
     def test_receiver_role_with_anchor_is_evaluated(self):
-        # CONTROL: under a correct root-keys pin the receiver role is evaluated (membership answered),
-        # not fail-closed by the missing anchor.
+        # CONTROL (N45/N45B): under a content-bound anchor the receiver role is EVALUATED (membership answered),
+        # not fail-closed by a missing anchor. Under N45B a member by LABEL only (no attestation resolver bound a
+        # signer key) is no longer a positive verdict: receiver_role_trusted is None with a named reason, and
+        # there is NO TRUST_PACK_NOT_ANCHORED error (the pack IS anchored). OLD: True by label.
         rs = generate_signer()
         env, pub, pack = self._env_pub_pack(rs.public_key().public_bytes_raw())
         r = verify_outcome_receipt(env, pub, trust_pack=pack,
-                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
-        # receiver is a role member by LABEL (no attestation resolver bound a signer key) -> True, and no
-        # TRUST_PACK_NOT_ANCHORED error (the pack IS anchored).
-        self.assertIs(r["receiver_role_trusted"], True)
+                                   trust_pack_expected_genesis_digest=hashlib.sha256(_rfc8785_bytes(pack)).hexdigest())
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertTrue(any("RECEIVER_ROLE_NOT_BOUND" in e for e in r["errors"]), r["errors"])
         self.assertFalse(any("TRUST_PACK_NOT_ANCHORED" in e for e in r["errors"]), r["errors"])
 
 
