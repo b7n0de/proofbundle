@@ -293,6 +293,10 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
+    _sw = None  # Nachtrag 46d: the single reading of supersededByAttached, reused by the relation origin stamp
+    # below. Preset BEFORE the predicate-dict block (mirrors decision.py / outcome.py): the relations-policy
+    # branch reads `_sw` gated on crypto_ok + a relations section, NOT on a dict predicate — a validly signed
+    # statement whose predicate is not a dict skips the block below, so without this preset the read is unbound.
     if isinstance(predicate, dict) and r["crypto_ok"]:
         try:
             _subject_hex = _anchors.statement_content_root(body).hex()
