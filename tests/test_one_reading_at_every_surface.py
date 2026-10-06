@@ -1028,7 +1028,7 @@ def _flaechen():
         ("decision.verify_decision_receipt", lambda w: decision.verify_decision_receipt(
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),
             expected_nonce=w(dec_validity.get("nonce") or "n"), policy=w(dec_policy_relationen),
-            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}))),
+            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w("a" * 64), trust_pack=w(tp_pred),
             trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),
@@ -1078,7 +1078,8 @@ def _flaechen():
             now=w(1_780_000_000), rp_trust=w({"bitcoin_block_headers": {}}))),
         ("sdjwt.verify_sd_jwt", lambda w: sdjwt.verify_sd_jwt(w(praesentiert), w(pub))),
         ("kbjwt.verify_key_binding", lambda w: kbjwt.verify_key_binding(
-            w(praesentiert), expected_aud=w("v"), expected_nonce=w("n"))),
+            w(praesentiert), expected_aud=w("v"), expected_nonce=w("n"),
+            now=w(1_780_000_030), max_age_seconds=w(3600))),
         ("kbjwt.split_key_binding", lambda w: kbjwt.split_key_binding(w(praesentiert))),
         ("sdjwt_issue.check_binds_bundle", lambda w: sdjwt_issue.check_binds_bundle(
             w(kompakt), w(ec.decode_eval_claim(ev_bundle)), w(ev_bundle["merkle"]["root_b64"]))),

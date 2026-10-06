@@ -317,16 +317,23 @@ def verify_key_binding(
     # argument when freshness was requested — fail-closed, never a silent pass. Default presentation age applies
     # when `now` is given but `max_age_seconds` is not; an explicit non-negative `max_age_seconds` overrides it.
     if now is not None:
-        if isinstance(now, bool) or not isinstance(now, (int, float)):
-            result["detail"] = "KB-JWT freshness: `now` (evaluation time) must be a number (fail-closed)"
+        from ._plain_value import plain_int  # noqa: PLC0415
+        # The clock and the age bound as exact ints, read once (the one rule for a caller's number,
+        # _plain_value.plain_int): an int subclass runs no method here. A `now` that is not an exact int is a
+        # malformed relying-party argument when freshness was requested -> fail-closed. A `max_age_seconds` that
+        # is not a non-negative exact int falls back to the conservative default.
+        _now = plain_int(now)
+        if _now is None:
+            result["detail"] = "KB-JWT now (evaluation time) must be a POSIX-seconds integer (fail-closed)"
             return result
-        _max_age = (max_age_seconds if (isinstance(max_age_seconds, int) and not isinstance(max_age_seconds, bool)
-                                        and max_age_seconds >= 0) else _KB_DEFAULT_MAX_AGE_SECONDS)
-        if iat > now + _KB_FUTURE_SKEW_SECONDS:
+        _max_age = plain_int(max_age_seconds)
+        if _max_age is None or _max_age < 0:
+            _max_age = _KB_DEFAULT_MAX_AGE_SECONDS
+        if iat > _now + _KB_FUTURE_SKEW_SECONDS:
             result["fresh"] = False
             result["detail"] = "KB-JWT iat is in the future beyond the allowed clock skew (fail-closed)"
             return result
-        if iat < now - _max_age:
+        if iat < _now - _max_age:
             result["fresh"] = False
             result["detail"] = "KB-JWT iat is older than the allowed presentation age (fail-closed)"
             return result
