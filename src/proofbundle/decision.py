@@ -14,7 +14,7 @@ import hashlib
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
@@ -888,29 +888,51 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # presence. A declared expiresAt whose value is unreadable — a JSON null included — is a present-but-
         # unreadable expiry and fails closed (via `_expiresat_posix(None) -> None` below), never silently
         # not-applicable. Only a MISSING key is not-applicable. (At N49 a null value read as a missing key.)
-        if "expiresAt" in _validity:
-            _exp = _validity.get("expiresAt")
-            from ._plain_value import plain_int  # noqa: PLC0415
-            _exp_posix = _expiresat_posix(_exp)
-            # The clock as an exact int, read once (the one rule for a caller's number, _plain_value.plain_int):
-            # an int subclass runs no method here. A `now` that is given but is not an exact int is a malformed
-            # relying-party clock -> fail-closed, never a silently unjudged expiry.
-            _now_plain = plain_int(now)
-            if now is not None and _now_plain is None:
-                r["freshness_ok"] = False
-                r["errors"].append("decision receipt now (evaluation time) must be a POSIX-seconds integer "
-                                   "(fail-closed)")
+        # Addendum R6a-5 / R6a-6 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): establish the ONE
+        # evaluation instant for this verify at a single edge, so the receipt freshness and the policy
+        # lifecycle (judged below) are read at exactly the same time. An explicit `now` is validated ONCE here
+        # (the one rule for a caller's number, _plain_value.plain_int — an int subclass runs no method): a value
+        # that is not an exact POSIX-seconds int, or one outside datetime's range (e.g. year 10000), is a
+        # malformed relying-party clock and fails the verdict closed REGARDLESS of whether validity.expiresAt is
+        # present (R6a-5) — never silently re-read from the wall clock. When `now` is omitted the wall clock is
+        # read EXACTLY ONCE here (R6a-6); the SAME instant threads the freshness check below and the policy
+        # clock, so two independent readings can never straddle a validity boundary.
+        from ._plain_value import plain_int  # noqa: PLC0415
+        _now_invalid = False
+        _eval_now_posix: "int | float | None"
+        if now is None:
+            _eval_now_posix = time.time()   # the single wall-clock reading for this whole verify
+        else:
+            _np0 = plain_int(now)
+            if _np0 is None:
+                _now_invalid, _eval_now_posix = True, None
             else:
-                _eval_now = _now_plain if _now_plain is not None else time.time()
-                if _exp_posix is None:
-                    r["freshness_ok"] = False
-                    r["errors"].append("validity.expiresAt is not a readable RFC3339 'Z' timestamp (fail-closed)")
-                elif _eval_now >= _exp_posix:
-                    r["freshness_ok"] = False
-                    r["errors"].append("decision receipt is expired: validity.expiresAt is at or before the "
-                                       "evaluation time (fail-closed)")
+                try:
+                    datetime.fromtimestamp(_np0, tz=timezone.utc)   # reject an out-of-range instant (year 10000)
+                except (OverflowError, OSError, ValueError):
+                    _now_invalid, _eval_now_posix = True, None
                 else:
-                    r["freshness_ok"] = True
+                    _eval_now_posix = _np0
+        if _now_invalid:
+            # R6a-5: a malformed explicit evaluation time fails every time-dependent axis closed, with NO
+            # wall-clock fallback — whether or not the receipt declares an expiresAt.
+            r["freshness_ok"] = False
+            r["errors"].append("decision receipt now (evaluation time) must be a POSIX-seconds integer in "
+                               "range (fail-closed; a malformed evaluation time is never re-read from the "
+                               "wall clock)")
+        elif "expiresAt" in _validity:
+            _exp = _validity.get("expiresAt")
+            _exp_posix = _expiresat_posix(_exp)
+            _en = cast("int | float", _eval_now_posix)   # not None in this branch (not _now_invalid)
+            if _exp_posix is None:
+                r["freshness_ok"] = False
+                r["errors"].append("validity.expiresAt is not a readable RFC3339 'Z' timestamp (fail-closed)")
+            elif _en >= _exp_posix:
+                r["freshness_ok"] = False
+                r["errors"].append("decision receipt is expired: validity.expiresAt is at or before the "
+                                   "evaluation time (fail-closed)")
+            else:
+                r["freshness_ok"] = True
 
     # Subject binding (Finding 05, release-review #4 parity with outcome.py): classify whether the subject
     # genuinely commits to the predicate so a consumer never gets ZERO signal on a subject-rehang override.
@@ -1053,21 +1075,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             elif _regel is not None:
                 pe = {"policy_ok": False, "signer_trusted": None, "errors": [_regel]}
             else:
-                # Nachtrag 49b CX-03: one evaluation time at this edge — the receipt's POSIX `now` becomes the
-                # policy clock (an aware datetime) so evaluate_decision_policy judges the policy lifecycle at the
-                # SAME instant as the receipt, not a fresh wall-clock read. None (or a malformed `now`, which the
-                # freshness check above already fails closed on when expiresAt is present) -> None -> the wall
-                # clock, the documented no-now behaviour.
-                from ._plain_value import plain_int as _plain_int  # noqa: PLC0415
-                _np = _plain_int(now)
-                try:
-                    _pol_now = datetime.fromtimestamp(_np, tz=timezone.utc) if _np is not None else None
-                except (OverflowError, OSError, ValueError):
-                    _pol_now = None
-                pe = evaluate_decision_policy(
-                    statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
-                    signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status,
-                    now=_pol_now)
+                # Nachtrag 49b CX-03 / Addendum R6a-6: the policy lifecycle is judged at the SAME single
+                # instant established at the edge above — the receipt's POSIX `now`, or, when `now` was omitted,
+                # the ONE wall-clock reading taken there (never a fresh, second wall-clock read, which could
+                # straddle a validity boundary). A malformed explicit `now` already failed the verdict closed
+                # above (R6a-5); here it refuses the policy rather than silently falling back to the wall clock.
+                if _now_invalid:
+                    pe = {"policy_ok": False, "signer_trusted": None,
+                          "errors": ["policy not evaluated: the evaluation time (now) is malformed "
+                                     "(fail-closed)"]}
+                else:
+                    _pol_now = datetime.fromtimestamp(int(cast("int | float", _eval_now_posix)), tz=timezone.utc)
+                    pe = evaluate_decision_policy(
+                        statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
+                        signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status,
+                        now=_pol_now)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])
@@ -1165,4 +1187,25 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # referencesResolved=true. Only touched on a real relations violation (bidirectional: a
         # non-lineage receipt / a satisfied policy leaves the field exactly as automation_summary set it).
         r["automation"]["referencesResolved"] = False
+    # Addendum R6a-4 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, SPEC 403-410): safeForAutomation is a
+    # PRESENT-tense verdict. Its policy-lifecycle input is evaluated at the REAL current time, NOT the
+    # (possibly historical) `now` that drove policy_ok and the CLI exit code — so a policy that is expired OR
+    # not-yet-valid TODAY keeps safeForAutomation False even when an explicit historical evaluation time made
+    # the POLICY verdict pass (POLICY_EXPIRED / POLICY_NOT_YET_VALID, mirroring the eval path). This fires
+    # only in historical mode (an explicit `now`): in present mode the policy_ok evaluation already used today,
+    # so an expired policy already blocks via POLICY_FAILED. It only ever ADDS a blocker and sets
+    # safeForAutomation False — never lifts it.
+    if (now is not None and richtlinie is not None and r.get("crypto_ok")
+            and isinstance(r.get("automation"), dict)):
+        from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+        _present = datetime.now(timezone.utc)
+        _today_expired = _pexp(richtlinie, now=_present) is True
+        _today_nyv = _pnyv(richtlinie, now=_present) is True
+        if _today_expired or _today_nyv:
+            _lifeblk = r["automation"].setdefault("automationBlockers", [])
+            if _today_expired and "POLICY_EXPIRED" not in _lifeblk:
+                _lifeblk.append("POLICY_EXPIRED")
+            if _today_nyv and "POLICY_NOT_YET_VALID" not in _lifeblk:
+                _lifeblk.append("POLICY_NOT_YET_VALID")
+            r["automation"]["safeForAutomation"] = False
     return r

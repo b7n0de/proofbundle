@@ -1841,8 +1841,9 @@ def _cmd_anchor_inspect(args: argparse.Namespace) -> int:
 def _historical_now_posix(value):
     """Addendum 49b (CX-02/CX-05) / 49c: an explicit historical evaluation instant as POSIX seconds for a verify
     that takes a `now`. None stays None (the wall clock / not judged, unchanged). The value MUST be an ISO-8601
-    UTC timestamp ending in a literal `Z` (with or without a fractional second); a zone offset (`+00:00`
-    included) or a naive timestamp is a format error, NOT silently re-read as UTC. Any non-`Z` form, any
+    UTC timestamp ending in a literal `Z` naming a WHOLE second; a zone offset (`+00:00` included) or a naive
+    timestamp is a format error, NOT silently re-read as UTC, and a sub-second fraction is a format error, NOT
+    silently truncated to the whole second (Addendum R6a-7). Any non-`Z` form, any fractional second, any
     otherwise-unparseable value, and any value not in the past is a fail-closed ValueError (never a silent back-
     or forward-date). The integer is the ONE evaluation time the receipt/attestation is judged at.
 
@@ -1862,6 +1863,14 @@ def _historical_now_posix(value):
     if dt >= datetime.now(timezone.utc):
         raise ValueError("--verification-time must be in the past — it evaluates AS OF a historical instant; "
                          "a future instant is not a historical query")
+    # Addendum R6a-7 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the evaluation time is POSIX-SECONDS. A
+    # sub-second fraction cannot be represented and must NOT be silently truncated to the whole second (which
+    # read `…00.750000Z` as `…00` and so BEFORE an expiry at `…00.500000Z`, passing an expired receipt). Reject
+    # a nonzero fractional second fail-closed, naming the whole-second requirement; a whole second is unchanged.
+    if dt.microsecond:
+        raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
+                         "is not a representable POSIX-seconds evaluation time and is never silently truncated "
+                         "(fail-closed)")
     return int(dt.timestamp())
 
 
@@ -2336,6 +2345,26 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    # Addendum R6a-4 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, SPEC 403-410): label a HISTORICAL
+    # verification, mirroring the eval verify path. The library already makes safeForAutomation present-tense
+    # (a policy expired/not-yet-valid TODAY stays unsafe even when the historical POLICY verdict passes); this
+    # surfaces the two lifecycle verdicts so a consumer sees why. CURRENT_POLICY_STATUS is the present-tense
+    # lifecycle (read at the real current time); HISTORICAL_POLICY_STATUS is the verdict AS OF the instant.
+    _vtr = None
+    if getattr(args, "verification_time", None) is not None and isinstance(policy, dict):
+        from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+        _cur_exp, _cur_nyv = _pexp(policy), _pnyv(policy)
+        if _cur_exp is True:
+            _cur = "EXPIRED"
+        elif _cur_nyv is True:
+            _cur = "NOT_YET_VALID"
+        elif _cur_exp is None and _cur_nyv is None:
+            _cur = "NO_LIFECYCLE_WINDOW"
+        else:
+            _cur = "VALID"
+        _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
+                "historical_policy_status": ("PASS" if result["policy_ok"] else
+                                             "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
     if args.json:
         # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
         # key material). Mirrors _cmd_verify/_cmd_verify_enclave: build a fresh dict instead of dumping the
@@ -2350,6 +2379,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
             "automation", "evidence_levels", "lineage", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
+        if _vtr is not None:
+            report["verification_time"] = _vtr   # R6a-4: the labelled historical report (absent in current mode)
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
@@ -2371,6 +2402,12 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:
             print(f"SUBJECT_DERIVED: {'OK' if result['subject_derived_ok'] else 'FAIL'}")
+        if _vtr is not None:
+            # R6a-4: historical verification is labelled (SPEC 403-410) — CURRENT is the present-tense
+            # lifecycle (why safeForAutomation can be NO), HISTORICAL the verdict AS OF the instant.
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(args.verification_time))})")
+            print(f"CURRENT_POLICY_STATUS: {_vtr['current_policy_status']}")
+            print(f"HISTORICAL_POLICY_STATUS: {_vtr['historical_policy_status']}")
         for e in result["errors"]:
             print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
