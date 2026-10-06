@@ -1188,17 +1188,17 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # non-lineage receipt / a satisfied policy leaves the field exactly as automation_summary set it).
         r["automation"]["referencesResolved"] = False
     # Addendum R6a-4 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, SPEC 403-410): safeForAutomation is a
-    # PRESENT-tense verdict. Its policy-lifecycle input is evaluated at the REAL current time, NOT the
-    # (possibly historical) `now` that drove policy_ok and the CLI exit code — so a policy that is expired OR
-    # not-yet-valid TODAY keeps safeForAutomation False even when an explicit historical evaluation time made
-    # the POLICY verdict pass (POLICY_EXPIRED / POLICY_NOT_YET_VALID, mirroring the eval path). This fires
-    # only in historical mode (an explicit `now`): in present mode the policy_ok evaluation already used today,
-    # so an expired policy already blocks via POLICY_FAILED. It only ever ADDS a blocker and sets
-    # safeForAutomation False — never lifts it.
+    # PRESENT-tense verdict. Its policy-lifecycle AND receipt-freshness inputs are evaluated at the REAL
+    # current time, NOT the (possibly historical) `now` that drove policy_ok, freshness_ok and the CLI exit
+    # code — so a policy that is expired OR not-yet-valid TODAY keeps safeForAutomation False even when an
+    # explicit historical evaluation time made the POLICY verdict pass (POLICY_EXPIRED / POLICY_NOT_YET_VALID,
+    # mirroring the eval path). This fires only in historical mode (an explicit `now`): in present mode the
+    # policy_ok evaluation already used today, so an expired policy already blocks via POLICY_FAILED. It only
+    # ever ADDS a blocker and sets safeForAutomation False — never lifts it.
     if (now is not None and richtlinie is not None and r.get("crypto_ok")
             and isinstance(r.get("automation"), dict)):
         from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
-        _present = datetime.now(timezone.utc)
+        _present = datetime.now(timezone.utc)   # the single present-time reading for the automation gate
         _today_expired = _pexp(richtlinie, now=_present) is True
         _today_nyv = _pnyv(richtlinie, now=_present) is True
         if _today_expired or _today_nyv:
@@ -1208,4 +1208,23 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             if _today_nyv and "POLICY_NOT_YET_VALID" not in _lifeblk:
                 _lifeblk.append("POLICY_NOT_YET_VALID")
             r["automation"]["safeForAutomation"] = False
+        # Addendum R6b-6 (`KRAXO-CLOUD-621-KERN-R6B-UND-ZT-01`, = F4 group 3): the receipt's OWN freshness is a
+        # present-tense automation input too — the remaining neighbour path of R6a-4. `freshness_ok` above was
+        # judged at the (possibly historical) evaluation instant and may stay historically True (the receipt
+        # WAS fresh THEN — kept, that is the honest historical reading, and the exit code / POLICY status are
+        # untouched). But a receipt whose validity.expiresAt is at or before the REAL present time is not fresh
+        # TODAY, so it must not earn a present automation release even under a policy valid today. Judged at the
+        # SAME present instant as the policy lifecycle just above. Fail-closed: an expired (or, defensively, a
+        # present-but-unreadable) expiry blocks with RECEIPT_EXPIRED; an ABSENT expiresAt is not-applicable and
+        # never blocks. In present mode the SAME expiry already fails freshness_ok -> ok -> RECEIPT_NOT_OK, so
+        # this changes nothing there; it only ADDS a blocker and sets safeForAutomation False — never lifts it.
+        _val_present = predicate.get("validity") if isinstance(predicate, dict) else None
+        _val_present = _val_present if isinstance(_val_present, dict) else {}
+        if "expiresAt" in _val_present:
+            _exp_present = _expiresat_posix(_val_present.get("expiresAt"))
+            if _exp_present is None or _present.timestamp() >= _exp_present:
+                _freshblk = r["automation"].setdefault("automationBlockers", [])
+                if "RECEIPT_EXPIRED" not in _freshblk:
+                    _freshblk.append("RECEIPT_EXPIRED")
+                r["automation"]["safeForAutomation"] = False
     return r
