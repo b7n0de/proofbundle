@@ -191,7 +191,13 @@ def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult
 
     Nachtrag 46b: it also carries the verified Merkle root through (the authenticated-root rule now adopts a
     positive root-authenticity only for the root the result verified) and stamps the origin token verify_bundle
-    stamps over these fields (evaluate_policy refuses a result that carries none)."""
+    stamps over these fields (evaluate_policy refuses a result that carries none).
+
+    Addendum R6a: it carries through the two further origin-covered bindings a real verify_bundle records —
+    ``verified_inclusion_root`` (the Merkle root the inclusion check passed under, R6a-2) and
+    ``verified_sd_jwt_vc_compact`` (the exact sd_jwt_vc.compact the result verified, R6a-1) — so the rebuilt
+    stand-in still represents the verification of that same bundle, which the authenticated-root and sd_jwt
+    binding gates now require."""
     checks = [Check(c.name, ok if c.name == name else c.ok, c.detail) for c in result.checks]
     if not any(c.name == name for c in result.checks):
         checks.append(Check(name, ok))
@@ -199,6 +205,8 @@ def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult
     out.verified_signer_pub = result.verified_signer_pub
     out.verified_payload_digest = result.verified_payload_digest
     out.verified_merkle_root = result.verified_merkle_root
+    out.verified_inclusion_root = result.verified_inclusion_root
+    out.verified_sd_jwt_vc_compact = result.verified_sd_jwt_vc_compact
     out.stamp_origin()
     return out
 

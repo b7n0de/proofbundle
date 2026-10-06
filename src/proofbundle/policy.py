@@ -1299,6 +1299,31 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 "checks": [{"name": "policy:result_origin", "ok": False, "detail": grund}],
                 "reason": grund}
 
+    # Addendum R6a-1 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): the signer + payload digest gate
+    # above binds the SIGNED bytes, but the ``sd_jwt_vc`` block lives OUTSIDE the signed payload. A copy with
+    # the same signer and payload digest but a changed ``sd_jwt_vc.compact`` (for example one altered KB-JWT
+    # signature character) passes both gates above, yet its SD-JWT/KB-JWT state differs from the one this result
+    # verified — so adopting the result's ``sd-jwt-key-binding`` / nonce / aud / vct verdict for it (rules 5/5a/5b)
+    # would judge a DIFFERENT presentation. ``verified_sd_jwt_vc_compact`` is the exact compact the result
+    # verified (origin-covered, set on a passing bundle signature). Require the PASSED bundle's compact to equal
+    # it before any sd_jwt rule runs: both-absent is fine; otherwise an exact byte match, else fail-closed.
+    _result_compact = getattr(result, "verified_sd_jwt_vc_compact", None)
+    _bundle_sd = bundle.get("sd_jwt_vc")
+    _bundle_compact = _bundle_sd.get("compact") if isinstance(_bundle_sd, dict) else None
+    _sd_bound = (
+        (_bundle_compact is None and _result_compact is None)
+        or (isinstance(_bundle_compact, str) and isinstance(_result_compact, str)
+            and hmac.compare_digest(_bundle_compact.encode("utf-8"), _result_compact.encode("utf-8"))))
+    if not _sd_bound:
+        grund = ("the verification result's authenticated sd_jwt_vc does not match this bundle's sd_jwt_vc — "
+                 "the sd_jwt_vc block is outside the signed payload, so a copy with the same signer and payload "
+                 "but a different SD-JWT/KB-JWT presentation must not inherit this result's key-binding/nonce "
+                 "verdict (fail-closed; pass the VerificationResult that verify_bundle returned for exactly this "
+                 "bundle)")
+        return {"policy_ok": False,
+                "checks": [{"name": "policy:result_sd_jwt_binding", "ok": False, "detail": grund}],
+                "reason": grund}
+
     # 0. A-P0-2 §6 + A-P0-4 §8: policy LIFECYCLE and PURPOSE are part of the policy evaluation
     # itself (POLICY: FAIL, exit 3) — parity with the decision path's AP-2 sibling gate. Previously
     # an expired eval policy still produced POLICY: OK while only safeForAutomation went false.
@@ -1370,6 +1395,20 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     root_authenticated = None
 
+    # Addendum R6a-2 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): a root is AUTHENTICATED for THIS
+    # bundle only if the authentic result proved Merkle inclusion of this bundle's payload UNDER that exact
+    # root. The stated root is not signed; a trusted_roots pin, an --expected-root, and a signed checkpoint
+    # each authenticate a root's BYTES, but none is an inclusion proof for THIS bundle's data — so a copy that
+    # relabels merkle.root_b64 to an authenticated foreign root (same signer and payload) must not pass. The
+    # result records the root its merkle-inclusion check passed under (``verified_inclusion_root``, origin-
+    # covered, set only on a passing signature AND a passing inclusion); every root-authentication path below
+    # requires the stated root to equal it.
+    _vir = getattr(result, "verified_inclusion_root", None)
+
+    def _proved_inclusion_under(stated: bytes) -> bool:
+        return (isinstance(_vir, (bytes, bytearray)) and bool(stated)
+                and hmac.compare_digest(bytes(_vir), stated))
+
     # 4b. A-P0-1 §5: trusted CHECKPOINTS — root and tree size authenticated ATOMICALLY from one signed
     # source. A naked root pin (4c) can never tell a (index, tree_size) relabel apart (the relabelled
     # proof carries the SAME root); only a match of BOTH fields against ONE authenticated checkpoint sets
@@ -1423,7 +1462,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             else "no pinned trusted checkpoint atomically authenticates this bundle's "
                  f"(root, tree_size): {'; '.join(reasons) or 'no entries'}")
         if matched:
-            root_authenticated = True   # the checkpoint authenticates the root bytes too
+            # R6a-2: the checkpoint authenticates the root BYTES, but this bundle's payload is authenticated
+            # under it only if the authentic result proved inclusion under exactly this stated root.
+            root_authenticated = _proved_inclusion_under(stated_root)
 
     # 4c. merkle root AUTHENTICATION (P0-A §6.2): the stated root is not signed, so a coherent one-leaf
     # rewrap re-anchors the same payload under a different root. Require the root be authenticated —
@@ -1461,7 +1502,10 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 break
         # A matching checkpoint (4b) authenticates the root too (Lens-6 review): a belt-and-suspenders
         # require_authenticated_root + trusted_checkpoints config must not fail closed on a real match.
-        root_authenticated = bool(via_expected or via_trusted or _cp_matched)
+        # R6a-2: whichever path authenticates the root's bytes, the authentic result must also have proved
+        # inclusion of THIS bundle's payload under exactly that stated root (a pin is no inclusion proof).
+        root_authenticated = bool((via_expected or via_trusted or _cp_matched)
+                                  and _proved_inclusion_under(stated_root))
         # A non-empty trusted_roots ENFORCES on its own (not only when require_authenticated_root is set):
         # listing the roots you trust means the stated root MUST be one of them, else a policy that pins
         # trusted_roots but forgets the boolean would silently pass a foreign root (fail-open footgun,
