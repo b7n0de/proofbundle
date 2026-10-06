@@ -800,7 +800,7 @@ fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
 
 // RFC 7515 section 4.1.11 critical-header handling (Nachtrag 50b, Z309). proofbundle understands no JWS
 // extension, so any `crit` present in a protected header makes the JWS invalid — the Rust mirror of
-// Python `signature.reject_jws_crit`. Returns true when the header's `crit` member requires rejection
+// Python `signature._reject_jws_crit`. Returns true when the header's `crit` member requires rejection
 // (a header with no `crit` returns false, unchanged). Every RFC-named defect — `crit` not a non-empty
 // array, a non-string or duplicate name, a base-spec (registered) parameter, or a name absent from the
 // header — rejects, and a well-formed `crit` still rejects because no extension is understood. The set

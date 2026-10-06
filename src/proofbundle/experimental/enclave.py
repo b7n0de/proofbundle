@@ -50,7 +50,7 @@ from typing import Optional
 
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
-from ..signature import reject_jws_crit, verify_ed25519_pinned
+from ..signature import _reject_jws_crit, verify_ed25519_pinned
 from .._wire_b64 import decode_b64, decode_b64url
 from ..canonical import _ein_stand
 
@@ -144,7 +144,7 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     # Nachtrag 50 (Z309, sibling of K5-01/K5-02): RFC 7515 §4.1.11 — an un-understood critical header
     # makes the JWS invalid. Checked right after reading the header and BEFORE typ/alg, so an EAT whose
     # protected header carries `crit` fails closed (ok stays False) instead of reaching ok=True.
-    _crit_reason = reject_jws_crit(header)
+    _crit_reason = _reject_jws_crit(header)
     if _crit_reason is not None:
         result["detail"] = _crit_reason
         return result

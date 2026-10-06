@@ -43,7 +43,7 @@ from ._strict_json import loads_strict
 from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import ProofBundleError
 from .sdjwt import _es256_signature_spellings
-from .signature import reject_jws_crit, verify_ed25519_pinned
+from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -224,7 +224,7 @@ def verify_key_binding(
     # Nachtrag 50 (Z309, K5-01): RFC 7515 §4.1.11 — a critical header the verifier does not understand
     # makes the JWS invalid. Checked right after reading the KB-JWT header and BEFORE typ/alg, so a KB-JWT
     # with a `crit` member fails closed (ok stays False, detail names crit) instead of reaching ok=True.
-    _crit_reason = reject_jws_crit(kb_header)
+    _crit_reason = _reject_jws_crit(kb_header)
     if _crit_reason is not None:
         result["detail"] = _crit_reason
         return result

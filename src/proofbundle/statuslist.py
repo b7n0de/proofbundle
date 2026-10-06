@@ -32,7 +32,7 @@ from .budget import int_magnitude_ok, render_safe
 from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ein_stand, _ganzzahl_von, _pruefkopie,
                         _type_name, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
-from .signature import reject_jws_crit, verify_ed25519_pinned
+from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64url
 
@@ -198,7 +198,7 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     # Nachtrag 50 (Z309, sibling of K5-01/K5-02): RFC 7515 §4.1.11 — an un-understood critical header
     # makes the JWS invalid. Checked right after reading the header and BEFORE typ/alg, so a Status List
     # Token whose protected header carries `crit` fails closed (ok stays False) instead of reaching ok=True.
-    _crit_reason = reject_jws_crit(header)
+    _crit_reason = _reject_jws_crit(header)
     if _crit_reason is not None:
         result["detail"] = _crit_reason
         return result
