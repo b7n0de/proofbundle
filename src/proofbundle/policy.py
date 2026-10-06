@@ -18,6 +18,7 @@ Design invariants:
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import re
 from datetime import datetime, timezone
@@ -1218,6 +1219,40 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     sig = _as_dict(bundle.get("signature"))
 
+    # Nachtrag 46 (Z309, 6.2.0, F2): the result must have been produced from THIS bundle. evaluate_policy takes
+    # the crypto `result` and the `bundle` as separate arguments; `_checks_passed` above only proves SOME result
+    # passed, never that it verified this bundle. A good result of bundle A combined with a different, unsigned
+    # bundle B let every sd_jwt rule read positive and policy_ok True — the signer was re-decoded from B and B's
+    # self-signed SD-JWT verified under it. Bind the two: the result's recorded verified signer and payload digest
+    # (set by verify_bundle ONLY on a passing bundle signature) MUST equal this bundle's signer and payload digest.
+    # Missing or different -> fail-closed and no rule is evaluated. This gate governs the WHOLE function, not only
+    # the sd_jwt rules.
+    _result_signer = getattr(result, "verified_signer_pub", None)
+    _result_digest = getattr(result, "verified_payload_digest", None)
+    try:
+        _bundle_digest = hashlib.sha256(decode_b64(bundle.get("payload_b64"))).hexdigest()
+    except (ValueError, TypeError):
+        _bundle_digest = None
+    _bundle_signer = None
+    _bundle_pk = sig.get("public_key_b64")
+    if isinstance(_bundle_pk, str):
+        try:
+            _bundle_signer = decode_b64(_bundle_pk)
+        except (ValueError, TypeError):
+            _bundle_signer = None
+    _bound_to_bundle = (
+        isinstance(_result_digest, str) and _bundle_digest is not None
+        and hmac.compare_digest(_result_digest, _bundle_digest)
+        and isinstance(_result_signer, (bytes, bytearray)) and isinstance(_bundle_signer, (bytes, bytearray))
+        and hmac.compare_digest(bytes(_result_signer), bytes(_bundle_signer)))
+    if not _bound_to_bundle:
+        grund = ("the verification result was not produced from this bundle — its recorded verified signer and "
+                 "payload digest do not match this bundle, so no policy can judge it (fail-closed; pass the "
+                 "VerificationResult that verify_bundle returned for exactly this bundle)")
+        return {"policy_ok": False,
+                "checks": [{"name": "policy:result_bundle_binding", "ok": False, "detail": grund}],
+                "reason": grund}
+
     # 0. A-P0-2 §6 + A-P0-4 §8: policy LIFECYCLE and PURPOSE are part of the policy evaluation
     # itself (POLICY: FAIL, exit 3) — parity with the decision path's AP-2 sibling gate. Previously
     # an expired eval policy still produced POLICY: OK while only safeForAutomation went false.
@@ -1388,17 +1423,13 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     #    reconciled effective aud); this function applies it itself as well (5a), so a library caller is bound too.
     sdj = _as_dict(policy.get("sd_jwt"))
     sd = bundle.get("sd_jwt_vc")
-    # Nachtrag 44: the bundle's own signing key, decoded, so _sd_jwt_issuer_trusted can require the SD-JWT's
-    # verifying key to BE the bundle signer on the payload-binding path (the same binding decode_eval_claim
-    # makes). Fail-closed: an absent or malformed signer key reads None, and the binding comparison then fails.
-    _signer_pub = None
-    _sig = bundle.get("signature") if isinstance(bundle, dict) else None
-    _pk = _sig.get("public_key_b64") if isinstance(_sig, dict) else None
-    if isinstance(_pk, str):
-        try:
-            _signer_pub = decode_b64(_pk)
-        except (ValueError, TypeError):
-            _signer_pub = None
+    # Nachtrag 44: the bundle's own signing key is required so _sd_jwt_issuer_trusted can tie the SD-JWT's
+    # verifying key to the bundle signer on the payload-binding path (the same binding decode_eval_claim makes).
+    # Nachtrag 46 (Z309, 6.2.0, F2): take that signer from the RESULT, not re-decoded from the bundle. The
+    # binding gate above already proved result.verified_signer_pub equals this bundle's signer, and the result is
+    # the authenticated source (set only on a passing signature), so a claimed-but-unverified bundle key can
+    # never reach the binding path.
+    _signer_pub = bytes(_result_signer)
     kb = None
     if isinstance(sd, dict) and isinstance(sd.get("compact"), str):
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)
