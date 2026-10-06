@@ -661,9 +661,6 @@ class EveryAppliedRuleHasAnObservableEffect(unittest.TestCase):
         # own fields, as a verify_bundle result of this bundle would carry one.
         ergebnis.verified_signer_pub = base64.b64decode(b["signature"]["public_key_b64"])
         ergebnis.verified_payload_digest = hashlib.sha256(base64.b64decode(b["payload_b64"])).hexdigest()
-        # Addendum R6a-1: a verify_bundle result of this bundle also records the exact sd_jwt_vc.compact it
-        # verified, and evaluate_policy refuses a bundle whose compact differs; the stand-in carries it too.
-        ergebnis.verified_sd_jwt_vc_compact = presented
         ergebnis.stamp_origin()
         basis = {(None, "allowed_issuers"): [{"public_key_b64": pub}]}
         regel = ("sd_jwt", "require_key_binding_when_cnf_present")
