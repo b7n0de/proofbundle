@@ -1,17 +1,22 @@
-"""Nachtrag 45b (KRAXO-CLOUD-N45B-EMPFAENGER-NUR-MIT-GEBUNDENEM-SCHLUESSEL-01), Ergänzung zu N45, Z309 / 6.2.0.
-Setzt Punkt 3 aus Nachtrag 44b um (der Empfängerweg, den der N44-Bericht nicht behandelt).
+"""Addendum 45b (`KRAXO-CLOUD-N45B-EMPFAENGER-NUR-MIT-GEBUNDENEM-SCHLUESSEL-01`), addition to N45, Z309 / 6.2.0.
+Implements point 3 from Addendum 44b (the receiver path the N44 report did not cover).
 
-BEFUND (gelesen am Code an ae4a4c1d): bei gepinntem Pack setzte verify_outcome_receipt receiver_role_trusted auf
-True, wenn receiverKeyId Mitglied von outcomeReceivers ist und KEIN Signaturschlüssel aufgelöst wurde — nur mit
-einer Warnung "by LABEL only" (outcome.py). Ein positives Vertrauensfeld ohne Bindung an den Schlüssel, der die
-Aussage trägt.
+FINDING (read on the code at ae4a4c1d): with a pinned pack, verify_outcome_receipt set receiver_role_trusted to
+True when receiverKeyId is a member of outcomeReceivers and NO signing key was resolved — only with a warning
+"by LABEL only" (outcome.py). A positive trust field with no binding to the key that carries the statement.
 
-VERTRAG N45B: receiver_role_trusted ist nur True, wenn das Pack nach N45 an den Inhalt gebunden geankert ist, ein
-Signaturschlüssel des Empfänger-Statements aufgelöst wurde und exakt an den Pack-Schlüssel dieser receiverKeyId
-bindet (receiver_key_bound True). Label allein -> receiver_role_trusted None, receiver_key_bound None, mit Grund und
-Warnung. Ein aufgelöster, nicht bindender Schlüssel bleibt False. ok bleibt unberührt (receiverRefs gaten ok nie).
+CONTRACT N45B: receiver_role_trusted was positive only when the pack is anchored bound to the content per N45, a
+signing key of the receiver statement was resolved, and it binds exactly to the pack key of that receiverKeyId
+(receiver_key_bound True). Label alone -> receiver_role_trusted None, receiver_key_bound None, with reason and
+warning. A resolved, non-binding key stays False. ok is unaffected (receiverRefs never gate ok).
 
-Rot an ae4a4c1d, grün danach. Nur fail-closed geprüft, keine weiteren Angriffsproben.
+N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`) supersedes the positive end: a caller resolver
+answer can no longer confer receiver trust, because the library does not itself verify the referenced receiver
+statement. A member whose resolved signer key byte-matches the pack key is now receiver_role_trusted None and
+receiver_key_bound None, with an error containing "RECEIVER_STATEMENT_NOT_VERIFIED" — no longer True/True. The
+counter-probes (label-only None, resolved-but-non-binding False) are unchanged, and ok stays unaffected.
+
+Red at ae4a4c1d, green afterwards. Only fail-closed checked, no further attack probes.
 """
 from __future__ import annotations
 
@@ -65,7 +70,8 @@ def _pinned_root_keys(pred: dict) -> dict:
 
 
 class TestReceiverRoleNeedsBoundKey(unittest.TestCase):
-    """receiver_role_trusted is positive only with a resolved AND bound signer key (N45B)."""
+    """Under N45B a resolved AND bound signer key was the only positive case; N47 caps even that at None
+    (RECEIVER_STATEMENT_NOT_VERIFIED) — a caller resolver answer can no longer confer receiver trust."""
 
     def _fixtures(self, recv_pub):
         out_sk = generate_signer()
@@ -99,16 +105,21 @@ class TestReceiverRoleNeedsBoundKey(unittest.TestCase):
         self.assertIs(r["receiver_key_bound"], False)
         self.assertIs(r["ok"], True)
 
-    def test_resolved_and_bound_key_is_trusted(self):
-        # CONTROL (positive): a resolved signer key that binds to the pack key under a content-bound anchor.
+    def test_resolved_and_bound_key_is_not_positive_statement_not_verified(self):
+        # CONTROL (was positive under N45B): a resolved signer key that byte-matches the pack key under a
+        # content-bound anchor. N47: a caller resolver answer can no longer confer receiver trust — the library
+        # does not itself verify the referenced receiver statement (it never fetches the statement for the digest
+        # or checks a signature under the returned key), so this is receiver_role_trusted None, receiver_key_bound
+        # None with RECEIVER_STATEMENT_NOT_VERIFIED, not True/True. ok is unaffected (receiverRefs never gate ok).
         recv_pub = generate_signer().public_key().public_bytes_raw()
         env, out_pub, pred, _ = self._fixtures(recv_pub)
         r = verify_outcome_receipt(env, out_pub, trust_pack=pred,
                                    trust_pack_expected_genesis_digest=_content_root(pred),
                                    evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: recv_pub)
-        self.assertIs(r["receiver_role_trusted"], True)
-        self.assertIs(r["receiver_key_bound"], True)
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
         self.assertIs(r["ok"], True)
 
     def test_label_only_without_anchor_stays_not_anchored(self):

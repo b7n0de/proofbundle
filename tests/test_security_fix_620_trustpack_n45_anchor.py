@@ -1,21 +1,26 @@
-"""Nachtrag 45 (KRAXO-CLOUD-N45-TRUSTPACK-ANKER-AN-DEN-INHALT-01), Nachbesserung zu N43, Z309 / Release 6.2.0.
+"""Addendum 45 (`KRAXO-CLOUD-N45-TRUSTPACK-ANKER-AN-DEN-INHALT-01`), follow-up to N43, Z309 / Release 6.2.0.
 
-BEFUND (gelesen am Code an ae4a4c1d, Zweig claude/security-fix-620-trustpack): bei ``verify_outcome_receipt``
-zaehlte der Root-Schluessel-Anker allein (``trust_pack_expected_root_keys``) und ein nacktes durchgereichtes
-``trust_pack_pinned=True`` als Anker. ``trust_pack_is_pinned``'s Root-Schluessel-Anker prueft nur, dass die im
-PRAEDIKAT erklaerten Root-Schluessel im gepinnten Satz liegen (declared <= pinned) -- keine Signatur ueber das
-Praedikat. outcome prueft dort keine Signatur. Ein nie geprueftes Praedikat, das die oeffentlichen gepinnten
-Root-Schluessel abschreibt und den Outcome-Signierer als Executor eintraegt, galt damit als vertrauenswuerdig,
-``ok`` und ``safeForAutomation`` positiv. Dasselbe fuer ein nacktes ``trust_pack_pinned=True``.
+FINDING (read on the code at ae4a4c1d, branch claude/security-fix-620-trustpack): in ``verify_outcome_receipt``
+the root-key anchor alone (``trust_pack_expected_root_keys``) and a bare forwarded ``trust_pack_pinned=True``
+counted as an anchor. ``trust_pack_is_pinned``'s root-key anchor only checks that the root keys DECLARED in the
+PREDICATE lie within the pinned set (declared <= pinned) -- no signature over the predicate. outcome checks no
+signature there. A never-checked predicate that copies the public pinned root keys and names the outcome signer
+as executor therefore counted as trustworthy, with ``ok`` and ``safeForAutomation`` positive. The same held for a
+bare ``trust_pack_pinned=True``.
 
-VERTRAG N45: an outcome zaehlt nur ein Anker, der an den INHALT genau des uebergebenen Praedikats gebunden ist:
-der Digest-Anker (bleibt); ein gepruefter Umschlag unter den gepinnten Root-Schluesseln, dessen Inhalt das
-Praedikat ist (``trust_pack_envelope`` + ``trust_pack_expected_root_keys``); oder ein durchgereichtes Urteil mit
-dem Digest des geprueften Praedikats (``trust_pack_pinned=True`` + ``trust_pack_pinned_digest`` ==
-sha256(JCS(predicate))). Empfaengerweg folgt derselben Regel.
+CONTRACT N45: at outcome only an anchor bound to the CONTENT of exactly the passed predicate counts: the digest
+anchor (kept); a verified envelope under the pinned root keys whose content is the predicate
+(``trust_pack_envelope`` + ``trust_pack_expected_root_keys``); or a forwarded verdict carrying the digest of the
+verified predicate (``trust_pack_pinned=True`` + ``trust_pack_pinned_digest`` == sha256(JCS(predicate))). The
+receiver path follows the same rule.
 
-Je Flaeche rot an ae4a4c1d und gruen danach. Nur fail-closed geprueft, keine weiteren Angriffsproben: die
-Angriffs-Praedikate werden nur hier mit Testschluesseln erzeugt, um den geschlossenen Zustand zu belegen.
+N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`) adds, at the receiver path, that a caller
+resolver answer no longer confers trust (the library does not verify the referenced receiver statement), so the
+receiver controls below assert receiver_role_trusted None and receiver_key_bound None with an error containing
+"RECEIVER_STATEMENT_NOT_VERIFIED", not True/True; the anchor rule and the executor controls are unchanged.
+
+Per surface red at ae4a4c1d and green afterwards. Only fail-closed checked, no further attack probes: the attack
+predicates are created only here, with test keys, to demonstrate the closed state.
 """
 from __future__ import annotations
 
@@ -91,7 +96,7 @@ class TestExecutorAnchorBoundToContent(_Base):
     """Executor role trust is positive only under an anchor bound to THIS predicate's content."""
 
     def test_naked_root_key_copy_is_not_trusted(self):
-        # COUNTER-PROBE (red@ae4a4c1d: executor_role_trusted True, ok True, safeForAutomation True — the BEFUND):
+        # COUNTER-PROBE (red@ae4a4c1d: executor_role_trusted True, ok True, safeForAutomation True — the FINDING):
         # a predicate copying the pinned public root keys + the outcome signer as executor, no verified envelope.
         env, out_pub, pred, _ = self._exec_fixtures()
         r = verify_outcome_receipt(env, out_pub, trust_pack=pred,
@@ -187,9 +192,11 @@ class TestReceiverAnchorBoundToContent(_Base):
         self.assertIs(r["receiver_role_trusted"], False)
         self.assertTrue(self._recv_error_present(r))
 
-    def test_receiver_under_genesis_digest_anchor_is_trusted(self):
-        # CONTROL (positive) at the receiver path: content-bound digest anchor AND a resolved+bound receiver key
-        # (N45B: a label-only member is not positive, so the control resolves the member's signer key).
+    def test_receiver_under_genesis_digest_anchor_is_not_positive_statement_not_verified(self):
+        # CONTROL (was positive under N45B) at the receiver path: content-bound digest anchor AND a resolved key
+        # that byte-matches the pack key. N47: a caller resolver answer can no longer confer receiver trust (the
+        # library does not itself verify the referenced receiver statement), so this is receiver_role_trusted
+        # None, receiver_key_bound None with RECEIVER_STATEMENT_NOT_VERIFIED, not True/True. The anchor still holds.
         out_sk = generate_signer()
         out_pub = out_sk.public_key().public_bytes_raw()
         env = emit_outcome_receipt(_outcome_pred(with_receiver=True), out_sk)
@@ -199,12 +206,15 @@ class TestReceiverAnchorBoundToContent(_Base):
                                    trust_pack_expected_genesis_digest=_content_root(pred),
                                    evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: recv_pub)
-        self.assertIs(r["receiver_role_trusted"], True)
-        self.assertIs(r["receiver_key_bound"], True)
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
 
-    def test_receiver_under_verified_envelope_is_trusted(self):
-        # CONTROL (positive) at the receiver path: verified envelope under the pinned root keys AND a
-        # resolved+bound receiver key (N45B).
+    def test_receiver_under_verified_envelope_is_not_positive_statement_not_verified(self):
+        # CONTROL (was positive under N45B) at the receiver path: verified envelope under the pinned root keys AND
+        # a resolved key that byte-matches the pack key. N47: a caller resolver answer can no longer confer
+        # receiver trust (the library does not itself verify the referenced receiver statement), so this is
+        # receiver_role_trusted None, receiver_key_bound None with RECEIVER_STATEMENT_NOT_VERIFIED, not True/True.
         out_sk = generate_signer()
         out_pub = out_sk.public_key().public_bytes_raw()
         env = emit_outcome_receipt(_outcome_pred(with_receiver=True), out_sk)
@@ -216,8 +226,9 @@ class TestReceiverAnchorBoundToContent(_Base):
                                    trust_pack_expected_root_keys=_pinned_root_keys(pred),
                                    evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: recv_pub)
-        self.assertIs(r["receiver_role_trusted"], True)
-        self.assertIs(r["receiver_key_bound"], True)
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
 
 
 if __name__ == "__main__":

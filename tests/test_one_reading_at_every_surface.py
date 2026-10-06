@@ -701,8 +701,11 @@ class ABytesLikeValueIsReadWhereItWasReadBefore(unittest.TestCase):
         """Not a parity case any more: since the 6.2.0 chain carries PR 291, key material counts only as
         a plain bytes or bytearray object (`assurance._is_key_material`), the expectation included, so a
         `memoryview` expectation is refused and never compared, and nothing is promoted over it. At the
-        D4 head 7cc8fa0b it was compared as the bytes it views (`canonical._puffer_von`). The plain
-        bytes are the control."""
+        D4 head 7cc8fa0b it was compared as the bytes it views (`canonical._puffer_von`). Since N47
+        (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`) a resolver answer no longer promotes
+        beyond CONTENT_RESOLVED, so the plain-bytes case caps there as well and no longer distinguishes the
+        key type by level; the verified receiver path is deferred to the post-tag anchor check. Plain bytes
+        with a matching resolved key are the control and cap at CONTENT_RESOLVED."""
         from proofbundle.assurance import EvidenceLevel, classify_receiver_corroboration  # noqa: PLC0415
         empfaenger = Ed25519PrivateKey.from_private_bytes(b"\x0c" * 32)
         basis = dict(digest_obj={"sha256": "d" * 64}, evidence_resolver=lambda d: True,
@@ -716,7 +719,10 @@ class ABytesLikeValueIsReadWhereItWasReadBefore(unittest.TestCase):
         gut = classify_receiver_corroboration(
             independent_attestation_resolver=lambda d: _raw(empfaenger),
             expected_receiver_public_key=_raw(empfaenger), **basis)
-        self.assertEqual(gut["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        # N47: old expectation INDEPENDENTLY_ATTESTED; new expectation CONTENT_RESOLVED. A resolver answer,
+        # even a matching plain-bytes key, no longer promotes the receiver; the cap is measured directly in
+        # test_security_fix_620_trustpack_n47_receiver.py.
+        self.assertEqual(gut["level"], EvidenceLevel.CONTENT_RESOLVED)
         falsch = classify_receiver_corroboration(
             independent_attestation_resolver=lambda d: _raw(_T),
             expected_receiver_public_key=_raw(empfaenger), **basis)

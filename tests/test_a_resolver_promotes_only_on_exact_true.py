@@ -172,24 +172,35 @@ class TestTheReceiverLadderAttestsOnlyOnTrue(unittest.TestCase):
                 self.assertIn(_WHY, r["detail"])
 
     def test_control_true_and_key_material_attest_false_and_raise_do_not(self):
-        top = EvidenceLevel.INDEPENDENTLY_ATTESTED
-        self.assertEqual(classify_receiver_corroboration(
+        # N47: a caller resolver answer can no longer reach INDEPENDENTLY_ATTESTED (the library does not verify the
+        # referenced receiver statement), so the two answers that WOULD have attested — the exact True and 32
+        # bytes of key material — are capped at CONTENT_RESOLVED and carry the N47 cap marker in the detail. The
+        # exact False and a raising resolver stay at the base CONTENT_RESOLVED without the marker.
+        capped = EvidenceLevel.CONTENT_RESOLVED
+        r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: True,
-            **self._base)["level"], top)
-        self.assertEqual(classify_receiver_corroboration(
+            **self._base)
+        self.assertEqual(r["level"], capped)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
+        r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: b"k" * 32,
-            **self._base)["level"], top)
+            **self._base)
+        self.assertEqual(r["level"], capped)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
         r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=lambda d: False,
             **self._base)
         self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertNotIn(_WHY, r["detail"])
+        self.assertNotIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
 
         def _boom(_d):
             raise RuntimeError("resolver failed")
-        self.assertEqual(classify_receiver_corroboration(
+        r = classify_receiver_corroboration(
             _DIGEST, evidence_resolver=lambda d: True, independent_attestation_resolver=_boom,
-            **self._base)["level"], EvidenceLevel.CONTENT_RESOLVED)
+            **self._base)
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertNotIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
 
 
 class TestTheRenewalAnchorHoldsOnlyOnTrue(unittest.TestCase):
@@ -252,7 +263,9 @@ class TestThePublicVerifiersPassTheRuleOn(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
         self.assertEqual(r["evidence_levels"]["effect"]["level"], EvidenceLevel.CONTENT_RESOLVED)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        # N47: the exact True still promotes through the public verifier, but the receiver ladder is capped at
+        # CONTENT_RESOLVED — INDEPENDENTLY_ATTESTED is no longer reachable from a resolver answer.
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 
 
 class _LyingDict(dict):
@@ -641,11 +654,18 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
                     self.assertEqual(calls, [], "the answer's own methods ran")
 
     def test_control_plain_key_material_attests_and_binds_as_before(self):
+        # N47: 32 bytes of plain key material still reaches the attestation path (and still binds against a
+        # matching expectation), but the promotion is capped at CONTENT_RESOLVED and carries the N47 cap marker —
+        # INDEPENDENTLY_ATTESTED is no longer reachable from a resolver answer. The binding counter-probes below
+        # (a non-matching expectation, a 31-byte key) are unchanged.
         for label, answer in (("bytes", _RECV_KEY), ("bytearray", bytearray(_RECV_KEY))):
             with self.subTest(answer=label):
-                self.assertEqual(self._classify(answer)["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
-                self.assertEqual(self._classify(answer, expected_receiver_public_key=_RECV_KEY)["level"],
-                                 EvidenceLevel.INDEPENDENTLY_ATTESTED)
+                r = self._classify(answer)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
+                r = self._classify(answer, expected_receiver_public_key=_RECV_KEY)
+                self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+                self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
                 r = self._classify(answer, expected_receiver_public_key=b"x" * 32)
                 self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
                 self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", r["detail"])
@@ -666,9 +686,13 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack,
                                    trust_pack_pinned=True, trust_pack_pinned_digest=_n45_digest(pack))
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
-        self.assertIs(r["receiver_key_bound"], True)
-        self.assertIs(r["receiver_role_trusted"], True)
+        # N47: a resolved signer key that byte-matches the pack key no longer confers trust through the public
+        # verifier either — receiver_role_trusted/receiver_key_bound are None (not True) with a
+        # RECEIVER_STATEMENT_NOT_VERIFIED error, and the ladder is capped at CONTENT_RESOLVED.
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]))
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack,
                                    trust_pack_pinned=True, trust_pack_pinned_digest=_n45_digest(pack))
@@ -734,9 +758,20 @@ class TestTheKeyIdsCountOnlyAsPlainStr(unittest.TestCase):
                 self.assertEqual(calls, [])
 
     def test_control_plain_key_ids_behave_as_before(self):
-        self.assertEqual(self._classify("kid-exec", "kid-recv")["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
-        self.assertEqual(self._classify("kid-exec", "kid-exec")["level"], EvidenceLevel.CONTENT_RESOLVED)
-        self.assertEqual(self._classify("kid-exec", ["kid-exec"])["level"], EvidenceLevel.CONTENT_RESOLVED)
+        # N47: distinct plain str key ids still clear the structural-independence check and reach the attestation
+        # path, but the promotion is capped at CONTENT_RESOLVED with the N47 cap marker — INDEPENDENTLY_ATTESTED
+        # is no longer reachable from a resolver answer. Equal or non-str key ids still fail the independence
+        # check BEFORE the resolver runs (their detail says "independence not provable", not the N47 marker), so
+        # the str-key-id counter-probes are unchanged.
+        r = self._classify("kid-exec", "kid-recv")
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", r["detail"])
+        r = self._classify("kid-exec", "kid-exec")
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("independence not provable", r["detail"])
+        r = self._classify("kid-exec", ["kid-exec"])
+        self.assertEqual(r["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("independence not provable", r["detail"])
         pack = {"roles": {"outcomeExecutors": {"keyIds": ["kid-exec"]}, "outcomeReceivers": {"keyIds": ["kid-recv"]}},
                 "keys": {"kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         self.assertIs(receiver_trusted_by_role("kid-recv", pack), True)
@@ -1372,8 +1407,8 @@ class TestTheLadderReadsWhatTheCallerStoresRunningNoneOfItsCode(unittest.TestCas
                         self.assertEqual(calls, [], "the digest object's own code ran")
                         continue
                     got = classify(digest)["level"]
-                    if name == "classify_receiver_corroboration" and level == EvidenceLevel.CONTENT_RESOLVED:
-                        level = EvidenceLevel.INDEPENDENTLY_ATTESTED
+                    # N47: classify_receiver_corroboration is capped at CONTENT_RESOLVED too — it is no longer
+                    # bumped to INDEPENDENTLY_ATTESTED, so both digest surfaces share the same expected level.
                     self.assertEqual(got, level)
                     self.assertEqual(calls, [], "the digest object's own code ran")
         fields = [
