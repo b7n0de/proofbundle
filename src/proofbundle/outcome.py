@@ -1017,9 +1017,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # corroboration, digest-bound exactly like decision.py's evidenceRefs[]. receiver_bound mirrors
         # evidence_bound (shape-only, None when there is nothing to bind — mirrors the vacuous-None
         # convention decision.py already documents). evidence_levels["receiverRefs"] uses OR semantics (one
-        # corroborating receiver suffices) over classify_receiver_corroboration, which can reach
-        # INDEPENDENTLY_ATTESTED via the new receiver_attestation_resolver — never EFFECT_OBSERVED (the
-        # honestly-documented inherent limit, assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED).
+        # corroborating receiver suffices) over classify_receiver_corroboration. N47: that classifier is capped
+        # at CONTENT_RESOLVED — INDEPENDENTLY_ATTESTED is NOT reachable from a resolver answer (the library does
+        # not verify the referenced receiver statement), honestly unreachable like EFFECT_OBSERVED
+        # (assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED, assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED).
         _recv = predicate.get("receiverRefs")
         if isinstance(_recv, list) and _recv:
             r["receiver_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in _recv)
@@ -1114,13 +1115,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "trust_pack_pinned=True or a declared-root-identity-only match is not accepted here "
                     "(fail-closed — receiverRefs never gates ok)")
             elif trust_pack is not None:
-                # N45B (KRAXO-CLOUD-N45B-EMPFAENGER-NUR-MIT-GEBUNDENEM-SCHLUESSEL-01, Z309): receiver-role trust
-                # is positive ONLY when a signer key of the receiver statement was RESOLVED and BINDS to the pack
-                # key for that receiverKeyId (the pack is already content-anchored, N45, via the outer _tp_pinned
-                # gate). A role member by LABEL only (no resolved signer key) was read True+warning at ae4a4c1d —
-                # that is a positive trust field with no binding to the key that carries the statement. It is now
-                # None (receiver_key_bound None), with the warning below and a named reason. A resolved key that
-                # does not bind stays False (as today). receiverRefs never gate ok (point 3).
+                # N45B (KRAXO-CLOUD-N45B, Z309) required a RESOLVED and BINDING signer key for receiver-role trust.
+                # N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309) narrows this further: a
+                # resolver answer never makes receiver_role_trusted/receiver_key_bound True, because the library
+                # does not itself verify the referenced receiver statement (no statement bytes, digest match or
+                # signature check) — a byte-match of a resolver-returned key is not verification. So in 6.2.0 these
+                # fields are at most None: a member whose resolved key byte-matches the pack key is None (reason:
+                # statement not verified), and a member seen by LABEL only is None (reason: not bound). A resolved
+                # key that does NOT bind stays False; a non-member stays False. receiverRefs never gate ok (point 3).
                 _bound = False        # a member entry whose resolved signer key BINDS to the pack key
                 _nonbind = False      # a member entry whose resolved signer key does NOT bind
                 _label_only = False   # a member entry with NO resolved signer key (label only)
@@ -1147,12 +1149,25 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                             "receiverRefs[%d].receiverKeyId is a role member by LABEL only — no signer key "
                             "was resolved to bind it (return the 32-byte signer key from "
                             "receiver_attestation_resolver to bind the label)" % i)
-                # OR semantics: one corroborating receiver with a bound key suffices (True). Otherwise a resolved
-                # key that did not bind is False; a member we could only see by label is None (not positive); and
-                # receiverRefs that name no role member at all stay False (the non-member case, unchanged).
+                # N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309): a resolver answer never
+                # makes receiver_role_trusted/receiver_key_bound True. The attestation resolver is handed only the
+                # receiverRef digest; a key it returns that byte-equals the pack key for the receiverKeyId is NOT a
+                # verified statement — the library never fetched the referenced receiver statement, checked that its
+                # bytes hash to the digest, or verified a signature under the returned key. So a "bound" entry is
+                # None, not True (receiver_key_bound None), with a named reason. A resolved key that does NOT bind
+                # stays False; a member seen by LABEL only stays None; receiverRefs that name no role member stay
+                # False (the non-member case, unchanged). receiverRefs never gate ok (point 3). The verified path
+                # (statement bytes + digest + signature) comes with the unified anchor check after the tag.
                 if _bound:
-                    r["receiver_role_trusted"] = True
-                    r["receiver_key_bound"] = True
+                    r["receiver_role_trusted"] = None
+                    r["receiver_key_bound"] = None
+                    r["errors"].append(
+                        "RECEIVER_STATEMENT_NOT_VERIFIED: receiverRefs name an outcomeReceivers role member and "
+                        "the attestation resolver returned a key that matches the trust pack key for it, but the "
+                        "library does not verify the referenced receiver statement (it neither fetches the "
+                        "statement for the digest nor checks a signature under the returned key), so "
+                        "receiver_role_trusted is None, not positive (N47) — a resolver answer cannot confer "
+                        "receiver trust (advisory: receiverRefs never gates ok)")
                 elif _nonbind:
                     r["receiver_role_trusted"] = False
                     r["receiver_key_bound"] = False
