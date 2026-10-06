@@ -18,12 +18,51 @@ from typing import List, Optional
 _ORIGIN_KEY = os.urandom(32)
 
 
+def _tag_part(h, part) -> None:
+    """Nachtrag 46e (`KRAXO-CLOUD-N46E-TYPMARKE-IM-HERKUNFTSTOKEN-01`, Z309): absorb one token part into
+    ``h`` with a TYPE MARK before its length and content, so no two parts of DIFFERENT types collide. Until
+    this Nachtrag bytes and str shared one presence marker and every non-bytes part ran through ``str(...)``,
+    so ``b"x"`` and ``"x"``, ``1`` and ``"1"``, ``None`` and ``"None"`` encoded identically. Marks: ``None``
+    0x00 (no content), bytes/bytearray 0x01, str 0x02. Any OTHER type takes mark 0x03 and binds its FULL type
+    name before ``str(value)`` (VERTRAG 1, variant a): this keeps the encoding TOTAL — every value encodes
+    deterministically, so a genuine verification run (where both stamp and verify use this one encoding) stays
+    authentic — while still separating e.g. ``int`` 1 from ``str`` "1" by their distinct type names. Variant b
+    (fail-closed non-authentic for a non-str/bytes/None part) was not taken because it would turn a genuine run
+    into a refusal the moment any real verifier produced a non-str check name or detail; VERTRAG 4 measures
+    whether any does (the report names the sites, empty or not). The token is process-internal, never serialised."""
+    if part is None:
+        h.update(b"\x00")
+        return
+    if isinstance(part, (bytes, bytearray)):
+        mark, b = b"\x01", bytes(part)
+    elif isinstance(part, str):
+        mark, b = b"\x02", part.encode("utf-8")
+    else:
+        tname = (type(part).__module__ + "." + type(part).__qualname__).encode("utf-8")
+        h.update(b"\x03")
+        h.update(len(tname).to_bytes(8, "big"))
+        h.update(tname)
+        b = str(part).encode("utf-8")
+        h.update(len(b).to_bytes(8, "big"))
+        h.update(b)
+        return
+    h.update(mark)
+    h.update(len(b).to_bytes(8, "big"))
+    h.update(b)
+
+
 def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[str],
                           merkle_root: Optional[bytes], checks=()) -> str:
-    """HMAC over the captured verified state AND the result's checks, type-tagged and length-prefixed so
-    no two distinct inputs collide. Recomputed by the judge from the result's recorded fields and checks
-    and compared with ``hmac.compare_digest``; a match proves the token was stamped by this process over
-    exactly these fields and checks (origin AND no post-stamp mutation).
+    """HMAC over the captured verified state AND the result's checks. Each part — the three state parts and
+    every check's name and detail — is type-marked (None / bytes / str / other, see :func:`_tag_part`) and
+    length-prefixed, and the checks are counted and in list order, so two states that differ in any part's
+    VALUE or TYPE, or in a check's name, detail, order or count, produce different tokens (Nachtrag 46e closed
+    the earlier type collisions: bytes vs str, ``1`` vs ``"1"``, ``None`` vs ``"None"``). The ONE intended
+    collapse is a check's ``ok``: it is marked only as exactly ``True``, exactly ``False``, or a third
+    "neither" class, because ``ok`` is read by identity and never trusted by its truth, so two distinct
+    non-bool ``ok`` values share that third marker by design. Recomputed by the judge from the result's
+    recorded fields and checks and compared with ``hmac.compare_digest``; a match proves the token was stamped
+    by this process over exactly these fields and checks (origin AND no post-stamp mutation).
 
     Nachtrag 46c (`KRAXO-CLOUD-N46C-HERKUNFT-DECKT-DIE-CHECKS-01`, Z309): the token additionally covers
     every adopted check (its name, its ``ok`` as an EXACT truth value, and its detail), counted and in
@@ -37,31 +76,28 @@ def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[
     that signer (Nachtrag 46), so a swapped sd_jwt is refused — measured in the N46b gegenproben."""
     h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
     for part in (signer_pub, payload_digest, merkle_root):
-        if part is None:
-            h.update(b"\x00")
-            continue
-        b = bytes(part) if isinstance(part, (bytes, bytearray)) else str(part).encode("utf-8")
-        h.update(b"\x01")
-        h.update(len(b).to_bytes(8, "big"))
-        h.update(b)
+        _tag_part(h, part)   # Nachtrag 46e: type-marked (None/bytes/str/other), so bytes and str never collide
     # Nachtrag 46c: the checks block, after the three state parts, with a fixed section tag and a count so
-    # a removed or added check changes the token. The three parts always run exactly above, so this tag is
-    # never confused with a part marker. `ok` is read by identity (`is True`/`is False`), never by its
-    # truth, so a lying `__bool__` runs no code and a truthy non-bool is a third, distinct marker.
+    # a removed or added check changes the token. The three parts always run exactly above (a fixed count of
+    # three), so this section tag sits at a determined position and is never confused with a part marker. `ok`
+    # is read by identity (`is True`/`is False`), never by its truth, so a lying `__bool__` runs no code and a
+    # truthy non-bool is a third, distinct marker.
     h.update(b"\x02checks")
     h.update(len(checks).to_bytes(8, "big"))
     for c in checks:
         h.update(b"\x01" if c.ok is True else b"\x02" if c.ok is False else b"\x03")
-        for field_bytes in (str(c.name).encode("utf-8"), str(c.detail).encode("utf-8")):
-            h.update(len(field_bytes).to_bytes(8, "big"))
-            h.update(field_bytes)
+        # Nachtrag 46e: name and detail are type-marked like the state parts, so Check(1, …) and Check("1", …),
+        # detail 1 and "1", detail None and "None" no longer collide.
+        _tag_part(h, c.name)
+        _tag_part(h, c.detail)
     return h.hexdigest()
 
 
 def _origin_token(domain: bytes, parts) -> str:
     """The same per-process origin token for the DICT-result verify paths (decision, relation, svr), which do
     not return a VerificationResult. ``domain`` is a path tag so a token of one path never validates on another;
-    ``parts`` is the captured verified state (bytes/str/None), type-tagged and length-prefixed as above. The
+    ``parts`` is the captured verified state, each part type-marked (None / bytes / str / other, see
+    :func:`_tag_part`, Nachtrag 46e) and length-prefixed so bytes and str no longer collide. The
     producer stamps it on a PASSING verification; a judge that takes such a result as a data argument recomputes
     it from the result's recorded fields and refuses a result this process's verifier did not stamp (a hand-built
     or post-stamp-mutated dict). Nachtrag 46b/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309); reading
@@ -70,13 +106,7 @@ def _origin_token(domain: bytes, parts) -> str:
     h.update(len(domain).to_bytes(8, "big"))
     h.update(domain)
     for part in parts:
-        if part is None:
-            h.update(b"\x00")
-            continue
-        b = bytes(part) if isinstance(part, (bytes, bytearray)) else str(part).encode("utf-8")
-        h.update(b"\x01")
-        h.update(len(b).to_bytes(8, "big"))
-        h.update(b)
+        _tag_part(h, part)   # Nachtrag 46e: type-marked (None/bytes/str/other), so bytes and str never collide
     return h.hexdigest()
 
 
