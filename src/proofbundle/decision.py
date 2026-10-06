@@ -864,17 +864,27 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # applicable), the behaviour as before this Nachtrag. Judged only here, over authenticated bytes.
         _exp = _validity.get("expiresAt")
         if _exp is not None:
+            from ._plain_value import plain_int  # noqa: PLC0415
             _exp_posix = _expiresat_posix(_exp)
-            _eval_now = now if (isinstance(now, (int, float)) and not isinstance(now, bool)) else time.time()
-            if _exp_posix is None:
+            # The clock as an exact int, read once (the one rule for a caller's number, _plain_value.plain_int):
+            # an int subclass runs no method here. A `now` that is given but is not an exact int is a malformed
+            # relying-party clock -> fail-closed, never a silently unjudged expiry.
+            _now_plain = plain_int(now)
+            if now is not None and _now_plain is None:
                 r["freshness_ok"] = False
-                r["errors"].append("validity.expiresAt is not a readable RFC3339 'Z' timestamp (fail-closed)")
-            elif _eval_now >= _exp_posix:
-                r["freshness_ok"] = False
-                r["errors"].append("decision receipt is expired: validity.expiresAt is at or before the "
-                                   "evaluation time (fail-closed)")
+                r["errors"].append("decision receipt now (evaluation time) must be a POSIX-seconds integer "
+                                   "(fail-closed)")
             else:
-                r["freshness_ok"] = True
+                _eval_now = _now_plain if _now_plain is not None else time.time()
+                if _exp_posix is None:
+                    r["freshness_ok"] = False
+                    r["errors"].append("validity.expiresAt is not a readable RFC3339 'Z' timestamp (fail-closed)")
+                elif _eval_now >= _exp_posix:
+                    r["freshness_ok"] = False
+                    r["errors"].append("decision receipt is expired: validity.expiresAt is at or before the "
+                                       "evaluation time (fail-closed)")
+                else:
+                    r["freshness_ok"] = True
 
     # Subject binding (Finding 05, release-review #4 parity with outcome.py): classify whether the subject
     # genuinely commits to the predicate so a consumer never gets ZERO signal on a subject-rehang override.
