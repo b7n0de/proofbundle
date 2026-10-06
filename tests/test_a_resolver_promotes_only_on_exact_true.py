@@ -74,12 +74,18 @@ from proofbundle.outcome import (
     verify_outcome_receipt,
 )
 from proofbundle.renewal import build_initial_sequence, verify_sequence
+from proofbundle.trust_pack import _rfc8785_bytes
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 _DIGEST = {"sha256": "a" * 64}
 _DATA = [hashlib.sha256(b"a").hexdigest(), hashlib.sha256(b"b").hexdigest()]
 #: The words every refusal detail carries.
 _WHY = "only the exact True"
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound anchor digest at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 class _Truthy:
@@ -614,6 +620,7 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
                 "keys": {"kid-exec": {"publicKey": base64.b64encode(pub).decode("ascii")},
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         calls: list = []
+        _dig = _n45_digest(pack)
         for label, answer in _not_key_material(calls):
             for trust_pack in (None, pack):
                 with self.subTest(answer=label, trust_pack=trust_pack is not None):
@@ -621,9 +628,13 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
                     # N43: pin the pack (forwarded verdict) so the receiver-role path runs; the property under
                     # test (a non-key answer binds nothing and nothing escapes) is unchanged. Harmless when
                     # trust_pack is None (the forward applies only to a supplied pack).
+                    # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+                    # trust_pack_pinned_digest = sha256(JCS(pack)). Reason: a bare pinned=True no longer binds the
+                    # predicate's content at outcome. The digest is ignored when trust_pack is None.
                     r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                                receiver_attestation_resolver=lambda d, a=answer: a,
-                                               trust_pack=trust_pack, trust_pack_pinned=True)
+                                               trust_pack=trust_pack, trust_pack_pinned=True,
+                                               trust_pack_pinned_digest=_dig)
                     self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
                     self.assertIsNot(r["receiver_key_bound"], True)
                     self.assertIs(r["ok"], True, r["errors"])
@@ -649,15 +660,18 @@ class TestKeyMaterialCountsOnlyAsPlainBytes(unittest.TestCase):
                          "kid-recv": {"publicKey": base64.b64encode(_RECV_KEY).decode("ascii")}}}
         # N43: the receiver role verdict is positive only under a relying-party anchor; pin the pack (forwarded
         # verdict) so the binding behaviour under test is exercised exactly as before.
+        # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+        # trust_pack_pinned_digest = sha256(JCS(pack)). Reason: a bare pinned=True no longer binds the
+        # predicate's content at outcome.
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: _RECV_KEY, trust_pack=pack,
-                                   trust_pack_pinned=True)
+                                   trust_pack_pinned=True, trust_pack_pinned_digest=_n45_digest(pack))
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
         self.assertIs(r["receiver_key_bound"], True)
         self.assertIs(r["receiver_role_trusted"], True)
         r = verify_outcome_receipt(env, pub, evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: b"x" * 32, trust_pack=pack,
-                                   trust_pack_pinned=True)
+                                   trust_pack_pinned=True, trust_pack_pinned_digest=_n45_digest(pack))
         self.assertIs(r["receiver_key_bound"], False)
         self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
 

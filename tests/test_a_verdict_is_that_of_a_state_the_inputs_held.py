@@ -48,10 +48,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey 
 
 from proofbundle import anchors, canonical  # noqa: E402
 from proofbundle.errors import ProofBundleError  # noqa: E402
+from proofbundle.trust_pack import _rfc8785_bytes  # noqa: E402
 
 _SIGNER = Ed25519PrivateKey.from_private_bytes(b"\x61" * 32)
 _EMPFAENGER = Ed25519PrivateKey.from_private_bytes(b"\x62" * 32)
 _ANDERER = Ed25519PrivateKey.from_private_bytes(b"\x63" * 32)
+
+
+def _n45_digest(p) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound anchor digest at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 def _raw(k) -> bytes:
@@ -310,7 +316,11 @@ def _ergebnis_bauen(parameter: str, oder_raise: bool):
             # anchor. This site measures how a callback ANSWER is judged (a lying key must bind nothing), which
             # is downstream of the anchor, so the pack is pinned here (forwarded verdict) to exercise the
             # binding path; the anchor requirement itself is measured in test_trust_pack_pin_620_n43.py.
-            return _verdikt(lambda: fn(objekte[0], objekte[1], trust_pack=objekte[2], trust_pack_pinned=True, **kw),
+            # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+            # trust_pack_pinned_digest = sha256(JCS(objekte[2])). Reason: a bare pinned=True no longer binds the
+            # predicate's content at outcome.
+            return _verdikt(lambda: fn(objekte[0], objekte[1], trust_pack=objekte[2], trust_pack_pinned=True,
+                                       trust_pack_pinned_digest=_n45_digest(objekte[2]), **kw),
                             lambda r: (r["ok"], r["evidence_levels"]["effect"]["level"],
                                        (r["evidence_levels"]["receiverRefs"] or {}).get("level"),
                                        r.get("receiver_key_bound"), r.get("receiver_role_trusted")))

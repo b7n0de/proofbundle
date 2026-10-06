@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import pathlib
 import unittest
@@ -39,8 +40,14 @@ from proofbundle.evalclaim import ASSURANCE_LEVELS, build_eval_claim, emit_eval_
 from proofbundle.outcome import emit_outcome_receipt, verify_outcome_receipt
 from proofbundle.policy import evaluate_policy
 from proofbundle.relation_statement import emit_relation_statement, verify_relation_statement
+from proofbundle.trust_pack import _rfc8785_bytes
 
 _WURZEL = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _n45_digest(p) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound anchor digest at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 # Literal seeds: tests/test_sdist_ohne_signierwerkzeug.py allows `from_private_bytes` in a shipped test only over
 # a seed written out in the source.
@@ -305,7 +312,11 @@ class TheSitesTheVerifyLensesFound(unittest.TestCase):
         def vertraut(p) -> tuple:
             # N43: the executor role verdict is positive only under a relying-party anchor; pin the pack
             # (forwarded verdict) so this test still measures the REVOCATION behaviour, not the missing anchor.
-            r = verify_outcome_receipt(umschlag, _roh(_A), trust_pack=p, trust_pack_pinned=True)
+            # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+            # trust_pack_pinned_digest = sha256(JCS(p)). Reason: a bare pinned=True no longer binds the
+            # predicate's content at outcome. (Revocation still makes a revoked key not trusted regardless.)
+            r = verify_outcome_receipt(umschlag, _roh(_A), trust_pack=p, trust_pack_pinned=True,
+                                       trust_pack_pinned_digest=_n45_digest(p))
             return r["executor_role_trusted"], r["ok"], r["automation"]["safeForAutomation"]
 
         self.assertEqual(vertraut(pack())[:2], (True, True))                 # base: not revoked

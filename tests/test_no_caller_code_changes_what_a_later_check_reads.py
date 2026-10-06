@@ -43,8 +43,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import anchors, dsse
 from proofbundle.errors import BundleFormatError
+from proofbundle.trust_pack import _rfc8785_bytes
 
 _WURZEL = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _n45_digest(p) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound anchor digest at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 # Literal seeds: tests/test_sdist_ohne_signierwerkzeug.py allows `from_private_bytes` in a shipped test
 # only over a seed written out in the source.
@@ -353,7 +359,11 @@ class AResolverAnswerIsJudgedAsItWasGiven(unittest.TestCase):
 
             # N43: the receiver-binding path this test measures runs only under a relying-party anchor; the pack
             # is pinned here (forwarded verdict) so the binding is exercised, as before.
+            # N45 (nachbesserung): OLD anchor was a bare trust_pack_pinned=True; NEW anchor adds
+            # trust_pack_pinned_digest = sha256(JCS(pack)). Reason: a bare pinned=True no longer binds the
+            # predicate's content at outcome.
             return verify_outcome_receipt(umschlag, _raw(_A), trust_pack=pack, trust_pack_pinned=True,
+                                          trust_pack_pinned_digest=_n45_digest(pack),
                                           evidence_resolver=lambda d: True,
                                           receiver_attestation_resolver=bezeugen)
 

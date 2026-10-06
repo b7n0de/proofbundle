@@ -35,6 +35,7 @@ from proofbundle.outcome import (
     validate_outcome_predicate,
     verify_outcome_receipt,
 )
+from proofbundle.trust_pack import _rfc8785_bytes
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTCOME_SCHEMA = json.loads((ROOT / "schemas" / "action-outcome-v0.1.schema.json").read_text(encoding="utf-8"))
@@ -42,6 +43,11 @@ OUTCOME_SCHEMA = json.loads((ROOT / "schemas" / "action-outcome-v0.1.schema.json
 _DEC_ROOT = "a" * 64
 _DIG = "c" * 64
 _RECV_DIG = "d" * 64
+
+
+def _n45_digest(p: dict) -> str:
+    # N45 content root sha256(JCS(predicate)) — the content-bound genesis-digest anchor at the outcome layer.
+    return hashlib.sha256(_rfc8785_bytes(p)).hexdigest()
 
 
 def _pred(**over) -> dict:
@@ -372,10 +378,13 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
                                  "receiverKeyId": "kid-recv"}])
         env = emit_outcome_receipt(p, s)
         # N43: receiver-role trust requires a relying-party anchor. Property under test (a role MEMBER is
-        # trusted) is unchanged; the pack's declared root ("root-0") is pinned so the anchor precondition holds.
-        # OLD: True under an unpinned pack. NEW: True under a pinned pack.
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub),
-                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
+        # trusted) is unchanged; the pack is anchored so the anchor precondition holds.
+        # N45 (nachbesserung): OLD positive anchor trust_pack_expected_root_keys -> NEW anchor
+        # trust_pack_expected_genesis_digest = sha256(JCS(pack)). Reason: the root-key anchor alone no longer
+        # binds the predicate's content at outcome.
+        pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack,
+                                   trust_pack_expected_genesis_digest=_n45_digest(pack))
         self.assertTrue(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)
 
@@ -386,10 +395,15 @@ class TestVerifyOutcomeWithReceiverRefs(unittest.TestCase):
         p = _pred(receiverRefs=[{"relation": "receiverAck", "digest": {"sha256": _RECV_DIG},
                                  "receiverKeyId": "kid-unknown"}])
         env = emit_outcome_receipt(p, s)
-        # N43: anchor pinned so the NON-member (not the missing anchor) is the reason trust is False; ok still
-        # unaffected. OLD: False under an unpinned pack. NEW: False under a pinned pack, non-member reason.
-        r = verify_outcome_receipt(env, pub, trust_pack=_trust_pack(receiver_key_id="kid-recv", executor_pub=pub),
-                                   trust_pack_expected_root_keys={"root-0": {"publicKey": "A" * 43 + "="}})
+        # N43: anchored so the NON-member (not the missing anchor) is the reason trust is False; ok still
+        # unaffected. OLD: False under an unpinned pack. NEW: False under an anchored pack, non-member reason.
+        # N45 (nachbesserung): OLD anchor trust_pack_expected_root_keys -> NEW anchor
+        # trust_pack_expected_genesis_digest = sha256(JCS(pack)). Reason: the root-key anchor alone no longer
+        # binds the predicate's content at outcome. (receiver_role_trusted is still False: the receiverRef names
+        # kid-unknown, not the member kid-recv — the behaviour under test is unchanged.)
+        pack = _trust_pack(receiver_key_id="kid-recv", executor_pub=pub)
+        r = verify_outcome_receipt(env, pub, trust_pack=pack,
+                                   trust_pack_expected_genesis_digest=_n45_digest(pack))
         self.assertFalse(r["receiver_role_trusted"])
         self.assertTrue(r["ok"], r)   # deliberately NOT gated — see docstring
 
