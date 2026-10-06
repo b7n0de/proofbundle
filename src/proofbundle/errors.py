@@ -29,7 +29,11 @@ def _tag_part(h, part) -> None:
     authentic — while still separating e.g. ``int`` 1 from ``str`` "1" by their distinct type names. Variant b
     (fail-closed non-authentic for a non-str/bytes/None part) was not taken because it would turn a genuine run
     into a refusal the moment any real verifier produced a non-str check name or detail; VERTRAG 4 measures
-    whether any does (the report names the sites, empty or not). The token is process-internal, never serialised."""
+    whether any does (the report names the sites, empty or not). The token is process-internal: its HMAC key
+    (``_ORIGIN_KEY``) is never serialised, so a token is meaningful only inside THIS process. The token string
+    itself may sit in a returned result or ``lineage`` dict (``decision.py``, ``relation.py``); an UNCHANGED
+    copy stays authentic in this process, any copy is worthless in another process, and the CLI never emits it
+    (Nachtrag 46g strips ``verified_origin`` from ``--json`` output)."""
     if part is None:
         h.update(b"\x00")
         return
@@ -101,7 +105,9 @@ def _origin_token(domain: bytes, parts) -> str:
     producer stamps it on a PASSING verification; a judge that takes such a result as a data argument recomputes
     it from the result's recorded fields and refuses a result this process's verifier did not stamp (a hand-built
     or post-stamp-mutated dict). Nachtrag 46b/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309); reading
-    the key is out of the review's threat model (an in-process hand-off)."""
+    the key is out of the review's threat model (an in-process hand-off). The returned token sits in the result
+    (and the ``lineage`` sub-dict); it is meaningful only in THIS process and the CLI strips it from ``--json``
+    output (Nachtrag 46g) — an unchanged copy stays authentic here, a copy in another process is worthless."""
     h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
     h.update(len(domain).to_bytes(8, "big"))
     h.update(domain)
