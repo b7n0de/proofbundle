@@ -188,20 +188,36 @@ class TestReceiverAnchorBoundToContent(_Base):
         self.assertTrue(self._recv_error_present(r))
 
     def test_receiver_under_genesis_digest_anchor_is_trusted(self):
-        # CONTROL (positive) at the receiver path: content-bound digest anchor.
-        env, out_pub, pred, _ = self._exec_fixtures(with_receiver=True, recv=True)
+        # CONTROL (positive) at the receiver path: content-bound digest anchor AND a resolved+bound receiver key
+        # (N45B: a label-only member is not positive, so the control resolves the member's signer key).
+        out_sk = generate_signer()
+        out_pub = out_sk.public_key().public_bytes_raw()
+        env = emit_outcome_receipt(_outcome_pred(with_receiver=True), out_sk)
+        recv_pub = generate_signer().public_key().public_bytes_raw()
+        pred, _root_sks = _genesis_pack(out_pub, recv_pub)
         r = verify_outcome_receipt(env, out_pub, trust_pack=pred,
-                                   trust_pack_expected_genesis_digest=_content_root(pred))
+                                   trust_pack_expected_genesis_digest=_content_root(pred),
+                                   evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: recv_pub)
         self.assertIs(r["receiver_role_trusted"], True)
+        self.assertIs(r["receiver_key_bound"], True)
 
     def test_receiver_under_verified_envelope_is_trusted(self):
-        # CONTROL (positive) at the receiver path: verified envelope under the pinned root keys.
-        env, out_pub, pred, root_sks = self._exec_fixtures(with_receiver=True, recv=True)
+        # CONTROL (positive) at the receiver path: verified envelope under the pinned root keys AND a
+        # resolved+bound receiver key (N45B).
+        out_sk = generate_signer()
+        out_pub = out_sk.public_key().public_bytes_raw()
+        env = emit_outcome_receipt(_outcome_pred(with_receiver=True), out_sk)
+        recv_pub = generate_signer().public_key().public_bytes_raw()
+        pred, root_sks = _genesis_pack(out_pub, recv_pub)
         pack_env = sign_trust_pack(pred, root_sks)
         r = verify_outcome_receipt(env, out_pub, trust_pack=pred,
                                    trust_pack_envelope=pack_env,
-                                   trust_pack_expected_root_keys=_pinned_root_keys(pred))
+                                   trust_pack_expected_root_keys=_pinned_root_keys(pred),
+                                   evidence_resolver=lambda d: True,
+                                   receiver_attestation_resolver=lambda d: recv_pub)
         self.assertIs(r["receiver_role_trusted"], True)
+        self.assertIs(r["receiver_key_bound"], True)
 
 
 if __name__ == "__main__":
