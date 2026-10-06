@@ -659,8 +659,13 @@ class EveryAppliedRuleHasAnObservableEffect(unittest.TestCase):
         # signer and payload digest of `b`; the rule's observable effect (PASS without, FAIL with) is unchanged.
         # Nachtrag 46b: evaluate_policy also requires an authentic origin token; the stand-in stamps it over its
         # own fields, as a verify_bundle result of this bundle would carry one.
+        # Addendum R6a-1 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the sd_jwt_vc binding gate now requires
+        # the result's verified sd_jwt_vc.compact to equal the bundle's, so the stand-in carries this bundle's
+        # compact (as a verify_bundle result of it would) — the rule's observable effect (PASS without, FAIL with)
+        # is unchanged, and the gate does not pre-empt it.
         ergebnis.verified_signer_pub = base64.b64decode(b["signature"]["public_key_b64"])
         ergebnis.verified_payload_digest = hashlib.sha256(base64.b64decode(b["payload_b64"])).hexdigest()
+        ergebnis.verified_sd_jwt_vc_compact = b["sd_jwt_vc"]["compact"]
         ergebnis.stamp_origin()
         basis = {(None, "allowed_issuers"): [{"public_key_b64": pub}]}
         regel = ("sd_jwt", "require_key_binding_when_cnf_present")
