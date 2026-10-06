@@ -24,7 +24,67 @@ from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from .canonical import _bytes_von, _ein_stand
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
-           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
+           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature",
+           "reject_jws_crit"]
+
+
+# --- RFC 7515 §4.1.11 critical-header handling (Nachtrag 50, Z309 / 6.2.0) ------------------------
+# A protected JWS header MAY carry `crit`, a list of extension Header Parameter names the producer
+# declares MUST be understood; if a verifier does not understand one, RFC 7515 §4.1.11 says the JWS is
+# INVALID. proofbundle understands NO JWS extension today, so the set of understood names is EMPTY and
+# NOT externally settable — a `crit` present in a protected header always makes the JWS invalid. This
+# one helper is the single decision site shared by every local JWS verifier (SD-JWT issuer, KB-JWT,
+# Status List token, enclave EAT), so none can branch only on the neighbour fields (`alg`, `typ`) and
+# skip the critical-extension mechanism with no fail-closed else-path. A header WITHOUT `crit` returns
+# None here and behaves exactly as before (narrowing only).
+
+#: The critical JWS extensions this library understands. Empty and fixed: proofbundle implements no JWS
+#: extension, so no `crit` can ever be satisfied. This is intentionally not a parameter.
+_UNDERSTOOD_JWS_CRIT: frozenset = frozenset()
+
+#: Header Parameter names defined by RFC 7515 (JWS) and RFC 7518 (JWA). RFC 7515 §4.1.11 forbids `crit`
+#: from naming any of these: `crit` is for EXTENSION parameters, never for a parameter the base spec
+#: already defines.
+_REGISTERED_JOSE_HEADER_PARAMS: frozenset = frozenset({
+    "alg", "jku", "jwk", "kid", "x5u", "x5c", "x5t", "x5t#S256", "typ", "cty", "crit",
+    "enc", "zip", "epk", "apu", "apv", "iv", "tag", "p2s", "p2c",
+})
+
+
+def reject_jws_crit(header: Any) -> "str | None":
+    """RFC 7515 §4.1.11 critical-header check for a protected JWS header.
+
+    Return a human-readable reason string when ``header``'s ``crit`` member makes the JWS invalid, else
+    ``None``. A header that is not a dict, or carries no ``crit``, returns ``None`` (the pre-Nachtrag-50
+    behaviour — a header without ``crit`` is unchanged). When ``crit`` IS present every defect named by
+    the RFC gets its own reason — ``crit`` that is not a non-empty array, that holds a non-string or a
+    duplicate name, that names a registered (base-spec) Header Parameter, or that names a parameter
+    absent from the header — and a well-formed ``crit`` still returns a reason, because proofbundle
+    understands no JWS extension (``_UNDERSTOOD_JWS_CRIT`` is empty). Callers apply this right after
+    reading the header and before any other header field, so an un-understood critical extension is a
+    fail-closed verdict, never a silently-ignored header."""
+    if not isinstance(header, dict) or "crit" not in header:
+        return None
+    crit = header["crit"]
+    if not isinstance(crit, list) or len(crit) == 0:
+        return "JWS 'crit' must be a non-empty array of header parameter names (RFC 7515 §4.1.11)"
+    seen: set = set()
+    for name in crit:
+        if not isinstance(name, str):
+            return "JWS 'crit' entries must be strings (RFC 7515 §4.1.11)"
+        if name in seen:
+            return f"JWS 'crit' names a duplicate parameter {name!r} (RFC 7515 §4.1.11)"
+        seen.add(name)
+        if name in _REGISTERED_JOSE_HEADER_PARAMS:
+            return (f"JWS 'crit' must not name the base-spec header parameter {name!r} "
+                    "(RFC 7515 §4.1.11)")
+        if name not in header:
+            return (f"JWS 'crit' names {name!r}, which is absent from the protected header "
+                    "(RFC 7515 §4.1.11)")
+    unsupported = [n for n in crit if n not in _UNDERSTOOD_JWS_CRIT]
+    return ("unsupported critical JWS header parameter(s) "
+            + ", ".join(repr(n) for n in unsupported)
+            + " — proofbundle understands no JWS extension, so the JWS is invalid (RFC 7515 §4.1.11)")
 
 
 _ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19

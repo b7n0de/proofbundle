@@ -54,8 +54,8 @@ from typing import Optional, Set
 from ._strict_json import loads_strict
 from .canonical import _ein_stand, _zeichen_von
 from .errors import ProofBundleError
-from .signature import (_es256_other_spelling, canonical_es256_signature, verify_ecdsa_p256,
-                        verify_ed25519_pinned)
+from .signature import (_es256_other_spelling, canonical_es256_signature, reject_jws_crit,
+                        verify_ecdsa_p256, verify_ed25519_pinned)
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -185,6 +185,15 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         # a JWT header/payload that decodes to a non-object (e.g. the integer 5) must fail cleanly, not
         # crash later on .get(...) — keeps verify_bundle/verify_receipt_token's "never a crash" contract.
         result["detail"] = "malformed JWT header or payload (not a JSON object)"
+        return result
+
+    # Nachtrag 50 (Z309, K5-02): RFC 7515 §4.1.11 — an un-understood critical header makes the JWS
+    # invalid. Early exit right after reading the issuer header (like the duplicate-key case above) and
+    # BEFORE the alg/signature work, so structure_ok stays False and no signature is ever checked
+    # (sig_ok never True) for an issuer JWS that carries a `crit` member.
+    _crit_reason = reject_jws_crit(header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
         return result
 
     alg = header.get("alg")
