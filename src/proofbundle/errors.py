@@ -39,6 +39,37 @@ def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[
     return h.hexdigest()
 
 
+def origin_token(domain: bytes, parts) -> str:
+    """The same per-process origin token for the DICT-result verify paths (decision, relation, svr), which do
+    not return a VerificationResult. ``domain`` is a path tag so a token of one path never validates on another;
+    ``parts`` is the captured verified state (bytes/str/None), type-tagged and length-prefixed as above. The
+    producer stamps it on a PASSING verification; a judge that takes such a result as a data argument recomputes
+    it from the result's recorded fields and refuses a result this process's verifier did not stamp (a hand-built
+    or post-stamp-mutated dict). Nachtrag 46b/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309); reading
+    the key is out of the review's threat model (an in-process hand-off)."""
+    h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
+    h.update(len(domain).to_bytes(8, "big"))
+    h.update(domain)
+    for part in parts:
+        if part is None:
+            h.update(b"\x00")
+            continue
+        b = bytes(part) if isinstance(part, (bytes, bytearray)) else str(part).encode("utf-8")
+        h.update(b"\x01")
+        h.update(len(b).to_bytes(8, "big"))
+        h.update(b)
+    return h.hexdigest()
+
+
+def origin_authentic(domain: bytes, token, parts) -> bool:
+    """True only when ``token`` is the str this process stamped with :func:`origin_token` over exactly
+    ``(domain, parts)``. A dict result carrying no token (hand-built) or one whose captured fields were
+    changed after stamping fails. Not a defence against code that can read ``_ORIGIN_KEY``."""
+    if not isinstance(token, str):
+        return False
+    return hmac.compare_digest(token, origin_token(domain, parts))
+
+
 class ProofBundleError(Exception):
     """Base class for all proofbundle errors."""
 

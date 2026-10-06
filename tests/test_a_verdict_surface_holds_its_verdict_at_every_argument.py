@@ -673,8 +673,6 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "outcome.verify_outcome_receipt(expected_nonce)",
     "outcome.verify_outcome_receipt(trust_pack_expected_genesis_digest)",
     "outcome.verify_outcome_receipt(trust_pack_expected_root_keys)",
-    "policy.evaluate_decision_policy(statement)",
-    "policy.evaluate_decision_policy(verify_result)",
     "policy.evaluate_policy(result)",
     "pqsig.verify_hybrid(classical_pub)",
     "pqsig.verify_hybrid(classical_sig)",

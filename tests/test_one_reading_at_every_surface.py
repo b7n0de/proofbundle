@@ -32,6 +32,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from proofbundle import evalclaim as ec
 from proofbundle.errors import BundleFormatError, ProofBundleError
 
+# Nachtrag 48/48b: evaluate_decision_policy now binds the result to the statement + signer it judges; the
+# decision-policy verdict surface below passes a result stand-in bound to exactly that statement + signer.
+from _decision_result_binding import bound_decision_result  # type: ignore  # noqa: E402
+
 _WURZEL = pathlib.Path(__file__).resolve().parents[1]
 
 # Literal seeds: tests/test_sdist_ohne_signierwerkzeug.py allows `from_private_bytes` in a shipped test
@@ -452,16 +456,19 @@ class O2ADecisionPolicySwitchIsABool(unittest.TestCase):
         from proofbundle.policy import evaluate_decision_policy  # noqa: PLC0415
         praedikat = json.loads((_WURZEL / "examples" / "decision_receipt_allow.json").read_text(encoding="utf-8"))
         statement = {"predicate": praedikat, "predicateType": "x"}
+        # Nachtrag 48/48b: evaluate_decision_policy binds the result to the statement + signer; pass one bound to
+        # exactly this statement and signer "x" so the allow_pending/anchor rule under test is still reached.
+        bound = bound_decision_result(statement, "x")
         for wert, erwartet in ((False, False), (True, True)):
             policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
                       "decision_receipt": {"require_external_anchor": True, "allow_pending": wert}}
-            res = evaluate_decision_policy(statement, {}, policy, signer_public_key_b64="x", anchor_status="WARN")
+            res = evaluate_decision_policy(statement, bound, policy, signer_public_key_b64="x", anchor_status="WARN")
             self.assertIs(res["policy_ok"], erwartet)
         for wert in ("false", "no", 1, [0]):
             with self.subTest(allow_pending=wert):
                 policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
                           "decision_receipt": {"require_external_anchor": True, "allow_pending": wert}}
-                res = evaluate_decision_policy(statement, {}, policy, signer_public_key_b64="x",
+                res = evaluate_decision_policy(statement, bound, policy, signer_public_key_b64="x",
                                                anchor_status="WARN")
                 self.assertIs(res["policy_ok"], False)
 
@@ -913,6 +920,10 @@ def _flaechen():
     dec_pred = json.loads((_WURZEL / "examples" / "decision_receipt_allow.json").read_text(encoding="utf-8"))
     dec_env = decision.emit_decision_receipt(dec_pred, _T)
     dec_validity = dec_pred.get("validity") or {}
+    # Nachtrag 48/48b: the evaluate_decision_policy verdict surface judges this statement under the signer _T;
+    # the result it is handed must be bound to exactly that statement + signer (a passing verify stamps it so).
+    dec_policy_stmt = {"predicate": dec_pred, "predicateType": decision.DECISION_RECEIPT_PREDICATE_TYPE}
+    dec_policy_result = bound_decision_result(dec_policy_stmt, _b64pub(_T))
     out_pred = {"schemaVersion": "0.1.0", "outcomeId": "outcome-0001", "decisionRef": {"sha256": "a" * 64},
                 "executor": {"id": "executor:runner-7", "keyId": "root-0"},
                 "requestedActionDigest": {"sha256": "c" * 64}, "status": "executed",
@@ -1044,7 +1055,7 @@ def _flaechen():
         ("policy.evaluate_policy", lambda w: pol.evaluate_policy(
             w(ev_bundle), bm.verify_bundle(ev_bundle), w(policy))),
         ("policy.evaluate_decision_policy", lambda w: pol.evaluate_decision_policy(
-            w({"predicate": dec_pred, "predicateType": decision.DECISION_RECEIPT_PREDICATE_TYPE}), {}, w(dec_policy),
+            w(dec_policy_stmt), dec_policy_result, w(dec_policy),
             signer_public_key_b64=w(_b64pub(_T)), anchor_status="PASS")),
         ("policy.load_policy", lambda w: pol.load_policy(w(policy))),
         ("hf_evals.verify_receipt_token", lambda w: hf_evals.verify_receipt_token(
