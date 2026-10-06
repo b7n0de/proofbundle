@@ -92,6 +92,16 @@ the crypto step fails:
    PREDICATE of an ALREADY-authenticated Trust Pack, verified separately via `trust_pack.verify_trust_pack`),
    the executor's `keyId` MUST be a non-revoked member of the pack's `outcomeExecutors` role
    (`outcome.executor_trusted_by_role`) — fail-closed when supplied, `None` (not evaluated) when omitted.
+   Role membership alone is NOT trust (N45, security-fix 6.2.0): `verify_outcome_receipt` reports
+   `executor_role_trusted=True` only when the pack is ALSO bound to a relying-party anchor that is
+   CONTENT-BOUND to exactly this predicate (the authentication cannot be passed in as a mere state — the
+   outcome holds only the predicate and verifies no signature over it). Supply exactly ONE of three
+   content-bound anchors: **A** `trust_pack_expected_genesis_digest == sha256(JCS(predicate))`; **B**
+   `trust_pack_envelope` + `trust_pack_expected_root_keys` (a bare `trust_pack_expected_root_keys` alone is
+   NOT accepted); or **C** `trust_pack_pinned=True` + `trust_pack_pinned_digest == sha256(JCS(predicate))` (a
+   bare `trust_pack_pinned=True` alone is NOT accepted). Without a matching anchor `executor_role_trusted` is
+   `False` and the outcome's aggregate is blocked with `TRUST_PACK_NOT_ANCHORED` (see `trust-pack.md` §5 and
+   `outcome.verify_outcome_receipt`'s docstring for the exact parameters).
 
 Read the aggregate verdict, never an individual field alone. `status = refused` / `failed` are first-class,
 honest outcomes (a refusal is a valid, signable outcome — not an error to hide).

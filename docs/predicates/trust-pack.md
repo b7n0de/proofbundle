@@ -108,10 +108,19 @@ receipt` (Finding 01, verify-layer hardening): a caller-supplied `trust_pack` pa
 ALREADY-authenticated pack) is checked via `outcome.executor_trusted_by_role` and is FAIL-CLOSED — an
 untrusted executor breaks the outcome's aggregate `ok`. **N43 (security-fix 6.2.0):** role membership is a
 fact about the pack, not trust; `verify_outcome_receipt` reports `executor_role_trusted` / `receiver_role_
-trusted` as True only when the pack is ALSO bound to a relying-party anchor — supply it through the additive
-`trust_pack_expected_genesis_digest` / `trust_pack_expected_root_keys` params (recomputed against the supplied
-predicate via `trust_pack.trust_pack_is_pinned`), or forward a rotation-authorized verdict as
-`trust_pack_pinned=True`. Without an anchor a supplied pack's role verdict is not positive
+trusted` as True only when the pack is ALSO bound to a relying-party anchor — and at the OUTCOME that anchor
+must be CONTENT-BOUND to EXACTLY this predicate, because `verify_outcome_receipt` holds only the predicate and
+verifies no signature over it (N45, security-fix 6.2.0, a hardening of N43). Supply exactly ONE of three
+content-bound anchors (any one suffices): **A** the genesis content digest —
+`trust_pack_expected_genesis_digest == sha256(JCS(predicate))`; **B** a verified pack envelope —
+`trust_pack_envelope` together with `trust_pack_expected_root_keys`, where the envelope's threshold signature
+verifies under the pinned root keys AND its verified content equals this predicate (a bare
+`trust_pack_expected_root_keys` ALONE is NOT accepted at the outcome: without the envelope it is only a
+declared-identity match, which a naked predicate can copy); or **C** a forwarded rotation verdict —
+`trust_pack_pinned=True` together with `trust_pack_pinned_digest == sha256(JCS(predicate))` (a bare
+`trust_pack_pinned=True` ALONE is NOT accepted: a rotation needs the old root, not recomputable here, so the
+verdict is forwarded, but it MUST be bound to this predicate's content digest). Without a matching anchor a
+supplied pack's role verdict is not positive
 (`TRUST_PACK_NOT_ANCHORED`), exactly as a genesis pack's own `safeForAutomation` is not. `outcomeReceivers` is ALSO wired (Finding 16, same
 `trust_pack` param, `outcome.receiver_trusted_by_role`) but deliberately NOT fail-closed against `ok` — a
 `receiverRefs[]` entry is optional supplementary evidence, so an untrusted-labeled receiver only downgrades
