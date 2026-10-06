@@ -270,13 +270,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = str(exc)
         return result
 
-    result["ok"] = True
-    result["status"] = status
-    result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
+    # Nachtrag 49 K4-03 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): judge freshness BEFORE the positive
+    # verdict. A snapshot expired or stale at the evaluation time is never a positive, VALID reading (the status
+    # byte and `status_label` were set and `ok` was True before the freshness check, which left `fresh=False`
+    # only as a report). v1.6: a token with NEITHER exp NOR ttl is unbounded — freshness CANNOT be judged, so
+    # `fresh` stays None and the relying party imposes its own max age; `now` absent leaves `fresh` None too.
     if now is not None:
-        # v1.6 (external review): a token with NEITHER exp NOR ttl is unbounded — "fresh
-        # forever" was misleading (stale-snapshot replay). Without a bound, freshness CANNOT
-        # be judged: fresh stays None and the relying party must impose its own max age.
         if exp is None and ttl is None:
             result["fresh"] = None
         else:
@@ -286,6 +285,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
             if ttl is not None:
                 fresh = fresh and now <= iat + ttl
             result["fresh"] = fresh
+            if fresh is False:
+                result["detail"] = "status list snapshot is not fresh (expired or stale) at the evaluation time"
+                return result
+    result["ok"] = True
+    result["status"] = status
+    result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
     result["detail"] = f"status {result['status_label']} at index {index}"
     return result
 
