@@ -22,6 +22,7 @@ malformed exit code, not a crash.
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import os
 import stat
@@ -509,6 +510,13 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
     raw_sig = _b64d(_require(sig, "sig_b64", "signature.sig_b64"), "signature.sig_b64")
     sig_ok = verify_ed25519(pub, raw_sig, payload)
     result.add("ed25519-signature", sig_ok, "payload signed by stated key" if sig_ok else "invalid signature")
+    # Nachtrag 46 (Z309, 6.2.0): record WHAT this verification actually verified — the signing key and the
+    # payload digest — but ONLY when the signature verified (sig_ok is exactly True). A downstream caller that
+    # holds a result and a bundle separately (policy.evaluate_policy) binds the two with these, so a good result
+    # of bundle A cannot validate a different bundle B (F2). Left None on a failed/absent signature.
+    if sig_ok is True:
+        result.verified_signer_pub = pub
+        result.verified_payload_digest = hashlib.sha256(payload).hexdigest()
 
     # 2. merkle inclusion of the payload
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
@@ -746,8 +754,14 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
     if kb_binding_checked and kb_ok is True:
         # Nachtrag 44: `pub` is the key the ed25519-signature check verified the payload under (the bundle
         # signer); the binding path trusts the SD-JWT only when its verifying key is that same key.
+        # Nachtrag 46 (Z309, 6.2.0, F1): the binding path may use `pub` as the bundle signer ONLY when the
+        # bundle signature actually verified under it (sig_ok is exactly True). A bundle whose ed25519
+        # signature failed (e.g. a flipped signature byte with public_key_b64 unchanged) is NOT signed by
+        # `pub`, so passing it would let the binding path read a self-signed SD-JWT as bundle-authorized and
+        # keep key_binding_ok / audience_ok / nonce_ok positive although the bundle is unsigned. On a failed
+        # signature the signer is None, the binding path fails closed, and sd-jwt-issuer-trust is reported False.
         trusted, trust_detail = _sd_jwt_issuer_is_trusted(sd, result, sd_jwt_issuer_key_pin,
-                                                          bundle_signer_pub=pub)
+                                                          bundle_signer_pub=(pub if sig_ok is True else None))
         if not trusted:
             result.add(
                 "sd-jwt-issuer-trust", False,

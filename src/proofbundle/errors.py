@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 class ProofBundleError(Exception):
@@ -45,6 +45,14 @@ class VerificationResult:
     """Aggregate result of verifying an evidence bundle."""
 
     checks: List[Check] = field(default_factory=list)
+    # Nachtrag 46 (Z309, 6.2.0): what verify_bundle actually verified — additive, set ONLY when the
+    # bundle's ed25519 signature verified (sig_ok is True), else None. verified_signer_pub is the raw
+    # bytes of the key the payload signature verified under; verified_payload_digest is sha256(payload)
+    # as hex. A downstream caller that takes a result and the verified data separately (policy.evaluate_policy)
+    # binds the two with these, so a good result of bundle A cannot validate a different bundle B. Excluded
+    # from equality/repr and from as_dict so ok, serialisation and existing comparisons are unchanged.
+    verified_signer_pub: Optional[bytes] = field(default=None, compare=False, repr=False)
+    verified_payload_digest: Optional[str] = field(default=None, compare=False, repr=False)
 
     @property
     def ok(self) -> bool:
