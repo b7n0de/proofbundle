@@ -186,6 +186,93 @@ def _python_relation_label(verb: str, inp: str, pub_b64: str, common: list[str])
     return rc, label
 
 
+def _crit_bundle_differential(tmp: pathlib.Path) -> list[str]:
+    """Nachtrag 50b: Python and Rust verify-bundle must AGREE on an un-understood JWS `crit` header.
+
+    Builds a genuine eval bundle carrying an sd_jwt_vc, then a variant whose issuer protected header
+    adds `crit:["future"]` (re-signed with the same test key, so only the header differs). After
+    Nachtrag 50/50b both verifiers reject the crit variant (exit class != VERIFIED) and both VERIFY the
+    control. A disagreement — e.g. Rust VERIFIED while Python rejects — is a hard failure. Returns the
+    list of failures (empty when both sides agree on both vectors)."""
+    import base64  # noqa: PLC0415
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    import json as _json  # noqa: PLC0415
+
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
+
+    from proofbundle import generate_signer  # noqa: PLC0415
+    from proofbundle.cli import main as _cli_main  # noqa: PLC0415
+    from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
+    from proofbundle.sdjwt_issue import issue_sd_jwt  # noqa: PLC0415
+
+    def _raw(k):
+        return k.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+    def _b64u(b):
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+    def _b64u_dec(s):
+        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+    def _resign_issuer_crit(compact, signer):
+        issuer_jws, sep, rest = compact.partition("~")
+        h_b64, p_b64, _ = issuer_jws.split(".")
+        header = _json.loads(_b64u_dec(h_b64))
+        header["crit"] = ["future"]
+        header["future"] = True
+        new_h = _b64u(_json.dumps(header).encode())
+        si = (new_h + "." + p_b64).encode("ascii")
+        return new_h + "." + p_b64 + "." + _b64u(signer.sign(si)) + sep + rest
+
+    def _py_exit(path):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            return _cli_main(["verify", "--json", str(path)])
+
+    signer = generate_signer()
+    ev_claim, _ = build_eval_claim(
+        suite="safety", suite_version="1", metric="acc", comparator=">=", threshold="0.8",
+        score="0.9", n=100, model_id="m", dataset_id="d", issuer="placeholder",
+        timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
+    plain = emit_eval_receipt(ev_claim, signer)
+    root = (plain.get("merkle") or {}).get("root_b64")
+    sd_claim = _json.loads(base64.b64decode(plain["payload_b64"]))
+    # No holder key, so no `cnf`: the Rust sd_jwt slice fail-closes on ANY cnf-bound credential (its
+    # KB-JWT proof-of-possession check is a pending slice), which would reject a cnf credential for a
+    # reason OTHER than crit and spoil the control. A plain issuer SD-JWT isolates the crit decision on
+    # both sides: the control then VERIFIES on both, so the crit variant's rejection is attributable to
+    # crit alone.
+    compact = issue_sd_jwt(sd_claim, signer, root_b64=root, exact_score="0.9")
+    pub_b64 = base64.b64encode(_raw(signer)).decode("ascii")
+
+    cdir = tmp / "crit_differential"
+    cdir.mkdir(parents=True, exist_ok=True)
+    failures: list[str] = []
+    # control (no crit) — both VERIFY
+    ctrl = emit_eval_receipt(ev_claim, signer, sd_jwt={"compact": compact, "issuer_public_key_b64": pub_b64})
+    ctrl_path = cdir / "control.json"
+    ctrl_path.write_text(_json.dumps(ctrl), encoding="utf-8")
+    py_c, rust_c = _py_exit(ctrl_path), _run("verify-bundle", str(ctrl_path))[0]
+    if exit_class(py_c) != "VERIFIED" or exit_class(rust_c) != "VERIFIED":
+        failures.append(f"crit differential control-no-crit: python {exit_class(py_c)} (exit {py_c}), "
+                        f"rust {exit_class(rust_c)} (exit {rust_c}) — both must VERIFY")
+    # crit variant — both REJECT and agree
+    bad_compact = _resign_issuer_crit(compact, signer)
+    bad = emit_eval_receipt(ev_claim, signer, sd_jwt={"compact": bad_compact, "issuer_public_key_b64": pub_b64})
+    bad_path = cdir / "crit_unknown.json"
+    bad_path.write_text(_json.dumps(bad), encoding="utf-8")
+    py_b, rust_b = _py_exit(bad_path), _run("verify-bundle", str(bad_path))[0]
+    if exit_class(py_b) == "VERIFIED" or exit_class(rust_b) == "VERIFIED":
+        failures.append(f"crit differential crit-unknown: python {exit_class(py_b)} (exit {py_b}), "
+                        f"rust {exit_class(rust_b)} (exit {rust_b}) — an un-understood crit must be "
+                        f"rejected by BOTH (RFC 7515 §4.1.11)")
+    if exit_class(py_b) != exit_class(rust_b):
+        failures.append(f"crit differential crit-unknown: Python!=Rust exit class "
+                        f"({exit_class(py_b)} vs {exit_class(rust_b)})")
+    return failures
+
+
 def main() -> int:
     if not BIN.exists():
         print(f"FAIL: rust binary not built ({BIN}) — run `cargo build` in tools/pb_verify_rs first")
@@ -735,6 +822,13 @@ def main() -> int:
                             f"einen Zweig dafuer bauen oder sie in _NICHT_DIFFERENTIELL mit Grund "
                             f"eintragen — schweigend ueberspringen ist keine der beiden Optionen")
 
+    # Nachtrag 50b: the JWS `crit` differential (built here, not a corpus case) — Python and Rust
+    # verify-bundle must agree that an un-understood issuer `crit` header is rejected and that the
+    # control without `crit` verifies.
+    crit_failures = _crit_bundle_differential(tmp)
+    failures += crit_failures
+    crit_n = 2  # control + crit-unknown vectors, both compared Python<->Rust
+
     if failures:
         print("CROSS-IMPL DISAGREEMENT:")
         for f in failures:
@@ -767,6 +861,8 @@ def main() -> int:
           f"{', '.join(budget_geteilt)}; Python-only axes not ported to Rust: "
           f"{', '.join(budget_nur_python)}), "
           "trust-pack root-threshold (met+unmet) agree; "
+          f"JWS crit header fail-closed on both sides ({crit_n} vectors: control + crit-unknown, "
+          "RFC 7515 §4.1.11, Nachtrag 50b); "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "
