@@ -170,6 +170,11 @@ def _enc(value: Any) -> bytes:
     if type(value) is dict:
         items = sorted((_enc(k), _enc(v)) for k, v in value.items())
         return _head(5, len(items)) + b"".join(k + v for k, v in items)
+    if type(value) is _ArrayKey:
+        return _head(4, len(value)) + b"".join(_enc(v) for v in value)
+    if type(value) is _MapKey:
+        items = sorted((_enc(k), _enc(v)) for k, v in value)
+        return _head(5, len(items)) + b"".join(k + v for k, v in items)
     raise _Refused("malformed", f"no deterministic encoding for a {type(value).__name__}")
 
 
@@ -208,15 +213,46 @@ def _loads(cbor2: Any, data: bytes) -> Any:
         raise _Refused("malformed", f"not CBOR this reader accepts ({type(exc).__name__})") from None
 
 
+class _ArrayKey(tuple):
+    """An array used as a map key, kept hashable so that the header can be judged by the rule. Equal only to
+    an _ArrayKey: the empty array and the empty map are two keys."""
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is type(self) and tuple.__eq__(self, other)
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, tuple(self)))
+
+
+class _MapKey(_ArrayKey):
+    """A map used as a map key, as its (key, value) pairs, kept hashable for the same reason."""
+
+
 def _plain(value: Any) -> Any:
     """The decoded value in exact built-in types; a tag, a float or a simple value other than true, false
-    and null is not part of a statement."""
+    and null is not part of a statement. A map key keeps its kind: an array or a map used as a key becomes
+    an _ArrayKey or a _MapKey, so a header in the deterministic encoding whose keys are not all integers
+    reaches the rule (outside_profile) instead of failing as an unhashable value."""
     if value is None or value is True or value is False or type(value) in (int, bytes, str):
         return value
     if isinstance(value, (list, tuple)):
         return [_plain(v) for v in value]
     if isinstance(value, Mapping):
-        return {_plain(k): _plain(v) for k, v in value.items()}
+        return {_plain_key(k): _plain(v) for k, v in value.items()}
+    raise _Refused("malformed", f"a {type(value).__name__} is not part of a statement")
+
+
+def _plain_key(value: Any) -> Any:
+    """_plain for a value that stands as a map key or inside one: hashable, of the same kinds."""
+    if value is None or value is True or value is False or type(value) in (int, bytes, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return _ArrayKey(_plain_key(v) for v in value)
+    if isinstance(value, Mapping):
+        return _MapKey((_plain_key(k), _plain_key(v)) for k, v in value.items())
     raise _Refused("malformed", f"a {type(value).__name__} is not part of a statement")
 
 

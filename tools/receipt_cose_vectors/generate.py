@@ -355,6 +355,24 @@ def main() -> None:
         "a signature whose R has mixed order (r times the base point plus the point of order 8), made with the "
         "issuer test seed: the cofactored equation holds and the cofactorless one does not; rule 2 of Section "
         "4.4 of the receipts draft refuses R before the equation")
+    # ---- added 2026-10-07 after a differential run against a second checker built from the draft's text ------
+    iss_raw = ISSUER.encode()
+    bad_iss = iss_raw[:8] + b"\xff" + iss_raw[9:]
+    assert f1.count(iss_raw) == 1
+    bwd("B43", f1.replace(iss_raw, bad_iss, 1), "P1", "malformed",
+        "B1 with one byte of iss replaced by 0xff, which is no UTF-8: a well-formed but not valid data item "
+        "(RFC 8949 section 5.3.1), signature unchanged")
+    b1_pairs = [(enc(k), enc(v)) for k, v in protected().items()]
+    raw44 = head(5, 6) + b"".join(k + v for k, v in sorted(b1_pairs + [(b"\xa0", enc(0))]))
+    bwd("B44", signed(None, protected_raw=raw44), "P1", "outside_profile",
+        "B1 with an empty map as a sixth key of the protected header, in the deterministic encoding, signed over "
+        "those bytes: a valid item whose header does not hold exactly the five labels")
+    raw45 = head(5, 6) + b"".join(k + v for k, v in sorted(b1_pairs + [(enc(-1), enc(0))],
+                                                          key=lambda kv: (len(kv[0]), kv[0])))
+    assert raw45 != head(5, 6) + b"".join(k + v for k, v in sorted(b1_pairs + [(enc(-1), enc(0))]))
+    bwd("B45", signed(None, protected_raw=raw45), "P1", "malformed",
+        "B1 with a sixth key -1, its keys ordered length first (RFC 7049 section 3.9) instead of bytewise "
+        "(RFC 8949 section 4.2.1), signed over those bytes: not the deterministic encoding")
     keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex(),
                 "p256": p256_pub.hex(), "off_curve": off_curve.hex(), "mixed_order": mixed.hex()}
 

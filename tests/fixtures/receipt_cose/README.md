@@ -12,7 +12,7 @@ its next revision).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
   `c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e`). The receipt type and the payload schema are the
   neutral names of 2026-10-07, so every digest and signature differs from the vectors before that day.
-- `backward`: 42 statements, each with the receipt it is presented with, the relying party's
+- `backward`: 45 statements, each with the receipt it is presented with, the relying party's
   statement keys and the one status `check_statement` must return. The relying party configures each
   statement key as a pair with the issuer URI it trusts the key for, written `[issuer URI, key name]`;
   the received `iss` selects a pair and never makes a key trusted for another issuer. Three are
@@ -26,9 +26,13 @@ its next revision).
   curve point (rule 1); B40 carries an `iss` with a fragment, which is no absolute URI (RFC 3986
   section 4.3); B41 is signed under the mixed-order key, meets the cofactorless equation and is
   `untrusted_key`, because rule 2 requires a statement key of order L; B42 has an R of mixed order
-  under the issuer key and is `signature_invalid` by rule 2. Every other vector
-  differs from a valid statement in the one property its `what` names, and is signed over its own
-  bytes where its point is not the signature.
+  under the issuer key and is `signature_invalid` by rule 2. B43 to B45 were added later on
+  2026-10-07: B43 is B1 with one byte of `iss` replaced by 0xff, which is no UTF-8, and is `malformed`
+  (RFC 8949 section 5.3.1) with the signature of B1 unchanged; B44 is B1 with the empty map as a sixth
+  key of the protected header, in the deterministic encoding, and is `outside_profile`; B45 is B1 with
+  -1 as a sixth key, the keys ordered length first (RFC 7049 section 3.9) instead of bytewise (RFC 8949
+  section 4.2.1), and is `malformed`. Every other vector differs from a valid statement in the one
+  property its `what` names, and is signed over its own bytes where its point is not the signature.
 - Keys: the receipt key and the relying party's statement key are the Draft 1 issuer test key; the
   foreign key's seed is SHA-256 over the label in `foreign_seed`; `low_order` is the all-zero
   encoding, a point of small order; `p256` is an uncompressed P-256 point whose private scalar is
