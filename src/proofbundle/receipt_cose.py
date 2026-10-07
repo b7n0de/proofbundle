@@ -40,8 +40,8 @@ key (the Sig_structure in place of PAE), and its payload is the digest of the pr
 itself passes the draft's Section 6 under the receipt key the relying party fixed; ``sub`` must be that
 receipt's model commitment. The received ``iss`` selects among the pairs; it never makes a key trusted for
 an issuer. Every other outcome is a status, never a pass, and the check never raises for what it is given
-to read. A check that stops at a resource limit (more than 400 nested arrays, maps and tags) returns
-``resource_limit``: no status, and not accepted.
+to read. A check that stops at a resource limit (more than 400 nested arrays, maps and tags, or the
+receipt's own limit in step 5) returns ``resource_limit``: no status, and not accepted.
 
 WHAT IS LOST. The statement carries the digest and the model commitment of B, nothing else of the receipt:
 not the score, threshold, comparator, verdict, suite or timestamp, not the dataset commitment, not the
@@ -544,6 +544,9 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
             raise _Refused("signature_invalid", "the signature fails the rules of Section 4.4 of the receipts "
                                                 "draft under the key the pair selects")
         verdict = verify_signed_eval_receipt(receipt, receipt_key)
+        if verdict.resource_limit:
+            return StatementCheck(RESOURCE_LIMIT, f"step 5 {verdict.reason}",
+                                  ignored_keys=tuple(ignored), **seen)
         if not verdict.ok or verdict.payload is None:
             return StatementCheck("receipt_not_verified", f"the presented receipt fails the draft's Section 6: "
                                   f"{verdict.reason}", receipt_step=verdict.step_label,
@@ -590,6 +593,9 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
         raise ReceiptCoseError("issuer must be an absolute URI (RFC 3986 section 4.3)")
     cbor2 = _cbor2()
     verdict = verify_signed_eval_receipt(receipt, receipt_key)
+    if verdict.resource_limit:
+        raise ReceiptCoseError(f"the receipt check stopped at a resource limit ({verdict.reason}); no statement "
+                               "is made")
     if not verdict.ok or verdict.payload is None:
         raise ReceiptCoseError(f"the receipt does not verify (step {verdict.step_label}: {verdict.reason}); "
                                "no statement is made")
