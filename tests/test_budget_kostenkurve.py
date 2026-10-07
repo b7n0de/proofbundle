@@ -23,20 +23,30 @@ WARUM RECHENZEIT UND NICHT UHRZEIT. ``resource.getrusage`` misst die Rechenzeit 
 Die Uhrzeit misst mit, was 23 andere Kerne gerade tun; auf einer Maschine unter Last waeren die
 Zahlen unbrauchbar, und eine unbrauchbare Zahl in einer Zusicherung ist schlimmer als keine.
 
-WARUM ZUSAETZLICH EINE ARBEITSZAEHLUNG. Auch Rechenzeit haengt an der Maschine. Wo der Durchlauf in
-Python liegt, wird deshalb zusaetzlich die Zahl der Python-Aufrufe gezaehlt (``sys.setprofile``,
-GC aus): eine deterministische, maschinenunabhaengige Groesse. Sie ist nicht ueberall aussagekraeftig
-— wo die Arbeit in C liegt (JSON-Parser, Hash-Kern), bleibt sie flach. Genau das wird GEPRUEFT statt
-angenommen: waechst die Zaehlung ueber die Reihe nicht mindestens um das Doppelte, gilt sie fuer diese
-Dimension als UNEMPFINDLICH und wird nicht als Beleg benutzt. Der dritte Zustand wird berichtet, nicht
-verschwiegen.
+THE SHAPE OF THE CURVE IS COUNTED, NOT TIMED (Z309, 2026-10-07). CPU time depends on the machine too,
+and a RATIO of two CPU times depends on it as soon as the load changes between the points. Measured:
+the time exponent of ``renewal_ats_chain`` came out at 1.51, 1.22 and 1.24 against the bound 1.2 on
+CI's shared runners at ONE head, while the same job passed on the code before it. A verdict that a
+second run can turn is a verdict about the run. So the shape of the curve is decided by the COUNTED
+WORK of ``tests/_arbeitszaehler.py`` alone: lines of Python run, plus, for every built-in method that
+walks its own receiver (``list.count``, ``str.find`` ...), the length of that receiver. The
+interpreter reports both; no clock does. The time exponent is still REPORTED (``TestBericht``, the
+budget axis evidence) and decides nothing. CPU time decides only where it checks an absolute ceiling
+at the limit.
 
-WARUM EINE RESERVE. Unter ``RESERVE_S`` liegt die Messung im Rauschen (Cache, Zuteilung, Last), und
-ein Exponent aus Rauschen ist eine Fehlmeldung. Unterhalb der Reserve wird der Exponent deshalb
-BERICHTET, aber er entscheidet nicht — die Obergrenze entscheidet immer. Beispiel aus der eigenen
-Messung: ``int_bits`` hat eine quadratische Kurve (der Schiebe-Loop in ``root_from_inclusion``), kostet
-am groessten zugelassenen Wert aber 0,0045 s. Bei rund 1/200 der Obergrenze kann die Form der Kurve
-keine Ueberlastung mehr erzeugen; sie als Fund zu melden waere ein Fehlbefund.
+WHERE THE COUNT SEES NOTHING, the dimension is named rather than averaged away. Work inside ONE C call
+that is not a walking method of its receiver is not counted: the scanner of ``json``, the hash core,
+integer arithmetic. Whether the count of a dimension is sensitive is CHECKED, not assumed: if it does
+not at least double over the eightfold input, it is INSENSITIVE, and an insensitive dimension has to
+stand in ``NICHT_ZAEHLBAR`` with its reason, or the case is red. Today that is exactly
+``string_len``. An example of the second gap: ``int_bits`` has a quadratic TIME curve (integer shifts
+in ``root_from_inclusion``) while its count grows linearly; at the largest admitted value the axis
+costs about 0.0045 s, and the ceiling at the limit guards it.
+
+THE NEXT PARAGRAPH CALIBRATED THE TIME EXPONENT, which decided the shape until Z309. The bound stays
+the same for the counted work, which is at 0.85 to 1.00 today and was at 2.00 before the fix
+(``renewal_ats_chain`` at 917edc69 over L/8 to L, 74,218,456 to 4,790,214,706 counted, run on
+2026-10-07). The paragraph stays as the origin of the number.
 
 WARUM DIE GRENZE 1,2 UND NICHT 1,05 IST — GEMESSEN, NICHT GESCHAETZT. Am 2026-09-05 wurde auf dieser
 Maschine (Lastmittel 27 bei 24 Kernen, also unter voller Konkurrenz) der Zeit-Exponent der beiden
@@ -98,6 +108,7 @@ from proofbundle.budget import DEFAULT_BUDGET as B
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402 — LAUF12-L3: die drei Lastquellen aus B.data_digests waren ungedeckelt (Alias B, vom Riegel nicht gesehen)
+from _arbeitszaehler import count_work  # noqa: E402 — Z309: the shape of the curve is counted, not timed
 from proofbundle.budget import VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import ProofBundleError
@@ -110,10 +121,16 @@ GRENZE_S = 1.0
 # Der hoechste Exponent, den eine Kostenkurve haben darf. 1,0 ist linear; 1,2 laesst Messrauschen und
 # einen log-Faktor zu. Vor dem Fix mass renewal_ats_chain 1,99.
 EXPONENT_MAX = 1.2
-# Unterhalb dieser Kosten entscheidet der Exponent nicht mehr (siehe Kopf). 1/50 der Obergrenze.
-RESERVE_S = GRENZE_S / 50.0
 # So viel muss die Arbeitszaehlung ueber die 8-fache Eingabe wachsen, um als empfindlich zu gelten.
 ARBEIT_EMPFINDLICH = 2.0
+# The dimensions whose work the count does NOT see, each with its reason (Z309, see the module head).
+# Nothing here judges the shape of their curve; the ceiling at the limit guards their cost. A
+# dimension that turns insensitive without standing here is red, and so is one listed here that turns
+# sensitive.
+NICHT_ZAEHLBAR = {
+    "string_len": "the string is read by the C scanner of json in one call; counted 2026-10-07, the "
+                  "work stays the same from L/8 to L",
+}
 # Jede benannte Dimension einer KOMBINATION muss mindestens so viel Prozent ihres eigenen Limits
 # erreichen (Review Runde 2, B2) — sonst behauptet der Kombi-Test eine Grenzlast, die er gar nicht baut.
 KOMBI_ERREICHT_MIN = 0.95
@@ -852,25 +869,14 @@ def _prozess_spitze(ruf, hwm=_hwm_aus_proc) -> tuple[int, str]:
 
 
 def _arbeit(ruf) -> int:
-    """Deterministische Arbeitszaehlung: Python-Aufrufe. Haengt nicht an der Maschine."""
-    n = 0
+    """Deterministic work count that does not depend on the machine (``tests/_arbeitszaehler.py``).
 
-    def zaehle(*_):
-        nonlocal n
-        n += 1
-
-    war_an = gc.isenabled()
-    gc.disable()
-    sys.setprofile(zaehle)
-    try:
-        ruf()
-    except ProofBundleError:
-        pass
-    finally:
-        sys.setprofile(None)
-        if war_an:
-            gc.enable()
-    return n
+    Until Z309 it counted profile events and decided only where it was sensitive, next to the time
+    exponent. Now it decides alone, and it counts lines of Python run plus the receivers that built-in
+    methods walk. A refusal at the budget is a result, not a failure of the count.
+    """
+    z = count_work(ruf, accepted=(ProofBundleError,))
+    return z["lines"] + z["walked"]
 
 
 def _exponent(punkte) -> float:
@@ -1357,17 +1363,20 @@ class TestObergrenzeAmGroesstenZugelassenenWert:
 class TestKostenkurve:
     @pytest.mark.parametrize("dim", DIMENSIONEN, ids=IDS)
     def test_die_kurve_ist_nicht_ueberlinear(self, dim):
+        """The shape of the curve, COUNTED (Z309). No ratio of two run times decides here any more:
+        the time exponent crossed the bound on CI at an unchanged head."""
         m = _messung(dim)
-        if m["arbeit_empfindlich"]:
-            # maschinenunabhaengiger Beleg: die Arbeitszaehlung waechst mit der Eingabe, also ist ihr
-            # Exponent aussagekraeftig und haengt nicht an Takt oder Last
-            assert m["exponent_arbeit"] <= EXPONENT_MAX, (
-                f"{dim.name}: Arbeits-Exponent {m['exponent_arbeit']:.2f} > {EXPONENT_MAX} "
-                f"(Zaehlung {[a for _, a in m['arbeit']]})")
-        if m["kosten_am_limit"] > RESERVE_S:
-            assert m["exponent_zeit"] <= EXPONENT_MAX, (
-                f"{dim.name}: Zeit-Exponent {m['exponent_zeit']:.2f} > {EXPONENT_MAX} bei "
-                f"{m['kosten_am_limit']:.3f} s am Limit — ueberlinear INNERHALB der eigenen Schranke")
+        if not m["arbeit_empfindlich"]:
+            # The count does not see the work of this dimension. That is allowed only when it is
+            # named with its reason; a silent insensitivity would be a passing case without a count.
+            assert dim.name in NICHT_ZAEHLBAR, (
+                f"{dim.name}: the work count is insensitive ({[a for _, a in m['arbeit']]}) and the "
+                f"dimension is not in NICHT_ZAEHLBAR, so nothing would judge the shape of its curve "
+                f"and nobody would have said so")
+            return
+        assert m["exponent_arbeit"] <= EXPONENT_MAX, (
+            f"{dim.name}: work exponent {m['exponent_arbeit']:.2f} > {EXPONENT_MAX} "
+            f"(counted {[a for _, a in m['arbeit']]}), superlinear WITHIN its own bound")
 
     def test_der_schaetzer_erkennt_eine_gepflanzte_quadratische_kurve(self):
         """GATE-META-TEST. Ein Schaetzer, der nie ausschlaegt, ist von einem funktionierenden nicht
@@ -1426,6 +1435,46 @@ class TestKostenkurve:
         Beleg, der nie greift, ist kein Beleg."""
         empfindlich = [d.name for d in DIMENSIONEN if _messung(d)["arbeit_empfindlich"]]
         assert empfindlich, "keine einzige Dimension hat eine empfindliche Arbeitszaehlung"
+
+    def test_die_unempfindlichen_sind_genau_die_benannten(self):
+        """Both directions (Z309). A dimension that turns insensitive without being named loses its
+        verdict silently. A named one that turns sensitive carries a wrong reason and has earned its
+        verdict back."""
+        unempfindlich = {d.name for d in DIMENSIONEN if not _messung(d)["arbeit_empfindlich"]}
+        assert unempfindlich == set(NICHT_ZAEHLBAR), (
+            f"counted insensitive: {sorted(unempfindlich)}, named: {sorted(NICHT_ZAEHLBAR)}")
+        assert set(NICHT_ZAEHLBAR) <= {d.name for d in DIMENSIONEN}, "a name without a dimension"
+
+    def test_die_zaehlung_faengt_eine_gepflanzte_quadratische_kurve(self):
+        """GATE META TEST of the count, not of the estimator: a doubling series as in `_messung`, once
+        over a loop in Python, once over `list.count` per element, which is quadratic work INSIDE a C
+        call. Both have to land above EXPONENT_MAX and the linear counterpart below it. If binding
+        the receiver fails on some Python version, the second case turns red here, not first at a
+        real finding."""
+        def reihe(bau):
+            return [(n, _arbeit(bau(n))) for n in (100, 200, 400, 800)]
+
+        def in_python(n):
+            def f():
+                s = 0
+                for i in range(n):
+                    for j in range(n):
+                        s += 1
+            return f
+
+        def in_c(n):
+            xs = list(range(n))
+            return lambda: [xs.count(x) for x in xs]
+
+        def linear(n):
+            def f():
+                out = []
+                for i in range(n):
+                    out.append(i)
+            return f
+        assert _exponent(reihe(in_python)) > EXPONENT_MAX
+        assert _exponent(reihe(in_c)) > EXPONENT_MAX
+        assert _exponent(reihe(linear)) <= EXPONENT_MAX
 
 
 # --------------------------------------------------------------------------- kombinierte Achsen

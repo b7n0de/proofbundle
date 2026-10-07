@@ -1667,7 +1667,23 @@ without a verdict is counted as SURVIVED rather than NOT MEASURED. The same stan
 change, and that change adds no path to it on Linux. The shard-26 run of operator 96 belongs to the
 canonical mutation run on the frozen tree, the first after the cap landed; this file is written before it.
 
-## Open — wall-clock cases of the cost curve under load
+## Closed after the freeze — wall-clock cases of the cost curve under load
+
+Closed by owner order Z309 of 2026-10-07, in the change that carries this paragraph. Every test of the class
+that could fail on a ratio of run times now judges counted work, which the speed of the machine does not
+change: the lines of Python run, plus the length of every receiver a built-in method walks (`list.count`,
+`str.find` and the others in `tests/_arbeitszaehler.py`). The class has three members: the curve of
+`tests/test_budget_kostenkurve.py`, the linearity case of `tests/test_cap1_regeln.py` and the tuple copy
+case of `tests/test_a_verifier_reads_a_callers_value_once.py`. Their bounds (1.2, 1.35 and a ratio of 64)
+are unchanged. Each was run against the source of the head before the fix it was written against and
+fails there: `renewal_ats_chain` at 917edc69 with a counted exponent of 2.00, cap1 at c59209d9 with 1.995
+with the duplicate, the copy of 32000 tuples at 8f2fa980 above 64 times the copy of 2000. At b1f8d355 all
+three pass, and the counted exponents of the twelve dimensions are the same with and without 36 busy
+loops on 24 cores (load up to 49). One dimension stays outside the count without a change to the shipped
+code, `string_len`, whose work is the C scanner of `json`; the test names it, and a contract fails if any
+other dimension turns insensitive. The time exponent is still reported and decides nothing. The CPU
+ceiling at the limit is an absolute bound, not a ratio, and stays as the second paragraph below says.
+The rest of this section is the record as it stood at the freeze.
 
 `tests/test_budget_kostenkurve.py` measures time exponents. Under a machine load near 15 the
 `input_bytes` case failed with an exponent of 1.23 against a bound of 1.2, on a tree with and on a

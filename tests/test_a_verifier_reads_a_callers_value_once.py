@@ -1750,21 +1750,23 @@ class TheReadingAtTheCallIsOneState(unittest.TestCase):
 
     def test_a_tuple_of_tuples_is_copied_in_linear_time(self):
         """V6-F3 on 8f2fa980: the parts of a tuple were scanned again after each part was built, and a tuple of 16000
-        tuples took 55 s. Measured as CPU time of two sizes: sixteen times the tuples may cost at most 64 times."""
-        import time
+        tuples took 55 s. Sixteen times the tuples may cost at most 64 times.
+
+        Counted, not timed (Z309, 2026-10-07): the cost is the counted work of `tests/_arbeitszaehler.py`, lines of Python
+        run plus receivers walked by built-in methods, so a loaded machine cannot decide the ratio. Counted at 8f2fa980:
+        exponent 1.965 from 500 to 4000 tuples; at b1f8d355 0.999. The large count stops once it reaches 64 times the
+        small one, which gives the same verdict without counting a quadratic copy of 32000 tuples to its end."""
+        from _arbeitszaehler import work
         from proofbundle.canonical import _stand
 
-        def kosten(n):
+        def kosten(n, limit=None):
             wert = tuple((i,) for i in range(n))
-            beste = None
-            for _ in range(3):
-                t0 = time.process_time()
-                _stand(wert)
-                t = time.process_time() - t0
-                beste = t if beste is None else min(beste, t)
-            return max(beste, 1e-4)
-        klein, gross = kosten(2000), kosten(32000)
-        self.assertLess(gross / klein, 64, f"{klein:.4f} s for 2000 tuples, {gross:.4f} s for 32000")
+            return work(lambda: _stand(wert), limit=limit)
+        _stand(((0,),))  # one call first, so that a first-call cost cannot raise the small point
+        klein = kosten(2000)
+        gross = kosten(32000, limit=64 * klein)
+        self.assertLess(gross / klein, 64, f"{klein} counted for 2000 tuples, {gross} for 32000 (the count stops "
+                                           f"past 64 times the small one)")
 
     def test_a_subclass_becomes_its_base_type_and_an_ordered_dict_keeps_its_order(self):
         from collections import OrderedDict
