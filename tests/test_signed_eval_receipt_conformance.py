@@ -56,7 +56,7 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
         self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
 
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
-        self.assertEqual(len(VECTORS), 63)
+        self.assertEqual(len(VECTORS), 65)
         for v in VECTORS:
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
@@ -83,6 +83,21 @@ class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
                                "root": hashlib.sha256(b"\x00" + base64.b64decode(former["payload_b64"])).hexdigest()}
         got = ser.verify_signed_eval_receipt(json.dumps(former).encode("utf-8"), p1["key"])
         self.assertEqual((got.ok, got.step_label), (False, "1"), got.reason)
+
+    def test_whitespace_after_the_json_text_is_admitted_and_b_must_still_be_its_own_form(self):
+        """Step 1 admits insignificant whitespace after the receipt's JSON text, and step 4 admits it after
+        B under the rules of step 1 (RFC 8259 Section 2). P12 is P1's receipt followed by a line feed and
+        verifies; N60 is P1's B followed by a line feed, signed anew, and fails at step 5, not at step 4."""
+        by_id = {v["id"]: v for v in VECTORS}
+        p1, p12, n60 = by_id["P1"], by_id["P12"], by_id["N60"]
+        self.assertEqual(p12["receipt"], p1["receipt"] + b"\n")
+        b_p1 = base64.b64decode(json.loads(p1["receipt"])["payload_b64"])
+        self.assertEqual(base64.b64decode(json.loads(n60["receipt"])["payload_b64"]), b_p1 + b"\n")
+        got = ser.verify_signed_eval_receipt(p12["receipt"], p12["key"])
+        self.assertEqual((got.ok, got.step_label), (True, "all"), got.reason)
+        self.assertEqual(got.payload, b_p1)
+        got = ser.verify_signed_eval_receipt(n60["receipt"], n60["key"])
+        self.assertEqual((got.ok, got.step_label), (False, "5"), got.reason)
 
     def test_a_pass_returns_b_and_a_fail_returns_none(self):
         p1 = next(v for v in VECTORS if v["id"] == "P1")
