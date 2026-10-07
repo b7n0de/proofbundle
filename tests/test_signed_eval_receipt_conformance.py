@@ -56,7 +56,7 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
         self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
 
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
-        self.assertEqual(len(VECTORS), 61)
+        self.assertEqual(len(VECTORS), 62)
         for v in VECTORS:
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
