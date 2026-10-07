@@ -3,9 +3,11 @@
 The test vectors of draft-gruszka-signed-evaluation-receipts-00 (Signed Evaluation Receipts),
 Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
 
-- 63 vectors: 8 that verify (P1, P2, P4, P6 to P10) and 55 that do not (P11, and N1 to N59
+- 65 vectors: 9 that verify (P1, P2, P4, P6 to P10, P12) and 56 that do not (P11, and N1 to N60
   without N8, N27 to N29 and N47), each with the expected verdict and the first failing step of the
-  draft's Section 5. Rule 2 of the draft's Section 4.4 requires A and R to have order L (owner choice
+  draft's Section 5. Only insignificant whitespace may follow the JSON text (owner choice of
+  2026-10-07): P12, the receipt of P1 followed by one line feed, verifies; N60, the B of P1 followed
+  by one line feed and signed anew, fails at step 5, because B is not its own RFC 8785 form. Rule 2 of the draft's Section 4.4 requires A and R to have order L (owner choice
   of 2026-10-07): P11, a receipt under the mixed-order test key (the issuer test key's public point
   plus a point of order 8, no seed, a pure test key) whose signature meets the cofactorless
   equation, fails at step 11 for rule 2 of the key; N59, under the issuer key with an R of mixed
