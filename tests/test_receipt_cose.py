@@ -26,6 +26,9 @@ VECTORS = json.loads((REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.js
 DRAFT1 = json.loads((REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json")
                     .read_text(encoding="utf-8"))
 KEYS = {name: bytes.fromhex(value) for name, value in VECTORS["keys_hex"].items()}
+ISSUER = VECTORS["issuer"]
+#: The relying party's configuration of most checks below: the issuer test key, trusted for ISSUER only.
+PAIRS = [(ISSUER, KEYS["issuer"])]
 #: Vector M2 of draft-gruszka-evaluation-receipt-mappings-00: its kid and the SHA-256 of its bytes.
 M2_KID = "c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb1561"
 M2_SHA256 = "c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e"
@@ -61,7 +64,7 @@ def _check(vector: dict) -> rc.StatementCheck:
     extra = {"algs": tuple(vector["algs"])} if "algs" in vector else {}
     return rc.check_statement(bytes.fromhex(vector["statement_hex"]), receipt=_receipt(vector["receipt"]),
                               receipt_key=KEYS[VECTORS["receipt_key"]],
-                              statement_keys=[KEYS[k] for k in vector["statement_keys"]], **extra)
+                              statement_keys=[(iss, KEYS[k]) for iss, k in vector["statement_keys"]], **extra)
 
 
 def test_the_kid_is_the_rfc9679_thumbprint_of_the_issuer_test_key():
@@ -92,7 +95,7 @@ def test_f1_is_vector_m2_of_the_mappings_draft():
 @needs_cbor2
 @pytest.mark.parametrize("vector", VECTORS["backward"], ids=[v["id"] for v in VECTORS["backward"]])
 def test_every_backward_vector_gets_its_status(vector):
-    """Only the three valid statements pass; every deviation is a refusal with its own status."""
+    """Only the four valid statements pass; every deviation is a refusal with its own status."""
     result = _check(vector)
     assert result.status == vector["expect_status"], (result.status, result.detail)
     assert result.ok is (vector["expect_status"] == rc.ACCEPTED)
@@ -123,7 +126,8 @@ def test_the_forward_direction_without_an_alg_writes_minus_19():
 
 
 @needs_cbor2
-@pytest.mark.parametrize("issuer", ["issuer example", "", "https://issuer.example/a b", 7])
+@pytest.mark.parametrize("issuer", ["issuer example", "", "https://issuer.example/a b", 7,
+                                    "https://issuer.example/eval#frag", "https://issuer.example/<x>"])
 def test_the_forward_direction_writes_a_uri_as_iss(issuer):
     with pytest.raises(rc.ReceiptCoseError, match="URI"):
         rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=issuer, alg=-19)
@@ -151,9 +155,79 @@ def test_the_forward_direction_returns_nothing_its_own_check_refuses(monkeypatch
 def test_a_relying_party_entry_that_is_no_ed25519_key_is_absent_trust():
     f1 = next(v for v in VECTORS["backward"] if v["id"] == "B1")
     result = rc.check_statement(bytes.fromhex(f1["statement_hex"]), receipt=_receipt("P1"),
-                                receipt_key=KEYS["issuer"], statement_keys=[KEYS["issuer"][:31], "x"])
+                                receipt_key=KEYS["issuer"], statement_keys=[(ISSUER, KEYS["issuer"][:31]), (ISSUER, "x")])
     assert result.status == "untrusted_key"
     assert len(result.ignored_keys) == 2
+
+
+def _vector(vid: str) -> bytes:
+    return bytes.fromhex(next(v for v in VECTORS["backward"] if v["id"] == vid)["statement_hex"])
+
+
+@needs_cbor2
+def test_a_statement_key_counts_only_for_the_issuer_it_is_paired_with():
+    """B37 is B1 with another iss, signed by the same key. The received iss
+    selects a pair; it never makes a key trusted for an issuer the relying party did not pair it with."""
+    b1, b37 = _vector("B1"), _vector("B37")
+    other = rc._read(b37).protected[15][1]
+    assert other == "https://other-issuer.example/eval"
+
+    def status(statement, pairs):
+        return rc.check_statement(statement, receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                  statement_keys=pairs).status
+    assert status(b37, PAIRS) == "untrusted_key"
+    assert status(b37, [(other, KEYS["issuer"])]) == rc.ACCEPTED
+    assert status(b37, [(ISSUER, KEYS["issuer"]), (other, KEYS["issuer"])]) == rc.ACCEPTED
+    assert status(b1, [(other, KEYS["issuer"])]) == "untrusted_key"
+    assert status(b1, [(other, KEYS["issuer"]), (ISSUER, KEYS["foreign"])]) == "untrusted_key"
+
+
+@needs_cbor2
+@pytest.mark.parametrize("configured", [ISSUER + "/", ISSUER.upper(), "HTTPS://issuer.example/eval",
+                                        "https://issuer.example:443/eval", ISSUER + "?", " " + ISSUER])
+def test_the_issuer_of_a_pair_is_compared_exactly(configured):
+    """No URI normalization: a pair names the iss string it trusts the key for, byte for byte."""
+    result = rc.check_statement(_vector("B1"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                statement_keys=[(configured, KEYS["issuer"])])
+    assert result.status == "untrusted_key"
+
+
+@needs_cbor2
+@pytest.mark.parametrize("entry", [KEYS["issuer"], [KEYS["issuer"]], (ISSUER, KEYS["issuer"], "extra"),
+                                   (KEYS["issuer"], ISSUER), (ISSUER.encode(), KEYS["issuer"]), {ISSUER: KEYS["issuer"]}])
+def test_an_entry_that_is_no_pair_of_issuer_and_key_is_absent_trust(entry):
+    """A bare key, the form before 2026-10-07, names no issuer and is never counted."""
+    result = rc.check_statement(_vector("B1"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                statement_keys=[entry])
+    assert result.status == "untrusted_key"
+    assert len(result.ignored_keys) == 1
+
+
+@needs_cbor2
+def test_the_statement_signature_meets_the_rules_of_section_4_4():
+    """B38's R is the neutral element. The cofactorless equation holds, so the
+    plain library check accepts it; rule 2 of Section 4.4 of the receipts draft refuses it."""
+    from proofbundle.signature import verify_ed25519
+    st = rc._read(_vector("B38"))
+    assert st.signature[:32] == (1).to_bytes(32, "little")
+    assert verify_ed25519(KEYS["issuer"], st.signature, rc._sig_structure(st.protected_raw, st.payload)) is True
+    result = rc.check_statement(_vector("B38"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                statement_keys=PAIRS)
+    assert result.status == "signature_invalid"
+
+
+@needs_cbor2
+def test_a_statement_key_of_mixed_order_counts_and_one_without_a_point_does_not():
+    """T-B04: rules 1 and 2 of Section 4.4 decide which entry counts. B41's key is the mixed-order key of
+    Draft 1 vector P11 and counts; B39's entry has y = 2, which names no curve point, and does not."""
+    p11 = next(x for x in DRAFT1["vectors"] if x["id"] == "P11")
+    assert base64.b64decode(p11["key_b64"]) == KEYS["mixed_order"]
+    assert rc.check_statement(_vector("B41"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                              statement_keys=[(ISSUER, KEYS["mixed_order"])]).status == rc.ACCEPTED
+    result = rc.check_statement(_vector("B39"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                statement_keys=[(ISSUER, KEYS["off_curve"])])
+    assert result.status == "untrusted_key"
+    assert "rule 1 of Section 4.4" in result.ignored_keys[0]
 
 
 @needs_cbor2
@@ -166,17 +240,17 @@ def test_alg_minus_8_is_read_only_under_an_ed25519_statement_key():
     def status(keys, **kw):
         return rc.check_statement(b2, receipt=_receipt("P1"), receipt_key=KEYS["issuer"], statement_keys=keys,
                                   **kw).status
-    assert status([KEYS["issuer"]]) == rc.ACCEPTED
-    assert status([KEYS["p256"]]) == "untrusted_key"
-    assert status([KEYS["p256"], KEYS["issuer"]]) == rc.ACCEPTED
-    assert status([KEYS["issuer"]], algs=(-19,)) == "outside_profile"
+    assert status(PAIRS) == rc.ACCEPTED
+    assert status([(ISSUER, KEYS["p256"])]) == "untrusted_key"
+    assert status([(ISSUER, KEYS["p256"]), (ISSUER, KEYS["issuer"])]) == rc.ACCEPTED
+    assert status(PAIRS, algs=(-19,)) == "outside_profile"
 
 
 @needs_cbor2
 @pytest.mark.parametrize("statement", ["d284", None, bytearray(b"\xd2"), 18])
 def test_the_check_never_raises_for_what_it_reads(statement):
     result = rc.check_statement(statement, receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
-                                statement_keys=[KEYS["issuer"]])
+                                statement_keys=PAIRS)
     assert result.status == "malformed"
 
 
@@ -190,7 +264,7 @@ def test_the_accepted_algs_are_a_choice_among_minus_19_and_minus_8(algs):
 def test_without_cbor2_the_check_says_no_lib_and_the_forward_direction_refuses(monkeypatch):
     monkeypatch.setitem(sys.modules, "cbor2", None)
     result = rc.check_statement(b"\xd2\x84", receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
-                                statement_keys=[KEYS["issuer"]])
+                                statement_keys=PAIRS)
     assert result.status == "no_lib"
     with pytest.raises(rc.CoseUnavailable):
         rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=VECTORS["issuer"], alg=-19)
@@ -207,7 +281,7 @@ def test_a_cbor2_without_the_strict_options_is_no_lib(monkeypatch):
             return {}
     monkeypatch.setitem(sys.modules, "cbor2", Old)
     result = rc.check_statement(b"\xd2\x84", receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
-                                statement_keys=[KEYS["issuer"]])
+                                statement_keys=PAIRS)
     assert result.status == "no_lib"
 
 

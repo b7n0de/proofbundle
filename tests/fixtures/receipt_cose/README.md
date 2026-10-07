@@ -12,16 +12,27 @@ its next revision).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
   `c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e`). The receipt type and the payload schema are the
   neutral names of 2026-10-07, so every digest and signature differs from the vectors before that day.
-- `backward`: 36 statements, each with the receipt it is presented with, the relying party's
-  statement keys and the one status `check_statement` must return. Three are `accepted`, among them
-  B2 with alg -8, which is read and never written (byte for byte the statement the forward direction
-  wrote for -8 before 2026-10-04); B36 is that statement under a P-256 key alone. Every
-  other vector differs from a valid statement in the one property its `what` names, and is signed
-  over its own bytes where its point is not the signature.
+- `backward`: 41 statements, each with the receipt it is presented with, the relying party's
+  statement keys and the one status `check_statement` must return. The relying party configures each
+  statement key as a pair with the issuer URI it trusts the key for, written `[issuer URI, key name]`;
+  the received `iss` selects a pair and never makes a key trusted for another issuer. Four are
+  `accepted`, among them B2 with alg -8, which is read and never written (byte for byte the statement
+  the forward direction wrote for -8 before 2026-10-04), and B41 under the mixed-order key; B36 is B2
+  under a P-256 key alone. B37 to B41 were added on 2026-10-07: B37 is B1 with
+  `iss` `https://other-issuer.example/eval`, signed with the issuer test seed (SHA-256
+  `1e205e47f7f0e71ae16a0c35b55728369561d0984a83253f3f3b38b1f791ad28`), refused as `untrusted_key`; B38
+  has the neutral element as R and fails rule 2 of Section 4.4 of the receipts draft, which the
+  statement signature now meets with the Sig_structure in place of PAE; B39 names an entry with no
+  curve point (rule 1); B40 carries an `iss` with a fragment, which is no absolute URI (RFC 3986
+  section 4.3); B41 is signed under the mixed-order key and meets all four rules. Every other vector
+  differs from a valid statement in the one property its `what` names, and is signed over its own
+  bytes where its point is not the signature.
 - Keys: the receipt key and the relying party's statement key are the Draft 1 issuer test key; the
   foreign key's seed is SHA-256 over the label in `foreign_seed`; `low_order` is the all-zero
   encoding, a point of small order; `p256` is an uncompressed P-256 point whose private scalar is
-  given by `p256_seed`. PURE TEST KEYS. They MUST NOT be used for anything real.
+  given by `p256_seed`; `mixed_order` is the key of Draft 1 vector P11, the issuer's public point
+  plus a point of order 8, with no seed of its own; `off_curve` is y = 2, which names no curve point.
+  PURE TEST KEYS. They MUST NOT be used for anything real.
 
 `tests/test_receipt_cose.py` asserts every vector. `tests/test_receipt_cose_foreign.py` runs foreign
 verifiers on the forward statements where the environment names them. A divergence is red and is
