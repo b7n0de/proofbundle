@@ -12,19 +12,21 @@ its next revision).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
   `c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e`). The receipt type and the payload schema are the
   neutral names of 2026-10-07, so every digest and signature differs from the vectors before that day.
-- `backward`: 41 statements, each with the receipt it is presented with, the relying party's
+- `backward`: 42 statements, each with the receipt it is presented with, the relying party's
   statement keys and the one status `check_statement` must return. The relying party configures each
   statement key as a pair with the issuer URI it trusts the key for, written `[issuer URI, key name]`;
-  the received `iss` selects a pair and never makes a key trusted for another issuer. Four are
+  the received `iss` selects a pair and never makes a key trusted for another issuer. Three are
   `accepted`, among them B2 with alg -8, which is read and never written (byte for byte the statement
-  the forward direction wrote for -8 before 2026-10-04), and B41 under the mixed-order key; B36 is B2
-  under a P-256 key alone. B37 to B41 were added on 2026-10-07: B37 is B1 with
+  the forward direction wrote for -8 before 2026-10-04); B36 is B2 under a P-256 key alone. B37 to
+  B42 were added on 2026-10-07: B37 is B1 with
   `iss` `https://other-issuer.example/eval`, signed with the issuer test seed (SHA-256
   `1e205e47f7f0e71ae16a0c35b55728369561d0984a83253f3f3b38b1f791ad28`), refused as `untrusted_key`; B38
   has the neutral element as R and fails rule 2 of Section 4.4 of the receipts draft, which the
   statement signature now meets with the Sig_structure in place of PAE; B39 names an entry with no
   curve point (rule 1); B40 carries an `iss` with a fragment, which is no absolute URI (RFC 3986
-  section 4.3); B41 is signed under the mixed-order key and meets all four rules. Every other vector
+  section 4.3); B41 is signed under the mixed-order key, meets the cofactorless equation and is
+  `untrusted_key`, because rule 2 requires a statement key of order L; B42 has an R of mixed order
+  under the issuer key and is `signature_invalid` by rule 2. Every other vector
   differs from a valid statement in the one property its `what` names, and is signed over its own
   bytes where its point is not the signature.
 - Keys: the receipt key and the relying party's statement key are the Draft 1 issuer test key; the

@@ -1,0 +1,211 @@
+"""Rule 2 of the receipts draft's verification profile: A and R have order L (owner choice of 2026-10-07).
+
+A point of order L lies in the subgroup of prime order L and is not the neutral element. With A and R of
+order L, the cofactorless equation of rule 4 and the cofactored equation of RFC 8032 section 5.1.7 accept
+the same signatures, so a Receiver that checks one signature at a time and one that checks a batch, with or
+without the cofactor, reach the same verdict. A key or an R of mixed order is refused by rule 2, before the
+equation. A normally generated key and a normally made signature have order L and keep their verdict.
+
+The same rule decides which statement key counts in ``receipt_cose`` (rules 1 and 2 of the profile) and
+which statement signature meets the profile (all four rules over the Sig_structure).
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from proofbundle import signed_eval_receipt as ser
+
+REPO = Path(__file__).resolve().parents[1]
+DRAFT1 = json.loads((REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json")
+                    .read_text(encoding="utf-8"))
+COSE = json.loads((REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.json").read_text(encoding="utf-8"))
+#: The Draft 1 PURE TEST seed of the issuer key, written out (tests/test_sdist_ohne_signierwerkzeug.py).
+_DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
+needs_cbor2 = pytest.mark.skipif(importlib.util.find_spec("cbor2") is None,
+                                 reason="the [scitt] extra (cbor2) is not installed")
+
+# ---- RFC 8032 section 5.1 arithmetic, only to build the probes below ----------------------------------------
+_P = 2 ** 255 - 19
+_L = 2 ** 252 + 27742317777372353535851937790883648493
+_D = -121665 * pow(121666, _P - 2, _P) % _P
+_IDENTITY = (0, 1, 1, 0)
+
+
+def _x(y: int, sign: int):
+    u, v = (y * y - 1) % _P, (_D * y * y + 1) % _P
+    x = u * pow(v, 3, _P) * pow(u * pow(v, 7, _P), (_P - 5) // 8, _P) % _P
+    if (v * x * x - u) % _P:
+        x = x * pow(2, (_P - 1) // 4, _P) % _P
+    if (v * x * x - u) % _P:
+        return None
+    return _P - x if (x & 1) != sign else x
+
+
+def _add(p, q):
+    a = (p[1] - p[0]) * (q[1] - q[0]) % _P
+    b = (p[1] + p[0]) * (q[1] + q[0]) % _P
+    c = 2 * p[3] * q[3] * _D % _P
+    d = 2 * p[2] * q[2] % _P
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return (e * f % _P, g * h % _P, f * g % _P, e * h % _P)
+
+
+def _mul(s: int, p):
+    q = _IDENTITY
+    while s:
+        if s & 1:
+            q = _add(q, p)
+        p, s = _add(p, p), s >> 1
+    return q
+
+
+def _enc(p) -> bytes:
+    zi = pow(p[2], _P - 2, _P)
+    x, y = p[0] * zi % _P, p[1] * zi % _P
+    return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+
+def _point(enc: bytes):
+    v = int.from_bytes(enc, "little")
+    y = v & ((1 << 255) - 1)
+    x = _x(y, v >> 255)
+    assert x is not None
+    return (x, y, 1, x * y % _P)
+
+
+_BASE = _point((4 * pow(5, _P - 2, _P) % _P).to_bytes(32, "little"))
+
+
+def _order8():
+    y = 2
+    while True:
+        x = _x(y, 0)
+        if x is not None:
+            t = _mul(_L, (x, y, 1, x * y % _P))
+            if _enc(_mul(4, t)) != _enc(_IDENTITY):
+                return t
+        y += 1
+
+
+def _scalar() -> int:
+    a = int.from_bytes(hashlib.sha512(_DRAFT_TEST_SEED).digest()[:32], "little")
+    return (a & ((1 << 254) - 8)) | (1 << 254)
+
+
+def _mixed_r_signature(key: bytes, message: bytes, label: bytes) -> bytes:
+    """R = r*B' + T8, a point of mixed order, and S = r + k*a mod L under the issuer test key: the cofactored
+    equation holds; the cofactorless one cannot, because k*A has no part of order 8 that could cancel T8."""
+    r = int.from_bytes(hashlib.sha512(label).digest(), "little") % _L
+    r_enc = _enc(_add(_mul(r, _BASE), _order8()))
+    k = int.from_bytes(hashlib.sha512(r_enc + key + message).digest(), "little") % _L
+    return r_enc + ((r + k * _scalar()) % _L).to_bytes(32, "little")
+
+
+def _receipt(vid: str):
+    payloads = {n: (p["text"].encode("utf-8") if "text" in p else base64.b64decode(p["b64"]))
+                for n, p in DRAFT1["payloads"].items()}
+    v = next(x for x in DRAFT1["vectors"] if x["id"] == vid)
+    raw = v["receipt_text"].encode("utf-8")
+    for name, b in payloads.items():
+        raw = raw.replace(b"@" + name.encode("ascii") + b"@", base64.b64encode(b))
+    assert hashlib.sha256(raw).hexdigest() == v["receipt_sha256"], vid
+    return raw, base64.b64decode(v["key_b64"])
+
+
+ISSUER_PUB = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED).public_key().public_bytes_raw()
+
+
+def test_the_test_seed_and_its_scalar_are_the_issuer_key():
+    assert _DRAFT_TEST_SEED.hex() == DRAFT1["issuer_seed_hex"]
+    assert _enc(_mul(_scalar(), _BASE)) == ISSUER_PUB
+
+
+def test_p11_under_the_mixed_order_key_fails_rule_2_for_the_key():
+    """P11's key is the issuer's point plus a point of order 8: canonical, not of small order, not of order L.
+    Its signature satisfies the cofactorless equation, which is why only rule 2 can refuse it."""
+    receipt, key = _receipt("P11")
+    assert _enc(_mul(_L, _point(key))) != _enc(_IDENTITY)
+    got = ser.verify_signed_eval_receipt(receipt, key)
+    assert (got.ok, got.step_label) == (False, "11 (profile 2, key)"), got.reason
+
+
+def test_an_r_of_mixed_order_under_the_issuer_key_fails_rule_2_for_r():
+    """P1's receipt with its signature replaced by one whose R has mixed order: the cofactored equation holds,
+    and the profile refuses R at rule 2, before rule 4 is reached."""
+    p1, key = _receipt("P1")
+    b = ser.verify_signed_eval_receipt(p1, key).payload
+    assert b is not None
+    message = ser.pae(ser.RECEIPT_TYPE, b)
+    sig = _mixed_r_signature(key, message, b"order-L probe, receipt")
+    a, r = _point(key), _point(sig[:32])
+    s = int.from_bytes(sig[32:], "little")
+    k = int.from_bytes(hashlib.sha512(sig[:32] + key + message).digest(), "little") % _L
+    assert _enc(_mul(8, _mul(s, _BASE))) == _enc(_mul(8, _add(r, _mul(k, a))))     # cofactored: holds
+    assert _enc(_mul(s, _BASE)) != _enc(_add(r, _mul(k, a)))                         # cofactorless: does not
+    old = json.loads(p1)["signature"]["sig"]
+    receipt = p1.replace(old.encode(), base64.b64encode(sig))
+    got = ser.verify_signed_eval_receipt(receipt, key)
+    assert (got.ok, got.step_label) == (False, "11 (profile 2, R)"), got.reason
+
+
+def test_the_neutral_element_is_not_of_order_l():
+    with pytest.raises(ser._Fail) as caught:
+        ser._profile((1).to_bytes(32, "little"), bytes(64), b"")
+    assert caught.value.rule == "profile 2, key"
+
+
+def test_normally_made_keys_and_signatures_keep_their_verdict():
+    """The rule refuses only made-up inputs: 64 keys from seeds, each signing its own message, pass all four
+    rules, and the same signature over another message fails rule 4."""
+    for i in range(64):
+        sk = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"order-L control %d" % i).digest())
+        pub, msg = sk.public_key().public_bytes_raw(), b"message %d" % i
+        ser._profile(pub, sk.sign(msg), msg)
+        with pytest.raises(ser._Fail) as caught:
+            ser._profile(pub, sk.sign(msg), msg + b".")
+        assert caught.value.rule == "profile 4"
+
+
+def _cose_vector(vid: str) -> dict:
+    return next(v for v in COSE["backward"] if v["id"] == vid)
+
+
+@needs_cbor2
+def test_a_statement_key_of_mixed_order_does_not_count():
+    """B41 is signed under P11's mixed-order key and meets the cofactorless equation. Rules 1 and 2 decide which
+    configured key counts; the mixed-order key fails rule 2, so no pair counts and the status is untrusted_key."""
+    from proofbundle import receipt_cose as rc
+    keys = {name: bytes.fromhex(h) for name, h in COSE["keys_hex"].items()}
+    p1, _ = _receipt("P1")
+    result = rc.check_statement(bytes.fromhex(_cose_vector("B41")["statement_hex"]), receipt=p1,
+                                receipt_key=keys["issuer"], statement_keys=[(COSE["issuer"], keys["mixed_order"])])
+    assert result.status == "untrusted_key"
+    assert any("rule 2 of Section 4.4" in why for why in result.ignored_keys), result.ignored_keys
+
+
+@needs_cbor2
+def test_a_statement_signature_whose_r_has_mixed_order_fails_rule_2():
+    """B1 with its signature replaced by one whose R has mixed order, under the issuer key: step 4 refuses it
+    (signature_invalid), and the profile names rule 2 for R, not the equation."""
+    from proofbundle import receipt_cose as rc
+    b1 = bytes.fromhex(_cose_vector("B1")["statement_hex"])
+    import cbor2
+    protected, _unprotected, payload, signature = cbor2.loads(b1).value
+    message = rc._sig_structure(protected, payload)
+    sig = _mixed_r_signature(ISSUER_PUB, message, b"order-L probe, statement")
+    assert b1.endswith(signature)
+    statement = b1[:-64] + sig
+    p1, _ = _receipt("P1")
+    result = rc.check_statement(statement, receipt=p1, receipt_key=ISSUER_PUB,
+                                statement_keys=[(COSE["issuer"], ISSUER_PUB)])
+    assert result.status == "signature_invalid"
+    with pytest.raises(ser._Fail) as caught:
+        ser._profile(ISSUER_PUB, sig, message)
+    assert caught.value.rule == "profile 2, R"

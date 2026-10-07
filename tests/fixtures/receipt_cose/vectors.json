@@ -608,8 +608,21 @@
      "mixed_order"
     ]
    ],
-   "expect_status": "accepted",
-   "what": "a statement under the mixed-order key of Draft 1 vector P11 (the issuer's point plus a point of order 8), with a signature that meets all four rules of Section 4.4: mixed order counts, there is no prime-order check"
+   "expect_status": "untrusted_key",
+   "what": "a statement under the mixed-order key of Draft 1 vector P11 (the issuer's point plus a point of order 8), with a signature that meets the cofactorless equation: the key is not of order L, so rule 2 of Section 4.4 refuses it as a statement key and no pair counts"
+  },
+  {
+   "id": "B42",
+   "statement_hex": "d28458b6a50132045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6ea05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e8584045708d98237318b3a29c05eb5c92d8622353aac6f1cb5339f23119fe4526ecc2fab3fc3f34b3fe37736267a7cd4fa5118f64cfa84fb7e2e48f3e067784649402",
+   "receipt": "P1",
+   "statement_keys": [
+    [
+     "https://issuer.example/eval",
+     "issuer"
+    ]
+   ],
+   "expect_status": "signature_invalid",
+   "what": "a signature whose R has mixed order (r times the base point plus the point of order 8), made with the issuer test seed: the cofactored equation holds and the cofactorless one does not; rule 2 of Section 4.4 of the receipts draft refuses R before the equation"
   }
  ]
 }
