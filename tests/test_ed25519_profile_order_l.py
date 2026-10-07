@@ -2,9 +2,10 @@
 
 A point of order L lies in the subgroup of prime order L and is not the neutral element. With A and R of
 order L, the cofactorless equation of rule 4 and the cofactored equation of RFC 8032 section 5.1.7 accept
-the same signatures, so a Receiver that checks one signature at a time and one that checks a batch, with or
-without the cofactor, reach the same verdict. A key or an R of mixed order is refused by rule 2, before the
-equation. A normally generated key and a normally made signature have order L and keep their verdict.
+exactly the same signatures, so a Receiver that checks each signature with or without the cofactor reaches
+the same verdict. The draft defines individual verification only; a randomized batch result is no
+substitute for the four rules on each signature. A key or an R of mixed order is refused by rule 2, before
+the equation. A normally generated key and a normally made signature have order L and keep their verdict.
 
 The same rule decides which statement key counts in ``receipt_cose`` (rules 1 and 2 of the profile) and
 which statement signature meets the profile (all four rules over the Sig_structure).

@@ -23,7 +23,8 @@ on the step and not only on the verdict (``tests/test_signed_eval_receipt_confor
 signature profile is the draft's Section 4.4, which is stricter than SPEC section 4a: a non-canonical
 encoding of the key or of R, and a key or an R that is not a point of order L (a point of small or of
 mixed order), are refused before the signature equation is checked. With A and R of order L the
-cofactorless and the cofactored equation of RFC 8032 section 5.1.7 accept the same signatures.
+cofactorless and the cofactored equation of RFC 8032 section 5.1.7 accept exactly the same signatures;
+each signature is checked on its own, never by a batch.
 
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
