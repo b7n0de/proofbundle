@@ -148,15 +148,58 @@ def _relation_argv_common(case: dict, cdir: pathlib.Path) -> list[str]:
     return argv
 
 
+def _decision_verification_time(receipt_path: str) -> "str | None":
+    """Nachtrag 50c: a decision receipt's own ``recordedAt`` (else ``decidedAt``) as a historical
+    ``--verification-time`` — the same rule as ``conformance/run_conformance.py`` since Nachtrag 49b.
+
+    The decision corpus fixtures carry a fixed-date ``validity.expiresAt`` (2026-07-09). Since CX-02
+    (Nachtrag 49b) Python folds an expired ``expiresAt`` into exit 2 against the drifting wall clock,
+    while the Rust verifier does not evaluate ``expiresAt`` at all and stays VERIFIED — so the
+    differential diverged on every decision case for a reason unrelated to the lineage/policy verdict it
+    tests. Evaluating the Python side AS OF the receipt's own recorded instant restores the intended
+    comparison (deterministic, from the signed predicate, not the clock). Only ``decision verify``
+    accepts ``--verification-time``; a receipt with no usable PAST instant returns None and the wall
+    clock is used, exactly as before. The gap this papers over — the Rust verifier never judging
+    ``expiresAt`` — is a named open Rust item recorded only in the bundle report (see the BLOCKED vector),
+    not the public RESTRISIKO; Rust freshness is post-tag."""
+    import base64  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+    try:
+        env = json.loads(pathlib.Path(receipt_path).read_text(encoding="utf-8"))
+        payload = env.get("payload") if isinstance(env, dict) else None
+        if not isinstance(payload, str):
+            return None
+        predicate = json.loads(base64.b64decode(payload)).get("predicate")
+        if not isinstance(predicate, dict):
+            return None
+        stamp = predicate.get("recordedAt") or predicate.get("decidedAt")
+        if not isinstance(stamp, str):
+            return None
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed >= datetime.now(timezone.utc):
+            return None
+        return stamp
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _python_relation(verb: str, inp: str, pub_b64: str, common: list[str]) -> tuple[int, dict, str]:
     """Run the REAL Python CLI verify (in-process): exit code, common label, and the whole output
     (report plus stderr), which is where a case's `errorContains` marker is looked for."""
     import contextlib  # noqa: PLC0415
     import io  # noqa: PLC0415
     from proofbundle.cli import main as _cli_main  # noqa: PLC0415
+    # Nachtrag 50c: pin a decision verify to the receipt's recordedAt (the Rust side, which does not
+    # evaluate expiresAt, needs no such flag), so the differential is not masked by a fixed-date
+    # expiresAt expiring against the wall clock since CX-02. Applied only to the Python call.
+    py_common = list(common)
+    if verb == "decision":
+        _vt = _decision_verification_time(inp)
+        if _vt is not None:
+            py_common += ["--verification-time", _vt]
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        rc = _cli_main([verb, "verify", inp, "--pub", pub_b64, "--json", *common])
+        rc = _cli_main([verb, "verify", inp, "--pub", pub_b64, "--json", *py_common])
     try:
         report = json.loads(out.getvalue())
     except ValueError:
