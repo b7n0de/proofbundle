@@ -12,7 +12,8 @@ draft-gruszka-evaluation-receipt-mappings, as proposed for its next revision):
 
   - 1 (alg): written as -19 (Ed25519, RFC 9864) only. Read as -19, or as -8 (EdDSA, RFC 9053) under an
     Ed25519 statement key, the only kind of statement key the check counts; with such a key both values
-    mean the same signature (owner choice B of 2026-10-04: -8 is deprecated by RFC 9864, and statements
+    select the same signature algorithm, and a statement that changes alg is other protected-header bytes
+    and needs a new signature (owner choice B of 2026-10-04: -8 is deprecated by RFC 9864, and statements
     made before that choice may carry it);
   - 4 (kid): the COSE Key Thumbprint (RFC 9679, SHA-256) of the statement key, 32 bytes;
   - 15 (CWT Claims, RFC 9597): exactly 1 (``iss``), an absolute URI (RFC 3986 section 4.3), and 2
