@@ -134,3 +134,66 @@ def test_show_eval_keeps_its_other_exit_codes(tmp_path, capsys):
     sig = json.loads(P1)["signature"]["sig"]
     flipped = base64.b64encode(bytes([base64.b64decode(sig)[0] ^ 1]) + base64.b64decode(sig)[1:]).decode()
     assert _show_eval(tmp_path, P1.replace(sig.encode(), flipped.encode()), capsys)[0] == 1
+
+
+def _deep_member(depth: int) -> bytes:
+    """P1 with one more member before its schema, an array nested DEPTH deep: too deep, from about 1000 on,
+    for the JSON decoder that tells the formats apart."""
+    return P1.replace(b'"schema":', b'"x":' + b"[" * depth + b"]" * depth + b',"schema":', 1)
+
+
+def _large_member(n: int) -> bytes:
+    """P1 with one more member after its schema, a text of N bytes."""
+    return P1.replace(b'"signature":', b'"x":"' + b"a" * n + b'","signature":', 1)
+
+
+@pytest.mark.parametrize("depth", [2000, 200000])
+def test_a_receipt_too_deep_to_tell_its_format_still_reaches_the_receipt_path(tmp_path, capsys, depth):
+    """The format is told apart by the schema member. A receipt too deep for the decoder that reads it is
+    still a receipt: show-eval reports the resource limit with exit 4, not the eval-claim path's exit 2."""
+    assert ser.names_receipt_type(_deep_member(depth)) is True
+    code, text = _show_eval(tmp_path, _deep_member(depth), capsys)
+    assert code == 4, text
+    assert "resource limit" in text and "eval-receipt-v1" in text and "nesting is too deep" not in text
+
+
+def test_a_receipt_larger_than_the_input_limit_reaches_the_receipt_path(tmp_path, capsys):
+    """A receipt larger than the CLI's input limit, its schema before the cut, stops at that limit: exit 4."""
+    from proofbundle.budget import DEFAULT_BUDGET
+    raw = _large_member(DEFAULT_BUDGET.input_bytes)
+    assert len(raw) > DEFAULT_BUDGET.input_bytes
+    code, text = _show_eval(tmp_path, raw, capsys)
+    assert code == 4, text
+    assert "input limit" in text and "eval-receipt-v1" in text
+
+
+def test_the_dispatch_controls_keep_their_exit_codes(tmp_path, capsys):
+    """900 deep is read and fails step 1 (exit 1); a file of another schema, too deep or too large, stays
+    in the eval-claim path (exit 2); a weak pin is refused before the size is reported (exit 2)."""
+    from proofbundle.budget import DEFAULT_BUDGET
+    assert _show_eval(tmp_path, _deep_member(900), capsys)[0] == 1
+    other = b'"schema":"application/other+json"'
+    assert _show_eval(tmp_path, _deep_member(2000).replace(b'"schema":"application/eval-receipt+json"',
+                                                           other), capsys)[0] == 2
+    large_other = _large_member(DEFAULT_BUDGET.input_bytes).replace(b'"schema":"application/eval-receipt+json"',
+                                                                    other)
+    assert ser.names_receipt_type(large_other) is False
+    cut = DEFAULT_BUDGET.input_bytes
+    assert ser._names_receipt_type_before_cut(_large_member(cut)[:cut]) is True
+    assert ser._names_receipt_type_before_cut(large_other[:cut]) is False
+    assert ser._names_receipt_type_before_cut(_large_member(cut).replace(b'"schema"', b'"z"', 1)[:cut]) is False
+    assert _show_eval(tmp_path, large_other, capsys)[0] == 2
+    path = tmp_path / "large.json"
+    path.write_bytes(_large_member(DEFAULT_BUDGET.input_bytes))
+    assert main(["show-eval", str(path), "--expect-issuer", "ed25519:" + base64.b64encode(b"\x00" * 32).decode()]) == 2
+
+
+def test_names_receipt_type_answers_for_deep_and_cut_texts_without_raising():
+    """The dispatch never raises; a deep receipt names the type, a deep text of another schema does not,
+    and a schema inside a nested object is no top-level schema."""
+    assert ser.names_receipt_type(_deep_member(200000)) is True
+    assert ser.names_receipt_type(b'{"a":' + b"[" * 200000 + b"]" * 200000 + b',"schema":"x"}') is False
+    nested = b'{"a":{"schema":"application/eval-receipt+json"},"b":' + b"[" * 5000 + b"]" * 5000 + b"}"
+    assert ser.names_receipt_type(nested) is False
+    assert ser.names_receipt_type(b"[" * 200000) is False
+    assert ser.names_receipt_type(b'{"x":' + b"[" * 200000) is False

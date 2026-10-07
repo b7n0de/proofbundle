@@ -523,15 +523,126 @@ def names_receipt_type(raw: bytes) -> bool:
     """True when RAW reads as a JSON object whose schema, after unescaping, is the receipt type. A
     dispatch question only, asked leniently (a byte order mark, bytes that are not UTF-8, trailing data
     and a repeated name do not hide the schema), so that such a file reaches the receipt procedure and
-    fails there at the step the draft names, instead of being judged as another format. It vouches for
-    nothing."""
+    fails there at the step the draft names, or stops there at a resource limit, instead of being judged
+    as another format. A receipt too deep for the JSON decoder is still told apart: its top-level members
+    are then read without recursion. It vouches for nothing."""
     if type(raw) is not bytes:
         return False
-    data = raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw
+    text, start = _dispatch_text(raw)
     try:
-        text = data.decode("utf-8", errors="replace")
-        start = len(text) - len(text.lstrip(" \t\n\r"))
         obj, _end = json.JSONDecoder().raw_decode(text, start)
-    except (ValueError, RecursionError):
+    except ValueError:
         return False
+    except (RecursionError, MemoryError):
+        return _names_receipt_type_by_scan(text, start)
     return isinstance(obj, dict) and obj.get("schema") == RECEIPT_TYPE
+
+
+def _names_receipt_type_before_cut(raw: bytes) -> bool:
+    """``names_receipt_type`` for RAW, the first bytes of a longer file cut at a size limit: the schema is
+    looked for among the top-level members before the cut. For the dispatch of a file that is too large
+    to read; never raises."""
+    if type(raw) is not bytes:
+        return False
+    return _names_receipt_type_by_scan(*_dispatch_text(raw))
+
+
+def _dispatch_text(raw: bytes) -> tuple:
+    """RAW as the text the dispatch reads (a byte order mark dropped, bytes that are not UTF-8 replaced),
+    and the offset after its leading white space."""
+    data = raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw
+    text = data.decode("utf-8", errors="replace")
+    return text, len(text) - len(text.lstrip(" \t\n\r"))
+
+
+def _names_receipt_type_by_scan(text: str, start: int) -> bool:
+    try:
+        return _schema_by_scan(text, start) == RECEIPT_TYPE
+    except (ValueError, RecursionError, MemoryError):
+        return False
+
+
+#: The characters a skipped JSON value is walked by: string quotes, brackets and the member separator.
+_STRUCTURAL = re.compile(r'["\[\]{},]')
+
+
+def _string_end(text: str, i: int) -> int:
+    """The offset after the JSON string that opens at TEXT[I] (a quote), or -1 when it does not close."""
+    j = i + 1
+    while True:
+        q = text.find('"', j)
+        if q < 0:
+            return -1
+        k = q - 1
+        while k > i and text[k] == "\\":
+            k -= 1
+        if (q - 1 - k) % 2 == 0:
+            return q + 1
+        j = q + 1
+
+
+def _schema_by_scan(text: str, start: int) -> Any:
+    """The value of the last top-level member named "schema" of the JSON object that opens at START, read
+    without recursion: a nested value is skipped by counting brackets outside strings, and only a member
+    name or a string value goes through the JSON decoder, which needs no depth for it. None when the text
+    is no such object, or breaks off, before such a member with a string value; a later member "schema"
+    whose value is no string makes it None again, as the decoder's last value would. For the dispatch only."""
+    n = len(text)
+    if start >= n or text[start] != "{":
+        return None
+    found: Any = None
+    i = start + 1
+    while True:
+        while i < n and text[i] in " \t\n\r":
+            i += 1
+        if i >= n or text[i] != '"':
+            return found
+        end = _string_end(text, i)
+        if end < 0:
+            return found
+        name = json.loads(text[i:end])
+        i = end
+        while i < n and text[i] in " \t\n\r":
+            i += 1
+        if i >= n or text[i] != ":":
+            return found
+        i += 1
+        while i < n and text[i] in " \t\n\r":
+            i += 1
+        if i < n and text[i] == '"':
+            end = _string_end(text, i)
+            if end < 0:
+                return found
+            if name == "schema":
+                found = json.loads(text[i:end])
+            i = end
+        else:
+            if name == "schema":
+                found = None
+            depth = 0
+            while True:
+                m = _STRUCTURAL.search(text, i)
+                if m is None:
+                    return found
+                i, c = m.start(), m.group()
+                if c == '"':
+                    end = _string_end(text, i)
+                    if end < 0:
+                        return found
+                    i = end
+                elif c in "[{":
+                    depth += 1
+                    i += 1
+                elif depth and c in "]}":
+                    depth -= 1
+                    i += 1
+                elif depth and c == ",":
+                    i += 1
+                else:
+                    break
+        while i < n and text[i] in " \t\n\r":
+            i += 1
+        if i < n and text[i] == ",":
+            i += 1
+            continue
+        return found
