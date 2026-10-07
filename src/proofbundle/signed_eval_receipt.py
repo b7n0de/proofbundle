@@ -26,6 +26,10 @@ mixed order), are refused before the signature equation is checked. With A and R
 cofactorless and the cofactored equation of RFC 8032 section 5.1.7 accept exactly the same signatures;
 each signature is checked on its own, never by a batch.
 
+A RESOURCE LIMIT IS NO VERDICT. A receipt nested deeper than this reader's limits (the interpreter's
+recursion limit, unchanged) stops the procedure: the verdict says ``resource_limit``, with no step, and is
+neither PASS nor the failure of a step (the draft's Section 5). The verifier still never raises.
+
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
 """
@@ -77,18 +81,24 @@ _SQRT_M1 = pow(2, (_P - 1) // 4, _P)
 
 class ReceiptVerdict(NamedTuple):
     """The result of the draft's Section 5: ``ok``, and for a FAIL the first failing ``step`` (1 to 11),
-    for step 11 the profile ``rule`` (``"profile 3"``, ``"profile 1, key"`` ...), and a ``reason``."""
+    for step 11 the profile ``rule`` (``"profile 3"``, ``"profile 1, key"`` ...), and a ``reason``. When the
+    procedure stopped at a resource limit, ``resource_limit`` is True, ``ok`` is False and ``step`` is None:
+    no verdict, neither PASS nor FAIL."""
     ok: bool
     step: Optional[int]
     rule: Optional[str]
     reason: str
     payload: Optional[bytes] = None   # B, only when ok
+    resource_limit: bool = False
 
     @property
     def step_label(self) -> str:
-        """The step as the draft's vector table writes it: ``all``, ``4`` or ``11 (profile 2, R)``."""
+        """The step as the draft's vector table writes it: ``all``, ``4`` or ``11 (profile 2, R)``, and
+        ``resource limit`` for a procedure that stopped at one."""
         if self.ok:
             return "all"
+        if self.resource_limit:
+            return "resource limit"
         return f"{self.step} ({self.rule})" if self.rule else str(self.step)
 
 
@@ -96,6 +106,10 @@ class _Fail(Exception):
     def __init__(self, step: int, reason: str, rule: Optional[str] = None):
         super().__init__(reason)
         self.step, self.reason, self.rule = step, reason, rule
+
+
+class _Limit(Exception):
+    """The procedure stopped at a resource limit: no step failed, and there is no verdict."""
 
 
 class _Number:
@@ -148,7 +162,9 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
                            parse_constant=no_constant)
     except _Fail:
         raise
-    except (ValueError, RecursionError) as exc:
+    except (RecursionError, MemoryError) as exc:
+        raise _Limit(f"{what} nests deeper than this reader's limit ({type(exc).__name__})") from None
+    except ValueError as exc:
         raise _Fail(step, f"{what} is not one JSON text ({type(exc).__name__})") from None
 
     stack = [value]
@@ -392,6 +408,9 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
         own = _jcs(payload).encode("utf-8")
     except (ValueError, TypeError):
         own = None
+    except (RecursionError, MemoryError) as exc:
+        raise _Limit(f"B nests deeper than its RFC 8785 serialization can follow here ({type(exc).__name__})") \
+            from None
     if own != b:                                                                      # step 5
         raise _Fail(5, "B is not the RFC 8785 serialization of its own value")
     violation = _payload_violation(payload)                                           # step 6
@@ -420,7 +439,9 @@ def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
     Section 5. Never raises. Each argument is read once, as the bytes it stores
     (``signature.plain_bytes``): a receipt that is no bytes value fails at step 1, a key that is no
-    32-byte value fails rule 1 of the profile (its decoding cannot succeed)."""
+    32-byte value fails rule 1 of the profile (its decoding cannot succeed). A receipt that stops the
+    procedure at a resource limit gets a verdict with ``resource_limit`` True and no step: it is neither
+    PASS nor FAIL, and a caller that reads only ``ok`` refuses it."""
     raw, pin = plain_bytes(receipt), plain_bytes(key)
     if raw is None:
         return ReceiptVerdict(False, 1, None, "the receipt is not a bytes value")
@@ -430,6 +451,11 @@ def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
         b = _procedure(raw, pin)
     except _Fail as f:
         return ReceiptVerdict(False, f.step, f.rule, f.reason)
+    except _Limit as limit:
+        return ReceiptVerdict(False, None, None, f"stopped at a resource limit: {limit}", resource_limit=True)
+    except (RecursionError, MemoryError) as exc:
+        return ReceiptVerdict(False, None, None, f"stopped at a resource limit ({type(exc).__name__})",
+                              resource_limit=True)
     return ReceiptVerdict(True, None, None, "every step of Section 5 succeeds", b)
 
 
@@ -462,6 +488,8 @@ def payload_bytes(payload: Mapping) -> bytes:
             raise _Fail(8, "passed differs from the comparison of score with threshold")
     except _Fail as f:
         raise ValueError(f"the payload fails step {f.step}: {f.reason}") from None
+    except _Limit as limit:
+        raise ValueError(f"the payload stops at a resource limit: {limit}") from None
     return b
 
 

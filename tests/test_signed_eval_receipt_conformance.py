@@ -154,9 +154,11 @@ class NoReceiptBytesRaise(unittest.TestCase):
             self.assertFalse(got.ok)
             self.assertEqual(got.step, 1)
 
-    def test_deep_nesting_is_a_step_1_failure(self):
+    def test_deep_nesting_is_a_resource_limit_not_a_step_failure(self):
+        """Owner choice of 2026-10-07: a stop at a resource limit is no FAIL of step 1 (the draft's Section 5)."""
         key = VECTORS[0]["key"]
-        self.assertEqual(ser.verify_signed_eval_receipt(b"[" * 100000 + b"]" * 100000, key).step, 1)
+        got = ser.verify_signed_eval_receipt(b"[" * 100000 + b"]" * 100000, key)
+        self.assertEqual((got.ok, got.step, got.resource_limit, got.step_label), (False, None, True, "resource limit"))
 
     def test_any_argument_gets_a_verdict_not_an_exception(self):
         got = ser.verify_signed_eval_receipt(VECTORS[0]["receipt"], b"\x00" * 31)

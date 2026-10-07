@@ -423,7 +423,8 @@ def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
     """``show-eval`` for a file whose schema is the receipt type of draft-gruszka-signed-evaluation-
     receipts-00. The draft's Receiver fixes the verification key, so exactly one ``--expect-issuer``
     is required; the receipt's own key is only a hint. Exit 0 PASS, 1 FAIL (with the first failing
-    step of the draft's Section 5), 2 malformed invocation or a refused pin."""
+    step of the draft's Section 5), 2 malformed invocation or a refused pin, 4 the procedure stopped at a
+    resource limit: no verdict, neither PASS nor FAIL (the draft's Section 5)."""
     from .signed_eval_receipt import DRAFT, verify_signed_eval_receipt  # noqa: PLC0415
     pins = getattr(args, "expect_issuer", None) or []
     try:
@@ -444,6 +445,9 @@ def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
         return 2
     verdict = verify_signed_eval_receipt(raw, key)
     print(f"format     eval-receipt-v1 ({DRAFT})")
+    if verdict.resource_limit:
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: {verdict.reason}"), file=sys.stderr)
+        return 4
     if not verdict.ok:
         print(_safe_line(f"=> FAILED at step {verdict.step_label}: {verdict.reason}"), file=sys.stderr)
         return 1
