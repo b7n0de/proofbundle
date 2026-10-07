@@ -403,28 +403,33 @@ def _emit_signed_eval_receipt(args: argparse.Namespace) -> int:
     return 0
 
 
-def _peek_receipt_bytes(path) -> "bytes | None":
-    """The bytes of PATH for the schema dispatch of ``show-eval``, or None when they cannot be read
-    here; the eval-claim v0.1 path then reads and reports the file exactly as before."""
+def _peek_receipt_bytes(path) -> "tuple[bytes | None, bool]":
+    """The bytes of PATH for the schema dispatch of ``show-eval``, and whether they are the whole file. A
+    regular file larger than the input limit gives its first bytes up to the limit and False, so that a
+    receipt among such files is still told apart and stops at that limit. (None, True) when the file
+    cannot be read here; the eval-claim v0.1 path then reads and reports it exactly as before."""
     import os  # noqa: PLC0415
     import stat  # noqa: PLC0415
     try:
         st = os.stat(path)
-        if not stat.S_ISREG(st.st_mode) or st.st_size > DEFAULT_BUDGET.input_bytes:
-            return None
+        if not stat.S_ISREG(st.st_mode):
+            return None, True
         with open(path, "rb") as handle:
             raw = handle.read(DEFAULT_BUDGET.input_bytes + 1)
     except (OSError, TypeError, ValueError):
-        return None
-    return raw if len(raw) <= DEFAULT_BUDGET.input_bytes else None
+        return None, True
+    if len(raw) > DEFAULT_BUDGET.input_bytes:
+        return raw[:DEFAULT_BUDGET.input_bytes], False
+    return raw, True
 
 
-def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
+def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes, whole: bool = True) -> int:
     """``show-eval`` for a file whose schema is the receipt type of draft-gruszka-signed-evaluation-
     receipts-00. The draft's Receiver fixes the verification key, so exactly one ``--expect-issuer``
     is required; the receipt's own key is only a hint. Exit 0 PASS, 1 FAIL (with the first failing
     step of the draft's Section 5), 2 malformed invocation or a refused pin, 4 the procedure stopped at a
-    resource limit: no verdict, neither PASS nor FAIL (the draft's Section 5)."""
+    resource limit, the input limit (RAW is then not WHOLE, only the bytes before the cut) included: no
+    verdict, neither PASS nor FAIL (the draft's Section 5)."""
     from .signed_eval_receipt import DRAFT, verify_signed_eval_receipt  # noqa: PLC0415
     pins = getattr(args, "expect_issuer", None) or []
     try:
@@ -443,6 +448,12 @@ def _show_signed_eval_receipt(args: argparse.Namespace, raw: bytes) -> int:
     except (ValueError, TypeError) as exc:
         _err(exc)
         return 2
+    if not whole:
+        print(f"format     eval-receipt-v1 ({DRAFT})")
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: stopped at a resource limit: the receipt is "
+                         f"larger than this reader's input limit of {DEFAULT_BUDGET.input_bytes} bytes"),
+              file=sys.stderr)
+        return 4
     verdict = verify_signed_eval_receipt(raw, key)
     print(f"format     eval-receipt-v1 ({DRAFT})")
     if verdict.resource_limit:
@@ -496,10 +507,10 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
     # The verification tells the formats apart by schema: a file whose schema is the receipt type of
     # draft-gruszka-signed-evaluation-receipts-00 goes to that procedure, every other file to the
     # eval-claim v0.1 path below, unchanged.
-    from .signed_eval_receipt import names_receipt_type  # noqa: PLC0415
-    raw = _peek_receipt_bytes(args.receipt)
-    if raw is not None and names_receipt_type(raw):
-        return _show_signed_eval_receipt(args, raw)
+    from .signed_eval_receipt import _names_receipt_type_before_cut, names_receipt_type  # noqa: PLC0415
+    raw, whole = _peek_receipt_bytes(args.receipt)
+    if raw is not None and (names_receipt_type(raw) if whole else _names_receipt_type_before_cut(raw)):
+        return _show_signed_eval_receipt(args, raw, whole)
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
         DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, enclave_assurance_proven,
