@@ -5,10 +5,12 @@
  "receipt_key": "issuer",
  "issuer": "https://issuer.example/eval",
  "foreign_seed": "SHA-256 over the UTF-8 bytes of 'receipt-cose foreign statement key, PURE TEST KEY'",
+ "p256_seed": "private scalar: SHA-256 over the UTF-8 bytes of 'receipt-cose P-256 statement key, PURE TEST KEY', big-endian",
  "keys_hex": {
   "issuer": "c7ba6903df43b6e9873bf02ed0cfe0ba648af08c02ccdc0f8880fdd814856da9",
   "foreign": "1d3401f2cb29bbb8c9c36954abec37a9e6f4c538c535d0abce5ab7d5dc533a64",
-  "low_order": "0000000000000000000000000000000000000000000000000000000000000000"
+  "low_order": "0000000000000000000000000000000000000000000000000000000000000000",
+  "p256": "046badc6184742d06587a55abe893077692cddd4c25909317f2e864ac5b4d453d96da53a50ecffff7a5f73d8e0cee47fc4486d911ffdeaf2d7f9504e956727635b"
  },
  "forward": [
   {
@@ -26,10 +28,9 @@
    "receipt": "P1",
    "receipt_key": "issuer",
    "alg": -8,
-   "expect": "statement",
-   "statement_hex": "d28458b6a50127045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6ea05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e8584088bc09c1bed28967050b7b69cc9f297af554f340e0f22917157ea5a3ae4872662d42fc86419af65c3a117f442e9e5988fca2e5036e38b964551fc64c10597208",
-   "statement_sha256": "3fe7dfe6c04feb8e82c82d35e9d86b10b66449861472c8b81bcc24803c8d5d68",
-   "what": "P1 with alg -8: the same rule, only label 1 differs"
+   "expect": "refused",
+   "detail": "this direction writes alg -19 (Ed25519, RFC 9864) only, not -8; -8 (EdDSA, RFC 9053) is read, never written: no statement is made",
+   "what": "P1 with alg -8: this direction writes -19 only, no statement"
   },
   {
    "id": "F3",
@@ -89,7 +90,7 @@
     "issuer"
    ],
    "expect_status": "accepted",
-   "what": "F2 (alg -8) with the receipt it was made from"
+   "what": "alg -8 under the Ed25519 issuer key, with the receipt it cites: read"
   },
   {
    "id": "B3",
@@ -423,6 +424,16 @@
    ],
    "expect_status": "untrusted_key",
    "what": "the kid of a small-order key that the relying party lists: refused as a trust anchor"
+  },
+  {
+   "id": "B36",
+   "statement_hex": "d28458b6a50127045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6ea05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e8584088bc09c1bed28967050b7b69cc9f297af554f340e0f22917157ea5a3ae4872662d42fc86419af65c3a117f442e9e5988fca2e5036e38b964551fc64c10597208",
+   "receipt": "P1",
+   "statement_keys": [
+    "p256"
+   ],
+   "expect_status": "untrusted_key",
+   "what": "alg -8 where the relying party's only statement key is a P-256 key: -8 is read only under an Ed25519 key"
   }
  ]
 }

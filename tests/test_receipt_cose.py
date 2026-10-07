@@ -109,16 +109,17 @@ def test_the_three_cases_the_order_names():
 
 # ---- the forward direction's own locks ------------------------------------------------------------------
 @needs_cbor2
-@pytest.mark.parametrize("alg", [-7, True, 19, "-19", None])
-def test_the_forward_direction_writes_only_alg_minus_19_or_minus_8(alg):
-    with pytest.raises(rc.ReceiptCoseError, match="no default"):
+@pytest.mark.parametrize("alg", [-8, -7, True, 19, "-19", None])
+def test_the_forward_direction_writes_only_alg_minus_19(alg):
+    """Owner choice B of 2026-10-04: -8 (EdDSA, deprecated by RFC 9864) is read, never written."""
+    with pytest.raises(rc.ReceiptCoseError, match="writes alg -19 .* only"):
         rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=VECTORS["issuer"], alg=alg)
 
 
-def test_the_forward_direction_has_no_default_alg():
-    with pytest.raises(TypeError):
-        rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(),  # type: ignore[call-arg]
-                                issuer=VECTORS["issuer"])
+@needs_cbor2
+def test_the_forward_direction_without_an_alg_writes_minus_19():
+    data = rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=VECTORS["issuer"])
+    assert hashlib.sha256(data).hexdigest() == M2_SHA256
 
 
 @needs_cbor2
@@ -153,6 +154,22 @@ def test_a_relying_party_entry_that_is_no_ed25519_key_is_absent_trust():
                                 receipt_key=KEYS["issuer"], statement_keys=[KEYS["issuer"][:31], "x"])
     assert result.status == "untrusted_key"
     assert len(result.ignored_keys) == 2
+
+
+@needs_cbor2
+def test_alg_minus_8_is_read_only_under_an_ed25519_statement_key():
+    """B2 carries -8: accepted under the Ed25519 issuer key, untrusted under a P-256 key alone (B36), and
+    outside the profile for a relying party that reads -19 only (B10)."""
+    b2 = bytes.fromhex(next(v for v in VECTORS["backward"] if v["id"] == "B2")["statement_hex"])
+    assert rc._read(b2).protected[1] == -8
+
+    def status(keys, **kw):
+        return rc.check_statement(b2, receipt=_receipt("P1"), receipt_key=KEYS["issuer"], statement_keys=keys,
+                                  **kw).status
+    assert status([KEYS["issuer"]]) == rc.ACCEPTED
+    assert status([KEYS["p256"]]) == "untrusted_key"
+    assert status([KEYS["p256"], KEYS["issuer"]]) == rc.ACCEPTED
+    assert status([KEYS["issuer"]], algs=(-19,)) == "outside_profile"
 
 
 @needs_cbor2

@@ -10,8 +10,10 @@ draft-gruszka-evaluation-receipt-mappings, as proposed for its next revision):
 * payload: the receipt digest, SHA-256 over B, 32 bytes: a COSE Hash Envelope (RFC 9995);
 * protected header, exactly these five labels:
 
-  - 1 (alg): -19 (Ed25519, RFC 9864) or -8 (EdDSA, RFC 9053), whichever the caller names; there is no
-    default, both mean Ed25519 here;
+  - 1 (alg): written as -19 (Ed25519, RFC 9864) only. Read as -19, or as -8 (EdDSA, RFC 9053) under an
+    Ed25519 statement key, the only kind of statement key the check counts; with such a key both values
+    mean the same signature (owner choice B of 2026-10-04: -8 is deprecated by RFC 9864, and statements
+    made before that choice may carry it);
   - 4 (kid): the COSE Key Thumbprint (RFC 9679, SHA-256) of the statement key, 32 bytes;
   - 15 (CWT Claims, RFC 9597): exactly 1 (``iss``), a URI, and 2 (``sub``), the ``model_id_commit`` of B;
   - 258 (payload hash algorithm): -16 (SHA-256);
@@ -49,13 +51,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from .signature import ed25519_trust_anchor_weakness, plain_bytes, verify_ed25519_pinned
 from .signed_eval_receipt import RECEIPT_TYPE, verify_signed_eval_receipt
 
-__all__ = ["ALG_ED25519", "ALG_EDDSA", "ALGS", "ACCEPTED", "STATUSES", "CoseUnavailable", "ReceiptCoseError",
-           "StatementCheck", "cose_key_thumbprint", "receipt_to_statement", "check_statement"]
+__all__ = ["ALG_ED25519", "ALG_EDDSA", "ALGS", "WRITE_ALG", "ACCEPTED", "STATUSES", "CoseUnavailable",
+           "ReceiptCoseError", "StatementCheck", "cose_key_thumbprint", "receipt_to_statement", "check_statement"]
 
-#: COSE algorithm values this rule writes and reads, both for Ed25519 keys.
+#: COSE algorithm values. The forward direction writes WRITE_ALG only; the check reads every value of ALGS,
+#: and -8 only under an Ed25519 statement key (``_statement_keys`` counts no other kind of key).
 ALG_ED25519 = -19   # RFC 9864, fully specified
-ALG_EDDSA = -8      # RFC 9053, polymorphic EdDSA
+ALG_EDDSA = -8      # RFC 9053, polymorphic EdDSA, deprecated by RFC 9864: read, never written
 ALGS = (ALG_ED25519, ALG_EDDSA)
+WRITE_ALG = ALG_ED25519
 
 ACCEPTED = "accepted"
 #: Every status ``check_statement`` returns; only ``accepted`` is a pass.
@@ -295,7 +299,8 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes, sta
     """Check STATEMENT, a COSE_Sign1 under the rule of the module docstring, against RECEIPT, verified under
     RECEIPT_KEY (32 raw bytes) by the draft's Section 6, with the relying party's STATEMENT_KEYS (raw
     32-byte Ed25519 public keys; the statement's kid only selects among them). ALGS narrows the accepted
-    alg values. Never raises for what it reads; every refusal is a status."""
+    alg values; -8 passes only under such an Ed25519 key, because no other kind of key is ever counted.
+    Never raises for what it reads; every refusal is a status."""
     accepted = _algs(algs)
     seen: dict = {}
     ignored: list = []
@@ -343,17 +348,18 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes, sta
 
 # ---- forward -----------------------------------------------------------------------------------------------
 def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519PrivateKey, *, issuer: str,
-                         alg: int) -> bytes:
+                         alg: int = WRITE_ALG) -> bytes:
     """The COSE_Sign1 that cites RECEIPT under the rule of the module docstring, signed by SIGNER.
 
     RECEIPT must pass every step of the draft's Section 6 under RECEIPT_KEY (32 raw bytes), or no statement
-    is made. ISSUER becomes ``iss`` and must be a URI; ALG is -19 or -8 and has no default. The bytes are
+    is made. ISSUER becomes ``iss`` and must be a URI; ALG can only be -19, the one value this direction
+    writes: -8 is refused here and accepted only by ``check_statement``. The bytes are
     read back and checked with ``check_statement`` under the signer's public key before they are returned.
     Raises ``ReceiptCoseError`` for anything it cannot write honestly, ``CoseUnavailable`` without the
     ``[scitt]`` extra."""
-    if type(alg) is not int or alg not in ALGS:
-        raise ReceiptCoseError(f"alg must be {ALG_ED25519} (Ed25519, RFC 9864) or {ALG_EDDSA} (EdDSA, RFC 9053); "
-                               "there is no default")
+    if type(alg) is not int or alg != WRITE_ALG:
+        raise ReceiptCoseError(f"this direction writes alg {WRITE_ALG} (Ed25519, RFC 9864) only, not {alg!r}; "
+                               f"{ALG_EDDSA} (EdDSA, RFC 9053) is read, never written: no statement is made")
     if not isinstance(signer, Ed25519PrivateKey):
         raise ReceiptCoseError("the signer must be an Ed25519 private key")
     if type(issuer) is not str or not _URI_RE.match(issuer):

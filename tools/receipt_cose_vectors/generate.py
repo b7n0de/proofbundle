@@ -8,7 +8,12 @@ deterministic; two runs write the same bytes.
 
 Keys: the receipt key and the relying party's statement key are the issuer test key of Draft 1 (its seed
 is in the Draft 1 fixture), as in vector M2 of draft-gruszka-evaluation-receipt-mappings-00. The foreign
-key's seed is SHA-256 over FOREIGN_SEED_LABEL. PURE TEST KEYS. They MUST NOT be used for anything real.
+key's seed is SHA-256 over FOREIGN_SEED_LABEL, and the P-256 key's private scalar is SHA-256 over
+P256_SEED_LABEL read as a big-endian integer. PURE TEST KEYS. They MUST NOT be used for anything real.
+
+Alg (owner choice B, 2026-10-04): the forward direction writes -19 only, so F2 (-8) is a refusal; the
+statement with -8 that the check still reads (B2) is built here, byte for byte the statement the forward
+direction wrote for -8 before that choice.
 
 Run from the repository root: ``python tools/receipt_cose_vectors/generate.py`` (needs the [scitt] extra).
 """
@@ -20,6 +25,8 @@ import json
 import sys
 from pathlib import Path
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 REPO = Path(__file__).resolve().parents[2]
@@ -32,6 +39,7 @@ DRAFT1 = REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.j
 OUT = REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.json"
 ISSUER = "https://issuer.example/eval"
 FOREIGN_SEED_LABEL = "receipt-cose foreign statement key, PURE TEST KEY"
+P256_SEED_LABEL = "receipt-cose P-256 statement key, PURE TEST KEY"
 #: The Draft 1 PURE TEST seed of the issuer key, written out; main() holds it equal to the fixture's seed.
 DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
 
@@ -112,12 +120,12 @@ def main() -> None:
             return None
 
     f1 = fwd("F1", "P1", -19, "issuer", "P1 with alg -19: byte for byte vector M2 of the mappings draft")
-    f2 = fwd("F2", "P1", -8, "issuer", "P1 with alg -8: the same rule, only label 1 differs")
+    f2 = fwd("F2", "P1", -8, "issuer", "P1 with alg -8: this direction writes -19 only, no statement")
     fwd("F3", "P4", -19, "issuer", "P4, other receipt bytes of the same B: the statement of F1 again")
     fwd("F4", "N7", -19, "issuer", "N7 fails step 11 of the receipt procedure: no statement")
     fwd("F5", "P1", -19, "foreign", "P1 under a key the receipt was not made with: fails step 10, no statement")
     f6 = fwd("F6", "P2", -19, "issuer", "P2, another B: the statement B4 presents with P1")
-    assert f1 and f2 and f6 and forward[2]["statement_hex"] == f1.hex()
+    assert f1 and f2 is None and f6 and forward[2]["statement_hex"] == f1.hex()
 
     # ---- backward --------------------------------------------------------------------------------------
     p1_raw = decode_b64(json.loads(receipt("P1"))["payload_b64"])
@@ -140,6 +148,10 @@ def main() -> None:
         return sign1(raw, payload, key.sign(tbs(raw, payload if payload is not None else b"")), **kw)
 
     backward = []
+    s8 = signed(protected(k1=-8))   # alg -8, read and never written: B2, B10 and B36
+    p256_pub = ec.derive_private_key(int.from_bytes(hashlib.sha256(P256_SEED_LABEL.encode()).digest(), "big"),
+                                     ec.SECP256R1()).public_key().public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
 
     def bwd(vid, statement, rid, status, what, statement_keys=("issuer",), algs=None):
         item = {"id": vid, "statement_hex": statement.hex(), "receipt": rid, "statement_keys": list(statement_keys),
@@ -149,7 +161,7 @@ def main() -> None:
         backward.append(item)
 
     bwd("B1", f1, "P1", "accepted", "F1 (alg -19) with the receipt it was made from")
-    bwd("B2", f2, "P1", "accepted", "F2 (alg -8) with the receipt it was made from")
+    bwd("B2", s8, "P1", "accepted", "alg -8 under the Ed25519 issuer key, with the receipt it cites: read")
     bwd("B3", f1, "P4", "accepted", "F1 with P4, other receipt bytes (an escaped character), the same B")
     bwd("B4", f6, "P1", "digest_mismatch", "a statement on another digest (P2's B), validly signed, with P1")
     bwd("B5", signed(protected(k4=kid_foreign), key=foreign_key), "P1", "untrusted_key",
@@ -160,7 +172,7 @@ def main() -> None:
     bwd("B8", signed(protected(k15={1: ISSUER, 2: p1_b["dataset_id_commit"]})), "P1", "subject_mismatch",
         "sub names a commitment of the right form that is not the receipt's model commitment")
     bwd("B9", signed(protected(k1=-7)), "P1", "outside_profile", "alg -7 (ES256)")
-    bwd("B10", f2, "P1", "outside_profile", "alg -8 where the relying party accepts -19 only", algs=(-19,))
+    bwd("B10", s8, "P1", "outside_profile", "alg -8 where the relying party accepts -19 only", algs=(-19,))
     bwd("B11", signed(protected(), unprotected={4: kid_issuer}), "P1", "outside_profile",
         "the unprotected header is not empty")
     bwd("B12", signed(protected(), tag=None), "P1", "outside_profile", "the COSE_Sign1 is not tagged 18")
@@ -206,7 +218,11 @@ def main() -> None:
     bwd("B35", signed(protected(k4=rc.cose_key_thumbprint(low_order)), key=foreign_key), "P1", "untrusted_key",
         "the kid of a small-order key that the relying party lists: refused as a trust anchor",
         statement_keys=("low_order",))
-    keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex()}
+    bwd("B36", s8, "P1", "untrusted_key",
+        "alg -8 where the relying party's only statement key is a P-256 key: -8 is read only under an Ed25519 key",
+        statement_keys=("p256",))
+    keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex(),
+                "p256": p256_pub.hex()}
 
     out = {
         "notice": "PURE TEST KEYS. They MUST NOT be used for anything real.",
@@ -215,6 +231,7 @@ def main() -> None:
         "receipt_key": "issuer",
         "issuer": ISSUER,
         "foreign_seed": f"SHA-256 over the UTF-8 bytes of {FOREIGN_SEED_LABEL!r}",
+        "p256_seed": f"private scalar: SHA-256 over the UTF-8 bytes of {P256_SEED_LABEL!r}, big-endian",
         "keys_hex": keys_out,
         "forward": forward,
         "backward": backward,
