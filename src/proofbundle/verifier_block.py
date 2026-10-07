@@ -49,14 +49,14 @@ from __future__ import annotations
 from collections import Counter
 
 import hashlib
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 from ._membership import is_member
+from ._strict_json import loads_reject_duplicate_keys
 from .canonical import _ein_stand, _pruefkopie
-from .errors import ProofBundleError
+from .errors import BundleFormatError, ProofBundleError
 
 TEST_RESULT_PREDICATE_TYPE = "https://in-toto.io/attestation/test-result/v0.1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -235,8 +235,11 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
     root = Path(conformance_dir)
     manifest_path = root / "manifest.json"
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        # Nachtrag 51 (K6-01): a duplicate JSON key in the manifest is rejected fail-closed before the
+        # vector set is counted/attested (last-wins `cases` would attest a set a first-wins reader never
+        # sees). No new size cap — a dup-free manifest reads exactly as before.
+        manifest = loads_reject_duplicate_keys(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, BundleFormatError) as exc:
         raise VerifierBlockError(f"conformance manifest not readable: {manifest_path}: {exc}") from exc
     cases = manifest.get("cases") if isinstance(manifest, dict) else None
     if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):

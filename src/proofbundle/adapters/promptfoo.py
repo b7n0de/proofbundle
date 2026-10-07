@@ -21,6 +21,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
+from .._strict_json import loads_reject_duplicate_keys
 from ..evalclaim import build_eval_claim
 from ..canonical import _ein_stand
 
@@ -51,7 +52,9 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
       records which case applies (`dataset_commitment_scope`) so the binding is never overstated.
     - provenance: promptfooVersion, evalId, summary timestamp, per-outcome counts.
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    # Nachtrag 51 (K6-03): reject a duplicate JSON key fail-closed before stats.successes feeds the pass
+    # rate (last-wins would sign a rate a differing reader computes otherwise). No new size cap.
+    data = loads_reject_duplicate_keys(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("results"), dict):
         raise ValueError("not a promptfoo output file (missing results object)")
     summary = data["results"]
