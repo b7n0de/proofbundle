@@ -396,6 +396,13 @@ def main() -> None:
         f"B1 with iss {bracket}, signed over those bytes: \"[\" stands only in an IP-literal (RFC 3986 "
         "sections 2.2 and 3.2.2), so iss is no absolute URI (section 4.3), even where a pair names that string",
         statement_keys=((bracket, "issuer"),))
+    # B50 (2026-10-07): the float 1.5 as a sixth key in single precision (fa 3fc00000), bytewise ordered and
+    # signed over those bytes. 1.5 fits half precision (f9 3e00), so this is not the shortest form RFC 8949
+    # section 4.2.1 requires: step 1, malformed, before the kind of the key is ever asked.
+    raw50 = head(5, 6) + b"".join(k + v for k, v in sorted(b1_pairs + [(b"\xfa\x3f\xc0\x00\x00", enc(0))]))
+    bwd("B50", signed(None, protected_raw=raw50), "P1", "malformed",
+        "B1 with the float 1.5 as a sixth key in single precision (fa 3fc00000), signed over those bytes: the "
+        "value fits half precision, so the float is not in its shortest form (RFC 8949 section 4.2.1)")
     keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex(),
                 "p256": p256_pub.hex(), "off_curve": off_curve.hex(), "mixed_order": mixed.hex()}
 
