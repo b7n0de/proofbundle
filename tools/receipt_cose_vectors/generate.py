@@ -7,9 +7,12 @@ the one property it names and is signed where its point is not the signature. Ev
 deterministic; two runs write the same bytes.
 
 Keys: the receipt key and the relying party's statement key are the issuer test key of Draft 1 (its seed
-is in the Draft 1 fixture), as in vector M2 of draft-gruszka-evaluation-receipt-mappings-00. The foreign
-key's seed is SHA-256 over FOREIGN_SEED_LABEL, and the P-256 key's private scalar is SHA-256 over
-P256_SEED_LABEL read as a big-endian integer. PURE TEST KEYS. They MUST NOT be used for anything real.
+is in the Draft 1 fixture), as in vector M2 of draft-gruszka-evaluation-receipt-mappings-00. The relying
+party configures each statement key as a pair with the issuer URI it trusts the key for; a vector names
+its pairs as [issuer URI, key name]. The foreign key's seed is SHA-256 over FOREIGN_SEED_LABEL, and the
+P-256 key's private scalar is SHA-256 over P256_SEED_LABEL read as a big-endian integer. The mixed-order
+key is the key of Draft 1 vector P11, the issuer's public point plus a point of order 8; ``off_curve`` is
+the first y from 2 on that names no curve point. PURE TEST KEYS. They MUST NOT be used for anything real.
 
 Alg (owner choice B, 2026-10-04): the forward direction writes -19 only, so F2 (-8) is a refusal; the
 statement with -8 that the check still reads (B2) is built here, byte for byte the statement the forward
@@ -38,10 +41,85 @@ from proofbundle.signed_eval_receipt import RECEIPT_TYPE  # noqa: E402
 DRAFT1 = REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
 OUT = REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.json"
 ISSUER = "https://issuer.example/eval"
+OTHER_ISSUER = "https://other-issuer.example/eval"
 FOREIGN_SEED_LABEL = "receipt-cose foreign statement key, PURE TEST KEY"
 P256_SEED_LABEL = "receipt-cose P-256 statement key, PURE TEST KEY"
 #: The Draft 1 PURE TEST seed of the issuer key, written out; main() holds it equal to the fixture's seed.
 DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
+
+
+# ---- Ed25519 arithmetic (RFC 8032 section 5.1), only to build the profile vectors B38, B39 and B41 ----------
+P = 2 ** 255 - 19
+L = 2 ** 252 + 27742317777372353535851937790883648493
+D = -121665 * pow(121666, P - 2, P) % P
+SQRT_M1 = pow(2, (P - 1) // 4, P)
+IDENTITY = (1).to_bytes(32, "little")   # the neutral element (0, 1), a point of order 1
+
+
+def recover_x(y: int, sign: int):
+    if y >= P:
+        return None
+    x2 = (y * y - 1) * pow(D * y * y + 1, P - 2, P) % P
+    if x2 == 0:
+        return None if sign else 0
+    x = pow(x2, (P + 3) // 8, P)
+    if (x * x - x2) % P:
+        x = x * SQRT_M1 % P
+    if (x * x - x2) % P:
+        return None
+    return P - x if (x & 1) != sign else x
+
+
+def add(p1, p2):
+    a = (p1[1] - p1[0]) * (p2[1] - p2[0]) % P
+    b = (p1[1] + p1[0]) * (p2[1] + p2[0]) % P
+    c = 2 * p1[3] * p2[3] * D % P
+    d = 2 * p1[2] * p2[2] % P
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return (e * f % P, g * h % P, f * g % P, e * h % P)
+
+
+def mul(k: int, pt):
+    q = (0, 1, 1, 0)
+    while k:
+        if k & 1:
+            q = add(q, pt)
+        pt = add(pt, pt)
+        k >>= 1
+    return q
+
+
+def compress(pt) -> bytes:
+    zi = pow(pt[2], P - 2, P)
+    x, y = pt[0] * zi % P, pt[1] * zi % P
+    return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+
+_GY = 4 * pow(5, P - 2, P) % P
+BASE = (recover_x(_GY, 0), _GY, 1, recover_x(_GY, 0) * _GY % P)
+
+
+def order8_point():
+    """The point of order 8 of Draft 1's mixed-order key: the first one reached from y = 2, 3, ... as L times
+    a decoded point, kept when 4 times it is not the neutral element."""
+    y = 2
+    while True:
+        x = recover_x(y, 0)
+        if x is not None:
+            t8 = mul(L, (x, y, 1, x * y % P))
+            if compress(mul(4, t8)) != IDENTITY:
+                return t8
+        y += 1
+
+
+def secret_scalar(seed: bytes) -> int:
+    """RFC 8032 section 5.1.5: the clamped scalar a of the private key."""
+    a = int.from_bytes(hashlib.sha512(seed).digest()[:32], "little")
+    return (a & ((1 << 254) - 8)) | (1 << 254)
+
+
+def challenge(r_enc: bytes, a_enc: bytes, message: bytes) -> int:
+    return int.from_bytes(hashlib.sha512(r_enc + a_enc + message).digest(), "little") % L
 
 
 # ---- an encoder of this script's own, able to write what the rule forbids ----------------------------------
@@ -153,9 +231,9 @@ def main() -> None:
                                      ec.SECP256R1()).public_key().public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
 
-    def bwd(vid, statement, rid, status, what, statement_keys=("issuer",), algs=None):
-        item = {"id": vid, "statement_hex": statement.hex(), "receipt": rid, "statement_keys": list(statement_keys),
-                "expect_status": status, "what": what}
+    def bwd(vid, statement, rid, status, what, statement_keys=((ISSUER, "issuer"),), algs=None):
+        item = {"id": vid, "statement_hex": statement.hex(), "receipt": rid,
+                "statement_keys": [[iss, key] for iss, key in statement_keys], "expect_status": status, "what": what}
         if algs is not None:
             item["algs"] = list(algs)
         backward.append(item)
@@ -217,12 +295,55 @@ def main() -> None:
     low_order = bytes(32)   # the encoding of a small-order point; a signature can verify under it without a secret
     bwd("B35", signed(protected(k4=rc.cose_key_thumbprint(low_order)), key=foreign_key), "P1", "untrusted_key",
         "the kid of a small-order key that the relying party lists: refused as a trust anchor",
-        statement_keys=("low_order",))
+        statement_keys=((ISSUER, "low_order"),))
     bwd("B36", s8, "P1", "untrusted_key",
         "alg -8 where the relying party's only statement key is a P-256 key: -8 is read only under an Ed25519 key",
-        statement_keys=("p256",))
+        statement_keys=((ISSUER, "p256"),))
+
+    # ---- added 2026-10-07: the pair of issuer and key, and the rules of Section 4.4 -------------------------
+    other = signed(protected(k15={1: OTHER_ISSUER, 2: p1_b["model_id_commit"]}))
+    assert hashlib.sha256(other).hexdigest() == "1e205e47f7f0e71ae16a0c35b55728369561d0984a83253f3f3b38b1f791ad28"
+    bwd("B37", other, "P1", "untrusted_key",
+        "B1 with iss https://other-issuer.example/eval, signed with the issuer test seed: the relying party "
+        "trusts that key for https://issuer.example/eval only, and the received iss does not make it trusted "
+        "for another issuer")
+    a_issuer = secret_scalar(DRAFT_TEST_SEED)
+    raw38 = enc(protected())
+    k38 = challenge(IDENTITY, issuer_pub, tbs(raw38, digest))
+    sig38 = IDENTITY + (k38 * a_issuer % L).to_bytes(32, "little")
+    bwd("B38", sign1(raw38, digest, sig38), "P1", "signature_invalid",
+        "a signature whose R is the neutral element, a point of small order, made with the issuer test seed: "
+        "the cofactorless equation holds, rule 2 of Section 4.4 of the receipts draft refuses it")
+    y = 2
+    while recover_x(y, 0) is not None:
+        y += 1
+    off_curve = y.to_bytes(32, "little")
+    bwd("B39", signed(protected(k4=rc.cose_key_thumbprint(off_curve)), key=foreign_key), "P1", "untrusted_key",
+        "the kid of a 32-byte entry whose y names no curve point: no canonical encoding (rule 1 of Section 4.4), "
+        "so the entry is no trusted key", statement_keys=((ISSUER, "off_curve"),))
+    fragment = ISSUER + "#frag"
+    bwd("B40", signed(protected(k15={1: fragment, 2: p1_b["model_id_commit"]})), "P1", "outside_profile",
+        "iss carries a fragment, so it is no absolute URI (RFC 3986 section 4.3), even where a pair names "
+        "that string", statement_keys=((fragment, "issuer"),))
+    mixed = compress(add(mul(a_issuer, BASE), order8_point()))
+    p11 = next(x for x in doc["vectors"] if x["id"] == "P11")
+    assert decode_b64(p11["key_b64"]) == mixed
+    raw41 = enc(protected(k4=rc.cose_key_thumbprint(mixed)))
+    i = 0
+    while True:
+        r = int.from_bytes(hashlib.sha512(f"receipt-cose mixed-order nonce {i}".encode()).digest(), "little") % L
+        r_enc = compress(mul(r, BASE))
+        k41 = challenge(r_enc, mixed, tbs(raw41, digest))
+        if k41 % 8 == 0:
+            break
+        i += 1
+    sig41 = r_enc + ((r + k41 * a_issuer) % L).to_bytes(32, "little")
+    bwd("B41", sign1(raw41, digest, sig41), "P1", "accepted",
+        "a statement under the mixed-order key of Draft 1 vector P11 (the issuer's point plus a point of order "
+        "8), with a signature that meets all four rules of Section 4.4: mixed order counts, there is no "
+        "prime-order check", statement_keys=((ISSUER, "mixed_order"),))
     keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex(),
-                "p256": p256_pub.hex()}
+                "p256": p256_pub.hex(), "off_curve": off_curve.hex(), "mixed_order": mixed.hex()}
 
     out = {
         "notice": "PURE TEST KEYS. They MUST NOT be used for anything real.",
@@ -230,6 +351,7 @@ def main() -> None:
         "receipts": "tests/fixtures/signed_eval_receipt/draft1_vectors.json, by vector id",
         "receipt_key": "issuer",
         "issuer": ISSUER,
+        "statement_keys": "pairs of [the issuer URI the relying party trusts the key for, the key's name in keys_hex]",
         "foreign_seed": f"SHA-256 over the UTF-8 bytes of {FOREIGN_SEED_LABEL!r}",
         "p256_seed": f"private scalar: SHA-256 over the UTF-8 bytes of {P256_SEED_LABEL!r}, big-endian",
         "keys_hex": keys_out,

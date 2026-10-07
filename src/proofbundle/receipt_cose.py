@@ -15,7 +15,8 @@ draft-gruszka-evaluation-receipt-mappings, as proposed for its next revision):
     mean the same signature (owner choice B of 2026-10-04: -8 is deprecated by RFC 9864, and statements
     made before that choice may carry it);
   - 4 (kid): the COSE Key Thumbprint (RFC 9679, SHA-256) of the statement key, 32 bytes;
-  - 15 (CWT Claims, RFC 9597): exactly 1 (``iss``), a URI, and 2 (``sub``), the ``model_id_commit`` of B;
+  - 15 (CWT Claims, RFC 9597): exactly 1 (``iss``), an absolute URI (RFC 3986 section 4.3), and 2
+    (``sub``), the ``model_id_commit`` of B;
   - 258 (payload hash algorithm): -16 (SHA-256);
   - 259 (preimage content type): the receipt type, as text;
 
@@ -26,11 +27,14 @@ draft-gruszka-evaluation-receipt-mappings, as proposed for its next revision):
 FORWARD, ``receipt_to_statement``: the receipt must pass every step of the draft's Section 6 under the key
 the caller fixed, or no statement is made.
 
-BACKWARD, ``check_statement``: a statement is accepted only if it reads under the rule, its signature
-verifies under a statement key of the relying party that its kid names, and its payload is the digest of
-the presented receipt, which itself passes the draft's Section 6 under the receipt key the relying party
-fixed; ``sub`` must be that receipt's model commitment. Every other outcome is a status, never a pass,
-and the check never raises for what it is given to read.
+BACKWARD, ``check_statement``: a statement is accepted only if it reads under the rule, a pair of an
+issuer URI and a statement key that the relying party configured has exactly its ``iss`` and a key whose
+thumbprint is its kid, its signature meets the four rules of Section 4.4 of the receipts draft under that
+key (the Sig_structure in place of PAE), and its payload is the digest of the presented receipt, which
+itself passes the draft's Section 6 under the receipt key the relying party fixed; ``sub`` must be that
+receipt's model commitment. The received ``iss`` selects among the pairs; it never makes a key trusted for
+an issuer. Every other outcome is a status, never a pass, and the check never raises for what it is given
+to read.
 
 WHAT IS LOST. The statement carries the digest and the model commitment of B, nothing else of the receipt:
 not the score, threshold, comparator, verdict, suite or timestamp, not the dataset commitment, not the
@@ -48,8 +52,8 @@ from typing import Any, NamedTuple, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from .signature import ed25519_trust_anchor_weakness, plain_bytes, verify_ed25519_pinned
-from .signed_eval_receipt import RECEIPT_TYPE, verify_signed_eval_receipt
+from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text
+from .signed_eval_receipt import RECEIPT_TYPE, _decode_point, _Fail, _profile, verify_signed_eval_receipt
 
 __all__ = ["ALG_ED25519", "ALG_EDDSA", "ALGS", "WRITE_ALG", "ACCEPTED", "STATUSES", "CoseUnavailable",
            "ReceiptCoseError", "StatementCheck", "cose_key_thumbprint", "receipt_to_statement", "check_statement"]
@@ -72,8 +76,31 @@ _SHA256 = -16
 _TAG_SIGN1 = 18
 _LABELS = frozenset({_ALG, _KID, _CWT, _HASH_ALG, _PREIMAGE_CTY})
 _CLAIMS = frozenset({_ISS, _SUB})
-#: A URI as RFC 3986 starts it: a scheme, a colon, then no space or control character.
-_URI_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.-]*:[^\x00-\x20\x7f]+\Z")
+#: An absolute-URI of RFC 3986 section 4.3 (scheme ":" hier-part ["?" query], no fragment), its ABNF
+#: written out rule by rule; anything this grammar does not produce is no iss.
+_PCT = r"%[0-9A-Fa-f]{2}"
+_PCHAR = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|" + _PCT + ")"
+_DEC_OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])"
+_IPV4 = rf"{_DEC_OCTET}\.{_DEC_OCTET}\.{_DEC_OCTET}\.{_DEC_OCTET}"
+_H16 = r"[0-9A-Fa-f]{1,4}"
+_LS32 = rf"(?:{_H16}:{_H16}|{_IPV4})"
+_IPV6 = "|".join([
+    rf"(?:{_H16}:){{6}}{_LS32}",
+    rf"::(?:{_H16}:){{5}}{_LS32}",
+    rf"(?:{_H16})?::(?:{_H16}:){{4}}{_LS32}",
+    rf"(?:(?:{_H16}:){{0,1}}{_H16})?::(?:{_H16}:){{3}}{_LS32}",
+    rf"(?:(?:{_H16}:){{0,2}}{_H16})?::(?:{_H16}:){{2}}{_LS32}",
+    rf"(?:(?:{_H16}:){{0,3}}{_H16})?::{_H16}:{_LS32}",
+    rf"(?:(?:{_H16}:){{0,4}}{_H16})?::{_LS32}",
+    rf"(?:(?:{_H16}:){{0,5}}{_H16})?::{_H16}",
+    rf"(?:(?:{_H16}:){{0,6}}{_H16})?::",
+])
+_IP_LITERAL = rf"\[(?:{_IPV6}|v[0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+)\]"
+_REG_NAME = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=]|" + _PCT + ")*"
+_AUTHORITY = (r"(?:(?:[A-Za-z0-9\-._~!$&'()*+,;=:]|" + _PCT + rf")*@)?(?:{_IP_LITERAL}|{_IPV4}|{_REG_NAME})"
+              r"(?::[0-9]*)?")
+_HIER_PART = (rf"(?://{_AUTHORITY}(?:/{_PCHAR}*)*|/(?:{_PCHAR}+(?:/{_PCHAR}*)*)?|{_PCHAR}+(?:/{_PCHAR}*)*|)")
+_URI_RE = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.-]*:{_HIER_PART}(?:\?(?:{_PCHAR}|[/?])*)?\Z")
 _COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 _MAX_KEYS = 64
 
@@ -249,7 +276,7 @@ def _rule_broken(st: _Sign1, algs: tuple) -> Optional[str]:
     if type(claims) is not dict or any(type(k) is not int for k in claims) or set(claims) != _CLAIMS:
         return "the CWT Claims (15) are not a map of exactly iss (1) and sub (2)"
     if type(claims[_ISS]) is not str or not _URI_RE.match(claims[_ISS]):
-        return "iss is not a URI"
+        return "iss is not an absolute URI (RFC 3986 section 4.3)"
     if type(claims[_SUB]) is not str or not _COMMIT_RE.match(claims[_SUB]):
         return "sub is not a model commitment, sha256: followed by 64 lowercase hexadecimal digits"
     if type(ph[_HASH_ALG]) is not int or ph[_HASH_ALG] != _SHA256:
@@ -266,25 +293,49 @@ def _rule_broken(st: _Sign1, algs: tuple) -> Optional[str]:
 
 
 def _statement_keys(entries: Any) -> tuple:
-    """Relying-party statement keys -> ([(raw key, thumbprint)], [why an entry was ignored]). Only an
-    Ed25519 key of 32 bytes that is no weak trust anchor counts; anything else is absent trust."""
+    """Relying-party pairs of an issuer URI and a statement key -> ([(issuer, raw key, thumbprint)], [why an
+    entry was ignored]). An entry counts only as a pair (a list or tuple of two) of a text, compared exactly
+    with ``iss``, and an Ed25519 key of 32 bytes that meets rules 1 and 2 of Section 4.4 of the receipts
+    draft: a canonical point encoding (RFC 8032 section 5.1.3 decoding succeeds) and no point of small
+    order. A point of mixed order counts; there is no prime-order check. Anything else is absent trust, and
+    a bare key without its issuer is no pair."""
     usable: list = []
     ignored: list = []
     if not isinstance(entries, (list, tuple)):
         return usable, (["statement keys are not a list"] if entries is not None else [])
     for i, entry in enumerate(entries[:_MAX_KEYS]):
-        raw = plain_bytes(entry)
+        if type(entry) not in (list, tuple) or len(entry) != 2:
+            ignored.append(f"entry {i}: not a pair of an issuer URI and a statement key")
+            continue
+        issuer, raw = plain_text(entry[0]), plain_bytes(entry[1])
+        if issuer is None:
+            ignored.append(f"entry {i}: the issuer is not a text")
+            continue
         if raw is None or len(raw) != 32:
-            ignored.append(f"key {i}: not a 32-byte Ed25519 public key")
+            ignored.append(f"entry {i}: not a 32-byte Ed25519 public key")
             continue
         weakness = ed25519_trust_anchor_weakness(raw)
         if weakness is not None:
-            ignored.append(f"key {i}: {weakness} Ed25519 key, refused as a trust anchor")
+            ignored.append(f"entry {i}: {weakness} Ed25519 key, refused as a trust anchor")
             continue
-        usable.append((raw, cose_key_thumbprint(raw)))
+        if _decode_point(raw) is None:
+            ignored.append(f"entry {i}: the key is no canonical point encoding (rule 1 of Section 4.4)")
+            continue
+        usable.append((issuer, raw, cose_key_thumbprint(raw)))
     if len(entries) > _MAX_KEYS:
         ignored.append(f"keys beyond {_MAX_KEYS} ignored")
     return usable, ignored
+
+
+def _profile_holds(key: bytes, signature: bytes, message: bytes) -> bool:
+    """The four rules of Section 4.4 of the receipts draft, applied to a statement signature over its
+    Sig_structure instead of PAE(type, B): canonical A and R, neither of small order, S below L, and the
+    cofactorless equation."""
+    try:
+        _profile(key, signature, message)
+    except _Fail:
+        return False
+    return True
 
 
 def _algs(algs: Any) -> tuple:
@@ -294,13 +345,14 @@ def _algs(algs: Any) -> tuple:
 
 
 # ---- backward ----------------------------------------------------------------------------------------------
-def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes, statement_keys: Sequence[bytes],
-                    algs: Sequence[int] = ALGS) -> StatementCheck:
+def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
+                    statement_keys: Sequence[tuple[str, bytes]], algs: Sequence[int] = ALGS) -> StatementCheck:
     """Check STATEMENT, a COSE_Sign1 under the rule of the module docstring, against RECEIPT, verified under
-    RECEIPT_KEY (32 raw bytes) by the draft's Section 6, with the relying party's STATEMENT_KEYS (raw
-    32-byte Ed25519 public keys; the statement's kid only selects among them). ALGS narrows the accepted
-    alg values; -8 passes only under such an Ed25519 key, because no other kind of key is ever counted.
-    Never raises for what it reads; every refusal is a status."""
+    RECEIPT_KEY (32 raw bytes) by the draft's Section 6, with the relying party's STATEMENT_KEYS: pairs of
+    an issuer URI and a raw 32-byte Ed25519 public key, configured by the relying party. The statement's
+    ``iss`` and kid only select among the pairs; a key counts for the one issuer it is paired with. ALGS
+    narrows the accepted alg values; -8 passes only under such an Ed25519 key, because no other kind of
+    key is ever counted. Never raises for what it reads; every refusal is a status."""
     accepted = _algs(algs)
     seen: dict = {}
     ignored: list = []
@@ -321,12 +373,14 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes, sta
         if why:
             raise _Refused("outside_profile", why)
         keys, ignored = _statement_keys(statement_keys)
-        candidates = [raw for raw, thumbprint in keys if thumbprint == ph[_KID]]
+        candidates = [raw for issuer, raw, thumbprint in keys if issuer == ph[_CWT][_ISS] and thumbprint == ph[_KID]]
         if not candidates:
-            raise _Refused("untrusted_key", "no relying-party statement key has the statement's kid")
+            raise _Refused("untrusted_key", "no relying-party pair has both the statement's iss and a key whose "
+                                            "thumbprint is its kid")
         tbs = _sig_structure(st.protected_raw, st.payload or b"")
-        if not any(verify_ed25519_pinned(raw, st.signature, tbs) for raw in candidates):
-            raise _Refused("signature_invalid", "the signature fails under the key the kid selects")
+        if not any(_profile_holds(raw, st.signature, tbs) for raw in candidates):
+            raise _Refused("signature_invalid", "the signature fails the rules of Section 4.4 of the receipts "
+                                                "draft under the key the pair selects")
         verdict = verify_signed_eval_receipt(receipt, receipt_key)
         if not verdict.ok or verdict.payload is None:
             return StatementCheck("receipt_not_verified", f"the presented receipt fails the draft's Section 6: "
@@ -352,9 +406,11 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     """The COSE_Sign1 that cites RECEIPT under the rule of the module docstring, signed by SIGNER.
 
     RECEIPT must pass every step of the draft's Section 6 under RECEIPT_KEY (32 raw bytes), or no statement
-    is made. ISSUER becomes ``iss`` and must be a URI; ALG can only be -19, the one value this direction
+    is made. ISSUER becomes ``iss`` and must be an absolute URI (RFC 3986 section 4.3); ALG can only be
+    -19, the one value this direction
     writes: -8 is refused here and accepted only by ``check_statement``. The bytes are
-    read back and checked with ``check_statement`` under the signer's public key before they are returned.
+    read back and checked with ``check_statement`` under the pair of ISSUER and the signer's public key
+    before they are returned.
     Raises ``ReceiptCoseError`` for anything it cannot write honestly, ``CoseUnavailable`` without the
     ``[scitt]`` extra."""
     if type(alg) is not int or alg != WRITE_ALG:
@@ -363,7 +419,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     if not isinstance(signer, Ed25519PrivateKey):
         raise ReceiptCoseError("the signer must be an Ed25519 private key")
     if type(issuer) is not str or not _URI_RE.match(issuer):
-        raise ReceiptCoseError("issuer must be a URI (a scheme, a colon, no space or control character)")
+        raise ReceiptCoseError("issuer must be an absolute URI (RFC 3986 section 4.3)")
     _cbor2()
     verdict = verify_signed_eval_receipt(receipt, receipt_key)
     if not verdict.ok or verdict.payload is None:
@@ -377,7 +433,8 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     protected_raw = _enc(protected)
     signature = signer.sign(_sig_structure(protected_raw, digest))
     data = _head(6, _TAG_SIGN1) + _enc([protected_raw, {}, digest, signature])
-    check = check_statement(data, receipt=receipt, receipt_key=receipt_key, statement_keys=[public], algs=(alg,))
+    check = check_statement(data, receipt=receipt, receipt_key=receipt_key, statement_keys=[(issuer, public)],
+                            algs=(alg,))
     if not check.ok:
         raise ReceiptCoseError(f"the statement did not read back as written: {check.status}, {check.detail}")
     return data
