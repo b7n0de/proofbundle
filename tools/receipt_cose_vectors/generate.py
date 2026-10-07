@@ -373,6 +373,29 @@ def main() -> None:
     bwd("B45", signed(None, protected_raw=raw45), "P1", "malformed",
         "B1 with a sixth key -1, its keys ordered length first (RFC 7049 section 3.9) instead of bytewise "
         "(RFC 8949 section 4.2.1), signed over those bytes: not the deterministic encoding")
+    # B46 to B48 (2026-10-07): a sixth entry whose key or value is of a kind a statement never holds there,
+    # in the deterministic encoding and signed over those bytes. Step 1 checks well-formedness, validity
+    # under RFC 8949 section 5.3.1 and the deterministic encoding, also of the data items inside a tag, but
+    # not whether a tag's content is valid for that tag (section 5.3.2); step 2 refuses.
+    for vid, key, value, what in (
+            ("B46", b"\xf9\x3e\x00", enc(0), "the float 1.5 (half precision) as a sixth key"),
+            ("B47", b"\xf5", enc(0), "true as a sixth key, beside the integer label 1: two keys (RFC 8949 "
+                                     "section 5.6)"),
+            ("B48", enc(-1), b"\xc1\x61x", "a sixth key -1 whose value is tag 1 around the text \"x\", content "
+                                           "tag 1 does not admit; step 1 does not check whether a tag's "
+                                           "content is valid for that tag")):
+        raw = head(5, 6) + b"".join(k + v for k, v in sorted(b1_pairs + [(key, value)]))
+        bwd(vid, signed(None, protected_raw=raw), "P1", "outside_profile",
+            f"B1 with {what}, in the deterministic encoding, signed over those bytes: a valid item whose header "
+            "does not hold exactly the five labels")
+    # B49 (2026-10-07): "[" in the path of iss. RFC 3986 admits "[" and "]" only around an IP-literal in the
+    # host (sections 2.2 and 3.2.2), so the text is no absolute URI; a pair names exactly that text, so a
+    # Receiver whose URI check let it through would accept the statement.
+    bracket = "https://issuer.example/e[val"
+    bwd("B49", signed(protected(k15={1: bracket, 2: p1_b["model_id_commit"]})), "P1", "outside_profile",
+        f"B1 with iss {bracket}, signed over those bytes: \"[\" stands only in an IP-literal (RFC 3986 "
+        "sections 2.2 and 3.2.2), so iss is no absolute URI (section 4.3), even where a pair names that string",
+        statement_keys=((bracket, "issuer"),))
     keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex(),
                 "p256": p256_pub.hex(), "off_curve": off_curve.hex(), "mixed_order": mixed.hex()}
 
