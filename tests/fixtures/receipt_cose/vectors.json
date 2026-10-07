@@ -714,6 +714,19 @@
    ],
    "expect_status": "outside_profile",
    "what": "B1 with iss https://issuer.example/e[val, signed over those bytes: \"[\" stands only in an IP-literal (RFC 3986 sections 2.2 and 3.2.2), so iss is no absolute URI (section 4.3), even where a pair names that string"
+  },
+  {
+   "id": "B50",
+   "statement_hex": "d28458bca60132045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6efa3fc0000000a05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e858403f9de7cea87af6cfbff7be31b4832f601ce68637ef51c2298f00e97582e56849a011a67ea81eeaa08b6bbeb372ede20d4188cd76967874b3fdaaa46ca265ee01",
+   "receipt": "P1",
+   "statement_keys": [
+    [
+     "https://issuer.example/eval",
+     "issuer"
+    ]
+   ],
+   "expect_status": "malformed",
+   "what": "B1 with the float 1.5 as a sixth key in single precision (fa 3fc00000), signed over those bytes: the value fits half precision, so the float is not in its shortest form (RFC 8949 section 4.2.1)"
   }
  ]
 }

@@ -12,7 +12,7 @@ its next revision).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
   `c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e`). The receipt type and the payload schema are the
   neutral names of 2026-10-07, so every digest and signature differs from the vectors before that day.
-- `backward`: 49 statements, each with the receipt it is presented with, the relying party's
+- `backward`: 50 statements, each with the receipt it is presented with, the relying party's
   statement keys and the one status `check_statement` must return. The relying party configures each
   statement key as a pair with the issuer URI it trusts the key for, written `[issuer URI, key name]`;
   the received `iss` selects a pair and never makes a key trusted for another issuer. Three are
@@ -40,9 +40,11 @@ its next revision).
   under the earlier reader, which decoded with cbor2). B49 is B1 with iss
   `https://issuer.example/e[val`, signed over those bytes, presented with a pair that names exactly
   that iss: `outside_profile`, since RFC 3986 admits "[" only around an IP-literal (sections 2.2 and
-  3.2.2), so iss is no absolute URI (section 4.3). Every other vector differs from a valid statement
-  in the one property its `what` names, and is signed over its own bytes where its point is not the
-  signature.
+  3.2.2), so iss is no absolute URI (section 4.3). B50 is B1 with the float 1.5 as a sixth key in
+  single precision (fa 3fc00000), bytewise ordered and signed over those bytes: `malformed`, since 1.5
+  fits half precision and the float is not in its shortest form (RFC 8949 section 4.2.1). Every other
+  vector differs from a valid statement in the one property its `what` names, and is signed over its
+  own bytes where its point is not the signature.
 - Keys: the receipt key and the relying party's statement key are the Draft 1 issuer test key; the
   foreign key's seed is SHA-256 over the label in `foreign_seed`; `low_order` is the all-zero
   encoding, a point of small order; `p256` is an uncompressed P-256 point whose private scalar is
