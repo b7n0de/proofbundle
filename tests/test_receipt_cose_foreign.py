@@ -26,7 +26,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 VECTORS = json.loads((REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.json").read_text(encoding="utf-8"))
 STATEMENTS = {v["id"]: bytes.fromhex(v["statement_hex"]) for v in VECTORS["forward"] if "statement_hex" in v}
-STATEMENTS["F2_changed_signature"] = STATEMENTS["F2"][:-1] + bytes([STATEMENTS["F2"][-1] ^ 1])
+#: The forward direction writes -19 only (owner choice B, 2026-10-04); the -8 statement is the read vector B2.
+STATEMENTS["B2"] = bytes.fromhex(next(v for v in VECTORS["backward"] if v["id"] == "B2")["statement_hex"])
+STATEMENTS["B2_changed_signature"] = STATEMENTS["B2"][:-1] + bytes([STATEMENTS["B2"][-1] ^ 1])
 ISSUER_KEY = bytes.fromhex(VECTORS["keys_hex"]["issuer"])
 SPKI_HEX = "302a300506032b6570032100" + ISSUER_KEY.hex()
 _ENV = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
@@ -57,9 +59,9 @@ def _tool(name: str) -> str:
 
 
 @pytest.mark.parametrize("vector, expected", [
-    ("F2", "verify_signature=True"),
+    ("B2", "verify_signature=True"),
     ("F1", "DECODE_ERROR CoseException Unknown COSE attribute with value: [CoseAlgorithm - -19]"),
-    ("F2_changed_signature", "verify_signature=False"),
+    ("B2_changed_signature", "verify_signature=False"),
 ])
 def test_pycose(vector, expected):
     python = _tool("PROOFBUNDLE_FOREIGN_PYCOSE_PYTHON")
@@ -72,10 +74,10 @@ def test_pycose(vector, expected):
 
 
 @pytest.mark.parametrize("vector, code, expected", [
-    ("F2", 0, "VERIFIED alg=-8 (EdDSA)"),
+    ("B2", 0, "VERIFIED alg=-8 (EdDSA)"),
     ("F1", 3, "VERIFIER_ERROR alg=-19 can't create new Verifier for Algorithm(-19): unknown algorithm: "
               "algorithm not supported"),
-    ("F2_changed_signature", 1, "VERIFY_FAIL alg=-8 verification error"),
+    ("B2_changed_signature", 1, "VERIFY_FAIL alg=-8 verification error"),
 ])
 def test_go_cose(vector, code, expected, tmp_path):
     program = _tool("PROOFBUNDLE_FOREIGN_GOCOSE")
@@ -85,7 +87,7 @@ def test_go_cose(vector, code, expected, tmp_path):
     assert (out.returncode, out.stdout.strip()) == (code, expected), out.stderr
 
 
-@pytest.mark.parametrize("vector, algorithm", [("F1", "alg(-19)"), ("F2", "EdDSA")])
+@pytest.mark.parametrize("vector, algorithm", [("F1", "alg(-19)"), ("B2", "EdDSA")])
 def test_scitt_verifier(vector, algorithm, tmp_path):
     program = _tool("PROOFBUNDLE_FOREIGN_SCITT_VERIFIER")
     keys = _tool("PROOFBUNDLE_FOREIGN_SCITT_KEYS")
