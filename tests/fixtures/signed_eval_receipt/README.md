@@ -3,9 +3,11 @@
 The test vectors of draft-gruszka-signed-evaluation-receipts-00 (Signed Evaluation Receipts),
 Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
 
-- 61 vectors: 8 that verify (P1, P2, P4, P6 to P10) and 53 that do not (N1 to N58 without N8,
+- 62 vectors: 9 that verify (P1, P2, P4, P6 to P11) and 53 that do not (N1 to N58 without N8,
   N27 to N29 and N47), each with the expected verdict and the first failing step of the draft's
-  Section 5. The receipt has no inclusion member since 2026-10-03; the seven vectors that only
+  Section 5. P11 (since 2026-10-07) verifies under a mixed-order test key, the issuer test key's
+  public point plus a point of order 8, so a verifier that adds the prime-order subgroup check the
+  draft's Section 4.4 forbids fails it; the key has no seed and is a pure test key. The receipt has no inclusion member since 2026-10-03; the seven vectors that only
   exercised the inclusion proof (P3, P5, N8, N27, N28, N29, N47) are gone and their identifiers
   are not reused. Since 2026-10-07 the receipt type is `application/eval-receipt+json` and the
   payload schema `urn:ietf:params:eval-receipt:v1`; both enter B or the signature, so every B,

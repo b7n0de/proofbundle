@@ -1,6 +1,6 @@
 {
  "source": "draft-gruszka-signed-evaluation-receipts-00, Appendix A",
- "source_vectors_json_sha256": "9e352683615ce139b9b4a855bbd5e5ddff66594813361b009ce198da66158438",
+ "source_vectors_json_sha256": "e76ea4b313b3aed42b1a61966ea67615a812ad362e82003a59110d37aa74d610",
  "notice": "PURE TEST KEYS AND SALTS. They MUST NOT be used for any real receipt.",
  "issuer_seed_hex": "2365520410748de8778b544410b15792fcf174e0fba4806a8c1afbdbb0946b07",
  "issuer_public_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
@@ -605,6 +605,14 @@
    "key_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
    "receipt_sha256": "d94d607d0a6c22a5b2ee786586fbe34fc352ea7eacb744a7bf80588a051e3720",
    "receipt_text": "{\"payload_b64\":\"@B34@\",\"schema\":\"application/eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=\",\"sig\":\"qWJmoUQ5e2qEjTZxwqH0gzpoFy7smu11w9l8odAAcwqjuG/l6Hkf46dSod3/L3EiAGK9ue6INqIoCG2vdTtxCQ==\"}}"
+  },
+  {
+   "id": "P11",
+   "expected": "PASS",
+   "step": "all",
+   "key_b64": "JBz17qgxoLE067Bf5k3hKZ6Pfmfx/iD8IEaped1NGoM=",
+   "receipt_sha256": "ee5008dbca2b318195c0e11b451e570ad77672c23fb624a0219f12c43873053c",
+   "receipt_text": "{\"payload_b64\":\"@B1@\",\"schema\":\"application/eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"JBz17qgxoLE067Bf5k3hKZ6Pfmfx/iD8IEaped1NGoM=\",\"sig\":\"qtNNSNdAFZL0In3ZrYUKHds68AwBVx44YGYNDYTpB4igmJw3RQkSMe2UFwvCSSSeAlXWahFJvXlv3L1Q5x9VAQ==\"}}"
   }
  ]
 }
