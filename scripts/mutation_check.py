@@ -108,25 +108,29 @@ MUTATIONS = [
     # Gefangen werden sie jetzt von OriginVergleichIstExakt in
     # tests/test_verify_proof_expected_origin.py; diese zwei Operatoren halten fest, DASS sie es
     # tun -- ein Korpus ohne Mutant ist eine Behauptung ueber sich selbst.
+    # 2026-09-29: the target follows today's source (the pin is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/tlogproof.py",
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).startswith(str(expected_origin)))',
+     'log_res["origin"] == _zeichen_von(expected_origin))',
+     'str(log_res["origin"]).startswith(str(_zeichen_von(expected_origin))))',
      "tlogproof: origin equality -> startswith (a prefix would pass)", True),
+    # 2026-09-29: the target follows today's source (the pin is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/tlogproof.py",
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or str(log_res["origin"]).casefold() == str(expected_origin).casefold())',
+     'log_res["origin"] == _zeichen_von(expected_origin))',
+     'str(log_res["origin"]).casefold() == str(_zeichen_von(expected_origin)).casefold())',
      "tlogproof: origin comparison becomes case-insensitive", True),
     # DREI OPERATOREN, die eine Gegenlesung als fehlend GEMESSEN hat. Der Befund war nicht "der
     # Defekt kommt durch" — er kommt nicht durch —, sondern: fuenf Klassen haengen an EINER
     # Testdatei, und faellt sie je weg, meldet das Mutations-Tor still gruen statt SURVIVED. Ein
     # Operator ist die Anti-Goodhart-Ebene: er merkt, wenn das Korpus schrumpft.
+    # 2026-09-29: the target follows today's source (the pin is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/tlogproof.py",
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or __import__("unicodedata").normalize("NFC", str(log_res["origin"])) == __import__("unicodedata").normalize("NFC", str(expected_origin)))',
+     'log_res["origin"] == _zeichen_von(expected_origin))',
+     '__import__("unicodedata").normalize("NFC", str(log_res["origin"])) == __import__("unicodedata").normalize("NFC", str(_zeichen_von(expected_origin))))',
      "tlogproof: origin comparison normalises canonically (NFC) — a decomposed name would pass", True),
+    # 2026-09-29: the target follows today's source (the pin is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/tlogproof.py",
-     'log_ok = bool(log_res["ok"]) and (expected_origin is None or log_res["origin"] == expected_origin)',
-     'log_ok = bool(log_res["ok"]) and (not expected_origin or log_res["origin"] == expected_origin)',
+     'log_ok = bool(log_res["ok"]) and (expected_origin is None\n',
+     'log_ok = bool(log_res["ok"]) and (not expected_origin\n',
      "tlogproof: absent collapses into empty — an empty expectation would skip the check", True),
     ("src/proofbundle/cli.py",
      'f"log-signature: {_safe_line(str(res[\'origin\']))}{origin_note}")',
@@ -135,8 +139,9 @@ MUTATIONS = [
     ("src/proofbundle/checkpoint.py",
      "_MLDSA_LABEL = b\"subtree/v1\\n\\x00\"", "_MLDSA_LABEL = b\"subtree/v2\\n\\x00\"",
      "mldsa: domain separation label changed", True),
+    # 2026-09-29: the target follows today's source (the expected URI is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/statuslist.py",
-     'if payload.get("sub") != expected_uri:', "if False:",
+     'if (expected_uri is not None and _uri is None) or payload.get("sub") != _uri:', "if False:",
      "statuslist: sub/uri binding disabled", True),
     ("src/proofbundle/statuslist.py",
      "return (bit_array[byte_i] >> (slot * bits)) & ((1 << bits) - 1)",
@@ -147,7 +152,7 @@ MUTATIONS = [
      'if require_verified:', 'if False:',
      "hf: broken-receipt guard disabled", True),
     ("src/proofbundle/hf_evals.py",
-     'return verify_bundle(bundle), bundle',
+     'return verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin), bundle',
      'from .errors import VerificationResult as _VR; r=_VR(); r.add("x", True, ""); return r, bundle',
      "hf: token verify returns fake OK", True),
     ("src/proofbundle/adapters/promptfoo.py",
@@ -189,8 +194,9 @@ MUTATIONS = [
      " or not isinstance(s_n, int) or s_n != n:",
      " or not isinstance(s_n, int) or False:",
      "decode: verify-side samples.n==n binding removed", True),
+    # 2026-09-29: the target follows today's source (the expected context is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/evalclaim.py",
-     "if expected_context is not None and claim.get(\"context_binding\") != expected_context:",
+     "if erwartet is None or claim.get(\"context_binding\") != erwartet:",
      "if False:",
      "decode: context_binding enforcement removed", True),
     ("src/proofbundle/statuslist.py",
@@ -204,13 +210,15 @@ MUTATIONS = [
      "if cmp_ok != bool(claim[\"passed\"]):", "if False:",
      "hf: value-vs-verdict consistency check removed", True),
     # v1.9 — public beacon audit binding
+    # 2026-09-29: the target follows today's source (pulse and round are read once by `_beacon_once` since lens run 8); the verdict is unchanged.
     ("src/proofbundle/beacon.py",
-     "+ round_.to_bytes(8, \"big\") + bytes(pulse_randomness)).digest()",
-     "+ bytes(pulse_randomness)).digest()",
+     "+ rnd.to_bytes(8, \"big\") + pulse).digest()",
+     "+ pulse).digest()",
      "beacon: round no longer bound into the nonce", True),
     # v1.9.1 — status-list self-issued trust-anchor separation
+    # 2026-09-29: the target follows today's source (both keys are read by the bytes they store since round 12); the verdict is unchanged.
     ("src/proofbundle/statuslist.py",
-     "_hmac.compare_digest(bytes(issuer_pubkey),", "_hmac.compare_digest(b\"\", ",
+     "_hmac.compare_digest(_a, _b)", "_hmac.compare_digest(b\"\", _b)",
      "statuslist: self_issued compare defeated", True),
     # v2.0 preview — TEE-attestation binding
     ("src/proofbundle/experimental/enclave.py",
@@ -280,8 +288,9 @@ MUTATIONS = [
      "bundle: WP-C1 SD-JWT issuer-identity bind disabled (forged identity)", True),
     # WP-C1 — cross-receipt credential substitution: the SD-JWT's always-open claims + root must match
     # THIS bundle; disabling the field comparison lets a lifted receipt bind to a foreign bundle.
+    # 2026-09-29: the target follows today's source (the claim is read once into `gelesen`); the verdict is unchanged.
     ("src/proofbundle/sdjwt_issue.py",
-     "if field not in claim or p.get(field) != claim.get(field):", "if False:",
+     "if field not in gelesen or p.get(field) != gelesen.get(field):", "if False:",
      "sdjwt_issue: WP-C1 bundle-binding field comparison disabled (cross-receipt substitution)", True),
     # WP-A1 — external time-anchor trust comes from the relying party; a self-frozen anchor with no RP
     # trust material must stay ok=False (needs_rp_trust). Re-enabling own-frozen self-trust must go red.
@@ -307,10 +316,15 @@ MUTATIONS = [
      '    return isinstance(result, dict) and is_member(dict.get(result, "status"), _BINDING_HELD)',
      '    return isinstance(result, dict) and not is_member(dict.get(result, "status"), _BINDING_NOT_HELD)',
      "anchors_ots: binding read by a list of refusals again (an unknown status reads as bound)", True),
+    # Documented-equivalent mutant since the reading at the call (the fix of the gate at d388ed3d): the public
+    # `ots_binding_held` reads its argument at its call, so a dict subclass reaches this line as a plain dict, and the
+    # package's own callers pass the plain dicts of `verify_opentimestamps`; the object's own `get` is then `dict.get`.
+    # It survived at fda55f98 against the "Killed by" above (deep gate run 6, L6b-620v6-T9-OP56-EQUIVALENT-01) and
+    # must keep SURVIVING; the reading itself is held by tests/test_a_verifier_reads_a_callers_value_once.py.
     ("src/proofbundle/anchors_ots.py",
      'is_member(dict.get(result, "status"), _BINDING_HELD)',
      'is_member(result.get("status"), _BINDING_HELD)',
-     "anchors_ots: binding read through the object's own get (a dict subclass names the status)", True),
+     "anchors_ots: binding read through the object's own get (a dict subclass names the status)", False),
     ("src/proofbundle/anchors_rfc3161.py",
      '"ok": False, "status": "needs_rp_trust"',
      '"ok": True, "status": "needs_rp_trust"',
@@ -323,8 +337,9 @@ MUTATIONS = [
     # Artefakt genau eine gueltige Drahtform hat; der Operator nannte weiter den alten Wortlaut
     # und war damit STALE (`GAP [...] pattern not found`, CI-Lauf 34383833738, Job mutation (6)).
     # Ersatz mitgezogen, Verdikt unveraendert: der Vergleich faellt ganz weg, jeder Digest gilt.
+    # 2026-09-29: the target follows today's source (`type()` instead of `isinstance` since round 12); the verdict is unchanged.
     ("src/proofbundle/hashalg.py",
-     "        match = isinstance(expected, str) and actual == expected",
+     "        match = type(expected) is str and actual == expected",
      "        match = True",
      "hashalg: B2 dual-hash digest comparison disabled (forged bytes verify)", True),
     # B2 — a deprecated hash must never resolve by default (algorithm-confusion / RFC 7696).
@@ -392,8 +407,9 @@ MUTATIONS = [
     # signature.verify_ecdsa_p256 fail-open: dropping the real cryptographic verify call while still
     # returning True would let ANY wrong key/tampered message/tampered signature "verify" — killed by
     # tests/test_signature.py's TestVerifyEcdsaP256 (wrong key / tampered message / tampered signature).
+    # 2026-09-29: the target follows today's source (each input is read once as plain bytes since round 12); the verdict is unchanged.
     ("src/proofbundle/signature.py",
-     "        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))\n        return True",
+     "        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))\n        return True",
      "        return True",
      "signature: ES256 verify_ecdsa_p256 crypto check bypassed (fail-open)", True),
     # SPIEGELBILD FUER Ed25519, und es fehlte — obwohl das der HAUPTPFAD ist. Ein Gate-Meta-Test hat
@@ -401,8 +417,9 @@ MUTATIONS = [
     # dsse/checkpoint/decision/conformance rot werden, waehrend die Anti-Goodhart-Ebene fuer genau
     # diesen Pfad keinen Operator hatte. Die Testebene war also stark und der Waechter DARUEBER
     # blind: schruempfte das Korpus je, meldete das Tor still gruen statt SURVIVED.
+    # 2026-09-29: the target follows today's source (each input is read once as plain bytes since round 12); the verdict is unchanged.
     ("src/proofbundle/signature.py",
-     "        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))\n        return True",
+     "        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, message)\n        return True",
      "        return True",
      "signature: EdDSA verify_ed25519 crypto check bypassed (fail-open)", True),
     # THE TRUST-ANCHOR RULE ITSELF (deep gate Z195, SPEC 4b). Without it in `verify_ed25519_pinned`,
@@ -411,10 +428,10 @@ MUTATIONS = [
     # message in the key's order under the other points. Killed by
     # tests/test_trust_anchor_keys_refused_on_every_surface.py (TheRule and each surface class);
     # without this operator the gate would not see those tests shrink.
+    # 2026-09-29: the target follows today's source (the key is read once and a key that is no bytes is refused first; only the rule is dropped); the verdict is unchanged.
     ("src/proofbundle/signature.py",
-     "    if ed25519_trust_anchor_weakness(public_key) is not None:\n        return False\n"
-     "    return verify_ed25519(public_key, signature, message)",
-     "    return verify_ed25519(public_key, signature, message)",
+     "    if public_key is None or ed25519_trust_anchor_weakness(public_key) is not None:\n        return False\n",
+     "    if public_key is None:\n        return False\n",
      "signature: trust-anchor rule dropped from verify_ed25519_pinned (low-order keys verify again)", True),
     # THE REASON FROM THE ONE TABLE (run 2, iteration 3, R2I3B-01): every surface reads
     # `TRUST_ANCHOR_REFUSAL`, so every surface case would have carried a wrong text along. Killed by
@@ -450,8 +467,9 @@ MUTATIONS = [
     # C3: disabling the executor==receiver distinctness check lets an executor self-corroborate its own
     # outcome up to INDEPENDENTLY_ATTESTED — killed by test_outcome_receiver_corroboration.py's
     # test_receiver_ref_that_is_the_executor_is_not_independent.
+    # 2026-09-29: the target follows today's source (`type()` instead of `isinstance`); the verdict is unchanged.
     ("src/proofbundle/assurance.py",
-     "    if not isinstance(executor_key_id, str) or not isinstance(receiver_key_id, str) or receiver_key_id == executor_key_id:",
+     "    if type(executor_key_id) is not str or type(receiver_key_id) is not str or receiver_key_id == executor_key_id:",
      "    if False:",
      "assurance: C3 receiver-independence distinctness check disabled (self-corroboration / omitted-keyId / non-str-keyId reaches INDEPENDENTLY_ATTESTED)", True),
     # Refuter round 2 — dsse payload pre-decode DoS cap: removing it lets an oversized base64 payload be
@@ -505,19 +523,20 @@ MUTATIONS = [
     # (ii) pinned-set membership ignored (successor always authorized): killed by the same test +
     #      the Hypothesis membership property.
     ("src/proofbundle/relation.py",
-     "            if not any(_keys_equal(successor_key_b64, k) for k in keys):",
+     "            if not _signer_bound or not any(_keys_equal(successor_key_b64, k) for k in keys):",
      "            if False:",
      "relation_signer: pinned-set membership ignored (never unauthorized)", True),
     # (iii) same-key verified_under binding removed (cross-issuer sneaks past same-key): killed by
     #       test_same_key_cross_issuer_rejected / verified-under-not-claim vector.
     ("src/proofbundle/relation.py",
-     "if vu is None or not _keys_equal(successor_key_b64, vu):",
+     "if not _signer_bound or vu is None or not _keys_equal(successor_key_b64, vu):",
      "if False:",
      "relation_signer: same-key verified_under binding removed", True),
     # (iv) require_relation_target equality check disabled (the DECOY parent slips through): killed by
     #      test_decoy_parent_fails_closed / decoy-parent conformance vectors.
+    # 2026-09-29: the target follows today's source (`type()` instead of `isinstance` since round 12); the verdict is unchanged.
     ("src/proofbundle/relation.py",
-     "        if not (isinstance(_td, str) and _td in set(allowed)):",
+     "        if not (type(_td) is str and _td in set(allowed)):",
      "        if False:",
      "require_relation_target: parent equality check disabled (decoy parent passes)", True),
     # (v) targetSubjectDigest gegenpruefung inverted (O2 no longer catches a lying subject): killed by
@@ -554,8 +573,9 @@ MUTATIONS = [
     # tests/test_never_raise_surface_family_property.py::test_round5_nested_config_subfield_regression
     # (R7-1/R7-2/R7-3 pins). Generator-hardening: a future rewrite that drops one goes red HERE.
     # R7-1 — verify_relationship_edges subject_hex non-str coercion (unhashable {subject_hex} seed).
+    # 2026-09-29: the target follows today's source (a `str` subclass is read by its characters since round 12); the verdict is unchanged.
     ("src/proofbundle/relation.py",
-     "    subject_hex = subject_hex if isinstance(subject_hex, str) else None",
+     "    subject_hex = _zeichen_von(subject_hex)",
      "    subject_hex = subject_hex",
      "relation: R7-1 subject_hex non-str coercion disabled (unhashable cycle-seed crash)", True),
     # R7-2 — evaluate_relations_policy non-dict edges-element filter (three sinks: relation/signer/target).
@@ -564,21 +584,29 @@ MUTATIONS = [
      "    edges = list(edges)",
      "relation: R7-2 non-dict edges-element filter disabled (e.get crash on all three sinks)", True),
     # R7-3 — _authenticate_trusted_checkpoint non-dict entry guard (entry.get before its own try/except).
+    # 2026-09-29: drawn onto the live guard. Since pull request 313, evaluate_policy applies the loader's
+    # rule before it evaluates (policy.py, `_abgelehnt_vom_loader`), so a non-dict entry is refused in
+    # `_validate_checkpoint_entry` and never reaches the guard in `_authenticate_trusted_checkpoint`; the
+    # operator on that guard survived the whole suite. The label stays, since the shard weights are keyed
+    # by it. Measured on d97de8e5: this mutant goes red on the test files that reach policy.py (a non-dict
+    # entry reaches the key check and raises TypeError), and the old guard does not catch it.
     ("src/proofbundle/policy.py",
-     "    if not isinstance(entry, dict):\n        return False, \"trusted checkpoint entry not an object\"",
-     "    if False:\n        return False, \"trusted checkpoint entry not an object\"",
+     "    entry = _require_dict(entry, where)\n    _reject_unknown(entry, _CHECKPOINT_KEYS, where)",
+     "    _reject_unknown(entry, _CHECKPOINT_KEYS, where)",
      "policy: R7-3 non-dict trusted_checkpoint entry guard disabled (entry.get crash)", True),
     # R7-2b (adversarial re-audit siblings, iter 1 -> 2) — three more evaluate_relations_policy sinks.
     ("src/proofbundle/relation.py",
      "    lineage_result = lineage_result if isinstance(lineage_result, dict) else {}",
      "    lineage_result = lineage_result",
      "relation: R7-2b non-dict lineage_result coercion disabled (reject_superseded .get crash)", True),
+    # 2026-09-29: the target follows today's source (`type()` instead of `isinstance` since round 12); the verdict is unchanged.
     ("src/proofbundle/relation.py",
-     "        rule = signer.get(_rel) if isinstance(_rel, str) else None",
+     "        rule = signer.get(_rel) if type(_rel) is str else None",
      "        rule = signer.get(_rel)",
      "relation: R7-2b unhashable relation signer-lookup guard disabled (dict-key TypeError)", True),
+    # 2026-09-29: the target follows today's source (`type()` instead of `isinstance` since round 12); the verdict is unchanged.
     ("src/proofbundle/relation.py",
-     "        pinned = target_pin.get(_rel) if isinstance(_rel, str) else None",
+     "        pinned = target_pin.get(_rel) if type(_rel) is str else None",
      "        pinned = target_pin.get(_rel)",
      "relation: R7-2b unhashable relation target-lookup guard disabled (dict-key TypeError)", True),
 
@@ -623,9 +651,16 @@ MUTATIONS = [
      "    _arbeit = len(flat) * max(1, len(data_digests)) * max(1, len(_start_algs))",
      "    _arbeit = len(flat) * max(1, len(data_digests))",
      "renewal: Faktor fuer Kettenanfangsalgorithmen aus dem Produkt entfernt", True),
+    # 2026-09-29: both sites, as for the two cycle checks of relation.py. Pull request 312 put the same
+    # budget check before the copy of data_digests, so the later one can no longer decide, and the
+    # operator on the later site alone survived the whole suite. Disabling only the earlier site leaves the
+    # later one deciding and survives too (measured on d97de8e5). With both disabled,
+    # tests/test_budget.py::TestBudgetLimitsUntrustedCollections::test_data_digests_count_capped goes red.
     ("src/proofbundle/renewal.py",
-     '    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
-     '    if False and not DEFAULT_BUDGET.within("data_digests", len(data_digests)):',
+     ('    if not _BUDGET.within("data_digests", _gespeichert):',
+      '    if not DEFAULT_BUDGET.within("data_digests", len(data_digests)):'),
+     ('    if False and not _BUDGET.within("data_digests", _gespeichert):',
+      '    if False and not DEFAULT_BUDGET.within("data_digests", len(data_digests)):'),
      "renewal: data_digests-Pruefung VOR der Deckungsarbeit abgeschaltet", True),
 
     # D2-3 · die Evidenzcommit-Relation. Ohne die Pfadeinschraenkung genuegt ein beliebiger Nachfahr.
@@ -702,6 +737,10 @@ _AUSSCHLUSS_JE_MUTANTE: dict[str, str] = {
         "(the matrix cannot read the tree without git). In the git-backed work tree all fourteen "
         "pass and take 876 s under load (measured the same day), and a verdict about the whole tree "
         "says nothing about one mutated line."),
+    "test_every_mutation_operator_names_one_site": (
+        "A check about this list, not about a mutant: it counts each operator's text in today's source. "
+        "Under a mutant the operator's text is gone from the mutated file, so it fails for every operator "
+        "and would read as the killer of each (added 2026-09-29, pull request 311)."),
 }
 
 # Der Lauf je Mutante als Programm.

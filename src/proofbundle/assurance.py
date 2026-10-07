@@ -20,12 +20,13 @@ import re
 from typing import Any, Callable, Optional, TypeGuard, Union
 
 from ._membership import require_switch, stored_str_items
-from .canonical import _pruefkopie
+from .canonical import _draussen, _ein_stand, _pruefkopie, _stand
 
 __all__ = [
     "EvidenceLevel", "EVIDENCE_LEVEL_NAMES", "classify_digest_evidence",
     "classify_receiver_corroboration",
     "evidence_ladder_summary", "evidence_ladder_best", "EFFECT_OBSERVED_NOT_IMPLEMENTED",
+    "INDEPENDENTLY_ATTESTED_NOT_VERIFIED",
 ]
 
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
@@ -64,9 +65,22 @@ EVIDENCE_LEVEL_NAMES: tuple[str, ...] = tuple(level.name for level in EvidenceLe
 # sign anything — real-world side-channel monitoring is ecosystem adoption outside this repo).
 EFFECT_OBSERVED_NOT_IMPLEMENTED = (
     "EvidenceLevel.EFFECT_OBSERVED is not reachable by any verify_* path in this repo (Finding 16's "
-    "self-fixable receiver-corroboration part now reaches INDEPENDENTLY_ATTESTED; EFFECT_OBSERVED itself "
-    "still needs a real-world effect-observation channel, which is an inherent, not-yet-built limit outside "
-    "proofbundle's own control) — TODO, tracked, not silently absent."
+    "receiver corroboration is capped at CONTENT_RESOLVED, see INDEPENDENTLY_ATTESTED_NOT_VERIFIED; "
+    "EFFECT_OBSERVED itself still needs a real-world effect-observation channel, which is an inherent, "
+    "not-yet-built limit outside proofbundle's own control) — TODO, tracked, not silently absent."
+)
+# N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309): INDEPENDENTLY_ATTESTED is not reachable
+# by any verify_* path in 6.2.0. The library does not itself verify the referenced receiver statement — it
+# never fetches the statement for the receiverRef digest, checks that the bytes hash to it, or verifies a
+# signature under the key a caller resolver returned — so a resolver answer (a bare True or 32 bytes) cannot
+# establish independent attestation. The level stays in the enum but is honestly unreachable, like
+# EFFECT_OBSERVED; the verified path (statement bytes + digest + signature) comes with the unified anchor check
+# after the tag.
+INDEPENDENTLY_ATTESTED_NOT_VERIFIED = (
+    "(INDEPENDENTLY_ATTESTED is not reachable in 6.2.0: the library does not verify the referenced receiver "
+    "statement — it neither fetches the statement for the receiverRef digest nor checks a signature under the "
+    "resolver-returned key — so a resolver answer cannot attest independence; receiver corroboration is capped "
+    "at CONTENT_RESOLVED, N47)"
 )
 
 
@@ -113,11 +127,18 @@ def _is_key_material(value: Any) -> TypeGuard[Union[bytes, bytearray]]:
     return type(value) is bytes or type(value) is bytearray
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"})
 def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
                              evidence_resolver: Optional[Callable[[Any], bool]] = None) -> dict:
     """Classify ONE digest-bound field (e.g. an ``effectDigest``, a ``decisionRef``, one
     ``evidenceRefs[]`` entry) onto the :class:`EvidenceLevel` ladder. Never raises; a malformed input
     classifies as ``CLAIMED``, it never crashes the caller.
+
+    ONE REFUSAL COMES BEFORE THIS BODY (deep gate run 6 at fda55f98): a digest object that is a dict holding a
+    key whose hash would be the caller's code, or keys that meet as one, cannot be copied by the reading at the
+    call (`canonical._ein_stand`), and the call is refused with `canonical._StandUnkopierbar`, a
+    ``ProofBundleError``, before anything is classified; parsed JSON cannot build such an object. Until then
+    such a key was left unread and the object classified as ``CLAIMED``.
 
     ``applicable=False`` (e.g. ``status != 'executed'``) -> ``level=None`` (not applicable, mirrors the
     existing ``*_proven=None`` convention: a non-applicable claim is not a WEAK claim, it is not a claim
@@ -126,7 +147,7 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     read by its truth, so ``applicable=None``, ``0``, ``""`` or ``[]`` made a field not applicable, and
     :func:`evidence_ladder_summary`, which ignores such a field, rose above the weakest real link
     (measured at 3a8074fc: CLAIMED and CONTENT_RESOLVED summarised to CONTENT_RESOLVED). The digest
-    object and the resolver still never make this function raise; the switch is the caller's own
+    object and the resolver never make this function raise past that one refusal; the switch is the caller's own
     argument, not the evidence under classification.
 
     ``evidence_resolver``, when supplied, is called with ``digest_obj`` and must return True iff the
@@ -158,7 +179,11 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     detail = "a well-formed sha256 digest object is present (attacker-choosable content, not content-checked)"
     if evidence_resolver is not None:
         try:
-            answer = evidence_resolver(digest_obj)
+            # The answer is the caller's value too, read as one state (verify lane V2 on 6d674973), and the resolver
+            # runs as the caller's code (`canonical._draussen`).
+            with _draussen():
+                answer = evidence_resolver(digest_obj)
+            answer = _stand(answer)
         except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
             answer = False
         # The contract is a bool, so only the exact True promotes. bool(answer) would promote on 1, "true",
@@ -173,6 +198,7 @@ def classify_digest_evidence(digest_obj: Any, *, applicable: bool = True,
     return {"level": level, "level_name": level.name, "detail": detail}
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "independent_attestation_resolver": "rueckruf"})
 def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     evidence_resolver: Optional[Callable[[Any], bool]] = None,
                                     independent_attestation_resolver: Optional[Callable[[Any], bool]] = None,
@@ -180,14 +206,20 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                                     receiver_key_id: Optional[str] = None,
                                     expected_receiver_public_key: Optional[bytes] = None,
                                     ) -> dict:
-    """Classify a receiver/observer corroboration ref (Finding 16, additive) ONE STEP BEYOND
-    :func:`classify_digest_evidence` — reaches ``EvidenceLevel.INDEPENDENTLY_ATTESTED`` when
-    ``independent_attestation_resolver`` confirms the referenced content is ITSELF a validly-signed
-    statement from a party DISTINCT from the original claimant (e.g. a receiver's or observer's own
-    DSSE-signed acknowledgement of an Action Outcome) — never merely a resolved digest, which is
-    :func:`classify_digest_evidence`'s own documented ceiling (its docstring: "RECEIPT_CRYPTO_VERIFIED /
-    POLICY_AUTHORIZED / INDEPENDENTLY_ATTESTED are each a STRONGER claim this classifier does not itself
-    verify").
+    """Classify a receiver/observer corroboration ref (Finding 16, additive). In 6.2.0 this classifier is
+    CAPPED at ``EvidenceLevel.CONTENT_RESOLVED`` and does NOT reach ``EvidenceLevel.INDEPENDENTLY_ATTESTED``
+    from a resolver answer (N47): a caller
+    ``independent_attestation_resolver`` answer — a bare ``True`` or 32 bytes of key material — confers no
+    independent attestation, because the library does not itself verify the referenced receiver statement (it
+    never fetches the statement for the digest, checks the bytes hash to it, or checks a signature under the
+    resolver-returned key). ``INDEPENDENTLY_ATTESTED`` stays in the enum but is honestly unreachable here, like
+    ``EFFECT_OBSERVED`` (see ``INDEPENDENTLY_ATTESTED_NOT_VERIFIED`` / ``EFFECT_OBSERVED_NOT_IMPLEMENTED``); the
+    verified path (statement bytes + digest + signature) comes with the unified anchor check after the tag. It
+    would classify ONE STEP BEYOND :func:`classify_digest_evidence` (whose own documented ceiling is a resolved
+    digest: "RECEIPT_CRYPTO_VERIFIED / POLICY_AUTHORIZED / INDEPENDENTLY_ATTESTED are each a STRONGER claim this
+    classifier does not itself verify"), and the gates BELOW (provable key-id distinctness, key binding) are the
+    structural pre-conditions an eventual verified path will also require — but on their own, in 6.2.0, they never
+    promote: even an answer that passes every gate is kept at the content-resolved base with a named reason.
 
     The three-tier informal ladder a caller might reach for here — SELF_ASSERTED / DIGEST_REFERENCED /
     RECEIVER_CORROBORATED — maps onto this module's EXISTING orderable :class:`EvidenceLevel` rather than
@@ -195,7 +227,9 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     INDEPENDENTLY_ATTESTED ≈ RECEIVER_CORROBORATED — "a THIRD PARTY attests the same content" is exactly
     what a receiver/observer corroboration IS).
 
-    Never raises on the digest, the resolvers or the key material: a raising
+    Never raises on the digest, the resolvers or the key material, past the one refusal at the call that
+    :func:`classify_digest_evidence` names (a digest object holding a key whose hash would be the caller's code):
+    a raising
     ``independent_attestation_resolver`` is fail-closed (treated as False, the base
     ``classify_digest_evidence`` level is kept — never silently promoted, mirrors the existing
     ``evidence_resolver`` contract). ``applicable`` is a switch and must be a bool; anything else raises
@@ -213,8 +247,9 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
 
     STRUCTURAL independence (crypto-review, 2026-07-15): "INDEPENDENTLY_ATTESTED" means the corroborating
     statement is from a party DISTINCT from the executor/claimant. proofbundle asserts this only when it can
-    PROVE it: a receiver reaches INDEPENDENTLY_ATTESTED ONLY IF BOTH ``executor_key_id`` AND
-    ``receiver_key_id`` are present AND they differ. An ABSENT ``executor_key_id`` blocks promotion just as
+    PROVE it: distinctness is a NECESSARY pre-condition for any independence claim (in 6.2.0 never sufficient —
+    the N47 cap above keeps the result at the content-resolved base regardless): both ``executor_key_id`` AND
+    ``receiver_key_id`` must be present AND differ. An ABSENT ``executor_key_id`` blocks promotion just as
     an absent/equal receiver key id does — the executor authors and signs its own outcome predicate and
     ``executor.keyId`` is schema-optional, so a one-sided check (fire only when executor_key_id is supplied)
     would be trivially evaded by simply omitting one's own keyId. Without knowing BOTH parties' key ids
@@ -264,7 +299,11 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
     # cannot bind a label to a key, so with an expectation in hand it earns no promotion — the base level
     # is kept and the detail says why. Without an expectation the contract is unchanged (additive).
     try:
-        res = independent_attestation_resolver(digest_obj)
+        # The answer is the caller's value too: a key in a `bytearray` is judged, measured and compared below in one
+        # state of it (verify lane V2 on 6d674973). The resolver runs as the caller's code (`canonical._draussen`).
+        with _draussen():
+            res = independent_attestation_resolver(digest_obj)
+        res = _stand(res)
     except Exception:  # noqa: BLE001 - fail-closed: a raising resolver proves nothing
         res = False
     # Key material only as a plain bytes/bytearray object (_is_key_material): an object whose __class__ says
@@ -300,10 +339,15 @@ def classify_receiver_corroboration(digest_obj: Any, *, applicable: bool = True,
                     "bool; only the exact True promotes)"}
     if not attested:
         return base
-    return {"level": EvidenceLevel.INDEPENDENTLY_ATTESTED,
-            "level_name": EvidenceLevel.INDEPENDENTLY_ATTESTED.name,
-            "detail": "the referenced content is itself a validly-signed statement from a party distinct "
-                      "from the original claimant (receiver/observer corroboration)"}
+    # N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309): even an answer that would have
+    # attested does NOT promote. The library does not itself verify the referenced receiver statement — it
+    # never fetches the statement for the receiverRef digest, checks that the bytes hash to it, or verifies a
+    # signature under the key the resolver returned — so a caller resolver that merely returns True or 32 bytes
+    # cannot establish independent attestation. The content-resolved base is kept, with a named reason.
+    # INDEPENDENTLY_ATTESTED stays in the enum but is honestly unreachable here, like EFFECT_OBSERVED
+    # (EFFECT_OBSERVED_NOT_IMPLEMENTED); the verified path (statement bytes + digest + signature) comes with
+    # the unified anchor check after the tag.
+    return {**base, "detail": base["detail"] + " " + INDEPENDENTLY_ATTESTED_NOT_VERIFIED}
 
 
 def _has_level(field: Any) -> bool:
@@ -350,13 +394,15 @@ def _pick(field: dict) -> dict:
     return {"level": stored.get("level"), "level_name": stored.get("level_name")}
 
 
+@_ein_stand
 def evidence_ladder_summary(*fields: dict) -> dict:
     """Roll several :func:`classify_digest_evidence` results into ONE summary using AND semantics: a chain
     of evidence is only as strong as its WEAKEST applicable link (e.g. ``decision.py``'s
     ``evidenceRefs[]`` — ``evidence_bound`` is only meaningful when EVERY ref is bound). Non-applicable
     (``level=None``) fields are ignored, never silently counted as CLAIMED. When no field is applicable,
     returns ``level=None`` (mirrors the existing ``evidence_bound=None`` "nothing to bind" convention —
-    never a vacuous strong verdict over an empty set)."""
+    never a vacuous strong verdict over an empty set). A field that is a dict holding a key whose hash would be the
+    caller's code is refused at the call (`canonical._StandUnkopierbar`), as at :func:`classify_digest_evidence`."""
     # adversarial re-audit: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
     applicable = [f for f in fields if _has_level(f)]
@@ -366,12 +412,14 @@ def evidence_ladder_summary(*fields: dict) -> dict:
     return {**_pick(weakest), "fields": list(fields)}
 
 
+@_ein_stand
 def evidence_ladder_best(*fields: dict) -> dict:
     """Roll several :func:`classify_digest_evidence` results into ONE summary using OR semantics: only ONE
     of several alternative digest fields needs to hold for the claim to be satisfied (e.g.
     ``outcome.py``'s ``effectDigest`` OR ``actualActionDigest`` — the existing boolean
     ``outcome_execution_proven`` is exactly this OR). Picks the STRONGEST applicable field. When no field
-    is applicable, returns ``level=None``."""
+    is applicable, returns ``level=None``. A field that is a dict holding a key whose hash would be the caller's code
+    is refused at the call (`canonical._StandUnkopierbar`), as at :func:`classify_digest_evidence`."""
     # adversarial re-audit: a non-dict ``*fields`` entry (int) crashed ``f.get('level')`` with a raw AttributeError
     # out of these package-top-level surfaces; a non-Mapping field is simply not-applicable (skipped), never a raise.
     applicable = [f for f in fields if _has_level(f)]

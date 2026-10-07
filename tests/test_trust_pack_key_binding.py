@@ -15,6 +15,7 @@ against the verifying key, for a receiver against the signer key the attestation
 from __future__ import annotations
 
 import base64
+import hashlib
 import unittest
 
 from proofbundle.assurance import EvidenceLevel, classify_receiver_corroboration
@@ -25,6 +26,7 @@ from proofbundle.outcome import (
     pack_key_binds_signer,
     verify_outcome_receipt,
 )
+from proofbundle.trust_pack import _rfc8785_bytes
 
 _DIG = "d" * 64
 
@@ -35,6 +37,13 @@ def _pub(signer) -> bytes:
 
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
+
+
+def _genesis_digest(pack: dict) -> str:
+    # N45 (security-fix 6.2.0): the content-bound anchor sha256(JCS(predicate)). These tests probe the KEY
+    # BINDING, not the anchor, so each establishes the anchor the N45-approved way (content digest) and then
+    # asserts the binding. A naked trust_pack_pinned=True no longer anchors (N45), so it cannot stand in here.
+    return hashlib.sha256(_rfc8785_bytes(pack)).hexdigest()
 
 
 def _pack(keys: dict, *, executors=("root-0",), receivers=("root-1",), revoked=None) -> dict:
@@ -64,7 +73,13 @@ class TestExecutorKeyIdIsBoundToTheSigner(unittest.TestCase):
 
     def test_control_the_real_role_key_is_trusted_and_bound(self):
         env = emit_outcome_receipt(_outcome(), self.root0)
-        r = verify_outcome_receipt(env, _pub(self.root0), trust_pack=self.pack)
+        # N43/N45 (security-fix 6.2.0): a role becomes TRUST only under a relying-party anchor, and N45 narrows
+        # that anchor to one bound to THIS predicate's content. This test's property is the KEY BINDING
+        # (membership bound to the signer), unchanged — so the anchor is established here the N45-approved way
+        # (content digest) and the binding is then asserted exactly as before. OLD: trust under an unpinned
+        # pack. N43: a pinned pack. N45: a content-bound anchor (a naked pinned flag no longer anchors).
+        r = verify_outcome_receipt(env, _pub(self.root0), trust_pack=self.pack,
+                                   trust_pack_expected_genesis_digest=_genesis_digest(self.pack))
         self.assertTrue(r["ok"], r["errors"])
         self.assertTrue(r["executor_role_trusted"])
         self.assertTrue(r["executor_key_bound"])
@@ -152,15 +167,27 @@ class TestReceiverKeyIdIsBoundWhenThePackNamesTheKey(unittest.TestCase):
             {"relation": "acknowledges", "digest": {"sha256": _DIG}, "receiverKeyId": "root-1"}]), self.exec_)
 
     def _verify(self, resolver):
+        # N43/N45: the receiver-binding property under test is unchanged; the relying-party anchor is a
+        # precondition for any derived role trust, and N45 narrows it to one bound to this predicate's content.
+        # It is established here (content digest) and the binding behaviour is asserted as before. OLD: receiver
+        # trust under an unpinned pack. N43: a pinned pack. N45: a content-bound anchor (a naked flag no longer
+        # anchors).
         return verify_outcome_receipt(self.env, _pub(self.exec_), trust_pack=self.pack,
+                                      trust_pack_expected_genesis_digest=_genesis_digest(self.pack),
                                       evidence_resolver=lambda d: True,
                                       receiver_attestation_resolver=resolver)
 
-    def test_resolver_returning_the_packs_key_binds_the_label_and_promotes(self):
+    def test_resolver_returning_the_packs_key_is_not_positive_statement_not_verified(self):
+        # N47 (KRAXO-CLOUD-N47): a resolver returning the pack's key for the label used to promote this to
+        # receiver_role_trusted True / receiver_key_bound True / INDEPENDENTLY_ATTESTED. A caller resolver answer
+        # can no longer confer receiver trust (the library does not verify the referenced receiver statement), so
+        # it is now None / None with a RECEIVER_STATEMENT_NOT_VERIFIED error, and the ladder is capped at
+        # CONTENT_RESOLVED. ok is unaffected.
         r = self._verify(lambda d: _pub(self.recv))
-        self.assertTrue(r["receiver_role_trusted"])
-        self.assertIs(r["receiver_key_bound"], True)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertIsNone(r["receiver_role_trusted"])
+        self.assertIsNone(r["receiver_key_bound"])
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertTrue(any("RECEIVER_STATEMENT_NOT_VERIFIED" in e for e in r["errors"]), r["errors"])
 
     def test_resolver_returning_another_key_is_the_finding_on_the_receiver_side(self):
         r = self._verify(lambda d: _pub(self.attacker))
@@ -171,23 +198,36 @@ class TestReceiverKeyIdIsBoundWhenThePackNamesTheKey(unittest.TestCase):
         self.assertTrue(r["ok"], "receiverRefs is advisory and never gates ok — unchanged")
 
     def test_a_bare_true_cannot_bind_a_label_the_pack_names(self):
+        # N45B (KRAXO-CLOUD-N45B): a resolver returning a bare True resolves content but NO signer key material,
+        # so the receiverKeyId stays a member by LABEL only. Under N45B a label-only member is no longer a
+        # positive role verdict: receiver_role_trusted is None (not True), receiver_key_bound is None, with a
+        # named reason — the old "by LABEL only" warning is kept. OLD (N44b): True by label.
         r = self._verify(lambda d: True)
-        self.assertTrue(r["receiver_role_trusted"])      # membership by label, as before ...
-        self.assertIsNone(r["receiver_key_bound"])       # ... but explicitly unbound ...
+        self.assertIsNone(r["receiver_role_trusted"])    # label alone is no longer a positive verdict ...
+        self.assertIsNone(r["receiver_key_bound"])       # ... and explicitly unbound ...
         self.assertLess(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertTrue(any("RECEIVER_ROLE_NOT_BOUND" in e for e in r["errors"]), r["errors"])
         self.assertTrue(any("LABEL only" in w for w in r["warnings"]), r["warnings"])
+        self.assertTrue(r["ok"], "receiverRefs is advisory and never gates ok — unchanged")
 
-    def test_without_a_pack_the_bool_resolver_contract_is_unchanged(self):
+    def test_without_a_pack_receiver_role_is_none_and_ladder_is_capped(self):
+        # Without a pack the receiver role is not evaluated (receiver_role_trusted None) — unchanged. N47: the
+        # receiver evidence ladder is capped at CONTENT_RESOLVED; a bare-True resolver no longer reaches
+        # INDEPENDENTLY_ATTESTED.
         r = verify_outcome_receipt(self.env, _pub(self.exec_), evidence_resolver=lambda d: True,
                                    receiver_attestation_resolver=lambda d: True)
-        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertEqual(r["evidence_levels"]["receiverRefs"]["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertIsNone(r["receiver_role_trusted"])
 
     def test_classifier_direct_expected_key_must_match_and_a_short_key_never_attests(self):
         base = dict(digest_obj={"sha256": _DIG}, evidence_resolver=lambda d: True,
                     executor_key_id="root-0", receiver_key_id="root-1", expected_receiver_public_key=_pub(self.recv))
+        # N47: a matching key no longer attests (the library does not verify the referenced statement), so the
+        # once-promoting case is now capped at CONTENT_RESOLVED with the N47 marker. The counter-probes below
+        # (a non-matching key -> KEY_ID_NOT_BOUND_TO_SIGNER; a short key -> not attested) are unchanged.
         good = classify_receiver_corroboration(independent_attestation_resolver=lambda d: _pub(self.recv), **base)
-        self.assertEqual(good["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        self.assertEqual(good["level"], EvidenceLevel.CONTENT_RESOLVED)
+        self.assertIn("INDEPENDENTLY_ATTESTED is not reachable", good["detail"])
         wrong = classify_receiver_corroboration(independent_attestation_resolver=lambda d: _pub(self.attacker), **base)
         self.assertEqual(wrong["level"], EvidenceLevel.CONTENT_RESOLVED)
         self.assertIn("KEY_ID_NOT_BOUND_TO_SIGNER", wrong["detail"])

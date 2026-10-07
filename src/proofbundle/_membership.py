@@ -48,6 +48,26 @@ from .errors import SwitchTypeError
 __all__ = ["is_member", "as_dict", "is_bool", "require_switch", "type_name", "stored_str_items"]
 
 
+class Fremdkoerper:
+    """The base of what the reading at the call (`canonical._stand`) puts into its copy where the caller's value holds
+    an object of a type the reading does not read: an object of the caller's own class, a Mapping that is no dict, a
+    callable, a datetime whose tzinfo is the caller's, a frozenset holding such an object. Each such type gets one
+    subclass that carries its name (`canonical._fremdkoerper`), and an instance holds nothing of the caller: it compares
+    and hashes by its identity, and no method of the caller's object can run through it. Every check of the package
+    meets it as a value that is no JSON value and refuses it or grants nothing, as it met the caller's object, so the
+    verdicts and the refusals stay the ones the caller's object got, without its methods (deep gate run 6 at fda55f98
+    and the review before run 7: the reading handed on what it did not know, and the body read it at body time).
+    `type_name` names the caller's type for it, so a refusal reads as before."""
+    __slots__ = ()
+
+
+#: id of each stand-in class -> (a weak reference to the class, the name the caller's type holds, whether that type was
+#: the built-in type of that name). Filled by `canonical._fremdkoerper`; looked up by identity, so a class the caller
+#: derives from `Fremdkoerper` is no entry. The reference is weak and its death takes the entry out
+#: (`canonical._schwach`), so a stand-in class lives no longer than its stand-ins and the caller's type.
+FREMDKOERPER_KLASSEN: dict = {}
+
+
 def is_member(value: Any, container: Container) -> bool:
     """``value in container``, but ``False`` instead of ``TypeError`` for an unhashable value.
 
@@ -162,20 +182,26 @@ def type_name(value: Any) -> str:
     ``bool (not the built-in bool)``, because a refusal that read "must be a bool, not bool" would
     explain nothing."""
     typ = type(value)
-    try:
-        if not issubclass(type(typ), type):
-            return _UNNAMED_TYPE
-        name = _TYPE_NAME_GETTER.__get__(typ)
-        if type(name) is not str:
-            if not issubclass(type(name), str):
+    eintrag = FREMDKOERPER_KLASSEN.get(id(typ))
+    if eintrag is not None and eintrag[0]() is typ:
+        # A stand-in of the reading: the name of the caller's type it stands for, read when the class was made, and
+        # whether that type was the built-in one of that name.
+        name, eingebaut = eintrag[1], eintrag[2]
+    else:
+        try:
+            if not issubclass(type(typ), type):
                 return _UNNAMED_TYPE
-            name = str.__str__(name)
-    except Exception:  # noqa: BLE001 - a name for a message; the refusal itself must still happen
-        return _UNNAMED_TYPE
+            name = _TYPE_NAME_GETTER.__get__(typ)
+            if type(name) is not str:
+                if not issubclass(type(name), str):
+                    return _UNNAMED_TYPE
+                name = str.__str__(name)
+        except Exception:  # noqa: BLE001 - a name for a message; the refusal itself must still happen
+            return _UNNAMED_TYPE
+        eingebaut = _BUILTIN_TYPES.get(name) is typ
     if len(name) > 80:
         name = name[:77] + "..."
-    builtin = _BUILTIN_TYPES.get(name)
-    if builtin is not None and builtin is not typ:
+    if not eingebaut and _BUILTIN_TYPES.get(name) is not None:
         return f"{name} (not the built-in {name})"
     return name
 

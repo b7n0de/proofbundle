@@ -40,6 +40,7 @@ import importlib.resources
 import os
 import sys
 from ._membership import is_member
+from .canonical import _ein_stand
 
 __all__ = ["PROFILE_NAMES", "PROFILE_ALIASES", "PROFILE_ID_PREFIX", "list_profiles",
            "profile_aliases", "canonical_profile_name", "profile_path", "resolve_policy_source",
@@ -84,11 +85,13 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
+@_ein_stand
 def list_profiles() -> list:
     """The sorted list of CANONICAL profile short names (no prefix, no aliases)."""
     return sorted(PROFILE_NAMES)
 
 
+@_ein_stand
 def profile_aliases() -> dict:
     """A copy of the deprecated-old-name -> canonical-name alias map (AP-2 §6.1)."""
     return dict(PROFILE_ALIASES)
@@ -98,6 +101,7 @@ def _strip_prefix(name: str) -> str:
     return name[len(PROFILE_ID_PREFIX):] if name.startswith(PROFILE_ID_PREFIX) else name
 
 
+@_ein_stand
 def canonical_profile_name(name):
     """Resolve a possibly-prefixed, possibly-deprecated profile name to its canonical short name, or
     None if it names no packaged profile. PURE — never warns, never raises (use for classification)."""
@@ -117,6 +121,7 @@ def _warn_deprecated_alias(old_short: str, canonical: str) -> None:
           "release).", file=sys.stderr)
 
 
+@_ein_stand
 def profile_path(name: str) -> str:
     """The filesystem path to a packaged profile's JSON, or raise ``FileNotFoundError`` with a clear
     message (never a bare `KeyError`) if `name` is not a known profile. `name` may carry the
@@ -139,6 +144,7 @@ def profile_path(name: str) -> str:
     return str(ref)
 
 
+@_ein_stand
 def resolve_policy_source(value: str) -> str:
     """Resolve a CLI/library-supplied policy reference to something :func:`proofbundle.policy.load_policy`
     can open. A REAL FILE on disk always wins (a local ``./strict-eval-template-v1.json`` can never be
@@ -158,6 +164,7 @@ def resolve_policy_source(value: str) -> str:
     return value
 
 
+@_ein_stand
 def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root=None,
                          valid_until=None, overlay=None) -> dict:
     """AP-2 §6.3: turn a shipped TEMPLATE profile into a deployment-ready org policy by pinning a signer

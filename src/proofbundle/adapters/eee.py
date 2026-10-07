@@ -27,8 +27,11 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .._membership import require_switch
+from .._strict_json import loads_reject_duplicate_keys
+from ..errors import BundleFormatError
 from ..evalclaim import build_eval_claim
 from ._provenance import add_provenance
+from ..canonical import _ein_stand
 
 _SCHEMA_PATH = Path(__file__).resolve().parent.parent / "eee_eval_schema.json"
 _SCHEMA_VERSION = "0.2.2"
@@ -46,8 +49,11 @@ def _load(source: Union[str, Path, dict]) -> dict:
         from .._plain_value import plain_json  # noqa: PLC0415
         return plain_json(source, what="the EEE record", error=EEEAdapterError)
     try:
-        return json.loads(Path(source).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
+        # Nachtrag 51 (K6-02): a duplicate JSON key is rejected fail-closed BEFORE a score feeds `passed`
+        # (last-wins would sign the LAST value a differing reader disagrees with). No new size cap — a
+        # dup-free dataset of any size reads exactly as before.
+        return loads_reject_duplicate_keys(Path(source).read_text(encoding="utf-8"))
+    except (OSError, ValueError, BundleFormatError) as e:
         raise EEEAdapterError(f"could not read EEE dataset {source!r}: {e}") from e
 
 
@@ -161,6 +167,7 @@ def _leaks_model_id(text: str, model_id: str) -> bool:
     return any(t and (t in hay or t in hay_norm) for t in tokens)
 
 
+@_ein_stand(aussen={"source": "pfad"})
 def from_eee_dataset(source: Union[str, Path, dict], *, comparator: str, threshold: str,
                      timestamp: Optional[str] = None, eval_index: int = 0, metric_name: Optional[str] = None,
                      model_salt: Optional[bytes] = None, dataset_salt: Optional[bytes] = None,

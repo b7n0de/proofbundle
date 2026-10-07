@@ -26,14 +26,71 @@ binding-00 FULL TEXT, 2026-07-16 — that draft has NO `amends` relation):
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
 from .budget import render_keys_safe
-from .canonical import _pruefkopie, _zeichen_von
-from .errors import ProofBundleError
+from .canonical import _ein_stand, _pruefkopie, _zeichen_von
+from .errors import ProofBundleError, _origin_authentic, _origin_token
 from ._membership import is_member, stored_str_items, type_name
 from ._wire_b64 import decode_b64
+
+# Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F2): domain tag for the lineage-result
+# verified-snapshot origin token. The relation_signer rule binds the SUCCESSOR issuer key of the receipt under
+# verification; the caller passes that key separately, so a merely-named key once satisfied a `pinned`/`same-key`
+# rule (measured). A passing verify now stamps the lineage result with the key it actually verified under and an
+# origin token over (key, a digest of the relation data), so evaluate_relations_policy adopts a relation_signer
+# verdict only when the result it is handed names exactly the successor receipt whose verified relation data it
+# judges — a key or digest of another receipt, or swapped-in foreign relation data, does not satisfy.
+_RELATION_LINEAGE_DOMAIN = b"relation-lineage-v1"
+
+
+def _lineage_edges_digest(lineage_result: Any) -> str:
+    """A stable digest of the relation data (the edges) a lineage result carries, so the origin token binds the
+    successor key to exactly that relation data. Swapped-in foreign edges give a different digest."""
+    edges = lineage_result.get("edges") if isinstance(lineage_result, dict) else None
+    try:
+        serialised = json.dumps(edges, sort_keys=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        serialised = repr(edges)
+    return hashlib.sha256(serialised.encode("utf-8")).hexdigest()
+
+
+def _stamp_lineage_origin(lineage_result: Any, successor_key_b64: str, superseded: Any = None) -> None:
+    """Stamp a lineage result (from :func:`verify_relationship_edges`) with the successor key it was verified
+    under and an origin token over (key, relation-data digest, supersededByAttached). Called by a verify path
+    ONLY on a passing receipt signature; a downstream relation_signer check recomputes the token and refuses a
+    result this process did not stamp for exactly this successor receipt. No-op on a non-dict lineage.
+
+    Nachtrag 46c (`KRAXO-CLOUD-N46C-HERKUNFT-DECKT-DIE-CHECKS-01`, Z309): the token also covers ``superseded``
+    — the lineage result's ``supersededByAttached``, which ``reject_superseded`` adopts as a positive (not
+    superseded) verdict. The caller reads it ONCE and passes it in ('only read here' stays true), so clearing or
+    changing an attached supersession after stamping makes the token no longer match and confers no
+    relation_signer trust. The per-edge fields (resolution, verified_under, targetDigest) are already bound
+    through the edges digest (Nachtrag 48)."""
+    if not isinstance(lineage_result, dict):
+        return
+    lineage_result["verified_successor_key_b64"] = successor_key_b64
+    lineage_result["verified_origin"] = _origin_token(
+        _RELATION_LINEAGE_DOMAIN, (successor_key_b64, _lineage_edges_digest(lineage_result), superseded))
+
+
+def _lineage_signer_bound(lineage_result: Any, successor_key_b64: str | None, superseded: Any = None) -> bool:
+    """True only when ``lineage_result`` carries an authentic origin token this process stamped over exactly
+    this successor key, its current relation data, and its supersededByAttached. A result with no token
+    (hand-built, or from verify_relationship_edges without a receipt-signature verify), one whose recorded key
+    is not ``successor_key_b64``, one whose relation data was changed after stamping, or (Nachtrag 46c) one
+    whose attached supersession was cleared or changed after stamping, is not bound. ``superseded`` is the
+    caller's single reading of ``supersededByAttached`` (passed in so it is not read twice)."""
+    if not isinstance(lineage_result, dict) or not isinstance(successor_key_b64, str):
+        return False
+    recorded = lineage_result.get("verified_successor_key_b64")
+    if not isinstance(recorded, str) or recorded != successor_key_b64:
+        return False
+    return _origin_authentic(_RELATION_LINEAGE_DOMAIN, lineage_result.get("verified_origin"),
+                             (successor_key_b64, _lineage_edges_digest(lineage_result), superseded))
 
 RELATION_PROFILE = "proofbundle/relation/v0.1"
 
@@ -66,6 +123,8 @@ LINEAGE_NOT_EVALUATED = "NOT_EVALUATED"
 # (tools/pb_verify_rs, is_rfc3339_z) takes ASCII digits only, and the same bytes got two verdicts.
 _RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \Z (not $) — $ matches before a trailing newline
+#: The words a resolver writes into `subject_digest_state` (`cli._load_related`); any other value is malformed.
+_SUBJECT_DIGEST_STATES = frozenset({"present", "absent", "ambiguous", "malformed"})
 
 _EDGE_REQUIRED = ("relation", "targetReceiptDigest")
 _EDGE_ALLOWED = ("relation", "targetReceiptDigest", "targetSubjectDigest",
@@ -105,6 +164,7 @@ def _validate_edge_digest(obj: Any, path: str, errors: list[str]) -> None:
         errors.append(f"{path}.digest must be 64 lowercase hex chars (sha-256)")
 
 
+@_ein_stand
 def validate_relationships(value: Any) -> list[str]:
     """Return a list of human-readable errors; **empty list == valid**. Fail-closed.
 
@@ -152,6 +212,7 @@ def validate_relationships(value: Any) -> list[str]:
     return errors
 
 
+@_ein_stand
 def require_valid_relationships(value: Any) -> None:
     """Raise :class:`RelationProfileError` on the first invalid relationships block."""
     errors = validate_relationships(value)
@@ -190,6 +251,12 @@ def _read_attached_entries(related: Any) -> list[tuple[str, Any, str | None]]:
     if not issubclass(type(related), dict):
         return []
     entries: list[tuple[str, Any, str | None]] = []
+    # ONE READING OF THE MAP (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
+    # were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
+    # between them gave a map the caller never held. The map is the one reading of the call of the public function
+    # that passes it (`canonical._stand`). The closed type boundary keeps unsupported values from being handed on as
+    # objects of the caller. It does not yet prove a joint state of mutable inputs. That needs a separate proof, in
+    # particular for ABA between two reads (R620-ABA-1 in RESTRISIKO_620.md).
     for key, value in list(dict.items(related)):
         label = _zeichen_von(key)
         if label is None:
@@ -241,10 +308,12 @@ def _carries_attached_entries(related: Any) -> bool:
     caller's map answered through its own ``__bool__``. Measured 2026-09-28 on main 86671552 and on
     D4: a ``dict`` subclass whose ``__len__`` is 0, holding a verified retraction of the subject,
     skipped the lineage block, so ``reject_superseded`` never saw the retraction and both verifiers
-    answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False."""
-    if related is None:
-        return False
-    return not issubclass(type(related), dict) or dict.__len__(related) > 0
+    answered ``ok`` True, where the plain dict with the same entry answers ``ok`` False.
+
+    The verifiers no longer ask it before they read the map (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01): the question
+    and the reading were two readings. They ask `_related_traegt_eintraege` of their one reading; this is the same
+    answer over a reading of its own."""
+    return _related_traegt_eintraege(_related_lesen(related))
 
 
 def _edge_target_hex(edge: dict) -> str | None:
@@ -291,6 +360,14 @@ def _target_subject_pin_error(edge: dict, target: dict) -> str | None:
             state = "present"
         else:
             state = "malformed"
+    elif type(state) is not str or not is_member(state, _SUBJECT_DIGEST_STATES):
+        # A CLOSED vocabulary, read closed-world (deep gate of the 6.2.0 release preparation at d97de8e5,
+        # lens L4, RT-01). Only the three refusing words were named, so every other explicit state took
+        # the path of "present": a target labelled "AMBIGUOUS", "multiple" or ["ambiguous"] with its
+        # first subject in subject_digest bound the declared pin to subject[0], lineage VERIFIED and ok
+        # True. A state no resolver writes is malformed; the Rust verifier derives the state from the
+        # payload itself and never reads one from a caller.
+        state = "malformed"
     # An explicit resolver state wins over the None-inference; only a well-formed, present, EQUAL
     # actual subject verifies. The order matters: a "malformed" target carries subject_digest=None
     # too, so classify on the state first, never on the None-ness of the value.
@@ -310,6 +387,7 @@ def _target_subject_pin_error(edge: dict, target: dict) -> str | None:
     return None
 
 
+@_ein_stand
 def verify_relationship_edges(
     relationships: Any,
     related: dict[str, dict] | None = None,
@@ -336,6 +414,38 @@ def verify_relationship_edges(
     unresolved; else VERIFIED (>=1 edge verified); NOT_EVALUATED when no profile present.
     The aggregate NEVER upgrades any other verdict — wiring into cryptoValid is forbidden.
     """
+    return _kanten_urteil(relationships, _related_lesen(related), subject_hex=subject_hex, max_depth=max_depth)
+
+
+def _related_lesen(related: Any) -> tuple[str | None, list[tuple[str, Any, str | None]]]:
+    """``related`` read ONCE: ``(refusal, entries)``, the refusal of `_related_abgelehnt` or None, and the entries
+    `_read_attached_entries` read (none when it is refused). Everything a verdict says about the attached targets,
+    the edges, ``supersededByAttached`` and whether there are targets at all, comes from this one reading.
+
+    THE VERDICT WAS ASSEMBLED FROM TWO READINGS (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of three jurors P1).
+    `verify_decision_receipt` and `verify_outcome_receipt` asked `_carries_attached_entries` whether there were
+    targets, judged the edges in this function's reading and then read the map again in `successor_warning`,
+    whose ``supersededByAttached`` they recorded over the one this function had set. A gc callback of the caller that
+    emptied its own map between the readings hid an attached verified retraction from ``reject_superseded`` while
+    the edge to the parent stayed VERIFIED, so ``ok`` came out True under a policy that refuses the full map and the
+    empty one alike. The verifiers now read the map once with this function and judge that reading
+    (`_kanten_urteil`), as the anchors are read once (`anchors._anker_lesen`) and judged (`anchors._anker_urteil`)."""
+    abgelehnt = _related_abgelehnt(related)
+    if abgelehnt is not None:
+        return abgelehnt, []
+    return None, _read_attached_entries(related)
+
+
+def _related_traegt_eintraege(gelesen: tuple[str | None, list]) -> bool:
+    """Whether the one reading of `_related_lesen` holds attached entries: a refused ``related`` counts as holding
+    them, so the verifiers run the lineage step, which reports the refusal."""
+    abgelehnt, eintraege = gelesen
+    return abgelehnt is not None or bool(eintraege)
+
+
+def _kanten_urteil(relationships: Any, gelesen: tuple[str | None, list[tuple[str, Any, str | None]]], *,
+                   subject_hex: str | None = None, max_depth: int = MAX_CHAIN_DEPTH) -> dict:
+    """`verify_relationship_edges` over the one reading of `_related_lesen`."""
     # One reading of the attached targets, by what they store (round 12): the plain copy, so the
     # targets judged below are not answered by a dict subclass's own `get` and `__contains__`. Each
     # entry is read on its own (`_read_attached_entries`, Codex review of PR 300, thread 4121924153):
@@ -343,10 +453,9 @@ def verify_relationship_edges(
     # `successor_warning` names it, but it never clears the entries beside it. A `related` that is neither None
     # nor a dict is refused (`_related_abgelehnt`, deep gate at 7409b123, L4-620b-01): it was read as no
     # targets, and a verified retraction it held was never seen.
-    abgelehnt = _related_abgelehnt(related)
+    abgelehnt, attached_entries = gelesen
     if abgelehnt is not None:
         return {"lineage": LINEAGE_FAIL, "edges": [], "errors": [abgelehnt], "supersededByAttached": abgelehnt}
-    attached_entries = _read_attached_entries(related)
     related = _attached_targets(attached_entries)
     # R7-1 (3.6.3 never-raise residual): coerce a non-str subject_hex at entry. A truthy unhashable
     # value ([1]/{1:2}/{1,2}/bytearray) crashed the ``{subject_hex}`` seed in the resolved-edge branch
@@ -375,8 +484,11 @@ def verify_relationship_edges(
     # wenn das Objekt selbst gar keine Kante hat. Die Richtung ist monoton: der Schluessel kann eine
     # Politik-Verletzung nur HINZUFUEGEN, nie eine entfernen.
     #
-    # Die Aufrufer, die ihn heute selbst setzen, ueberschreiben ihn mit demselben Wert — ein
-    # No-Op. Ihre Zeilen zu entfernen ist die Nacharbeit, nicht die Bedingung dieser Haertung.
+    # The callers that set it themselves overwrote it, and that was NOT a no-op, as this comment said up
+    # to d388ed3d (deep gate run 5, L4-620v5-T5-SECOND-READING-01, two of three jurors P1):
+    # `successor_warning` read the caller's `related` a second time, and a caller that emptied its map
+    # between the two readings lost the attached retraction from exactly this key. The callers now read
+    # the key from this return value and no longer set it.
     _sba = _successor_warning_over(attached_entries, subject_hex)
     if relationships is None:
         return {"lineage": LINEAGE_NOT_EVALUATED, "edges": [], "errors": [],
@@ -589,6 +701,7 @@ def _walk_chain(start_hex: str, related: dict[str, dict], *, seen: set,
     return _dfs(start_hex, 1, set(seen))
 
 
+@_ein_stand
 def successor_warning(_subject_relationships: Any = None, related: dict[str, dict] | None = None,
                       subject_hex: str | None = None) -> str | None:
     """Advisory (policy `reject_superseded` turns it into a blocker): if an ATTACHED,
@@ -600,7 +713,12 @@ def successor_warning(_subject_relationships: Any = None, related: dict[str, dic
     Each entry of ``related`` is read on its own (`_read_attached_entries`): an entry that cannot be
     read is named with ``relation:malformed_successor`` unless a readable entry declares such a
     relation, and it never hides the entries beside it. A ``related`` that is neither None nor a dict is
-    named with its refusal (`_related_abgelehnt`), never read as no attached receipts."""
+    named with its refusal (`_related_abgelehnt`), never read as no attached receipts.
+
+    A verifier that also judges the edges takes ``supersededByAttached`` from `verify_relationship_edges`,
+    which answers this over the reading it judges the edges in. Calling both reads the caller's map twice,
+    and a map changed between the two readings gave a verdict neither state of it gives (deep gate run 5
+    at d388ed3d, L4-620v5-T5-SECOND-READING-01)."""
     abgelehnt = _related_abgelehnt(related)
     if abgelehnt is not None:
         return abgelehnt
@@ -841,6 +959,7 @@ def _abschnitt_urteil(abschnitt: Any, lineage_result: dict, *, successor_key_b64
     return evaluate_relations_policy(abschnitt, lineage_result, successor_key_b64=successor_key_b64)
 
 
+@_ein_stand
 def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
                               successor_key_b64: str | None) -> list[dict]:
     """Apply the load_policy-validated trust-policy ``relations`` section over an already-computed
@@ -976,6 +1095,18 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
     # (3) relation_signer (WP-A) — the SUCCESSOR issuer key must satisfy the per-relation rule.
     _signer = relations_section.get("relation_signer")  # adversarial re-audit round 4: non-dict guard (.get below)
     signer = _signer if isinstance(_signer, dict) else {}
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F2): the relation_signer rule binds
+    # the SUCCESSOR issuer key, but successor_key_b64 is passed in — a merely-named key once satisfied a pinned or
+    # same-key rule (measured). A rule is satisfied only when this lineage result is bound to the verified successor
+    # receipt for exactly this key AND its relation data (an authentic origin token this process stamped on a
+    # passing receipt signature). A hand-built or unverified lineage, a key of another receipt, or swapped-in
+    # foreign relation data under the same key is not bound; the per-mode checks below add this to their conditions
+    # so the gap closes without turning a DECLARED-ONLY edge (the resolution pin's job, not the signer's) into a
+    # violation. `_unbound` names why the lineage confers no relation_signer trust.
+    _signer_bound = _lineage_signer_bound(lineage_result, successor_key_b64, _sba)
+    _unbound = ("; and the lineage result is not bound to the verified successor receipt for this key (no "
+                "authentic origin token from this process's verify for exactly this successor key and its "
+                "relation data)") if not _signer_bound else ""
     for e in edges:
         # R7-2b: a non-str edge['relation'] is unhashable (list/dict/set/bytearray) and crashed the
         # dict-key lookup; relations are always strings, so a non-str never names a rule (fail-closed None).
@@ -989,10 +1120,11 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
         mode = rule.get("mode")
         if mode == "pinned":
             keys = _as_list(rule.get("keys"))
-            if not any(_keys_equal(successor_key_b64, k) for k in keys):
+            # bound to this successor receipt AND a member of the pinned set; either missing -> unauthorized.
+            if not _signer_bound or not any(_keys_equal(successor_key_b64, k) for k in keys):
                 out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
                             "message": (f"relation {_rel!r}: successor issuer key is not "
-                                        "a member of the pinned relation_signer set")})
+                                        "a member of the pinned relation_signer set" + _unbound)})
         elif mode == "same-key":
             # same-key can only be confirmed against a RESOLVED target's real verify key; absence on a
             # DECLARED-ONLY edge is the resolution pin's job, not the signer's (no false unauthorized there).
@@ -1002,14 +1134,17 @@ def evaluate_relations_policy(relations_section: Any, lineage_result: dict, *,
             # it) — treat it as unauthorized, never as satisfied.
             # Checked unless the resolution is a plain str other than VERIFIED: `== LINEAGE_VERIFIED`
             # ran the caller's __eq__, and an object answering False skipped the key check (measured).
+            # Nachtrag 48/48b (F2): a VERIFIED same-key edge is satisfied only when the lineage result is also
+            # bound to this verified successor receipt (`_signer_bound`), so a merely-named successor key does not
+            # satisfy it; a DECLARED-ONLY edge is untouched, exactly as before.
             _res = e.get("resolution")
             if not (type(_res) is str and _res != LINEAGE_VERIFIED):
                 vu = e.get("verified_under")
-                if vu is None or not _keys_equal(successor_key_b64, vu):
+                if not _signer_bound or vu is None or not _keys_equal(successor_key_b64, vu):
                     out.append({"code": CODE_RELATION_SIGNER_UNAUTHORIZED,
                                 "message": (f"relation {_rel!r}: same-key requires a target "
                                             "verified_under that byte-matches the successor key; got "
-                                            f"{'none' if vu is None else 'a differing key'}")})
+                                            f"{'none' if vu is None else 'a differing key'}" + _unbound)})
 
     # (4) require_relation_target (WP-A2 / O1) — a named relation's edge must resolve to one of the
     #     RP-pinned parent roots. Fires on EVERY such edge, accept-path (T2) included — this is the

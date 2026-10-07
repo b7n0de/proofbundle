@@ -32,6 +32,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from proofbundle import evalclaim as ec
 from proofbundle.errors import BundleFormatError, ProofBundleError
 
+# Nachtrag 48/48b: evaluate_decision_policy now binds the result to the statement + signer it judges; the
+# decision-policy verdict surface below passes a result stand-in bound to exactly that statement + signer.
+from _decision_result_binding import bound_decision_result  # type: ignore  # noqa: E402
+
 _WURZEL = pathlib.Path(__file__).resolve().parents[1]
 
 # Literal seeds: tests/test_sdist_ohne_signierwerkzeug.py allows `from_private_bytes` in a shipped test
@@ -452,16 +456,19 @@ class O2ADecisionPolicySwitchIsABool(unittest.TestCase):
         from proofbundle.policy import evaluate_decision_policy  # noqa: PLC0415
         praedikat = json.loads((_WURZEL / "examples" / "decision_receipt_allow.json").read_text(encoding="utf-8"))
         statement = {"predicate": praedikat, "predicateType": "x"}
+        # Nachtrag 48/48b: evaluate_decision_policy binds the result to the statement + signer; pass one bound to
+        # exactly this statement and signer "x" so the allow_pending/anchor rule under test is still reached.
+        bound = bound_decision_result(statement, "x")
         for wert, erwartet in ((False, False), (True, True)):
             policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
                       "decision_receipt": {"require_external_anchor": True, "allow_pending": wert}}
-            res = evaluate_decision_policy(statement, {}, policy, signer_public_key_b64="x", anchor_status="WARN")
+            res = evaluate_decision_policy(statement, bound, policy, signer_public_key_b64="x", anchor_status="WARN")
             self.assertIs(res["policy_ok"], erwartet)
         for wert in ("false", "no", 1, [0]):
             with self.subTest(allow_pending=wert):
                 policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
                           "decision_receipt": {"require_external_anchor": True, "allow_pending": wert}}
-                res = evaluate_decision_policy(statement, {}, policy, signer_public_key_b64="x",
+                res = evaluate_decision_policy(statement, bound, policy, signer_public_key_b64="x",
                                                anchor_status="WARN")
                 self.assertIs(res["policy_ok"], False)
 
@@ -534,9 +541,7 @@ class TheEvidencePackBudgetBoundsTheProofThatIsDecoded(unittest.TestCase):
     so a proof the budget never saw was decoded and judged."""
 
     def test_the_proof_judged_is_the_proof_stored(self) -> None:
-        try:
-            import opentimestamps  # noqa: F401, PLC0415
-        except ImportError:
+        if not _ots_vorhanden():
             self.skipTest("needs proofbundle[anchors] (opentimestamps) — NOT MEASURABLE here, did NOT run")
         import hashlib  # noqa: PLC0415
 
@@ -703,8 +708,11 @@ class ABytesLikeValueIsReadWhereItWasReadBefore(unittest.TestCase):
         """Not a parity case any more: since the 6.2.0 chain carries PR 291, key material counts only as
         a plain bytes or bytearray object (`assurance._is_key_material`), the expectation included, so a
         `memoryview` expectation is refused and never compared, and nothing is promoted over it. At the
-        D4 head 7cc8fa0b it was compared as the bytes it views (`canonical._puffer_von`). The plain
-        bytes are the control."""
+        D4 head 7cc8fa0b it was compared as the bytes it views (`canonical._puffer_von`). Since N47
+        (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`) a resolver answer no longer promotes
+        beyond CONTENT_RESOLVED, so the plain-bytes case caps there as well and no longer distinguishes the
+        key type by level; the verified receiver path is deferred to the post-tag anchor check. Plain bytes
+        with a matching resolved key are the control and cap at CONTENT_RESOLVED."""
         from proofbundle.assurance import EvidenceLevel, classify_receiver_corroboration  # noqa: PLC0415
         empfaenger = Ed25519PrivateKey.from_private_bytes(b"\x0c" * 32)
         basis = dict(digest_obj={"sha256": "d" * 64}, evidence_resolver=lambda d: True,
@@ -718,7 +726,10 @@ class ABytesLikeValueIsReadWhereItWasReadBefore(unittest.TestCase):
         gut = classify_receiver_corroboration(
             independent_attestation_resolver=lambda d: _raw(empfaenger),
             expected_receiver_public_key=_raw(empfaenger), **basis)
-        self.assertEqual(gut["level"], EvidenceLevel.INDEPENDENTLY_ATTESTED)
+        # N47: old expectation INDEPENDENTLY_ATTESTED; new expectation CONTENT_RESOLVED. A resolver answer,
+        # even a matching plain-bytes key, no longer promotes the receiver; the cap is measured directly in
+        # test_security_fix_620_trustpack_n47_receiver.py.
+        self.assertEqual(gut["level"], EvidenceLevel.CONTENT_RESOLVED)
         falsch = classify_receiver_corroboration(
             independent_attestation_resolver=lambda d: _raw(_T),
             expected_receiver_public_key=_raw(empfaenger), **basis)
@@ -909,6 +920,10 @@ def _flaechen():
     dec_pred = json.loads((_WURZEL / "examples" / "decision_receipt_allow.json").read_text(encoding="utf-8"))
     dec_env = decision.emit_decision_receipt(dec_pred, _T)
     dec_validity = dec_pred.get("validity") or {}
+    # Nachtrag 48/48b: the evaluate_decision_policy verdict surface judges this statement under the signer _T;
+    # the result it is handed must be bound to exactly that statement + signer (a passing verify stamps it so).
+    dec_policy_stmt = {"predicate": dec_pred, "predicateType": decision.DECISION_RECEIPT_PREDICATE_TYPE}
+    dec_policy_result = bound_decision_result(dec_policy_stmt, _b64pub(_T))
     out_pred = {"schemaVersion": "0.1.0", "outcomeId": "outcome-0001", "decisionRef": {"sha256": "a" * 64},
                 "executor": {"id": "executor:runner-7", "keyId": "root-0"},
                 "requestedActionDigest": {"sha256": "c" * 64}, "status": "executed",
@@ -997,7 +1012,8 @@ def _flaechen():
         # verify surfaces
         ("bundle.verify_bundle", lambda w: bm.verify_bundle(
             w(sd_bundle), expected_aud=w("v"), expected_nonce=w("n"),
-            expected_root_b64=w(sd_bundle["merkle"]["root_b64"]), expected_tree_size=w(1))),
+            expected_root_b64=w(sd_bundle["merkle"]["root_b64"]), expected_tree_size=w(1),
+            sd_jwt_issuer_key_pin=w("ed25519:" + _b64pub(_T)))),
         ("evalclaim.decode_eval_claim", lambda w: ec.decode_eval_claim(w(ev_bundle), expected_context=w("sweep"))),
         ("evalclaim.classify_eval_claim", lambda w: ec.classify_eval_claim(w(ev_bundle), expected_context=w("sweep"))),
         ("dsse.verify_envelope", lambda w: dsse.verify_envelope(w(dec_env), w(pub), payload_type=w(
@@ -1012,9 +1028,10 @@ def _flaechen():
         ("decision.verify_decision_receipt", lambda w: decision.verify_decision_receipt(
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),
             expected_nonce=w(dec_validity.get("nonce") or "n"), policy=w(dec_policy_relationen),
-            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}))),
+            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w("a" * 64), trust_pack=w(tp_pred),
+            trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),
             decision_maker_id=w("maker:x"), expected_audience=w("rp"), expected_nonce=w("n"),
             policy=w({"relations": relationen}), related=w(verwandt))),
         ("run_ledger.verify_run_ledger", lambda w: rl.verify_run_ledger(w(rl.emit_run_ledger(rl_pred, _T)), w(pub))),
@@ -1033,11 +1050,12 @@ def _flaechen():
         ("agent_review.receipt_digest", lambda w: ar.receipt_digest(w(ar_env))),
         ("trust_pack.verify_trust_pack", lambda w: tp.verify_trust_pack(
             w(tp_env), now=jetzt, prev_version_digest=w("a" * 64), prev_root_keys=w(dict(tp_keys)),
-            prev_version=w(1), prev_root_threshold=w(2))),
+            prev_version=w(1), prev_root_threshold=w(2),
+            expected_genesis_digest=w("a" * 64), expected_root_keys=w(dict(tp_keys)))),
         ("policy.evaluate_policy", lambda w: pol.evaluate_policy(
             w(ev_bundle), bm.verify_bundle(ev_bundle), w(policy))),
         ("policy.evaluate_decision_policy", lambda w: pol.evaluate_decision_policy(
-            w({"predicate": dec_pred, "predicateType": decision.DECISION_RECEIPT_PREDICATE_TYPE}), {}, w(dec_policy),
+            w(dec_policy_stmt), dec_policy_result, w(dec_policy),
             signer_public_key_b64=w(_b64pub(_T)), anchor_status="PASS")),
         ("policy.load_policy", lambda w: pol.load_policy(w(policy))),
         ("hf_evals.verify_receipt_token", lambda w: hf_evals.verify_receipt_token(
@@ -1060,7 +1078,8 @@ def _flaechen():
             now=w(1_780_000_000), rp_trust=w({"bitcoin_block_headers": {}}))),
         ("sdjwt.verify_sd_jwt", lambda w: sdjwt.verify_sd_jwt(w(praesentiert), w(pub))),
         ("kbjwt.verify_key_binding", lambda w: kbjwt.verify_key_binding(
-            w(praesentiert), expected_aud=w("v"), expected_nonce=w("n"))),
+            w(praesentiert), expected_aud=w("v"), expected_nonce=w("n"),
+            now=w(1_780_000_030), max_age_seconds=w(3600))),
         ("kbjwt.split_key_binding", lambda w: kbjwt.split_key_binding(w(praesentiert))),
         ("sdjwt_issue.check_binds_bundle", lambda w: sdjwt_issue.check_binds_bundle(
             w(kompakt), w(ec.decode_eval_claim(ev_bundle)), w(ev_bundle["merkle"]["root_b64"]))),
@@ -1073,7 +1092,7 @@ def _flaechen():
         ("adapters.agt_receipt.verify_agt_receipt", lambda w: agt.verify_agt_receipt(
             w(agt_r), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("adapters.agt_receipt.verify_agt_receipt_chain", lambda w: agt.verify_agt_receipt_chain(
-            w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]))),
+            w([agt_r, agt_kind]), trusted_authorizer_keys=w([_raw(_A).hex()]), now=w(2000.5))),
         ("public_transparency.evaluate_public_transparency", lambda w: pt.evaluate_public_transparency(
             w(note), w({"requireSignedCheckpoint": True, "trustedLogOrigins": [origin], "witnessQuorum": {"threshold": 1}}),
             log_vkey=w(log_vkey), witness_vkeys=w([zeuge]), expected_root_b64=w(base64.b64encode(wurzel3).decode()),
@@ -1098,7 +1117,10 @@ def _flaechen():
             w(tp_pred), _baue_signer(w, {"root-0": wurzeln[0], "root-1": wurzeln[1]}))),
         ("intoto.export_intoto_dsse", lambda w: intoto.export_intoto_dsse(w(_claim("0.80")), _T)),
         ("intoto.export_eval_result_dsse", lambda w: intoto.export_eval_result_dsse(w(_claim("0.80")), _T)),
-        ("intoto.export_svr_dsse", lambda w: intoto.export_svr_dsse(w(ev_bundle), _T)),
+        # A FIXED time_created (hermetic-cleanroom at 6cab813e, run 37167336188): without it the surface reads the clock
+        # in seconds, and the sweep calls it twice, so a second boundary between the calls made the outputs differ.
+        ("intoto.export_svr_dsse", lambda w: intoto.export_svr_dsse(w(ev_bundle), _T,
+                                                                    time_created=w("2026-10-04T00:00:00Z"))),
         ("dsse.sign_envelope", lambda w: dsse.sign_envelope(w(b"body"), _T, payload_type=w("text/plain"),
                                                             keyid=w("k1"))),
         ("checkpoint.sign_checkpoint", lambda w: cp.sign_checkpoint(w(origin), w(3), w(wurzel3), _T, w(origin))),
@@ -1242,10 +1264,14 @@ _OTS_FLAECHEN = ("evidence_pack.verify_evidence_pack", "anchors_rootcommit.verif
 
 
 def _ots_vorhanden() -> bool:
-    try:
-        import opentimestamps  # noqa: F401, PLC0415
-    except ImportError:
+    """Whether OpenTimestamps (proofbundle[anchors]) is installed. Only its absence counts as absence: no module
+    spec to find. A module that is found and fails while importing, ``ImportError`` included, is a broken
+    install, and its failure is raised, so a regression stays red instead of reading as not measured (Codex
+    thread 4163240548 at dd079791; until then every ``ImportError`` counted as absence)."""
+    import importlib.util  # noqa: PLC0415
+    if importlib.util.find_spec("opentimestamps") is None:
         return False
+    import opentimestamps  # noqa: F401, PLC0415
     return True
 
 
@@ -1345,6 +1371,38 @@ _NICHT_IM_SWEEP = {
     "trust_pack.verify_trust_pack": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON "
                                      "values. Read once (canonical._zeitpunkt_von); a datetime subclass is held "
                                      "by tests/test_one_reading_reaches_every_argument.py"},
+    "bundle.verify_bundle": {
+        "now": "a POSIX-seconds evaluation time (Nachtrag 49b CX-04); forwarded verbatim to kbjwt.verify_key_binding "
+               "for the KB-JWT iat freshness, read there once as a plain int (N49) — verify_bundle folds no value of "
+               "it into its own verdict",
+        "max_age_seconds": "the KB-JWT presentation-age bound in seconds (Nachtrag 49b CX-04); forwarded verbatim to "
+                           "kbjwt.verify_key_binding, read there once as a plain int (N49) — verify_bundle folds no "
+                           "value of it into its own verdict"},
+    "sdjwt_vc.verify_sdjwt_vc": {
+        "now": "a POSIX-seconds evaluation time (Nachtrag 49b CX-04); forwarded verbatim to kbjwt.verify_key_binding "
+               "for the KB-JWT iat freshness, read there once as a plain int (N49) — verify_sdjwt_vc folds no value "
+               "of it into its own verdict",
+        "max_age_seconds": "the KB-JWT presentation-age bound in seconds (Nachtrag 49b CX-04); forwarded verbatim to "
+                           "kbjwt.verify_key_binding, read there once as a plain int (N49) — verify_sdjwt_vc folds no "
+                           "value of it into its own verdict"},
+    "hf_evals.verify_receipt_token": {"sd_jwt_issuer_key_pin": "the relying-party SD-JWT issuer-trust pin "
+                                      "(Nachtrag 38, Z309); forwarded verbatim to bundle.verify_bundle, where its "
+                                      "one reading (canonical._zeichen_von) is measured by the entry above"},
+    "hf_evals.verify_eval_results_entry": {"sd_jwt_issuer_key_pin": "the relying-party SD-JWT issuer-trust pin "
+                                           "(Nachtrag 38, Z309); forwarded verbatim through verify_receipt_token to "
+                                           "bundle.verify_bundle, where its one reading is measured by the entry above"},
+    "outcome.verify_outcome_receipt": {"trust_pack_pinned": "the relying-party trust-pack pin verdict forwarded "
+                                       "from a rotation-authorized verify_trust_pack (Nachtrag 43, Z309); a bool/None "
+                                       "read by identity (`is True`), which cannot carry a second reading — it is a "
+                                       "switch, classified in tests/test_a_caller_verdict_counts_only_as_a_bool.py. The "
+                                       "recomputed digest/root-key anchors (trust_pack_expected_*) ARE swept above.",
+                                       "trust_pack_envelope": "N45: the trust-pack DSSE envelope; forwarded verbatim "
+                                       "to trust_pack.verify_trust_pack, whose own one reading (dsse._read_once) is "
+                                       "measured by the verify_trust_pack entry — not re-read here.",
+                                       "trust_pack_pinned_digest": "N45: the content digest the forwarded "
+                                       "trust_pack_pinned verdict was computed over; read once as a str and compared "
+                                       "by value to the recomputed predicate digest (a switch-like value, like "
+                                       "trust_pack_pinned above)."},
 }
 
 
@@ -1528,8 +1586,11 @@ class ALineageResultWithoutAPlainCopyIsReadByWhatItStores(unittest.TestCase):
                        "verified_under": _b64pub(_T)}
         self.assertEqual(self._lauf({"require_relation_resolution": ["supersedes"]}, {"edges": [verifiziert]}),
                          [])
+        # Nachtrag 48/48b (F2): same-key is satisfied only for a lineage bound to the verified successor receipt;
+        # stamp it for _T (the _lauf successor key), as a passing verify does.
+        from _lineage_binding import bound_lineage  # type: ignore  # noqa: PLC0415
         self.assertEqual(self._lauf({"relation_signer": {"supersedes": {"mode": "same-key"}}},
-                                    {"edges": [verifiziert]}), [])
+                                    bound_lineage({"edges": [verifiziert]}, _b64pub(_T))), [])
         self.assertEqual(self._lauf({"reject_superseded": True}, {"edges": [], "supersededByAttached": "by X"}),
                          ["LINEAGE_REQUIREMENT_FAILED"])
 

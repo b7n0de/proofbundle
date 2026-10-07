@@ -30,7 +30,7 @@ from typing import Any, Optional
 
 from ._membership import require_switch
 from .budget import DEFAULT_BUDGET, render_safe
-from .canonical import _bytes_von, _puffer_von, _zeichen_von
+from .canonical import _bytes_von, _ein_stand, _puffer_von, _zeichen_von
 from .errors import Check, ProofBundleError, VerificationResult
 
 __all__ = [
@@ -94,6 +94,7 @@ HASH_REGISTRY: dict[str, HashAlg] = {
 }
 
 
+@_ein_stand
 def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -> HashAlg:
     """Resolve an algorithm id to its registry entry, fail-closed.
 
@@ -132,6 +133,7 @@ def resolve_hash_alg(alg_id: Optional[str], *, allow_deprecated: bool = False) -
     return spec
 
 
+@_ein_stand
 def compute_digest(data: bytes, alg_id: str, *, allow_deprecated: bool = False) -> str:
     """Hex digest of ``data`` under ``alg_id`` (fail-closed on missing/unknown/deprecated)."""
     spec = resolve_hash_alg(alg_id, allow_deprecated=allow_deprecated)
@@ -142,6 +144,7 @@ def compute_digest(data: bytes, alg_id: str, *, allow_deprecated: bool = False) 
     return h.hexdigest()
 
 
+@_ein_stand
 def compute_dual_hash(data: bytes, alg_ids: Sequence[str]) -> dict[str, str]:
     """Digests of ``data`` under two or more DISTINCT CURRENT algorithms — for a NEW receipt.
 
@@ -176,6 +179,7 @@ def _enforce_structural_budget(obj, *, budget=None):
     enforce_structural_budget(obj, budget=budget)
 
 
+@_ein_stand
 def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationResult:
     """Verify that EVERY declared digest binds ``data``, and that at least one is a CURRENT algorithm.
 
@@ -189,6 +193,17 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     # expected digest as its characters. At cd5d39f4 the map was read through its own `__len__` and
     # `items()`, and each id and digest through its own `__hash__`, `__eq__` and `lower()`. A
     # `Mapping` that is no dict can only be read through its own `items()`, once.
+    #
+    # AND IN THE ONE READING OF THE CALL (a verify lens of the fix of the gate at d388ed3d, the class of
+    # L4-620v5-T5-SECOND-READING-01): `list(dict.items(...))` builds one pair tuple after another, and a process
+    # with no free pair tuples allocates each of them, so a gc callback of the caller that rewrote three entries
+    # at once while the list was between them gave pairs no state of the map holds, and a map whose every
+    # state fails passed (reported by a verify lane at d388ed3d; a later lane, V4 on 8f2fa980, did not reproduce
+    # the window in its process). A dict of digests is the one reading of the call (`canonical._stand`, which
+    # proves no joint state of mutable inputs across a change made and undone between its two reads, R620-ABA-1).
+    # A Mapping that is no dict and no `MappingProxyType` over a dict (which the reading copies as a view of the
+    # dict's copy) reaches this body from a caller as a stand-in that holds no pairs (the fix of deep gate run 6,
+    # `canonical._fremdkoerper`) and fails here; any other Mapping is read through its own `items()`, once.
     gespeichert: Any = digests
     paare: list
     if issubclass(type(gespeichert), dict):
@@ -204,8 +219,9 @@ def verify_dual_hash(data: bytes, digests: Mapping[str, str]) -> VerificationRes
     # The data as the bytes it holds, once (a `memoryview` as the bytes it views, as every leg read it
     # before), and judged by its own type: an object that claims bytes through `__class__` passed
     # `isinstance` and was read once per leg through its own buffer.
-    if _puffer_von(data) is not None:
-        data = _puffer_von(data)
+    _gelesen = _puffer_von(data)
+    if _gelesen is not None:
+        data = _gelesen
     if type(data) is not bytes:
         # 6-lens gate L3-02: compute_digest(data, ...) -> h.update(data) raised a raw TypeError on a non-bytes
         # `data` (the digests + each expected are guarded, but the primary data arg was not). This public

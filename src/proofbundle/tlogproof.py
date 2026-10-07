@@ -41,7 +41,8 @@ from typing import Optional, Sequence
 
 from . import merkle
 from .budget import DEFAULT_BUDGET
-from .canonical import _bytes_von, _folge_von, _ganzzahl_von, _plain_for_jcs, _zeichen_von
+from .canonical import (_bytes_von, _ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs,
+                        _zeichen_von)
 from .checkpoint import (_log_key_material_of, _split_signed_note, expected_origin_wellformed,
                          verify_checkpoint, witness_quorum)
 from .errors import BundleFormatError, ProofBundleError
@@ -64,6 +65,7 @@ def _b64d(value: str, what: str) -> bytes:
         raise BundleFormatError(f"{what} is not valid standard base64") from exc
 
 
+@_ein_stand
 def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_checkpoint: str,
                       extra: Optional[bytes] = None) -> str:
     """Serialize a tlog-proof. ``signed_checkpoint`` is a complete signed note (log signature,
@@ -115,6 +117,7 @@ def format_tlog_proof(index: int, inclusion_proof: Sequence[bytes], signed_check
     return "\n".join(lines) + "\n\n" + signed_checkpoint
 
 
+@_ein_stand
 def parse_tlog_proof(text: str) -> dict:
     """Parse a tlog-proof into ``{extra, index, proof, checkpoint}``. Strict, fail-closed:
     unknown leading lines, bad base64, bad index formatting or a missing separator are
@@ -177,6 +180,7 @@ def parse_tlog_proof(text: str) -> dict:
     return {"extra": extra, "index": int(index_s), "proof": proof, "checkpoint": checkpoint}
 
 
+@_ein_stand
 def tlog_proof_for_bundle(bundle: dict, signed_checkpoint: str,
                           extra: Optional[bytes] = None) -> str:
     """Build a tlog-proof from a proofbundle's own ``merkle`` object plus a signed checkpoint
@@ -236,6 +240,7 @@ def _tlog_failclosed(detail: str, expected_origin: "str | None" = None) -> dict:
             "detail": detail}
 
 
+@_ein_stand
 def verify_tlog_proof(text: str, leaf_data: bytes, log_vkey: str,
                       witness_vkeys: Sequence[str] = (), *, threshold: int = 0,
                       expected_origin: "str | None" = None) -> dict:

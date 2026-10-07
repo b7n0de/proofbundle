@@ -170,6 +170,21 @@ class AgtSignerKey(unittest.TestCase):
         self.assertIs(verify_ed25519_pinned(I1, UNIV, b"m"), False)
 
 
+class _Walk:
+    """An iterable that is no iterator: each `__iter__` builds a fresh one from `make`. Since deep gate run 6 the
+    reading at the call refuses an iterator or a generator as `trusted_authorizer_keys` unread (`_liste_stand`), and
+    reads every other list twice; the cases below that need a list which raises part-way, or that a generator
+    walks, hand it in this form, so the rule of `_vertrauensliste` is still what they measure."""
+
+    def __init__(self, make):
+        self._make = make
+        self.walks = 0
+
+    def __iter__(self):
+        self.walks += 1
+        return self._make()
+
+
 class AgtAuthorizerList(unittest.TestCase):
     """The relying party's `trusted_authorizer_keys` is where a key is authorised."""
 
@@ -215,7 +230,7 @@ class AgtAuthorizerList(unittest.TestCase):
         return {"list": list, "tuple": tuple, "set": set, "frozenset": frozenset,
                 "deque": collections.deque, "UserList": collections.UserList,
                 "dict": dict.fromkeys, "dict.keys()": lambda xs: dict.fromkeys(xs).keys(),
-                "generator": lambda xs: (x for x in xs)}
+                "an iterable walked by a generator": lambda xs: _Walk(lambda: (x for x in xs))}
 
     def test_a_weak_key_is_refused_in_every_container_the_comparison_walks(self):
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
@@ -228,8 +243,9 @@ class AgtAuthorizerList(unittest.TestCase):
                 self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], e.checks[0].detail)
 
     def test_positive_control_every_container_still_authorises_the_real_key(self):
-        """A one-shot generator is walked ONCE: the refusal and the comparison read one materialised
-        copy, so the real key is still found after the refusal looked at the list."""
+        """The refusal and the comparison read one materialised copy, so the real key is still found after
+        the refusal looked at the list. A one-shot generator is refused since deep gate run 6 (the case
+        `test_an_iterator_or_a_generator_refuses_the_list_unread`)."""
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt
         r = _agt("03_extern_autorisiert")
         for name, make in self._containers().items():
@@ -277,16 +293,24 @@ class AgtAuthorizerList(unittest.TestCase):
         """The chain verifier hands the same object to every receipt. A generator read by the first
         receipt would be empty for the third, the one that carries the authorization, and the real
         authorizer would read as untrusted (exit 3); on 053c7800 the same call raised TypeError from
-        `len(...)`. The chain reads the list once and passes the copy on."""
+        `len(...)`. The chain reads the list once and passes the copy on. Since deep gate run 6 the reading at
+        the call reads it, twice (both collects), and the chain body never again, however many receipts it
+        judges; a generator itself is refused unread."""
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt_chain
         r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
         real = r3["authorizer_public_key"]
-        e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=(k for k in [real]))
+        liste = _Walk(lambda: (k for k in [real]))
+        e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=liste)
         self.assertEqual((e.ok, exit_code(e)), (True, 0), [c.detail for c in e.checks if not c.ok])
-        e2 = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=(k for k in [I1.hex(), real]))
+        self.assertEqual(liste.walks, 2, "the list was walked again by the chain body")
+        e2 = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=_Walk(lambda: (k for k in [I1.hex(), real])))
         self.assertEqual(exit_code(e2), 2)
         self.assertEqual(sum(1 for c in e2.checks if c.name.endswith("trusted-authorizer-keys")), 3,
                          "every receipt of the chain reports the refused list, not only the first")
+        e3 = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=(k for k in [real]))
+        refused = [c for c in e3.checks if c.name.endswith("trusted-authorizer-keys")]
+        self.assertEqual((exit_code(e3), len(refused)), (2, 3))
+        self.assertIn("an iterator or a generator", refused[0].detail)
 
     def test_a_container_that_cannot_be_walked_is_malformed_not_a_crash(self):
         """A non-iterable (an int) reached `set(...)` and raised TypeError on 053c7800. It is the
@@ -340,9 +364,10 @@ class AgtAuthorizerList(unittest.TestCase):
                 return [v, real]
 
             cases = {
-                "generator: the real key, then ValueError": (lambda: then_raise(ValueError, [real]), "ValueError"),
-                "generator: KeyError before any entry": (lambda: then_raise(KeyError, []), "KeyError"),
-                "closed file object": (closed_file, "ValueError"),
+                "generator: the real key, then ValueError": (
+                    lambda: _Walk(lambda: then_raise(ValueError, [real])), "ValueError"),
+                "generator: KeyError before any entry": (lambda: _Walk(lambda: then_raise(KeyError, [])), "KeyError"),
+                "closed file object": (lambda: _Walk(closed_file), "ValueError"),
                 "__iter__ raises": (IterRaises, "RuntimeError"),
                 "an entry whose __class__ raises": (lambda: [ClassRaises(), real], "RuntimeError"),
                 "a released memoryview entry": (released_view, "ValueError"),
@@ -403,22 +428,58 @@ class AgtAuthorizerList(unittest.TestCase):
                     raise TypeError("transient")
                 return x
 
-        single = verify_agt_receipt(r3, trusted_authorizer_keys=Resuming())
+        # Since deep gate run 6 an iterator is refused unread at the call; the half-read list is handed in as
+        # an iterable whose iterator is a fresh `Resuming`, so the rule of the list reader is what is measured.
+        single = verify_agt_receipt(r3, trusted_authorizer_keys=_Walk(Resuming))
         self.assertEqual(exit_code(single), 2)
         for chain in ([r3], [r1, r2, r3]):
             with self.subTest(chain=len(chain)):
-                it = Resuming()
+                it = _Walk(Resuming)
                 e = verify_agt_receipt_chain(chain, trusted_authorizer_keys=it)
                 self.assertEqual(exit_code(e), exit_code(single), [(c.name, c.ok) for c in e.checks])
                 refused = [c for c in e.checks if c.name.endswith("trusted-authorizer-keys")]
                 self.assertEqual(len(refused), len(chain), "every receipt reports the one refusal")
                 self.assertEqual(len({c.detail for c in refused}), 1)
                 self.assertIn("TypeError", refused[0].detail)
-                self.assertEqual(it.rest, [real], "the iterator was read again after it failed")
+                self.assertEqual(it.walks, 2, "the list was walked again after the reading at the call")
         with self.subTest(chain="a normalising generator: identity point, then TypeError"):
             e = verify_agt_receipt_chain(
-                [r1, r2], trusted_authorizer_keys=(bytes.fromhex(k).hex() for k in [I1.hex(), None, real]))
+                [r1, r2], trusted_authorizer_keys=_Walk(lambda: (bytes.fromhex(k).hex() for k in [I1.hex(), None, real])))
             self.assertEqual(exit_code(e), 2, "on 8cf49247 this chain gave exit 0")
+
+    def test_an_iterator_or_a_generator_refuses_the_list_unread(self):
+        """Deep gate run 6 at fda55f98 and owner choice 1 of 2026-10-01 (V10-F1 closed in 6.2.0): an iterator or a
+        generator as `trusted_authorizer_keys` can be read only once, so the reading at the call cannot compare
+        two readings of it. It is refused, unread, with the refusal of a list that cannot be read (exit 2, one
+        check), at the single verifier and at every receipt of a chain, and never raises."""
+        from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        r1, r2, r3 = _agt("01_allow"), _agt("02_deny"), _agt("03_extern_autorisiert")
+        real = r3["authorizer_public_key"]
+        gelesen: list = []
+
+        def zaehlend():
+            for k in [real]:
+                gelesen.append(k)
+                yield k
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "keys.txt"
+            p.write_text(real + "\n", encoding="utf-8")
+            for name, make in (("generator", zaehlend), ("iter() of a list", lambda: iter([real])),
+                               ("map", lambda: map(str, [real])), ("open file", lambda: open(p, encoding="utf-8"))):
+                with self.subTest(form=name):
+                    gelesen.clear()
+                    wert = make()
+                    e = verify_agt_receipt(r3, trusted_authorizer_keys=wert)
+                    self.assertEqual((e.ok, exit_code(e), [c.name for c in e.checks]),
+                                     (False, 2, ["trusted-authorizer-keys"]))
+                    self.assertIn("an iterator or a generator", e.checks[0].detail)
+                    self.assertEqual(gelesen, [], "the generator was read")
+                    e = verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=make())
+                    self.assertEqual(exit_code(e), 2)
+                    self.assertEqual(sum(1 for c in e.checks if c.name.endswith("trusted-authorizer-keys")), 3)
+                    if hasattr(wert, "close"):
+                        wert.close()
 
     def test_a_byte_string_entry_is_judged_whatever_its_python_type(self):
         """K2-1-C, entries. Judged by the buffer protocol, not by `bytes`/`bytearray`: on 8cf49247 the
@@ -664,10 +725,11 @@ class AgtAuthorizerList(unittest.TestCase):
 
         for exc, name in ((NamedBoom, "NamedBoom"), (FormatBoom, "FormatBoom")):
             for label, call in (
-                    ("single 01", lambda: verify_agt_receipt(r1, trusted_authorizer_keys=then_raise(exc))),
-                    ("single 03", lambda: verify_agt_receipt(r3, trusted_authorizer_keys=then_raise(exc))),
+                    ("single 01", lambda: verify_agt_receipt(r1, trusted_authorizer_keys=_Walk(lambda: then_raise(exc)))),
+                    ("single 03", lambda: verify_agt_receipt(r3, trusted_authorizer_keys=_Walk(lambda: then_raise(exc)))),
                     ("chain 01, 02, 03",
-                     lambda: verify_agt_receipt_chain([r1, r2, r3], trusted_authorizer_keys=then_raise(exc)))):
+                     lambda: verify_agt_receipt_chain([r1, r2, r3],
+                                                      trusted_authorizer_keys=_Walk(lambda: then_raise(exc))))):
                 with self.subTest(exception=name, call=label):
                     e = verdict(call)                                       # must not raise
                     self.assertEqual(exit_code(e), 2)
@@ -1401,7 +1463,12 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         so what it writes can be deeper than anything stored. Measured at a4e2fa5c: such a value
         holding 100 levels in its methods and nothing deeper in its storage was written, exit 1, on all
         five interpreters, and 5000 levels gave exit 2 on 3.10 and 3.11 and exit 1 from 3.12 on. The
-        depth is measured in the form the serialiser wrote now, and each method still runs once."""
+        depth is measured in the form the serialiser wrote.
+
+        SINCE THE READING AT THE CALL (the fix of the gate at d388ed3d, `canonical._ein_stand`) a list or dict
+        subclass reaches the adapter as its base type holding what it stores, so the serialiser writes what the
+        value stores and none of its methods runs. The ceiling is held here with the depth in the storage; a value
+        that is deep only in its methods is written as its shallow storage (the last subtest)."""
         from proofbundle.adapters.agt_receipt import (canonical_authorization_payload, canonical_payload, exit_code,
                                                       verify_agt_receipt, verify_agt_receipt_chain)
         r1, r3 = _agt("01_allow"), _agt("03_extern_autorisiert")
@@ -1425,8 +1492,9 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                 return [("k", self.inner)]
 
         def holding(kind, inner):
-            value = kind() if kind is Iterates else kind(stored=1)
-            value.inner = inner            # the form writes the field at level 2, `inner` at level 3
+            # the storage holds `inner` as the methods show it: the form writes the field at level 2, `inner` at 3
+            value = kind([inner]) if kind is Iterates else kind(k=inner)
+            value.inner = inner
             return value
 
         for kind in (Iterates, Items):
@@ -1439,7 +1507,7 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                         e = verify_agt_receipt(dict(receipt, **{field: holding(kind, nested(n))}),
                                                trusted_authorizer_keys=keys)
                         self.assertEqual(exit_code(e), code, [(c.name, c.detail) for c in e.checks if not c.ok])
-                        self.assertEqual(len(calls), 1, "the caller's method ran more or less than once")
+                        self.assertEqual(calls, [], "a method of the caller's value ran")
                         if code == 2 and n <= 100:     # 5000 may meet the serialiser's own limit first
                             self.assertIn("it nests arrays and objects more than 64 deep",
                                           " ".join(c.detail for c in e.checks))
@@ -1450,6 +1518,14 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                 e = verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=holding(kind, {text: [text, text]})))
                 self.assertEqual(exit_code(e), 1, [(c.name, c.detail) for c in e.checks if not c.ok])
                 self.assertEqual(exit_code(verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=text))), 1)
+        with self.subTest(since="the reading at the call: a value deep only in its methods is written as it stores"):
+            for kind in (Iterates, Items):
+                flach = kind() if kind is Iterates else kind(stored=1)
+                flach.inner = nested(100)
+                calls.clear()
+                e = verify_agt_receipt(dict(r1, payload_hash="ab" * 32, tool_name=flach))
+                self.assertEqual(exit_code(e), 1, [(c.name, c.detail) for c in e.checks if not c.ok])
+                self.assertEqual(calls, [])
         with self.subTest(control="a value shared many times over is walked once per container and level"):
             shared: Any = "x"
             for _ in range(60):                   # 2**60 paths, 61 containers, the deepest at level 61
@@ -1500,7 +1576,9 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                     e = call()
                 except Exception as escape:  # noqa: BLE001 — an escape is the finding
                     self.fail(f"the verifier raised {type(escape).__name__}")
-                self.assertEqual(ReadOnce.calls, 1, "the payload was serialised more than once")
+                # Since the reading at the call the value reaches the adapter as the dict it stores, so its own
+                # `items()` runs not once but never; what this held (no second reading escapes) holds with it.
+                self.assertEqual(ReadOnce.calls, 0, "a method of the caller's value ran")
                 self.assertEqual(exit_code(e), 1, [(c.name, c.ok) for c in e.checks])
 
     def test_the_receipt_and_the_chain_are_read_through_their_own_storage(self):
@@ -1510,8 +1588,16 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
         plain dict, on main 20e91c8e too. A dict subclass whose `get` raises, and a list subclass
         whose `__len__` raises as the chain, escaped the same way. The receipt is read through
         `dict.items` and the chain through `list.__iter__` or `tuple.__iter__` now, which walk the
-        stored items and call no method of the caller's; a key that is no text names no field."""
+        stored items and call no method of the caller's; a key that is no text names no field.
+
+        SINCE DEEP GATE RUN 6 AT fda55f98 such a receipt does not reach the body: a dict with a key whose hash
+        would be the caller's code is a container the reading at the call cannot copy, and the call is refused
+        before the body runs with `canonical._StandUnkopierbar`, a `ProofBundleError`, as the CHANGELOG entry of
+        that fix names (L4-620v6-T15-LIVE-RELATED-01: such a dict stayed the caller's object and a gc callback
+        promoted a verdict). The property kept here is the one of F7: the key's own `__eq__` never runs, so no
+        exception of the caller's escapes, and the refusal is the typed one."""
         from proofbundle.adapters.agt_receipt import exit_code, verify_agt_receipt, verify_agt_receipt_chain
+        from proofbundle.canonical import _StandUnkopierbar
         r1, r2 = _agt("01_allow"), _agt("02_deny")
 
         class Collides:
@@ -1528,6 +1614,15 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                     raise RuntimeError("a key's __eq__ ran")
                 return False
 
+        def refused(call):
+            try:
+                call()
+            except _StandUnkopierbar:
+                return True
+            except Exception as escaped:  # noqa: BLE001 — an escape is the finding
+                raise AssertionError(f"the verifier raised {type(escaped).__name__}: {escaped}") from None
+            return False
+
         def verdict(call):
             try:
                 return call()
@@ -1541,8 +1636,8 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
                 receipt.update(r1)
                 Collides.armed = True
                 try:
-                    self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt(receipt))), 0)
-                    self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt_chain([receipt, r2]))), 0)
+                    self.assertTrue(refused(lambda: verify_agt_receipt(receipt)))
+                    self.assertTrue(refused(lambda: verify_agt_receipt_chain([receipt, r2])))
                 finally:
                     Collides.armed = False
         with self.subTest(key="an object hashing like 'parent_receipt_hash', in the linked receipt"):
@@ -1550,9 +1645,12 @@ class AgtVerifySurfacesNeverRaise(unittest.TestCase):
             linked.update(r2)
             Collides.armed = True
             try:
-                self.assertEqual(exit_code(verdict(lambda: verify_agt_receipt_chain([r1, linked]))), 0)
+                self.assertTrue(refused(lambda: verify_agt_receipt_chain([r1, linked])))
             finally:
                 Collides.armed = False
+        # The control: the same receipts without the caller's key verify as before.
+        self.assertEqual(exit_code(verify_agt_receipt(r1)), 0)
+        self.assertEqual(exit_code(verify_agt_receipt_chain([r1, r2])), 0)
 
         def boom(*_a, **_k):
             raise RuntimeError("a method of the caller's container ran")
@@ -2055,6 +2153,7 @@ _LENGTH_32 = {
     ("checkpoint.py", "_mldsa_cosigned_message"): (1, "a root, no key"),
     ("cli.py", "_build_rp_trust"): (1, "a root, no key"),
     ("cli.py", "_resolve_canonical_root"): (1, "a root, no key"),
+    ("cli.py", "_expected_pack_root"): (1, "a root, no key"),
     ("cli.py", "_parse_bundled_headers"): (1, "a root, no key"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
