@@ -162,14 +162,15 @@ def _decision_verification_time(receipt_path: str) -> "str | None":
     clock is used, exactly as before. The gap this papers over — the Rust verifier never judging
     ``expiresAt`` — is a named open Rust item recorded only in the bundle report (see the BLOCKED vector),
     not the public RESTRISIKO; Rust freshness is post-tag."""
-    import base64  # noqa: PLC0415
     from datetime import datetime, timezone  # noqa: PLC0415
+
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
     try:
         env = json.loads(pathlib.Path(receipt_path).read_text(encoding="utf-8"))
         payload = env.get("payload") if isinstance(env, dict) else None
         if not isinstance(payload, str):
             return None
-        predicate = json.loads(base64.b64decode(payload)).get("predicate")
+        predicate = json.loads(decode_b64(payload)).get("predicate")
         if not isinstance(predicate, dict):
             return None
         stamp = predicate.get("recordedAt") or predicate.get("decidedAt")
@@ -245,6 +246,7 @@ def _crit_bundle_differential(tmp: pathlib.Path) -> list[str]:
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
 
     from proofbundle import generate_signer  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64, decode_b64url  # noqa: PLC0415
     from proofbundle.cli import main as _cli_main  # noqa: PLC0415
     from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
     from proofbundle.sdjwt_issue import issue_sd_jwt  # noqa: PLC0415
@@ -256,7 +258,7 @@ def _crit_bundle_differential(tmp: pathlib.Path) -> list[str]:
         return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
     def _b64u_dec(s):
-        return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+        return decode_b64url(s)
 
     def _resign_issuer_crit(compact, signer):
         issuer_jws, sep, rest = compact.partition("~")
@@ -280,7 +282,7 @@ def _crit_bundle_differential(tmp: pathlib.Path) -> list[str]:
         timestamp="2026-07-09T10:00:00Z", assurance_level="reproduced")
     plain = emit_eval_receipt(ev_claim, signer)
     root = (plain.get("merkle") or {}).get("root_b64")
-    sd_claim = _json.loads(base64.b64decode(plain["payload_b64"]))
+    sd_claim = _json.loads(decode_b64(plain["payload_b64"]))
     # No holder key, so no `cnf`: the Rust sd_jwt slice fail-closes on ANY cnf-bound credential (its
     # KB-JWT proof-of-possession check is a pending slice), which would reject a cnf credential for a
     # reason OTHER than crit and spoil the control. A plain issuer SD-JWT isolates the crit decision on

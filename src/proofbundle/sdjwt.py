@@ -54,7 +54,7 @@ from typing import Optional, Set
 from ._strict_json import loads_strict
 from .canonical import _ein_stand, _zeichen_von
 from .errors import ProofBundleError
-from .signature import (_es256_other_spelling, canonical_es256_signature, reject_jws_crit,
+from .signature import (_es256_other_spelling, _reject_jws_crit, canonical_es256_signature,
                         verify_ecdsa_p256, verify_ed25519_pinned)
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
@@ -191,7 +191,7 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     # invalid. Early exit right after reading the issuer header (like the duplicate-key case above) and
     # BEFORE the alg/signature work, so structure_ok stays False and no signature is ever checked
     # (sig_ok never True) for an issuer JWS that carries a `crit` member.
-    _crit_reason = reject_jws_crit(header)
+    _crit_reason = _reject_jws_crit(header)
     if _crit_reason is not None:
         result["detail"] = _crit_reason
         return result

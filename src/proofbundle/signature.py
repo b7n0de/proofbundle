@@ -21,11 +21,11 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+from ._membership import is_member
 from .canonical import _bytes_von, _ein_stand
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
-           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature",
-           "reject_jws_crit"]
+           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
 
 
 # --- RFC 7515 §4.1.11 critical-header handling (Nachtrag 50, Z309 / 6.2.0) ------------------------
@@ -51,18 +51,24 @@ _REGISTERED_JOSE_HEADER_PARAMS: frozenset = frozenset({
 })
 
 
-def reject_jws_crit(header: Any) -> "str | None":
+def _reject_jws_crit(header: Any) -> "str | None":
     """RFC 7515 §4.1.11 critical-header check for a protected JWS header.
 
     Return a human-readable reason string when ``header``'s ``crit`` member makes the JWS invalid, else
-    ``None``. A header that is not a dict, or carries no ``crit``, returns ``None`` (the pre-Nachtrag-50
+    ``None``. A header that is not a dict, or carries no ``crit``, returns ``None`` (the pre-Addendum-50
     behaviour — a header without ``crit`` is unchanged). When ``crit`` IS present every defect named by
     the RFC gets its own reason — ``crit`` that is not a non-empty array, that holds a non-string or a
     duplicate name, that names a registered (base-spec) Header Parameter, or that names a parameter
     absent from the header — and a well-formed ``crit`` still returns a reason, because proofbundle
     understands no JWS extension (``_UNDERSTOOD_JWS_CRIT`` is empty). Callers apply this right after
     reading the header and before any other header field, so an un-understood critical extension is a
-    fail-closed verdict, never a silently-ignored header."""
+    fail-closed verdict, never a silently-ignored header.
+
+    Private (``_`` prefix): an internal shared decision site, imported by the four local JWS verifiers
+    (SD-JWT issuer, KB-JWT, Status List token, enclave EAT). Its ``header`` is always a dict those
+    verifiers have just parsed from already-snapshotted compact bytes, never a caller-supplied live
+    object — so it needs no ``canonical._ein_stand`` read-once wrapper, and its never-raise behaviour is
+    exercised through those four public verify surfaces (the never-raise denominator), not on its own."""
     if not isinstance(header, dict) or "crit" not in header:
         return None
     crit = header["crit"]
@@ -75,13 +81,13 @@ def reject_jws_crit(header: Any) -> "str | None":
         if name in seen:
             return f"JWS 'crit' names a duplicate parameter {name!r} (RFC 7515 §4.1.11)"
         seen.add(name)
-        if name in _REGISTERED_JOSE_HEADER_PARAMS:
+        if is_member(name, _REGISTERED_JOSE_HEADER_PARAMS):
             return (f"JWS 'crit' must not name the base-spec header parameter {name!r} "
                     "(RFC 7515 §4.1.11)")
         if name not in header:
             return (f"JWS 'crit' names {name!r}, which is absent from the protected header "
                     "(RFC 7515 §4.1.11)")
-    unsupported = [n for n in crit if n not in _UNDERSTOOD_JWS_CRIT]
+    unsupported = [n for n in crit if not is_member(n, _UNDERSTOOD_JWS_CRIT)]
     return ("unsupported critical JWS header parameter(s) "
             + ", ".join(repr(n) for n in unsupported)
             + " — proofbundle understands no JWS extension, so the JWS is invalid (RFC 7515 §4.1.11)")

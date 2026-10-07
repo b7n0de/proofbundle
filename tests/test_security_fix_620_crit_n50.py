@@ -7,7 +7,7 @@ header must fail closed. Before this addendum the local JWS verifiers read only 
 ignored ``crit``, so a genuinely signed token with ``crit`` reached a positive verdict (K5-01
 ``kbjwt.verify_key_binding`` ok True; K5-02 ``sdjwt.verify_sd_jwt`` structure_ok/sig_ok True; and the
 siblings ``statuslist.verify_status_snapshot`` and ``experimental.enclave.verify_enclave_attestation``
-ok True). The shared helper ``signature.reject_jws_crit`` is now the single decision site; each verifier
+ok True). The shared helper ``signature._reject_jws_crit`` is now the single decision site; each verifier
 calls it right after reading the header and before any other field. Narrowing only; a header without
 ``crit`` is unchanged.
 
@@ -28,7 +28,7 @@ from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
 from proofbundle.kbjwt import verify_key_binding
 from proofbundle.sdjwt import verify_sd_jwt
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
-from proofbundle.signature import reject_jws_crit
+from proofbundle.signature import _reject_jws_crit
 from proofbundle.statuslist import issue_status_list_token, verify_status_snapshot
 
 _IAT = 1_780_000_000
@@ -186,8 +186,8 @@ class TheFiveCritForms(unittest.TestCase):
         self.assertIs(self._sd_with_header({"crit": ["future"]})["structure_ok"], False)
 
     def test_the_helper_rejects_every_form_and_accepts_no_crit(self):
-        self.assertIsNone(reject_jws_crit({"alg": "EdDSA", "typ": "kb+jwt"}))
-        self.assertIsNone(reject_jws_crit({"alg": "EdDSA"}))              # no crit member
+        self.assertIsNone(_reject_jws_crit({"alg": "EdDSA", "typ": "kb+jwt"}))
+        self.assertIsNone(_reject_jws_crit({"alg": "EdDSA"}))              # no crit member
         for header in (
             {"alg": "EdDSA", "crit": ["x"], "x": True},                  # unknown extension
             {"alg": "EdDSA", "crit": []},                                # empty
@@ -197,7 +197,7 @@ class TheFiveCritForms(unittest.TestCase):
             {"alg": "EdDSA", "crit": ["x", "x"], "x": True},             # duplicate
             {"alg": "EdDSA", "crit": [1], "1": True},                    # non-string entry
         ):
-            self.assertIsInstance(reject_jws_crit(header), str,
+            self.assertIsInstance(_reject_jws_crit(header), str,
                                   f"crit form must be rejected: {header!r}")
 
 
