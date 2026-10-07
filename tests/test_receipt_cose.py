@@ -28,7 +28,7 @@ DRAFT1 = json.loads((REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draf
 KEYS = {name: bytes.fromhex(value) for name, value in VECTORS["keys_hex"].items()}
 #: Vector M2 of draft-gruszka-evaluation-receipt-mappings-00: its kid and the SHA-256 of its bytes.
 M2_KID = "c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb1561"
-M2_SHA256 = "5be4ea02851ee90fc0c44d65b9f77c78450255f237d7de11ce4b18636480a106"
+M2_SHA256 = "c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e"
 #: The Draft 1 PURE TEST seed of the issuer key, written out as in tests/test_signed_eval_receipt_conformance.py:
 #: a shipped test builds a throwaway key from a literal and loads no key from outside
 #: (tests/test_sdist_ohne_signierwerkzeug.py). A test below holds it equal to the fixture's seed.

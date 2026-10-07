@@ -7,7 +7,10 @@ Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
   N27 to N29 and N47), each with the expected verdict and the first failing step of the draft's
   Section 5. The receipt has no inclusion member since 2026-10-03; the seven vectors that only
   exercised the inclusion proof (P3, P5, N8, N27, N28, N29, N47) are gone and their identifiers
-  are not reused. B and the signatures of the other vectors are unchanged.
+  are not reused. Since 2026-10-07 the receipt type is `application/eval-receipt+json` and the
+  payload schema `urn:ietf:params:eval-receipt:v1`; both enter B or the signature, so every B,
+  signature and receipt digest differs from the vectors before that day, while each vector keeps
+  its identifier, verdict and first failing step.
 - Compact form: every payload B is stored once under `payloads`, and a receipt names its
   `payload_b64` by the token `@Bn@` when that value is exactly the base64 of a stored B. The test
   rebuilds the exact receipt bytes and checks each against the SHA-256 the draft publishes
