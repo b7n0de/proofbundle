@@ -1,8 +1,13 @@
 """COSE_Sign1 Hash Envelopes that cite a Signed Evaluation Receipt, in both directions (EXPERIMENTAL).
 
-Needs the ``[scitt]`` extra (cbor2): a statement is read with it, and every statement this module writes
-is read back with it before it is returned. The receipt format itself (``signed_eval_receipt``) needs no
-CBOR, and nothing here runs unless a caller imports this module. Nothing here opens a network connection.
+Needs the ``[scitt]`` extra (cbor2): every statement this module writes is read back with it before it is
+returned, and the check requires it as the module does. The reader that judges a statement is this
+module's own: it reads the bytes as RFC 8949 defines them, keeps the kind of every data item and does not
+interpret tags (whether a tag's content is valid for that tag, RFC 8949 section 5.3.2, is not checked; the
+data items inside a tag are checked like any other), so a verdict does not depend on which tags a decoder
+knows. The receipt format itself
+(``signed_eval_receipt``) needs no CBOR, and nothing here runs unless a caller imports this module.
+Nothing here opens a network connection.
 
 THE RULE, one statement for one receipt digest (the section "COSE and SCITT" of
 draft-gruszka-evaluation-receipt-mappings, as proposed for its next revision):
@@ -35,7 +40,8 @@ key (the Sig_structure in place of PAE), and its payload is the digest of the pr
 itself passes the draft's Section 6 under the receipt key the relying party fixed; ``sub`` must be that
 receipt's model commitment. The received ``iss`` selects among the pairs; it never makes a key trusted for
 an issuer. Every other outcome is a status, never a pass, and the check never raises for what it is given
-to read.
+to read. A check that stops at a resource limit (more than 400 nested arrays, maps and tags) returns
+``resource_limit``: no status, and not accepted.
 
 WHAT IS LOST. The statement carries the digest and the model commitment of B, nothing else of the receipt:
 not the score, threshold, comparator, verdict, suite or timestamp, not the dataset commitment, not the
@@ -47,8 +53,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
-from collections.abc import Mapping
+import struct
 from typing import Any, NamedTuple, Optional, Sequence
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -68,9 +75,13 @@ ALGS = (ALG_ED25519, ALG_EDDSA)
 WRITE_ALG = ALG_ED25519
 
 ACCEPTED = "accepted"
-#: Every status ``check_statement`` returns; only ``accepted`` is a pass.
-STATUSES = (ACCEPTED, "no_lib", "malformed", "outside_profile", "untrusted_key", "signature_invalid",
-            "receipt_not_verified", "digest_mismatch", "subject_mismatch")
+#: The outcome of a check that stopped at a resource limit, in any step: no status of Section 5.2.2 of the
+#: mappings draft, and not accepted.
+RESOURCE_LIMIT = "resource_limit"
+#: Every outcome ``check_statement`` returns; only ``accepted`` is a pass. ``no_lib`` (the [scitt] extra is
+#: missing) and ``resource_limit`` are no statuses of Section 5.2.2; the others are.
+STATUSES = (ACCEPTED, "no_lib", RESOURCE_LIMIT, "malformed", "outside_profile", "untrusted_key",
+            "signature_invalid", "receipt_not_verified", "digest_mismatch", "subject_mismatch")
 
 _ALG, _KID, _CWT, _HASH_ALG, _PREIMAGE_CTY = 1, 4, 15, 258, 259
 _ISS, _SUB = 1, 2
@@ -170,11 +181,6 @@ def _enc(value: Any) -> bytes:
     if type(value) is dict:
         items = sorted((_enc(k), _enc(v)) for k, v in value.items())
         return _head(5, len(items)) + b"".join(k + v for k, v in items)
-    if type(value) is _ArrayKey:
-        return _head(4, len(value)) + b"".join(_enc(v) for v in value)
-    if type(value) is _MapKey:
-        items = sorted((_enc(k), _enc(v)) for k, v in value)
-        return _head(5, len(items)) + b"".join(k + v for k, v in items)
     raise _Refused("malformed", f"no deterministic encoding for a {type(value).__name__}")
 
 
@@ -207,53 +213,169 @@ def _cbor2() -> Any:
 
 
 def _loads(cbor2: Any, data: bytes) -> Any:
+    """cbor2's strict reading, used only to read back what this module wrote."""
     try:
         return cbor2.loads(data, allow_duplicate_keys=False, allow_indefinite=False)
-    except Exception as exc:  # noqa: BLE001 - any refusal of the decoder is a malformed statement
-        raise _Refused("malformed", f"not CBOR this reader accepts ({type(exc).__name__})") from None
+    except Exception as exc:  # noqa: BLE001 - any refusal of the decoder is a refusal to write
+        raise ReceiptCoseError(f"cbor2 does not read the written statement ({type(exc).__name__})") from None
 
 
-class _ArrayKey(tuple):
-    """An array used as a map key, kept hashable so that the header can be judged by the rule. Equal only to
-    an _ArrayKey: the empty array and the empty map are two keys."""
-
-    def __eq__(self, other: object) -> bool:
-        return type(other) is type(self) and tuple.__eq__(self, other)
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other
-
-    def __hash__(self) -> int:
-        return hash((type(self).__name__, tuple(self)))
+#: The deepest nesting of arrays, maps and tags the reader follows: the depth cbor2 6.1.4 enforced when it
+#: read statements. Deeper input stops the check at a resource limit; it is not a malformed statement.
+_MAX_DEPTH = 400
+#: The smallest argument each longer head may carry in the deterministic encoding (RFC 8949 section 4.2.1).
+_SHORTEST = {1: 24, 2: 1 << 8, 4: 1 << 16, 8: 1 << 32}
 
 
-class _MapKey(_ArrayKey):
-    """A map used as a map key, as its (key, value) pairs, kept hashable for the same reason."""
+class _Limit(Exception):
+    """The check stopped at a resource limit: no status of Section 5.2.2."""
 
 
-def _plain(value: Any) -> Any:
-    """The decoded value in exact built-in types; a tag, a float or a simple value other than true, false
-    and null is not part of a statement. A map key keeps its kind: an array or a map used as a key becomes
-    an _ArrayKey or a _MapKey, so a header in the deterministic encoding whose keys are not all integers
-    reaches the rule (outside_profile) instead of failing as an unhashable value."""
-    if value is None or value is True or value is False or type(value) in (int, bytes, str):
-        return value
-    if isinstance(value, (list, tuple)):
-        return [_plain(v) for v in value]
-    if isinstance(value, Mapping):
-        return {_plain_key(k): _plain(v) for k, v in value.items()}
-    raise _Refused("malformed", f"a {type(value).__name__} is not part of a statement")
+class _Tag(NamedTuple):
+    """A tag: its number and its content. Step 1 does not check whether the content is valid for that tag
+    (RFC 8949 section 5.3.2); the data items inside it are checked like any other data item."""
+    number: int
+    content: Any
 
 
-def _plain_key(value: Any) -> Any:
-    """_plain for a value that stands as a map key or inside one: hashable, of the same kinds."""
-    if value is None or value is True or value is False or type(value) in (int, bytes, str):
-        return value
-    if isinstance(value, (list, tuple)):
-        return _ArrayKey(_plain_key(v) for v in value)
-    if isinstance(value, Mapping):
-        return _MapKey((_plain_key(k), _plain_key(v)) for k, v in value.items())
-    raise _Refused("malformed", f"a {type(value).__name__} is not part of a statement")
+class _Other(NamedTuple):
+    """A data item of a kind a statement never holds where it stands: a float, a simple value other than
+    false, true and null, or, as a map key, anything but an integer, a text or a byte string. It keeps its
+    kind and its value, so it equals only a data item equal to it under the key equivalence of RFC 8949
+    section 5.6.1 (the integer 1 and true are two keys, 0.0 and -0.0 are one), and it reaches the rule, which
+    refuses it (outside_profile)."""
+    kind: str
+    value: Any
+
+
+def _float_is_shortest(info: int, raw: bytes) -> bool:
+    """RFC 8949 section 4.2.1: a float in the shortest form that preserves its value (a NaN its payload)."""
+    if info == 25:
+        return True
+    value = struct.unpack(">f" if info == 26 else ">d", raw)[0]
+    if value != value:
+        bits = int.from_bytes(raw, "big")
+        return bits & ((1 << (13 if info == 26 else 29)) - 1) != 0
+    for fmt in (">e",) if info == 26 else (">e", ">f"):
+        try:
+            back = struct.unpack(fmt, struct.pack(fmt, value))[0]
+        except (OverflowError, struct.error):
+            continue
+        if back == value and math.copysign(1.0, back) == math.copysign(1.0, value):
+            return False
+    return True
+
+
+def _float_comparable(info: int, raw: bytes) -> tuple:
+    """The key equivalence of RFC 8949 section 5.6.1 for a float: numerically equal values are equal (-0.0 is
+    equal to 0.0), and NaNs are equal when their significands, zero-extended at the right to 64 bits, are."""
+    value = struct.unpack({25: ">e", 26: ">f", 27: ">d"}[info], raw)[0]
+    if value == value:
+        return ("float", value)
+    width = {25: 10, 26: 23, 27: 52}[info]
+    return ("float", "NaN", (int.from_bytes(raw, "big") & ((1 << width) - 1)) << (64 - width))
+
+
+def _argument(data: bytes, i: int, info: int) -> tuple:
+    if info < 24:
+        return info, i
+    size = 1 << (info - 24)
+    if i + size > len(data):
+        raise _Refused("malformed", "a head ends early")
+    n = int.from_bytes(data[i:i + size], "big")
+    if n < _SHORTEST[size]:
+        raise _Refused("malformed", "a head is not in its shortest form (RFC 8949 section 4.2.1)")
+    return n, i + size
+
+
+def _item(data: bytes, i: int, depth: int) -> tuple:
+    """The data item at offset I of DATA as (value, comparable form, offset after it). Refuses (malformed)
+    what is not well-formed (RFC 8949 section 3), not in the core deterministic encoding (section 4.2.1) or
+    not valid under section 5.3.1: a text string that is not UTF-8, a map with two keys equal under the key
+    equivalence of section 5.6.1, by kind and value. Whether a tag's content is valid for that tag (section
+    5.3.2) is not checked; the data items inside a tag are checked like any other. Raises _Limit past
+    _MAX_DEPTH nested arrays, maps and tags."""
+    if i >= len(data):
+        raise _Refused("malformed", "a data item ends early")
+    major, info = data[i] >> 5, data[i] & 31
+    i += 1
+    if info >= 28:
+        raise _Refused("malformed", "an indefinite length, which the deterministic encoding does not use"
+                       if info == 31 and major in (2, 3, 4, 5) else
+                       f"additional information {info} is not well-formed for major type {major}")
+    if major == 7:
+        if info in (25, 26, 27):
+            size = 1 << (info - 24)
+            raw = data[i:i + size]
+            if len(raw) != size:
+                raise _Refused("malformed", "a float ends early")
+            if not _float_is_shortest(info, raw):
+                raise _Refused("malformed", "a float is not in its shortest form (RFC 8949 section 4.2.1)")
+            return _Other("float", raw), _float_comparable(info, raw), i + size
+        if info == 24:
+            if i >= len(data):
+                raise _Refused("malformed", "a simple value ends early")
+            n, i = data[i], i + 1
+            if n < 32:
+                raise _Refused("malformed", "a simple value below 32 in two bytes is not well-formed")
+        else:
+            n = info
+        plain = {20: False, 21: True, 22: None}
+        return (plain[n] if n in plain else _Other("simple", n)), ("simple", n), i
+    n, i = _argument(data, i, info)
+    if major in (0, 1):
+        value = n if major == 0 else -1 - n
+        return value, ("int", value), i
+    if major in (2, 3):
+        if i + n > len(data):
+            raise _Refused("malformed", "a string ends early")
+        raw = data[i:i + n]
+        if major == 2:
+            return raw, ("bytes", raw), i + n
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise _Refused("malformed", "a text string is not valid UTF-8 (RFC 8949 section 5.3.1)") from None
+        return text, ("text", raw), i + n
+    if depth + 1 > _MAX_DEPTH:
+        raise _Limit(f"the statement nests more than {_MAX_DEPTH} arrays, maps and tags")
+    if major == 6:
+        content, comparable, i = _item(data, i, depth + 1)
+        return _Tag(n, content), ("tag", n, comparable), i
+    if major == 4:
+        values, comparables = [], []
+        for _ in range(n):
+            value, comparable, i = _item(data, i, depth + 1)
+            values.append(value)
+            comparables.append(comparable)
+        return values, ("array", tuple(comparables)), i
+    mapping: dict = {}
+    pairs: list = []
+    seen: set = set()
+    previous = None
+    for _ in range(n):
+        start = i
+        key, key_comparable, i = _item(data, i, depth + 1)
+        encoded = data[start:i]
+        value, comparable, i = _item(data, i, depth + 1)
+        if key_comparable in seen:
+            raise _Refused("malformed", "a map holds two equal keys (RFC 8949 section 5.3.1)")
+        if previous is not None and encoded <= previous:
+            raise _Refused("malformed", "the keys of a map are not in bytewise order (RFC 8949 section 4.2.1)")
+        seen.add(key_comparable)
+        previous = encoded
+        if type(key) not in (int, str, bytes):
+            key = _Other(key_comparable[0], key_comparable)
+        mapping[key] = value
+        pairs.append((key_comparable, comparable))
+    return mapping, ("map", frozenset(pairs)), i
+
+
+def _decode(data: bytes, what: str) -> Any:
+    value, _comparable, end = _item(data, 0, 0)
+    if end != len(data):
+        raise _Refused("malformed", f"data follows {what}")
+    return value
 
 
 class _Sign1(NamedTuple):
@@ -266,32 +388,29 @@ class _Sign1(NamedTuple):
 
 
 def _read(data: bytes) -> _Sign1:
-    cbor2 = _cbor2()
-    top = _loads(cbor2, data)
-    tagged = isinstance(top, cbor2.CBORTag)
-    if tagged and top.tag != _TAG_SIGN1:
-        raise _Refused("malformed", f"tag {top.tag}, not 18 (COSE_Sign1)")
-    body = _plain(top.value if tagged else top)
+    """Step 1 of Section 5.2.2. The bytes are one data item, well-formed, valid and in the deterministic
+    encoding; the COSE_Sign1 check concerns only the outer tag (none or 18), the array of four and its
+    element types; the protected header is decoded as a map, the empty byte string as the empty map. Header
+    labels and values are left to the rule (step 2)."""
+    _cbor2()   # the module's requirement, the [scitt] extra; the reader itself judges the bytes
+    top = _decode(data, "the statement")
+    tagged = type(top) is _Tag
+    if tagged and top.number != _TAG_SIGN1:
+        raise _Refused("malformed", f"tag {top.number}, not 18 (COSE_Sign1)")
+    body = top.content if tagged else top
     if type(body) is not list or len(body) != 4:
         raise _Refused("malformed", "not a COSE_Sign1, an array of four")
     protected_raw, unprotected, payload, signature = body
     if type(protected_raw) is not bytes or type(unprotected) is not dict or type(signature) is not bytes \
             or not (payload is None or type(payload) is bytes):
         raise _Refused("malformed", "the four members of a COSE_Sign1 do not have their types")
-    if (_head(6, _TAG_SIGN1) if tagged else b"") + _enc(body) != data:
-        raise _Refused("malformed", "the COSE_Sign1 is not in the deterministic encoding (RFC 8949 section "
-                                    "4.2.1), or data follows it")
     protected: Any = {}
     if protected_raw:
-        decoded = _loads(cbor2, protected_raw)
-        if isinstance(decoded, cbor2.CBORTag):
+        protected = _decode(protected_raw, "the protected header")
+        if type(protected) is _Tag:
             raise _Refused("malformed", "the protected header is a tag, not a map")
-        protected = _plain(decoded)
         if type(protected) is not dict:
             raise _Refused("malformed", "the protected header is not a map")
-        if _enc(protected) != protected_raw:
-            raise _Refused("malformed", "the protected header is not in the deterministic encoding, or data "
-                                        "follows it")
     return _Sign1(tagged, protected_raw, protected, unprotected, payload, signature)
 
 
@@ -394,7 +513,8 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
     an issuer URI and a raw 32-byte Ed25519 public key, configured by the relying party. The statement's
     ``iss`` and kid only select among the pairs; a key counts for the one issuer it is paired with. ALGS
     narrows the accepted alg values; -8 passes only under such an Ed25519 key, because no other kind of
-    key is ever counted. Never raises for what it reads; every refusal is a status."""
+    key is ever counted. Never raises for what it reads; every refusal is a status, and a check that stops
+    at a resource limit returns ``resource_limit``, which is none."""
     accepted = _algs(algs)
     seen: dict = {}
     ignored: list = []
@@ -436,8 +556,14 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
                               ignored_keys=tuple(ignored), **seen)
     except _Refused as refusal:
         return StatementCheck(refusal.status, refusal.detail, ignored_keys=tuple(ignored), **seen)
+    except _Limit as limit:
+        return StatementCheck(RESOURCE_LIMIT, f"stopped at a resource limit: {limit}", ignored_keys=tuple(ignored),
+                              **seen)
     except CoseUnavailable as exc:
         return StatementCheck("no_lib", str(exc))
+    except (RecursionError, MemoryError) as exc:
+        return StatementCheck(RESOURCE_LIMIT, f"stopped at a resource limit ({type(exc).__name__})",
+                              ignored_keys=tuple(ignored), **seen)
     except Exception as exc:  # noqa: BLE001 - a check never crashes its caller and never passes by accident
         return StatementCheck("malformed", f"refused (fail-closed): {type(exc).__name__}", **seen)
 
@@ -462,7 +588,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
         raise ReceiptCoseError("the signer must be an Ed25519 private key")
     if type(issuer) is not str or not _URI_RE.match(issuer):
         raise ReceiptCoseError("issuer must be an absolute URI (RFC 3986 section 4.3)")
-    _cbor2()
+    cbor2 = _cbor2()
     verdict = verify_signed_eval_receipt(receipt, receipt_key)
     if not verdict.ok or verdict.payload is None:
         raise ReceiptCoseError(f"the receipt does not verify (step {verdict.step_label}: {verdict.reason}); "
@@ -479,4 +605,9 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
                             algs=(alg,))
     if not check.ok:
         raise ReceiptCoseError(f"the statement did not read back as written: {check.status}, {check.detail}")
+    # A second, foreign decoder reads it back too: cbor2 in its strict mode, the [scitt] extra.
+    foreign = _loads(cbor2, data)
+    if not (isinstance(foreign, cbor2.CBORTag) and foreign.tag == _TAG_SIGN1 and foreign.value[0] == protected_raw
+            and _loads(cbor2, protected_raw) == protected):
+        raise ReceiptCoseError("the statement did not read back as written with cbor2")
     return data

@@ -12,7 +12,7 @@ its next revision).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
   `c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e`). The receipt type and the payload schema are the
   neutral names of 2026-10-07, so every digest and signature differs from the vectors before that day.
-- `backward`: 45 statements, each with the receipt it is presented with, the relying party's
+- `backward`: 49 statements, each with the receipt it is presented with, the relying party's
   statement keys and the one status `check_statement` must return. The relying party configures each
   statement key as a pair with the issuer URI it trusts the key for, written `[issuer URI, key name]`;
   the received `iss` selects a pair and never makes a key trusted for another issuer. Three are
@@ -31,8 +31,18 @@ its next revision).
   (RFC 8949 section 5.3.1) with the signature of B1 unchanged; B44 is B1 with the empty map as a sixth
   key of the protected header, in the deterministic encoding, and is `outside_profile`; B45 is B1 with
   -1 as a sixth key, the keys ordered length first (RFC 7049 section 3.9) instead of bytewise (RFC 8949
-  section 4.2.1), and is `malformed`. Every other vector differs from a valid statement in the one
-  property its `what` names, and is signed over its own bytes where its point is not the signature.
+  section 4.2.1), and is `malformed`. B46 to B48 followed the same evening, when the reader came to judge
+  the bytes itself: B46 is B1 with the float 1.5 (half precision, f9 3e00) as a sixth key, B47 with true
+  (f5) as a sixth key beside the integer label 1, B48 with a sixth key -1 whose value is tag 1 around the
+  text "x"; each is in the deterministic encoding and signed over those bytes, and each is
+  `outside_profile`, since step 1 does not check whether a tag's content is valid for that tag (RFC
+  8949 section 5.3.2) and every label of another kind is step 2's case (all three were `malformed`
+  under the earlier reader, which decoded with cbor2). B49 is B1 with iss
+  `https://issuer.example/e[val`, signed over those bytes, presented with a pair that names exactly
+  that iss: `outside_profile`, since RFC 3986 admits "[" only around an IP-literal (sections 2.2 and
+  3.2.2), so iss is no absolute URI (section 4.3). Every other vector differs from a valid statement
+  in the one property its `what` names, and is signed over its own bytes where its point is not the
+  signature.
 - Keys: the receipt key and the relying party's statement key are the Draft 1 issuer test key; the
   foreign key's seed is SHA-256 over the label in `foreign_seed`; `low_order` is the all-zero
   encoding, a point of small order; `p256` is an uncompressed P-256 point whose private scalar is

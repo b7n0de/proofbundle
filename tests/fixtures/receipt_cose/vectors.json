@@ -662,6 +662,58 @@
    ],
    "expect_status": "malformed",
    "what": "B1 with a sixth key -1, its keys ordered length first (RFC 7049 section 3.9) instead of bytewise (RFC 8949 section 4.2.1), signed over those bytes: not the deterministic encoding"
+  },
+  {
+   "id": "B46",
+   "statement_hex": "d28458baa60132045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6ef93e0000a05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e85840f64926bae346eacf456b6435a3d80a007a12975d795037483acca8f4a81cafad48a28879934a11a070a903da1aaa655b8fc1bbf1e7425c9dceb2ef66b736250b",
+   "receipt": "P1",
+   "statement_keys": [
+    [
+     "https://issuer.example/eval",
+     "issuer"
+    ]
+   ],
+   "expect_status": "outside_profile",
+   "what": "B1 with the float 1.5 (half precision) as a sixth key, in the deterministic encoding, signed over those bytes: a valid item whose header does not hold exactly the five labels"
+  },
+  {
+   "id": "B47",
+   "statement_hex": "d28458b8a60132045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6ef500a05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e85840856cf16e992f74aa9be397b65c4f9d6bad569c42fc19dfcba4e803dd01fc618542ebcb84932c6c59dd96e5c0004aa9f5d355f2ac51cf80205c6af9b67178b002",
+   "receipt": "P1",
+   "statement_keys": [
+    [
+     "https://issuer.example/eval",
+     "issuer"
+    ]
+   ],
+   "expect_status": "outside_profile",
+   "what": "B1 with true as a sixth key, beside the integer label 1: two keys (RFC 8949 section 5.6), in the deterministic encoding, signed over those bytes: a valid item whose header does not hold exactly the five labels"
+  },
+  {
+   "id": "B48",
+   "statement_hex": "d28458baa60132045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781b68747470733a2f2f6973737565722e6578616d706c652f6576616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6e20c16178a05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e858407232462a8246c344859f1491e864ef20c211d2e892e944f7d3722322d88824917cf5cbcbf3f7388be38b4a18fd7da05d82c8c5bb2fe9b7a6d125274bdf9c9401",
+   "receipt": "P1",
+   "statement_keys": [
+    [
+     "https://issuer.example/eval",
+     "issuer"
+    ]
+   ],
+   "expect_status": "outside_profile",
+   "what": "B1 with a sixth key -1 whose value is tag 1 around the text \"x\", content tag 1 does not admit; step 1 does not check whether a tag's content is valid for that tag, in the deterministic encoding, signed over those bytes: a valid item whose header does not hold exactly the five labels"
+  },
+  {
+   "id": "B49",
+   "statement_hex": "d28458b7a50132045820c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb15610fa201781c68747470733a2f2f6973737565722e6578616d706c652f655b76616c0278477368613235363a393034646534323536326639613139363531653139656237616231363565346666653131346365356132663938653537646135383338393539363834666230661901022f190103781d6170706c69636174696f6e2f6576616c2d726563656970742b6a736f6ea05820db2dd66caab50786254d7fd30e1ddfc1181a4683788bd671fcc0706611e932e85840a7cc9e2cdfacada1aad537e3fde18865cb5d0a824b12a111e85fbaa1376334b656e6d0ba8d4ec9c2be3fde6575eb5ac3b1e287dbdd433d477f3d4558455ec708",
+   "receipt": "P1",
+   "statement_keys": [
+    [
+     "https://issuer.example/e[val",
+     "issuer"
+    ]
+   ],
+   "expect_status": "outside_profile",
+   "what": "B1 with iss https://issuer.example/e[val, signed over those bytes: \"[\" stands only in an IP-literal (RFC 3986 sections 2.2 and 3.2.2), so iss is no absolute URI (section 4.3), even where a pair names that string"
   }
  ]
 }
