@@ -2,9 +2,11 @@
 
 A receipt is one JSON object ``{"schema", "payload_b64", "signature"}``. B, the RFC 8785 bytes of the
 payload, is signed with pure Ed25519 over PAE(type, B), the DSSE pre-authentication encoding with the fixed
-type ``application/vnd.b7n0de.eval-receipt+json``. The receipt carries no inclusion proof (removed from
-the draft on 2026-10-03; B and every signature are unchanged by that): transparency comes from registering
-a receipt in an envelope, not from the receipt.
+type ``application/eval-receipt+json``; the payload schema is ``urn:ietf:params:eval-receipt:v1``. Both
+are neutral names whose registration the draft requests from IANA; the vendor-tree type and the vendor
+schema URI used before 2026-10-07 are gone, and with them every earlier B and signature. The receipt
+carries no inclusion proof (removed from the draft on 2026-10-03): transparency comes from registering a
+receipt in an envelope, not from the receipt.
 
 A SECOND FORMAT, NOT A REPLACEMENT. ``proofbundle/eval-claim/v0.1`` (``evalclaim.py``) stays as it is
 and stays verifiable. Nothing here runs unless a caller names this format: ``emit-eval --format
@@ -39,8 +41,8 @@ from ._membership import is_member, require_switch
 from ._wire_b64 import decode_b64
 from .signature import _LOW_ORDER_ED25519_Y, plain_bytes, verify_ed25519_pinned
 
-RECEIPT_TYPE = "application/vnd.b7n0de.eval-receipt+json"
-PAYLOAD_SCHEMA = "https://b7n0de.com/eval-receipt/v1"
+RECEIPT_TYPE = "application/eval-receipt+json"
+PAYLOAD_SCHEMA = "urn:ietf:params:eval-receipt:v1"
 COMMIT_ALG = "sha256-salted-v1"
 DRAFT = "draft-gruszka-signed-evaluation-receipts-00"
 

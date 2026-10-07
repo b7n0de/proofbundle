@@ -9,7 +9,8 @@ its next revision).
 - Receipts are named by their vector id in `../signed_eval_receipt/draft1_vectors.json`.
 - `forward`: 6 receipts, each with the statement bytes it gives or the refusal (no statement).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
-  `5be4ea02851ee90fc0c44d65b9f77c78450255f237d7de11ce4b18636480a106`).
+  `c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e`). The receipt type and the payload schema are the
+  neutral names of 2026-10-07, so every digest and signature differs from the vectors before that day.
 - `backward`: 35 statements, each with the receipt it is presented with, the relying party's
   statement keys and the one status `check_statement` must return. Three are `accepted`; every
   other vector differs from a valid statement in the one property its `what` names, and is signed
