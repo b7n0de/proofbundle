@@ -147,8 +147,10 @@ def test_die_pruefung_bleibt_linear_in_der_zahl_der_einheiten():
     and on a shared runner the load between the points decides it. The cost is now the counted work of
     `tests/_arbeitszaehler.py`: lines of Python run plus the length of every receiver a built-in method
     walks. The second part is what sees THIS defect, since `benannt.count(x)` was one line per entry and
-    a full walk of the list inside it. Counted at c59209d9, the head before the fix: exponent 1.996 with
-    the duplicate, 0.999 without. At b1f8d355: 0.999 and 0.999. The bound 1.35 is unchanged.
+    a full walk of the list inside it. Counted at c59209d9, the head before the fix, with the fit of this
+    test: exponent 1.995 with the duplicate, 0.999 without. At b1f8d355: 0.999 and 0.999. The bound 1.35 is
+    unchanged. What the count does not see is named in the head of tests/_arbeitszaehler.py: the same scan written
+    as ``x in a_list`` would count as linear.
 
     THE DUPLICATE ARM IS THE POINT. Without it this case would pass over the exact input the finding
     was about, because the quadratic path only ran when a duplicate existed.

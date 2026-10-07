@@ -136,6 +136,28 @@ def test_a_limit_ends_the_count_past_it_and_says_so():
     assert count_work(_appends(100), limit=None)["lines"] == small["lines"]
 
 
+def test_a_walk_past_the_limit_sets_the_flag_even_without_a_later_line():
+    """A review of this change found `over_limit` False after one `count` walked past the limit as the last thing the
+    call did; `work()` was right, the flag was not."""
+    xs = [0] * 100_000
+    counts = count_work(lambda: xs.count(1), limit=100)
+    assert counts["over_limit"] is True and counts["walked"] == 100_000
+
+
+@pytest.mark.parametrize("name, build", [
+    ("x in a_list", lambda xs: (lambda: [x in xs for x in range(len(xs))])),
+    ("list(xs) per element", lambda xs: (lambda: [list(xs) for _ in xs])),
+    ("sorted(xs) per element", lambda xs: (lambda: [sorted(xs) for _ in xs])),
+    ("a slice per element", lambda xs: (lambda: [xs[:] for _ in xs])),
+])
+def test_the_named_gap_is_still_a_gap(name, build):
+    """THE GAP, BOUND IN BOTH DIRECTIONS. These forms do quadratic work and the count calls it linear; the module head
+    of tests/_arbeitszaehler.py says so with the regressions a review planted. If a later count sees them, this test
+    fails and the head has to be rewritten; until then nobody can read the count as wider than it is."""
+    assert _exponent((250, 500, 1000, 2000), lambda n: build(list(range(n)))) < 1.05, (
+        f"{name}: the count now sees this work; update the gap named in tests/_arbeitszaehler.py")
+
+
 def test_a_limit_is_not_swallowed_by_a_broad_except():
     """A verifier that turns every Exception into a refusal must not catch the stop and run on uncounted."""
     def guarded():

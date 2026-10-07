@@ -31,12 +31,15 @@ second run can turn is a verdict about the run. So the shape of the curve is dec
 WORK of ``tests/_arbeitszaehler.py`` alone: lines of Python run, plus, for every built-in method that
 walks its own receiver (``list.count``, ``str.find`` ...), the length of that receiver. The
 interpreter reports both; no clock does. The time exponent is still REPORTED (``TestBericht``, the
-budget axis evidence) and decides nothing. CPU time decides only where it checks an absolute ceiling
-at the limit.
+budget axis evidence) and decides nothing. CPU time decides only at the ceiling at the limit, a bound
+in seconds scaled by a reference load of the same run; that is a ratio of two run times too, it is
+bound to the reference machine (skipped on a build host), and it is not part of Z309.
 
 WHERE THE COUNT SEES NOTHING, the dimension is named rather than averaged away. Work inside ONE C call
 that is not a walking method of its receiver is not counted: the scanner of ``json``, the hash core,
-integer arithmetic. Whether the count of a dimension is sensitive is CHECKED, not assumed: if it does
+integer arithmetic, and an operator or built-in such as ``x in a_list`` or ``sorted(xs)``; a quadratic
+regression written that way counts as linear (the gap is named, with the regressions a review planted, in
+the head of ``tests/_arbeitszaehler.py``). Whether the count of a dimension is sensitive is CHECKED, not assumed: if it does
 not at least double over the eightfold input, it is INSENSITIVE, and an insensitive dimension has to
 stand in ``NICHT_ZAEHLBAR`` with its reason, or the case is red. Today that is exactly
 ``string_len``. An example of the second gap: ``int_bits`` has a quadratic TIME curve (integer shifts
