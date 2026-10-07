@@ -131,7 +131,7 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # stops inside 0.3.264. The one entry marked breaking (0.3.266, the score payload of `inspect ctl`)
 # concerns a control channel this package does not call.
 # The ceiling still stays a ceiling: 0.3.267 and later are UNMEASURED and therefore excluded.
-inspect = ['inspect_ai>=0.3.112,<=0.3.266']
+inspect = ['inspect_ai>=0.3.112,<=0.3.276']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -187,7 +187,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.17", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.266']
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.276']
 
 [project.urls]
 Homepage = "https://b7n0de.com"
