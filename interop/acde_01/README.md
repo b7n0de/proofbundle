@@ -127,3 +127,6 @@ this directory is named and stay out of the repository's own test collection.
 ## Run record
 
 See `RUN_RECORD.md`; its machine-readable form is `run_record.json`.
+
+- head of the run: `ecd2fe99e9587a565b5f4480a9084fd32644a987`
+- run_record.json SHA-256: `d223cc1683882156179c70e88114fc308c9bb80faca7c9a3d584679847a15a14`
