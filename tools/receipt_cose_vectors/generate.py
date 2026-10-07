@@ -48,7 +48,7 @@ P256_SEED_LABEL = "receipt-cose P-256 statement key, PURE TEST KEY"
 DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
 
 
-# ---- Ed25519 arithmetic (RFC 8032 section 5.1), only to build the profile vectors B38, B39 and B41 ----------
+# ---- Ed25519 arithmetic (RFC 8032 section 5.1), only to build the profile vectors B38, B39, B41 and B42 ------
 P = 2 ** 255 - 19
 L = 2 ** 252 + 27742317777372353535851937790883648493
 D = -121665 * pow(121666, P - 2, P) % P
@@ -338,10 +338,23 @@ def main() -> None:
             break
         i += 1
     sig41 = r_enc + ((r + k41 * a_issuer) % L).to_bytes(32, "little")
-    bwd("B41", sign1(raw41, digest, sig41), "P1", "accepted",
+    bwd("B41", sign1(raw41, digest, sig41), "P1", "untrusted_key",
         "a statement under the mixed-order key of Draft 1 vector P11 (the issuer's point plus a point of order "
-        "8), with a signature that meets all four rules of Section 4.4: mixed order counts, there is no "
-        "prime-order check", statement_keys=((ISSUER, "mixed_order"),))
+        "8), with a signature that meets the cofactorless equation: the key is not of order L, so rule 2 of "
+        "Section 4.4 refuses it as a statement key and no pair counts", statement_keys=((ISSUER, "mixed_order"),))
+    # ---- added 2026-10-07, rule 2 is order L: an R of mixed order under the issuer key -----------------------
+    raw42 = enc(protected())
+    r = int.from_bytes(hashlib.sha512(b"receipt-cose mixed-order R nonce").digest(), "little") % L
+    r_point = add(mul(r, BASE), order8_point())
+    r_enc = compress(r_point)
+    k42 = challenge(r_enc, issuer_pub, tbs(raw42, digest))
+    s42 = (r + k42 * a_issuer) % L
+    lhs, rhs = mul(s42, BASE), add(r_point, mul(k42, mul(a_issuer, BASE)))
+    assert compress(mul(8, lhs)) == compress(mul(8, rhs)) and compress(lhs) != compress(rhs)
+    bwd("B42", sign1(raw42, digest, r_enc + s42.to_bytes(32, "little")), "P1", "signature_invalid",
+        "a signature whose R has mixed order (r times the base point plus the point of order 8), made with the "
+        "issuer test seed: the cofactored equation holds and the cofactorless one does not; rule 2 of Section "
+        "4.4 of the receipts draft refuses R before the equation")
     keys_out = {"issuer": issuer_pub.hex(), "foreign": foreign_pub.hex(), "low_order": low_order.hex(),
                 "p256": p256_pub.hex(), "off_curve": off_curve.hex(), "mixed_order": mixed.hex()}
 

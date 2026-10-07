@@ -54,7 +54,8 @@ from typing import Any, NamedTuple, Optional, Sequence
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text
-from .signed_eval_receipt import RECEIPT_TYPE, _decode_point, _Fail, _profile, verify_signed_eval_receipt
+from .signed_eval_receipt import (RECEIPT_TYPE, _decode_point, _Fail, _has_order_l, _profile,
+                                  verify_signed_eval_receipt)
 
 __all__ = ["ALG_ED25519", "ALG_EDDSA", "ALGS", "WRITE_ALG", "ACCEPTED", "STATUSES", "CoseUnavailable",
            "ReceiptCoseError", "StatementCheck", "cose_key_thumbprint", "receipt_to_statement", "check_statement"]
@@ -297,9 +298,9 @@ def _statement_keys(entries: Any) -> tuple:
     """Relying-party pairs of an issuer URI and a statement key -> ([(issuer, raw key, thumbprint)], [why an
     entry was ignored]). An entry counts only as a pair (a list or tuple of two) of a text, compared exactly
     with ``iss``, and an Ed25519 key of 32 bytes that meets rules 1 and 2 of Section 4.4 of the receipts
-    draft: a canonical point encoding (RFC 8032 section 5.1.3 decoding succeeds) and no point of small
-    order. A point of mixed order counts; there is no prime-order check. Anything else is absent trust, and
-    a bare key without its issuer is no pair."""
+    draft: a canonical point encoding (RFC 8032 section 5.1.3 decoding succeeds) of a point of order L. A
+    point of small order and a point of mixed order do not count. Anything else is absent trust, and a bare
+    key without its issuer is no pair."""
     usable: list = []
     ignored: list = []
     if not isinstance(entries, (list, tuple)):
@@ -319,8 +320,12 @@ def _statement_keys(entries: Any) -> tuple:
         if weakness is not None:
             ignored.append(f"entry {i}: {weakness} Ed25519 key, refused as a trust anchor")
             continue
-        if _decode_point(raw) is None:
+        point = _decode_point(raw)
+        if point is None:
             ignored.append(f"entry {i}: the key is no canonical point encoding (rule 1 of Section 4.4)")
+            continue
+        if not _has_order_l(point):
+            ignored.append(f"entry {i}: the key is not a point of order L (rule 2 of Section 4.4)")
             continue
         usable.append((issuer, raw, cose_key_thumbprint(raw)))
     if len(entries) > _MAX_KEYS:
@@ -330,7 +335,7 @@ def _statement_keys(entries: Any) -> tuple:
 
 def _profile_holds(key: bytes, signature: bytes, message: bytes) -> bool:
     """The four rules of Section 4.4 of the receipts draft, applied to a statement signature over its
-    Sig_structure instead of PAE(type, B): canonical A and R, neither of small order, S below L, and the
+    Sig_structure instead of PAE(type, B): canonical A and R, both of order L, S below L, and the
     cofactorless equation."""
     try:
         _profile(key, signature, message)

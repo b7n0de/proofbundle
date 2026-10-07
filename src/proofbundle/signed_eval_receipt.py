@@ -21,7 +21,9 @@ THE PROCEDURE IS THE DRAFT'S. ``verify_signed_eval_receipt`` evaluates the eleve
 Section 5 in order and returns the first one that fails, so this verifier and the draft's vectors agree
 on the step and not only on the verdict (``tests/test_signed_eval_receipt_conformance.py``). The
 signature profile is the draft's Section 4.4, which is stricter than SPEC section 4a: a non-canonical
-encoding of the key or of R and a point of small order are refused before any signature arithmetic.
+encoding of the key or of R, and a key or an R that is not a point of order L (a point of small or of
+mixed order), are refused before the signature equation is checked. With A and R of order L the
+cofactorless and the cofactored equation of RFC 8032 section 5.1.7 accept the same signatures.
 
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
@@ -39,7 +41,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ._membership import is_member, require_switch
 from ._wire_b64 import decode_b64
-from .signature import _LOW_ORDER_ED25519_Y, plain_bytes, verify_ed25519_pinned
+from .signature import plain_bytes, verify_ed25519_pinned
 
 RECEIPT_TYPE = "application/eval-receipt+json"
 PAYLOAD_SCHEMA = "urn:ietf:params:eval-receipt:v1"
@@ -324,6 +326,31 @@ def _decode_point(enc: bytes) -> Optional[tuple]:
     return (_P - x if (x & 1) != sign else x, y)
 
 
+def _has_order_l(point: tuple) -> bool:
+    """Rule 2 of the draft's Section 4.4 for a decoded point (x, y): it is not the neutral element and L times
+    it is, so it lies in the subgroup of prime order L. A point of small order (8 times it is the neutral
+    element) and a point of mixed order (a point of order L plus one of small order) are both refused."""
+    x, y = point
+    if x == 0 and y == 1:
+        return False
+    acc, base, n = (0, 1, 1, 0), (x, y, 1, x * y % _P), _L
+    while n:
+        if n & 1:
+            acc = _edwards_add(acc, base)
+        base, n = _edwards_add(base, base), n >> 1
+    return acc[0] % _P == 0 and (acc[1] - acc[2]) % _P == 0
+
+
+def _edwards_add(p: tuple, q: tuple) -> tuple:
+    """Addition in extended coordinates (RFC 8032 section 5.1.4)."""
+    a = (p[1] - p[0]) * (q[1] - q[0]) % _P
+    b = (p[1] + p[0]) * (q[1] + q[0]) % _P
+    c = 2 * p[3] * q[3] * _D % _P
+    d = 2 * p[2] * q[2] % _P
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return (e * f % _P, g * h % _P, f * g % _P, e * h % _P)
+
+
 def _profile(key: bytes, sig: bytes, message: bytes) -> None:
     """The verification profile of the draft's Section 4.4, rules in order; raises _Fail(11, ...)."""
     a_point, r_point = _decode_point(key), _decode_point(sig[:32])
@@ -331,19 +358,18 @@ def _profile(key: bytes, sig: bytes, message: bytes) -> None:
         raise _Fail(11, "the verification key is not a canonical encoding", "profile 1, key")
     if r_point is None:
         raise _Fail(11, "R is not a canonical encoding", "profile 1, R")
-    # For a canonical point, small order (8*P is the neutral element) is exactly a y of the 8-torsion
-    # subgroup; the set is the one SPEC section 4b refuses trusted keys with.
-    if a_point[1] in _LOW_ORDER_ED25519_Y:
-        raise _Fail(11, "the verification key is a point of small order", "profile 2, key")
-    if r_point[1] in _LOW_ORDER_ED25519_Y:
-        raise _Fail(11, "R is a point of small order", "profile 2, R")
+    if not _has_order_l(a_point):
+        raise _Fail(11, "the verification key is not a point of order L", "profile 2, key")
+    if not _has_order_l(r_point):
+        raise _Fail(11, "R is not a point of order L", "profile 2, R")
     if int.from_bytes(sig[32:], "little") >= _L:
         raise _Fail(11, "S is not below L", "profile 3")
     # Rule 4. With A and R canonical and S below L, the library's check (it recomputes S*B' - k*A and
     # compares its encoding with the received R) is the cofactorless equation, because a canonical
-    # encoding names exactly one point. Mixed-order points pass rules 1 and 2, as the draft requires.
-    # The key is a trust anchor the Receiver fixed, so the call goes through the pinned verify (SPEC
-    # 4b); after rules 1 and 2 its refusals can no longer apply, and the verdict is the library's.
+    # encoding names exactly one point. With A and R of order L it accepts the same signatures as the
+    # cofactored equation. The key is a trust anchor the Receiver fixed, so the call goes through the
+    # pinned verify (SPEC 4b); after rules 1 and 2 its refusals can no longer apply, and the verdict is
+    # the library's.
     if not verify_ed25519_pinned(key, sig, message):
         raise _Fail(11, "the cofactorless equation does not hold", "profile 4")
 

@@ -56,7 +56,7 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
         self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
 
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
-        self.assertEqual(len(VECTORS), 62)
+        self.assertEqual(len(VECTORS), 63)
         for v in VECTORS:
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
@@ -131,9 +131,10 @@ class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
 class TheProfileIsTheDraftsProfile(unittest.TestCase):
     def test_taming_the_many_eddsas_cases_get_the_strict_row(self):
         """The 12 cases of "Taming the Many EdDSAs" (vendored, tests/fixtures). The draft's profile
-        refuses non-canonical encodings and small-order points and uses the cofactorless equation;
-        measured, it accepts case 3 only, the row of Dalek strict and LibSodium in that fixture's
-        README, where SPEC section 4a's backing verifier accepts 0, 1, 2, 3 and 11."""
+        refuses non-canonical encodings and every key or R that is not a point of order L, and uses the
+        cofactorless equation; measured, it refuses all twelve. Case 3, whose A and R have mixed order,
+        is the one that Dalek strict and LibSodium accept in that fixture's README; rule 2 refuses its
+        key. SPEC section 4a's backing verifier accepts 0, 1, 2, 3 and 11."""
         row = []
         for case in json.loads(SPECCHECK.read_text(encoding="utf-8")):
             try:
@@ -142,7 +143,7 @@ class TheProfileIsTheDraftsProfile(unittest.TestCase):
                 row.append("V")
             except ser._Fail:
                 row.append("X")
-        self.assertEqual("".join(row), "XXXVXXXXXXXX")
+        self.assertEqual("".join(row), "XXXXXXXXXXXX")
 
 
 class NoReceiptBytesRaise(unittest.TestCase):

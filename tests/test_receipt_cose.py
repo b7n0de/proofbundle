@@ -217,13 +217,16 @@ def test_the_statement_signature_meets_the_rules_of_section_4_4():
 
 
 @needs_cbor2
-def test_a_statement_key_of_mixed_order_counts_and_one_without_a_point_does_not():
+def test_neither_a_statement_key_of_mixed_order_nor_one_without_a_point_counts():
     """T-B04: rules 1 and 2 of Section 4.4 decide which entry counts. B41's key is the mixed-order key of
-    Draft 1 vector P11 and counts; B39's entry has y = 2, which names no curve point, and does not."""
+    Draft 1 vector P11, which is not of order L (rule 2); B39's entry has y = 2, which names no curve point
+    (rule 1). Neither counts."""
     p11 = next(x for x in DRAFT1["vectors"] if x["id"] == "P11")
     assert base64.b64decode(p11["key_b64"]) == KEYS["mixed_order"]
-    assert rc.check_statement(_vector("B41"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
-                              statement_keys=[(ISSUER, KEYS["mixed_order"])]).status == rc.ACCEPTED
+    result = rc.check_statement(_vector("B41"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                statement_keys=[(ISSUER, KEYS["mixed_order"])])
+    assert result.status == "untrusted_key"
+    assert "rule 2 of Section 4.4" in result.ignored_keys[0]
     result = rc.check_statement(_vector("B39"), receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
                                 statement_keys=[(ISSUER, KEYS["off_curve"])])
     assert result.status == "untrusted_key"
