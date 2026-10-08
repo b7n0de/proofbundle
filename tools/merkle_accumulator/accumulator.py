@@ -55,7 +55,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import merkle
 from proofbundle._wire_b64 import decode_b64
-from proofbundle.canonical import canonicalize_statement
+from proofbundle.canonical import _folge_von, canonicalize_statement
 from proofbundle.emit import SCHEMA
 from proofbundle.errors import ProofBundleError
 from proofbundle.signature import verify_ed25519_pinned
@@ -206,16 +206,21 @@ class MerkleAccumulator:
             # Each leaf hash is 32 bytes, checked before anything hashes them: the digest in the state and the
             # frontier check both hash their concatenation, which does not see where one ends, so a re-split
             # of the same bytes into pieces of other lengths passes both. Type bytes, since they are kept.
-            if not isinstance(leaf_hashes, (list, tuple)) or any(
-                    type(h) is not bytes or len(h) != 32 for h in leaf_hashes):
+            if not isinstance(leaf_hashes, (list, tuple)):
                 raise AccumulatorStateError("the leaf hashes are not a list of 32-byte SHA-256 values")
-            if len(leaf_hashes) != groesse or hashlib.sha256(b"".join(leaf_hashes)).hexdigest() != inhalt.get(
+            # One reading of the caller's list, through its base type's own iteration, before any check: every
+            # check and the copy that is kept see the same hashes. Codex thread 4218672732 on pull request 307:
+            # a list subclass yielded the signed hashes to the three checks and other ones to the copy.
+            blaetter = _folge_von(leaf_hashes)
+            if any(type(h) is not bytes or len(h) != 32 for h in blaetter):
+                raise AccumulatorStateError("the leaf hashes are not a list of 32-byte SHA-256 values")
+            if len(blaetter) != groesse or hashlib.sha256(b"".join(blaetter)).hexdigest() != inhalt.get(
                     "leaf_hashes_sha256"):
                 raise AccumulatorStateError("the leaf hashes are not the ones the state was written with")
-            probe = cls._frontier_from_leaf_hashes(leaf_hashes)
+            probe = cls._frontier_from_leaf_hashes(blaetter)
             if probe != front:
                 raise AccumulatorStateError("the leaf hashes do not reproduce the frontier")
-            neu.leaf_hashes = list(leaf_hashes)
+            neu.leaf_hashes = blaetter
         return neu
 
     @staticmethod
@@ -286,12 +291,15 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
         payload = _puffer_von(payload)
     index = accumulator.size
     wurzel, pfad = accumulator.append(payload)
+    # Every value of the bundle is read before code of the caller runs: the signer's public_key and sign could
+    # append to this accumulator (Codex thread 4218672721 on pull request 307: tree_size was read after them).
+    groesse = accumulator.size
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731 - the encoding emit.py uses
     oeffentlich = signer.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     return {
         "schema": SCHEMA,
         "payload_b64": b64(payload),
         "signature": {"alg": "ed25519", "public_key_b64": b64(oeffentlich), "sig_b64": b64(signer.sign(payload))},
-        "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": index, "tree_size": accumulator.size,
+        "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": index, "tree_size": groesse,
                    "inclusion_proof_b64": [b64(p) for p in pfad], "root_b64": b64(wurzel)},
     }

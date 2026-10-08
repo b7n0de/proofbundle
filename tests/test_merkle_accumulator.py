@@ -171,6 +171,36 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                 self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                 self.assertTrue(verify_bundle(neu).ok)
 
+    def test_no_value_of_the_bundle_is_read_after_the_signer_runs(self) -> None:
+        """Codex thread 4218672721 on pull request 307: tree_size was read from the accumulator after the signer's
+        public_key and sign had run, and a signer holding the accumulator could append before it was read. The
+        bundle is emit_bundle's for the history before the call, whichever of the two appends."""
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.emit import emit_bundle
+        a = _load()
+        echt = _emitter_key()
+        for methode in ("public_key", "sign"):
+            for vorher in (0, 1, 5):
+                leaves = [f"event {i}".encode() for i in range(vorher)]
+                akku = a.MerkleAccumulator.from_leaves(leaves)
+
+                class Anhaenger:
+                    def public_key(self, m=methode, akku=akku):
+                        if m == "public_key":
+                            akku.append(b"extra")
+                        return echt.public_key()
+
+                    def sign(self, data, m=methode, akku=akku):
+                        if m == "sign":
+                            akku.append(b"extra")
+                        return echt.sign(data)
+                neu = a.emit_bundle_incremental(b"payload", Anhaenger(), akku)
+                alt = emit_bundle(b"payload", echt, prior_leaves=leaves)
+                with self.subTest(appends_in=methode, history=vorher):
+                    self.assertEqual(akku.size, vorher + 2, "the signer ran and appended")
+                    self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+                    self.assertTrue(verify_bundle(neu).ok)
+
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
 class TheRestartRule(unittest.TestCase):
@@ -319,6 +349,27 @@ class TheRestartRule(unittest.TestCase):
         with self.subTest(case="the leaf hashes as written, as a tuple"):
             wieder = self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=(h0, h1))
             self.assertEqual(wieder.inclusion_proof_at(0), [h1])
+
+    def test_restored_leaf_hashes_are_read_once_and_kept_as_checked(self) -> None:
+        """Codex thread 4218672732 on pull request 307: the type check, the digest and the frontier each iterated the
+        caller's list, and the copy kept was a fourth reading. A list subclass that yields the signed hashes three
+        times and others then was restored with hashes nobody checked. The list is read once, through its base
+        type's own iteration, and what is kept is what was checked."""
+        akku, zustand = self._state_at(5, keep=True)
+        echt = list(akku.leaf_hashes)
+        fremd = [bytes([i]) * 32 for i in range(5)]
+
+        class Wechselnd(list):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.lesungen = 0
+
+            def __iter__(self):
+                self.lesungen += 1
+                return iter(echt) if self.lesungen <= 3 else iter(fremd)
+        wieder = self.a.MerkleAccumulator.restore(zustand, _pub(self.signer), leaf_hashes=Wechselnd(echt))
+        self.assertEqual(wieder.leaf_hashes, echt)
+        self.assertEqual(wieder.inclusion_proof_at(1), akku.inclusion_proof_at(1))
 
     def test_a_state_signature_is_one_snapshot_and_the_text_claims_no_more(self) -> None:
         """The boundary, measured: restore checks a state against the pinned key and against itself, and knows
