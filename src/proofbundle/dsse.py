@@ -61,6 +61,7 @@ def pae(payload_type: str, body: bytes) -> bytes:
             + str(len(body)).encode("ascii") + b" " + body)
 
 
+@_ein_stand
 def openssh_sha256_keyid(public_key_raw: bytes) -> str:
     """OpenSSH's SHA256 fingerprint of a raw 32-byte Ed25519 public key: ``SHA256:`` and the unpadded
     standard base64 of SHA-256 over the key's SSH wire form (RFC 8709 section 4: string "ssh-ed25519",
