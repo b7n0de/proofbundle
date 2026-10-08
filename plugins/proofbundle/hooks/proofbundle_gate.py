@@ -3747,6 +3747,14 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
     return evaluate_repository(directory, deadline)
 
 
+#: The next step of a refused `git add` or `git commit` form (a chain, an option, a wrapper): the two forms K-NW-2 B
+#: frees, so an agent without a person can still commit (measured in a Claude Code run on 2026-10-08: an agent that
+#: chained the edit, `git add` and `git commit` was refused, read "have a person review the call" and stopped).
+_FREE_FORMS_HINT = ("run `git add <paths>` and then `git commit -m <message>`, each as a whole command of its own with no "
+                    "chain, wrapper, redirection or other option: the gate frees exactly these two forms after a state "
+                    "check of the repository (DECISIONS.md D3); otherwise have a person review the call")
+
+
 def _state_free_verdict(name: str, directory: str | None, deadline: float, host: str) -> Verdict:
     """The verdict for one of the two forms K-NW-2 B frees: pass when the state check of its repository finds nothing
     that starts a program for it, else the not-free answer of D3 with the source it found. Under Codex the hook names
@@ -3836,7 +3844,8 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "does not model them (owner choice B, review Runde 9; DECISIONS.md D3).",
                 "git_form_not_free", evidence="none, the gate reads no repository state for a git form",
                 failed=f"{name} may start a program the gate does not see",
-                next_step="have a person review the call, or run it yourself outside the agent"))
+                next_step=(_FREE_FORMS_HINT if name in ("git add", "git commit") else
+                           "have a person review the call, or run it yourself outside the agent")))
             continue
         if detail == [_MAYBE_PUSH]:
             verdicts.append(Verdict(

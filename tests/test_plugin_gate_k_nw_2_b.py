@@ -403,3 +403,20 @@ def test_a_human_rule_still_frees_a_form_the_state_check_refuses(tmp_path, monke
     outcome = gate.decide("git commit -m msg", str(repo), _deadline(), environ=dict(os.environ))
     assert outcome is not None and outcome.decision == "pass"
     assert outcome.applied_rule is not None
+
+
+@pytest.mark.parametrize("command", ["git add . && git commit -m x", "sed -i s/a/b/ a.txt && git add a.txt",
+                                     "git commit -S -m x", "git add -p", "cd . && git commit -m x"])
+def test_a_refused_add_or_commit_form_names_the_two_free_forms(tmp_path, command):
+    """Measured in a Claude Code run on 2026-10-08: an agent that chained its edit, `git add` and `git commit` read
+    only "have a person review the call" and stopped. The refusal now names the two forms the gate frees."""
+    outcome = gate.decide(command, str(_repo(tmp_path)), _deadline())
+    assert outcome is not None and outcome.decision == "ask"
+    assert "each as a whole command of its own" in outcome.text and "`git commit -m <message>`" in outcome.text
+
+
+def test_another_refused_git_form_keeps_its_next_step(tmp_path):
+    outcome = gate.decide("git status", str(_repo(tmp_path)), _deadline())
+    assert outcome is not None and "each as a whole command of its own" not in outcome.text
+    assert "have a person review the call" in outcome.text
+
