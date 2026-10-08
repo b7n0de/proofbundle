@@ -40,6 +40,13 @@ diverging histories apart (a fork). The signature says what one tree state was, 
 earlier one. A caller that needs continuity across restarts keeps the last size and root it accepted and
 compares the restored state with them; restore does not.
 
+NO SUBCLASS. The bundle and the restore checks rest on this class's own methods and attributes. A subclass of
+the caller can override any of them, `__getattribute__` included, and four review rounds found a further one
+each time (Codex threads 4219691072, 4220260056, 4220260071 and 4220260074 on pull request 307): the size read
+before an append, the frontier the root check folds, the append a rebuild calls. So the class refuses to be
+subclassed, and emit_bundle_incremental takes only an object of exactly this class. The tool is new and has no
+subclass to keep; a caller who wants other behaviour wraps an accumulator instead of deriving from it.
+
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
 not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
 turns one into the other.
@@ -81,6 +88,10 @@ def _node(left: bytes, right: bytes) -> bytes:
 class MerkleAccumulator:
     """Only appends, within one object (a restored state is one snapshot, see the module docstring);
     `size` leaves so far; `frontier` as (height, root) pairs, leftmost first."""
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        raise TypeError("MerkleAccumulator cannot be subclassed: its bundle and restore guarantees rest on its own "
+                        "methods (see NO SUBCLASS in the module docstring)")
 
     def __init__(self, keep_leaf_hashes: bool = False) -> None:
         self.size = 0
@@ -292,6 +303,9 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     # One reading, before any code of the caller runs, as emit_bundle reads it: the bytes hashed, written and
     # signed are one snapshot. Codex thread 4217987333 on pull request 307: a bytearray payload was hashed
     # here, and a signer that changed it before signing got another payload signed than the one in the tree.
+    if type(accumulator) is not MerkleAccumulator:
+        raise TypeError("emit_bundle_incremental takes a MerkleAccumulator, not another object with its methods "
+                        "(see NO SUBCLASS in the module docstring)")
     if _puffer_von(payload) is not None:
         payload = _puffer_von(payload)
     index = accumulator.size

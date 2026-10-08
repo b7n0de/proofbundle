@@ -201,29 +201,39 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                     self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                     self.assertTrue(verify_bundle(neu).ok)
 
-    def test_an_overridden_append_does_not_change_the_size_of_the_bundle(self) -> None:
-        """Codex thread 4219691072 on pull request 307: the size was read again after accumulator.append, which a
-        subclass can override to append more before it returns. The root and the path describe the size after this
-        payload's append, and the bundle states that size."""
+    def test_the_accumulator_cannot_be_subclassed_and_the_emitter_takes_only_it(self) -> None:
+        """Codex threads 4219691072, 4220260056, 4220260071 and 4220260074 on pull request 307: a subclass of the
+        caller overrode append, the size, the frontier through __getattribute__, or the append a rebuild calls, and
+        each time the bundle or a restore check read the caller's answer. The class refuses to be subclassed, and
+        emit_bundle_incremental refuses any object that is not exactly a MerkleAccumulator."""
         from proofbundle.bundle import verify_bundle
         from proofbundle.emit import emit_bundle
         a = _load()
         echt = _emitter_key()
+        koerper = {
+            "append": {"append": lambda self, data: None},
+            "size": {"size": property(lambda self: 1)},
+            "__getattribute__": {"__getattribute__": lambda self, name: object.__getattribute__(self, name)},
+            "root": {"root": lambda self: b"\x22" * 32},
+            "_frontier_from_leaf_hashes": {"_frontier_from_leaf_hashes": staticmethod(lambda hashes: [])},
+            "nothing": {},
+        }
+        for name, inhalt in koerper.items():
+            with self.subTest(overrides=name), self.assertRaisesRegex(TypeError, "cannot be subclassed"):
+                type("Abgeleitet", (a.MerkleAccumulator,), dict(inhalt))
 
-        class Mehr(a.MerkleAccumulator):
+        class Aehnlich:
+            size, frontier, leaf_hashes = 0, [], None
+
             def append(self, data):
-                ergebnis = super().append(data)
-                super().append(b"extra")
-                return ergebnis
+                return a.MerkleAccumulator().append(data)
+        with self.assertRaisesRegex(TypeError, "takes a MerkleAccumulator"):
+            a.emit_bundle_incremental(b"payload", echt, Aehnlich())
         for vorher in (0, 1, 5):
             leaves = [f"event {i}".encode() for i in range(vorher)]
-            akku = Mehr.from_leaves([])
-            for blatt in leaves:
-                a.MerkleAccumulator.append(akku, blatt)
-            neu = a.emit_bundle_incremental(b"payload", echt, akku)
+            neu = a.emit_bundle_incremental(b"payload", echt, a.MerkleAccumulator.from_leaves(leaves))
             alt = emit_bundle(b"payload", echt, prior_leaves=leaves)
-            with self.subTest(history=vorher):
-                self.assertEqual(akku.size, vorher + 2, "the override appended")
+            with self.subTest(control=vorher):
                 self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                 self.assertTrue(verify_bundle(neu).ok)
 
@@ -347,10 +357,9 @@ class TheRestartRule(unittest.TestCase):
             with self.assertRaises(self.a.AccumulatorStateError):
                 self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
 
-    def test_a_subclass_that_overrides_the_fold_does_not_decide_the_checks(self) -> None:
-        """The class of Codex thread 4219691072, swept to restore: the root check and the frontier rebuild ran
-        through methods a subclass of the caller can override, which could answer with the stated values. Both
-        checks fold with the accumulator's own methods."""
+    def test_restore_is_a_method_of_the_accumulator_alone(self) -> None:
+        """The class of Codex thread 4220260056 at restore: with no subclass, restore is the accumulator's own
+        classmethod, and the two re-signed tampered states it must refuse are refused through it."""
         import base64
         import rfc8785
         akku, zustand = self._state_at(37, keep=True)
@@ -364,21 +373,13 @@ class TheRestartRule(unittest.TestCase):
         fremde_front = json.loads(json.dumps(zustand["state"]))
         fremde_front["frontier"] = [{"height": h, "root": r.hex()} for h, r in fremd.frontier]
         fremde_front["root"] = fremd.root().hex()
-
-        class WurzelGefaellig(self.a.MerkleAccumulator):
-            def root(self):
-                return bytes.fromhex("22" * 32)
-
-        class FrontGefaellig(self.a.MerkleAccumulator):
-            @staticmethod
-            def _frontier_from_leaf_hashes(hashes):
-                return list(fremd.frontier)
-        for name, klasse, kaputt, blaetter in (
-                ("root not the fold", WurzelGefaellig, signiert(falsche_wurzel), None),
-                ("frontier of other leaves beside these hashes", FrontGefaellig, signiert(fremde_front),
-                 akku.leaf_hashes)):
+        for name, kaputt, blaetter in (("root not the fold", signiert(falsche_wurzel), None),
+                                       ("frontier of other leaves beside these hashes", signiert(fremde_front),
+                                        akku.leaf_hashes)):
             with self.subTest(case=name), self.assertRaises(self.a.AccumulatorStateError):
-                klasse.restore(kaputt, pub, leaf_hashes=blaetter)
+                self.a.MerkleAccumulator.restore(kaputt, pub, leaf_hashes=blaetter)
+        with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
+            type("Gefaellig", (self.a.MerkleAccumulator,), {"root": lambda self: b"\x22" * 32})
 
     def test_a_signed_state_of_another_shape_or_spelling_is_refused_as_a_state_error(self) -> None:
         """The signature check comes first, so everything after it reads values the pinned key signed, and
