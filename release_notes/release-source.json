@@ -398,6 +398,13 @@
      "originaltitel": "feat(tooling): the house form for pull requests and issues comes out of data",
      "autor": "b7n0de",
      "url": "https://github.com/b7n0de/proofbundle/pull/261"
+    },
+    {
+     "nr": 320,
+     "kurz": "Judge the shape of a cost by counted work, not by a ratio of run times",
+     "originaltitel": "Judge the shape of a cost by counted work, not by a ratio of run times (Z309)",
+     "autor": "b7n0de",
+     "url": "https://github.com/b7n0de/proofbundle/pull/320"
     }
    ]
   },

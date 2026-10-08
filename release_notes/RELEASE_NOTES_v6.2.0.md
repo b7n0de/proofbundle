@@ -63,7 +63,7 @@ The published package and a passed closing audit are separate facts.
 
 ## All changes
 
-45 pull requests, grouped by area. Shortened descriptions link to the original discussions.
+46 pull requests, grouped by area. Shortened descriptions link to the original discussions.
 
 <details>
 <summary>Verifier and receipt formats · 16 pull requests</summary>
@@ -88,7 +88,7 @@ The published package and a passed closing audit are separate facts.
 </details>
 
 <details>
-<summary>Build, CI and test infrastructure · 13 pull requests</summary>
+<summary>Build, CI and test infrastructure · 14 pull requests</summary>
 
 - Prepare 6.2.0: version, release block, notes renderer and register producer. [#311](https://github.com/b7n0de/proofbundle/pull/311).
 - Render the release body from a versioned source. [#256](https://github.com/b7n0de/proofbundle/pull/256).
@@ -103,6 +103,7 @@ The published package and a passed closing audit are separate facts.
 - Read each file once per run in the English gate. [#281](https://github.com/b7n0de/proofbundle/pull/281).
 - Cover every curve and the signing call in the ECDSA inventory test. [#295](https://github.com/b7n0de/proofbundle/pull/295).
 - Generate the house form for pull requests and issues from data. [#261](https://github.com/b7n0de/proofbundle/pull/261).
+- Judge the shape of a cost by counted work, not by a ratio of run times. [#320](https://github.com/b7n0de/proofbundle/pull/320).
 
 </details>
 
