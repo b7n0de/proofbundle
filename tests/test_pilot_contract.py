@@ -56,8 +56,24 @@ class ThePilotContract(unittest.TestCase):
         for mid in _measures(_text()):
             with self.subTest(measure=mid):
                 self.assertRegex(kriterien, rf"\b{mid}\b")
-        self.assertIn("M7 and M8 have been recorded for every proposed action, where `not measured` in either keeps "
-                      "the pilot open too", kriterien)
+
+    def test_every_per_action_measure_is_required_for_every_proposed_action(self) -> None:
+        """Codex thread 4219200257: a mention is not a quantifier. M1 to M4 were required only of the one witness
+        per surface, so a second approved action with its form `not measured` let the pilot end. The measures
+        section 5 defines per action, all but the two it measures over the window, stand in the clause that holds
+        for every proposed action, with what keeps the pilot open."""
+        text = " ".join(_text().split())
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("M5 and M6 are measured over the observation window, not per action", massnahmen)
+        je_aktion = [m for m in _measures(_text()) if m not in ("M5", "M6")]
+        self.assertEqual(je_aktion, ["M1", "M2", "M3", "M4", "M7", "M8"])
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        klausel = kriterien[kriterien.index("every proposed action carries"):kriterien.index("3. ")]
+        for mid in je_aktion:
+            with self.subTest(measure=mid):
+                self.assertRegex(klausel, rf"\b{mid}\b")
+        self.assertIn("`unknown` or `not yet observed` in M1, or `not measured` where one of the others is required, "
+                      "keeps the pilot open", klausel)
 
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()

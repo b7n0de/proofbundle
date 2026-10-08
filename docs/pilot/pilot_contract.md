@@ -97,8 +97,10 @@ The pilot ends, with a written result, when all of these hold:
    write found on it is a mismatch;
 2. M5 and M6 have each been measured over the whole observation window, on every surface in scope, the forbidden
    ones included: a `not measured` value for either keeps the pilot open, because it would let a forbidden write
-   pass unseen; and M7 and M8 have been recorded for every proposed action, where `not measured` in either keeps
-   the pilot open too, because section 5 defines both per action and no other criterion asks for them;
+   pass unseen; and every proposed action carries the measures section 5 defines per action, as its reconciliation
+   reads them: M1 as arrived or not arrived, M2, M3 and M4 measured when it was approved and arrived, and M7 and
+   M8 recorded. `unknown` or `not yet observed` in M1, or `not measured` where one of the others is required,
+   keeps the pilot open, because a mismatch that cannot say in which form an action arrived cannot be decided;
 3. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
    agent, change the rule, or accept);
 4. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
