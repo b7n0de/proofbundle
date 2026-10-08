@@ -639,7 +639,7 @@ A GIT PUSH UNDER CODEX WARNS (owner choice Karte 5 A, with D, 2026-10-08)
   transfer stay denied, because they are not a `git push`. A gated MCP write stays denied (R6-1). A command that
   holds a push and any denied call is denied; deny ranks above ask, ask above warn.
 - What the warning does not do: it checks nothing. Without an installed `pre-push` hook nothing local stops a
-  push under Codex. How that hook is installed is the open owner card D24B; this choice installs nothing.
+  push under Codex. The user installs that hook with `install-pre-push` (D24B); this choice installs nothing.
 - Known way around, the D27 class: an environment setting that turns hooks off without a word Level 1 reads (for
   example `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git push`) keeps git
   from starting the Level-2 hook. Claude Code asks for such a push (`directory_unresolved`); under Codex it warned
@@ -1119,10 +1119,9 @@ Chosen (a prototype, measured in test fixtures only):
   against the empty target and an explicitly defined initial-declaration policy, and stay blocked on an
   incomplete history or an exceeded limit. The evidence at the sent commit is still checked meanwhile; a
   proven failure there is a deny (Befund 1).
-- It is a prototype. The plugin does not install it and sets no `core.hooksPath`, in the repository or
-  globally; it is exercised only by a test that installs it in a throwaway repository's local
-  `core.hooksPath`. Shipping it needs an install story a maintainer owns (where the hook lives, how it is
-  trusted, how a contributor without the plugin is handled), which is out of scope here.
+- It is a prototype. The plugin does not install it by itself and sets no `core.hooksPath`, in the repository
+  or globally. Since owner choice K5-D C (2026-10-08) the user installs it with `install-pre-push`, in the
+  repository where they call it (D24B).
 - `git push --no-verify` skips every pre-push hook, so Level 2 cannot see that form; that is why Level 1
   denies `--no-verify` and a command-level `core.hooksPath` override outright (Ebene 1, Punkt 5).
 - Limit: the prototype judges the repository of the process it runs in (`git rev-parse --show-toplevel`
@@ -1133,8 +1132,8 @@ Chosen (a prototype, measured in test fixtures only):
 - Level 3 (D22, the CI check) stays the enforcement point a maintainer relies on, off the contributor's
   machine. The three levels see different things and are not substitutes for one another.
 - Since owner choice N2 C (2026-10-08) the hook also runs the done check at every pushed commit (D30), and under
-  Codex it carries the push check, where Level 1 only warns (Karte 5 A with D, D12). How it is installed is
-  still the open owner card D24B; nothing here installs it.
+  Codex it carries the push check, where Level 1 only warns (Karte 5 A with D, D12). It is installed only by
+  `install-pre-push`, on the user's call (D24B).
 
 Options:
 - A. A pre-push hook prototype, measured in tests, not installed (chosen).
@@ -1144,6 +1143,56 @@ Options:
 - C. Rely on Level 1 alone. Rejected: the reviewer showed a shell gate is not a boundary.
 - D. Rely on Level 3 (CI) alone. The honest fallback, but it catches a bad push only after it reaches the
   remote; Level 2 catches it at the contributor's machine.
+
+## D24B. How the pre-push hook is installed (owner choice K5-D C, 2026-10-08)
+
+Chosen: a command of its own, `proofbundle_gate.py install-pre-push [--repo DIR]`, which the user runs in the
+repository where they want Level 2. The plugin never runs it by itself: no hook configuration of either host names
+it, and no other path of the gate writes a hook.
+- What it writes: one file, `pre-push`, in the hook folder git uses for that repository: `.git/hooks`, or a
+  `core.hooksPath` set in the repository's local or worktree configuration that points inside the repository. It
+  sets no configuration, local or global. Reading of the owner's words "the local core.hooksPath of the repository":
+  the hook folder that is the repository's own; the command does not set `core.hooksPath`.
+- What it refuses, writing nothing: a `core.hooksPath` from the global, system or command configuration (a hook
+  there acts beyond this repository), a local one outside the repository, `GIT_DIR`, `GIT_WORK_TREE` or
+  `GIT_COMMON_DIR` in the environment, a folder that is not a working tree, and an existing `pre-push` that it did
+  not write: a regular file without its mark on the second line (`PRE_PUSH_MARK`), a link or a folder. The message
+  names that hook's path; the hook is left as it is. Its own hook it replaces, atomically.
+- The wrapper is fixed text (`pre_push_wrapper`). It records the plugin folder it was installed from and finds the
+  gate at each push (`_PRE_PUSH_RESOLVER`): that folder's gate, or, when the folder is a version folder of an
+  installed plugin (`…/proofbundle/<version>`, as Claude Code and Codex cache it), the gate of the newest version
+  folder beside it, by number. So a plugin update needs no new install. It runs that gate as `pre-push` with
+  git's arguments and ref lines; when it finds no gate, or `python3` is missing, it denies the push (exit 1).
+- Limits: the wrapper runs the `python3` on PATH at push time and reads the plugin folders as the user's files; an
+  agent that can write those folders or the hook itself can change what runs (the D27 class: local hooks are an
+  early warning). `git push --no-verify` skips it, which is why Level 1 denies that form (D24). The boundary stays
+  the required CI check (D22).
+
+Measured (tests/test_plugin_gate_install_pre_push.py, 2026-10-08): the wrapper lands in `.git/hooks` or a local
+`core.hooksPath` inside the repository with no configuration changed; a foreign hook (script, link, folder, a mark
+not on the second line), a global, command-scope or outside hook folder and a moved repository are refused; through
+git, a push without a receipt keeps the remote ref and a valid receipt moves it; after a version change (0.3.0
+replaced by 0.3.1) the hook runs the new version's gate; with the plugin removed, or without `python3`, the push is
+denied. Red at 31031eb6: 21 of 22 (the command did not exist; the one green is the valid push, which needs no
+hook to move the ref).
+
+Measured under Codex 0.161.0 with `--sandbox workspace-write` and the network off (2026-10-08, a scripted model, the
+hook installed by `install-pre-push` from the plugin cache):
+- The sandbox keeps `.git` read-only: `git add` and `git commit` fail (`.git/index.lock`: read-only file system), and
+  a push cannot update its remote-tracking ref.
+- With the commit made by the user beforehand, git starts the installed hook, the wrapper finds the gate and the gate
+  runs, but the verifier does not start: uv cannot write its cache (`/root/.cache/uv`, read-only), and with a
+  writable empty cache (`UV_CACHE_DIR`) it cannot reach the package index (name resolution fails). The gate refuses
+  the run and denies the push (exit 1); the remote ref stays where it was.
+- Codex's own hooks ran outside the sandbox in the same runs: the Stop hook started the verifier and reached a verdict.
+- So under that sandbox Level 2 is fail-closed and of no use for a push that needs the verifier; such a push is a
+  person's, outside the sandbox. Not measured: a sandbox with network on, or with a writable, filled uv cache.
+
+Options:
+- A. Leave it open; Level 2 only by hand after the README.
+- B. `done-init` sets the hook up, on an explicit switch.
+- C. A command of its own with a fixed wrapper that finds the plugin at push time (chosen).
+- D. CI only.
 
 ## D25. Approval by a human click or a pre-set rule (Nachtrag 24)
 
@@ -1288,8 +1337,8 @@ Owner rule (2026-10-08, for findings on the plugin from now on):
   switch the early warning off silently. F15-4 is repaired: no JSON read of the gate or the server takes `NaN`,
   `Infinity` or `-Infinity`, and a logging notification with a level MCP does not define refuses the verifier
   run (at 13753b7e a progress notification with `NaN` let a green reply through). F15-2 is made visible (D25).
-- Review round 15 in its former form is dropped; the review of the whole user path replaces it. D24B stays an
-  owner decision.
+- Review round 15 in its former form is dropped; the review of the whole user path replaces it. D24B was an
+  owner decision then; the owner decided it on 2026-10-08 (K5-D C).
 
 
 ## D28. The order: required checks, each bound to HEAD, for both hosts

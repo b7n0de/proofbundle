@@ -140,7 +140,7 @@ HOSTS = ("claude", "codex")
 CODEX_PUSH_WARNING = ("Under Codex the gate warns about a git push and does not deny it (owner choice Karte 5 A, "
                       "DECISIONS.md D12): the boundary is the done check at the end of the session and the required "
                       "CI check, and git's pre-push hook (Level 2, D24), which git starts in the repository the push "
-                      "acts on, checks the push only where it is installed.")
+                      "acts on, checks the push only where it is installed (install-pre-push, D24B).")
 
 SERVER = pathlib.Path(__file__).resolve().parent.parent / "server" / "proofbundle_mcp.py"
 #: The plugin's version, the one of every manifest; a test holds them equal.
@@ -5562,7 +5562,7 @@ def _host(argv: list[str]) -> str:
 
 
 def pre_push_command(argv: list[str]) -> int:
-    """PROTOTYPE git pre-push hook entry (DECISIONS.md, D24 — not installed outside tests). git runs a
+    """PROTOTYPE git pre-push hook entry (DECISIONS.md, D24; installed only by install-pre-push, D24B). git runs a
     pre-push hook as `hook <remote-name> <remote-url>` with one `<local_ref> <local_sha> <remote_ref>
     <remote_sha>` line per ref on stdin, in the repository being pushed. This reaches a verdict from those
     lines alone and denies the push (exit 1) when the evidence does not verify, whatever shell form launched
@@ -5593,6 +5593,142 @@ def pre_push_command(argv: list[str]) -> int:
     return 0 if verdict.decision in ("pass", "inactive") else 1
 
 
+# --- install-pre-push: Level 2 into the repository where the user asks for it (owner choice K5-D C, D24B) -----------
+
+INSTALL_USAGE = "usage: install-pre-push [--repo DIR]"
+#: The line that marks a pre-push hook this command wrote; a hook without it is someone else's and is never replaced.
+PRE_PUSH_MARK = "# proofbundle-pre-push-wrapper 1"
+#: Environment names that move the repository away from the one the command is called in. A core.hooksPath given in
+#: the environment (GIT_CONFIG_COUNT, GIT_CONFIG_PARAMETERS) shows up in the `command` scope and is refused there.
+_INSTALL_MOVED_BY = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
+#: Run by the wrapper at each push with the recorded plugin root: the gate of that root, or, when the root is a
+#: version folder of an installed plugin (`…/proofbundle/<version>`), the gate of the newest version folder beside
+#: it, so a plugin update needs no new install. Prints nothing when it finds none. No single quote may appear here.
+_PRE_PUSH_RESOLVER = """import os, re, sys
+root = sys.argv[1]
+version = re.compile(r"[0-9]+([.][0-9]+)*")
+def gate(folder):
+    path = os.path.join(folder, "hooks", "proofbundle_gate.py")
+    return path if os.path.isfile(path) and not os.path.islink(path) else None
+family, name = os.path.split(root)
+found = None
+if version.fullmatch(name) and os.path.basename(family) == "proofbundle":
+    best = None
+    for entry in (os.listdir(family) if os.path.isdir(family) else []):
+        if version.fullmatch(entry) and gate(os.path.join(family, entry)):
+            key = tuple(int(part) for part in entry.split("."))
+            best = max(best, (key, entry)) if best else (key, entry)
+    found = gate(os.path.join(family, best[1])) if best else None
+else:
+    found = gate(root)
+print(found or "")
+"""
+
+
+def _sh_quote(text: str) -> str:
+    return "'" + text.replace("'", "'\\''") + "'"
+
+
+def pre_push_wrapper(plugin_root: str) -> str:
+    """The fixed pre-push hook install-pre-push writes: it records the plugin root it was installed from, finds the
+    gate at each push (_PRE_PUSH_RESOLVER) and runs it as `pre-push` with git's arguments and ref lines. When it finds
+    no gate it denies the push (exit 1); so does a failed python3."""
+    assert "'" not in _PRE_PUSH_RESOLVER
+    return (f"#!/bin/sh\n{PRE_PUSH_MARK} (install-pre-push, DECISIONS.md D24B)\n"
+            "# Written on request by proofbundle_gate.py install-pre-push, which alone replaces it. It finds the\n"
+            "# plugin's gate at each push and denies the push (exit 1) when it finds none.\n"
+            f"root={_sh_quote(plugin_root)}\n"
+            f"gate=$(python3 -I -c '{_PRE_PUSH_RESOLVER}' \"$root\") || gate=\"\"\n"
+            'if [ -z "$gate" ]; then\n'
+            '  echo "proofbundle pre-push: no proofbundle plugin gate found at $root or in a newer version beside'
+            ' it, so the push is denied. Run install-pre-push again from the installed plugin, or remove $0." >&2\n'
+            "  exit 1\n"
+            "fi\n"
+            'exec python3 -I "$gate" pre-push "$@"\n')
+
+
+def _inside(path: str, folders: list[str]) -> bool:
+    real = os.path.realpath(path)
+    return any(os.path.commonpath([real, os.path.realpath(f)]) == os.path.realpath(f) for f in folders if f)
+
+
+def install_pre_push(directory: str, deadline: float, environ: dict | None = None,
+                     plugin_root: str | None = None) -> str:
+    """Write the pre-push wrapper into the hook folder git uses for the repository at directory (owner choice K5-D C,
+    D24B), and nowhere else: the repository's own `.git/hooks`, or a `core.hooksPath` set in its local or worktree
+    configuration that points inside the repository. Sets no configuration, local or global. Refuses a hook folder
+    set in any other scope, one outside the repository, an environment that moves the repository, and an existing
+    pre-push hook it did not write, which it names and leaves as it is. Runs only when the user calls it."""
+    environ = os.environ if environ is None else environ
+    moved = [name for name in _INSTALL_MOVED_BY if environ.get(name)]
+    if moved:
+        raise GateError(f"{', '.join(moved)} is set, which moves the repository away from {directory}; run "
+                        "install-pre-push without it")
+    plugin_root = plugin_root or os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    if any(ord(c) < 32 for c in plugin_root):
+        raise GateError("the plugin folder's path holds a control character, so no hook can name it safely")
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        raise GateError(f"git cannot tell the hook folder of {directory}: {why}")
+    if paths["toplevel"] is None:
+        raise GateError(f"{directory} is not the working tree of a git repository")
+    entries, why = _config_entries(paths["toplevel"], deadline)
+    if entries is None:
+        raise GateError(f"git cannot read the configuration of {paths['toplevel']}: {why}")
+    for scope, origin, key, _value in entries:
+        if key == "core.hookspath" and scope not in ("local", "worktree"):
+            raise GateError(f"core.hooksPath is set in the {scope} configuration ({origin}), so a hook there would act "
+                            "beyond this repository; install-pre-push writes only into this repository's own hook "
+                            "folder and never changes that setting")
+    folder = paths["hooks"]
+    if not _inside(folder, [paths["toplevel"], paths["common"]]):
+        raise GateError(f"the local core.hooksPath of this repository points outside it ({folder}); install-pre-push "
+                        "writes only inside the repository")
+    hook = os.path.join(folder, "pre-push")
+    if os.path.lexists(hook):
+        ours = False
+        if os.path.isfile(hook) and not os.path.islink(hook):
+            with open(hook, "rb") as handle:
+                lines = handle.read(4096).splitlines()
+            ours = len(lines) > 1 and lines[1].startswith(PRE_PUSH_MARK.encode())
+        if not ours:
+            raise GateError(f"a pre-push hook that install-pre-push did not write exists at {hook}; it is left as it "
+                            "is. Merge the proofbundle call into it by hand, or move it away and run "
+                            "install-pre-push again")
+    os.makedirs(folder, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=".pre-push.", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(pre_push_wrapper(plugin_root))
+        os.chmod(temp, 0o755)
+        updated = os.path.lexists(hook)
+        os.replace(temp, hook)
+    except BaseException:
+        if os.path.lexists(temp):
+            os.unlink(temp)
+        raise
+    return (f"proofbundle install-pre-push: {'replaced the' if updated else 'wrote a'} pre-push hook at {hook}. At "
+            f"each push it runs the gate of the plugin at {plugin_root}, or of the newest version installed beside "
+            "it, and a push it cannot check is denied. Nothing else was changed: no configuration, local or global. "
+            "`git push --no-verify` skips it; the boundary is the required CI check (D22).")
+
+
+def install_pre_push_command(argv: list[str]) -> int:
+    options, i = {"--repo": None}, 0
+    while i < len(argv):
+        if argv[i] in options and i + 1 < len(argv) and options[argv[i]] is None:
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"{INSTALL_USAGE}; unexpected {argv[i]!r}", file=sys.stderr)
+            return 2
+    try:
+        print(install_pre_push(options["--repo"] or os.getcwd(), time.monotonic() + DEADLINE_SECONDS))
+    except (GateError, OSError) as exc:
+        print(f"proofbundle install-pre-push: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["tree-digest"]:
@@ -5605,6 +5741,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_evidence_command(argv[1:])
     if argv[:1] == ["pre-push"]:
         return pre_push_command(argv[1:])
+    if argv[:1] == ["install-pre-push"]:
+        return install_pre_push_command(argv[1:])
     if argv[:1] == ["stop"]:
         return stop_command(argv[1:])
     if argv[:1] == ["done-check"]:

@@ -132,11 +132,27 @@ is installed, and the boundary is the done check and CI (D12).
 **Level 2 (prototype, D24) is the pre-push hook.** A git `pre-push` hook reaches a verdict from git's own
 ref lines, so it sees the exact commits and the remote's own state — but only for a push git actually
 invokes the installed hook on, and only when the objects it names are readable locally. It is a bypassable
-prototype (`git push --no-verify` skips it, which is why Level 1 denies that form), it is measured in test
-fixtures only and is not installed or wired to `core.hooksPath` by the plugin, and it exits 0 only for a
+prototype (`git push --no-verify` skips it, which is why Level 1 denies that form), and it exits 0 only for a
 pass and a measured inactive; an ask, an unknown state and any error block (exit 1). Protection against
 every disallowed transmission cannot be assured from these local levels; it must be enforced on the
 receiving side.
+
+**Installing Level 2 is your call** (owner choice K5-D C, D24B). The plugin installs nothing by itself. In a
+repository where you want it, run once:
+
+```sh
+python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
+```
+
+It writes one file, the `pre-push` hook in the hook folder git uses for that repository (`.git/hooks`, or a local
+`core.hooksPath` inside the repository), and changes no configuration, local or global. The hook is a fixed
+wrapper: at each push it finds the gate of the plugin it was installed from, or of the newest version installed
+beside it, so a plugin update needs no new install; when it finds none, or no `python3`, it denies the push. The
+command refuses a hook folder set in the global, system or command configuration, a local one outside the
+repository, `GIT_DIR`, `GIT_WORK_TREE` or `GIT_COMMON_DIR` in the environment, and an existing `pre-push` hook it
+did not write (it names that hook's path and leaves it as it is). Running it again replaces only its own hook.
+Under Codex's `workspace-write` sandbox with the network off the hook runs, but the verifier cannot start (uv has no
+writable cache and no network), so it denies every push that needs the verifier; measured with Codex 0.161.0 (D24B).
 
 **A push needs the done check at the pushed commit** (owner choice N2 C, D30). Where the pushed commit's
 declaration names a done check, Level 1 under Claude Code and Level 2 run the same check as at the end of a
@@ -456,8 +472,8 @@ The gate behaves differently under Codex in two ways:
   path or expansion; every other push form is denied (`codex_push_not_plain`, owner choice K5-1 C, 2026-10-08),
   because it may step around the hook. The boundary is the done check at the
   end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in its
-  own repository where it is installed, the evidence and the done check at the pushed commit (D30); how it is
-  installed is still open (D24B), and without it nothing local stops the push. A push with `--no-verify` or a `core.hooksPath` override is still denied, and so are
+  own repository where it is installed, the evidence and the done check at the pushed commit (D30); you install
+  it with `install-pre-push` (D24B), and without it nothing local stops the push. A push with `--no-verify` or a `core.hooksPath` override is still denied, and so are
   `gh pr create` and the other gated gh calls, which start no pre-push hook; a gated MCP write is NOT MEASURED
   and denied as well (R6-1). No transcript
   path is built: until Codex binds the effective execution directory and environment of the same call to

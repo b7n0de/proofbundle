@@ -59,8 +59,8 @@ Runde 5, R5-2; Codex source `exec_command.rs`/`hook_runtime.rs` at 14a477ea). Ow
 prefix assignment, chain, wrapper, global option or other git path is denied (`codex_push_not_plain`, D12). The
 boundary is the done check at
 the end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in
-its own repository where it is installed; the scaffold installs none, and how it is installed is still open
-(D24B). So the answer does not depend on the repository's evidence state here; every case 1 to 5 warns with the
+its own repository where it is installed; the scaffold installs none (the user installs it with
+`install-pre-push`, D24B). So the answer does not depend on the repository's evidence state here; every case 1 to 5 warns with the
 same NOT MEASURED reason, and the push reaches the remote. What each scaffold mode would verify with a bound
 context is a Claude-Code / Ebene-2 property, not a Codex Ebene-1 one, until the execution context is reliably
 bound (Messauftrag, D12).
