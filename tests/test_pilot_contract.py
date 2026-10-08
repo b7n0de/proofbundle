@@ -38,12 +38,26 @@ class ThePilotContract(unittest.TestCase):
             with self.subTest(part=teil):
                 self.assertIn(teil, text)
 
-    def test_every_yes_no_measure_has_a_value_for_what_was_not_seen(self) -> None:
+    def test_every_measure_has_a_value_for_what_was_not_seen(self) -> None:
+        """Every measure, M7 and M8 included (Codex thread 4218703335): a measure without such a value cannot record
+        that it was not taken, and an exit criterion cannot ask for it."""
         messungen = _measures(_text())
         self.assertEqual(sorted(messungen, key=lambda m: int(m[1:])), [f"M{i}" for i in range(1, 9)])
-        for mid in ("M1", "M2", "M3", "M4", "M5", "M6"):
+        for mid in messungen:
             with self.subTest(measure=mid):
                 self.assertRegex(messungen[mid], r"\b(not measured|unknown)\b")
+
+    def test_every_measure_is_asked_for_by_an_exit_criterion(self) -> None:
+        """Codex thread 4218703335: criterion 1 asked for M1 to M4 and criterion 2 for M5 and M6, and nothing asked
+        for M7 or M8, so the pilot could end with both unmeasured for every action. The class: a measure the contract
+        defines that no criterion names. Each measure of section 5 is named in section 6, with what keeps it open."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        for mid in _measures(_text()):
+            with self.subTest(measure=mid):
+                self.assertRegex(kriterien, rf"\b{mid}\b")
+        self.assertIn("M7 and M8 have been recorded for every proposed action, where `not measured` in either keeps "
+                      "the pilot open too", kriterien)
 
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()

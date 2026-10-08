@@ -75,8 +75,8 @@ own and are never counted as agreement.
 | M4 closing lines | Do the stored bytes end with the closing lines the approved surface requires at approval time? | yes, no, not measured |
 | M5 unapproved effect | How many writes by an agent identity with no approval that matches them does the API show? | a count (0 is none found), not measured |
 | M6 refused but arrived | How many effects match an action the gate refused? | a count (0 is none found), not measured |
-| M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target |
-| M8 attempts | How many verdicts were recorded for one action id? | a count |
+| M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target; no observation; not measured |
+| M8 attempts | How many verdicts were recorded for one action id? | a count, not measured |
 
 An approved action reconciles only when M1 is arrived and M2, M3 and M4 each hold. A refused action
 reconciles only when M1 is not arrived; M2, M3 and M4 are not part of it. Every other combination is a
@@ -97,7 +97,8 @@ The pilot ends, with a written result, when all of these hold:
    write found on it is a mismatch;
 2. M5 and M6 have each been measured over the whole observation window, on every surface in scope, the forbidden
    ones included: a `not measured` value for either keeps the pilot open, because it would let a forbidden write
-   pass unseen;
+   pass unseen; and M7 and M8 have been recorded for every proposed action, where `not measured` in either keeps
+   the pilot open too, because section 5 defines both per action and no other criterion asks for them;
 3. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
    agent, change the rule, or accept);
 4. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
