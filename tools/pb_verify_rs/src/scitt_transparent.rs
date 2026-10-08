@@ -493,8 +493,23 @@ fn statement_in_profile(st: &Cose) -> bool {
         && get(uh, CTY).is_none()
         && crit_ok(ph, &STATEMENT_CRIT_PROCESSED)
         && get(uh, CRIT).is_none()
+        && statement_cwt_in_profile(st)
         && get(ph, X5CHAIN).is_some()
         && st.payload.as_ref().is_some_and(|p| p.len() == 32)
+}
+
+/// RFC 9943 section 6, as `_statement_profile` reads it: CWT Claims (label 15) stand in the
+/// protected header only, and carry a non-empty text iss (1) and sub (2).
+fn statement_cwt_in_profile(st: &Cose) -> bool {
+    if get(&st.unprotected, CWT).is_some() {
+        return false;
+    }
+    let Some(Item::Map(cwt)) = get(&st.protected, CWT) else {
+        return false;
+    };
+    [1, 2]
+        .iter()
+        .all(|c| matches!(get(cwt, *c), Some(Item::Text(t)) if !t.is_empty()))
 }
 
 /// Python's `_first`: the first status of STATUS_ORDER among those that are not `confirmed`.
