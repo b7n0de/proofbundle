@@ -315,7 +315,7 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
     def test_a_documented_tag_must_carry_the_action(self) -> None:
         """Codex thread 4219207478: the tags were read from the docs and never looked up, so a tag that does not
         exist, or one from before the action was added, became the channel of a published row."""
-        def messe(tags_am_ziel):
+        def messe(tags_am_ziel, tags=("v1", "v2")):
             modul = _load()
             texte = {modul.TAG: "the x capability, stable\n```\nuses: x@v1\n```\n",
                      _MAIN: "the x capability, stable\n```\nuses: x@v2\n```\n"}
@@ -324,10 +324,11 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
                 if pfad == "NOTES.md":
                     return texte[ref].encode() if ref in texte else None
                 if pfad == "action/action.yml":
-                    return b"" if ref in (modul.TAG, _MAIN) or ref in tags_am_ziel else None
+                    return b"" if ref in (modul.TAG, _MAIN) or ref.removeprefix("refs/tags/") in tags_am_ziel else None
                 return None
             modul._git_bytes = git_bytes
             modul._git = lambda *args: ""
+            modul._tag_ref = lambda tag: _HEAD if tag in tags else None
             modul.CAPABILITIES = [{"id": "x", "name": "x", "repo_paths": ["action/action.yml"],
                                    "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}]
             artefakte = {"wheel_files": {}, "wheel_subcommands": [], "wheel_entry_points": [], "sdist_files": []}
@@ -337,6 +338,9 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
                            ("neither tag carries it", set())):
             with self.subTest(fall), self.assertRaisesRegex(SystemExit, "does not carry action/action.yml"):
                 messe(tags)
+        # Codex thread 4219678084: a branch or a commit id that carries the path is not a tag
+        with self.assertRaisesRegex(SystemExit, "the documented ref v2 is not a tag"):
+            messe({"v1", "v2"}, tags=("v1",))
 
     def test_two_documented_tags_are_both_named_in_the_channel(self) -> None:
         """Codex thread 4218719408: the channel was built from the release's tag alone, so docs at main that pin
@@ -353,6 +357,7 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
                     return b"" if pfad == "action/action.yml" else None
                 modul._git_bytes = git_bytes
                 modul._git = lambda *args: ""
+                modul._tag_ref = lambda tag: _HEAD
                 modul.CAPABILITIES = [{"id": "x", "name": "x", "repo_paths": ["action/action.yml"],
                                        "git_tag_from": r"uses: x@(\S+)",
                                        "label": [("NOTES.md", r"(the x capability[^\n]*)")]}]
@@ -368,6 +373,21 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
         sl = reihen["slsa-provenance"]
         self.assertIs(sl["release"]["measured"]["provider_named_in_docs"], True)
         self.assertIs(sl["main"]["measured"]["provider_named_in_docs"], True)
+
+
+class FromElsewhereSaysWhatWasMeasured(unittest.TestCase):
+    """Codex thread 4219678096: the status said another project provides the capability, and what is measured is that
+    the cited docs name the provider. The vocabulary and the README say so and claim no availability."""
+
+    def test_the_vocabulary_claims_no_availability(self) -> None:
+        modul = _load()
+        doc = " ".join(modul.__doc__.split())
+        self.assertIn("the docs name a component outside this project as the provider", doc)
+        self.assertIn("Whether that project provides it is not measured", doc)
+        readme = " ".join(_README.read_text(encoding="utf-8").split())
+        self.assertIn("`from elsewhere` when the docs name another project as the provider, whose own availability "
+                      "is not measured here", readme)
+        self.assertNotIn("when another project provides it", readme)
 
 
 class AFailedProvenanceCheckStopsTheMeasurement(unittest.TestCase):

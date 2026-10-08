@@ -12,7 +12,8 @@ Statuses (the closed vocabulary of this matrix):
   experimental    present, and labelled experimental by the project there
   main only       present on main, absent from every v6.1.0 artifact and from the tag
   planned         absent from the tag and from main; present on a named branch only
-  from elsewhere  provided by a component outside this project, which the docs reference; no code here
+  from elsewhere  the docs name a component outside this project as the provider; no code here. Whether that
+                  project provides it is not measured (Codex thread 4219678096 on pull request 304)
   absent          not present (only ever the release cell of a row that is main only or planned)
 
 A capability's CHANNEL is how a user gets it: the PyPI wheel, a git tag of this repository (the GitHub
@@ -240,14 +241,26 @@ def _documented_tag(ref: str, cap: dict):
     return tags[0]
 
 
+def _tag_ref(tag: str):
+    """The commit the TAG `tag` names (refs/tags/<tag>), or None: a branch or a commit id of the same spelling is
+    no tag (Codex thread 4219678084 on pull request 304)."""
+    lauf = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "-q", f"refs/tags/{tag}^{{commit}}"],
+                          capture_output=True, text=True)
+    return lauf.stdout.strip() if lauf.returncode == 0 and lauf.stdout.strip() else None
+
+
 def _tag_carries(tag: str, cap: dict) -> None:
-    """A SystemExit unless the documented tag resolves and carries every repository path of the capability: a
-    channel names how a user gets it, and a tag without the action gives the user nothing (Codex thread 4219207478
-    on pull request 304: the tag was read from the docs and never looked up)."""
-    fehlt = [p for p in cap.get("repo_paths", []) if _git_bytes(tag, p) is None]
+    """A SystemExit unless the documented ref is a tag of this repository and carries every repository path of the
+    capability there: a channel names how a user gets it, and a tag without the action gives the user nothing (Codex
+    thread 4219207478 on pull request 304: the tag was read from the docs and never looked up). The paths are read
+    at refs/tags/<tag>, so a branch of the same name does not stand in for it."""
+    if _tag_ref(tag) is None:
+        raise SystemExit(f"{cap['id']}: the documented ref {tag} is not a tag of this repository; the channel is "
+                         "not measured")
+    fehlt = [p for p in cap.get("repo_paths", []) if _git_bytes(f"refs/tags/{tag}", p) is None]
     if fehlt:
-        raise SystemExit(f"{cap['id']}: the documented tag {tag} does not carry {', '.join(fehlt)} (or does not "
-                         "resolve); the channel is not measured")
+        raise SystemExit(f"{cap['id']}: the documented tag {tag} does not carry {', '.join(fehlt)}; the channel is "
+                         "not measured")
 
 
 def _names_provider(ref: str, cap: dict) -> bool:
