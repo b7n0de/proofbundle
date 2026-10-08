@@ -61,8 +61,11 @@ jobs:
       || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
            && contains(github.event.pull_request.labels.*.name, 'landung') )
     runs-on: ubuntu-latest
-    # coverage takes about 55 minutes on a runner; the job waits for it, and not longer than this.
-    timeout-minutes: 120
+    # The longest job it waits for may take 300 minutes (coverage in ci.yml), and it may start after this job
+    # did. So this job may take as long as a hosted job may, 360 minutes; at 120 it ended before coverage and
+    # skipped the layer (Codex on pull request 310, round four, P1). tests/test_ein_label_startet_keine_ci.py
+    # holds it at least 30 minutes above every job it waits for.
+    timeout-minutes: 360
     permissions:
       actions: read
       contents: read
@@ -72,6 +75,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Which ci.yml run counts: one that started after this base landed, and on a new head after this
+          # run started (scripts/landung_waits_for_ci.py, WHICH RUN COUNTS).
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: python3 scripts/landung_waits_for_ci.py
 
   mutation:

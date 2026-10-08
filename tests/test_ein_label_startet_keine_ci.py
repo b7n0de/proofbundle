@@ -72,6 +72,9 @@ def _wartet_nicht(d: dict) -> list[str]:
         schlecht.append(f"{VORBEDINGUNG} does not run scripts/landung_waits_for_ci.py exactly once")
     elif (laeufe[0].get("env") or {}).get("HEAD_SHA") != "${{ github.event.pull_request.head.sha }}":
         schlecht.append(f"{VORBEDINGUNG} does not name the head of the event")
+    elif ((laeufe[0].get("env") or {}).get("BASE_SHA"), (laeufe[0].get("env") or {}).get("EVENT_ACTION")) != (
+            "${{ github.event.pull_request.base.sha }}", "${{ github.event.action }}"):
+        schlecht.append(f"{VORBEDINGUNG} does not name the base and the action of the event")
     if (jobs[VORBEDINGUNG].get("permissions") or {}).get("actions") != "read":
         schlecht.append(f"{VORBEDINGUNG} cannot read the runs of ci.yml")
     return schlecht
@@ -255,14 +258,20 @@ def test_das_urteil_des_skripts(jobs, lauf, erwartet):
 
 
 class _FalscheApi:
-    """The two GitHub answers the script reads, served from a list of states, one per poll."""
+    """The GitHub answers the script reads, the runs served from a list of states, one per poll; the base's
+    landing time and this landung run's creation time are fixed per case."""
 
-    def __init__(self, laeufe_je_ruf, jobs):
+    def __init__(self, laeufe_je_ruf, jobs, basis="2025-12-31T00:00:00Z", eigener="2026-01-01T00:00:00Z"):
         self.laeufe_je_ruf, self.jobs, self.schlaf, self.uhr = list(laeufe_je_ruf), jobs, 0, 0.0
+        self.basis, self.eigener = basis, eigener
 
     def fetch(self, path, token):
         if "/jobs?" in path:
             return {"total_count": len(self.jobs), "jobs": self.jobs}
+        if "/commits/" in path:
+            return {"commit": {"committer": {"date": self.basis}}}
+        if "/workflows/" not in path:
+            return {"created_at": self.eigener}
         return {"workflow_runs": self.laeufe_je_ruf.pop(0) if self.laeufe_je_ruf else []}
 
     def sleep(self, s):
@@ -271,7 +280,8 @@ class _FalscheApi:
 
 
 # Fixture values, not measurements: a head, and the creation stamps of two runs in a fixed order.
-ENV = {"GITHUB_REPOSITORY": "o/r", "HEAD_SHA": "a" * 40}
+ENV = {"GITHUB_REPOSITORY": "o/r", "HEAD_SHA": "a" * 40, "BASE_SHA": "c" * 40, "EVENT_ACTION": "labeled",
+       "GITHUB_RUN_ID": "99"}
 LAUF = {"id": 7, "head_sha": "a" * 40, "created_at": "2026-01-01T00:00:00Z", "status": "completed"}
 
 
@@ -303,6 +313,58 @@ def test_das_skript_wird_rot_wenn_die_api_nicht_lesbar_ist():
         raise s.ReadError("HTTP 502")
     assert s.main(fetch=kaputt, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
     assert api.schlaf == s.MAX_READ_ERRORS - 1
+
+
+def test_ein_lauf_vor_der_landung_der_basis_zaehlt_nicht():
+    """Codex on pull request 310, round four (P1): CI finished green, main moved, the head did not, and the label
+    was set. The run tested an older merge candidate; it must not start the layer, and the reason says why."""
+    s = _skript()
+    api = _FalscheApi([[LAUF]] * 100, GRUEN, basis="2026-01-02T00:00:00Z")
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
+    assert api.uhr > s.APPEAR_S
+    # the control: with the base landed before the run, the same run counts
+    api = _FalscheApi([[LAUF]], GRUEN, basis="2025-12-31T00:00:00Z")
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
+
+
+@pytest.mark.parametrize("aktion", ["synchronize", "reopened"])
+def test_auf_einem_neuen_lauf_wird_der_vorige_lauf_nicht_gelesen(aktion):
+    """Round four, the sibling: on synchronize and reopened ci.yml starts a new run, and the previous run of the
+    same head was read before the new one appeared."""
+    neu = dict(LAUF, id=8, created_at="2026-01-03T00:00:30Z")
+    api = _FalscheApi([[LAUF], [LAUF], [LAUF, neu]], GRUEN, eigener="2026-01-03T00:00:00Z")
+    assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=dict(ENV, EVENT_ACTION=aktion)) == 0
+    assert api.schlaf == 2, "the run from before this landung run was read as the evidence"
+
+
+def test_ohne_basis_und_aktion_wird_es_rot():
+    api = _FalscheApi([[LAUF]], GRUEN)
+    for fehlt in ("BASE_SHA", "EVENT_ACTION", "GITHUB_RUN_ID"):
+        env = {k: v for k, v in ENV.items() if k != fehlt}
+        assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=env) == 1, fehlt
+
+
+def _warter_zu_kurz(landung: dict, ci: dict, warte: tuple) -> list[str]:
+    """The jobs the waiter may outlast too little: its limit must stand 30 minutes above each, and within the
+    360 minutes a hosted job may take."""
+    eigen = int(landung["jobs"][VORBEDINGUNG].get("timeout-minutes") or 0)
+    schlecht = [f"{j} may take {ci['jobs'][j].get('timeout-minutes')} minutes" for j in warte
+                if eigen < int(ci["jobs"][j].get("timeout-minutes") or 360) + 30]
+    return schlecht + ([f"{VORBEDINGUNG} exceeds 360 minutes"] if eigen > 360 else [])
+
+
+def test_der_warter_lebt_laenger_als_was_er_erwartet():
+    """Codex on pull request 310, round four (P1): the waiter was capped at 120 minutes while coverage may take
+    300, so it timed out, the layer was skipped and the candidate had no mutation verdict."""
+    s = _skript()
+    assert _warter_zu_kurz(_lade("landung.yml"), _lade("ci.yml"), s.WAITED) == []
+
+
+def test_fangnachweis_ein_zu_kurzer_warter_wird_gefunden():
+    landung = {"jobs": {VORBEDINGUNG: {"timeout-minutes": 120}}}
+    ci = {"jobs": {"test": {"timeout-minutes": 180}, "coverage": {"timeout-minutes": 300}}}
+    assert _warter_zu_kurz(landung, ci, ("test", "coverage")) == ["test may take 180 minutes",
+                                                                  "coverage may take 300 minutes"]
 
 
 def test_die_schritte_beider_kopien_sind_gleich():
@@ -378,6 +440,11 @@ def test_fangnachweis_eine_schicht_ohne_vorbedingung_wird_gefunden():
         if "env" in schritt:
             schritt["env"]["HEAD_SHA"] = "${{ github.sha }}"
     assert _wartet_nicht(fremder_kopf) == [f"{VORBEDINGUNG} does not name the head of the event"]
+    ohne_basis = json.loads(json.dumps(d, default=str))
+    for schritt in ohne_basis["jobs"][VORBEDINGUNG]["steps"]:
+        if "env" in schritt:
+            schritt["env"].pop("BASE_SHA", None)
+    assert _wartet_nicht(ohne_basis) == [f"{VORBEDINGUNG} does not name the base and the action of the event"]
     ohne_recht = json.loads(json.dumps(d, default=str))
     ohne_recht["jobs"][VORBEDINGUNG]["permissions"] = {"contents": "read"}
     assert _wartet_nicht(ohne_recht) == [f"{VORBEDINGUNG} cannot read the runs of ci.yml"]

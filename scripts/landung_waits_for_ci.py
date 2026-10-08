@@ -22,17 +22,29 @@ only, and setting the label afterwards starts no run of ci.yml; with test and co
 layer would have started on one leg. `all-checks-passed` holds the full-matrix condition and is red
 there, so the layer waits for the fork's next push, which runs the full matrix under the label.
 
+WHICH RUN COUNTS (Codex on pull request 310, round four, P1). A ci.yml run tested the merge of the head into
+the base as the base stood when it started. When main moved on and the head did not, the label starts no new
+run, and the old run is evidence for other bytes than the ones the layer checks out. So a run counts only when
+it started after the current base landed on main (the committer time of `BASE_SHA`; main takes merges only,
+and a merge's committer time is the time it landed), and, on `synchronize` and `reopened`, after this run of
+landung.yml started, less `SKEW_S`: those events start a new ci.yml run, and the previous run of the same head
+must not be read before the new one appears. A pull request's base in the run object cannot serve: GitHub
+reports the current base there, not the one the run tested (measured 2026-10-08: a run of 2026-09-28 named
+c335c6ee, which landed on 2026-10-08).
+
 THREE OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
 succeeded. `red` as soon as one needed job finished with anything but success (skipped and cancelled
 included), when the run finished without one of them, when no ci.yml run appears for the head within
 `APPEAR_S`, or when the API cannot be read `MAX_READ_ERRORS` times in a row. `wait` otherwise; the
 job's own timeout in landung.yml bounds the waiting.
 
-Usage (in landung.yml): GITHUB_REPOSITORY, HEAD_SHA and GITHUB_TOKEN from the environment.
+Usage (in landung.yml): GITHUB_REPOSITORY, HEAD_SHA, BASE_SHA, EVENT_ACTION, GITHUB_RUN_ID and GITHUB_TOKEN
+from the environment; a missing one is red.
 Exit 0 green, 1 red. Standard library only.
 """
 from __future__ import annotations
 
+import datetime as dt
 import http.client
 import json
 import os
@@ -53,6 +65,19 @@ POLL_S = 30
 #: How long the ci.yml run of the head may take to appear. Both workflows start on the same event.
 APPEAR_S = 15 * 60
 MAX_READ_ERRORS = 3
+#: How much earlier than this run of landung.yml a ci.yml run of the same event may have been created.
+SKEW_S = 120
+#: The events on which ci.yml starts a new run for the head, together with this workflow.
+NEW_RUN_EVENTS = ("synchronize", "reopened")
+
+
+def _instant(text: object) -> dt.datetime:
+    if not isinstance(text, str):
+        raise ReadError(f"not a timestamp: {text!r}")
+    try:
+        return dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ReadError(f"not a timestamp: {text!r}") from exc
 
 
 class ReadError(RuntimeError):
@@ -98,14 +123,32 @@ def judge(jobs: list[dict], run_status: str) -> tuple[str, str]:
     return "green", f"{', '.join(sorted(j['name'] for j in wanted))} succeeded on this head"
 
 
+def earliest_counted(fetch, repo: str, base: str, action: str, run_id: str, token) -> dt.datetime:
+    """The earliest creation time of a ci.yml run that counts as evidence for the current merge candidate."""
+    landed = _instant(((fetch(f"repos/{repo}/commits/{base}", token).get("commit") or {}).get("committer") or {})
+                      .get("date"))
+    if action in NEW_RUN_EVENTS:
+        own = _instant(fetch(f"repos/{repo}/actions/runs/{run_id}", token).get("created_at"))
+        return max(landed, own - dt.timedelta(seconds=SKEW_S))
+    return landed
+
+
 def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> int:
+    fehlt = [k for k in ("GITHUB_REPOSITORY", "HEAD_SHA", "BASE_SHA", "EVENT_ACTION", "GITHUB_RUN_ID") if not env.get(k)]
+    if fehlt:
+        print(f"::error::the environment lacks {', '.join(fehlt)}; which ci.yml run counts cannot be decided")
+        return 1
     repo, sha, token = env["GITHUB_REPOSITORY"], env["HEAD_SHA"], env.get("GITHUB_TOKEN")
-    start, errors = clock(), 0
+    start, errors, floor = clock(), 0, None
     while True:
         try:
+            if floor is None:
+                floor = earliest_counted(fetch, repo, env["BASE_SHA"], env["EVENT_ACTION"], env["GITHUB_RUN_ID"],
+                                         token)
             runs = fetch(f"repos/{repo}/actions/workflows/{CI_WORKFLOW}/runs"
                          f"?head_sha={sha}&event=pull_request&per_page=100", token)
-            runs = [r for r in runs.get("workflow_runs") or [] if r.get("head_sha") == sha]
+            alle = [r for r in runs.get("workflow_runs") or [] if r.get("head_sha") == sha]
+            runs = [r for r in alle if _instant(r.get("created_at")) >= floor]
             if runs:
                 run = max(runs, key=lambda r: (str(r.get("created_at")), int(r.get("id") or 0)))
                 page = fetch(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", token)
@@ -115,9 +158,12 @@ def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> 
                     return 1
                 state, why = judge(jobs, str(run.get("status")))
             elif clock() - start > APPEAR_S:
-                state, why = "red", f"no ci.yml run of event pull_request for {sha} after {APPEAR_S} s"
+                alt = (f"; {len(alle)} earlier run(s) of this head started before {floor.isoformat()} and tested an "
+                       "older merge candidate, so a new push (or closing and reopening) runs ci.yml on the current "
+                       "one" if alle else "")
+                state, why = "red", f"no ci.yml run of event pull_request for {sha} after {APPEAR_S} s{alt}"
             else:
-                state, why = "wait", f"no ci.yml run for {sha} yet"
+                state, why = "wait", f"no ci.yml run for {sha} created after {floor.isoformat()} yet"
             errors = 0
         except ReadError as exc:
             errors += 1
