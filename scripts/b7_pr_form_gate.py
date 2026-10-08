@@ -140,7 +140,12 @@ def _rendered(body: str) -> tuple[list[list[tuple[str, str]]], list[str]]:
     if MarkdownIt is None:
         raise NotMeasurable("the CommonMark parser markdown-it-py is not installed")
     try:
-        tokens = MarkdownIt("commonmark").parse(body)
+        md = MarkdownIt("commonmark")
+        # A link target as written, not percent-encoded by the parser: its normalization wrote a raw backslash as
+        # %5C, and a browser treats the two differently, a raw backslash as a slash and %5C as data (Codex thread
+        # 4220777711 on pull request 308). The parser still decides what is a link.
+        md.normalizeLink = lambda url: url
+        tokens = md.parse(body)
     except Exception as exc:  # noqa: BLE001 - any failure of the parser leaves (c) unread
         raise NotMeasurable(f"the CommonMark parser failed ({type(exc).__name__})") from exc
     laeufe: list[list[tuple[str, str]]] = []
@@ -201,13 +206,13 @@ def _aufgeloest(ziel: str) -> str:
     """A link target resolved the way a browser resolves it on a pull request page (WHATWG URL, a special scheme):
     a backslash is a slash, a run of two or more leading slashes starts the host, and dot segments are removed.
     Codex thread 4219686001 on pull request 308: `///session_123` names the host session_123, not the path, and
-    `session_123/..` resolves away the segment, while a backslash path was read as no path at all. The parser
-    writes a backslash of a Markdown link as `%5C`; it is read as a slash too, which can only make the rule
-    stricter."""
+    `session_123/..` resolves away the segment, while a backslash path was read as no path at all. Only a raw
+    backslash is a slash; `%5C` is data in its segment, as the browser keeps it (thread 4220777711), and the parser
+    hands the target over as written (`_rendered`)."""
     ziel = ziel.strip()
     schema = urllib.parse.urlsplit(ziel).scheme.casefold()
     if schema in ("", "http", "https"):
-        ziel = re.sub(r"(?i)%5c", "/", ziel).replace("\\", "/")
+        ziel = ziel.replace("\\", "/")
         rest = ziel[len(schema) + 1:] if schema else ziel
         if rest.startswith("//"):
             rest = "//" + rest.lstrip("/")
@@ -215,6 +220,8 @@ def _aufgeloest(ziel: str) -> str:
     return urllib.parse.urljoin(_BASIS, ziel)
 
 
+#: The special schemes of the WHATWG URL standard; every other scheme without a slash after its colon has an opaque path.
+_SPECIAL = frozenset(("http", "https", "ftp", "ws", "wss", "file"))
 #: A single-dot and a double-dot path segment as the WHATWG URL parser reads them, `%2e` for a dot included.
 _PUNKT = re.compile(r"\A(?:\.|%2e)\Z", re.IGNORECASE)
 _PUNKT_PUNKT = re.compile(r"\A(?:\.|%2e){2}\Z", re.IGNORECASE)
@@ -245,8 +252,12 @@ def _session_path(adresse: str, *, aus_text: bool) -> bool:
     adresse = adresse.casefold()
     if aus_text and "://" not in adresse:
         adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
-    adresse = _aufgeloest(adresse)
-    segmente = [urllib.parse.unquote(s) for s in _ohne_punktsegmente(urllib.parse.urlsplit(adresse).path)]
+    teile = urllib.parse.urlsplit(_aufgeloest(adresse))
+    # An opaque path, a scheme that is not special with no slash after its colon (`mailto:`, `data:`), keeps its dot
+    # segments: a browser removes them only from a hierarchical path (Codex thread 4220777693 on pull request 308).
+    undurchsichtig = teile.scheme not in _SPECIAL and not teile.path.startswith("/")
+    roh = teile.path.split("/") if undurchsichtig else _ohne_punktsegmente(teile.path)
+    segmente = [urllib.parse.unquote(s) for s in roh]
     return any(_SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segmente))
                for i, s in enumerate(segmente))
 

@@ -89,12 +89,16 @@ def _rules(out: str) -> set:
     TEXT + "\n\nSee [the parent](https://example.org/session_123/%2e%2E) for the steps.\n\n" + FOOTER,
     TEXT + "\n\nSee https://example.org/session_123/.. for the steps.\n\n" + FOOTER,
     TEXT + "\n\nSee https:///session_123 for the steps.\n\n" + FOOTER,
+    # Codex thread 4220777711: %5C is data in its segment, so these paths have no session segment
+    TEXT + "\n\nSee [the note](https://example.org/%5Csession_123) for it.\n\n" + FOOTER,
+    TEXT + "\n\nSee [the note](https://example.org/%5Csessions/0000) for it.\n\n" + FOOTER,
 ], ids=["body", "footer-only", "trailing-lf", "trailing-crlf", "crlf", "prose-generated-with",
         "prose-sessions-page", "prose-session-id", "prose-generated-by-then-a-link",
         "undefined-shortcut-reference", "undefined-full-reference", "undefined-collapsed-reference",
         "session-in-the-query", "session-in-the-fragment", "label-with-underscore", "label-with-star",
         "label-with-backtick", "label-with-tilde", "triple-slash-is-a-host", "dot-segment-resolved-away",
-        "absolute-dot-segment", "absolute-encoded-dot-segment", "text-dot-segment", "text-triple-slash-is-a-host"])
+        "absolute-dot-segment", "absolute-encoded-dot-segment", "text-dot-segment", "text-triple-slash-is-a-host",
+        "encoded-backslash-is-data", "encoded-backslash-before-sessions"])
 def test_green_a_milestone_and_the_footer_as_the_last_text(tmp_path, capsys, body):
     code, out = _judge(tmp_path, capsys, body=body)
     assert code == 0, out
@@ -211,6 +215,9 @@ _BEFORE_THE_FOOTER = {
     "session-link-single-dot-after": "[run](https://tool.example/session_0000/.)",
     "session-link-after-a-parent": "[run](https://tool.example/a/%2e%2e/session_0000)",
     "session-address-after-a-parent": "see https://tool.example/a/../session_0000 for it",
+    # Codex thread 4220777693: an opaque path keeps its dot segments, as a browser keeps them
+    "session-link-opaque-mailto": "[run](mailto:session_0000/..)",
+    "session-link-opaque-custom-scheme": "[run](tool:session_0000/.)",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
