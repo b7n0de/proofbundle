@@ -211,7 +211,8 @@ def _aufgeloest(ziel: str) -> str:
     hands the target over as written (`_rendered`)."""
     ziel = ziel.strip()
     schema = urllib.parse.urlsplit(ziel).scheme.casefold()
-    if schema in ("", "http", "https"):
+    # every special scheme reads a backslash as a slash, not only http and https (Codex thread 4221178333)
+    if schema == "" or schema in _SPECIAL:
         ziel = ziel.replace("\\", "/")
         rest = ziel[len(schema) + 1:] if schema else ziel
         if rest.startswith("//"):
@@ -257,7 +258,8 @@ def _session_path(adresse: str, *, aus_text: bool) -> bool:
     # segments: a browser removes them only from a hierarchical path (Codex thread 4220777693 on pull request 308).
     undurchsichtig = teile.scheme not in _SPECIAL and not teile.path.startswith("/")
     roh = teile.path.split("/") if undurchsichtig else _ohne_punktsegmente(teile.path)
-    segmente = [urllib.parse.unquote(s) for s in roh]
+    # folded after decoding: %53 decodes to S, and a fold before the decoding never saw it (Codex thread 4221178345)
+    segmente = [urllib.parse.unquote(s).casefold() for s in roh]
     return any(_SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segmente))
                for i, s in enumerate(segmente))
 

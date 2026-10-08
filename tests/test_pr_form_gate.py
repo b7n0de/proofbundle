@@ -218,6 +218,12 @@ _BEFORE_THE_FOOTER = {
     # Codex thread 4220777693: an opaque path keeps its dot segments, as a browser keeps them
     "session-link-opaque-mailto": "[run](mailto:session_0000/..)",
     "session-link-opaque-custom-scheme": "[run](tool:session_0000/.)",
+    # Codex threads 4221178333 and 4221178345: a backslash after the host of any special scheme, and an uppercase
+    # letter that only percent-decoding reveals
+    "session-link-ftp-backslash": "[run](ftp://tool.example\\session_0000)",
+    "session-link-wss-backslash": "[run](wss://tool.example\\code\\session_0000)",
+    "session-link-encoded-uppercase": "[run](https://tool.example/%53ession_0000)",
+    "session-link-encoded-uppercase-sessions": "[run](https://tool.example/%53ESSIONS/0000)",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
