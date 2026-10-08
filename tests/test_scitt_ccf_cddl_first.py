@@ -62,7 +62,7 @@ def _s():
 def _stmt(**prot):
     """The control statement, with protected labels added or replaced (None removes one)."""
     P = _p()
-    base = {1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer"}}
+    base = {1: -7, 258: -16, 259: "application/json", 15: {1: "did:example:signer", 2: "s"}}
     for k, v in prot.items():
         label = int(k[1:]) if k.startswith("L") else k
         if v is None:

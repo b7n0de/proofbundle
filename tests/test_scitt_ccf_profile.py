@@ -1077,17 +1077,18 @@ def _without_cwt(prot_cwt=None, unprot_cwt=None) -> bytes:
     return b"\xd2\x84" + enc(st.protected()) + enc(unprot) + enc(st.payload) + enc(st.signature())
 
 
-@pytest.mark.parametrize("prot_cwt, unprot_cwt", [
-    (None, {1: "did:example:signer", 2: "s"}),     # moved to the unprotected header
-    (None, None),                                   # absent
-    ({2: "s"}, None),                               # no iss
-    ({1: "did:example:signer"}, None),              # no sub
-    ({1: "", 2: "s"}, None),                        # empty iss
-    ({1: "did:example:signer", 2: 7}, None),        # sub not text
-    ([1, 2], None),                                 # not a map
+@pytest.mark.parametrize("prot_cwt, unprot_cwt, status", [
+    (None, {1: "did:example:signer", 2: "s"}, "outside_profile"),     # moved to the unprotected header
+    (None, None, "outside_profile"),                                   # absent
+    ({2: "s"}, None, "outside_profile"),                               # no iss
+    ({1: "did:example:signer"}, None, "outside_profile"),              # no sub
+    ({1: "", 2: "s"}, None, "outside_profile"),                        # empty iss
+    ({1: "did:example:signer", 2: 7}, None, "outside_profile"),        # sub not text
+    # not a map: label 15 breaks the CWT Claims CDDL (RFC 9597), which the CDDL pass refuses first
+    ([1, 2], None, "malformed"),
 ])
-def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_cwt):
-    assert _statement_side(_without_cwt(prot_cwt, unprot_cwt), spki(STMT_KEY), ROOT) == "outside_profile"
+def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_cwt, status):
+    assert _statement_side(_without_cwt(prot_cwt, unprot_cwt), spki(STMT_KEY), ROOT) == status
 
 
 def test_the_same_statement_with_protected_iss_and_sub_is_confirmed():
