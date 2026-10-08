@@ -428,7 +428,26 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: Beide Budgets tragen die korrigierten Werte weiterhin: coverage braucht ceil(41*1.25)=52 bei 60,
 #: `test` braucht ceil(33*1.25)=42 bei 50. Die Workflows aendern sich dadurch NICHT — korrigiert wird
 #: die Behauptung, nicht die Verdrahtung.
-GEMESSENE_MAXIMA_MIN = {"test": 33, "coverage": 41}
+#:
+#: MEASURED AGAIN 2026-09-28, AND THE OLD NUMBERS HAD STOPPED MEANING ANYTHING. Over the 40 most recent
+#: completed CI runs (139 jobs that ended success or failure, the same method as above), the longest
+#: test leg took 46.3 min (3.14, run 36414971006 at 3c5755c0) and the longest coverage run 59.5 min
+#: (run 36434288455 at 0d262332). With 33 and 41 here this case stayed green while test (3.10) was cut
+#: at its 50-minute limit twice and coverage at 60:22: a guard that compares against a measurement
+#: from two weeks ago judges a machine that no longer exists. With today's maxima, 50 and 60 fail it
+#: (59 and 75 needed); the owner decision of 2026-09-28 (card OA-cb15f2bf74) sets 70 and 80.
+#:
+#: MEASURED AGAIN 2026-10-01, after the reading at each call (8f2fa980 and after). Over the CI runs at d388ed3d
+#: and 6b02d9f7, the longest finished test leg took 55 min (3.10 at d388ed3d); at 6b02d9f7 test (3.11) and (3.12) took 54 and 53 min, and
+#: (3.10), (3.13), (3.14) and coverage ran into 70 and 80 without a failing test, so their length there is
+#: not measured. The owner decision of 2026-10-01 (card OA-52e183ce21) sets 120 and 150,
+#: and crypto-floor and hermetic-cleanroom 45.
+#:
+#: MEASURED AGAIN 2026-10-02 over the heads of the 6.2.0 chain. The longest finished test leg took 105 min
+#: (3.10 at 53bbb94c), the longest finished coverage run 144 min (a1d5a815); coverage ran into 150 at
+#: 52c7e634 and 53bbb94c with src/, the packages and the runner image the same as at 198af5c5, where it took
+#: 115. The owner decision of 2026-10-02 (card OA-32ba6e0c7a) sets 180 and 300.
+GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.

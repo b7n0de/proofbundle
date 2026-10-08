@@ -132,7 +132,8 @@ _FULL_SECTIONS = {
     "anchors": {"require_anchor": None, "require_anchor_target": None, "allow_pending": False,
                 "trusted_tsa_roots": [], "bitcoin_block_headers": {}, "trusted_tsa_policy_oids": []},
     "decision_receipt": {"trusted_decision_makers": [], "allowed_decision_types": [], "allowed_verdicts": [],
-                         "required_evidence_relations": [], "accepted_predicate_types": [],
+                         # not empty: since owner point 6 of 2026-10-01 load_policy refuses an empty allow-list there
+                         "required_evidence_relations": [], "accepted_predicate_types": ["https://example.test/p"],
                          "require_policy_digest": False, "require_external_anchor": False,
                          "allow_pending": False, "require_audience": False, "require_nonce": False,
                          "require_not_checked": False, "require_decision_change_conditions": False,

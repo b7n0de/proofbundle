@@ -54,6 +54,35 @@ class TestPolicyValidate(unittest.TestCase):
         with self.assertRaises(PublicTransparencyError):
             evaluate_public_transparency(note, {"nope": 1})
 
+    def test_a_key_allowlist_without_the_signature_requirement_is_refused(self):
+        """Deep gate run 7 at 1a3cd672 (L3-620v7-T18-PUBLIC-TRANSPARENCY-TRUSTEDLOGKEYS-DROPPED-01, P2): only the
+        checkpoint signature check reads `trustedLogKeys`, and it runs only under `requireSignedCheckpoint`. With a
+        witness quorum as the anchor, a checkpoint of a log the allowlist does not name gave PUBLIC_TRANSPARENCY
+        PASS (measured at 1a3cd672). The allowlist without its check is refused; beside it, and empty, it is not."""
+        note, lv = _signed_note()
+        other = _signed_note()[1]
+        self.assertTrue(validate_public_transparency_policy({"trustedLogKeys": [other]}))
+        self.assertTrue(validate_public_transparency_policy(
+            {"trustedLogKeys": [other], "requireSignedCheckpoint": False}))
+        self.assertEqual(validate_public_transparency_policy(
+            {"trustedLogKeys": [lv], "requireSignedCheckpoint": True}), [])
+        self.assertEqual(validate_public_transparency_policy({"trustedLogKeys": [], "trustedLogOrigins": [_ORIGIN]}),
+                         [])
+        note2, wv = _witnessed(note)
+        with self.assertRaises(PublicTransparencyError):
+            evaluate_public_transparency(note2, {"trustedLogKeys": [other], "witnessQuorum": {"threshold": 1}},
+                                         witness_vkeys=[wv])
+
+    def test_beside_the_signature_requirement_the_key_allowlist_turns_the_verdict(self):
+        """The control: under `requireSignedCheckpoint` the allowlist acts, a key it does not name fails the
+        checkpoint signature and the aggregate, the key it names passes them."""
+        note, lv = _signed_note()
+        other = _signed_note()[1]
+        urteil = {name: evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "trustedLogKeys": keys}, log_vkey=lv)["PUBLIC_TRANSPARENCY"]
+            for name, keys in (("named", [lv]), ("other", [other]))}
+        self.assertEqual(urteil, {"named": "PASS", "other": "FAIL"})
+
 
 class TestEvaluate(unittest.TestCase):
     def test_signed_and_origin_pass(self):
