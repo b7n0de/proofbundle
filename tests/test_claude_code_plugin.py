@@ -429,8 +429,9 @@ def test_the_server_version_is_the_version_of_every_manifest(server, tmp_path):
     assert template["plugin_version"] == declared
 
 
-#: The owner's texts of 2026-09-30 (KRAXO-CLOUD-PLUGIN-TEXTE-UND-SERVERREGEL-01), word for word. Texts 8 to 10
-#: (the emit mark, the data rule, the exit 1 text) are held by the tests above and below.
+#: The owner's texts of 2026-09-30 (KRAXO-CLOUD-PLUGIN-TEXTE-UND-SERVERREGEL-01), word for word; text 6 in the
+#: owner's wording of 2026-10-08 (owner choice K5-3 A). Texts 8 to 10 (the emit mark, the data rule, the exit 1
+#: text) are held by the tests above and below.
 OWNER_TEXTS = {
     "1": ("Verify decision and outcome receipts in Claude Code against your chosen issuer key, check "
           "evidence bundles, and review verification results separately from recorded claims. Active "
@@ -455,9 +456,9 @@ OWNER_TEXTS = {
     "6": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
           "separately from recorded claims. Codex runs the repository checks only after you trust the "
           "plugin's hooks. When they run, repositories without an evidence declaration get NOT MEASURED "
-          "and no decision; other unmeasurable calls are denied. Each `verify_receipt` result states "
-          "that the server cannot tell whether these checks ran. Receipt signing is experimental and "
-          "requires an explicit user request."),
+          "and no decision, a `git push` gets NOT MEASURED with a warning, and other unmeasurable calls "
+          "are denied. Each `verify_receipt` result states that the server cannot tell whether these "
+          "checks ran. Receipt signing is experimental and requires an explicit user request."),
     "7": ("Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, "
           "and review verification results separately from recorded claims. Receipt signing is "
           "experimental and requires an explicit user request. Verification proves authorship and "
