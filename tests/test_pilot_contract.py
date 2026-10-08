@@ -208,6 +208,39 @@ class ThePilotContract(unittest.TestCase):
                       aufzeichnungen)
         self.assertIn("read from the `decisionId` of the decision receipts (section 4)", text)
 
+    def test_every_input_of_the_rerun_is_a_record_section_8_keeps(self) -> None:
+        """Codex thread 4222915352: the match and M5 read which writer is an agent's from the roster the operator names,
+        and no record kept that roster, while criterion 4 reruns from stored records only, so M5 could be 1 or 0 from
+        the same records. The class is an input the reconciliation reads that no record keeps; the sweep found two more,
+        the window M5 and M6 are measured over and the public keys the receipts verify with. Criterion 4 reruns from the
+        records of section 8 alone, section 8 keeps every input, each by a value a later change cannot move, and says
+        that an input no record keeps holds the pilot."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        self.assertIn("reruns the reconciliation from the records section 8 keeps, and from nothing else", kriterien)
+        self.assertNotIn("from the stored receipts and the stored API responses", kriterien)
+        daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
+        for eingabe in ("signed decision receipt", "outcome receipt", "stored API response"):
+            with self.subTest(input=eingabe):
+                self.assertIn(eingabe, text[text.index("## 4. Records"):] if "receipt" in eingabe else daten)
+        for behalten in ("The closing rule each surface requires at approval time is kept with the decision record",
+                         "The roster of agent identities, as the operator names it before the pilot starts",
+                         "by the numeric id GitHub gives it, which a rename does not change",
+                         "The match and M5 read which writer is an agent's from this roster and from nothing else",
+                         "The observation window of each run, its start and its end as the observer applied them, "
+                         "is kept with that run's stored API responses",
+                         "The two public keys the receipts verify with, the gate's and the observer's, are kept beside "
+                         "the records before the first decision",
+                         "The reconciliation reads no input that this section does not keep"):
+            with self.subTest(kept=behalten[:40]):
+                self.assertIn(behalten, daten)
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("by an agent identity of the roster (section 8)", massnahmen)
+        self.assertIn("kept as the roster of section 8", massnahmen)
+        offen = text[text.index("## 10. Open before the pilot starts"):]
+        self.assertNotIn("recorded with each run.", offen)
+        self.assertIn("keeps them as the roster of section 8", offen)
+
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
         self.assertIn("The agent never holds the gate's or the observer's key.", text)

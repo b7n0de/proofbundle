@@ -77,7 +77,7 @@ own and are never counted as agreement.
 | M2 bytes | Is the SHA-256 of the stored bytes the SHA-256 of the approved bytes? | identical, different, not measured |
 | M3 surface | Is the observed surface the approved surface? | same, different, not measured |
 | M4 closing lines | Do the stored bytes end with the closing lines the approved surface requires at approval time, as recorded with the decision (section 8)? | yes, no, not measured |
-| M5 unapproved effect | How many writes by an agent identity with no approval that matches them does the API show? | a count (0 is none found), not measured |
+| M5 unapproved effect | How many writes by an agent identity of the roster (section 8) with no approval that matches them does the API show? | a count (0 is none found), not measured |
 | M6 refused but arrived | How many effects match an action the gate refused? | a count (0 is none found), not measured |
 | M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target; no observation; not measured |
 | M8 attempts | How many verdicts were recorded for one action id, read from the `decisionId` of the decision receipts (section 4)? | a count, not measured |
@@ -98,8 +98,10 @@ decided, and among decisions with the same `decidedAt` the one whose `decisionId
 still takes the earliest decided of them. An effect that finds no action left counts under M5 as an unapproved
 effect, so one approval never covers two writes. The rule decides by the stored records alone, so a rerun under
 criterion 4 reproduces every match. Matching by identity needs identities that only agent sessions write under: a
-dedicated account or app per agent, named by the operator before the pilot starts (section 10). A write by a person
-under such an identity cannot be told from an agent write, so the pilot stops when one is known to have happened.
+dedicated account or app per agent, named by the operator before the pilot starts (section 10) and kept as the roster
+of section 8, so a rerun reads which writer is an agent's from the records and not from the operator. A write by a
+person under such an identity cannot be told from an agent write, so the pilot stops when one is known to have
+happened.
 
 ## 6. Exit criteria
 
@@ -128,8 +130,8 @@ The pilot ends, with a written result, when all of these hold:
    `ambiguous` is never the witness of criterion 1;
 3. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
    agent, change the rule, or accept);
-4. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
-   stored API responses and gets the same classification for every action;
+4. a person who was not part of the sessions reruns the reconciliation from the records section 8 keeps, and from
+   nothing else, and gets the same classification for every action;
 5. none of the stop conditions below has fired.
 
 It stops early, with the reason written down, when:
@@ -167,6 +169,16 @@ It stops early, with the reason written down, when:
 - The closing rule each surface requires at approval time is kept with the decision record, as its text or as the
   digest of a versioned rule file kept beside the records, so that criterion 4 reads M4 against the rule that
   applied and not against a later one.
+- The roster of agent identities, as the operator names it before the pilot starts (section 10), is kept beside the
+  records before the first decision and is not changed during the pilot: each account or app by the numeric id GitHub
+  gives it, which a rename does not change, and by its name. The match and M5 read which writer is an agent's from
+  this roster and from nothing else.
+- The observation window of each run, its start and its end as the observer applied them, is kept with that run's
+  stored API responses, so that criterion 4 reads M5 and M6 over the same window.
+- The two public keys the receipts verify with, the gate's and the observer's, are kept beside the records before the
+  first decision, so that a rerun verifies against the keys the pilot named and not against keys handed over later.
+- The reconciliation reads no input that this section does not keep. An input it would need and no record keeps is a
+  gap in this contract, and the pilot does not start, or stays open, until a record keeps it.
 
 ## 9. First reconciliation example
 
@@ -196,7 +208,7 @@ observation, or the named question cannot be answered.
 - Whether writes made through an API client, rather than the command-line client, pass the same gate: not
   known. They stay in scope either way: a write that does not pass the gate has no decision receipt, so the
   observer reports it under M5 as an unapproved effect, and the result says how many there were.
-- The observation window and how often the observer reads the API: the operator's choice, recorded with each
-  run.
+- The observation window and how often the observer reads the API: the operator's choice, kept with each run
+  (section 8).
 - The identities that only agent sessions write under, one dedicated account or app per agent: the operator names
-  them before the pilot starts, and no person writes under them during it.
+  them before the pilot starts and keeps them as the roster of section 8, and no person writes under them during it.
