@@ -4,14 +4,6 @@
   "policyPurpose": "decision",
   "deploymentReady": false,
   "requiresIdentityOverlay": true,
-  "allowed_schema_versions": [
-    "proofbundle/v0.1"
-  ],
-  "signature": {
-    "allowed_algs": [
-      "ed25519"
-    ]
-  },
   "decision_receipt": {
     "accepted_predicate_types": [
       "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"

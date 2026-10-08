@@ -90,7 +90,9 @@ def test_watch_only_last_ats_rule_enforced() -> None:
     # exactly the single newest ATS (by time), which is the hash-tree renewal
     assert watched.time == 3000
     assert watched.hash_alg == "sha512"
-    assert watched is seq[-1][-1]
+    # Since 6.2.0 a public function reads its arguments as one private copy at its call, an ArchiveTimeStamp
+    # included, so the newest ATS comes back as an equal object of that copy, not as the caller's object.
+    assert watched == seq[-1][-1]
 
 
 def test_break_in_sequence_fails() -> None:
