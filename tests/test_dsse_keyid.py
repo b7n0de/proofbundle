@@ -224,6 +224,40 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
                             self.assertEqual(keyid, dsse.openssh_sha256_keyid(k))
         self.assertGreaterEqual(gezaehlt, 129, "the corpus holds 117 relation and 12 agent-review signatures")
 
+    #: The shipped envelopes signed before the default keyid, kept with the bytes they were signed with.
+    _ARCHIV = ("receipts/agent_review/", "tests/fixtures/kette_147/receipt.json")
+
+    def test_every_shipped_envelope_without_a_keyid_is_a_named_archive(self):
+        """Codex thread 4218670842 on pull request 287: the headline said every DSSE envelope names its key, and the
+        sdist ships the archived agent-review receipts, which do not. Every envelope without a keyid in the trees the
+        sdist ships lies in a named archive, and the changelog names both and scopes its headline to what this
+        package signs."""
+        def huellen(x):
+            if isinstance(x, dict):
+                if "payloadType" in x and isinstance(x.get("signatures"), list):
+                    yield x
+                for v in x.values():
+                    yield from huellen(v)
+            elif isinstance(x, list):
+                for v in x:
+                    yield from huellen(v)
+        ohne = []
+        for wurzel in ("conformance", "examples", "receipts", "tests/fixtures", "schemas"):
+            for pfad in sorted((REPO / wurzel).rglob("*.json")):
+                try:
+                    inhalt = json.loads(pfad.read_text(encoding="utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if any("keyid" not in e for h in huellen(inhalt) for e in h["signatures"] if isinstance(e, dict)):
+                    ohne.append(pfad.relative_to(REPO).as_posix())
+        self.assertTrue(ohne, "control: the archived receipts are found by this walk")
+        self.assertEqual([p for p in ohne if not p.startswith(self._ARCHIV)], [])
+        text = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
+        eintrag = text[text.index("names its signing key") - 80:text.index("cosign's image-digest match")]
+        self.assertIn("Every DSSE envelope this package signs names its signing key", eintrag)
+        for archiv in self._ARCHIV:
+            self.assertIn(archiv.rstrip("/"), eintrag)
+
 
 @unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
 class BothVerifiersIgnoreIt(unittest.TestCase):
