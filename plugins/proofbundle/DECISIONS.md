@@ -1203,7 +1203,12 @@ Chosen:
   .proofbundle/>}`, exactly these two keys. The schema string stays `proofbundle-plugin/evidence/v0.2`; the key
   is additive inside the unreleased 0.3.0 (D17, D18). A declaration with a done check and an empty evidence list
   gates no push: the push answer is NOT MEASURED without a decision (`done_only`), because nothing is declared for
-  it.
+  it. Measured on 2026-10-08 (at 395f0a87): the push path, `gh pr create`, the pre-push hook, the CI mode and the
+  MCP diagnosis read such a committed declaration as an uncommitted one and asked (`declaration_uncommitted`,
+  "a declaration exists in the working tree but is not committed"), and the CI mode failed it with exit 1 even
+  without `require-declaration`. Repaired: each path reads it as declaring no evidence (`done_only`); the CI mode
+  answers `not_required`, or `declaration_required` where the workflow requires evidence
+  (tests/test_plugin_gate_done_only.py).
 - A `Stop` command hook (`proofbundle_gate.py stop`) reads the declaration and the policy from HEAD (D2) and the
   receipt from the working tree. The turn ends only when the receipt verifies under that policy (which must pin a
   signer, D7), its signed claim says that every test passed — pytest, `pass_rate`, comparator `>=`, threshold 1,

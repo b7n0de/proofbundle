@@ -2909,6 +2909,12 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Fal
     commit = head.stdout.decode().strip()
     verdict = _evaluate_tree(repo, commit, deadline, f"HEAD {commit[:12]}",
                              " The evidence rules were not compared with any earlier state.")
+    if verdict.decision == "inactive" and verdict.reason_id == "done_only":
+        # The declaration is committed and declares only a done check (D26): no evidence, and nothing absent, so
+        # the absence nuance of D5 does not apply (it would read the committed declaration as uncommitted).
+        return Verdict("inactive", f"NOT MEASURED: {repo} declares no evidence at HEAD {commit[:12]}: {DECLARATION} "
+                                   "declares only a done check for the end of a session (DECISIONS.md, D26). Nothing "
+                                   "was verified.", "done_only", repo=repo, head=commit)
     if verdict.decision == "inactive":
         nuance = _absence_nuance(repo, commit, deadline)
         if nuance is not None:
@@ -3057,8 +3063,12 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
                                       f"(at {commit[:12]}, against {against}, {known})", digests)
 
     declared = [verdicts[c] for c in order if verdicts[c].decision == "pass"]
-    if not declared:  # every sent commit declares nothing
-        nuance = _absence_nuance(repo, head_commit, deadline) if head_commit in order else None
+    if not declared:  # every sent commit declares nothing, or only a done check
+        done_only = [c for c in order if verdicts[c].reason_id == "done_only"]
+        # A sent commit whose committed declaration holds only a done check (D26) declares nothing absent, so the
+        # absence nuance of D5 is not asked for it; it would read that declaration as an uncommitted one.
+        nuance = (_absence_nuance(repo, head_commit, deadline)
+                  if head_commit in order and verdicts[head_commit].reason_id != "done_only" else None)
         if nuance is not None:
             return nuance
         where_all = ", ".join(c[:12] for c in order) or head_commit[:12]
@@ -3066,6 +3076,11 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
                     "pre-push hook." if remote_state else
                     "Any comparison would be against this repository's last known state of the target, not a state "
                     "read from the remote (Ebene 2 makes the authoritative comparison).")
+        if done_only:
+            return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}; {DECLARATION} "
+                                       f"at {', '.join(c[:12] for c in done_only)} declares only a done check for the "
+                                       "end of a session, DECISIONS.md D26). Nothing was verified. " + compared,
+                           "done_only", repo=repo, head=head_commit)
         return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}, {DECLARATION} is "
                                    "absent). The gate is not active in this repository, because nothing is declared. "
                                    f"Nothing was verified. {compared}", "nothing_declared", repo=repo, head=head_commit)
@@ -4951,7 +4966,8 @@ def ci_check(repo: str, require_declaration: bool, deadline: float | None = None
         code, outcome = 0, "not_required"
     elif verdict.decision == "inactive":
         code, outcome = 1, "declaration_required"
-        verdict = Verdict("deny", f"proofbundle gate: the workflow requires a declaration, and {DECLARATION} is absent "
+        found = ("declares only a done check, no evidence," if verdict.reason_id == "done_only" else "is absent")
+        verdict = Verdict("deny", f"proofbundle gate: the workflow requires a declaration, and {DECLARATION} {found} "
                                   f"at HEAD {verdict.head[:12]}.", "declaration_required", evidence=f"the declaration {DECLARATION}",
                           failed="the repository must declare evidence, and it declares none",
                           next_step="restore the declaration and its evidence, or change the workflow input in a "
