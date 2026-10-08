@@ -138,18 +138,34 @@ def test_der_echte_bestand_FUEHRT_eine_innere_herkunftsangabe():
         "die Objektklassen-Datei widerspricht sich ueber ihre eigene Quelle")
 
 
+def _private_root(ort: pathlib.Path, ersetzt: dict) -> pathlib.Path:
+    """A root of its own: every top-level entry of the checkout linked, except the files named in `ersetzt`, which
+    stand there as real files with the given bytes. pruefe_v2 reads every file as `repo / path`, so it reads the
+    checkout through the links and the replaced files as they stand here, and nothing in the checkout is written."""
+    ort.mkdir(parents=True)
+    for eintrag in REPO.iterdir():
+        if eintrag.name != ".git" and eintrag.name not in ersetzt:
+            (ort / eintrag.name).symlink_to(eintrag, target_is_directory=eintrag.is_dir())
+    for name, inhalt in ersetzt.items():
+        (ort / name).write_bytes(inhalt)
+    return ort
+
+
 def test_FANG_eine_HALBE_herkunftsangabe_wird_gemeldet(tmp_path):
-    """[ZAEHLT] Gegenrichtung: vorhanden aber unvollstaendig ist NICHT dasselbe wie abwesend."""
+    """[ZAEHLT] Gegenrichtung: vorhanden aber unvollstaendig ist NICHT dasselbe wie abwesend.
+
+    The half statement is written into a private root, never into the checkout. With the suite distributed by
+    worksteal, the rewrite of the real file raced its readers on other workers: under it
+    tests/test_ausgangsdigest_wird_verglichen.py went from 2 passed to 1 failed (Codex thread 4222137675 on pull
+    request 309). The unchanged file in a root built the same way reads without error, so the root is faithful."""
     g, doc = _gen(), _doc()
-    import copy  # noqa: PLC0415
     k = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
     sicher = k.read_bytes()
-    try:
-        d = json.loads(sicher.decode("utf-8"))
-        d["gemessen_an"] = {"datei": "RESTRISIKO_600.md"}          # Digest fehlt
-        k.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        f = g.pruefe_v2(copy.deepcopy(doc), REPO)
-        assert any("halbe Angabe" in x for x in f), f"gemessen {f[:2]}"
-    finally:
-        k.write_bytes(sicher)
-    assert k.read_bytes() == sicher, "die Datei wurde nicht byte-gleich wiederhergestellt"
+    kontrolle = _private_root(tmp_path / "control", {k.name: sicher})
+    assert g.pruefe_v2(copy.deepcopy(doc), kontrolle) == [], "control: the private root reads as the checkout"
+    d = json.loads(sicher.decode("utf-8"))
+    d["gemessen_an"] = {"datei": "RESTRISIKO_600.md"}          # Digest fehlt
+    halb = _private_root(tmp_path / "half", {k.name: (json.dumps(d, ensure_ascii=False, indent=2) + "\n").encode()})
+    f = g.pruefe_v2(copy.deepcopy(doc), halb)
+    assert any("halbe Angabe" in x for x in f), f"gemessen {f[:2]}"
+    assert k.read_bytes() == sicher, "the checkout's file was written"
