@@ -120,7 +120,7 @@ Where the receipt comes from is an owner choice:
 | Option | What happens | Trade-off |
 |---|---|---|
 | A. Made in CI (built, recommended) | The job runs the tests on the checkout of the commit and signs with the CI key; the receipt never leaves the job | The tests run the code under review with the key file present, so a reviewer must read changes to the tests; GitHub passes no secret to a fork's pull request |
-| B. Brought by the agent | The receipt the Stop hook accepted travels with the pull request and CI checks it | A committed receipt changes the tree it names, so it must travel outside the tree (an artifact, a comment, a separate ref); CI can check the key and the tree, but not where and how the run happened |
+| B. Brought by the agent | The receipt the Stop hook accepted travels with the pull request and CI checks it | A committed receipt changes the tree it names, so it must travel outside the tree (an artifact, a comment, a separate ref); CI can check the key and the tree, but not where and how the run happened, nor which tests it selected: a run that leaves a failing test out gets a green receipt for the same tree |
 
 The done policy pins the CI key (and, for the Stop hook, the developer's local test key). The receipt is
 written to `$RUNNER_TEMP`, outside the checkout, and the job prints its sha256; upload it with an artifact

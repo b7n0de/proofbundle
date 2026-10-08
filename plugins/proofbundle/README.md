@@ -313,6 +313,10 @@ Limits, in plain words:
   not that a person checked the run. Code of the repository runs under pytest and can write the receipt itself.
 - A receipt that is committed changes the tree it would have to name; keep it untracked, as `done-init` does.
 - Files git ignores are not part of the state, and they can influence the run.
+- **A receipt binds the tree, not which tests ran.** A run that leaves a failing test out (`-k`, a path,
+  `--deselect`, `PYTEST_ADDOPTS`) gets a green receipt for the same tree, and the hook lets the session end
+  (measured with `-k` on 2026-10-08). The CI job runs the repository's own test command, so there the selection is
+  the reviewed one (option A in `ci/`).
 
 `proofbundle_gate.py done-check --repo DIR [--receipt FILE]` makes the same check in CI and exits 0 only for a
 pass; every NOT MEASURED, every block and a repository without a done check exit 1, a wrong call exits 2.

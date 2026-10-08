@@ -1138,7 +1138,10 @@ Limits: Claude Code ends the turn after nine blocks in a row without a tool call
 2.1.294 in the eval done-receipt-other-tree-blocks on 2026-10-08: "A hook blocked the turn from ending 9
 consecutive times — overriding and ending turn"; `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises the limit), so the hook
 is an early warning; the boundary is the required CI check. The agent
-that runs the tests can read the test key, and repository code under pytest can write the receipt. Codex is not
+that runs the tests can read the test key, and repository code under pytest can write the receipt. A receipt binds
+the tree, not which tests the run selected: a run that leaves a failing test out (`-k`, a path, `--deselect`,
+`PYTEST_ADDOPTS`) signs passed true for the same tree (measured with `-k`, 2026-10-08), so only a run with the
+repository's own command, as in the CI job, decides which tests count. Codex is not
 wired: NOT MEASURED there.
 
 Options:
