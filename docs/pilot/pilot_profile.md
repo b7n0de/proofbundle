@@ -52,7 +52,10 @@ fail gives `not accepted` even where another record is missing. The pinned gate 
 version signal or `decidedAt` is read, so a decision another key signed is `not accepted`, never `unknown`, and a
 `validity.nonce` that is not the `decisionId` is `not accepted`. The decision maker, the kind, the gate's verdict and
 the nonce are checked before any gap of the decision is reported (an unreadable `decidedAt`, a `decisionId` of
-another form, a surface the profile does not know), so a refusal is `not accepted` wherever it stands.
+another form, a surface the profile does not know), so a refusal is `not accepted` wherever it stands. The audience is
+checked there too, and the strict verification runs before the gaps of the `decisionId` and the surface are reported;
+only an unreadable `decidedAt` stops before it, since the verification is made at the decision's own time. A supplied
+scope descriptor is judged by its shape even when the outcome signs no scope digest.
 
 Two readings are stated rather than hidden. The outcome's signer is the observer, and `executor.id` names the
 account GitHub reports, which the profile treats as observed data, not as a trusted identity. And
@@ -103,6 +106,8 @@ compares them as the instants they name, and a clock difference between the two 
 | the nonce names another attempt | not accepted | `decisionId` names attempt 2 and both nonces name attempt 1 |
 | unreadable decidedAt under a broken signature | not accepted | the signature is checked before `decidedAt` is read |
 | refused, on a surface the profile does not know | not accepted | the refusal is checked before the unknown surface is reported |
+| addressed to another audience, on a surface the profile does not know | not accepted | the audience is checked before the unknown surface is reported |
+| a scope of another shape, and no signed scope digest | not accepted | a supplied scope is judged by its shape even without a signed digest |
 | no version signal under a broken signature | not accepted | the signature is checked before the version signal is read |
 
 ## New fields: proposals only

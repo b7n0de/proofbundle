@@ -40,7 +40,7 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 41)
+        self.assertEqual(len(ergebnisse), 43)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)

@@ -237,12 +237,18 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["nonce_names_the_attempt"] = (pred.get("validity") or {}).get("nonce") == pred.get("decisionId")
     if not checks["nonce_names_the_attempt"]:
         return _answer(NOT_ACCEPTED, ["validity.nonce is not the decisionId, so it does not name this attempt"], checks)
-    # Then the gaps of the decision, all of them at once.
+    # The audience the strict verifier checks below, read here as well, so that a decision addressed to someone else
+    # is not accepted even where a gap stops the reading before that verifier runs (Codex thread 4221631977).
+    zielgruppe = (pred.get("validity") or {}).get("audience")
+    checks["audience_is_observer"] = isinstance(zielgruppe, list) and observer_id in zielgruppe
+    if not checks["audience_is_observer"]:
+        return _answer(NOT_ACCEPTED, ["the decision is addressed to another audience than the pinned observer"], checks)
+    # Then the gaps of the decision. Without a readable decidedAt the strict verification has no time of its own to
+    # run at, so that gap is reported here; every other gap waits until the strict verification has run, so a
+    # check it fails wins over them (thread 4221631977: an unknown surface returned before it).
     luecken = []
     entschieden = instant(pred.get("decidedAt"))
     checks["decided_at_readable"] = entschieden is not None
-    if entschieden is None:
-        luecken.append("decidedAt is not an RFC 3339 instant in UTC")
     kennung = _DECISION_ID.match(pred["decisionId"]) if isinstance(pred.get("decisionId"), str) else None
     checks["action_id"] = kennung.group("action") if kennung else None
     checks["attempt"] = int(kennung.group("attempt")) if kennung else None
@@ -250,8 +256,8 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
         luecken.append("decisionId is not <action id>#<attempt>")
     if vorschlag.get("actionType") not in SURFACES:
         luecken.append("the approved surface is not one this profile knows")
-    if luecken:
-        return _answer(UNKNOWN, luecken, checks)
+    if entschieden is None:
+        return _answer(UNKNOWN, ["decidedAt is not an RFC 3339 instant in UTC"] + luecken, checks)
     # Verified one second before its own decidedAt: the profile judges the window against GitHub's performedAt
     # below, so the reader's clock would turn every past approval into an expired one (main since 6.2.0 fails
     # expiry closed), and the verifier's own rule, expired AT expiresAt, would refuse the inclusive boundary the
@@ -269,6 +275,8 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["decision_ok"] = d["ok"]
     if not d["ok"]:
         return _answer(NOT_ACCEPTED, ["the decision does not verify: " + "; ".join(d["errors"])], checks)
+    if luecken:
+        return _answer(UNKNOWN, luecken, checks)
     expires = pred["validity"].get("expiresAt")
     if outcome_env is None:
         return _answer(UNKNOWN, ["approved, and no effect was observed"], checks)
@@ -304,15 +312,18 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
         checks["bytes_identical"] = opred["effectDigest"]["sha256"] == approved
         if not checks["bytes_identical"]:
             gruende.append("the stored bytes are not the approved bytes")
-    if observed_scope is None or "actualActionDigest" not in opred:
+    if observed_scope is None:
         fehlt.append("no observed scope")
     else:
         # The shape first, then the digest: a value the profile's descriptor does not allow never reaches the
-        # canonicalizer (Codex thread 4219220651 on pull request 303: an objectId of another type raised there).
+        # canonicalizer (Codex thread 4219220651 on pull request 303: an objectId of another type raised there). A
+        # supplied scope is judged by its shape even when the outcome signs no scope digest (thread 4221631986).
         problem = scope_problem(observed_scope)
         checks["scope_is_the_profiles_descriptor"] = not problem
         if problem:
             gruende.append(problem)
+        elif "actualActionDigest" not in opred:
+            fehlt.append("the outcome signs no digest of the scope")
         elif scope_digest(observed_scope) != opred["actualActionDigest"]["sha256"]:
             checks["scope_matches_signed_digest"] = False
             gruende.append("the observed scope descriptor is not the one the observer signed")
@@ -509,6 +520,17 @@ def build_vectors() -> dict:
     fall("refused, on a surface the profile does not know", NOT_ACCEPTED,
          decision(verdict="REFUSE", reasons=["rules.violated"], surface="github.issueTitle"), None, None,
          "thread 4221181583: a refusal is a known failure, and the unknown surface is only a gap")
+    fall("addressed to another audience, on a surface the profile does not know", NOT_ACCEPTED,
+         decision(audience="another-observer", surface="github.issueTitle"), None, None,
+         "thread 4221631977: the audience is checked before the unknown surface is reported")
+    o_ohne = sign_outcome(outcome_predicate(outcome_id="observation-0001", decision_root=content_root(d0),
+                                            executor_id="github:b7n0de", approved=_TEXT,
+                                            performed_at="2026-09-27T00:40:09Z", recorded_at="2026-09-27T00:41:00Z",
+                                            stored=_TEXT, scope=None, nonce="action-0001#1", audience=OBSERVER_ID),
+                          observer)
+    fall("a scope of another shape, and no signed scope digest", NOT_ACCEPTED, d0, o_ohne,
+         {"surface": "github.conversationComment", "target": _TARGET},
+         "thread 4221631986: a supplied scope is judged by its shape even without a signed digest")
     fall("no version signal under a broken signature", NOT_ACCEPTED,
          gebrochen(d_alt, b'"policyEngine":"opa"', b'"policyEngine":"opb"'), *outcome(d_alt),
          "thread 4220771559: the signature is checked before the version signal is read")
