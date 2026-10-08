@@ -369,7 +369,9 @@ pub(crate) fn validate_receipt(raw: &Item, verifies: i128) -> Result<ValidReceip
         !consistency.is_empty()
     };
     Ok(ValidReceipt {
-        readable: ccf && parsed,
+        // Python's `_receipt` (base 3010d4bd): an untagged receipt's proofs parse, but it is not one that
+        // parses under the -05 CDDL, so it is not readable.
+        readable: ccf && parsed && rc.tagged,
         vdp_present: vdp_of(&rc).is_some(),
         rc,
         kid,
@@ -519,8 +521,23 @@ fn statement_in_profile(st: &Cose) -> bool {
         && get(uh, CTY).is_none()
         && crit_ok(ph, &STATEMENT_CRIT_PROCESSED)
         && get(uh, CRIT).is_none()
+        && statement_cwt_in_profile(st)
         && get(ph, X5CHAIN).is_some()
         && st.payload.as_ref().is_some_and(|p| p.len() == 32)
+}
+
+/// RFC 9943 section 6, as `_statement_profile` reads it: CWT Claims (label 15) stand in the
+/// protected header only, and carry a non-empty text iss (1) and sub (2).
+fn statement_cwt_in_profile(st: &Cose) -> bool {
+    if get(&st.unprotected, CWT).is_some() {
+        return false;
+    }
+    let Some(Item::Map(cwt)) = get(&st.protected, CWT) else {
+        return false;
+    };
+    [1, 2]
+        .iter()
+        .all(|c| matches!(get(cwt, *c), Some(Item::Text(t)) if !t.is_empty()))
 }
 
 /// Python's `_first`: the first status of STATUS_ORDER among those that are not `confirmed`.
@@ -591,9 +608,11 @@ pub fn verify_transparent_statement(
         }
         _ => None,
     };
-    let readable = passed
-        .as_ref()
-        .is_some_and(|p| p.iter().any(|r| r.as_ref().is_ok_and(|v| v.readable)));
+    // readable needs the statement itself to be tagged 18 too (base 3010d4bd, ADR 0009 Decision 10).
+    let readable = st.tagged
+        && passed
+            .as_ref()
+            .is_some_and(|p| p.iter().any(|r| r.as_ref().is_ok_and(|v| v.readable)));
 
     // THE STATUS LOGIC
     let payload_digest = st.payload.clone().filter(|p| p.len() == 32);

@@ -37,6 +37,10 @@ pub(crate) const PAYLOAD_HASH_ALG: i128 = 258;
 pub(crate) const PREIMAGE_CTY: i128 = 259;
 pub(crate) const PAYLOAD_LOCATION: i128 = 260;
 const RSA_BITS: (usize, usize) = (2048, 8192);
+/// OpenSSL, which verifies on the Python side, takes any odd e below n for a modulus of up to 3072 bits
+/// and an e of at most 64 bits above that (OPENSSL_RSA_SMALL_MODULUS_BITS, OPENSSL_RSA_MAX_PUBEXP_BITS).
+const RSA_SMALL_MODULUS_BITS: usize = 3072;
+const RSA_MAX_PUBEXP_BITS: usize = 64;
 
 pub const CONFIRMED: &str = "confirmed";
 pub const INVALID: &str = "statement_signature_invalid";
@@ -579,9 +583,13 @@ pub(crate) fn verify(alg: Option<&Item>, key: &PubKey, tbs: &[u8], sig: &[u8]) -
             if !(RSA_BITS.0..=RSA_BITS.1).contains(&bits) {
                 return false;
             }
-            let Ok(pk) = RsaPublicKey::new_with_max_size(n.clone(), e.clone(), RSA_BITS.1) else {
+            // The exponent domain of the Python side. The checked constructors of the rsa crate stop at
+            // e = 2^33 - 1, so the key is built unchecked after the checks key_from_spki made (n at least 3,
+            // e odd, at least 3 and below n) and the OpenSSL bound on e for a large modulus.
+            if bits > RSA_SMALL_MODULUS_BITS && e.bits() > RSA_MAX_PUBEXP_BITS {
                 return false;
-            };
+            }
+            let pk = RsaPublicKey::new_unchecked(n.clone(), e.clone());
             // Measured on the Python side (OpenSSL): a signature shorter than the modulus is read
             // as the number it encodes, one that is longer is refused.
             let k = pk.size();

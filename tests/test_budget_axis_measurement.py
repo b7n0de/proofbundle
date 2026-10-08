@@ -248,6 +248,9 @@ def test_stdout_nennt_die_gefallene_zusicherung_nicht_nur_ihre_zahl(monkeypatch,
     Rauschabstinenzen der Testdatei, ein GERISSEN kann also aus einer echten Kostenregression
     oder aus Messrauschen kommen. Wer nur stdout liest — und das tut, wer einen Lauf beurteilt —
     konnte das nicht unterscheiden, weil `meldung` ausschliesslich in der JSON-Datei stand.
+
+    Since Z309 (2026-10-07) the curve assertion judges counted work, not a ratio of times, so its noise
+    path is closed. The binding stays: any of the six assertions can fall, and stdout has to say which.
     """
     monkeypatch.setattr(bam, "messe", lambda: {
         "achsen": [

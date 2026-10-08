@@ -176,6 +176,19 @@ def h(*parts: bytes) -> bytes:
     return hashlib.sha256(b"".join(parts)).digest()
 
 
+#: RFC 9943 section 6: the protected header of a Signed Statement carries CWT Claims with a text iss and
+#: sub, which the reader's statement profile asks for (base 56061d8d). Every statement here carries them
+#: unless a vector says it takes them away.
+STATEMENT_ISSUER, STATEMENT_SUBJECT = "https://issuer.example", "pkg:proofbundle/vectors"
+
+
+def statement_cwt(iss: str | None = STATEMENT_ISSUER, sub: bytes | None = None) -> tuple:
+    """The (label 15, CWT Claims) pair of a statement; `sub` is the encoded claim, None for the text one."""
+    claims = [] if iss is None else [(uint(1), text(iss))]
+    claims.append((uint(2), text(STATEMENT_SUBJECT) if sub is None else sub))
+    return (uint(15), cmap(claims))
+
+
 class Builder(StatementBuilder):
     """Transparent Statements and CCF receipts byte by byte."""
 
@@ -192,6 +205,13 @@ class Builder(StatementBuilder):
         #: A receipt the receipt pass refuses never reaches its signature, which is then zeros.
         self.zero_signatures = False
         self.plain_receipts: dict = {}
+
+    def protected(self, alg: bytes | None, x5chain: bytes | None, extra: list = (), *,
+                  cwt: tuple | None = None) -> bytes:
+        """A statement's protected header, with the CWT Claims of `statement_cwt()` unless `cwt` is
+        given; `cwt=()` leaves them out."""
+        claims = [statement_cwt()] if cwt is None else list(cwt)
+        return super().protected(alg, x5chain, claims + list(extra))
 
     def svc_sign(self, name: str, tbs: bytes) -> bytes:
         key = self.svc[name]
@@ -585,9 +605,10 @@ def synthetic_vectors(b: Builder) -> None:
         b.add_ts(vid, what, ts(p, [rc(d)]), status(stmt_status, stmt_status, ["confirmed"], **kw))
     cert = b.leaf("p256")
     envelope("t05-alg-eddsa", "statement alg -8", b.protected(uint(-8), cert))
-    envelope("t06-no-258", "no payload hash algorithm", b.cbor_map([(b"\x01", b"\x26"), (uint(33), cert)]))
+    envelope("t06-no-258", "no payload hash algorithm",
+             b.cbor_map([(b"\x01", b"\x26"), statement_cwt(), (uint(33), cert)]))
     envelope("t07-258-sha384", "label 258 is -43", b.cbor_map([(b"\x01", b"\x26"), (uint(258), uint(-43)),
-                                                               (uint(33), cert)]))
+                                                               statement_cwt(), (uint(33), cert)]))
     envelope("t08-cty-protected", "a content type in a hash envelope", b.protected(b"\x26", cert, [(b"\x03", uint(50))]))
     envelope("t09-crit-258", "crit lists 258, which v1 processes",
              b.protected(b"\x26", cert, [(b"\x02", arr([uint(258)]))]), stmt_status="confirmed")
@@ -607,6 +628,19 @@ def synthetic_vectors(b: Builder) -> None:
             ("t19-crit-unprotected", "crit in the unprotected header", [(b"\x02", arr([uint(1)]))])):
         b.add_ts(vid, what, ts(parts, [], unprot=cmap([(uint(394), arr([bstr(rc(dh))]))] + unprot)),
                  status("outside_profile", "outside_profile", ["confirmed"]))
+    # RFC 9943 section 6, the rule of base 56061d8d: protected CWT Claims with a non-empty text iss and sub
+    envelope("t21-no-cwt", "no CWT Claims in the protected header", b.protected(b"\x26", cert, cwt=()))
+    envelope("t22-cwt-no-sub", "CWT Claims without sub",
+             b.protected(b"\x26", cert, cwt=[(uint(15), cmap([(uint(1), text(STATEMENT_ISSUER))]))]))
+    envelope("t23-cwt-no-iss", "CWT Claims without iss", b.protected(b"\x26", cert, cwt=[statement_cwt(iss=None)]))
+    envelope("t24-cwt-sub-empty", "an empty text sub", b.protected(b"\x26", cert, cwt=[statement_cwt(sub=text(""))]))
+    envelope("t25-cwt-iss-empty", "an empty text iss", b.protected(b"\x26", cert, cwt=[statement_cwt(iss="")]))
+    # in both buckets the label is refused by the CDDL pass; in the unprotected one alone, by the profile
+    p26 = b.statement_parts(prot=b.protected(b"\x26", cert, cwt=()))
+    d26, _ = b.data_hash(parts=p26)
+    b.add_ts("t26-cwt-unprotected-only", "CWT Claims in the unprotected header only",
+             ts(p26, [], unprot=cmap([(uint(394), arr([bstr(rc(d26))])), statement_cwt()])),
+             status("outside_profile", "outside_profile", ["confirmed"]))
     detached = b.statement_parts(payload=None)
     b.add_ts("t20-detached-payload", "the statement payload is detached", ts(detached, [rc(dh)]),
              status("outside_profile", "outside_profile", ["receipt_not_bound"], payload_digest=None))

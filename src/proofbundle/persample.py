@@ -48,6 +48,7 @@ from typing import List, Optional, Sequence
 
 from . import merkle
 from ._strict_json import loads_strict
+from .canonical import _ein_stand, _ganzzahl_von, _plain_for_jcs
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -76,32 +77,50 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
     """Per-leaf salt = HMAC-SHA-256(tree_secret, domain ‖ id ‖ 0x00 ‖ epoch)[:16].
 
     HMAC as a PRF: revealing one derived salt reveals nothing about any other. The 0x00
     separator prevents id/epoch ambiguity (id "1" epoch 12 vs id "11" epoch 2)."""
-    if not isinstance(tree_secret, bytes) or len(tree_secret) < 16:
+    # Read once (lens run 8, the sweep of finding B): the secret's length was checked through the
+    # caller's `__len__` and keyed through its buffer, the epoch compared through `__lt__` and hashed
+    # through `__str__`. The stored bytes and an exact `int` are checked and used.
+    from ._plain_value import plain_int  # noqa: PLC0415
+    if not issubclass(type(tree_secret), bytes):
         raise BundleFormatError("tree_secret must be at least 16 random bytes (32 recommended)")
-    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
+    tree_secret = bytes.__getitem__(tree_secret, slice(None))
+    if len(tree_secret) < 16:
+        raise BundleFormatError("tree_secret must be at least 16 random bytes (32 recommended)")
+    if plain_int(epoch) is None or epoch < 0:
         raise BundleFormatError("epoch must be a non-negative integer")
     msg = _SALT_DOMAIN + str(sample_id).encode("utf-8") + b"\x00" + str(epoch).encode("ascii")
     return hmac.new(tree_secret, msg, hashlib.sha256).digest()[:_SALT_BYTES]
 
 
+@_ein_stand
 def make_disclosure(record: dict, salt: bytes) -> str:
     """Encode one sample record as a disclosure: base64url(JSON [salt_b64, record]).
 
     The LEAF commits to the encoded ASCII string (RFC 9901 mechanic) — verification re-hashes
     the transported string and never needs JSON canonicalization. ``record`` must carry ``idx``
-    (its committed position) — enforced here so no leaf can ever lack the replay guard."""
+    (its committed position) — enforced here so no leaf can ever lack the replay guard.
+
+    The record and the salt are read once (lens run 8, the sweep of finding B): the index was checked
+    through the caller's `get` and the record written through its stored items, the salt's length
+    through `__len__` and its bytes through the buffer. The plain copies are checked and written."""
+    from ._plain_value import plain_int, plain_json  # noqa: PLC0415
+    from .signature import plain_bytes  # noqa: PLC0415
     if not isinstance(record, dict):
         raise BundleFormatError("sample record must be a JSON object")
-    idx = record.get("idx")
-    if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+    record = plain_json(record, what="sample record", error=BundleFormatError)
+    idx = plain_int(record.get("idx"))
+    if idx is None or idx < 0:
         raise BundleFormatError("sample record must embed its committed index as 'idx' (int >= 0)")
-    if len(salt) < _SALT_BYTES:
+    salt_bytes = plain_bytes(salt)
+    if salt_bytes is None or len(salt_bytes) < _SALT_BYTES:
         raise BundleFormatError("per-leaf salt must be at least 16 bytes")
+    salt = salt_bytes
     disclosure_json = json.dumps([_b64url(salt), record], sort_keys=True,
                                  separators=(",", ":"))
     return _b64url(disclosure_json.encode("utf-8"))
@@ -112,6 +131,7 @@ def _leaf_hash_of(disclosure_b64: str) -> bytes:
     return merkle.leaf_hash(disclosure_b64.encode("ascii"))
 
 
+@_ein_stand
 def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
     """Commit a full eval run's samples. Returns ``{root, root_b64, n, leaf_alg, disclosures}``.
 
@@ -121,6 +141,13 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
     ``disclosures`` (holder-side material for openings) and the secret; the receipt only ever
     carries root + n + leaf_alg.
     """
+    # THE RECORDS ARE READ ONCE (lens run 8, the sweep of finding B): the emptiness check asked the
+    # caller's `__len__` and the loop its `__iter__`; each record was copied with `dict(rec)`, whose
+    # nested values and numbers were then checked through their own methods (`int(epoch)` is the
+    # caller's `__int__`) while the disclosure wrote their storage. One list, one plain copy per record.
+    from ._plain_value import plain_json, plain_list  # noqa: PLC0415
+    stored = plain_list(records)
+    records = stored if stored is not None else list(records)
     if not records:
         raise BundleFormatError("cannot commit an empty sample set")
     disclosures: List[str] = []
@@ -129,7 +156,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
     for i, rec in enumerate(records):
         if not isinstance(rec, dict):
             raise BundleFormatError(f"record {i} is not a JSON object")
-        rec = dict(rec)
+        rec = dict(plain_json(rec, what=f"record {i}", error=BundleFormatError))
         if "idx" in rec and rec["idx"] != i:
             raise BundleFormatError(
                 f"record {i} carries idx={rec['idx']!r} — indices are assigned by the tree "
@@ -159,17 +186,34 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
             "n": len(leaves), "leaf_alg": LEAF_ALG, "disclosures": disclosures}
 
 
+@_ein_stand
 def sample_opening(disclosures: Sequence[str], index: int) -> dict:
-    """Produce the opening for one committed sample: disclosure + RFC 6962 inclusion proof."""
-    n = len(disclosures)
-    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < n:
+    """Produce the opening for one committed sample: disclosure + RFC 6962 inclusion proof.
+
+    The disclosures and the index are read ONCE (lens run 8 at fddc00f4, the sweep of finding B): the
+    count came from the caller's `__len__`, the leaves from its `__iter__` and each disclosure's
+    `encode`, and the written disclosure from its `__getitem__`, so a sequence could have a proof made
+    over one list and a different disclosure written beside it."""
+    from ._plain_value import plain_int, plain_list  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    stored = plain_list(disclosures)
+    texts = []
+    for i, d in enumerate(stored if stored is not None else list(disclosures)):
+        text = plain_text(d)
+        if text is None:
+            raise BundleFormatError(f"disclosure {i} must be a string, got {type(d).__name__}")
+        texts.append(text)
+    n = len(texts)
+    idx = plain_int(index)
+    if idx is None or not 0 <= idx < n:
         raise BundleFormatError(f"index must be an integer in [0, {n})")
-    leaves = [d.encode("ascii") for d in disclosures]
-    proof = merkle.inclusion_proof(leaves, index)
-    return {"index": index, "n": n, "disclosure": disclosures[index],
+    leaves = [d.encode("ascii") for d in texts]
+    proof = merkle.inclusion_proof(leaves, idx)
+    return {"index": idx, "n": n, "disclosure": texts[idx],
             "proof_b64": [base64.b64encode(p).decode("ascii") for p in proof]}
 
 
+@_ein_stand
 def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     """Verify one opening against the receipt's committed samples root — offline, fail-closed.
 
@@ -200,13 +244,21 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
         enforce_structural_budget(opening)
     except ProofBundleError as exc:
         raise BundleFormatError(f"opening exceeds the verification budget (fail-closed): {exc}") from exc
+    # ONE READING (round 12): after the budget, the opening is read once into the plain copy of what it
+    # stores, and the index, the disclosure and the proof below come from that copy; the committed size
+    # counts only as an exact int (a subclass of int is refused below, the one rule for a number of PR
+    # 293; round 12 read the integer it stores). At cd5d39f4 each field was read through the opening's own `get`,
+    # the proof cap counted its own `len()` and the loop read its own `__iter__`.
+    opening = _plain_for_jcs(opening, lambda text: BundleFormatError(f"opening: {text}"))
+    if _ganzzahl_von(n) is not None:
+        n = _ganzzahl_von(n)
     index = opening.get("index")
     disclosure = opening.get("disclosure")
     proof_list = opening.get("proof_b64")
     if isinstance(index, bool) or not isinstance(index, int) \
             or not isinstance(disclosure, str) or not isinstance(proof_list, list):
         raise BundleFormatError("opening needs integer 'index', string 'disclosure', list 'proof_b64'")
-    if isinstance(n, bool) or not isinstance(n, int) or not 0 <= index < n:
+    if type(n) is not int or not 0 <= index < n:   # `type()`: the size read above, or refused (round 12)
         result["detail"] = "index out of range for the committed tree size"
         return result
     # DIE GROESSE DER ZAHL, nicht nur ihr Typ (L2-BDOS-HUGEINT, Pre-Tag-Deep-Gate 2026-08-25).
@@ -289,6 +341,7 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     return result
 
 
+@_ein_stand
 def audit_challenge(root, n: int, k: int, nonce: bytes = b"") -> List[int]:
     """Derive k distinct audit indices in [0, n) from the committed root — deterministic,
     re-verifiable by anyone with the same inputs.
@@ -303,21 +356,32 @@ def audit_challenge(root, n: int, k: int, nonce: bytes = b"") -> List[int]:
     # from a receipt-controlled field (n mirrors verify_sample_opening's tree size), so a hostile receipt could
     # otherwise crash the auditor's process: a non-base64 root (binascii.Error), an n >= 2**64 that overflows
     # n.to_bytes(8) (OverflowError), or a non-bytes nonce (TypeError on the concatenation).
-    if isinstance(root, str):
+    # EACH VALUE IS READ ONCE (lens run 8 at fddc00f4, the sweep of findings A and D): the length and
+    # range checks asked a subclass's `__len__` and comparisons, and the seed read its buffer and its
+    # `to_bytes`, so the checked root, size and count were not the ones the challenge was derived from.
+    from ._plain_value import plain_int  # noqa: PLC0415
+    from .signature import plain_bytes, plain_text  # noqa: PLC0415
+    root_text = plain_text(root)
+    if root_text is not None:
         try:
-            root = decode_b64(root)
+            root = decode_b64(root_text)
         except (ValueError, TypeError) as exc:   # binascii.Error is a ValueError subclass
             raise BundleFormatError("root must be valid base64 (or the raw 32-byte samples root)") from exc
-    if not isinstance(root, bytes) or len(root) != 32:
+    elif issubclass(type(root), bytes):
+        root = bytes.__getitem__(root, slice(None))
+    if type(root) is not bytes or len(root) != 32:
         raise BundleFormatError("root must be the 32-byte samples root (or its base64)")
-    if isinstance(n, bool) or not isinstance(n, int) or not 0 < n < (1 << 64):
+    n_int, k_int = plain_int(n), plain_int(k)
+    if n_int is None or not 0 < n_int < (1 << 64):
         raise BundleFormatError("n must be a positive integer below 2**64 (a samples tree size)")
-    if isinstance(k, bool) or not isinstance(k, int) or not 0 < k <= n:
+    if k_int is None or not 0 < k_int <= n_int:
         raise BundleFormatError("k must be an integer in [1, n]")
-    if not isinstance(nonce, (bytes, bytearray)):
+    nonce_bytes = plain_bytes(nonce)
+    if nonce_bytes is None:
         raise BundleFormatError("nonce must be bytes")
+    n, k = n_int, k_int
     seed = hashlib.sha256(_CHALLENGE_DOMAIN + root + n.to_bytes(8, "big")
-                          + k.to_bytes(8, "big") + bytes(nonce)).digest()
+                          + k.to_bytes(8, "big") + nonce_bytes).digest()
     chosen: List[int] = []
     seen = set()
     counter = 0
@@ -349,6 +413,7 @@ def _map_draw(v: int, n: int) -> Optional[int]:
     return v % n
 
 
+@_ein_stand
 def catch_probability(m_fraction: float, k: int) -> float:
     """PoR bound: probability that k challenges catch an m-fraction of bad samples,
     1 − (1 − m)^k — independent of n. (k=300 → ~0.95 at m=0.01; k=459 → ~0.99.)"""

@@ -282,6 +282,21 @@
         "RESTRISIKO_610.md: every line moved to 6.2.0 named as open, with the P3 findings of the 2026-09-19 audit",
         "docs/release_scope/6.1.0.md: the cut of 2026-09-19, 34 pull requests on main since v6.0.0 measured by ancestry"
       ]
+    },
+    "6.2.0": {
+      "status": "filled",
+      "delivers": [
+        "docs/release_scope/6.2.0.md (PR 294): the cut of 2026-09-27 against main 0ace3039, every other scope line moved to docs/release_scope/6.3.0.md with a ledger row",
+        "Ed25519 keys (PR 280, PR 293): the trust-anchor paths refuse low-order and non-canonical keys, dsse.verify_envelope included; the bare verify_ed25519 primitive and a bundle's in-band key keep the section 4a profile",
+        "verify boundary (PR 300): the bytes a signature covers are the bytes parsed, commitment patterns hold at the verify boundary, and an edge's declaredAt takes ASCII digits only, as the Rust verifier does",
+        "caller-controlled inputs (PR 312): the affected verify inputs are read once, by what they store, or refused by their type",
+        "policy fields and callbacks (PR 313): the evaluators apply the loader's field rules, malformed containers are refused, and the affected inputs are read before caller code runs",
+        "gate round at d97de8e5 (PR 311): a subject state outside the resolver's four words is malformed, a CLI option given an empty value is read with `is not None`, and the build epoch no longer moves with a commit confined to release notes or audit artefacts",
+        "release body (PR 256): release_notes/release-source.json renders the notes and binds them to the tree they describe",
+        "pre-tag gate (PR 249, carrying PR 296): every caller of the pre-tag cleanliness gate is guarded, with the Rust dependency audit",
+        "mutation gate (PR 285, PR 289, PR 311): each mutant runs the test files that reach it, only a confirmed kill counts, the test child runs under a 6 GiB ceiling, and every operator names one live site",
+        "RESTRISIKO_620.md: what stays open in 6.2.0 and why, in the tree before the closing round"
+      ]
     }
   },
   "navigation": {
