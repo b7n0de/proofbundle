@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ._cbor_prescan import encode_head
+from .canonical import _abbild_stand, _ein_stand
 from .errors import BundleFormatError, ProofBundleError
 
 __all__ = ["MEDIA_TYPE", "NOT_REGISTERED", "ScittStatementError", "StatementCheck", "check_signed_statement",
@@ -144,6 +145,7 @@ def _spki(public_key) -> bytes:
                                    serialization.PublicFormat.SubjectPublicKeyInfo)
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def sign_statement(bundle: dict, signer, *, issuer: str, subject: str, kid: Optional[bytes] = None,
                    location: Optional[str] = None, x5chain: Optional[list] = None) -> bytes:
     """A tagged COSE_Sign1 hash envelope over ``bundle``'s receipt root, signed by ``signer``.
@@ -291,6 +293,7 @@ class StatementCheck:
                 for k, v in ((k, getattr(self, k)) for k in self.__dataclass_fields__)}
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 def check_signed_statement(data: bytes, *, canonical_root: Optional[bytes], statement_keys=None,
                            rp_trust: Optional[dict] = None) -> StatementCheck:
     """Check a Signed Statement (or the statement inside a Transparent Statement) offline.
