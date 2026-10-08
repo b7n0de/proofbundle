@@ -57,6 +57,10 @@ a signed outcome receipt, and joins them:
 - an **outcome receipt** (`action-outcome/v0.1`, EXPERIMENTAL in the current release) that the observer
   issues for what GitHub shows: the observed surface and target, and the SHA-256 of the stored bytes.
 
+Each decision receipt names its action and attempt in its `decisionId`, as `<action id>#<attempt>`, the form the
+pilot profile fixes, so the stored records tell two verdicts for one retried action from one verdict for each of two
+actions, and M8 counts the decision receipts that share an action id.
+
 The outcome refers to the decision by its content root, never the reverse. The mapping of gate fields and
 GitHub observations onto the two predicates is the pilot profile (PB-02); this contract fixes only what must
 be recorded. Refused actions get a decision receipt and, if GitHub nevertheless shows a matching effect, an
@@ -76,7 +80,7 @@ own and are never counted as agreement.
 | M5 unapproved effect | How many writes by an agent identity with no approval that matches them does the API show? | a count (0 is none found), not measured |
 | M6 refused but arrived | How many effects match an action the gate refused? | a count (0 is none found), not measured |
 | M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target; no observation; not measured |
-| M8 attempts | How many verdicts were recorded for one action id? | a count, not measured |
+| M8 attempts | How many verdicts were recorded for one action id, read from the `decisionId` of the decision receipts (section 4)? | a count, not measured |
 
 An approved action reconciles only when M1 is arrived and M2, M3 and M4 each hold. A refused action
 reconciles only when M1 is not arrived; M2, M3 and M4 are not part of it. Every other combination is a
@@ -89,11 +93,13 @@ no proposal identifier. Surface, bytes and closing lines are not part of the mat
 compare, so an action that arrived altered or on another surface answers under M2 or M3. Effects are taken in the
 order the API shows them, and each takes one proposed action of the window with the same target and identity that
 no earlier effect took: the one whose surface and bytes it equals when exactly one does, otherwise the earliest
-decided. An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class
+decided, and among decisions with the same `decidedAt` the one whose `decisionId` sorts first, so the order is total. An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class
 `ambiguous effect`: M1 is `ambiguous` for each of them, it counts under M6 when any of them was refused, and it
 still takes the earliest decided of them. An effect that finds no action left counts under M5 as an unapproved
 effect, so one approval never covers two writes. The rule decides by the stored records alone, so a rerun under
-criterion 4 reproduces every match.
+criterion 4 reproduces every match. Matching by identity needs identities that only agent sessions write under: a
+dedicated account or app per agent, named by the operator before the pilot starts (section 10). A write by a person
+under such an identity cannot be told from an agent write, so the pilot stops when one is known to have happened.
 
 ## 6. Exit criteria
 
@@ -131,6 +137,7 @@ It stops early, with the reason written down, when:
 - recording the gate's verdict would require changing how the gate decides;
 - the observer would need a credential that an agent session holds;
 - a receipt would have to carry a secret, a token or a private key;
+- a person is known to have written under an identity the pilot reads as an agent's;
 - the operator withdraws the pilot.
 
 ## 7. What the pilot does not claim
@@ -191,3 +198,5 @@ observation, or the named question cannot be answered.
   observer reports it under M5 as an unapproved effect, and the result says how many there were.
 - The observation window and how often the observer reads the API: the operator's choice, recorded with each
   run.
+- The identities that only agent sessions write under, one dedicated account or app per agent: the operator names
+  them before the pilot starts, and no person writes under them during it.

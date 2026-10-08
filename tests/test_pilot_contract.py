@@ -182,6 +182,32 @@ class ThePilotContract(unittest.TestCase):
         self.assertIn("it still takes the earliest decided of them", massnahmen)
         self.assertIn("a rerun under criterion 4 reproduces every match", massnahmen)
 
+    def test_identities_are_agent_only_and_a_shared_one_stops_the_pilot(self) -> None:
+        """Codex thread 4222122338: a person and an agent writing under one account share the API's actor identity,
+        and the match by identity could take the person's write as the approved one. Agent identities are dedicated
+        and named before the pilot, and a known person's write under one stops it."""
+        text = " ".join(_text().split())
+        self.assertIn("Matching by identity needs identities that only agent sessions write under", text)
+        stopp = text[text.index("It stops early"):text.index("## 7.")]
+        self.assertIn("a person is known to have written under an identity the pilot reads as an agent's", stopp)
+        offen = text[text.index("## 10. Open before the pilot starts"):]
+        self.assertIn("The identities that only agent sessions write under", offen)
+
+    def test_the_order_of_decisions_is_total(self) -> None:
+        """Codex thread 4222122346: two decisions with the same decidedAt left the earliest decided undefined, and two
+        reruns could match an effect differently. The decisionId breaks the tie."""
+        text = " ".join(_text().split())
+        self.assertIn("among decisions with the same `decidedAt` the one whose `decisionId` sorts first, so the order "
+                      "is total", text)
+
+    def test_m8_reads_the_action_id_from_the_records(self) -> None:
+        """Codex thread 4222122355: M8 counts verdicts per action id, and no stored record carried the action id."""
+        text = " ".join(_text().split())
+        aufzeichnungen = text[text.index("## 4. Records"):text.index("## 5. Measures")]
+        self.assertIn("Each decision receipt names its action and attempt in its `decisionId`, as `<action id>#<attempt>`",
+                      aufzeichnungen)
+        self.assertIn("read from the `decisionId` of the decision receipts (section 4)", text)
+
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
         self.assertIn("The agent never holds the gate's or the observer's key.", text)
