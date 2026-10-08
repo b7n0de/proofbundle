@@ -4406,6 +4406,148 @@ def done_check_command(argv: list[str]) -> int:
     return code
 
 
+# --- the done check as an in-toto Statement (D29) ------------------------------------------------------------------
+
+INTOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+INTOTO_PAYLOAD_TYPE = "application/vnd.in-toto+json"
+VSA_PREDICATE_TYPE = "https://slsa.dev/verification_summary/v1"
+#: The verifier of the Verification Summary, a URI that names the plugin's done check; a consumer accepts only the
+#: (signer, verifier) pairs it trusts (SLSA VSA v1.2, verifier).
+VSA_VERIFIER_ID = "https://github.com/b7n0de/proofbundle/tree/main/plugins/proofbundle#done-check"
+PINNED_PROOFBUNDLE = "6.1.0"
+_RESOURCE_URI = re.compile(r"[a-z][a-z0-9+.-]*:[!-~]+")
+_SIGN_TOOL = """# /// script
+# requires-python = ">=3.10"
+# dependencies = ["proofbundle==6.1.0"]
+# ///
+import hashlib, json, sys
+from proofbundle.dsse import sign_envelope
+from proofbundle.emit import load_signer
+signer = load_signer(sys.argv[1])
+with open(sys.argv[2], "rb") as handle:
+    body = handle.read()
+keyid = hashlib.sha256(signer.public_key().public_bytes_raw()).hexdigest()
+print(json.dumps(sign_envelope(body, signer, payload_type="application/vnd.in-toto+json", keyid=keyid)))
+"""
+
+
+def verification_summary(result: dict, resource_uri: str, time_verified: str) -> dict:
+    """The in-toto Statement v1 with the SLSA Verification Summary v1 predicate for a passing done check on a clean
+    state, built as draft-gruszka-evaluation-receipt-mappings Section 4.3 cites a receipt: the subject is HEAD by
+    gitCommit and gitTree, each receipt the check verified is an inputAttestation named by SHA-256 over its signed
+    payload bytes B, in the order of the declared checks, and verificationResult is the done check's result, not a
+    receipt's own passed. An inputAttestation carries the digest alone: the VSA v1 binding of in-toto-attestation
+    0.9.3 reads only uri and digest there and refuses any other field (measured 2026-10-08), and a receipt has no
+    URI to fetch it from."""
+    done, state = result["done"], result["state"]
+    policy = result["policy"]
+    blob = _BLOB_HASHES[len(result["commit"])](b"blob %d\0" % len(policy) + policy).hexdigest()
+    inputs = [{"digest": {"sha256": hashlib.sha256(row["payload"]).hexdigest()}} for row in result["checks"]]
+    return {
+        "_type": INTOTO_STATEMENT_TYPE,
+        "subject": [{"name": resource_uri, "digest": {"gitCommit": state["commit"], "gitTree": state["tree"]}}],
+        "predicateType": VSA_PREDICATE_TYPE,
+        "predicate": {
+            "verifier": {"id": VSA_VERIFIER_ID, "version": {"proofbundle-plugin": GATE_VERSION,
+                                                            "proofbundle": PINNED_PROOFBUNDLE}},
+            "timeVerified": time_verified,
+            "resourceUri": resource_uri,
+            "policy": {"uri": f"{resource_uri}@{state['commit']}#{done['policy']}",
+                       "digest": {"sha256": hashlib.sha256(policy).hexdigest(), "gitBlob": blob}},
+            "inputAttestations": inputs,
+            "verificationResult": "PASSED",
+            "verifiedLevels": ["SLSA_SOURCE_LEVEL_UNEVALUATED"],
+            "slsaVersion": "1.2",
+        },
+    }
+
+
+def _resource_uri(value: str) -> str:
+    if not _RESOURCE_URI.fullmatch(value) or len(value) > 2048:
+        raise GateError("--resource-uri must be an absolute URI without spaces, for example "
+                        "git+https://github.com/<owner>/<repo>")
+    if "//" in value:
+        authority = value.split("//", 1)[1].split("/", 1)[0]
+        if "@" in authority:
+            raise GateError("--resource-uri must not carry user information (a name or token before @)")
+    return value
+
+
+def done_statement(directory: str, key: str, out: str, resource_uri: str, deadline: float,
+                   receipt_dir: str | None = None) -> str:
+    """Write the done check's Verification Summary as a DSSE envelope (D29): only for a pass on a clean state, signed
+    with the key file through the pinned package. Refuses an output that is a link or not a regular file."""
+    resource_uri = _resource_uri(resource_uri)
+    if not os.path.isabs(key):
+        raise GateError("--key must be an absolute path to a key file outside the repository")
+    result = done_evaluation(directory, deadline, receipt_dir=receipt_dir)
+    verdict = result["verdict"]
+    if verdict.decision != "pass":
+        raise GateError(f"the done check does not pass, so there is no statement: {verdict.text()}")
+    if result["state"]["worktree"] != result["state"]["tree"]:
+        raise GateError("the working state differs from HEAD; the statement names a commit and its tree, so commit "
+                        "the work and run the checks again")
+    body = json.dumps(verification_summary(result, resource_uri, _now()), sort_keys=True,
+                      separators=(",", ":")).encode("utf-8")
+    try:
+        st = os.lstat(out)
+        if not stat.S_ISREG(st.st_mode):
+            raise GateError(f"{out} exists and is not a regular file")
+    except FileNotFoundError:
+        pass
+    uv = shutil.which("uv")
+    if uv is None:
+        raise GateError("uv is not on PATH, so the statement cannot be signed with the package")
+    with tempfile.TemporaryDirectory(prefix="proofbundle-statement-") as scratch:
+        tool, payload = os.path.join(scratch, "sign_tool.py"), os.path.join(scratch, "statement.json")
+        with open(tool, "w", encoding="utf-8") as handle:
+            handle.write(_SIGN_TOOL)
+        with open(payload, "wb") as handle:
+            handle.write(body)
+        left = deadline - time.monotonic()
+        proc = subprocess.run([uv, "run", "--quiet", "--no-config", "--script", tool, key, payload], cwd=scratch,
+                              env=_isolated_env(), capture_output=True, text=True, timeout=max(left, 1), check=False)
+    try:
+        envelope = strict_json(proc.stdout) if proc.returncode == 0 else None
+        ok = (isinstance(envelope, dict) and envelope.get("payloadType") == INTOTO_PAYLOAD_TYPE
+              and base64.b64decode(envelope.get("payload", ""), validate=True) == body
+              and isinstance(envelope.get("signatures"), list) and len(envelope["signatures"]) == 1)
+    except (ValueError, binascii.Error, TypeError):
+        ok = False
+    if not ok:
+        raise GateError(f"the package could not sign the statement with {key}: {proc.stderr.strip()[:300]}")
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(envelope, indent=1) + "\n")
+    return (f"proofbundle done statement written to {out}: an in-toto Statement v1 with the SLSA Verification Summary "
+            f"v1 predicate, subject {resource_uri} at commit {result['commit'][:12]}, {len(result['checks'])} "
+            "receipts cited by the SHA-256 of their signed payload, signed with the key in DSSE. It states what the "
+            "done check verified, not that the tests test anything.")
+
+
+DONE_STATEMENT_USAGE = ("usage: done-statement --repo DIR --key FILE --out FILE --resource-uri URI "
+                        "[--receipt-dir DIR]")
+
+
+def done_statement_command(argv: list[str]) -> int:
+    options, i = {"--repo": None, "--key": None, "--out": None, "--resource-uri": None, "--receipt-dir": None}, 0
+    while i < len(argv):
+        if argv[i] in options and i + 1 < len(argv) and options[argv[i]] is None:
+            options[argv[i]], i = argv[i + 1], i + 2
+        else:
+            print(f"{DONE_STATEMENT_USAGE}; unexpected {argv[i]!r}", file=sys.stderr)
+            return 2
+    if not all(options[k] for k in ("--repo", "--key", "--out", "--resource-uri")) or options["--receipt-dir"] == "":
+        print(DONE_STATEMENT_USAGE, file=sys.stderr)
+        return 2
+    try:
+        print(done_statement(options["--repo"], options["--key"], options["--out"], options["--resource-uri"],
+                             time.monotonic() + DEADLINE_SECONDS, options["--receipt-dir"]))
+    except (GateError, OSError) as exc:
+        print(f"proofbundle done-statement: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 _KEY_TOOL = """# /// script
 # requires-python = ">=3.10"
 # dependencies = ["proofbundle==6.1.0"]
@@ -5034,6 +5176,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_init_command(argv[1:])
     if argv[:1] == ["task-completed"]:
         return task_completed_command(argv[1:])
+    if argv[:1] == ["done-statement"]:
+        return done_statement_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions = "claude", None, []
     try:

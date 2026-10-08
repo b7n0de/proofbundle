@@ -731,3 +731,159 @@ def test_done_check_reads_a_folder_of_receipts_for_an_order(env, ordered, keys, 
     proc = _done_check(env, "--repo", str(ordered), "--receipt", str(folder / "unit.json"))
     assert proc.returncode == 1 and "--receipt-dir" in json.loads(proc.stdout)["message"]
     assert _done_check(env, "--repo", str(ordered), "--receipt", "x", "--receipt-dir", "y").returncode == 2
+
+
+# --- the done check as an in-toto Statement v1 in DSSE (D29) -------------------------------------
+
+def _key_file(keys: Keys, tmp_path: pathlib.Path) -> pathlib.Path:
+    from proofbundle.emit import save_signer
+    path = tmp_path / "keys" / "done-test.key"                 # a test key, outside the repository
+    path.parent.mkdir(exist_ok=True)
+    save_signer(keys.signer, str(path))
+    return path
+
+
+def done_statement(env, repo, key, out, uri="git+https://example.org/owner/repo", *more):
+    return subprocess.run([sys.executable, "-I", str(GATE), "done-statement", "--repo", str(repo), "--key", str(key),
+                           "--out", str(out), "--resource-uri", uri, *more], capture_output=True, text=True, env=env,
+                          timeout=180, check=False)
+
+
+def test_a_passing_done_check_on_a_clean_state_writes_a_verification_summary(env, ordered, keys, tmp_path):
+    for check in (UNIT, INTEGRATION):
+        _run(ordered, keys.signer, check)
+    out = tmp_path / "done.intoto.json"
+    proc = done_statement(env, ordered, _key_file(keys, tmp_path), out)
+    assert proc.returncode == 0, proc.stderr
+    envelope = json.loads(out.read_text())
+    assert envelope["payloadType"] == "application/vnd.in-toto+json" and len(envelope["signatures"]) == 1
+    public = keys.signer.public_key().public_bytes_raw()
+    assert envelope["signatures"][0]["keyid"] == __import__("hashlib").sha256(public).hexdigest()
+    statement = json.loads(base64.b64decode(envelope["payload"]))
+    assert statement["_type"] == "https://in-toto.io/Statement/v1"
+    assert statement["predicateType"] == "https://slsa.dev/verification_summary/v1"
+    assert statement["subject"] == [{"name": "git+https://example.org/owner/repo",
+                                     "digest": {"gitCommit": _git(ordered, "rev-parse", "HEAD"),
+                                                "gitTree": _git(ordered, "rev-parse", "HEAD^{tree}")}}]
+    predicate = statement["predicate"]
+    payloads = [base64.b64decode(json.loads((ordered / c["receipt"]).read_text())["payload_b64"])
+                for c in (UNIT, INTEGRATION)]
+    assert predicate["inputAttestations"] == [{"digest": {"sha256": __import__("hashlib").sha256(b).hexdigest()}}
+                                              for b in payloads]
+    assert predicate["verificationResult"] == "PASSED" and predicate["verifiedLevels"] == ["SLSA_SOURCE_LEVEL_UNEVALUATED"]
+    assert predicate["policy"]["digest"]["sha256"] == __import__("hashlib").sha256((ordered / POLICY).read_bytes()).hexdigest()
+    assert predicate["policy"]["digest"]["gitBlob"] == _git(ordered, "rev-parse", f"HEAD:{POLICY}")
+    from proofbundle.dsse import pae
+    keys.signer.public_key().verify(base64.b64decode(envelope["signatures"][0]["sig"]),
+                                    pae(envelope["payloadType"], base64.b64decode(envelope["payload"])))
+
+
+def test_no_statement_without_a_pass_on_a_clean_state(env, ordered, keys, tmp_path):
+    key = _key_file(keys, tmp_path)
+    out = tmp_path / "done.intoto.json"
+    _run(ordered, keys.signer, UNIT)
+    proc = done_statement(env, ordered, key, out)
+    assert proc.returncode == 1 and "does not pass" in proc.stderr and not out.exists()
+    _write(ordered / "src" / "module.py", "VALUE = 9\n")
+    for check in (UNIT, INTEGRATION):
+        _run(ordered, keys.signer, check)
+    assert stop(env, ordered)[1].keys() == {"systemMessage"}                     # done on an uncommitted state
+    proc = done_statement(env, ordered, key, out)
+    assert proc.returncode == 1 and "differs from HEAD" in proc.stderr and not out.exists()
+
+
+@pytest.mark.parametrize("uri", ["https://user:token@example.org/repo", "not a uri", "relative/path"])
+def test_a_resource_uri_with_user_information_or_no_scheme_is_refused(env, ordered, keys, tmp_path, uri):
+    proc = done_statement(env, ordered, _key_file(keys, tmp_path), tmp_path / "x.json", uri)
+    assert proc.returncode == 1 and "--resource-uri must" in proc.stderr
+
+
+def test_the_statement_is_not_written_through_a_link(env, ordered, keys, tmp_path):
+    for check in (UNIT, INTEGRATION):
+        _run(ordered, keys.signer, check)
+    target = tmp_path / "elsewhere.json"
+    target.write_text("unchanged")
+    os.symlink(target, tmp_path / "link.json")
+    proc = done_statement(env, ordered, _key_file(keys, tmp_path), tmp_path / "link.json")
+    assert proc.returncode == 1 and "not a regular file" in proc.stderr and target.read_text() == "unchanged"
+
+
+# --- a foreign reader of the statement (D29) -----------------------------------------------------
+
+#: An interpreter with securesystemslib 1.5.1 and in-toto-attestation 0.9.3 (with protobuf 7.36.2), the versions
+#: measured on 2026-10-08. The foreign reader runs only where the environment names it and is skipped otherwise,
+#: never passed, as in tests/test_receipt_cose_foreign.py. securesystemslib verifies the DSSE signature with the test
+#: key; in-toto-attestation reads and validates the Statement v1 and its predicate as a generic object. Its VSA v1
+#: binding refuses the SLSA VSA v1.2 shape itself: it types verifiedLevels as one string where the specification has
+#: an array, and has no verifier.version (measured, runs2/probe_map_vsa_mediatype.txt). The test holds that refusal,
+#: so a release of the binding that reads the specification's shape turns it red on purpose.
+FOREIGN_INTOTO = os.environ.get("PROOFBUNDLE_FOREIGN_INTOTO_PYTHON")
+
+_FOREIGN_READER = r"""
+import json, sys
+from google.protobuf import json_format
+from securesystemslib.dsse import Envelope
+from securesystemslib.signer import SSlibKey
+from in_toto_attestation.v1 import statement_pb2
+from in_toto_attestation.v1.statement import Statement
+from in_toto_attestation.predicates.vsa.v1 import vsa_pb2
+import securesystemslib, in_toto_attestation, google.protobuf
+with open(sys.argv[1]) as handle:
+    envelope = Envelope.from_dict(json.load(handle))
+key = SSlibKey(sys.argv[2], "ed25519", "ed25519", {"public": sys.argv[3]})
+try:
+    verified = sorted(envelope.verify([key], 1))
+except Exception as exc:
+    verified = "refused: " + type(exc).__name__
+statement = json_format.Parse(envelope.payload, statement_pb2.Statement())
+Statement.copy_from_pb(statement).validate()
+predicate = json_format.MessageToDict(statement.predicate)
+binding = {}
+for mode, lenient in (("strict", False), ("ignore_unknown_fields", True)):
+    try:
+        json_format.ParseDict(predicate, vsa_pb2.VerificationSummary(), ignore_unknown_fields=lenient)
+        binding[mode] = "read"
+    except json_format.ParseError as exc:
+        binding[mode] = "refused: " + str(exc).splitlines()[0]
+print(json.dumps({"verified": verified, "payload_type": envelope.payload_type,
+                  "subject": [dict(s.digest) for s in statement.subject], "predicate_type": statement.predicate_type,
+                  "result": predicate["verificationResult"], "levels": predicate["verifiedLevels"],
+                  "inputs": [i["digest"] for i in predicate["inputAttestations"]], "vsa_binding": binding,
+                  "versions": {"securesystemslib": securesystemslib.__version__,
+                               "protobuf": google.protobuf.__version__}}))
+"""
+
+
+@pytest.mark.skipif(not FOREIGN_INTOTO, reason="PROOFBUNDLE_FOREIGN_INTOTO_PYTHON names no foreign reader")
+def test_securesystemslib_verifies_the_envelope_and_in_toto_attestation_reads_the_summary(env, ordered, keys,
+                                                                                          tmp_path):
+    for check in (UNIT, INTEGRATION):
+        _run(ordered, keys.signer, check)
+    out = tmp_path / "done.intoto.json"
+    assert done_statement(env, ordered, _key_file(keys, tmp_path), out).returncode == 0
+    public = keys.signer.public_key().public_bytes_raw()
+    keyid = json.loads(out.read_text())["signatures"][0]["keyid"]
+    clean = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
+
+    def read(path: pathlib.Path, key_hex: str) -> dict:
+        proc = subprocess.run([FOREIGN_INTOTO, "-I", "-c", _FOREIGN_READER, str(path), keyid, key_hex],
+                              capture_output=True, text=True, env=clean, timeout=120, check=False)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    seen = read(out, public.hex())
+    assert seen["verified"] == [keyid] and seen["payload_type"] == "application/vnd.in-toto+json"
+    assert seen["subject"] == [{"gitCommit": _git(ordered, "rev-parse", "HEAD"),
+                                "gitTree": _git(ordered, "rev-parse", "HEAD^{tree}")}]
+    assert seen["predicate_type"] == "https://slsa.dev/verification_summary/v1" and seen["result"] == "PASSED"
+    assert len(seen["inputs"]) == 2 and seen["levels"] == ["SLSA_SOURCE_LEVEL_UNEVALUATED"]
+    assert seen["vsa_binding"]["strict"].startswith("refused: Failed to parse verifier field")
+    assert seen["vsa_binding"]["ignore_unknown_fields"].startswith("refused: Failed to parse verifiedLevels field")
+    assert seen["versions"]["securesystemslib"] == "1.5.1"
+    assert read(out, generate_signer().public_key().public_bytes_raw().hex())["verified"].startswith("refused")
+    envelope = json.loads(out.read_text())
+    changed = json.loads(base64.b64decode(envelope["payload"]))
+    changed["predicate"]["verificationResult"] = "FAILED"
+    envelope["payload"] = base64.b64encode(json.dumps(changed).encode()).decode()
+    (tmp_path / "changed.json").write_text(json.dumps(envelope))
+    assert read(tmp_path / "changed.json", public.hex())["verified"].startswith("refused")
