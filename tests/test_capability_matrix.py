@@ -324,11 +324,11 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
                 if pfad == "NOTES.md":
                     return texte[ref].encode() if ref in texte else None
                 if pfad == "action/action.yml":
-                    return b"" if ref in (modul.TAG, _MAIN) or ref.removeprefix("refs/tags/") in tags_am_ziel else None
+                    return b"" if ref in (modul.TAG, _MAIN) or ref in {f"commit of {t}" for t in tags_am_ziel} else None
                 return None
             modul._git_bytes = git_bytes
             modul._git = lambda *args: ""
-            modul._tag_ref = lambda tag: _HEAD if tag in tags else None
+            modul._tag_ref = lambda tag: f"commit of {tag}" if tag in tags else None
             modul.CAPABILITIES = [{"id": "x", "name": "x", "repo_paths": ["action/action.yml"],
                                    "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}]
             artefakte = {"wheel_files": {}, "wheel_subcommands": [], "wheel_entry_points": [], "sdist_files": []}
@@ -373,6 +373,33 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
         sl = reihen["slsa-provenance"]
         self.assertIs(sl["release"]["measured"]["provider_named_in_docs"], True)
         self.assertIs(sl["main"]["measured"]["provider_named_in_docs"], True)
+
+
+class ATagIsATagAsWritten(unittest.TestCase):
+    """Codex thread 4220245923: rev-parse resolved refs/tags/v1~1 to the parent of v1, so documentation pinning a
+    revision expression could produce the channel `git tag v1~1`. `_tag_ref` takes a tag only as written, in a
+    repository built here, so the case does not depend on the tags a checkout fetched."""
+
+    def test_only_an_existing_tag_name_resolves(self) -> None:
+        import subprocess
+        import tempfile
+        modul = _load()
+        with tempfile.TemporaryDirectory() as d:
+            git = ["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "commit.gpgsign=false",
+                   "-c", "tag.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", d], check=True)
+            for n in ("1", "2"):
+                subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", n], check=True)
+            subprocess.run(git + ["tag", "v1"], check=True)
+            subprocess.run(git + ["tag", "-a", "-m", "a", "v1-annotated"], check=True)
+            subprocess.run(git + ["branch", "b1"], check=True)
+            kopf = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+            modul.REPO = Path(d)
+            self.assertEqual(modul._tag_ref("v1"), kopf, "control: a lightweight tag")
+            self.assertEqual(modul._tag_ref("v1-annotated"), kopf, "control: an annotated tag, peeled to its commit")
+            for ausdruck in ("v1~1", "v1^", "v1^{commit}", "v1@{0}", "v1:", "b1", "HEAD", kopf, kopf[:12], "v2", ""):
+                with self.subTest(ref=ausdruck):
+                    self.assertIsNone(modul._tag_ref(ausdruck))
 
 
 class FromElsewhereSaysWhatWasMeasured(unittest.TestCase):

@@ -242,9 +242,18 @@ def _documented_tag(ref: str, cap: dict):
 
 
 def _tag_ref(tag: str):
-    """The commit the TAG `tag` names (refs/tags/<tag>), or None: a branch or a commit id of the same spelling is
-    no tag (Codex thread 4219678084 on pull request 304)."""
-    lauf = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "-q", f"refs/tags/{tag}^{{commit}}"],
+    """The commit a tag of this repository named exactly `tag` points at, or None. The name must be a valid ref name
+    under refs/tags (git check-ref-format), and that ref must exist as written (git show-ref --verify), so a branch, a
+    commit id (Codex thread 4219678084 on pull request 304) or a revision expression such as v1~1 or v1^ (thread
+    4220245923, which rev-parse resolved under refs/tags) is no tag. The ref is then peeled to its commit."""
+    voll = f"refs/tags/{tag}"
+    if subprocess.run(["git", "check-ref-format", voll], capture_output=True).returncode != 0:
+        return None
+    ref = subprocess.run(["git", "-C", str(REPO), "show-ref", "--verify", "-s", voll], capture_output=True, text=True)
+    objekt = ref.stdout.strip()
+    if ref.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", objekt):
+        return None
+    lauf = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "-q", f"{objekt}^{{commit}}"],
                           capture_output=True, text=True)
     return lauf.stdout.strip() if lauf.returncode == 0 and lauf.stdout.strip() else None
 
@@ -253,11 +262,13 @@ def _tag_carries(tag: str, cap: dict) -> None:
     """A SystemExit unless the documented ref is a tag of this repository and carries every repository path of the
     capability there: a channel names how a user gets it, and a tag without the action gives the user nothing (Codex
     thread 4219207478 on pull request 304: the tag was read from the docs and never looked up). The paths are read
-    at refs/tags/<tag>, so a branch of the same name does not stand in for it."""
-    if _tag_ref(tag) is None:
+    at the commit the tag points at (`_tag_ref`), so neither a branch of the same name nor a revision expression
+    stands in for it."""
+    commit = _tag_ref(tag)
+    if commit is None:
         raise SystemExit(f"{cap['id']}: the documented ref {tag} is not a tag of this repository; the channel is "
                          "not measured")
-    fehlt = [p for p in cap.get("repo_paths", []) if _git_bytes(f"refs/tags/{tag}", p) is None]
+    fehlt = [p for p in cap.get("repo_paths", []) if _git_bytes(commit, p) is None]
     if fehlt:
         raise SystemExit(f"{cap['id']}: the documented tag {tag} does not carry {', '.join(fehlt)}; the channel is "
                          "not measured")
