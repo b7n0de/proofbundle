@@ -352,25 +352,37 @@ class TheBindingIsReadByMembership(unittest.TestCase):
         self.assertIs(ots_binding_held(Lying(status="pending")), True)    # the contents still count
 
     def test_the_stated_limit_is_real_and_only_that(self):
-        """Counter-direction for the limit the docstring names: an object whose own `__hash__` or `__eq__`
-        raises something other than TypeError still raises, as it does in `_membership.is_member`. If this
-        case goes red the limit is gone and the docstring is stale; it must not be read as a promise."""
+        """Counter-direction for the limit the docstring names. Until the fix of deep gate run 6 an object whose own
+        `__hash__` or `__eq__` raised something other than TypeError raised here, as it does in
+        `_membership.is_member`. Since then the reading at the call decides first: such a status reaches the body as
+        a stand-in and is not bound, and a dict holding such a key is refused with `canonical._StandUnkopierbar`. In
+        both, none of the object's code runs. If this case goes red the docstring is stale; it must not be read as a
+        promise."""
         from proofbundle.anchors_ots import ots_binding_held
+        from proofbundle.canonical import _StandUnkopierbar
+        gelaufen: list = []
 
         class HashRaises:
             def __hash__(self):
+                gelaufen.append("__hash__")
                 raise RuntimeError("hash")
 
         class EqRaises:
             def __hash__(self):
+                gelaufen.append("__hash__")
                 return hash("status")
 
             def __eq__(self, other):
+                gelaufen.append("__eq__")
                 raise RuntimeError("eq")
 
-        for label, verdict in (("status", {"status": HashRaises()}), ("key", {EqRaises(): 1})):
-            with self.subTest(hostile=label), self.assertRaises(RuntimeError):
-                ots_binding_held(verdict)
+        status, schluessel = {"status": HashRaises()}, {EqRaises(): 1}
+        gelaufen.clear()          # building the second dict hashed its key once; that is the test's own act
+        with self.subTest(hostile="status"):
+            self.assertIs(ots_binding_held(status), False)
+        with self.subTest(hostile="key"), self.assertRaises(_StandUnkopierbar):
+            ots_binding_held(schluessel)
+        self.assertEqual(gelaufen, [], "a method of the caller's object ran")
 
     @unittest.skipUnless(_HAS_OTS, "NOT MEASURABLE: needs proofbundle[anchors] (opentimestamps); did NOT run")
     def test_a_rootcommit_anchor_whose_proof_is_over_the_cap_is_not_bound(self):

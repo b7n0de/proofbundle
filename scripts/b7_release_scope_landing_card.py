@@ -75,14 +75,29 @@ def _nachtrag() -> tuple[dict[str, int], str]:
     return aus, "measured"
 
 
-def karte(repo_slug: str = "b7n0de/proofbundle", version: str = "6.1.0") -> dict:
+def karte(repo_slug: str = "b7n0de/proofbundle", version: str | None = None) -> dict:
     G = _gate()
+    # WITHOUT A VERSION, THE RELEASE BEING BUILT, by the gate's own rule rather than a second one.
+    # This default was the typed "6.1.0" as well, and it went stale at the same release.
+    if version is None:
+        version, herkunft = G.naechste_umfangsversion(REPO)
+        if version is None:
+            return {"schema": "b7n0de.release_scope_landing_card.v1", "zustand": "NOT MEASURABLE",
+                    "grund": herkunft, "rc": 2}
+    else:
+        herkunft = "argument"
     pfad = REPO / "docs" / "release_scope" / f"{version}.md"
     zeilen, lage = G.fuehrende_kennungen(pfad)
     if lage != "measured" and not lage.startswith("gemessen"):
         return {"schema": "b7n0de.release_scope_landing_card.v1", "zustand": "NOT MEASURABLE",
                 "grund": lage, "rc": 2}
-    zu_zweig, mitlaeufer, _ = G.lies_umfang(pfad)
+    # THE BRANCH READER HAS A STATE OF ITS OWN (the sweep for Codex round five on pull request 294).
+    # A scope whose branch column it cannot read makes every line a rider, and a card that kept
+    # only the riders counted no countable line and called that measured.
+    zu_zweig, mitlaeufer, zlage = G.lies_umfang(pfad)
+    if zlage != "gemessen":
+        return {"schema": "b7n0de.release_scope_landing_card.v1", "zustand": "NOT MEASURABLE",
+                "grund": zlage, "rc": 2}
     mit = set(mitlaeufer)
     # A line WITH its own branch is countable, a rider line never.
     ohne_mitlaeufer = [(k, punkt) for k, punkt, zweig in zeilen if k not in mit]
@@ -126,6 +141,7 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str = "6.1.0") -> dict
         "schema": "b7n0de.release_scope_landing_card.v1",
         "zustand": "gemessen", "rc": 0,
         "version": version,
+        "version_herkunft": herkunft,
         "zeilen_gesamt": len(zeilen),
         "zeilen_zaehlbar": len(zaehlbar),
         # LINES, NOT IDENTIFIERS, and that is the same mistake once more, one level deeper.
@@ -153,7 +169,9 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str = "6.1.0") -> dict
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--repo", default="b7n0de/proofbundle")
-    p.add_argument("--version", default="6.1.0")
+    p.add_argument("--version", default=None,
+                   help="the release to count; without it, the oldest scope file above the source "
+                        "version in pyproject.toml")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     d = karte(a.repo, a.version)

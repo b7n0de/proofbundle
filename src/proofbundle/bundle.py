@@ -22,14 +22,16 @@ malformed exit code, not a crash.
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import os
 import stat
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from . import merkle
 from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
+from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
 from .signature import verify_ed25519
@@ -228,6 +230,7 @@ def _require_hash_alg(mk: dict) -> str:
     return hash_alg
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def load_bundle(path: str) -> dict:
     """Read and JSON-parse a bundle file. Deeply-nested JSON overflows the parser's C-recursion; that
     is malformed input, so it is mapped to BundleFormatError (the documented exit-2 path) rather than
@@ -284,9 +287,109 @@ def load_bundle(path: str) -> dict:
         raise BundleFormatError(f"bundle could not be read/parsed: {exc}") from exc
 
 
+def _sd_jwt_issuer_fingerprint(sd) -> "str | None":
+    """The algorithm-bound fingerprint of the key that verified the SD-JWT's issuer signature, or None
+    (Nachtrag 32, the Critical; moved here in Nachtrag 38 as the shared issuer-trust primitive). Re-derived from
+    the bundle's own ``sd_jwt_vc``: the key is attacker-chosen, so this value is only ever COMPARED to a pin the
+    relying party supplied, never trusted on its own. Fail-closed — any decode or verification problem, or a
+    signature that does not actually verify under that key, yields None, so the pin comparison fails."""
+    if not isinstance(sd, dict):
+        return None
+    pub_b64, compact = sd.get("issuer_public_key_b64"), sd.get("compact")
+    if not isinstance(pub_b64, str) or not isinstance(compact, str):
+        return None
+    try:
+        pub = decode_b64(pub_b64)
+    except (ValueError, TypeError):
+        return None
+    from .sdjwt import issuer_key_fingerprint  # noqa: PLC0415
+    try:
+        res = verify_sd_jwt(compact, pub)
+    except (ProofBundleError, ValueError, KeyError, IndexError, TypeError):
+        return None
+    if res.get("sig_ok") is not True:
+        return None
+    return issuer_key_fingerprint(res.get("alg"), pub)
+
+
+def _bundle_signer_fingerprint(bundle_signer_pub) -> "str | None":
+    """The ``ed25519:<standard-base64>`` fingerprint of the key that signed THIS bundle — the key the
+    ``ed25519-signature`` check verified the payload under, passed in as its already-decoded bytes — in the
+    exact form ``decode_eval_claim`` binds the eval-claim's ``issuer`` to (``evalclaim._claim_of_verified``).
+    None when no signer key is available, so a binding comparison fails closed rather than guessing a prefix."""
+    if not isinstance(bundle_signer_pub, (bytes, bytearray)):
+        return None
+    return "ed25519:" + base64.b64encode(bytes(bundle_signer_pub)).decode("ascii")
+
+
+def _sd_jwt_issuer_is_trusted(sd, result, issuer_key_pin, bundle_signer_pub=None) -> "tuple[bool, str]":
+    """Whether a KB-JWT verdict (holder binding, and the audience/nonce equality folded into it) may be reported
+    positive, as a class (Nachtrag 38, Z309 / PR 311 P1). The shared successor of the Nachtrag 36 policy helper,
+    at the bundle.py level so the crypto verdict, the single-field contract and the exit code all honour it.
+
+    A KB-JWT hangs on the ``cnf`` holder key declared INSIDE the issuer-signed SD-JWT, and that SD-JWT's verifying
+    key (``sd_jwt_vc.issuer_public_key_b64``) is supplied OUTSIDE the bundle's signed payload — so a valid issuer
+    signature alone is attacker-chosen (a self-signed SD-JWT with any cnf and a matching KB-JWT verifies). The
+    verdict is trustworthy only when the issuer signature verified AND either the SD-JWT is bound to the signed
+    payload AND verified under the BUNDLE-SIGNING key (the ``sd-jwt-bundle-binding`` check passed and the key
+    that verified the SD-JWT is ``bundle_signer_pub``) OR its issuer key matches a pin the relying party supplied
+    out of band (``issuer_key_pin``, algorithm-bound, from a trust policy's ``sd_jwt.issuer_key_pin`` or the
+    ``verify_bundle`` argument). Otherwise fail-closed with a clear reason. Returns ``(trusted, detail)``.
+
+    Nachtrag 44 (Z309 / PR 311 review 5409929917 P1) closed the gap in the binding path: payload binding alone
+    was treated as trust, but it only matches the SD-JWT's disclosed ``issuer`` to the claim and (via
+    ``sd-jwt-issuer-identity``) to the SD-JWT's own verifying key — it never tied that verifying key to the
+    bundle signer. A payload signed by K_bundle whose ``issuer`` names K_issuer, with an SD-JWT self-signed by
+    K_issuer != K_bundle, was reported positive although the bundle signer never authorized it. The binding path
+    now requires the SD-JWT's verifying key to BE the bundle signer (``bundle_signer_pub``), the same binding
+    ``decode_eval_claim`` makes on the claim's ``issuer`` (``evalclaim._claim_of_verified``)."""
+    sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
+    if sig_check is None or sig_check.ok is not True:
+        return False, ("the SD-JWT issuer signature was never verified (supply "
+                       "sd_jwt_vc.issuer_public_key_b64)")
+    if issuer_key_pin is not None:
+        pin = _zeichen_von(issuer_key_pin)   # one reading, by the characters the pin stores (round 12 discipline)
+        fp = _sd_jwt_issuer_fingerprint(sd)
+        if fp is not None and pin is not None and fp == pin:
+            return True, "the SD-JWT issuer key matches the pinned issuer key"
+        return False, "the SD-JWT issuer key does not match the pinned issuer key"
+    binding_check = next((c for c in result.checks if c.name == "sd-jwt-bundle-binding"), None)
+    if binding_check is not None and binding_check.ok is True:
+        # Nachtrag 44 (Z309 / PR 311 review 5409929917 P1): payload binding alone is NOT the bundle signer's
+        # authorization. sd-jwt-bundle-binding matches the SD-JWT's disclosed always-open fields (passed /
+        # threshold / comparator / suite / issuer + receipt root) to the signed eval-claim, and
+        # sd-jwt-issuer-identity ties that disclosed `issuer` to the SD-JWT's OWN verifying key — but nothing
+        # tied that verifying key to the key that SIGNED THE BUNDLE. A payload signed by K_bundle whose `issuer`
+        # names K_issuer, carrying an SD-JWT self-signed by K_issuer != K_bundle, satisfied the binding and read
+        # the KB-JWT verdict positive, though the bundle signer never authorized that holder binding (K_issuer
+        # did, and K_issuer is attacker-chosen outside the bundle signature). Require the SAME binding
+        # decode_eval_claim enforces on the claim's issuer (evalclaim._claim_of_verified): the key that verified
+        # the SD-JWT MUST be the bundle signer.
+        fp = _sd_jwt_issuer_fingerprint(sd)
+        signer_fp = _bundle_signer_fingerprint(bundle_signer_pub)
+        if fp is not None and signer_fp is not None and fp == signer_fp:
+            return True, "the SD-JWT is bound to the signed payload and verified under the bundle-signing key"
+        return False, ("the SD-JWT is bound to the signed payload but its verifying key "
+                       "(sd_jwt_vc.issuer_public_key_b64) is NOT the key that signed the bundle (reason: "
+                       "binding-signer-mismatch — the eval-claim's issuer is a different key, so a valid SD-JWT "
+                       "signature by it is not the bundle signer's authorization; this is the binding "
+                       "decode_eval_claim enforces on the claim issuer). Pin the issuer key "
+                       "(sd_jwt.issuer_key_pin in a --policy, or the verify_bundle sd_jwt_issuer_key_pin "
+                       "argument), or sign the SD-JWT with the bundle-signing key")
+    return False, ("nothing ties the SD-JWT to a trusted issuer — its verifying key "
+                   "(sd_jwt_vc.issuer_public_key_b64) is supplied outside the bundle's signed payload, so a "
+                   "self-signed SD-JWT would verify. Pin the issuer key (sd_jwt.issuer_key_pin in a --policy, or "
+                   "the verify_bundle sd_jwt_issuer_key_pin argument), or use an eval receipt whose SD-JWT binds "
+                   "to the signed payload")
+
+
+@_ein_stand
 def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
                   expected_root_b64: Optional[str] = None,
-                  expected_tree_size: Optional[int] = None) -> VerificationResult:
+                  expected_tree_size: Optional[int] = None,
+                  sd_jwt_issuer_key_pin: Optional[str] = None,
+                  now: Optional[int] = None,
+                  max_age_seconds: Optional[int] = None) -> VerificationResult:
     """Verify an evidence bundle (a dict or a path to a JSON file).
 
     ``expected_aud`` / ``expected_nonce`` (v1.3): when the bundle carries a Key Binding JWT, these enforce
@@ -294,6 +397,15 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     ``nonce`` MUST match ``expected_nonce``. If omitted, the KB-JWT signature + disclosure binding are still
     checked, but the relying party has NOT bound the presentation to itself/this transaction — a stale or
     cross-audience replay would still verify. A relying party doing challenge-response MUST pass both.
+
+    ``sd_jwt_issuer_key_pin`` (Nachtrag 38, Z309 / PR 311 P1): a POSITIVE KB-JWT verdict — the holder binding
+    and the ``expected_aud``/``expected_nonce`` equality folded into it — is reported only under a trusted
+    issuer, because the SD-JWT's verifying key is supplied OUTSIDE the bundle signature (attacker-chosen). The
+    issuer is trusted when the SD-JWT is bound to the signed payload (an eval receipt) OR its issuer key matches
+    this pin (algorithm-bound, e.g. ``ed25519:<b64>`` — a relying-party value, from a policy's
+    ``sd_jwt.issuer_key_pin`` or passed here directly). Without an anchor a KB-JWT presentation is NOT reported
+    positive: ``sd-jwt-issuer-trust`` FAILS (fail-closed), so a self-signed SD-JWT can no longer read
+    ``key_binding_ok``/``audience_ok``/``nonce_ok`` as true. Payload-bound eval receipts are unaffected.
 
     ``expected_root_b64`` / ``expected_tree_size`` (P0-A, Hardening 3.0.1 §6.2): RELYING-PARTY root
     authentication. The native Merkle root is NOT part of the signature input (SPEC §5), so the SAME
@@ -305,10 +417,37 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     ``root-authenticity`` / ``tree-size`` checks). ``expected_root_b64`` is decoded and compared to the
     stated root's BYTES (canonicalization-agnostic). Absent, root authenticity stays NOT_EVALUATED and
     the crypto verdict is unchanged (backward-compatible) — see ``root_authenticity_summary``.
+
+    ``now`` / ``max_age_seconds`` (Nachtrag 49b CX-04): the one evaluation time (POSIX seconds) for the KB-JWT
+    iat freshness on this composed path. When the bundle carries a Key Binding JWT and ``now`` is given, the iat
+    is judged against the presentation age — the default is 300 s with a 60 s future-clock-skew window; a
+    non-negative ``max_age_seconds`` overrides the age, an invalid one falls back to the default (kbjwt). Without
+    ``now`` the KB-JWT freshness is NOT judged (``fresh`` None), the behaviour before this Nachtrag (narrowing);
+    the signature + disclosure + aud/nonce binding are checked either way.
     """
-    if isinstance(bundle, str):
+    return _verify_bundle(bundle, expected_aud=expected_aud, expected_nonce=expected_nonce,
+                          expected_root_b64=expected_root_b64,
+                          expected_tree_size=expected_tree_size,
+                          sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin,
+                          now=now, max_age_seconds=max_age_seconds)[0]
+
+
+def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce=None,
+                   expected_root_b64: Optional[str] = None,
+                   expected_tree_size: Optional[int] = None,
+                   sd_jwt_issuer_key_pin: Optional[str] = None,
+                   now: Optional[int] = None,
+                   max_age_seconds: Optional[int] = None) -> tuple[VerificationResult, bytes]:
+    """`verify_bundle`, and the payload bytes its signature and inclusion checks read.
+
+    For a reader of the payload (round 11, `evalclaim.decode_eval_claim`): it parses exactly the
+    bytes that were verified, instead of decoding ``payload_b64`` a second time. This is the body of
+    `verify_bundle`, which returns the first element: the same checks in the same order."""
+    # The type is the object's own and a path its characters (round 12): `isinstance` read a caller's
+    # `__class__` for every object that is no str.
+    if issubclass(type(bundle), str):
         try:
-            bundle = load_bundle(bundle)
+            bundle = load_bundle(str.__str__(bundle))
         except (OSError, ValueError) as exc:
             # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
             # unreadable path surfaces as the documented BundleFormatError this function already raises for
@@ -317,7 +456,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
             # also raises a ValueError from open(), so widen to (OSError, ValueError).
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
-    if not isinstance(bundle, dict):
+    if not issubclass(type(bundle), dict):
         raise BundleFormatError("bundle must be a JSON object")
 
     # RT-09 (PB-2026-0718-16): the input_bytes + json_nodes + json_depth budget lives in loads_strict, which a
@@ -336,6 +475,17 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         raise
     except ProofBundleError as exc:
         raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
+    # ONE READING (round 11, class A): every check below reads the plain copy of what the caller's object
+    # stores (`canonical._plain_for_jcs`, after the budget bounded its depth), never the object again.
+    # Measured at fa555f13 with a dict subclass whose own `__getitem__`/`get` answer another receipt's
+    # `payload_b64` and `merkle` from the second read on: the signature and the inclusion proof read the
+    # first answer and the SD-JWT binding below the second, so an SD-JWT issued for receipt B (passed
+    # True) grafted onto receipt A (passed False) verified ok=True. A value that is no JSON value is
+    # refused here (BundleFormatError), and a tuple is read as the array JSON writes it. A parsed file
+    # holds only plain JSON values, so nothing changes for one.
+    bundle = _plain_for_jcs(bundle, BundleFormatError)
+    if type(bundle) is not dict:   # an object whose `__class__` claimed dict, holding another type
+        raise BundleFormatError("bundle must be a JSON object")
 
     schema = bundle.get("schema")
     if schema != SCHEMA:
@@ -372,6 +522,13 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
     raw_sig = _b64d(_require(sig, "sig_b64", "signature.sig_b64"), "signature.sig_b64")
     sig_ok = verify_ed25519(pub, raw_sig, payload)
     result.add("ed25519-signature", sig_ok, "payload signed by stated key" if sig_ok else "invalid signature")
+    # Nachtrag 46 (Z309, 6.2.0): record WHAT this verification actually verified — the signing key and the
+    # payload digest — but ONLY when the signature verified (sig_ok is exactly True). A downstream caller that
+    # holds a result and a bundle separately (policy.evaluate_policy) binds the two with these, so a good result
+    # of bundle A cannot validate a different bundle B (F2). Left None on a failed/absent signature.
+    if sig_ok is True:
+        result.verified_signer_pub = pub
+        result.verified_payload_digest = hashlib.sha256(payload).hexdigest()
 
     # 2. merkle inclusion of the payload
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
@@ -404,6 +561,13 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             f"anchored at index {leaf_index} of {tree_size} (Merkle-consistent under the STATED root)"
             if incl_ok else "inclusion proof failed",
         )
+        # Addendum R6a-2 (Z309): record the Merkle root this inclusion check passed under (origin-covered),
+        # set only on a passing bundle signature AND a passing inclusion. A downstream judge that authenticates
+        # a pinned/expected/checkpoint root (policy.evaluate_policy) confirms the result proved inclusion UNDER
+        # that exact root — a pin authenticates a root but is no inclusion proof for THIS bundle's data, so a
+        # copy that only relabels merkle.root_b64 to a pinned foreign root is refused. Left None otherwise.
+        if sig_ok is True and incl_ok is True:
+            result.verified_inclusion_root = root
 
     # 2b. P0-A (§6.2): relying-party root authentication. The stated root is NOT signed, so inclusion
     # alone does not authenticate it; only a bit-exact match against a root/size the relying party
@@ -415,10 +579,19 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         result.add("root-authenticity", root_ok,
                    "stated root matches the expected authenticated root" if root_ok
                    else "stated root does NOT match the expected root — possible root/rewrap substitution")
+        # Nachtrag 46b (Z309): record the exact stated root this root-authenticity check verified, but only
+        # on a passing bundle signature AND a passing root check. The stated Merkle root is NOT in the signed
+        # payload, so payload+signer equality does not pin it; a downstream judge that adopts a positive
+        # root-authenticity (policy.evaluate_policy) must confirm the result verified THIS bundle's root, not
+        # a different one re-anchoring the same payload (the review's root/rewrap case). Left None otherwise.
+        if sig_ok is True and root_ok is True:
+            result.verified_merkle_root = root
     if expected_tree_size is not None:
         # strict: a real int only — reject bool (1==True) and float (1==1.0), matching _require_int.
-        size_ok = (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
-                   and tree_size == expected_tree_size)
+        # type() and not isinstance(): isinstance believes an object's own __class__, and the == below then ran
+        # that object's __eq__, so an expectation that only claimed to be an int passed the tree-size check
+        # (measured), and one whose __class__ raised escaped verify_bundle raw. type(x) is int also rejects bool.
+        size_ok = type(expected_tree_size) is int and tree_size == expected_tree_size
         # 6-lens gate L2-BDOS-EXPECTED-TREE-SIZE: expected_tree_size is RP-supplied and NOT routed through
         # _require_int, so str()-rendering an absurd int (e.g. 10**5000) in the mismatch detail tripped
         # CPython's int<->str cap (sys.get_int_max_str_digits, CVE-2020-10735) as a RAW ValueError out of this
@@ -427,8 +600,7 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         # or ill-typed expectation gets a safe generic detail (no str() of the raw value).
         if size_ok:
             detail = f"tree_size {tree_size} matches the expected size"
-        elif (isinstance(expected_tree_size, int) and not isinstance(expected_tree_size, bool)
-              and expected_tree_size.bit_length() <= 8192):
+        elif type(expected_tree_size) is int and expected_tree_size.bit_length() <= 8192:
             detail = (f"tree_size {tree_size} != expected {expected_tree_size} "
                       "— possible tree-size substitution")
         else:
@@ -445,6 +617,14 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         compact = _require(sd, "compact", "sd_jwt_vc.compact")
         if not isinstance(compact, str):   # malformed input → BundleFormatError, never a raw traceback
             raise BundleFormatError("field sd_jwt_vc.compact must be a string")
+        # Addendum R6a-1 (Z309): record the exact sd_jwt_vc.compact this result verified (origin-covered),
+        # set on a passing bundle signature. The sd_jwt_vc block is OUTSIDE the signed payload, so a copy that
+        # changes only the KB-JWT signature (same signer and payload) would otherwise let policy.evaluate_policy
+        # adopt this result's sd-jwt-key-binding / nonce verdict for a DIFFERENT presentation; the policy binds
+        # the passed bundle's compact to this. Set here (before the sd-jwt checks run) so it always reflects the
+        # block the result's sd-jwt checks describe, verified issuer signature or not.
+        if sig_ok is True:
+            result.verified_sd_jwt_vc_compact = compact
         issuer_pub = None
         if sd.get("issuer_public_key_b64"):
             issuer_pub = _b64d(sd["issuer_public_key_b64"], "sd_jwt_vc.issuer_public_key_b64")
@@ -481,7 +661,11 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
         if sd_res.get("sig_checked") and sd_res.get("sig_ok"):
             sd_part, kb = split_key_binding(compact)
             if kb is not None:
-                kb_res = verify_key_binding(compact, expected_aud=expected_aud, expected_nonce=expected_nonce)
+                # Nachtrag 49b CX-04: the one evaluation time reaches the KB-JWT iat freshness on the composed
+                # path too. Without `now` the freshness is not judged (fresh None), the N49 behaviour (narrowing);
+                # with `now` the iat is judged against the presentation age (default 300 s, 60 s future skew).
+                kb_res = verify_key_binding(compact, expected_aud=expected_aud, expected_nonce=expected_nonce,
+                                            now=now, max_age_seconds=max_age_seconds)
                 result.add("sd-jwt-key-binding", kb_res["ok"], kb_res["detail"])
                 kb_binding_checked = True
             elif _issuer_requires_holder_binding(sd_part):
@@ -596,9 +780,89 @@ def verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonce
             "expected_aud/expected_nonce were supplied but the bundle carries no verifiable Key "
             "Binding JWT — the requested replay/audience binding cannot be enforced (fail-closed)")
 
-    return result
+    # N38 (Z309 / PR 311 P1, Owner card OA-44d4a016e9 Wahl B): a POSITIVE KB-JWT verdict — the holder binding,
+    # and the expected_aud/expected_nonce equality folded into it — is reported only under a trusted issuer. The
+    # cnf holder key lives inside the issuer-signed SD-JWT, whose verifying key (sd_jwt_vc.issuer_public_key_b64)
+    # is supplied outside the bundle signature, so a self-signed SD-JWT + matching KB-JWT otherwise read
+    # key_binding_ok/audience_ok/nonce_ok as true with no pin or payload binding (the direct-option sibling of the
+    # Nachtrag 36 policy class). When a KB-JWT verdict is positive, gate it on issuer trust (payload binding or the
+    # relying party's pin); without an anchor, sd-jwt-issuer-trust FAILS (fail-closed). Payload-bound eval receipts
+    # and pinned issuers are unaffected.
+    kb_ok = next((c.ok for c in result.checks if c.name == "sd-jwt-key-binding"), None)
+    if kb_binding_checked and kb_ok is True:
+        # Nachtrag 44: `pub` is the key the ed25519-signature check verified the payload under (the bundle
+        # signer); the binding path trusts the SD-JWT only when its verifying key is that same key.
+        # Nachtrag 46 (Z309, 6.2.0, F1): the binding path may use `pub` as the bundle signer ONLY when the
+        # bundle signature actually verified under it (sig_ok is exactly True). A bundle whose ed25519
+        # signature failed (e.g. a flipped signature byte with public_key_b64 unchanged) is NOT signed by
+        # `pub`, so passing it would let the binding path read a self-signed SD-JWT as bundle-authorized and
+        # keep key_binding_ok / audience_ok / nonce_ok positive although the bundle is unsigned. On a failed
+        # signature the signer is None, the binding path fails closed, and sd-jwt-issuer-trust is reported False.
+        trusted, trust_detail = _sd_jwt_issuer_is_trusted(sd, result, sd_jwt_issuer_key_pin,
+                                                          bundle_signer_pub=(pub if sig_ok is True else None))
+        if not trusted:
+            result.add(
+                "sd-jwt-issuer-trust", False,
+                "a Key Binding JWT verdict (holder binding / audience / nonce) was reported, but " + trust_detail)
+
+    # Nachtrag 46b/46c (Z309): stamp the ORIGIN token over the captured verified state (signer, payload digest,
+    # Merkle root) AND the result's checks (Nachtrag 46c), once, only on a passing bundle signature — after the
+    # last check is added. A downstream judge recomputes it from the result's recorded fields and checks and
+    # refuses a result that was not produced by this process's verifier, or whose checks were changed after
+    # stamping (a hand-built or mutated result) — aptly-filled result fields are no proof (review). Addendum
+    # R6a (Z309): the token ALSO covers verified_inclusion_root (R6a-2) and verified_sd_jwt_vc_compact (R6a-1),
+    # both recorded above — reviewer round 6a disproved the earlier claim that the verified signer alone bound
+    # the sd_jwt_vc block and the via_trusted root, so each now has its own origin-covered field.
+    if sig_ok is True:
+        result.stamp_origin()
+
+    return result, payload
 
 
+def _checks_passed(result) -> "tuple[bool, list[str]]":
+    """Whether a caller's crypto result passed, counted only on exact bools.
+
+    Returns ``(passed, not_bool)``. ``passed`` is True only when every check's ``ok``, read once, is the
+    exact ``True`` and ``result.ok`` is the exact ``True``; ``not_bool`` names every one of these values
+    that is not a bool (``checks['<name>'].ok`` or ``ok``). ``VerificationResult.ok`` folds its checks
+    by their truth, so a caller-built ``Check("root-authenticity", "false")`` made it True; it is read
+    here only after every check is known to be a bool, so the caller's ``__bool__`` never runs. Shared
+    by :func:`root_authenticity_summary` and ``policy.evaluate_policy``: the summary and the policy's
+    crypto gate count one crypto result by one rule.
+
+    ``checks`` is read by what it stores: a ``list`` or ``tuple``, a subclass included, through the base
+    type's own iterator (``list.__iter__`` / ``tuple.__iter__``), so a subclass's ``__iter__`` never runs.
+    3a8074fc asked ``type(raw) is list``, so a duck-typed result whose checks sat in a list subclass skipped
+    the per-check test, and ``Check("root-authenticity", "false")`` in it passed the gate on the result's own
+    ``ok`` (measured), while the same check in a plain list did not."""
+    raw: Any = getattr(result, "checks", None)
+    if issubclass(type(raw), list):
+        checks = list(list.__iter__(raw))
+    elif issubclass(type(raw), tuple):
+        checks = list(tuple.__iter__(raw))
+    else:
+        checks = []
+    # ONE READ PER CHECK, AND THE VERDICT COMES FROM IT (Codex on pull request 293, round three). The
+    # type test read each `ok` and the verdict then came from `result.ok`, which reads every `ok` again:
+    # a check whose `ok` answers True, then False, then True passed the type test with False and the
+    # verdict with True, and `root_authenticity_summary` gave `safeForAutomation` True (measured).
+    not_bool: list[str] = []
+    gelesen: list = []
+    for c in checks:
+        wert = getattr(c, "ok", None)
+        gelesen.append(wert)
+        if type(wert) is not bool:
+            name = getattr(c, "name", None)
+            not_bool.append(f"checks[{name!r}].ok" if type(name) is str else "checks[?].ok")
+    if not_bool:
+        return False, not_bool
+    ok = getattr(result, "ok", False)
+    if type(ok) is not bool:
+        return False, ["ok"]
+    return ok is True and all(w is True for w in gelesen), []
+
+
+@_ein_stand
 def root_authenticity_summary(result: VerificationResult, *,
                               policy_authenticated_root: Optional[bool] = None,
                               policy_ok: Optional[bool] = None,
@@ -635,14 +899,46 @@ def root_authenticity_summary(result: VerificationResult, *,
     passed) — ``None`` (no policy evaluated) can never make it true. ``policy_warnings`` (the vacuous
     'attributes to nobody' lint) forces it false too: a policy that pins no signer authorises no
     identity, so a crypto-valid, root-pinned receipt under it is NOT automation-safe.
+
+    EVERY VERDICT AND FLAG COUNTS ONLY AS A BOOL. A check's ``ok`` passes only as the exact ``True``;
+    a gate verdict (``policy_ok``, ``anchor_ok``, ``public_transparency_ok``, ``replay_ok``) blocks
+    unless it is ``None`` or the exact ``True``; a blocker flag (``policy_expired``,
+    ``policy_not_yet_valid``, ``requires_identity_overlay``) blocks unless it is ``None`` or the
+    exact ``False``; ``policy_warnings`` counts as empty only when it is ``None`` or an empty list
+    or tuple. These used to be read by their truth or only on the one exact value that blocks, so
+    ``Check("root-authenticity", "false")``, ``policy_ok="false"``, ``anchor_ok="false"`` and
+    ``policy_expired="true"`` each left ``safeForAutomation`` true. A value that is not a bool never
+    passes, its own methods never run, and the result then carries ``notBooleanInputs``, the names
+    of those values (absent when every input is a bool, so the shape is unchanged for them).
     """
-    by = {c.name: c.ok for c in result.checks}
+    # The checks by name, read as `_checks_passed` reads them, never by attribute access that can raise: since
+    # deep gate run 6 a value of the caller's own class reaches this body as a stand-in that holds nothing
+    # (`canonical._fremdkoerper`), a check or a result among them, and `c.name` raised AttributeError out of
+    # this summary for a caller's check object (tests/test_a_caller_verdict_counts_only_as_a_bool.py). A check
+    # without a text name names no row and fails the crypto verdict in `_checks_passed`.
+    roh: Any = getattr(result, "checks", None)
+    gelistet = (list(list.__iter__(roh)) if issubclass(type(roh), list)
+                else list(tuple.__iter__(roh)) if issubclass(type(roh), tuple) else [])
+    by = {}
+    for c in gelistet:
+        name = getattr(c, "name", None)
+        if type(name) is str:
+            by[name] = getattr(c, "ok", None)
+    crypto_passed, not_bool = _checks_passed(result)
+    for _name, _value in (("policy_authenticated_root", policy_authenticated_root), ("policy_ok", policy_ok),
+                          ("anchor_ok", anchor_ok), ("signer_trusted", signer_trusted),
+                          ("policy_expired", policy_expired), ("policy_not_yet_valid", policy_not_yet_valid),
+                          ("requires_identity_overlay", requires_identity_overlay),
+                          ("public_transparency_ok", public_transparency_ok), ("replay_ok", replay_ok),
+                          ("tree_context_authenticated", tree_context_authenticated)):
+        if _value is not None and type(_value) is not bool:
+            not_bool.append(_name)
 
     def _tri(name: str) -> str:
-        return "PASS" if by.get(name) else ("FAIL" if name in by else "NOT_EVALUATED")
+        return "PASS" if by.get(name) is True else ("FAIL" if name in by else "NOT_EVALUATED")
 
     if "root-authenticity" in by:
-        root_auth = "PASS" if by["root-authenticity"] else "FAIL"
+        root_auth = "PASS" if by["root-authenticity"] is True else "FAIL"
     elif policy_authenticated_root is True:
         root_auth = "PASS"
     elif policy_authenticated_root is False:
@@ -661,7 +957,10 @@ def root_authenticity_summary(result: VerificationResult, *,
         tree_context = "FAIL"
     else:
         tree_context = "NOT_EVALUATED"
-    cp_auth = checkpoint_authenticity if checkpoint_authenticity in ("PASS", "FAIL") \
+    # A plain str only: `in ("PASS", "FAIL")` and `== "PASS"` below ran the caller's own __eq__, and an
+    # object answering True reached rootTrustLevel CHECKPOINT (measured). Anything else is NOT_EVALUATED.
+    cp_auth = checkpoint_authenticity if (type(checkpoint_authenticity) is str
+                                          and checkpoint_authenticity in ("PASS", "FAIL")) \
         else "NOT_EVALUATED"
     if tree_context == "PASS" and cp_auth == "PASS":
         root_trust_level = "CHECKPOINT"
@@ -685,8 +984,19 @@ def root_authenticity_summary(result: VerificationResult, *,
     # public-transparency policy section is 3.2.0, and replay (aud/nonce) already fails the crypto verdict
     # (CRYPTO_FAILED) when a required KB-JWT is absent — so these two blockers are defined for forward
     # compatibility and stay dormant unless a future policy layer supplies a False verdict.
+    # A gate verdict passes only as the exact True, a blocker flag is cleared only by the exact False; the
+    # former `is False` / `is True` reads let "false" and "true" through the one side that does not block.
+    def _gate_failed(verdict) -> bool:
+        return verdict is not None and verdict is not True
+
+    def _flag_raised(flag) -> bool:
+        return flag is not None and flag is not False
+
+    overlay = _flag_raised(requires_identity_overlay)
+    warnings_present = policy_warnings is not None and not (
+        (type(policy_warnings) is list or type(policy_warnings) is tuple) and len(policy_warnings) == 0)
     blockers: list[str] = []
-    if not bool(result.ok):
+    if not crypto_passed:
         blockers.append("CRYPTO_FAILED")
     if root_auth != "PASS":
         blockers.append("ROOT_NOT_AUTHENTICATED")
@@ -696,13 +1006,13 @@ def root_authenticity_summary(result: VerificationResult, *,
         blockers.append("TREE_CONTEXT_NOT_AUTHENTICATED")
     if policy_ok is None:
         blockers.append("POLICY_NOT_EVALUATED")
-    elif policy_ok is False:
+    elif policy_ok is not True:
         blockers.append("POLICY_FAILED")
-    elif signer_trusted is not True and not requires_identity_overlay:
+    elif signer_trusted is not True and not overlay:
         blockers.append("SIGNER_NOT_PINNED")   # policy passed but pins no trusted identity (attributes to nobody)
-    elif signer_trusted is True and policy_warnings:
+    elif signer_trusted is True and warnings_present:
         blockers.append("POLICY_WARNINGS_PRESENT")   # signer pinned yet the policy still warns (forward-compat)
-    if requires_identity_overlay:
+    if overlay:
         # AP-2 §6.2 (L2 pre-land audit): a RAW template (requiresIdentityOverlay:true) is never automation-safe
         # — reported as its OWN blocker, not SIGNER_NOT_PINNED, which would be factually wrong when the template
         # actually does match a signer (the real reason is the un-cleared template-lifecycle flag). Independent
@@ -712,19 +1022,20 @@ def root_authenticity_summary(result: VerificationResult, *,
     # AP-2 §6.4 lifecycle: an EXPIRED policy is unsafe to automate on even if it otherwise passed (a stale
     # signer pin the relying party has since rotated away from). Independent of the signer/warning chain so
     # it is reported alongside, never in place of, another reason.
-    if policy_expired is True:
+    if _flag_raised(policy_expired):
         blockers.append("POLICY_EXPIRED")
     # A-P0-2 not-before mirror (Lens-2/3/4/6 review): a policy whose valid_from is in the FUTURE at the
     # real current time is not in force, so a crypto-valid receipt under it is not automation-safe even
     # when historically verified — the symmetric case to POLICY_EXPIRED. Reported at current time.
-    if policy_not_yet_valid is True:
+    if _flag_raised(policy_not_yet_valid):
         blockers.append("POLICY_NOT_YET_VALID")
-    if anchor_ok is False:
+    if _gate_failed(anchor_ok):
         blockers.append("ANCHOR_REQUIRED_FAILED")
-    if public_transparency_ok is False:
+    if _gate_failed(public_transparency_ok):
         blockers.append("PUBLIC_TRANSPARENCY_REQUIRED_FAILED")
-    if replay_ok is False:
+    if _gate_failed(replay_ok):
         blockers.append("REPLAY_BINDING_REQUIRED_FAILED")
+    extra = {"notBooleanInputs": not_bool} if not_bool else {}
     return {
         "payloadSignature": _tri("ed25519-signature"),
         "merkleConsistency": _tri("merkle-inclusion"),
@@ -739,9 +1050,11 @@ def root_authenticity_summary(result: VerificationResult, *,
         "publicTransparency": "NOT_EVALUATED",
         "safeForAutomation": not blockers,
         "automationBlockers": blockers,
+        **extra,
     }
 
 
+@_ein_stand
 def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     """Recompute the Merkle root from the bundle's own payload + inclusion proof (v1.2, issue #2).
 
@@ -751,9 +1064,11 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
     same strict format validation as :func:`verify_bundle` — malformed input raises
     ``BundleFormatError``, never a raw traceback.
     """
-    if isinstance(bundle, str):
+    # The type is the object's own and a path its characters (round 12): `isinstance` read a caller's
+    # `__class__` for every object that is no str.
+    if issubclass(type(bundle), str):
         try:
-            bundle = load_bundle(bundle)
+            bundle = load_bundle(str.__str__(bundle))
         except (OSError, ValueError) as exc:
             # RE-GATE never-raise consistency: a `bundle` STR is a path to a JSON file; a bad / too-long /
             # unreadable path surfaces as the documented BundleFormatError this function already raises for
@@ -762,7 +1077,7 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
             # ('embedded null byte' -> ValueError) or a lone-surrogate path (UnicodeEncodeError -> ValueError)
             # also raises a ValueError from open(), so widen to (OSError, ValueError).
             raise BundleFormatError(f"bundle path could not be read: {exc}") from exc
-    if not isinstance(bundle, dict):
+    if not issubclass(type(bundle), dict):
         raise BundleFormatError("bundle must be a JSON object")
     # 6-lens gate L2-BDOS-01: mirror verify_bundle's direct-dict structural budget here — this exported
     # surface (and `verify --verbose`) walked an already-parsed dict without it, so json_nodes/json_depth/
@@ -775,6 +1090,11 @@ def recompute_merkle_root_b64(bundle: Union[dict, str]) -> dict:
         raise
     except ProofBundleError as exc:
         raise BundleFormatError(f"bundle structure exceeds the verification budget: {exc}") from exc
+    # ONE READING, as in verify_bundle (round 12): the plain copy of what the bundle stores, so the root
+    # recomputed and the root stated come from the same reading and not from the bundle's own `get`.
+    bundle = _plain_for_jcs(bundle, BundleFormatError)
+    if type(bundle) is not dict:   # an object whose `__class__` claimed dict, holding another type
+        raise BundleFormatError("bundle must be a JSON object")
     payload = _b64d(_require(bundle, "payload_b64", "payload_b64"), "payload_b64")
     mk = _require_dict(_require(bundle, "merkle", "merkle"), "merkle")
     # Validate hash_alg the SAME way verify_bundle does — REQUIRED, not silently defaulted, and the value

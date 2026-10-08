@@ -52,9 +52,10 @@ from collections import deque
 from typing import Optional, Set
 
 from ._strict_json import loads_strict
+from .canonical import _ein_stand, _zeichen_von
 from .errors import ProofBundleError
-from .signature import (_es256_other_spelling, canonical_es256_signature, verify_ecdsa_p256,
-                        verify_ed25519_pinned)
+from .signature import (_es256_other_spelling, _reject_jws_crit, canonical_es256_signature,
+                        verify_ecdsa_p256, verify_ed25519_pinned)
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -67,7 +68,25 @@ from ._membership import is_member
 # ES256 path already refuses a point that is not on P-256.
 _ISSUER_SIG_VERIFIERS = {"EdDSA": verify_ed25519_pinned, "ES256": verify_ecdsa_p256}
 
-__all__ = ["verify_sd_jwt", "canonical_sd_jwt_compact"]
+#: The algorithm prefix of an issuer-key fingerprint, one per accepted signature algorithm. The prefix binds
+#: the fingerprint to the algorithm that actually verified, so a key pinned for one algorithm can never match a
+#: signature made under another (no algorithm confusion). The verdict strings of bundle.py's
+#: ``sd-jwt-issuer-identity`` check use the same form, and so does ``sd_jwt.issuer_key_pin`` in a trust policy.
+_ISSUER_FP_PREFIX = {"EdDSA": "ed25519:", "ES256": "es256:"}
+
+
+def issuer_key_fingerprint(alg, pub) -> Optional[str]:
+    """The algorithm-bound fingerprint of an SD-JWT issuer key: ``"<alg-prefix><standard-base64 of the raw
+    public key>"`` (for example ``"ed25519:ABCD…"``). ``None`` when the algorithm is not one this verifier
+    accepts or the key is not bytes, so a caller fails closed rather than guessing a prefix — an
+    algorithm-confused or key-absent pin must never match a verifying key (Nachtrag 32, the Critical's pin)."""
+    prefix = _ISSUER_FP_PREFIX.get(alg) if isinstance(alg, str) else None
+    if prefix is None or not isinstance(pub, (bytes, bytearray)):
+        return None
+    return prefix + base64.b64encode(bytes(pub)).decode("ascii")
+
+
+__all__ = ["verify_sd_jwt", "canonical_sd_jwt_compact", "issuer_key_fingerprint"]
 
 _HASH_ALG = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
 
@@ -116,6 +135,7 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
             _collect_committed_digests(item, out)
 
 
+@_ein_stand
 def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
     """Verify an SD-JWT compact serialization.
 
@@ -129,7 +149,13 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         "alg": None,
         "detail": "",
     }
-    if not isinstance(compact, str):
+    # ONE READING, by its characters (round 12, the class of lens run 11): at cd5d39f4 a `str`
+    # subclass's own `split` handed out the segments, and the header and payload were decoded through
+    # their own `encode` while the signing input was their own `__format__`, so the claims parsed and
+    # the bytes the signature covered were two readings. The copy is a plain `str`, and every segment
+    # split from it is one.
+    compact = _zeichen_von(compact)
+    if compact is None:
         # RE-GATE never-raise (breadth sweep): a non-str compact presentation is malformed input — a
         # fail-closed verdict, never a raw AttributeError from `.split("~")`. This dict-returning verify
         # surface (untrusted SD-JWT from a holder) must always return a verdict.
@@ -159,6 +185,15 @@ def verify_sd_jwt(compact: str, issuer_pubkey: Optional[bytes] = None) -> dict:
         # a JWT header/payload that decodes to a non-object (e.g. the integer 5) must fail cleanly, not
         # crash later on .get(...) — keeps verify_bundle/verify_receipt_token's "never a crash" contract.
         result["detail"] = "malformed JWT header or payload (not a JSON object)"
+        return result
+
+    # Nachtrag 50 (Z309, K5-02): RFC 7515 §4.1.11 — an un-understood critical header makes the JWS
+    # invalid. Early exit right after reading the issuer header (like the duplicate-key case above) and
+    # BEFORE the alg/signature work, so structure_ok stays False and no signature is ever checked
+    # (sig_ok never True) for an issuer JWS that carries a `crit` member.
+    _crit_reason = _reject_jws_crit(header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
         return result
 
     alg = header.get("alg")
@@ -310,6 +345,7 @@ def _canonical_es256_jws(jws):
     return head + _b64url_nopad(canonical)
 
 
+@_ein_stand
 def canonical_sd_jwt_compact(compact):
     """The form an IDENTITY of ``compact`` is computed over: every ES256 signature in it written with
     ``s <= n / 2`` (:func:`~proofbundle.signature.canonical_es256_signature`). A compact has two such

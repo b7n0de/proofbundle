@@ -6,7 +6,8 @@ are **implemented and normative** (SPEC.md §7c/§7d/§7e). The trust-*policy*
 evaluation that composes them into one relying-party verdict is now built as
 an **EXPERIMENTAL library** (3.2.0 O3): `public_transparency.py::evaluate_public_transparency`
 takes a policy object (`requireSignedCheckpoint`, `trustedLogOrigins`/`trustedLogKeys`,
-`requireConsistencyProof`, `witnessQuorum`) and returns named statuses
+`requireConsistencyProof`, `witnessQuorum`; a non-empty `trustedLogKeys` is refused without
+`requireSignedCheckpoint: true`, since only the checkpoint signature check reads it) and returns named statuses
 (`LOG_ORIGIN`, `CHECKPOINT_SIGNATURE`, `ROOT_BYTES_AUTHENTICITY`,
 `TREE_CONTEXT_AUTHENTICITY`, `CONSISTENCY`, `WITNESS_QUORUM`,
 `PUBLIC_TRANSPARENCY`), fail-closed (a required-but-unevaluable check is FAIL,

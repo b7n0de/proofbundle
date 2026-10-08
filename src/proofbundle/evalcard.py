@@ -27,10 +27,12 @@ from __future__ import annotations
 import hashlib
 
 from .errors import ProofBundleError
+from .canonical import _ein_stand
 
 __all__ = ["evaluation_card_hash", "verify_evaluation_card"]
 
 
+@_ein_stand(aussen={"card_path": "pfad"})
 def evaluation_card_hash(card_path) -> str:
     """Return the lowercase-hex sha256 over the RAW bytes of the Eval Card document — the value to
     place in a claim's ``evaluation_card_sha256`` when signing the receipt."""
@@ -76,6 +78,7 @@ def evaluation_card_hash(card_path) -> str:
     return h.hexdigest()
 
 
+@_ein_stand(aussen={"card_path": "pfad"})
 def verify_evaluation_card(card_path, claim: dict) -> dict:
     """Check that ``claim['evaluation_card_sha256']`` matches the sha256 of the card document.
 
@@ -84,12 +87,22 @@ def verify_evaluation_card(card_path, claim: dict) -> dict:
     is acceptable; ``ok`` is only True on a present-and-matching hash (fail-closed). Mirrors
     ``prereg.verify_prereg`` exactly; callers that need crypto-authenticated claim data (not a
     hand-edited dict) should decode the receipt with ``evalclaim.decode_eval_claim`` first, the
-    same discipline ``prereg``'s CLI ``--check`` uses."""
-    expected = claim.get("evaluation_card_sha256") if isinstance(claim, dict) else None
-    result = {"ok": False, "present": expected is not None, "expected": expected,
-              "actual": None, "detail": ""}
-    if expected is None:
+    same discipline ``prereg``'s CLI ``--check`` uses.
+
+    The claim is read by what it stores and the digest compared by its characters, exactly as in
+    ``prereg.verify_prereg`` (deep gate 6.2.0 at 2348f0a7, L1-620-T3-02): a dict subclass's own ``get``, an
+    object that claims to be a dict through ``__class__`` and a ``str`` subclass's own ``__eq__`` never decide
+    the verdict. A stored value that is no text never matches."""
+    from .canonical import _feld_von, _zeichen_von  # noqa: PLC0415
+    gespeichert = _feld_von(claim, "evaluation_card_sha256")
+    expected = _zeichen_von(gespeichert)
+    result = {"ok": False, "present": gespeichert is not None,
+              "expected": expected if expected is not None else gespeichert, "actual": None, "detail": ""}
+    if gespeichert is None:
         result["detail"] = "claim carries no evaluation_card_sha256 (no eval card referenced)"
+        return result
+    if expected is None:
+        result["detail"] = "evaluation_card_sha256 is not a text value (fail-closed)"
         return result
     try:
         actual = evaluation_card_hash(card_path)
