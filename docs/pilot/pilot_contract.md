@@ -96,7 +96,10 @@ no earlier effect took: the one whose surface and bytes it equals when exactly o
 decided, and among decisions with the same `decidedAt` the one whose `decisionId` sorts first, so the order is total. An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class
 `ambiguous effect`: M1 is `ambiguous` for each of them, it counts under M6 when any of them was refused, and it
 still takes the earliest decided of them. An effect that finds no action left counts under M5 as an unapproved
-effect, so one approval never covers two writes. The rule decides by the stored records alone, so a rerun under
+effect, so one approval never covers two writes. An approval is a decision of type `preActionAuthorization` that
+allowed the action and whose `decidedAt` is not later than the `performedAt` of the effect, as criterion 1 reads it;
+an effect that takes an action without such an approval counts under M5 too, and an effect that takes a refused action
+counts under both M5 and M6. The rule decides by the stored records alone, so a rerun under
 criterion 4 reproduces every match. Matching by identity needs identities that only agent sessions write under: a
 dedicated account or app per agent, named by the operator before the pilot starts (section 10) and kept as the roster
 of section 8, so a rerun reads which writer is an agent's from the records and not from the operator. A write by a
@@ -178,21 +181,28 @@ It stops early, with the reason written down, when:
 - The two public keys the receipts verify with, the gate's and the observer's, are kept beside the records before the
   first decision, so that a rerun verifies against the keys the pilot named and not against keys handed over later.
 - The pilot profile (PB-02) the reconciliation applies, its mapping of gate fields and GitHub observations onto the
-  two predicates with every extraction and normalization rule it names, is kept as the digest of its versioned file
-  beside the records before the first decision and is not changed during the pilot.
-- The verifier the receipts are verified with is kept by its name, its version and the digest of its distribution,
-  and so is a trust policy when one is passed to it.
+  two predicates with every extraction and normalization rule it names, is kept as a copy of its versioned file, with
+  that file's digest, beside the records before the first decision, and is not changed during the pilot.
+- The verifier the receipts are verified with is kept as its distribution file, with its name, version and digest,
+  beside the interpreter version and every installed distribution it runs with, each with its version and digest, and
+  a trust policy passed to it is kept as a copy. Every call of the verifier is kept as it was made: each argument and
+  option value, an audience, a nonce, `--strict`, an anchor or a required subject among them, and every environment
+  variable the verifier reads, so a rerun makes the same call.
 - The instant each receipt's validity is judged at is kept with the reconciliation, so a rerun judges a receipt with a
   `validity.expiresAt` at that instant and not at its own clock. The verifier takes such an instant as
   `--verification-time`, together with a trust policy (`docs/predicates/decision-receipt.md`), and that policy is then
   kept as above.
 - The repository rules that say which surfaces an agent session may write, AGENTS.md as criterion 1 and M5 and M6
-  read it, are kept as the digest of that file at the start of the pilot.
+  read it, are kept as a copy of that file, with its digest, at the start of the pilot.
+- This contract, the version the pilot runs under, is kept as a copy with its digest beside the records before the
+  first decision, and a rerun applies the matching, the measures and the exit criteria of that version, not of a later
+  one.
 - The maintainer's decision on each mismatch class under criterion 3 is kept with its date, since criterion 2 reads
   it for `ambiguous`.
 - The reconciliation reads no input that this section does not keep: every record it reads, and every rule, version,
-  instant and decision it applies. An input it would need and no record keeps is a gap in this contract, and the
-  pilot does not start, or stays open, until a record keeps it.
+  instant and decision it applies. Each is kept as its bytes: a name or a digest alone can authenticate what a
+  rerunner is handed but cannot supply it. An input it would need and no record keeps is a gap in this contract, and
+  the pilot does not start, or stays open, until a record keeps it.
 
 ## 9. First reconciliation example
 

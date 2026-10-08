@@ -250,19 +250,56 @@ class ThePilotContract(unittest.TestCase):
         text = " ".join(_text().split())
         daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
         for behalten in ("The pilot profile (PB-02) the reconciliation applies",
-                         "is kept as the digest of its versioned file beside the records before the first decision",
-                         "The verifier the receipts are verified with is kept by its name, its version and the digest",
-                         "and so is a trust policy when one is passed to it",
+                         "is kept as a copy of its versioned file, with that file's digest, beside the records before "
+                         "the first decision",
+                         "The verifier the receipts are verified with is kept as its distribution file",
+                         "a trust policy passed to it is kept as a copy",
                          "The instant each receipt's validity is judged at is kept with the reconciliation",
                          "at that instant and not at its own clock",
                          "`--verification-time`, together with a trust policy",
-                         "AGENTS.md as criterion 1 and M5 and M6 read it, are kept as the digest of that file",
+                         "AGENTS.md as criterion 1 and M5 and M6 read it, are kept as a copy of that file",
                          "The maintainer's decision on each mismatch class under criterion 3 is kept with its date",
                          "every record it reads, and every rule, version, instant and decision it applies"):
             with self.subTest(kept=behalten[:40]):
                 self.assertIn(behalten, daten)
         aufzeichnungen = text[text.index("## 4. Records"):text.index("## 5. Measures")]
         self.assertIn("the version the reconciliation applies is kept (section 8)", aufzeichnungen)
+
+    def test_what_is_kept_can_be_replayed_and_the_call_is_the_same(self) -> None:
+        """Codex threads 4224372514, 4224372522 and 4224372525: a digest authenticates bytes a rerunner is handed but
+        cannot supply the rules to recompute M1, M3, M5 and M6; the verifier's arguments, an audience or --strict,
+        change its verdict and were not kept; and the contract itself defines the matching and the exit and kept no
+        version of itself. Each rule is kept as its bytes, the verifier as its distribution with what it runs beside,
+        every call as it was made, and this contract as a copy."""
+        text = " ".join(_text().split())
+        daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
+        for behalten in ("Each is kept as its bytes: a name or a digest alone can authenticate what a rerunner is "
+                         "handed but cannot supply it",
+                         "beside the interpreter version and every installed distribution it runs with",
+                         "Every call of the verifier is kept as it was made: each argument and option value",
+                         "an audience, a nonce, `--strict`, an anchor or a required subject among them",
+                         "every environment variable the verifier reads, so a rerun makes the same call",
+                         "This contract, the version the pilot runs under, is kept as a copy with its digest",
+                         "a rerun applies the matching, the measures and the exit criteria of that version"):
+            with self.subTest(kept=behalten[:40]):
+                self.assertIn(behalten, daten)
+        for nur_digest in ("is kept as the digest of its versioned file", "are kept as the digest of that file",
+                           "is kept by its name, its version and the digest of its distribution"):
+            with self.subTest(digest_only=nur_digest[:40]):
+                self.assertNotIn(nur_digest, daten)
+
+    def test_an_effect_without_an_approval_before_it_counts_under_m5(self) -> None:
+        """Codex thread 4224372534: M5 counts writes with no approval that matches them, and an effect that took a
+        refused action counted under M6 only, so one refused proposal and its effect gave M5 = 0. The sweep found the
+        sibling: an approval decided after the effect is no approval before the write, the reading criterion 1 already
+        has. An approval is that reading, and an effect without one counts under M5, a refused one under M5 and M6."""
+        text = " ".join(_text().split())
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("An approval is a decision of type `preActionAuthorization` that allowed the action and whose "
+                      "`decidedAt` is not later than the `performedAt` of the effect, as criterion 1 reads it",
+                      massnahmen)
+        self.assertIn("an effect that takes an action without such an approval counts under M5 too", massnahmen)
+        self.assertIn("an effect that takes a refused action counts under both M5 and M6", massnahmen)
 
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
