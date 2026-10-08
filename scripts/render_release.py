@@ -101,7 +101,54 @@ def kopf_des_baums(repo: Path) -> str | None:
     return kopf if r.returncode == 0 and len(kopf) == 40 else None
 
 
-def pruefe(daten: Dict[str, Any], kopf: str | None = None) -> List[str]:
+#: What may differ between the tree the notes describe and the tagged tree: paths the package does not
+#: ship. MANIFEST.in never lists `release_notes/` and prunes `audit_artifacts/`, and the wheel is
+#: built from `src/`, so a difference confined to these two leaves the shipped package unchanged.
+NICHT_AUSGELIEFERT = ("release_notes/", "audit_artifacts/")
+
+
+def _git(repo: Path, *args: str) -> str | None:
+    import subprocess  # noqa: PLC0415 — only the CLI path needs it
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True,
+                           timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def liefert_dasselbe_paket(repo: Path, erklaert: str, kopf: str) -> str | None:
+    """None when `erklaert` is an ancestor of `kopf` and every path that differs between them lies
+    under `NICHT_AUSGELIEFERT`; otherwise the reason it does not.
+
+    A SOURCE CANNOT NAME THE COMMIT THAT CARRIES IT. The release workflow renders in the checkout of
+    the tag and compared the source's `release_commit` with that checkout's HEAD. The source is a
+    file of the tagged commit, and a commit cannot hold its own id: measured on 2026-09-28, three
+    rounds of writing HEAD into the source and committing gave three new heads and three refusals.
+
+    THE FIRST FIX OF THIS WAS TOO NARROW. It accepted one single-parent commit on top of the described
+    tree that changed only `release_notes/`. `v6.1.0` points at a merge commit (pull request 244, the
+    receipt ceremony) whose first parent is the frozen head, with only `audit_artifacts/` between them,
+    and that rule refused it. What the binding has to mean is that the tagged tree ships the package
+    the notes describe, which is the line the tree digest already draws for the receipt and the
+    readiness evidence: evidence stays out of the tree it binds.
+    """
+    ist_vorfahre = _git(repo, "merge-base", "--is-ancestor", erklaert, kopf)
+    if ist_vorfahre is None:
+        return f"the described tree {erklaert[:12]} is not an ancestor of HEAD, or this clone lacks it"
+    geaendert = _git(repo, "diff", "--name-only", "--no-renames", "-z", erklaert, kopf)
+    if geaendert is None:
+        return "the change from the described tree to HEAD cannot be read"
+    fremd = [p for p in geaendert.split("\0")
+             if p and not any(p.startswith(n) for n in NICHT_AUSGELIEFERT)]
+    if fremd:
+        return (f"HEAD changes {len(fremd)} path(s) outside {' and '.join(NICHT_AUSGELIEFERT)} "
+                f"against the described tree ({', '.join(fremd[:3])})")
+    return None
+
+
+def pruefe(daten: Dict[str, Any], kopf: str | None = None,
+           baum: Path | None = None) -> List[str]:
     """Structural findings, all of them, rather than the first one.
 
     A renderer that stops at the first problem makes a caller fix them one run at a time.
@@ -150,9 +197,30 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None) -> List[str]:
             befunde.append("the source declares no 40-character release_commit, so the notes cannot "
                            "say which tree they describe")
         elif erklaert != kopf:
-            befunde.append(
-                f"the source describes tree {erklaert[:12]} but the render is running in {kopf[:12]}"
-                " — the notes would describe a different tree than the artefacts")
+            # With the tree at hand, HEAD may be a descendant that differs only in paths the package
+            # does not ship (`liefert_dasselbe_paket`); a stated head without a tree keeps the exact
+            # comparison.
+            grund = (liefert_dasselbe_paket(baum, erklaert, kopf) if baum is not None
+                     else "no tree was given to read the commit between them")
+            if grund is not None:
+                befunde.append(
+                    f"the source describes tree {erklaert[:12]} but the render is running in "
+                    f"{kopf[:12]} — the notes would describe a different tree than the artefacts "
+                    f"({grund})")
+
+    s = daten.get("sicherheit")
+    if s is not None:
+        # A finding without its affected versions or its fix tells a user nothing to act on.
+        if not isinstance(s, dict) or not all(s.get(f) for f in ("titel", "einleitung", "schluss")):
+            befunde.append("the security section needs a titel, an einleitung and a schluss")
+        zeilen = s.get("zeilen") if isinstance(s, dict) else None
+        if not isinstance(zeilen, list) or not zeilen:
+            befunde.append("the security section carries no rows")
+        else:
+            for i, z in enumerate(zeilen, 1):
+                for feld in ("befund", "betroffen", "wirkung", "behoben"):
+                    if not (isinstance(z, dict) and z.get(feld)):
+                        befunde.append(f"security row {i} lacks {feld}")
 
     gesehen: Dict[int, str] = {}
     for g in gruppen:
@@ -187,10 +255,22 @@ def rendere(daten: Dict[str, Any]) -> str:
     basis = f"https://github.com/b7n0de/proofbundle/blob/{commit}"
     teile: List[str] = [q["kopfsatz"], ""]
 
+    # THE RECORD IS NAMED AFTER ITS VERSION. This link was the literal `RESTRISIKO_610.md`, so every
+    # later body would have pointed at the residual-risk record of 6.1.0.
+    restrisiko = "RESTRISIKO_" + q["version"].replace(".", "") + ".md"
     teile.append(
         f"[Changelog]({basis}/CHANGELOG.md) · "
-        f"[Known limitations]({basis}/RESTRISIKO_610.md) · "
+        f"[Known limitations]({basis}/{restrisiko}) · "
         f"[Release scope]({basis}/docs/release_scope/{q['version']}.md)")
+    s = q.get("sicherheit")
+    if s:
+        # Owner decision of 2026-09-28 (Z296, option A): affected versions, effect and fix per
+        # finding of a released version. Optional, so a source without it renders as before.
+        teile += ["", f"## {s['titel']}", "", s["einleitung"], "",
+                  "| Finding | Affected | Effect | Fixed by |", "|---|---|---|---|"]
+        for z in s["zeilen"]:
+            teile.append(f"| **{z['befund']}** | {z['betroffen']} | {z['wirkung']} | {z['behoben']} |")
+        teile += ["", s["schluss"]]
     teile += ["", "## What changed", "", "| Area | Change | Evidence |", "|---|---|---|"]
     for z in q["was_sich_aenderte"]:
         teile.append(f"| **{z['bereich']}** | {z['aenderung']} | {z['beleg']} |")
@@ -235,7 +315,16 @@ def main(argv: List[str] | None = None) -> int:
     except QuellenFehler as fehler:
         print(f"  REFUSED: {fehler}", file=sys.stderr)
         return 2
-    befunde = pruefe(daten, kopf=a.kopf or kopf_des_baums(a.baum))
+    # A HEAD THAT CANNOT BE READ IS NOT A HEAD THAT MATCHES. `pruefe` checks the binding only when a
+    # head is given, and this call passed `kopf_des_baums`'s None straight through, so a render
+    # outside a git checkout skipped the binding and exited 0 (measured 2026-09-28 with the 6.1.0
+    # source: 48 pull requests rendered). The docstring of `kopf_des_baums` already promised this.
+    kopf = a.kopf or kopf_des_baums(a.baum)
+    if kopf is None:
+        print(f"  REFUSED: the HEAD of {a.baum} cannot be measured, so which tree the notes "
+              f"describe cannot be checked", file=sys.stderr)
+        return 2
+    befunde = pruefe(daten, kopf=kopf, baum=None if a.kopf else a.baum)
     if befunde:
         print(f"  REFUSED: the source is not renderable ({len(befunde)} finding(s)):",
               file=sys.stderr)

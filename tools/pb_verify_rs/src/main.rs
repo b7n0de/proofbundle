@@ -797,6 +797,47 @@ fn b64url_nopad(s: &str) -> Result<Vec<u8>, String> {
 // corpus verdicts; the eval-root-graft and KB-JWT-detail checks are pending slices.
 // Ok(true) => the sd-jwt part is acceptable; Ok(false) => reject (contributes exit 1).
 // ---------------------------------------------------------------------------
+
+// RFC 7515 section 4.1.11 critical-header handling (Nachtrag 50b, Z309). proofbundle understands no JWS
+// extension, so any `crit` present in a protected header makes the JWS invalid — the Rust mirror of
+// Python `signature._reject_jws_crit`. Returns true when the header's `crit` member requires rejection
+// (a header with no `crit` returns false, unchanged). Every RFC-named defect — `crit` not a non-empty
+// array, a non-string or duplicate name, a base-spec (registered) parameter, or a name absent from the
+// header — rejects, and a well-formed `crit` still rejects because no extension is understood. The set
+// of understood extensions is empty by construction, matching Python's empty `_UNDERSTOOD_JWS_CRIT`.
+fn jws_crit_rejected(header: &serde_json::Value) -> bool {
+    let crit = match header.get("crit") {
+        None => return false,
+        Some(c) => c,
+    };
+    let arr = match crit.as_array() {
+        Some(a) if !a.is_empty() => a,
+        _ => return true, // not a non-empty array
+    };
+    const REGISTERED: &[&str] = &[
+        "alg", "jku", "jwk", "kid", "x5u", "x5c", "x5t", "x5t#S256", "typ", "cty", "crit", "enc",
+        "zip", "epk", "apu", "apv", "iv", "tag", "p2s", "p2c",
+    ];
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for v in arr {
+        let name = match v.as_str() {
+            Some(s) => s,
+            None => return true, // a non-string entry
+        };
+        if !seen.insert(name) {
+            return true; // a duplicate name
+        }
+        if REGISTERED.contains(&name) {
+            return true; // a base-spec parameter is never a crit extension
+        }
+        if header.get(name).is_none() {
+            return true; // a named parameter absent from the header
+        }
+    }
+    // Well-formed, but proofbundle understands no JWS extension => invalid.
+    true
+}
+
 fn verify_sdjwt_issuer(
     sd: &serde_json::Value,
     bundle_payload: &serde_json::Value,
@@ -826,6 +867,14 @@ fn verify_sdjwt_issuer(
         Err(_) => return Ok(false),
     };
     if !header.is_object() || !payload.is_object() {
+        return Ok(false);
+    }
+    // Nachtrag 50b (Z309): RFC 7515 section 4.1.11 — a critical header parameter the verifier does not
+    // understand makes the JWS invalid. proofbundle understands no JWS extension, so any `crit` present
+    // in the issuer protected header rejects, exactly as Python `sdjwt.verify_sd_jwt` does after Nachtrag
+    // 50 (so Python MALFORMED and Rust VERIFIED can no longer diverge on `crit`). Checked right after the
+    // header object check and before `alg`.
+    if jws_crit_rejected(&header) {
         return Ok(false);
     }
     if header.get("alg").and_then(|v| v.as_str()) != Some("EdDSA") {
@@ -2543,6 +2592,11 @@ const POLICY_SEKTIONEN: &[(&str, &[&str])] = &[
             "require_nonce",
             "max_iat_age_seconds",
             "expected_vct",
+            // Nachtrag 32 (the Critical): keep the Rust shape-validator's known keys identical to Python's
+            // _SDJWT_KEYS, so a 6.2.0 trust policy carrying the new issuer_key_pin is accepted by both readers
+            // (a key one knows and the other rejects would be a Python/Rust divergence). This reader validates
+            // policy SHAPE only; it does not evaluate the sd_jwt section, so no pin logic is added here.
+            "issuer_key_pin",
         ],
     ),
     (

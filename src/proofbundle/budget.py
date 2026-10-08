@@ -32,6 +32,7 @@ import reprlib as _reprlib
 from dataclasses import dataclass
 
 from .errors import ProofBundleError
+from .canonical import _ein_stand
 
 __all__ = ["VerificationBudget", "DEFAULT_BUDGET", "BudgetExceeded", "int_magnitude_ok",
            "render_safe", "render_keys_safe"]
@@ -71,6 +72,7 @@ class _BoundedRepr(_reprlib.Repr):
 _MAX_RENDER_CHARS = 512
 
 
+@_ein_stand
 def render_safe(value, budget: "VerificationBudget | None" = None, *, quote: bool = True) -> str:
     """Render ONE untrusted value for a diagnostic message without letting it raise.
 
@@ -133,6 +135,7 @@ def _clip_render(text: str) -> str:
     return text[: _MAX_RENDER_CHARS - 3] + "..."
 
 
+@_ein_stand
 def render_keys_safe(keys) -> "list[str]":
     """Name a set of UNTRUSTED dict keys in a message: rendered first, sorted second, never raising.
 
@@ -149,6 +152,7 @@ def render_keys_safe(keys) -> "list[str]":
         return ["<unrenderable keys>"]
 
 
+@_ein_stand
 def int_magnitude_ok(value, budget: "VerificationBudget | None" = None) -> bool:
     """Non-raising magnitude check for ONE untrusted integer — the shared entry guard.
 

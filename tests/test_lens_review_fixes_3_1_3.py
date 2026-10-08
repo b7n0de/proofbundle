@@ -218,7 +218,10 @@ class TestLibRobustness(unittest.TestCase):
                     "checkpointSigner": None, "signature": "AAAA"}]}}
         res = evaluate_policy(b, verify_bundle(b), raw)   # must not raise
         self.assertFalse(res["policy_ok"])
-        self.assertIs(res["tree_context_authenticated"], False)
+        # Since the evaluators apply the loader's field rule at entry (deep gate at 7409b123), this policy is
+        # refused before any checkpoint is read, with the loader's message; no pin is authenticated.
+        self.assertIn("checkpointSigner must be a C2SP vkey", res["reason"])
+        self.assertIsNot(res.get("tree_context_authenticated"), True)
 
 
 class TestExplainEnforceParity(unittest.TestCase):

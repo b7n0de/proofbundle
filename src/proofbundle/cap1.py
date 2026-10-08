@@ -31,6 +31,7 @@ from collections import Counter
 from typing import Any, TypeGuard
 
 from ._membership import is_member
+from .canonical import _ein_stand
 
 __all__ = [
     "CAP1_PROFILE", "DISPOSITIONS", "BASIS_KINDS", "HARD_DISPOSITIONS", "RULE_IDS", "RULES",
@@ -313,6 +314,7 @@ RULES: dict[str, Any] = {
 RULE_IDS: tuple[str, ...] = tuple(RULES)
 
 
+@_ein_stand
 def check_cap1_document(doc: object) -> list[dict]:
     """Alle Regeln gegen das Dokument; Rueckgabe eine Liste von {rule, reason}. NIE eine Ausnahme.
 
@@ -334,10 +336,12 @@ def check_cap1_document(doc: object) -> list[dict]:
     return out
 
 
+@_ein_stand
 def is_conformant(doc: object) -> bool:
     return not check_cap1_document(doc)
 
 
+@_ein_stand
 def load_cap1_document(raw: object) -> Any:
     """Strikt lesen: UTF-8, JSON, keine doppelten Namen — mit dem EINEN strikten Leser des Pakets.
 

@@ -53,8 +53,9 @@ def _sd_jwt_bundle(*, with_issuer_key: bool = True, with_cnf: bool = True,
     plain = emit_eval_receipt(ev_claim, issuer)
     root = plain["merkle"]["root_b64"]
     issuer_field = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
-    claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-             "issuer": issuer_field}
+    # The SD-JWT is a view of this signed claim; `issue_sd_jwt` refuses a partial one (6.2.0).
+    claim = json.loads(base64.b64decode(plain["payload_b64"]))
+    assert claim["issuer"] == issuer_field
     compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.9",
                            holder_public_key=_raw_pub(holder) if with_cnf else None,
                            **({"vct": vct} if vct is not None else {}))
@@ -577,24 +578,64 @@ class TestExpectedVct(unittest.TestCase):
         # must NEVER trust a vct claim from an unverified issuer payload — even when the bundle's own
         # sd_jwt_vc.compact is well-formed and carries the "right" vct on its face. This is the
         # "verified vs. merely present" discipline policy:nonce_present already established.
-        from proofbundle.errors import Check  # noqa: PLC0415
+        # Two ways an issuer signature is not verified. It never ran: crypto passes, and the vct gate
+        # itself refuses. It ran and failed: since the crypto gate counts every check's `ok` from one
+        # read (Codex on pull request 293, round three), a failed check fails crypto, and the policy is
+        # not evaluated at all. This case used to hand in `ok = True` beside a failed check, a result
+        # `verify_bundle` never builds, and relied on the gate reading only `result.ok`.
+        # Both results are VerificationResults, as `verify_bundle` returns them. Until the fix of deep gate run 6 two
+        # classes of the test's own with ``ok`` and ``checks`` served; since then an object of a caller's class reaches
+        # evaluate_policy as a stand-in that holds nothing of the caller, and the policy is not evaluated at all.
+        import base64 as _b64mod  # noqa: PLC0415
+        import hashlib as _hashlib  # noqa: PLC0415
+        from proofbundle.errors import VerificationResult  # noqa: PLC0415
 
-        class _Result:
-            ok = True
-            checks = [Check("ed25519-signature", True), Check("sd-jwt-disclosures", True),
-                     Check("sd-jwt-issuer-signature", False, "unsigned")]
+        # Nachtrag 46 (F2): evaluate_policy requires the result to be bound to the bundle it judges. These
+        # stand-in results carry the signer and payload digest of `bundle`, so the vct gate under test is still
+        # reached — the vct is then refused because the SD-JWT issuer signature was never verified, as before.
+        # Nachtrag 46b: evaluate_policy also requires an authentic origin token verify_bundle stamps; these
+        # stand-ins simulate that verifier output, so they stamp it (a passing result would carry one).
+        # Addendum R6a-1: evaluate_policy also binds the result's verified sd_jwt_vc.compact to the bundle's.
+        # A real verifier sets it on a passing bundle signature, so the stand-in sets it to `bundle`'s compact
+        # (captured below) — else the vct gate would be short-circuited by the result↔sd_jwt binding gate rather
+        # than reached. `compact` is assigned before either stand-in is called, so the closure resolves it.
+        _signer_b64 = _b64mod.b64encode(bytes(32)).decode("ascii")
+        _payload_b64 = _b64mod.b64encode(b"{}").decode("ascii")
+
+        def _bind(r: VerificationResult) -> VerificationResult:
+            r.verified_signer_pub = _b64mod.b64decode(_signer_b64)
+            r.verified_payload_digest = _hashlib.sha256(_b64mod.b64decode(_payload_b64)).hexdigest()
+            r.verified_sd_jwt_vc_compact = compact   # as verify_bundle records it for this bundle (R6a-1)
+            r.stamp_origin()
+            return r
+
+        def _NeverRan() -> VerificationResult:
+            r = VerificationResult()
+            r.add("ed25519-signature", True)
+            r.add("sd-jwt-disclosures", True)
+            return _bind(r)
+
+        def _Failed() -> VerificationResult:
+            r = _NeverRan()
+            r.add("sd-jwt-issuer-signature", False, "unsigned")
+            return r
 
         issuer = generate_signer()
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
         compact = issue_sd_jwt(
-            {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "x",
-             "issuer": "placeholder"},
+            full_eval_claim("placeholder", suite="x", threshold="0.8"),
             issuer, root_b64="cm9vdA==", vct="https://attacker.example/vct")
-        bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact}}
+        bundle = {"schema": "proofbundle/v0.1", "sd_jwt_vc": {"compact": compact},
+                  "payload_b64": _payload_b64,
+                  "signature": {"alg": "ed25519", "public_key_b64": _signer_b64}}
         policy = load_policy(_base_policy(sd_jwt={"expected_vct": "https://attacker.example/vct"}))
-        res = evaluate_policy(bundle, _Result(), policy)
+        res = evaluate_policy(bundle, _NeverRan(), policy)
         self.assertFalse(res["policy_ok"])
         vct_check = next(c for c in res["checks"] if c["name"] == "policy:expected_vct")
         self.assertIs(vct_check["ok"], False)
+        res = evaluate_policy(bundle, _Failed(), policy)
+        self.assertIsNone(res["policy_ok"], res)
+        self.assertEqual(res["checks"], [])
 
     def test_expected_vct_listed_in_explain(self):
         pol = load_policy(_base_policy(sd_jwt={"expected_vct": "https://example.test/vct/mine"}))

@@ -253,9 +253,24 @@ def test_ein_baum_mit_null_eintraegen_ist_kein_digest(tmp_path):
     voll = subject_tree_digest(repo)
     assert len(voll) == 64 and voll != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
-    # Der Unterordner traegt keine getrackte Datei — `ls-tree` sagt rc=0 und nichts.
+    # A SUBDIRECTORY IS REFUSED BEFORE ANYTHING IS LISTED (2026-09-27). It used to reach
+    # `ls-tree`, which answered rc=0 and nothing; since every chain call goes through
+    # `git_run`, git must answer for the named directory itself, with an empty prefix.
     with pytest.raises(BaumNichtLesbar) as fehler:
         subject_tree_digest(unterordner)
+    assert "as a repository" in str(fehler.value), str(fehler.value)
+
+    # THE ZERO-ENTRY GUARD STILL HAS A CASE: a real repository whose only tracked file is the
+    # receipt, which the digest excludes. `ls-tree` lists one line, the exclusion removes it,
+    # and the digest of nothing must not come back.
+    leer = tmp_path / "nur_quittung"
+    (leer / "audit_artifacts" / "600").mkdir(parents=True)
+    (leer / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json").write_text('{"a": 1}\n')
+    _git(["init", "-q"], leer)
+    _git(["add", "-A"], leer)
+    _git(["commit", "-q", "-m", "only a receipt"], leer)
+    with pytest.raises(BaumNichtLesbar) as fehler:
+        subject_tree_digest(leer)
     assert "ZERO entries" in str(fehler.value), str(fehler.value)
 
 
