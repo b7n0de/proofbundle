@@ -52,6 +52,7 @@ from typing import Any, Optional
 
 from ._cbor_prescan import CborRefused, Tag, encode_head, scan
 from ._membership import is_member
+from .canonical import _abbild_stand, _ein_stand
 from .errors import BundleFormatError, UnsupportedError
 
 PROFILE = "scitt-ccf/v1"
@@ -225,6 +226,7 @@ class CoseSign1:
         return self.raw[a:b]
 
 
+@_ein_stand
 def decode_cose_sign1(data: bytes, *, role: str = "statement") -> CoseSign1:
     """Read a COSE_Sign1 (RFC 9052 section 4.2) under the profile's reader rules.
 
@@ -277,6 +279,7 @@ def _data_hash(st: CoseSign1) -> bytes:
                           + st.element(3)).digest()
 
 
+@_ein_stand
 def recompute_data_hash(data: bytes) -> bytes:
     """Value 3 of a Transparent Statement, recomputed from its bytes. Raises ``ScittFormatError``
     for bytes outside the profile's reader, including an untagged statement, whose data-hash rule
@@ -478,6 +481,7 @@ def _verify(alg: Any, spki: bytes, tbs: bytes, signature: bytes) -> bool:
     return False
 
 
+@_ein_stand
 def load_cose_keyset(data: bytes) -> list:
     """A COSE_KeySet (as served by ``/.well-known/scitt-keys``) -> ``[{"spki": bytes, "kid": bytes}]``.
 
@@ -647,6 +651,7 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
     return None
 
 
+@_ein_stand
 def verify_statement_signature(data: bytes, *, statement_keys=None) -> tuple:
     """ToBeSigned of a statement and its signature under relying-party statement keys.
 
@@ -969,6 +974,7 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
 # ------------------------------------------------------------------------------------------------
 # The whole Transparent Statement
 # ------------------------------------------------------------------------------------------------
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_transparent_statement(proof: bytes, *, canonical_root: bytes,
                                  rp_trust: Optional[dict] = None) -> TransparentStatementCheck:
     """Verify a Transparent Statement under ``scitt-ccf/v1`` against a target's canonical root.
@@ -1053,6 +1059,7 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
 # ------------------------------------------------------------------------------------------------
 # Consistency receipts (draft-ietf-scitt-receipts-ccf-profile-05, section 4)
 # ------------------------------------------------------------------------------------------------
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes, older_issuer: str,
                                rp_trust: Optional[dict] = None) -> ConsistencyCheck:
     """Verify a CCF consistency receipt against an older root the caller has already verified.
