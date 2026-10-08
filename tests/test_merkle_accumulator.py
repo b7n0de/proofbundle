@@ -255,6 +255,20 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         object.__setattr__(akku, "_frontier", Fremd(akku.frontier))
         with self.assertRaisesRegex(TypeError, "private fields"):
             a.emit_bundle_incremental(b"payload", echt, akku)
+        # Codex thread 4221630977: the private slots were writable as well. No attribute can be set from outside, a
+        # kept frontier is a tuple, and the kept leaf hashes, the one list left, do not reach the bundle.
+        akku = a.MerkleAccumulator(keep_leaf_hashes=True)
+        for blatt in (b"a", b"b", b"c"):
+            akku.append(blatt)
+        for name, wert in (("_size", 5), ("_frontier", ()), ("_leaf_hashes", []), ("neu", 1)):
+            with self.subTest(assigns=name), self.assertRaises(AttributeError):
+                setattr(akku, name, wert)
+        gehalten = akku._frontier
+        self.assertIs(type(gehalten), tuple)
+        akku._leaf_hashes.append(b"\x22" * 32)
+        neu = a.emit_bundle_incremental(b"payload", echt, akku)
+        alt = emit_bundle(b"payload", echt, prior_leaves=[b"a", b"b", b"c"])
+        self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
         for vorher in (0, 1, 5):
             leaves = [f"event {i}".encode() for i in range(vorher)]
             neu = a.emit_bundle_incremental(b"payload", echt, a.MerkleAccumulator.from_leaves(leaves))

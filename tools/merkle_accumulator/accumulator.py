@@ -95,18 +95,27 @@ class MerkleAccumulator:
     `size` leaves so far; `frontier` as (height, root) pairs, leftmost first."""
 
     # The state and nothing else: no instance dictionary, so no method of the class can be shadowed on an instance.
-    # The fields are private and read through properties that hand out copies, so a caller can neither assign a
-    # container of its own nor change the state through what it read (Codex thread 4221180480 on pull request 307).
+    # The fields are private and read through properties that hand out copies (Codex thread 4221180480 on pull
+    # request 307). No attribute can be assigned from outside, the private ones included (thread 4221630977): the
+    # class writes its own fields through object.__setattr__. The size is an int and the frontier a tuple, so
+    # neither can be changed through a reference a caller kept; the kept leaf hashes are a list the class appends
+    # to, and they feed only the later proofs, never the bundle.
     __slots__ = ("_size", "_frontier", "_leaf_hashes")
 
     def __init_subclass__(cls, **kwargs) -> None:
         raise TypeError("MerkleAccumulator cannot be subclassed: its bundle and restore guarantees rest on its own "
                         "methods (see NO SUBCLASS in the module docstring)")
 
+    def __setattr__(self, name, value) -> None:
+        raise AttributeError(f"a MerkleAccumulator is read-only from outside; {name} cannot be set")
+
+    def _setze(self, name: str, value) -> None:
+        object.__setattr__(self, name, value)
+
     def __init__(self, keep_leaf_hashes: bool = False) -> None:
-        self._size = 0
-        self._frontier: List[tuple] = []
-        self._leaf_hashes: Optional[List[bytes]] = [] if keep_leaf_hashes else None
+        self._setze("_size", 0)
+        self._setze("_frontier", ())
+        self._setze("_leaf_hashes", [] if keep_leaf_hashes else None)
 
     @property
     def size(self) -> int:
@@ -123,14 +132,15 @@ class MerkleAccumulator:
         return None if self._leaf_hashes is None else list(self._leaf_hashes)
 
     def _eigene_felder(self) -> bool:
-        """Whether the private fields hold what this class puts there: a plain int and plain lists."""
-        return (type(self._size) is int and type(self._frontier) is list
+        """Whether the private fields hold what this class puts there: a plain int, a plain tuple and a plain list."""
+        return (type(self._size) is int and type(self._frontier) is tuple
                 and (self._leaf_hashes is None or type(self._leaf_hashes) is list))
 
     def copy(self) -> "MerkleAccumulator":
         neu = MerkleAccumulator()
-        neu._size, neu._frontier = self._size, list(self._frontier)
-        neu._leaf_hashes = None if self._leaf_hashes is None else list(self._leaf_hashes)
+        neu._setze("_size", self._size)
+        neu._setze("_frontier", tuple(self._frontier))
+        neu._setze("_leaf_hashes", None if self._leaf_hashes is None else list(self._leaf_hashes))
         return neu
 
     # -- appending ----------------------------------------------------------------------------------------
@@ -141,16 +151,18 @@ class MerkleAccumulator:
         wert = _leaf(data)
         if self._leaf_hashes is not None:
             self._leaf_hashes.append(wert)
+        front = list(self._frontier)
         hoehe, pfad = 0, []
-        while self._frontier and self._frontier[-1][0] == hoehe:
-            links = self._frontier.pop()[1]
+        while front and front[-1][0] == hoehe:
+            links = front.pop()[1]
             pfad.append(links)
             wert = _node(links, wert)
             hoehe += 1
-        self._frontier.append((hoehe, wert))
-        self._size += 1
+        front.append((hoehe, wert))
+        self._setze("_frontier", tuple(front))
+        self._setze("_size", self._size + 1)
         wurzel = wert
-        for _, links in reversed(self._frontier[:-1]):
+        for _, links in reversed(front[:-1]):
             pfad.append(links)
             wurzel = _node(links, wurzel)
         return wurzel, pfad
@@ -239,7 +251,8 @@ class MerkleAccumulator:
         if hoehen != erwartet or any(len(r) != 32 for _, r in front):
             raise AccumulatorStateError("the frontier does not have one root per set bit of the size")
         neu = cls(keep_leaf_hashes=leaf_hashes is not None)
-        neu._size, neu._frontier = groesse, front
+        neu._setze("_size", groesse)
+        neu._setze("_frontier", tuple(front))
         # The checks fold with this class's own methods, not with ones a subclass of the caller overrides (the
         # class of Codex thread 4219691072 on pull request 307, swept here): an overridden root or frontier
         # rebuild could answer with the stated values.
@@ -263,7 +276,7 @@ class MerkleAccumulator:
             probe = MerkleAccumulator._frontier_from_leaf_hashes(blaetter)
             if probe != front:
                 raise AccumulatorStateError("the leaf hashes do not reproduce the frontier")
-            neu._leaf_hashes = blaetter
+            neu._setze("_leaf_hashes", blaetter)
         return neu
 
     @staticmethod
