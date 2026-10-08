@@ -153,6 +153,12 @@ repository, `GIT_DIR`, `GIT_WORK_TREE` or `GIT_COMMON_DIR` in the environment, a
 did not write (it names that hook's path and leaves it as it is). Running it again replaces only its own hook.
 Under Codex's `workspace-write` sandbox with the network off the hook runs, but the verifier cannot start (uv has no
 writable cache and no network), so it denies every push that needs the verifier; measured with Codex 0.161.0 (D24B).
+It then says so in a text of its own (owner choice K02-A C), reason `sandbox_verifier_unavailable`: "NOT MEASURED:
+the verifier cannot start here, so this push was not checked", with what it measured, and "The push belongs to a
+person outside the sandbox; the boundary is the required CI check". It names this only when uv's own answer reports
+a failed write or a failed name resolution and a probe of the gate's own confirms it (a write in uv's cache, a name
+resolution, or a connection to an address-literal proxy), never from an environment name; otherwise the start
+failure keeps its generic text. Either way the push is denied (exit 1).
 
 **A push needs the done check at the pushed commit** (owner choice N2 C, D30). Where the pushed commit's
 declaration names a done check, Level 1 under Claude Code and Level 2 run the same check as at the end of a

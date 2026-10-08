@@ -1188,6 +1188,29 @@ hook installed by `install-pre-push` from the plugin cache):
 - So under that sandbox Level 2 is fail-closed and of no use for a push that needs the verifier; such a push is a
   person's, outside the sandbox. Not measured: a sandbox with network on, or with a writable, filled uv cache.
 
+LEVEL 2 NAMES THE SANDBOX (owner choice K02-A, A with C, 2026-10-08)
+- A: in the Codex sandbox a person pushes; the boundary is the required CI check (D22).
+- C: where the verifier cannot start for want of a writable cache or of the network, Level 2 says so with a text and
+  a reason of its own, `sandbox_verifier_unavailable`: "NOT MEASURED: the verifier cannot start here, so this push was
+  not checked: <what was measured>. These are the signs of a sandbox without network or without a writable cache. The
+  push belongs to a person outside the sandbox; the boundary is the required CI check (D22, D24B)." The exit code and
+  the outcome stay as they were: the push is denied (exit 1) and the remote ref does not move.
+- Only from measured signs (`_verifier_start_sign`): uv's own answer must report a failed write (`Read-only file
+  system`, os error 30 or 13) or a failed name resolution, and a probe of the gate's own must confirm it: a write of a
+  probe file in the cache folder uv names (`uv cache dir`), or the nearest folder above it that exists, which fails;
+  or every place uv would go out of reach (each proxy the environment names, by a connection where it is an address
+  literal and by a name resolution otherwise, and pypi.org). An environment name such as `CODEX_SANDBOX` decides
+  nothing; uv's words without a confirming probe keep the generic text; the probe file is removed at once and no
+  folder is created.
+- Only Level 2 shows the text; Level 1, the Stop hook and the CI mode keep the generic start failure, whose message is
+  unchanged (`VerifierCannotStart` is a `GateError`).
+- Measured (tests/test_plugin_gate_k02a_c.py, 2026-10-08, the two sandboxes rebuilt with bubblewrap: a read-only root,
+  a network namespace of its own): no writable cache and a cache without network each get the text and exit 1, also
+  through git with the hook from `install-pre-push`, where the remote ref stays; network and a writable cache get the
+  push's own verdict; uv's words alone (cache writable, or network reachable) and `CODEX_SANDBOX` alone keep the
+  generic path. Red at 12068a47: 6 of 10 (the four controls green). The same three situations with the real uv, at
+  12068a47 and after: exit 1, 1 and 0 at both, with the generic text before and this text after.
+
 Options:
 - A. Leave it open; Level 2 only by hand after the README.
 - B. `done-init` sets the hook up, on an explicit switch.

@@ -46,8 +46,10 @@ from __future__ import annotations
 import base64
 import binascii
 import collections
+import errno
 import fnmatch
 import hashlib
+import ipaddress
 import json
 import os
 import pathlib
@@ -56,12 +58,14 @@ import secrets
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 
 EVIDENCE_DIR = ".proofbundle/"
 DECLARATION = EVIDENCE_DIR + "evidence.json"
@@ -192,6 +196,17 @@ _PUSH_OPTS_NEUTRAL_VALUE = frozenset({"-o", "--push-option"})
 _PUSH_OPTS_NEUTRAL_INLINE = frozenset({"--push-option", "--force-with-lease", "--signed"})
 class GateError(Exception):
     """The gate cannot reach a verdict. Answered as deny."""
+
+
+class VerifierCannotStart(GateError):
+    """The verifier did not start, and the gate measured why (owner choice K02-A C, DECISIONS.md D24B): uv's own answer
+    names a failed write or a failed name resolution, and a probe of the gate's own confirms it. `kind` is
+    "no_writable_cache" or "no_network", `sign` says what was measured; the message stays the generic one, so every
+    path that is not Level 2 answers as before."""
+
+    def __init__(self, message: str, kind: str, sign: str):
+        super().__init__(message)
+        self.kind, self.sign = kind, sign
 
 
 # --- which calls are gated, and in which directory ---------------------------------------------------
@@ -2058,6 +2073,107 @@ def _mcp_notification_contract(method: str, params: object) -> str | None:
     return f"a notification the gate does not model (method {method!r})"
 
 
+#: How uv words the two failures measured in the Codex sandbox (KARTEN-02, Codex 0.161.0, workspace-write, network
+#: off): a cache it cannot write and a package index it cannot resolve. A phrase alone decides nothing; a probe of the
+#: gate's own must confirm it (_verifier_start_sign).
+_UV_WRITE_FAILURE = ("read-only file system", "os error 30", "permission denied (os error 13)")
+_UV_NAME_FAILURE = ("failed to lookup address information", "temporary failure in name resolution",
+                    "name or service not known", "dns error")
+_PROBE_SECONDS = 3.0
+
+
+def _uv_cache_dir(uv: str, deadline: float) -> str | None:
+    """The cache folder uv says it uses, with the verifier's environment; None where uv does not say."""
+    left = min(deadline - time.monotonic(), 10.0)
+    if left <= 0:
+        return None
+    try:
+        proc = subprocess.run([uv, "cache", "dir"], env=_isolated_env(), capture_output=True, text=True,
+                              timeout=left, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = proc.stdout.strip().splitlines()
+    return lines[0] if proc.returncode == 0 and len(lines) == 1 and os.path.isabs(lines[0]) else None
+
+
+def _write_probe(folder: str) -> str | None:
+    """Why a file cannot be written in folder, or in the nearest folder above it that exists; None when it can (the
+    probe file is removed at once, and no folder is created)."""
+    here = folder
+    while not os.path.isdir(here) and os.path.dirname(here) != here:
+        here = os.path.dirname(here)
+    try:
+        fd, probe = tempfile.mkstemp(prefix=".proofbundle-write-probe-", dir=here)
+    except OSError as exc:
+        return f"{errno.errorcode.get(exc.errno, exc.errno)}, {exc.strerror}, in {here}"
+    os.close(fd)
+    os.unlink(probe)
+    return None
+
+
+def _probe_endpoints(environ) -> list[tuple[str, int]]:
+    """Where uv would go for the package index: each proxy the environment names, and the default index host. The
+    names only say where to probe; whether the network is there is what the probe measures."""
+    endpoints = []
+    for key in ("HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        value = environ.get(key)
+        if value:
+            parts = urllib.parse.urlsplit(value if "//" in value else "//" + value)
+            try:
+                port = parts.port or 443
+            except ValueError:
+                continue
+            if parts.hostname:
+                endpoints.append((parts.hostname, port))
+    endpoints.append(("pypi.org", 443))
+    return list(dict.fromkeys(endpoints))
+
+
+def _reach(host: str, port: int) -> str | None:
+    """Why the endpoint is out of reach, or None: a name must resolve; an address literal must accept a connection."""
+    outcome: list = []
+
+    def attempt():
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            try:
+                socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+                outcome.append(None)
+            except OSError as exc:
+                outcome.append(f"resolving {host} failed: {exc}")
+            return
+        try:
+            socket.create_connection((host, port), timeout=_PROBE_SECONDS).close()
+            outcome.append(None)
+        except OSError as exc:
+            outcome.append(f"connecting to {host}:{port} failed: {exc}")
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(_PROBE_SECONDS + 1)
+    return outcome[0] if outcome else f"{host} gave no answer within {int(_PROBE_SECONDS)} s"
+
+
+def _verifier_start_sign(uv: str, stderr: str, deadline: float) -> tuple[str, str] | None:
+    """(kind, sign) when uv's answer and a probe of the gate's own both show that the verifier cannot start here for
+    want of a writable cache or of the network (owner choice K02-A C); None otherwise, and then the start failure keeps
+    its generic message. Never read from an environment name alone."""
+    text = (stderr or "").lower()
+    if any(phrase in text for phrase in _UV_WRITE_FAILURE):
+        cache = _uv_cache_dir(uv, deadline)
+        problem = _write_probe(cache) if cache is not None else None
+        if problem is not None:
+            return "no_writable_cache", (f"uv could not write its cache, and a write the gate tried there failed too "
+                                         f"({problem})")
+    if any(phrase in text for phrase in _UV_NAME_FAILURE):
+        failures = [_reach(host, port) for host, port in _probe_endpoints(os.environ)]
+        if failures and all(failures):
+            return "no_network", (f"uv could not resolve its package index, and the gate reached none of the places "
+                                  f"uv would go ({'; '.join(failures)})")
+    return None
+
+
 def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     """Call verify_receipt once per request on the plugin's MCP server and return the tool results."""
     uv = shutil.which("uv")
@@ -2149,8 +2265,12 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
     init = replies.get(0)
     if init is None or "result" not in init:
         tail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
-        raise GateError(f"the verifier did not initialise (exit {proc.returncode}: {tail[0]}), which refuses the "
-                        "whole verifier run")
+        message = (f"the verifier did not initialise (exit {proc.returncode}: {tail[0]}), which refuses the whole "
+                   "verifier run")
+        sign = _verifier_start_sign(uv, proc.stderr, deadline)
+        if sign is not None:
+            raise VerifierCannotStart(message, *sign)
+        raise GateError(message)
     # The initialisation result's own contract is checked before any answer is read (Nachtrag 37, R14-4): a result
     # that is present but null, false, empty, of an unsupported protocol version, or without the mandatory
     # capabilities and serverInfo objects is a broken handshake no later green answer can ride.
@@ -3191,7 +3311,25 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
     if not targets:
         return Verdict("inactive", "NOT MEASURED: the pre-push hook received no ref to push.", "nothing_declared",
                        repo=repo, head=head_commit)
-    return _evaluate_targets(repo, head_commit or targets[0].source, targets, deadline, remote_state=True)
+    try:
+        return _evaluate_targets(repo, head_commit or targets[0].source, targets, deadline, remote_state=True)
+    except VerifierCannotStart as exc:
+        return _sandbox_verdict(repo, head_commit or targets[0].source, exc)
+
+
+SANDBOX_REASON = "sandbox_verifier_unavailable"
+
+
+def _sandbox_verdict(repo: str, commit: str, exc: VerifierCannotStart) -> Verdict:
+    """Level 2 where the verifier cannot start for want of a writable cache or of the network (owner choice K02-A C,
+    DECISIONS.md D24B): NOT MEASURED with its own reason, the push denied as before (exit 1)."""
+    return Verdict("deny", f"NOT MEASURED: the verifier cannot start here, so this push was not checked: {exc.sign}. "
+                           "These are the signs of a sandbox without network or without a writable cache. The push "
+                           "belongs to a person outside the sandbox; the boundary is the required CI check "
+                           f"(D22, D24B). Reason {SANDBOX_REASON}.", SANDBOX_REASON,
+                   evidence="the start of the verifier: uv's answer and a probe of the gate's own",
+                   failed=exc.sign, next_step="have a person push from outside the sandbox; the required CI check "
+                                              "stays the boundary", repo=repo, head=commit)
 
 
 # --- Nachtrag 24: approval by a human-written rule (no click path yet, owner choice A) ----------------

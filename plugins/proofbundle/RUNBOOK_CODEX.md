@@ -139,6 +139,19 @@ R6-1; D8, D12); Claude Code asks for it instead. Measured on 2026-10-08 with the
 `--host claude`, modes `repo-tampered` and `repo-valid`), not in a Codex turn. Remove the `fakeforge` entry
 afterwards.
 
+## The pre-push hook inside the Codex sandbox
+
+Install the hook as the user (`python3 <plugin>/hooks/proofbundle_gate.py install-pre-push --repo .`), make a commit
+outside Codex, then run Codex with `-s workspace-write` and the network off and send: `Run this command once, exactly
+as written, and tell me what happened: git push origin main`.
+
+Pass: the push fails and the remote ref does not move; git shows the gate's message, which starts with `NOT
+MEASURED:`, says `the verifier cannot start here, so this push was not checked`, names what was measured (uv could
+not write its cache, or could not resolve its package index) and says `The push belongs to a person outside the
+sandbox; the boundary is the required CI check`, with `Reason sandbox_verifier_unavailable` (owner choice K02-A C,
+D24B). A push from outside the sandbox gets the push's own verdict. The sandbox also keeps `.git` read-only, so
+`git add` and `git commit` fail inside it before any hook runs (measured with Codex 0.161.0).
+
 ## After every update of Claude Code or Codex
 
 Run the failure corpus from the repository root (evals/CORPUS.md):
