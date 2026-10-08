@@ -162,6 +162,10 @@ include Makefile
 # `test_jede_datei_unter_scripts_ist_in_manifest_entschieden` red, a test that stands in every
 # selection of the gate, so the first baseline of every shard stopped; and the contract failed from
 # the sdist with FileNotFoundError. It is data of a shipped script, like the shard weights below.
+#
+# IN, decided the way its reader is (2026-09-27): scripts/cargo_audit_gate.py. The shipped test
+# tests/test_cargo_audit_gate.py loads it with spec_from_file_location, so left out it would fail
+# from the sdist with FileNotFoundError. It reads a lock file and cargo-audit's JSON and holds no key.
 include scripts/demo.sh
 include scripts/demo_tamper.sh
 include scripts/mutation_baseline_allowlist.json
@@ -174,6 +178,7 @@ include scripts/b7_historie.py
 include scripts/b7_paketinhalt_ohne_schluesselmaterial.py
 include scripts/branch_base_check.py
 include scripts/build_reproducible.py
+include scripts/cargo_audit_gate.py
 include scripts/check_version_and_changelog.py
 include scripts/claims_hygiene_check.py
 include scripts/doc_link_check.py

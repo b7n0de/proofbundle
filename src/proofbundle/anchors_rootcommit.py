@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 from .anchors_ots import ots_binding_held   # stdlib-only at import time; the OTS library loads lazily
+from .canonical import _abbild_stand, _ein_stand, _zeichen_von
 from .checkpoint import _split_signed_note
 from .errors import BundleFormatError
 from ._wire_b64 import decode_b64
@@ -57,11 +58,13 @@ _SECP256K1_HALF_N = _SECP256K1_N // 2
 _ANCHOR_PREFIX = f"— {KEY_NAME} "              # "— <keyname> " (U+2014 EM DASH), one anchor per line
 
 
+@_ein_stand
 def expected_key_id(identifier: bytes) -> bytes:
     """Spec key ID = SHA-256(<key name> || 0x0A || 0xff || <identifier>)[:4]."""
     return hashlib.sha256(KEY_NAME.encode() + b"\x0a" + bytes([SIG_TYPE]) + identifier).digest()[:4]
 
 
+@_ein_stand
 def parse_checkpoint_head(text: str) -> Optional[tuple[str, str, str]]:
     """(origin, size, root) as the verbatim first three lines of the checkpoint note body, or None. The
     body is everything before the blank-line separator; `root` is the 3rd line copied byte-for-byte (no
@@ -83,6 +86,7 @@ def parse_checkpoint_head(text: str) -> Optional[tuple[str, str, str]]:
     return lines[0], lines[1], lines[2]
 
 
+@_ein_stand
 def build_preimage(origin: str, size: str, root: str, wallet: str, *, tag: str = TAG_V1) -> bytes:
     """The frozen 5-line preimage (SPEC §"Preimage — frozen byte layout"), LF-terminated, trailing \\n."""
     return (f"{tag}\norigin={origin}\nsize={size}\nroot={root}\nwallet={wallet}\n").encode("utf-8")
@@ -143,6 +147,7 @@ def _binding_status(ots: bytes, commitment: bytes, *, frozen: dict, rp_trust: Op
     return verify_opentimestamps(ots, commitment, frozen=frozen, rp_trust=rp_trust)
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
                          rp_trust: Optional[dict] = None) -> dict:
     """Second-implementation verify of a rootcommit/v1 anchor on a checkpoint. Returns
@@ -150,7 +155,13 @@ def verify_rootcommit_v1(checkpoint_text: str, *, frozen: Optional[dict] = None,
     OTS verifier confirms the proof commits our independently rebuilt SHA-256(preimage); any tamper of
     root or wallet makes commitment differ → status 'unbound' → reject. Offline (no relying-party Bitcoin
     header) a genuine proof is honestly not-a-pass on temporal confirmation but the BINDING still holds."""
-    frozen = frozen or {}
+    # `or {}` asked the caller's map whether it is empty through its own `__len__` (deep gate 6.2.0 at
+    # 2348f0a7, found by the extended sweep); only an absent map is the empty one.
+    frozen = frozen if frozen is not None else {}
+    # One reading of the note, by its characters (round 12): the head and the anchor lines below
+    # come from the same text, and no method of a `str` subclass runs.
+    if _zeichen_von(checkpoint_text) is not None:
+        checkpoint_text = _zeichen_von(checkpoint_text)
     head = parse_checkpoint_head(checkpoint_text)
     if head is None:
         return {"known_anchors": 0, "binding": False, "reject": True, "status": "malformed_checkpoint",
@@ -237,6 +248,7 @@ def _eip191_signature_parts(sig65) -> Optional[tuple[bytes, int]]:
     return bytes(sig65[:64]), rec_id
 
 
+@_ein_stand
 def eip191_signature_identity(sig65) -> Optional[bytes]:
     """The 65 bytes that an identity, dedup, replay or log key of an EIP-191 signature is computed
     over: ``r || s || v`` with ``v`` written as 27 or 28. A signature carrying ``v = 0`` and the same
@@ -255,6 +267,7 @@ def eip191_signature_identity(sig65) -> Optional[bytes]:
     return rs + bytes([27 + rec_id])
 
 
+@_ein_stand
 def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
     """EIP-191 personal_sign recovery → EIP-55 address, or None on malformed input. Raises _NoSigLib if
     no secp256k1 recovery backend is installed (caller maps that to status 'no_sig_lib'). The message is
@@ -313,6 +326,7 @@ def eip191_recover_address(message: str, sig65: bytes) -> Optional[str]:
         return None
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = None,
                             rp_trust: Optional[dict] = None) -> dict:
     """Second-implementation verify of a rootcommit/v2-sig anchor. Adds the wallet EIP-191 signature over
@@ -324,7 +338,11 @@ def verify_rootcommit_v2sig(checkpoint_text: str, *, frozen: Optional[dict] = No
     checkpoints whose anchor lines differ only in ``v = 0`` against ``v = 27`` (or ``1`` against
     ``28``) get the same result; a dedup, replay or log key over the signature itself is computed
     over :func:`eip191_signature_identity`, never over the text (finding D1, addendum 11)."""
-    frozen = frozen or {}
+    # `or {}` asked the caller's map whether it is empty through its own `__len__` (deep gate 6.2.0 at
+    # 2348f0a7, found by the extended sweep); only an absent map is the empty one.
+    frozen = frozen if frozen is not None else {}
+    if _zeichen_von(checkpoint_text) is not None:
+        checkpoint_text = _zeichen_von(checkpoint_text)   # one reading, as in verify_rootcommit_v1 (round 12)
     head = parse_checkpoint_head(checkpoint_text)
     if head is None:
         return {"known_anchors": 0, "binding": False, "sig_ok": None, "reject": True,

@@ -15,15 +15,20 @@ from __future__ import annotations
 import binascii
 import copy
 import hashlib
+import hmac
 import json
 import re
+from collections import Counter
 from typing import Any, Optional
 
-from ._verdict import require_bool_verdict
+from ._membership import require_switch, type_name
+from ._verdict import require_bool_verdict, require_eval_claim
 from ._wire_b64 import decode_b64
 from ._strict_json import loads_strict
-from .canonical import CONTENT_ROOT_ALG, CanonicalizerUnavailable, canonicalize_statement
-from .errors import BundleFormatError, ProofBundleError
+from .budget import render_safe
+from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _ein_stand, _plain_for_jcs,
+                        _type_name, _zeichen_von, canonicalize_statement)
+from .errors import BundleFormatError, ProofBundleError, SwitchTypeError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://b7n0de.com/proofbundle/eval-receipt/v0.1"
@@ -94,6 +99,98 @@ def _commit_hex(commit: str) -> str:
     return commit.split(":", 1)[1] if ":" in commit else commit
 
 
+def _eigen(wert: Any, wo: str, name: str = "") -> Any:
+    """The one reading of a caller's argument: its plain copy (`canonical._plain_for_jcs`), or this
+    module's BundleFormatError naming the site and where the value sits.
+
+    THE CLASS OF ROUND 8, at the exporters. Each producer below takes one copy of every JSON-shaped
+    argument first, and judges, builds, serializes and signs only that copy: the claim, and
+    ``harness``, ``anchors``, ``subject``, ``subject_digest``, ``root_b64``, ``url``, ``keyid``, the
+    profile names and ``content_root_alg``. Measured at c8205c18: `_require_export_fields` and the
+    plaintext guard read the claim through its own ``get``, ``==`` and ``__contains__`` before the
+    claim rule's copy existed (a str subclass whose ``__eq__`` raised escaped as that exception), the
+    legacy serializer (json.dumps) wrote a ``harness`` dict subclass through its own ``items()``, and
+    ``resolve_subject`` built a ``release-gate`` subject digest from ``subject_sha256.lower()``, the
+    caller's own method. A statement builder returns the copy, so a tuple comes back as the list it is
+    written as.
+
+    An argument that must be a string is read with `_eigener_text`, and a caller-attested flag with
+    `_eigene_flagge` (round 9)."""
+    return _plain_for_jcs(wert, lambda text: BundleFormatError(f"{wo}: {text}"), name)
+
+
+def _eigener_text(wert: Any, wo: str, name: str) -> Optional[str]:
+    """`_eigen` for an argument that must be a string or None: its plain copy, or this module's
+    BundleFormatError naming the argument and the type. `_eigener_pflichttext` refuses None too.
+
+    THE CLASS OF ROUND 9, lens run 7 at ee489403. `_eigen` accepts every JSON value, and a value of
+    the wrong JSON type then reached a comparison, a message or the binder's ``json.dumps``. Measured
+    at ee489403: ``root_b64`` or ``content_root_alg`` set to ``10**5000`` at ``export_intoto_dsse``
+    and ``subject_profile=10**5000`` at ``export_eval_result_dsse`` raised a raw ValueError from a
+    message that interpolated the value, and a ``url``, ``keyid``, ``subject_name`` or
+    ``subject_profile`` that is a number, a list or an object was written into the signed statement
+    or envelope. The type is checked on the copy, so a ``str`` subclass is accepted as the characters
+    it holds and no method of the caller runs."""
+    kopie = _eigen(wert, wo, name)
+    return None if kopie is None else _text_oder_abweisung(kopie, wo, name)
+
+
+def _eigener_pflichttext(wert: Any, wo: str, name: str) -> str:
+    """`_eigener_text` for an argument that must be a string and has no absent form."""
+    return _text_oder_abweisung(_eigen(wert, wo, name), wo, name)
+
+
+def _text_oder_abweisung(kopie: Any, wo: str, name: str) -> str:
+    if type(kopie) is not str:
+        raise BundleFormatError(f"{wo}: {name} must be a string, got {_type_name(type(kopie))}")
+    return kopie
+
+
+def _eigene_flagge(wert: Any, name: str) -> bool:
+    """A caller-attested flag (``prereg_verified``, ``anchor_verified``) as the bool it is, or
+    :class:`~proofbundle.errors.SwitchTypeError` naming the flag and the type it got
+    (`_membership.require_switch`, the one rule for a switch in this package).
+
+    R-B4 AT THE FLAGS (round 9). The flags were read by their truth, so any non-empty string was
+    true. Measured at ee489403 and on main 20e91c8e: ``export_svr_dsse(env, signer,
+    anchor_verified="false")`` signed ``PROOFBUNDLE_ANCHOR_VALID``. `_verdict.require_bool_verdict`
+    holds the same rule for ``passed``: a refusal, not a coercion, because only the caller knows what
+    ``"false"`` or ``1`` was meant to say. ``bool`` cannot be subclassed, so ``type(wert) is bool``
+    holds exactly when the caller passed True or False, and no code of the caller runs. Round 9 refused
+    with this module's own BundleFormatError; the flags now answer as every other switch does."""
+    require_switch(wert, name)
+    return wert
+
+
+def _claim_once(claim: Any) -> Any:
+    """The caller's claim read ONCE from its storage (`_plain_value.plain_json`), so that every check
+    of an exporter and every field it writes read one value (lens run 8 at fddc00f4, the sweep of
+    finding B). The exporters checked `claim.get(k)` and wrote `claim[k]`, asked `k in claim` and read
+    the issuer through `get`; a dict subclass could answer each of those differently from what it
+    stores. A value that is not a dict is handed on unchanged, so the exporter's own refusal names it.
+    The type is the object's own (`type`), not `isinstance`, which reads a caller's `__class__`."""
+    if not issubclass(type(claim), dict):
+        return claim
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(claim, what="the claim", error=BundleFormatError)
+
+
+def _text_once(value: Any, refusal: str) -> str:
+    """A selector the caller hands in (a subject profile, a content-root algorithm, a subject name or
+    digest), read ONCE as the text it holds, or `BundleFormatError(refusal)`. Each was compared through
+    the caller's `__eq__` and then written or compared again (lens run 8, the sweep of finding B)."""
+    from .signature import plain_text  # noqa: PLC0415
+    text = plain_text(value)
+    if text is None:
+        raise BundleFormatError(refusal)
+    return text
+
+
+def _alg_once(content_root_alg: Any) -> str:
+    return _text_once(content_root_alg, f"unknown contentRootAlg of type {type_name(content_root_alg)} "
+                                        "(ADR 0002 §1; no silent default)")
+
+@_ein_stand(fehler=BundleFormatError)
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
                         harness: Optional[dict] = None) -> dict:
     """Build an in-toto Statement v1 whose predicate is the eval receipt.
@@ -102,7 +199,11 @@ def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
     (e.g. {"name": "inspect_ai", "version": "0.3.217"}) is optional. The subject digest is the model
     commitment under a custom key (never `sha256`).
     """
+    claim = _claim_once(claim)
+    claim = require_eval_claim(claim, wo="to_intoto_statement")
     verdikt = require_bool_verdict(claim, wo="to_intoto_statement")
+    root_b64 = _eigener_text(root_b64, "to_intoto_statement", "root_b64")
+    harness = _eigen(harness, "to_intoto_statement", "harness")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -191,7 +292,7 @@ def _serialize_statement(statement: dict, content_root_alg: str) -> bytes:
     if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
         return _canonical_body(statement)
     raise BundleFormatError(
-        f"unknown contentRootAlg {content_root_alg!r}: no silent default for a missing/unknown "
+        f"unknown contentRootAlg {render_safe(content_root_alg)}: no silent default for a missing/unknown "
         "algorithm (algorithm-confusion guard, ADR 0002 §1)")
 
 
@@ -205,7 +306,7 @@ def _declare_content_root_alg(statement: dict, content_root_alg: str) -> dict:
     if content_root_alg == LEGACY_CONTENT_ROOT_ALG:
         return {k: v for k, v in statement.items() if k != "contentRootAlg"}
     raise BundleFormatError(
-        f"unknown contentRootAlg {content_root_alg!r} (ADR 0002 §1; no silent default)")
+        f"unknown contentRootAlg {render_safe(content_root_alg)} (ADR 0002 §1; no silent default)")
 
 
 def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[str], str]:
@@ -235,7 +336,7 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[s
     if unbrauchbar:
         roh = statement.get("contentRootAlg") if isinstance(statement, dict) else None
         return False, gemeldet, (
-            f"contentRootAlg is present but unusable (found {type(roh).__name__} {roh!r}); a "
+            f"contentRootAlg is present but unusable (found {type(roh).__name__} {render_safe(roh)}); a "
             "declaration that names no algorithm is refused rather than read as absent")
     if not isinstance(statement, dict):
         return False, gemeldet, "payload is not a JSON in-toto Statement object"
@@ -258,6 +359,7 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[s
     return True, alg, ""
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, url: Optional[str] = None,
                              content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
@@ -270,8 +372,33 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     ``sha256`` — so ``name``-only descriptors, which are invalid, are avoided). Metric details (metric,
     comparator, threshold, passed, stderr) have no native field in test-result, so they live in the model
     descriptor's ``annotations``. ``subject_digest`` is a real DigestSet ({alg: hex}) for the receipt.
+
+    ``subject_digest`` is read by ``dict()`` over its plain copy, as before, and ``dict()`` decides
+    what is accepted: an object, and a list each of whose items has exactly two elements, which
+    ``dict()`` reads as a key and a value. That covers a list of ``[alg, hex]`` pairs, and also a
+    two-character string (``["ab"]`` gives {"a": "b"}), an object with two keys, whose keys are
+    read (``[{"k": 1, "v": 2}]`` gives {"k": "v"}), and a pair whose key is no string (``[[1, "x"]]``
+    gives {1: "x"}). What ``dict()`` refuses is this function's BundleFormatError (round 9: at
+    ee489403 None, 5, "ab", [1] and True raised ``dict()``'s raw TypeError or ValueError). The round-9
+    wording said every value other than an object or a list of pairs was refused; lens run 8 showed
+    the three above read, and round 10 corrects the sentence without changing the behaviour.
     """
-    verdikt = require_bool_verdict(claim, wo="to_test_result_statement")
+    wo = "to_test_result_statement"
+    claim = _claim_once(claim)
+    content_root_alg = _alg_once(content_root_alg)
+    claim = require_eval_claim(claim, wo=wo)
+    verdikt = require_bool_verdict(claim, wo=wo)
+    subject_digest = _eigen(subject_digest, wo, "subject_digest")
+    try:
+        digest = dict(subject_digest)
+    except (TypeError, ValueError) as exc:
+        raise BundleFormatError(
+            f"{wo}: subject_digest must be a JSON object (a DigestSet such as {{\"sha256\": <hex>}}), "
+            f"got {_type_name(type(subject_digest))} {render_safe(subject_digest)}") from exc
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    url = _eigener_text(url, wo, "url")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
         "digest": {MODEL_COMMIT_DIGEST_KEY: _commit_hex(claim["model_id_commit"])},
@@ -315,12 +442,13 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
         predicate["url"] = url
     return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
-        "subject": [{"name": "eval-receipt", "digest": dict(subject_digest)}],
+        "subject": [{"name": "eval-receipt", "digest": digest}],
         "predicateType": TEST_RESULT_PREDICATE_TYPE,
         "predicate": predicate,
     }, content_root_alg)
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=BundleFormatError)
 def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
                        harness: Optional[dict] = None, url: Optional[str] = None,
                        keyid: Optional[str] = None,
@@ -333,7 +461,23 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
 
     The signed Statement declares its content-root algorithm (default `jcs-sha256-v1`, ADR 0002). Pass
     `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (json.dumps root,
-    no field)."""
+    no field).
+
+    A value the serializer cannot write (NaN, an infinity or an integer beyond the JCS range under
+    the default algorithm, an integer past the interpreter's digit limit under the legacy one, a
+    value nested deeper than the serializer recurses) is this function's BundleFormatError (round 9;
+    at ee489403 rfc8785's FloatDomainError or IntegerDomainError, the budget's BudgetExceeded, or a
+    raw ValueError or RecursionError from json.dumps). See `_signed_body_refusal`."""
+    wo = "export_intoto_dsse"
+    claim = _claim_once(claim)
+    content_root_alg = _alg_once(content_root_alg)
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to export the test-result attestation")
+    claim = require_eval_claim(claim, wo=wo)
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    url = _eigener_text(url, wo, "url")
+    keyid = _eigener_text(keyid, wo, "keyid")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
     # subject_digest binds to the receipt: sha256 of the model+dataset commitments + root (stable, hex).
@@ -346,8 +490,36 @@ def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
     subject_digest = {"sha256": hashlib.sha256(binder).hexdigest()}
     statement = to_test_result_statement(claim, subject_digest=subject_digest, root_b64=root_b64,
                                          harness=harness, url=url, content_root_alg=content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=TEST_RESULT_PAYLOAD_TYPE, keyid=keyid)
+
+
+def _signed_body_refusal(wo: str, exc: BaseException) -> BundleFormatError:
+    """The exporter's BundleFormatError for a statement its serializer cannot write.
+
+    THE SERIALIZER RUNS AFTER THE COPY, and what it refuses is the exporter's refusal, like what the
+    copy refuses (round 9, lens run 7 at ee489403). The copy passes every JSON value, and three kinds
+    reached the serializer raw: under ``jcs-sha256-v1`` rfc8785's FloatDomainError (NaN, an infinity),
+    IntegerDomainError (2**53, 2**64) and the structural budget's BudgetExceeded (10**5000); under
+    the legacy algorithm json.dumps's ValueError for an integer past the interpreter's digit limit
+    and its RecursionError for a value nested within a few levels of the copy's own depth limit
+    (``export_intoto_dsse`` harness 984 to 989 levels, ``export_eval_result_dsse`` harness and
+    anchors 987 to 988, ``export_svr_dsse`` policy 986 to 990, measured from one caller). The
+    serializer is called inline at each exporter and only the refusal is built here, so no frame is
+    added before it and the deepest statement written stays as deep as before.
+
+    ``CanonicalizerUnavailable`` (a missing extra) and this module's own BundleFormatError (an
+    unknown algorithm) pass through unchanged. The verify path keeps its own handling in
+    `_content_root_binding`."""
+    if isinstance(exc, RecursionError):
+        return BundleFormatError(f"{wo}: the statement nests too deep to serialize")
+    return BundleFormatError(
+        f"{wo}: the statement cannot be serialized: {render_safe(str(exc), quote=False)}")
 
 
 def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_predicate_type) -> dict:
@@ -363,13 +535,295 @@ def _intoto_verify_result(sig_ok, binding_ok, statement, alg, detail, expected_p
         type_ok = (got == expected_predicate_type)
         merged_detail = detail if type_ok else (
             (detail + "; " if detail else "")
-            + f"predicateType {got!r} != expected {expected_predicate_type!r} (confusion attack?)")
+            + f"predicateType {render_safe(got)} != expected {render_safe(expected_predicate_type)} "
+              "(confusion attack?)")
     ok = bool(sig_ok) and binding_ok and (type_ok is not False)
     return {"ok": ok, "statement": statement, "predicate_type": got,
             "predicate_type_ok": type_ok, "content_root_alg": alg,
             "content_root_ok": binding_ok, "content_root_detail": merged_detail}
 
 
+def _commit_field(value: Any) -> Any:
+    """A predicate's commitment hex in the claim's `sha256:<hex>` spelling, so the claim rule's own
+    pattern judges it. A non-string stays as it is and the rule refuses its type."""
+    return "sha256:" + value if isinstance(value, str) else value
+
+
+def _eval_result_claim_fields(predicate: dict) -> list:
+    """(label, claim fields or a reason) for each part of an eval-result predicate that carries
+    claim fields.
+
+    The mapping is the inverse of `to_eval_result_predicate`. A predicate field that is ABSENT maps
+    to nothing (docs/upstream/eval-result.md: absence makes no claim, and C2 of
+    tests/test_intoto_content_root_migration.py signs a predicate with none of these fields). A
+    PRESENT container of the wrong shape is a reason of its own, because naming a field inside it
+    would describe a structure that is not there.
+    """
+    teile: list = []
+    if "claims" in predicate:
+        claims = predicate["claims"]
+        if not isinstance(claims, list):
+            teile.append(("claims", f"must be an array of claim objects, got {type(claims).__name__}"))
+        else:
+            for i, eintrag in enumerate(claims):
+                if not isinstance(eintrag, dict):
+                    teile.append((f"claims[{i}]", f"must be an object, got {type(eintrag).__name__}"))
+                    continue
+                teile.append((f"claims[{i}]", {k: eintrag[k] for k in (
+                    "metric", "comparator", "threshold", "passed") if k in eintrag}))
+    if "sampleSize" in predicate:
+        teile.append(("sampleSize", {"n": predicate["sampleSize"]}))
+    if "commitments" in predicate:
+        commitments = predicate["commitments"]
+        if not isinstance(commitments, dict):
+            teile.append(("commitments", f"must be an object, got {type(commitments).__name__}"))
+            commitments = {}
+        for rolle, feld in (("model", "model_id_commit"), ("dataset", "dataset_id_commit")):
+            if rolle not in commitments:
+                continue
+            c = commitments[rolle]
+            if not isinstance(c, dict):
+                teile.append((f"commitments.{rolle}", f"must be an object, got {type(c).__name__}"))
+                continue
+            # `salted: true` is what makes `value` a commitment (upstream spec, `commitments`), and
+            # the one algorithm the claim rule knows is a salted one.
+            if c.get("salted") is not True:
+                teile.append((f"commitments.{rolle}", "salted must be true for a sha256-salted-v1 "
+                              f"commitment, got {render_safe(c.get('salted'))}"))
+                continue
+            teile.append((f"commitments.{rolle}",
+                          {"commit_alg": c.get("alg"), feld: _commit_field(c.get("value"))}))
+    if "suite" in predicate:
+        suite = predicate["suite"]
+        if not isinstance(suite, dict):
+            teile.append(("suite", f"must be an object {{name, version}}, got {type(suite).__name__}"))
+        else:
+            teile.append(("suite", {k: suite[q] for q, k in (("name", "suite"),
+                                                              ("version", "suite_version"))
+                                    if q in suite}))
+    for q, k in (("evaluatedAt", "timestamp"), ("assuranceLevel", "assurance_level")):
+        if q in predicate:
+            teile.append((q, {k: predicate[q]}))
+    if "preRegistration" in predicate:
+        pre = predicate["preRegistration"]
+        if not isinstance(pre, dict):
+            teile.append(("preRegistration", f"must be an object, got {type(pre).__name__}"))
+        elif "value" in pre:
+            teile.append(("preRegistration", {"prereg_sha256": pre["value"]}))
+    return teile
+
+
+def _descriptor_claim_fields(bezeichnung: str, eintrag: Any) -> tuple[list, list]:
+    """(teile, urteile) for one resource descriptor, wherever it stands in a statement of the
+    verifier's own type: an entry of a test-result `configuration`, or an entry of the `subject` of
+    either statement.
+
+    THE OWNERSHIP RULE, one function for every place a descriptor stands. A descriptor is ours when
+    its digest carries `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`; the claim rule
+    then judges its commitment (`_commit_field`) and its annotations, and an annotated boolean
+    `passed` is returned in `urteile`, with the annotated `suite`, for the verdict agreement of the
+    test-result predicate. A descriptor that is an object with an object digest carrying neither key
+    is a generic one and is not judged (test A1 of tests/test_intoto_content_root_migration.py
+    verifies one with digest {"x": "y"}); one without a digest makes no claim. A present descriptor
+    that is not an object, a present digest that is not an object, and annotations of ours that are
+    not an object are reasons, the rule `_eval_result_claim_fields` states for containers.
+
+    Until this function the rule stood in the configuration walk alone. Measured at 6893586f: a
+    validly signed test-result or eval-result statement whose `subject` was
+    [{"name": "model-id-commitment", "digest": {"proofbundleModelCommitV1": "x"}}] verified ok=True
+    with predicate_claim_ok True, and `proofbundle intoto --verify` printed PASS.
+    """
+    if not isinstance(eintrag, dict):
+        return [(bezeichnung, f"must be an object, got {type(eintrag).__name__}")], []
+    if "digest" not in eintrag:
+        return [], []
+    digest = eintrag["digest"]
+    if not isinstance(digest, dict):
+        return [(f"{bezeichnung}.digest", f"must be an object, got {type(digest).__name__}")], []
+    felder = {}
+    for schluessel, feld in ((MODEL_COMMIT_DIGEST_KEY, "model_id_commit"),
+                             (DATASET_COMMIT_DIGEST_KEY, "dataset_id_commit")):
+        if schluessel in digest:
+            felder[feld] = _commit_field(digest[schluessel])
+    if not felder:
+        return [], []
+    urteile: list = []
+    if "annotations" in eintrag:
+        notizen = eintrag["annotations"]
+        if not isinstance(notizen, dict):
+            return [(f"{bezeichnung}.annotations",
+                     f"must be an object, got {type(notizen).__name__}")], []
+        for q, k in (("suite", "suite"), ("metric", "metric"), ("comparator", "comparator"),
+                     ("threshold", "threshold"), ("passed", "passed"), ("evaluatedAt", "timestamp"),
+                     ("provenance", "provenance")):
+            if q in notizen:
+                felder[k] = notizen[q]
+        if isinstance(notizen.get("passed"), bool):
+            suite = notizen.get("suite")
+            urteile.append((notizen["passed"], suite if isinstance(suite, str) else None))
+    return [(bezeichnung, felder)], urteile
+
+
+def _descriptor_list_claim_fields(bezeichnung: str, liste: Any) -> tuple[list, list]:
+    """`_descriptor_claim_fields` over a PRESENT list of descriptors; a list of the wrong shape is a
+    reason of its own."""
+    if not isinstance(liste, list):
+        return [(bezeichnung, f"must be an array of resource descriptors, got "
+                              f"{type(liste).__name__}")], []
+    teile: list = []
+    urteile: list = []
+    for i, eintrag in enumerate(liste):
+        t, u = _descriptor_claim_fields(f"{bezeichnung}[{i}]", eintrag)
+        teile.extend(t)
+        urteile.extend(u)
+    return teile, urteile
+
+
+def _subject_claim_fields(statement: dict) -> tuple[list, list]:
+    """The statement's `subject` under the ownership rule. An absent subject makes no claim."""
+    if "subject" not in statement:
+        return [], []
+    return _descriptor_list_claim_fields("subject", statement["subject"])
+
+
+def _eval_result_statement_claim_fields(statement: dict, predicate: dict) -> list:
+    """What `verify_eval_result_dsse` judges: the predicate's claim fields and the subject."""
+    return ([(f"predicate {b}", f) for b, f in _eval_result_claim_fields(predicate)]
+            + _subject_claim_fields(statement)[0])
+
+
+_CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
+
+
+def _verdict_agreement(predicate: dict, urteile: list) -> list:
+    """Reasons why the generic fields of a test-result predicate contradict a verdict of ours.
+
+    `urteile` holds (passed, suite or None) of every descriptor of ours that annotates a boolean
+    `passed`. Nothing is judged without one: a generic test result is not ours to judge.
+
+    `result`, when present, is PASSED exactly when `passed` is true, which is how
+    `to_test_result_statement` writes them. The case lists follow the rule
+    `verifier_block.validate_test_result_statement` holds for its own statements: each present list
+    is an array of strings; the lists derive the result (FAILED when any case failed, else WARNED
+    when any case warned, else PASSED), and a statement whose lists name no case is not a test
+    result; no case is listed twice. The derived result must be the verdict's. And the annotated
+    suite is listed where its verdict puts it, `passedTests` for true and `failedTests` for false,
+    because that is the list the export writes it into. A generic verifier reads `result` and the
+    lists; a statement where they contradict the signed verdict beside them is not one this export
+    produces. Measured at 6893586f: `result` PASSED with the suite listed under `failedTests`, and
+    `passedTests` naming another suite, each verified ok=True.
+    """
+    if not urteile:
+        return []
+    if "result" in predicate:
+        for urteil, _ in urteile:
+            erwartet = _RESULT_ENUM[urteil]
+            if predicate["result"] != erwartet:
+                return [("result", f"must be {erwartet!r} when passed is {urteil}, "
+                                   f"got {render_safe(predicate['result'])}")]
+    listen: dict = {}
+    for name in _CASE_LISTS:
+        if name in predicate:
+            liste = predicate[name]
+            if not (isinstance(liste, list) and all(isinstance(x, str) for x in liste)):
+                return [(name, f"must be an array of strings, got {render_safe(liste)}")]
+            listen[name] = liste
+    if not listen:
+        return []
+    bestanden = listen.get("passedTests", [])
+    gewarnt = listen.get("warnedTests", [])
+    gescheitert = listen.get("failedTests", [])
+    if not (bestanden or gewarnt or gescheitert):
+        return [("case lists", "name no case; a statement over zero cases is not a test result")]
+    abgeleitet = "FAILED" if gescheitert else ("WARNED" if gewarnt else "PASSED")
+    for urteil, suite in urteile:
+        if abgeleitet != _RESULT_ENUM[urteil]:
+            return [("case lists", f"derive {abgeleitet!r} ({len(gescheitert)} failed, "
+                                   f"{len(gewarnt)} warned, {len(bestanden)} passed), which "
+                                   f"contradicts passed {urteil}")]
+        wo = "passedTests" if urteil else "failedTests"
+        if suite is not None and suite not in listen.get(wo, []):
+            return [(wo, f"must list the suite {render_safe(suite)} whose verdict is passed "
+                         f"{urteil}, got {render_safe(listen.get(wo))}")]
+    doppelt = sorted(x for x, n in Counter(bestanden + gewarnt + gescheitert).items() if n > 1)
+    if doppelt:
+        return [("case lists", f"list a case more than once: {render_safe(doppelt)}")]
+    return []
+
+
+def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
+    """(label, claim fields or a reason) for what `verify_intoto_dsse` judges: every descriptor of
+    ours in the predicate's `configuration` and in the statement's `subject`
+    (`_descriptor_claim_fields`), every container on the way to one that has the wrong shape, and
+    the agreement of the generic fields with the signed verdict (`_verdict_agreement`).
+
+    The inverse of `to_test_result_statement`. An ABSENT `configuration` or `digest` makes no
+    claim. A PRESENT container of the wrong shape is a reason of its own, the rule
+    `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
+    single entry in place of the list, or a digest written as a list of pairs, the walk found no
+    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
+    """
+    subjekt_teile, urteile = _subject_claim_fields(statement)
+    teile: list = []
+    if "configuration" in predicate:
+        teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
+                                                              predicate["configuration"])
+        urteile = konfig_urteile + urteile
+    teile.extend(_verdict_agreement(predicate, urteile))
+    return [(f"predicate {b}", f) for b, f in teile] + subjekt_teile
+
+
+def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
+    """Fold the claim rule over a verified statement's predicate and subject into the verdict.
+    Never raises.
+
+    ``predicate_claim_ok`` is True when the statement has this verifier's own predicate type and
+    every claim field it carries passes `evalclaim._field_violation`, False when one does not or
+    when a container on the way to one has the wrong shape (then ``ok`` is False and the reason is
+    appended to ``content_root_detail``), and None when the statement is of another type or not an
+    object, so there is nothing this rule knows to judge.
+    The predicate type of the STATEMENT decides, not ``expected_predicate_type``: with the type
+    check opted out (scripts/pre_tag_attestation.py does), a foreign predicate is still not judged
+    by the eval-claim rule.
+
+    Measured at 62e8bbab: a validly signed envelope whose commitments were `sha256:x`,
+    `not-a-commitment` or 64 upper-case hex digits verified ok=True through both verifiers.
+
+    ``felder_von(statement, predicate)`` returns each part with its full label ("predicate
+    claims[0]", "subject[0]"), because the subject stands beside the predicate and not in it.
+    """
+    statement = res.get("statement")
+    if not (isinstance(statement, dict) and statement.get("predicateType") == eigener_typ):
+        res["predicate_claim_ok"] = None
+        return res
+    from .evalclaim import _field_violation  # noqa: PLC0415 - evalclaim imports the bundle core
+    grund = None
+    # A statement of this verifier's own type whose predicate is PRESENT and not an object is a
+    # reason, not "nothing to judge". Measured at 835df85b: the eval-result predicate or the
+    # test-result predicate wrapped in a list verified ok=True with a placeholder commitment, and
+    # `proofbundle intoto --verify` printed PASS. An absent predicate is the empty one (in-toto
+    # Statement v1: unset is treated the same as set-but-empty), so it carries no claim fields.
+    predicate = statement.get("predicate", {})
+    if not isinstance(predicate, dict):
+        grund = f"predicate must be an object, got {type(predicate).__name__}"
+        predicate = {}
+    try:
+        for bezeichnung, felder in ([] if grund else felder_von(statement, predicate)):
+            fehler = felder if isinstance(felder, str) else _field_violation(felder)
+            if fehler is not None:
+                grund = f"{bezeichnung}: {fehler}"
+                break
+    except (ProofBundleError, ValueError, TypeError, RecursionError) as exc:
+        grund = f"predicate claim fields could not be judged ({type(exc).__name__})"
+    res["predicate_claim_ok"] = grund is None
+    if grund is not None:
+        res["ok"] = False
+        res["content_root_detail"] = (
+            (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + grund)
+    return res
+
+
+@_ein_stand(fehler=BundleFormatError)
 def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
                        expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
@@ -379,24 +833,46 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's ``predicateType`` equals
     ``expected_predicate_type`` (WP-I1: the type was previously only RETURNED, so ``ok`` was True for a
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
-    Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before)."""
+    Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
+
+    ``ok`` also requires that every eval-claim field a configuration or subject entry carrying a
+    proofbundle commitment digest holds passes the claim rule, and that `result` and the case lists
+    agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
+    `_judge_claim_fields`). A generic test-result entry without such a digest is not judged.
+
+    ``expected_predicate_type`` is the caller's configuration, not untrusted input: it is read as
+    its plain copy and must be a string or None, else this function raises BundleFormatError (round
+    9; at ee489403 ``10**5000`` raised a raw ValueError from the mismatch message, and a ``str``
+    subclass was compared through its own ``__eq__``). The verdict on the envelope never raises.
+
+    The envelope is read once, as the plain copy of what it stores (`dsse._read_once`), and the
+    returned statement is parsed from the payload bytes the signature was checked over (round 11).
+    An envelope holding a value that is no JSON value is refused, ok=False."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
+    erwartet = _eigener_text(expected_predicate_type, "verify_intoto_dsse", "expected_predicate_type")
     try:
         # RE-GATE never-raise: crypto verify + body load + input_bytes budget + strict parse inside the
         # never-raise guard; a wide/oversized (BudgetExceeded) / dup-key (BundleFormatError) / malformed
         # untrusted envelope yields a fail-closed verdict, never a raw exception out of this dict-returning
         # verify surface (mirrors decision/outcome/run_ledger).
-        ok = dsse.verify_envelope(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
-        body = dsse.load_payload(envelope)
+        # ONE READING (round 11, L4): `body` is the payload the signature was checked over, read once
+        # from the plain copy of the envelope. At fa555f13 `verify_envelope` and `load_payload` were two
+        # readings of the caller's object, and a dict subclass answering the second read with another
+        # payload verified ok=True over a statement nobody signed. The same holds for the two
+        # verifiers below (L5, L6).
+        ok, body = dsse._verify_and_load(envelope, public_key, payload_type=TEST_RESULT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
-        return _intoto_verify_result(False, False, None, None,
-                                     f"DSSE payload rejected (fail-closed): {exc}",
-                                     expected_predicate_type)
+        return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
+                                                         f"DSSE payload rejected (fail-closed): {exc}",
+                                                         erwartet),
+                                   TEST_RESULT_PREDICATE_TYPE, _test_result_claim_fields)
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    return _judge_claim_fields(
+        _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
+        TEST_RESULT_PREDICATE_TYPE, _test_result_claim_fields)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -429,6 +905,31 @@ def _forbid_plaintext_in_export(claim: dict) -> None:
             "commitment-only and must never carry a model/dataset name or a salt")
 
 
+def _refuse_to_vouch_for_a_key_nobody_holds(claim: Any, wo: str) -> None:
+    """Refuse to SIGN a statement over a claim whose issuer key the trust-anchor rule refuses.
+
+    SPEC section 4b lets the bundle's own key keep the section 4a profile when a receipt is VERIFIED,
+    because a relying party's trust in it comes from a pin that carries the rule. An export that SIGNS
+    is a different act: proofbundle then vouches, under a real key, for what it read. Measured on
+    053c7800 (lens run 1, out-of-scope finding 3): `export_svr_dsse` signed
+    PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_THRESHOLD_MET over a PASS receipt that nobody signed
+    under the identity point, and the SVR verified under the exporter's key. The eval-result and
+    test-result exports signed the same claim just as readily. A claim carries its issuer (the key
+    `decode_eval_claim` binds to the signature), so the key is judged here, with the shared rule and
+    the one issuer parser. A claim that names no ed25519 key has nothing to judge and is not refused
+    here; whoever hands such a claim to an exporter is answering for it themselves."""
+    from .evalclaim import _issuer_key_weakness  # noqa: PLC0415
+    from .signature import TRUST_ANCHOR_REFUSAL  # noqa: PLC0415
+    # By the claim's own type: `isinstance` reads a caller's `__class__`, and the `get` of an object that
+    # only claims to be a dict is its own code (the exporter's own reading refuses such a claim next).
+    grund = _issuer_key_weakness(claim.get("issuer")) if issubclass(type(claim), dict) else None
+    if grund is not None:
+        raise BundleFormatError(
+            f"{wo}: the receipt's issuer key is a {grund} Ed25519 key, refused as a trusted key: "
+            f"{TRUST_ANCHOR_REFUSAL[grund]} — proofbundle does not sign a statement over a receipt "
+            "that key 'signed' (SPEC section 4b)")
+
+
 def _require_export_fields(claim: dict) -> bool:
     """Refuse to export an invalid/incomplete receipt claim (Paket 2 test 3).
 
@@ -447,6 +948,7 @@ def _require_export_fields(claim: dict) -> bool:
     return require_bool_verdict(claim, wo="refusing to export")
 
 
+@_ein_stand(fehler=BundleFormatError)
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
                     subject_name: Optional[str] = None, subject_sha256: Optional[str] = None) -> list:
     """Build the Statement `subject` for a subject profile. Every subject carries a real `digest` (in-toto
@@ -457,8 +959,26 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
       attestation to the receipt WITHOUT revealing the model.
     * ``public-model`` / ``release-gate``: the subject is a disclosed artifact; the caller supplies its real
       lowercase-hex sha256 (`subject_sha256`) and a name (`subject_name`).
+
+    Every argument is read once, as its plain copy (`_eigen`), before it is compared or used. A
+    ``subject_sha256`` that is not a string is refused, where ``.lower()`` of it raised a raw
+    AttributeError. ``profile``, ``root_b64``, ``subject_name`` and ``subject_sha256`` must be strings
+    (the last three may be None), checked on the copy (round 9): a ``subject_name`` that is a number,
+    a list or an object was written as the subject's name, and a ``profile`` of ``10**5000`` raised
+    a raw ValueError from the refusal that named it.
     """
+    wo = "resolve_subject"
+    claim = _claim_once(claim)
+    profile = _text_once(profile, f"unknown subject profile of type {type_name(profile)} "
+                                  f"(one of {', '.join(SUBJECT_PROFILES)})")
+    if subject_name is not None:
+        subject_name = _text_once(subject_name, "subject_name must be text")
+    if subject_sha256 is not None:
+        subject_sha256 = _text_once(subject_sha256, "subject_sha256 must be text")
+    profile = _eigener_pflichttext(profile, wo, "profile")
     if profile == "receipt":
+        claim = require_eval_claim(claim, wo=wo)
+        root_b64 = _eigener_text(root_b64, wo, "root_b64")
         if not claim.get("model_id_commit") or not claim.get("timestamp"):
             raise BundleFormatError("receipt subject profile needs model_id_commit and timestamp")
         binder = json.dumps({
@@ -469,22 +989,41 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return [{"name": "eval-receipt", "digest": {"sha256": hashlib.sha256(binder).hexdigest()}}]
     if profile in ("public-model", "release-gate"):
-        sha = (subject_sha256 or "").lower()
+        subject_name = _eigener_text(subject_name, wo, "subject_name")
+        subject_sha256 = _eigener_text(subject_sha256, wo, "subject_sha256")
+        sha = subject_sha256.lower() if subject_sha256 is not None else ""
         if not subject_name or not _is_sha256_hex(sha):
             raise BundleFormatError(
                 f"subject profile '{profile}' requires --subject-name and a 64-char hex --subject-sha256")
         return [{"name": subject_name, "digest": {"sha256": sha}}]
-    raise BundleFormatError(f"unknown subject profile '{profile}' (one of {', '.join(SUBJECT_PROFILES)})")
+    raise BundleFormatError(
+        f"unknown subject profile {render_safe(profile)} (one of {', '.join(SUBJECT_PROFILES)})")
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
                              subject_profile: str = "receipt") -> dict:
     """Build the `eval-result/v0.1` predicate (lowerCamelCase, RFC-3339 speaking time fields, salted
     commitments, digests as {alg, value}). Validates the claim and refuses to leak secrets first. Only
     fields with real data are emitted (no fabricated `signedAt`/`preRegisteredAt`)."""
-    verdikt = _require_export_fields(claim)
+    # Twice on purpose: first on the plain copy of the claim handed in, so the plaintext guard
+    # answers before the claim rule (which would refuse a plaintext key only as an unknown field);
+    # then on the claim read back, so the verdict written below is the value in the canonical bytes.
+    # The first pass read the caller's object until round 8 (its `get`, `==` and `__contains__`).
+    wo = "to_eval_result_predicate"
+    claim = _claim_once(claim)
+    subject_profile = _text_once(subject_profile, f"unknown subject profile of type "
+                                                  f"{type_name(subject_profile)}")
+    claim = _eigen(claim, wo)
+    _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
+    claim = require_eval_claim(claim, wo=wo)
+    verdikt = _require_export_fields(claim)
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    anchors = _eigen(anchors, wo, "anchors")
+    subject_profile = _eigener_pflichttext(subject_profile, wo, "subject_profile")
     predicate: dict[str, Any] = {
         "verifier": {"id": VERIFIER_ID},
         "evaluatedAt": claim["timestamp"],
@@ -526,21 +1065,27 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     return predicate
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
                              subject_profile: str = "receipt",
                              content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
     """A STANDARD in-toto Statement v1 carrying the eval-result predicate. Declares its content-root
     algorithm (default `jcs-sha256-v1`, ADR 0002); legacy adds no `contentRootAlg` field."""
+    content_root_alg = _alg_once(content_root_alg)
+    predicate = to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
+                                         anchors=anchors, subject_profile=subject_profile)
+    subject = _eigen(subject, "to_eval_result_statement", "subject")
+    content_root_alg = _eigener_pflichttext(content_root_alg, "to_eval_result_statement", "content_root_alg")
     return _declare_content_root_alg({
         "_type": STATEMENT_TYPE,
         "subject": subject,
         "predicateType": EVAL_RESULT_PREDICATE_TYPE,
-        "predicate": to_eval_result_predicate(claim, root_b64=root_b64, harness=harness,
-                                              anchors=anchors, subject_profile=subject_profile),
+        "predicate": predicate,
     }, content_root_alg)
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=BundleFormatError)
 def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "receipt",
                             subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
                             root_b64: Optional[str] = None, harness: Optional[dict] = None,
@@ -550,53 +1095,88 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     identical inputs produce byte-identical statement bytes. The signed Statement declares its content-root
     algorithm (default `jcs-sha256-v1`, ADR 0002 / WP2 activation). Pass
     `content_root_alg=LEGACY_CONTENT_ROOT_ALG` for a byte-identical legacy re-emission (released 2.0.0 wire:
-    json.dumps root, no field)."""
+    json.dumps root, no field).
+
+    The string arguments are checked as strings whether or not the profile reads them (round 9), and
+    a value the serializer cannot write is this function's BundleFormatError (`_signed_body_refusal`)."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
+    wo = "export_eval_result_dsse"
+    claim = _claim_once(claim)
+    content_root_alg = _alg_once(content_root_alg)
+    subject_profile = _text_once(subject_profile, f"unknown subject profile of type "
+                                                  f"{type_name(subject_profile)}")
+    claim = _eigen(claim, wo)              # the one reading of the caller's claim (round 8)
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to export the eval-result attestation")
+    claim = require_eval_claim(claim, wo=wo)
+    subject_profile = _eigener_pflichttext(subject_profile, wo, "subject_profile")
+    subject_name = _eigener_text(subject_name, wo, "subject_name")
+    subject_sha256 = _eigener_text(subject_sha256, wo, "subject_sha256")
+    root_b64 = _eigener_text(root_b64, wo, "root_b64")
+    harness = _eigen(harness, wo, "harness")
+    anchors = _eigen(anchors, wo, "anchors")
+    keyid = _eigener_text(keyid, wo, "keyid")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_statement(claim, subject=subject, root_b64=root_b64, harness=harness,
                                          anchors=anchors, subject_profile=subject_profile,
                                          content_root_alg=content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+@_ein_stand(fehler=BundleFormatError)
 def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: Optional[str] = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
-    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail, predicate_shape_ok,
-    predicate_shape_detail}. `ok` is True iff the Ed25519 signature over the DSSE PAE verifies, payloadType
-    is the pinned in-toto Statement media type, the payload is canonical for its DECLARED contentRootAlg
-    (absent ⇒ legacy; ADR 0002), the statement's `predicateType` equals `expected_predicate_type` (WP-I1:
-    predicate-confusion defense — the type was previously only returned, so a swapped SVR/test-result
-    envelope was accepted as an eval-result), AND, for a statement that declares
-    `EVAL_RESULT_V02_PREDICATE_TYPE`, its predicate has the v0.2 shape (`classify_eval_result_v02_predicate`).
+    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail, predicate_claim_ok,
+    predicate_shape_ok, predicate_shape_detail}. `ok` is True iff the Ed25519 signature over the DSSE PAE
+    verifies, payloadType is the pinned in-toto Statement media type, the payload is canonical for its
+    DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), the statement's `predicateType` equals
+    `expected_predicate_type` (WP-I1: predicate-confusion defense — the type was previously only returned,
+    so a swapped SVR/test-result envelope was accepted as an eval-result), AND, for a statement that
+    declares `EVAL_RESULT_V02_PREDICATE_TYPE`, its predicate has the v0.2 shape
+    (`classify_eval_result_v02_predicate`).
+
+    `ok` also requires that every eval-claim field the predicate carries (claims[], sampleSize,
+    commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule, and so
+    does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
+    `_judge_claim_fields`). An absent field is not judged.
 
     The default still expects v0.1, and a v0.1 statement is judged exactly as before (no shape check,
     `predicate_shape_ok` None). To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
     Pass `expected_predicate_type=None` to opt out of the type check; the shape of a v0.2 statement is
-    checked all the same."""
+    checked all the same. ``expected_predicate_type`` must be a string or None, and the envelope is read
+    once, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
+    erwartet = _eigener_text(expected_predicate_type, "verify_eval_result_dsse", "expected_predicate_type")
     try:
         # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
         # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
         # exception out of this dict-returning verify surface.
-        ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-        body = dsse.load_payload(envelope)
+        ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
-        res = _intoto_verify_result(False, False, None, None,
-                                    f"DSSE payload rejected (fail-closed): {exc}",
-                                    expected_predicate_type)
+        res = _judge_claim_fields(_intoto_verify_result(False, False, None, None,
+                                                        f"DSSE payload rejected (fail-closed): {exc}",
+                                                        erwartet),
+                                  EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
         res["predicate_shape_ok"], res["predicate_shape_detail"] = None, ""
         return res
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    res = _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    res = _judge_claim_fields(
+        _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
+        EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
     # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
     # statement is never judged under v0.2. v0.1 has no shape contract and gets none now (G2: old
@@ -1004,6 +1584,7 @@ def _now_rfc3339z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@_ein_stand(fehler=(BundleFormatError, SwitchTypeError))
 def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
                    anchor_verified: bool = False) -> list:
     """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
@@ -1016,17 +1597,91 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     call `anchors.verify_anchors()` and does not check the anchor itself. They are CALLER-ATTESTED: the
     caller MUST have run a real offline anchor verification before passing the flag, or the signed SVR
     asserts a property it did not verify. A present prereg hash or an `anchors[]` block alone is NOT a
-    verified binding."""
+    verified binding.
+
+    A check of `result` earns its property only when its `ok` is True itself; any other value earns
+    none (round 10, R-B4 at the checks: `ok` was read by its truth, and "false" earned it). When a
+    name comes more than once, every check of that name must have `ok` True, whatever the order
+    (round 11)."""
     # THE MOST LOAD-BEARING OF THE SIX SITES, because what it decides gets SIGNED. Measured 2026-09-24:
     # `passed="false"` put PROOFBUNDLE_THRESHOLD_MET into a signed SVR while the real `False` produced an
     # empty property list. This function is public, so the check belongs here and not only at
     # `export_svr_dsse`, whose `decode_eval_claim` now refuses a non-boolean one layer earlier. R-B4.
+    #
+    # AND THE WHOLE CLAIM, not only `passed` (6.2.0). Measured at 835df85b: for a claim with
+    # comparator `==`, threshold `inf`, `sha256:x` and a samples block of root "x", n -1, leaf_alg
+    # "md5", which decode refuses, this function returned THRESHOLD_MET and SAMPLE_ROOT_VALID. The
+    # first call keeps its message, which names field and type; the verdict used below is read from
+    # the claim as the rule read it back. The first call reads the plain copy of the claim since
+    # round 8; on the caller's object it asked the object's own `get("passed")`. The two flags are
+    # read as their plain copies too, and since round 9 each must be True or False (`_eigene_flagge`):
+    # a flag was read by its truth, so `anchor_verified="false"` signed PROOFBUNDLE_ANCHOR_VALID
+    # (measured at ee489403 and on main 20e91c8e), R-B4 at the flags. A NumPy boolean, an int 0 or 1
+    # and a string are refused.
+    claim = _eigen(claim, "svr_properties")
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F3): the digest of the claim exactly
+    # as passed, under the same fixed JCS encoding verify_bundle recorded over the signed payload bytes. Used by
+    # the result<->claim binding below; captured before require_eval_claim normalises, from the plain copy.
+    from .decision import _rfc8785_available as _jcs_ok, _rfc8785_bytes as _jcs  # noqa: PLC0415
+    try:
+        _claim_digest = hashlib.sha256(_jcs(claim)).hexdigest() if _jcs_ok() else None
+    except Exception:   # noqa: BLE001 - a non-canonicalizable claim is simply not bound (fail-closed below)
+        _claim_digest = None
+    prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
+    anchor_verified = _eigene_flagge(anchor_verified, "anchor_verified")
+    require_bool_verdict(claim, wo="svr_properties")
+    claim = require_eval_claim(claim, wo="svr_properties")
     verdikt = require_bool_verdict(claim, wo="svr_properties")
-    checks = {c.name: c.ok for c in result.checks}
+    # A check of `result` counts only when its `ok` is the exact True (round 10), compared by
+    # identity, so neither the value's `__bool__` nor its `__class__` is asked. R-B4 at the checks:
+    # the caller builds `result`, and `ok` was read by its truth. Measured at 493c2f86:
+    # `Check("ed25519-signature", "false")` and `Check("merkle-inclusion", "false")` gave
+    # PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_RECEIPT_UNCHANGED, so did [0], 1 and "true", an
+    # object's own `__bool__` ran, and False gave neither.
+    #
+    # A NAME THAT COMES TWICE (round 11, lens run 10 at fa555f13, finding L10). The checks were folded
+    # into a dict by name, so the last check of a name decided: `ed25519-signature` False then True
+    # earned PROOFBUNDLE_SIGNATURE_VALID, True then False did not. The rule now is the conjunction
+    # `VerificationResult.ok` already applies to the whole result: a property is earned only when its
+    # name has at least one check and every check of that name has `ok` True. One failed check of a
+    # name withholds the property in any order. Refusing a repeated name was the other rule; it would
+    # turn a result that records a check once per signer or per anchor into an error on a surface
+    # whose output lists passing properties only, where withholding is already the fail-closed
+    # answer. A name is compared by its characters (`canonical._zeichen_von`).
+    # The checks read without attribute access that can raise: since deep gate run 6 a result of the caller's
+    # own class reaches this body as a stand-in that holds nothing (`canonical._fremdkoerper`), and
+    # `result.checks` raised AttributeError for it; such a result earns no property.
+    verdikte: dict = {}
+    roh: Any = getattr(result, "checks", None)
+    gelistet = (list(list.__iter__(roh)) if issubclass(type(roh), list)
+                else list(tuple.__iter__(roh)) if issubclass(type(roh), tuple) else [])
+    for check in gelistet:
+        name = _zeichen_von(getattr(check, "name", None))
+        if name is not None:
+            verdikte.setdefault(name, []).append(getattr(check, "ok", None))
+
+    def _verdient(name: str) -> bool:
+        oks = verdikte.get(name, [])
+        return bool(oks) and all(ok is True for ok in oks)
+
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F3): no property derived from the
+    # result and the claim without binding to EXACTLY this verified claim. The result must be one this process's
+    # verify_bundle produced — an authentic origin token, not a hand-built result with matching checks (the
+    # svr_properties reproducer the review names) — AND its recorded payload digest must equal this claim's digest
+    # under the fixed JCS encoding. Merkle-root equality alone is not enough; a result of another claim, or a
+    # mutated claim with a reused result, is refused with no property. export_svr_dsse passes the result and the
+    # claim of the same verified bundle, so it keeps its internally-bound positive path.
+    _vpd = getattr(result, "verified_payload_digest", None)
+    _origin_ok = callable(getattr(result, "origin_authentic", None)) and result.origin_authentic()
+    _claim_bound = (_origin_ok and isinstance(_vpd, str) and isinstance(_claim_digest, str)
+                    and hmac.compare_digest(_vpd, _claim_digest))
+    if not _claim_bound:
+        return []
+
     props = []
-    if checks.get("ed25519-signature"):
+    if _verdient("ed25519-signature"):
         props.append("PROOFBUNDLE_SIGNATURE_VALID")
-    if checks.get("merkle-inclusion"):
+    if _verdient("merkle-inclusion"):
         props.append("PROOFBUNDLE_RECEIPT_UNCHANGED")
     if verdikt:
         props.append("PROOFBUNDLE_THRESHOLD_MET")
@@ -1039,6 +1694,7 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     return props
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=(BundleFormatError, SwitchTypeError))
 def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
                     anchor_verified: bool = False, keyid: Optional[str] = None,
@@ -1054,18 +1710,59 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     **Caller-attested properties (No-Overclaim, 6-lens review):** `prereg_verified` / `anchor_verified`
     are NOT verified by this function — it does not call `anchors.verify_anchors()`. If you pass them, the
     signed SVR asserts `PROOFBUNDLE_PREREG_BOUND` / `PROOFBUNDLE_ANCHOR_VALID` on your word; run a real
-    offline anchor verification first, or leave them False."""
+    offline anchor verification first, or leave them False. Each flag must be True or False; any other
+    value, the string "false" among them, is a :class:`~proofbundle.errors.SwitchTypeError` (round 9,
+    R-B4; `_membership.require_switch`).
+
+    ``time_created`` and ``keyid`` must be strings or None and ``content_root_alg`` a string, and a
+    value the serializer cannot write is a BundleFormatError (round 9, `_signed_body_refusal`)."""
     from . import dsse  # noqa: PLC0415
     from .bundle import recompute_merkle_root_b64, verify_bundle  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
-    from .evalclaim import decode_eval_claim  # noqa: PLC0415
+    from .evalclaim import _eine_lesung, decode_eval_claim  # noqa: PLC0415
 
+    # THE BUNDLE IS READ ONCE (lens run 8, the sweep of finding B; named as not checked by the lens):
+    # the claim was decoded from one read, the signature verified over a second and the subject root
+    # taken from a third. A path is loaded once, a dict is copied from its storage, and every step
+    # below reads that one value.
+    content_root_alg = _alg_once(content_root_alg)
+    # A path by its own type and as its characters: `isinstance` reads a caller's `__class__`, and a
+    # `str` subclass's own `__fspath__` would be the caller's code.
+    if issubclass(type(bundle), str):
+        from .bundle import load_bundle  # noqa: PLC0415
+        try:
+            bundle = load_bundle(str.__str__(bundle))
+        except (ProofBundleError, OSError, ValueError, TypeError) as exc:
+            # the answer `decode_eval_claim` gives for a path it cannot load
+            raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt") from exc
+    elif issubclass(type(bundle), dict):   # its own type: `isinstance` reads a caller's `__class__`
+        from ._plain_value import plain_json  # noqa: PLC0415
+        bundle = plain_json(bundle, what="the bundle", error=BundleFormatError)
     try:
+        # ONE READING (round 11, class A): decode, verify_bundle and recompute_merkle_root_b64 below each
+        # read the bundle, and each read the caller's object. Measured at fa555f13 with a dict subclass
+        # answering another receipt's `merkle` from its third read on: the SVR was signed with a subject
+        # binding that other receipt's root. All three read the one plain copy now (a path is loaded once).
+        bundle = _eine_lesung(bundle)
         claim = decode_eval_claim(bundle)
     except ProofBundleError as exc:   # a non-receipt / malformed bundle → clean fail-closed, not a raw error
         raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
     if claim is None:
         raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt")
+    # BEFORE ANYTHING IS SIGNED. The receipt verified under the section 4a profile, which is right for
+    # a verifier and wrong for a statement proofbundle signs: PROOFBUNDLE_SIGNATURE_VALID under a
+    # small-order key would attest a signature nobody made.
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to emit SVR")
+    # The claim is the one decode parsed. The caller's other arguments go into the signed statement,
+    # so each is read once, as its plain copy, like the other exporters' (round 8): `policy` was
+    # written by the legacy serializer through a dict subclass's own `items()`.
+    wo = "export_svr_dsse"
+    time_created = _eigener_text(time_created, wo, "time_created")
+    policy = _eigen(policy, wo, "policy")
+    prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
+    anchor_verified = _eigene_flagge(anchor_verified, "anchor_verified")
+    keyid = _eigener_text(keyid, wo, "keyid")
+    content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     result = verify_bundle(bundle)
     if not result.ok:
         raise BundleFormatError(
@@ -1090,10 +1787,16 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
             "properties": props,
         },
     }, content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+@_ein_stand
 def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     """Structural check of an SVR Statement's predicate — the shape every consumer dereferences.
 
@@ -1109,7 +1812,14 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
     so it belongs in the never-raise denominator — and the ``classify_`` family is how that denominator is
     built. Widening the allowlist by one bespoke name would have put it beside the property instead of
-    under it; the family test now fuzzes this function like every sibling."""
+    under it; the family test now fuzzes this function like every sibling.
+
+    The statement is read once, into the plain copy of what it stores (round 12)."""
+    from .canonical import _pruefkopie  # noqa: PLC0415
+    try:
+        statement = _pruefkopie(statement)
+    except ValueError as exc:
+        return False, f"statement is not a JSON object: {exc}"
     if not isinstance(statement, dict):
         return False, "statement is not a JSON object"
     predicate = statement.get("predicate")
@@ -1127,29 +1837,31 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     return True, ""
 
 
+@_ein_stand(fehler=BundleFormatError)
 def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                     expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,
     content_root_alg, content_root_ok, content_root_detail}. `ok` requires the signature, the canonical
     contentRootAlg (absent ⇒ legacy; ADR 0002), AND the statement's `predicateType` == the SVR type
     (WP-I1: predicate-confusion defense — a swapped eval-result/test-result envelope was accepted as an
-    SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out."""
+    SVR because the type was only returned). Pass `expected_predicate_type=None` to opt out. It must
+    be a string or None, and the envelope is read once, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
+    erwartet = _eigener_text(expected_predicate_type, "verify_svr_dsse", "expected_predicate_type")
     try:
         # RE-GATE never-raise (mirror verify_intoto_dsse): crypto + load + budget + parse inside the guard;
         # a wide/oversized/dup-key/malformed untrusted envelope yields a fail-closed verdict, never a raw
         # exception out of this dict-returning verify surface.
-        ok = dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-        body = dsse.load_payload(envelope)
+        ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         return _intoto_verify_result(False, False, None, None,
                                      f"DSSE payload rejected (fail-closed): {exc}",
-                                     expected_predicate_type)
+                                     erwartet)
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    res = _intoto_verify_result(ok, binding_ok, statement, alg, detail, expected_predicate_type)
+    res = _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet)
     # RT-06 (L3-600-06): the predicate SHAPE is part of the verdict. A signed statement whose predicate
     # is not what svr/v0.1 declares is not an SVR that verified — ``ok`` stays False and the reason is
     # named, so no consumer prints PASS and then walks a list that is an int.

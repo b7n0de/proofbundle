@@ -51,7 +51,9 @@ import re
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from ._membership import is_member
+from ._membership import is_member, require_switch
+from .canonical import (_ein_stand, _eine_kopie, _feld_von, _folge_von, _pruefkopie,
+                        _richtlinie_von, _zeichen_von)
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
@@ -157,6 +159,19 @@ def _is_digest(obj: Any) -> bool:
 
 
 # ── bodyCoreDigest ──────────────────────────────────────────────────────────────────────────────
+def _text_once(value: Any, refusal: str) -> str:
+    """A text the caller hands in, read ONCE from its own storage (`signature.plain_text`), or
+    `AgentReviewError(refusal)`. The body helpers counted the markers, sliced and encoded a body
+    through the caller's `count`, `index`, `__getitem__` and `encode`, so the checks and the digest
+    could read two bodies (lens run 8 at fddc00f4, the sweep of finding B)."""
+    from .signature import plain_text  # noqa: PLC0415
+    text = plain_text(value)
+    if text is None:
+        raise AgentReviewError(refusal)
+    return text
+
+
+@_ein_stand
 def body_core_bytes(body: str) -> bytes:
     """The exact UTF-8 bytes the digest is taken over: the body with the disclosure block replaced.
 
@@ -165,8 +180,7 @@ def body_core_bytes(body: str) -> bytes:
     reduce to one canonical form, and guessing which block is 'the' one would let an attacker choose
     the digest. That raises instead of picking.
     """
-    if not isinstance(body, str):
-        raise AgentReviewError("body must be a string")
+    body = _text_once(body, "body must be a string")
     n_begin, n_end = body.count(DISCLOSURE_BEGIN), body.count(DISCLOSURE_END)
     if n_begin != n_end:
         raise AgentReviewError(
@@ -185,6 +199,7 @@ def body_core_bytes(body: str) -> bytes:
     return (body[:start] + DISCLOSURE_BLOCK_TOKEN + body[end:]).encode("utf-8")
 
 
+@_ein_stand
 def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
     """The body as it will look ONCE it carries a disclosure block — call this BEFORE emitting.
 
@@ -209,8 +224,9 @@ def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
     changes what a human reads, and quietly relocating it is how a disclosure ends up where nobody
     looks.
     """
-    if not isinstance(body, str):
-        raise AgentReviewError("body must be a string")
+    body = _text_once(body, "body must be a string")
+    if anchor is not None:
+        anchor = _text_once(anchor, "anchor must be a string")
     if DISCLOSURE_BEGIN in body:
         raise AgentReviewError(
             "the body already carries a disclosure block — preparing it again would create a second "
@@ -227,8 +243,11 @@ def prepare_body_for_disclosure(body: str, *, anchor: str | None = None) -> str:
     return body[:i] + "\n\n" + platzhalter + body[i:]
 
 
+@_ein_stand
 def replace_disclosure_block(body: str, block: str) -> str:
     """Swap the block for a rendered one. The core digest MUST survive this — that is the contract."""
+    body = _text_once(body, "body must be a string")
+    block = _text_once(block, "block must be a string")
     if body.count(DISCLOSURE_BEGIN) != 1 or body.count(DISCLOSURE_END) != 1:
         raise AgentReviewError("the body must carry exactly one disclosure block to replace")
     vorher = body_core_digest(body)
@@ -244,12 +263,14 @@ def replace_disclosure_block(body: str, block: str) -> str:
     return neu
 
 
+@_ein_stand
 def body_core_digest(body: str) -> str:
     """sha256 hex over :func:`body_core_bytes`. Stable across re-renders of the block (P0 test 7)."""
     return hashlib.sha256(body_core_bytes(body)).hexdigest()
 
 
 # ── disclosureCoreDigest ────────────────────────────────────────────────────────────────────────
+@_ein_stand
 def disclosure_core_bytes(body: str) -> bytes:
     """The bytes of the disclosure block itself, with only the receipt digest substituted.
 
@@ -269,8 +290,7 @@ def disclosure_core_bytes(body: str) -> bytes:
     assurance rung, the finding counts, the limitations and the witnessed-or-not statement are all
     inside the preimage, which is the entire point.
     """
-    if not isinstance(body, str):
-        raise AgentReviewError("body must be a string")
+    body = _text_once(body, "body must be a string")
     n_begin, n_end = body.count(DISCLOSURE_BEGIN), body.count(DISCLOSURE_END)
     if n_begin != n_end:
         raise AgentReviewError(
@@ -292,12 +312,14 @@ def disclosure_core_bytes(body: str) -> bytes:
     return innen.encode("utf-8")
 
 
+@_ein_stand
 def disclosure_core_digest(body: str) -> str:
     """sha256 hex over :func:`disclosure_core_bytes`."""
     return hashlib.sha256(disclosure_core_bytes(body)).hexdigest()
 
 
 # ── findingsRoot ────────────────────────────────────────────────────────────────────────────────
+@_ein_stand
 def findings_root(findings: list[dict]) -> str:
     """A digest over the canonical findings list — removing one finding must change it (P0 test 11).
 
@@ -352,6 +374,7 @@ def _code_segment(roh: str) -> str:
     return _CODE_ERLAUBT.sub("", roh.upper()).strip("_") or "UNBENANNT"
 
 
+@_ein_stand
 def validate_agent_review_predicate(predicate: Any, *, strict: bool = False,
                                     decl_zusatz: frozenset = frozenset(),
                                     cov_zusatz: frozenset = frozenset(),
@@ -639,6 +662,7 @@ LIMITATION_CODES = frozenset((
 ))
 
 
+@_ein_stand
 def derive_limitation_codes(predicate: dict) -> list[str]:
     """Die Codes aus dem Predicate ABLEITEN statt sie tippen zu lassen.
 
@@ -948,16 +972,31 @@ def _waere_fuer_dsse_ein_receipt(env: object) -> bool:
 
     Die erste Fassung dieses Fixes machte genau diesen Fehler und fasste beides zusammen; gefangen
     hat es `test_ein_kaputter_umschlag_bringt_den_resolver_nicht_um`."""
-    if not isinstance(env, dict) or not isinstance(env.get("payload"), str):
+    roh = _gespeicherte_payload(env)
+    if roh is None:
         return False
     # DSSE: standard OR url-safe, each padded and canonical (the one wire-form rule lives in _wire_b64).
     try:
-        decode_b64_either(env["payload"])
+        decode_b64_either(roh)
         return True
     except (ValueError, TypeError):
         return False
 
 
+def _gespeicherte_payload(envelope: object) -> "str | None":
+    """The envelope's stored ``payload`` as its characters, or None (round 12).
+
+    Read from the stored pairs (`canonical._feld_von`: the base type's own ``items``, each key
+    compared by its characters) and `canonical._zeichen_von`, so neither a dict subclass's own
+    ``get`` or ``__getitem__``, nor a ``str`` subclass key's own ``__eq__``, nor a ``str`` subclass
+    value's own ``encode`` decides which payload is hashed or parsed. An envelope with no ``payload``
+    field, or with two keys of those characters, has none. Lens run 11 F6 (P1): `resolve_receipt_chain` took the digest
+    from one reading of the caller's envelope and the supersession claims from another, and ordered a
+    chain by a claim nobody signed."""
+    return _zeichen_von(_feld_von(envelope, "payload"))
+
+
+@_ein_stand
 def receipt_digest(envelope: dict) -> str:
     """Der sha256 ueber die kanonischen Bytes des Statements — die Groesse, die supersession bindet.
 
@@ -966,8 +1005,8 @@ def receipt_digest(envelope: dict) -> str:
     etwas aendert; ein Datei-Digest wuerde dann Faelschung melden, wo keine ist. Gebunden wird das
     Objekt, nicht seine Verpackung.
     """
-    roh = envelope.get("payload")
-    if not isinstance(roh, str):
+    roh = _gespeicherte_payload(envelope)   # what the envelope stores, by its characters (round 12)
+    if roh is None:
         raise AgentReviewError("envelope carries no base64 payload")
     # validate=True ist hier NICHT kosmetisch: ohne es verwirft CPython stillschweigend jedes
     # Zeichen ausserhalb des Alphabets, und dann haette dasselbe Artefakt viele akzeptierte
@@ -979,6 +1018,7 @@ def receipt_digest(envelope: dict) -> str:
     return hashlib.sha256(bytes_).hexdigest()
 
 
+@_ein_stand
 def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -> dict:
     """Welches Receipt gilt JETZT, welche sind korrigiert, und ist die Kette vollstaendig.
 
@@ -1012,7 +1052,7 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
     sagt es hier, damit niemand `integrity_ok` fuer ein Krypto-Urteil haelt. Was er jetzt zusaetzlich
     tut: er ordnet nur nach dem, was der Aufrufer als geprueft BENANNT hat.
     """
-    vorhanden: dict[str, dict] = {}
+    vorhanden: dict[str, str] = {}
     korrigiert: dict[str, list[str]] = {}
     fehlend: list[str] = []
     # WAS DER VERIFIER ANNIMMT, MUSS DIE KETTE HALTEN KOENNEN — und wo sie es nicht kann, sagt sie
@@ -1033,15 +1073,26 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
     # Wahlfreiheit, gegen die `validate=True` steht). Stattdessen wird der Verlust BENANNT und
     # zaehlt gegen die Unversehrtheit — nicht messbar ist keine Freigabe.
     nicht_adressierbar: list[str] = []
-    for env in envelopes:
+    # ONE READING PER ENVELOPE (round 12, lens run 11 F6): its stored payload, by its characters, read
+    # once here. The digest and the supersession claims below both come from that one text, and the
+    # caller's `verified` set is read once into the characters it holds. At cd5d39f4 the digest came
+    # from one reading of the caller's envelope and the claims from another (`env["payload"]`), and a
+    # dict subclass or a `str` subclass whose own `encode` answered later ordered the chain by a
+    # supersession claim the verified digest does not cover.
+    if verified is not None:
+        verified = {v for v in (_zeichen_von(x) for x in _folge_von(verified)) if v is not None}
+    for env in _folge_von(envelopes):
+        roh = _gespeicherte_payload(env)
         try:
-            d = receipt_digest(env)
+            d = receipt_digest({"payload": roh})
+            if roh is None:   # receipt_digest refused it above; this line only tells mypy
+                continue
         except (AgentReviewError, ValueError) as exc:
             # NUR die gemessene Asymmetrie zaehlt als Verlust — nicht jeder Muell im Eingang.
             if _waere_fuer_dsse_ein_receipt(env):
                 nicht_adressierbar.append(str(exc))
             continue
-        vorhanden[d] = env
+        vorhanden[d] = roh
 
     ungeprueft_mit_anspruch: list[str] = []
     # LAUF 14, LINSE L1, F1 (11.09.2026, P1 am Wheel): hier stand `json.loads`, waehrend JEDER
@@ -1054,9 +1105,9 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
     # Leser nicht annimmt, bestimmt die Ordnung nicht, und er ist KEIN Schweigen: er zaehlt wie ein
     # nicht adressierbarer gegen `integrity_ok` (dieselbe Regel wie zwei Absaetze weiter oben).
     from ._strict_json import loads_strict  # noqa: PLC0415
-    for d, env in vorhanden.items():
+    for d, text in vorhanden.items():
         try:
-            st = loads_strict(decode_b64(env["payload"]))
+            st = loads_strict(decode_b64(text))
             if not isinstance(st, dict):
                 raise AgentReviewError("payload is not a JSON object")
             sup = (st.get("predicate") or {}).get("supersession") or {}
@@ -1100,6 +1151,7 @@ def resolve_receipt_chain(envelopes: list[dict], *, verified: set[str] | None) -
                      "about the chain being complete, never about cryptographic validity")}
 
 
+@_ein_stand
 def require_valid_agent_review_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_agent_review_predicate(predicate, strict=strict)
     if errs:
@@ -1153,12 +1205,18 @@ def _traegt_verifier_block(predicate: Any) -> bool:
 
 
 def _fassung_fuer_renderer(predicate: Any, legacy_v01: bool | None) -> bool:
-    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide."""
-    if legacy_v01 is not None:
+    """True = v0.2 or newer. An explicit parameter wins; without it the markers decide.
+
+    ``legacy_v01`` is None or an exact bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is read. ``not legacy_v01`` read
+    it by its truth, so ``legacy_v01="false"`` checked the predicate under the v0.1 rules, and one that
+    the v0.2 rules refuse passed (measured at 3a8074fc)."""
+    if require_switch(legacy_v01, "legacy_v01", allow_none=True) is not None:
         return not legacy_v01
     return _traegt_v02_felder(predicate) or _traegt_verifier_block(predicate)
 
 
+@_ein_stand
 def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = False,
                                              legacy_v01: bool | None = None) -> None:
     """v0.1 oder v0.2, die Fassung aus dem Predicate gelesen — und die Strenge kommt mit ihr.
@@ -1194,6 +1252,7 @@ def require_valid_agent_review_predicate_any(predicate: Any, *, strict: bool = F
 _HUMAN_LINE_ORDER = ("Involvement", "Review", "Findings", "Assurance", "Limits")
 
 
+@_ein_stand
 def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = None,
                             legacy_v01: bool | None = None) -> str:
     """The human-visible block, derived deterministically from the predicate.
@@ -1203,6 +1262,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     A reader who only skims the block must not come away with a stronger impression than a verifier
     would report.
     """
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and rendered
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     cov = predicate["coverage"]
@@ -1234,6 +1294,7 @@ def render_disclosure_block(predicate: dict, *, receipt_digest: str | None = Non
     return f"{DISCLOSURE_BEGIN}\n{body}{tail}\n{DISCLOSURE_END}"
 
 
+@_ein_stand
 def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url: str,
                            leaf_url: str | None = None, leaf_witnessed: bool = False,
                            pruefweg: str | None = None, legacy_v01: bool | None = None) -> str:
@@ -1248,7 +1309,14 @@ def render_disclosure_line(predicate: dict, *, receipt_digest: str, receipt_url:
     transparency-log leaf is referenced it states whether that leaf is WITNESSED yet. An entry can be
     in the tree, witnessed, and anchored, and those are three different facts — a line that says
     "notarised" while the witness round is still pending claims the second from the first.
+
+    ``leaf_witnessed`` must be a bool, and ``legacy_v01`` None or a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``). ``leaf_witnessed`` was read by its
+    truth, so ``leaf_witnessed="false"`` dropped the "not yet in a witnessed checkpoint" caveat.
     """
+    require_switch(leaf_witnessed, "leaf_witnessed")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and rendered
+    receipt_digest = _text_once(receipt_digest, "receipt_digest must be a string")
     require_valid_agent_review_predicate_any(predicate, legacy_v01=legacy_v01)
     dec = predicate["declaration"]
     rungs = {i.get("assurance") for i in (dec.get("authoring") or []) + (dec.get("reviewRuns") or [])}
@@ -1326,13 +1394,23 @@ def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bo
 
     WIDERSPRUCH IST EIN FEHLER, KEINE RANGFOLGE. ``legacy_v01=True, v02=True`` verlangt beide
     Fassungen zugleich. Eine stille Vorfahrt haette hier eine der beiden Absichten verschluckt.
+
+    ONLY EXACT BOOLS CHOOSE A VERSION. ``legacy_v01`` must be a bool and ``v02`` None or a bool;
+    anything else raises :class:`~proofbundle.errors.SwitchTypeError` (a ``TypeError``) before
+    anything is validated, built or signed. ``return not legacy_v01`` read the switch by its truth,
+    so ``legacy_v01="false"`` or ``"no"`` issued a v0.1 predicate under the v0.1 rules, which
+    ``False`` refuses under the v0.2 rules (measured at 3a8074fc through ``emit_agent_review``).
     """
+    require_switch(legacy_v01, "legacy_v01")
+    require_switch(v02, "v02", allow_none=True)
     import warnings  # noqa: PLC0415
     if v02 is not None:
         warnings.warn(
             f"{funktion}(v02=...) ist ab 6.0.0 veraltet und wird in einer spaeteren MAJOR "
             "entfernt. v0.2 ist die Vorgabe; fuer die Altfassung legacy_v01=True benutzen.",
-            DeprecationWarning, stacklevel=3)
+            # 4: this helper, the public function, its reading at the call (`canonical._ein_stand`), the caller. At
+            # 3 the warning named canonical.py (verify lane V5 on 8f2fa980).
+            DeprecationWarning, stacklevel=4)
         if legacy_v01 and v02:
             raise AgentReviewError(
                 "legacy_v01=True und v02=True widersprechen sich — es gibt keine Fassung, die "
@@ -1343,6 +1421,21 @@ def _fassung_waehlen(legacy_v01: bool, v02: bool | None, *, funktion: str) -> bo
     return not legacy_v01
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    version choice, the validator, the subject and the signed statement read one value (lens run 8 at
+    fddc00f4, finding B, the sweep). The validator read a dict subclass through its `get` and
+    `__getitem__` while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass
+    could have one predicate validated and another signed. A value that cannot be read this way is
+    refused."""
+    if not issubclass(type(predicate), dict):   # its own type: `isinstance` reads `__class__`
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the agent-review predicate",
+                      error=lambda m: AgentReviewError(f"invalid agent-review predicate: {m}"))
+
+
+@_ein_stand
 def build_agent_review_statement(predicate: dict, *, subject_name: str | None = None,
                                  subject_sha256: str | None = None,
                                  legacy_v01: bool = False, v02: bool | None = None) -> dict:
@@ -1362,6 +1455,8 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
     # EINMAL ENTSCHEIDEN, DANN DURCHREICHEN. Ein zweiter Aufruf derselben Wahl waere ein zweiter
     # Leser derselben Groesse — er wuerde die Verwarnung doppelt ausloesen und koennte im
     # Grenzfall etwas anderes ergeben als der erste.
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, AgentReviewError, "agent-review predicate")   # one reading (round 12)
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="build_agent_review_statement")
     # THE BLOCK PULLS v0.3, TYPE AND VALIDATOR TOGETHER. No parameter chooses v0.3: the version
     # follows the object. A predicate with `producer.verifier` is v0.3 or invalid; a v0.2 type
@@ -1389,6 +1484,7 @@ def build_agent_review_statement(predicate: dict, *, subject_name: str | None = 
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = None,
                       subject_sha256: str | None = None, keyid: str | None = None,
                       strict: bool = True, legacy_v01: bool = False,
@@ -1397,9 +1493,19 @@ def emit_agent_review(predicate: dict, signer, *, subject_name: str | None = Non
 
     Ohne Argument v0.2, wie beim Statement. ``legacy_v01=True`` stellt die Altfassung aus; ``v02``
     ist der Altweg, warnt und verschwindet in einer spaeteren MAJOR.
+
+    ``legacy_v01`` must be a bool and ``v02`` None or a bool: anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed (see
+    ``_fassung_waehlen``). ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape).
     """
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
     _ist_v02 = _fassung_waehlen(legacy_v01, v02, funktion="emit_agent_review")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, AgentReviewError, "agent-review predicate")   # one reading (round 12)
     # Dieselbe Regel wie in `build_agent_review_statement`: der Block zieht v0.3.
     _fassung = ("/v0.3" if _ist_v02 and _traegt_verifier_block(predicate)
                 else "/v0.2" if _ist_v02 else "")
@@ -1528,6 +1634,13 @@ def _zielbindung(r: dict, predicate: dict, statement: dict,
             return
 
         r["subject_expectation"] = "checked"
+        # The expectation by its characters (round 12, lens run 11 O1): at cd5d39f4 `derived !=
+        # expected_subject_digest` ran a `str` subclass's own `__ne__`, which answered False for
+        # another pull request's digest. An expectation that is no string is not computable, as before.
+        erwartet = _zeichen_von(expected_subject_digest)
+        if erwartet is None:
+            raise TypeError("expected_subject_digest must be a string")
+        expected_subject_digest = erwartet
         if derived != expected_subject_digest:
             r["expected_subject_match"] = "MISMATCH"
             r["subject_binding_ok"] = False
@@ -1687,6 +1800,7 @@ def _lagen_satz(pfad: str, lage: str, wert: object, erwartet: str) -> str:
     return f"{pfad} must be {erwartet}, got {type(wert).__name__}"
 
 
+@_ein_stand
 def validate_statement_shape(statement: object, predicate: object) -> list[ShapeError]:
     """Type the whole in-toto Statement BEFORE any semantics are computed (P0.1, P0.3).
 
@@ -1921,6 +2035,7 @@ TIME_AXIS_STATES = ("ABSENT", "SELF_DECLARED", "RUNNER_OBSERVED", "PLATFORM_ATTE
                     "EXTERNALLY_ANCHORED", "CONFLICT", "NOT_EVALUATED")
 
 
+@_ein_stand
 def validate_time_claim(tc: object) -> list[str]:
     """Eine fachliche Zeitaussage traegt IMMER ihre Quelle und ihre Assurance."""
     errs: list[str] = []
@@ -1953,6 +2068,7 @@ def validate_time_claim(tc: object) -> list[str]:
     return errs
 
 
+@_ein_stand
 def validate_agent_review_v03_predicate(predicate: object, *, strict: bool = False) -> list[str]:
     """v0.3 = v0.2 plus `producer.verifier`, validated by `proofbundle.verifier_block`.
 
@@ -1964,6 +2080,7 @@ def validate_agent_review_v03_predicate(predicate: object, *, strict: bool = Fal
                                                _producer_zusatz=_PRODUCER_FIELDS_V03)
 
 
+@_ein_stand
 def validate_agent_review_v02_predicate(predicate: object, *, strict: bool = False,
                                         _producer_zusatz: frozenset = frozenset()) -> list[str]:
     """v0.2 zusaetzlich zu allem, was v0.1 schon verlangt.
@@ -2170,6 +2287,18 @@ _POLICY_ACHSE = {"freshness": "event_time_status", "ttl": "signature_time_status
 _POLICY_GENUEGT = frozenset(("RUNNER_OBSERVED", "PLATFORM_ATTESTED", "EXTERNALLY_ANCHORED"))
 
 
+def _gelesen_oder_leer(wert: Any) -> Any:
+    """A caller's dict as the plain copy of what it stores (round 12); a dict that holds a value that is
+    no JSON value reads as empty. Any other JSON value is its plain copy, and a value of another type
+    is None: both are no dict, as before, and an object that claims to be one through ``__class__`` is
+    never read through its own methods."""
+    try:
+        return _pruefkopie(wert)
+    except ValueError:
+        return {} if issubclass(type(wert), dict) else None
+
+
+@_ein_stand
 def evaluate_time_policy(axes: dict, policy: dict) -> dict:
     """Die Entscheidung einer RELYING PARTY, nicht des Verifiers (Policytests 9 bis 14).
 
@@ -2184,7 +2313,12 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
 
     CONFLICT wird IMMER zu `reject`, egal was die Policy verlangt: zwei einander widersprechende
     Zeitaussagen sind kein schwacher Beleg, sondern ein kaputter.
+
+    Both inputs are read once, into the plain copies of what they store (round 12): a `str` subclass
+    axis state cannot answer "not CONFLICT" through its own `__eq__`. An input that is no JSON value
+    is read as empty, which decides nothing.
     """
+    axes, policy = _gelesen_oder_leer(axes), _gelesen_oder_leer(policy)
     art = policy.get("kind") if isinstance(policy, dict) else None
     # EXPLIZITE VERENGUNG statt eines type:ignore — dieselbe Hausregel wie in `_zeitachsen`.
     # `is_member` schuetzt gegen unhashbare Eingaben, es verengt aber keinen Typ; der
@@ -2194,6 +2328,11 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
                 "reason": f"unknown policy kind {art!r} — allowed: {sorted(_POLICY_ACHSE)}"}
     achse = _POLICY_ACHSE[art]
     zustand = axes.get(achse, "NOT_EVALUATED")
+    # A state counts only as a plain str: `axes` is the caller's, and an object whose own __eq__ and
+    # __hash__ answered for the membership test below was accepted (measured). Anything else is a state
+    # nobody evaluated.
+    if type(zustand) is not str:
+        zustand = "NOT_EVALUATED"
     if zustand == "CONFLICT":
         return {"decision": "reject", "policy_kind": art, "axis": achse, "axis_state": zustand,
                 "reason": "the axis reports CONFLICT — two time statements contradict each other, "
@@ -2209,6 +2348,7 @@ def evaluate_time_policy(axes: dict, policy: dict) -> dict:
                        f"the policy exists to check")}
 
 
+@_ein_stand
 def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     """Geprüfte externe Zeitevidenz auf die Achsen anwenden — und NUR auf die richtige.
 
@@ -2221,10 +2361,15 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
     `verified` MUSS ausdruecklich True sein. Eine mitgelieferte, ungepruefte Evidenz hebt nichts
     an; sonst waere die Anhebung eine Behauptung der Gegenseite.
     """
-    aus = dict(axes)
-    if not isinstance(evidence, dict) or evidence.get("verified") is not True:
+    # ONE READING (verify lane on pull request 312): `verified` and `kind` were read through the evidence's
+    # own `get` and `isinstance`, and `kind` compared through the caller's `__eq__`, so a dict subclass that
+    # stored nothing lifted both axes. The evidence is read once, as the plain copy of what it stores, and
+    # the axes as the pairs the caller's map stores; no method of either runs.
+    aus = dict(dict.items(axes)) if issubclass(type(axes), dict) else dict(axes)
+    beleg = _richtlinie_von(evidence)
+    if beleg is None or beleg.get("verified") is not True:
         return aus
-    art = evidence.get("kind")
+    art = _zeichen_von(beleg.get("kind"))
     if art == "rfc3161":
         aus["signature_time_status"] = "PLATFORM_ATTESTED"
         aus["external_time_status"] = "EXTERNALLY_ANCHORED"
@@ -2247,6 +2392,7 @@ def apply_time_evidence(axes: dict, evidence: dict) -> dict:
 # Der Klassen-Fix ist nicht ein besserer Waechter, sondern eine Stelle, an der man es nicht mehr
 # vergessen KANN. Gemessen mit entfernten separaten Aufrufen: 0 Verstoesse bei 14 echten Aufrufstellen (hier stand '18' — das waren grep-Treffer inklusive drei Kommentarzeilen und einer def-Zeile; gemessen wurde ein VORKOMMEN statt einer EIGENSCHAFT).
 
+@_ein_stand
 def verify_agent_review(envelope: dict, public_key: bytes, *, strict: bool = False,
                         expected_subject_digest: str | None = None,
                         observed_body: str | None = None) -> dict:
@@ -2293,11 +2439,15 @@ def _verify_agent_review_inner(envelope: dict, public_key: bytes, *, strict: boo
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     r = _empty_result()
     try:
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
-                                                   payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
@@ -2558,6 +2708,7 @@ def _internal_error_ergebnis(fassung: str, exc: BaseException) -> dict:
     return _finalize_failclosed(r)
 
 
+@_ein_stand
 def verify_agent_review_v03(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_subject_digest: str | None = None,
                             observed_body: str | None = None,
@@ -2578,6 +2729,7 @@ def verify_agent_review_v03(envelope: dict, public_key: bytes, *, strict: bool =
         return _internal_error_ergebnis("v0.3", exc)
 
 
+@_ein_stand
 def verify_agent_review_v02(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_subject_digest: str | None = None,
                             observed_body: str | None = None,
@@ -2619,11 +2771,15 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
                else validate_agent_review_v02_predicate)
     r = _leeres_v02_ergebnis()
     try:
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key,
-                                                   payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = loads_strict(body.decode("utf-8"))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
@@ -2845,7 +3001,14 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # der eine Pfad.
             _st = locals().get("statement")
             _praed = _st.get("predicate") if isinstance(_st, dict) else None
-            _pe = evaluate_limitation_policy(_praed or {}, policy)
+            # ONE READING OF THE POLICY (deep gate 6.2.0 at 2348f0a7, found by the extended sweep): the plain
+            # copy of what it stores, for the limitation rule and the time rule alike. `policy.get("time")`
+            # read the caller's dict through its own `get`. A policy that is no JSON object is refused here and
+            # lands in the except below as insufficient_evidence (fail-closed).
+            _pol = _richtlinie_von(policy)
+            if _pol is None:
+                raise ValueError("the policy is not a JSON object that can be read by what it stores")
+            _pe = evaluate_limitation_policy(_praed or {}, _pol)
             r["policy_decision"] = _pe["decision"]
             r["policy_name"] = _pe.get("policy_name")
             r["policy_digest"] = _pe.get("policy_digest")
@@ -2856,7 +3019,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
             # reject > insufficient_evidence > accept. Ohne `time` bleibt die Achse ungefahren
             # (`time_policy_decision: None`) — die Standard-Policy fuehrt keine, und das steht
             # im Ergebnis. Ein Mechanismus ohne Aufrufer war die Luecke, nicht die Mechanik.
-            _zp = policy.get("time")
+            _zp = _pol.get("time")
             if _zp is not None:
                 _achsen = {k: r.get(k) for k in ("event_time_status", "observation_time_status",
                                                  "signature_time_status", "external_time_status")}
@@ -2986,6 +3149,7 @@ def _verify_v02_inner(envelope: dict, public_key: bytes, *, strict: bool = False
 AGENT_REVIEW_LEGACY_V01 = "AGENT_REVIEW_LEGACY_V01"
 
 
+@_ein_stand
 def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
     """Alle drei Fassungen lesen, alles andere ablehnen — und NIE werfen.
 
@@ -3041,6 +3205,12 @@ def verify_agent_review_any(envelope: dict, public_key: bytes, **kw) -> dict:
         # dieser Weiche dekodierte nur das Standard-Alphabet: ein kryptografisch gueltiger
         # url-safe Umschlag war direkt ok=True und ueber die Weiche ENVELOPE_UNREADABLE — eine
         # zweite Wahrheit ueber dieselben Bytes. Und derselbe strikte JSON-Leser wie im Inneren.
+        #
+        # ONE READING (round 11, class A): the switch reads the envelope once into its plain copy
+        # (`dsse._read_once`) and hands THAT copy to the verifier it chooses. At fa555f13 it read
+        # `payload` for the type and handed the caller's envelope on, whose verifier read it twice
+        # more; a dict subclass answering the third read with another statement got ok=True.
+        envelope = dsse._read_once(envelope)
         payload = loads_strict(dsse.load_payload(envelope).decode("utf-8"))
         typ = payload.get("predicateType")
     except Exception:  # noqa: BLE001 — never-raise ist die Zusage dieser Flaeche
@@ -3099,6 +3269,7 @@ STANDARD_POLICY_NAME = "agent-review/default"
 POLICY_NOT_EVALUATED = "POLICY_NOT_EVALUATED"
 
 
+@_ein_stand
 def standard_policy_path() -> Path:
     """Die Standard-Policy liegt IM PAKET, nicht im Repo-Baum.
 
@@ -3121,6 +3292,7 @@ def standard_policy_path() -> Path:
     return Path(str(ref))
 
 
+@_ein_stand(aussen={"pfad": "pfad"})
 def load_policy(pfad=None) -> dict:
     """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
@@ -3209,6 +3381,7 @@ def _pruefe_policy_form(policy: dict, *, quelle: str | None = None) -> None:
         raise AgentReviewError(f"policy{wo}: name must be a string, not {type(name).__name__}")
 
 
+@_ein_stand
 def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
     """Die abgeleiteten Einschraenkungscodes gegen die Policy halten.
 
@@ -3223,6 +3396,10 @@ def evaluate_limitation_policy(predicate: dict, policy: dict) -> dict:
         raise AgentReviewError(f"predicate must be a dict, not {type(predicate).__name__}")
     if not isinstance(policy, dict):
         raise AgentReviewError(f"policy must be a dict, not {type(policy).__name__}")
+    # Both read once, into the plain copies of what they store (round 12); a value that is no JSON
+    # value is this surface's AgentReviewError.
+    predicate = _eine_kopie(predicate, AgentReviewError, "agent-review predicate")
+    policy = _eine_kopie(policy, AgentReviewError, "limitation policy")
     _pruefe_policy_form(policy, quelle=policy.get("_path") if isinstance(policy.get("_path"), str) else None)
     codes = set(derive_limitation_codes(predicate))
     nie = set(policy.get("never_blocking") or [])
