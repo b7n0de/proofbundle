@@ -193,10 +193,14 @@ def _has_attribution(laeufe: list[list[tuple[str, str]]]) -> bool:
     return False
 
 
-def _session_path(adresse: str) -> bool:
+def _session_path(adresse: str, *, aus_text: bool) -> bool:
+    """Whether the path of an address has a session segment. A link target the parser yields is a URL reference
+    as written, so `session_123` is a relative path; only an address found in the text without a scheme is read
+    as a host first (`tool.example/code/...`). Codex thread 4219210671 on pull request 308: the host reading was
+    applied to every target, and a rootless relative target became a host with an empty path."""
     adresse = adresse.casefold()
-    if "://" not in adresse and not adresse.startswith(("/", ".", "#", "?")):
-        adresse = "//" + adresse          # a host with no scheme, or a relative path read as one
+    if aus_text and "://" not in adresse:
+        adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
     segmente = urllib.parse.unquote(urllib.parse.urlsplit(adresse).path).split("/")
     return any(_SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segmente))
                for i, s in enumerate(segmente))
@@ -204,7 +208,8 @@ def _session_path(adresse: str) -> bool:
 
 def _has_session_link(folded: str, ziele: list[str]) -> bool:
     """Every link target the parser yields, relative ones included, and every address in the text."""
-    return any(_session_path(a) for a in list(ziele) + _ADDRESS.findall(folded.replace("\\", "")))
+    return (any(_session_path(a, aus_text=False) for a in ziele)
+            or any(_session_path(a, aus_text=True) for a in _ADDRESS.findall(folded.replace("\\", ""))))
 
 
 def ends_with_footer(body: str) -> bool:

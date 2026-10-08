@@ -188,6 +188,10 @@ _BEFORE_THE_FOOTER = {
     "session-link-ipv6-autolink": "<http://[::1]/sessions/0000>",
     "session-link-relative": "[the run](/code/session_0000)",
     "session-link-relative-reference": "[the run]\n\n[the run]: /sessions/0000",
+    # Codex thread 4219210671: a target without a leading slash is a relative path, not a host.
+    "session-link-rootless-target": "[run](session_123)",
+    "session-link-rootless-sessions-target": "[run](sessions/0000)",
+    "session-link-rootless-reference": "[run]\n\n[run]: code/session_0000",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
