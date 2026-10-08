@@ -184,10 +184,18 @@ def rust_coverage_report(rust_bin: Optional[Path] = None) -> Optional[dict]:
     """Run the built binary's self-declared `coverage-report`. Returns None (never a fabricated empty
     dict) when no binary is available — an honest DATA_BLOCKED for that one cross-check layer, not a
     silent pass and not a failure (cargo is not assumed to be installed everywhere this gate runs)."""
-    # The binary tests/_pb_verify_rs.py pins comes before the target lookup, as in crosscheck.py.
+    # ONE binary is measured, the first that is named: the caller's, else the one tests/_pb_verify_rs.py pins
+    # (as crosscheck.py reads it), else the target lookup. A named binary that is missing is DATA_BLOCKED and is
+    # never replaced by another: the fallback measured the pin when a test named a missing binary to simulate
+    # none (Codex thread 4218670619 on pull request 309), the class of a check that names one binary and
+    # measures another (4217981884).
     gepinnt = os.environ.get("PROOFBUNDLE_PB_VERIFY_RS", "").strip()
-    candidates = [c for c in (rust_bin, Path(gepinnt) if gepinnt else None, RUST_BIN_DEBUG, RUST_BIN_RELEASE)
-                  if c is not None]
+    if rust_bin is not None:
+        candidates = [rust_bin]
+    elif gepinnt:
+        candidates = [Path(gepinnt)]
+    else:
+        candidates = [RUST_BIN_DEBUG, RUST_BIN_RELEASE]
     for candidate in candidates:
         if not candidate.exists():
             continue
