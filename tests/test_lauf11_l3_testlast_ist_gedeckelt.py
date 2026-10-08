@@ -572,11 +572,11 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             + "\n  ".join(zu_niedrig))
 
     def test_die_tabelle_traegt_auch_ungeteilte_instanz_dicts(self):
-        """Gemessen 08.10.2026 an PR 309: unter `--dist=worksteal` lag der Test in einem Worker, in dem vorher
-        eine Instanz von ArchiveTimeStamp die geteilten Schluessel der Instanz-dicts gebrochen hatte, und jede
-        weitere Instanz kostete 572,8 B statt 356,6 B. Das ist Speicher, den die Suite wirklich belegt; die Tabelle
-        muss ihn tragen. Gemessen im FRISCHEN Prozess, weil der Bruch den Klassenzustand fuer den Rest des
-        Prozesses aendert und hier nichts anderes beruehren darf."""
+        """Measured 2026-10-08 on pull request 309: under `--dist=worksteal` the test ran in a worker where an
+        instance of ArchiveTimeStamp had broken the key sharing of the instance dicts before, and every further
+        instance cost 572.8 B instead of 356.6 B. That is memory the suite really holds, so the table must carry it.
+        Measured in a FRESH process, because the break changes the class state for the rest of the process and must
+        touch nothing else here."""
         import subprocess  # noqa: PLC0415
         programm = (
             "import importlib.util, sys\n"
@@ -591,7 +591,7 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
         lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
         self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
         geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
-        self.assertGreater(ungeteilt, geteilt, "Kontrolle: der Bruch der geteilten Schluessel kostet Speicher")
+        self.assertGreater(ungeteilt, geteilt, "control: breaking the key sharing costs memory")
         sys.path.insert(0, str(TESTS))
         from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
         self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], ungeteilt)
