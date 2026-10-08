@@ -41,9 +41,31 @@ to the only question this function asks.
 from __future__ import annotations
 
 from collections.abc import Hashable
-from typing import Any, Container, TypeGuard
+from typing import Any, Container, Optional, TypeGuard
 
-__all__ = ["is_member", "as_dict", "is_bool"]
+from .errors import SwitchTypeError
+
+__all__ = ["is_member", "as_dict", "is_bool", "require_switch", "type_name", "stored_str_items"]
+
+
+class Fremdkoerper:
+    """The base of what the reading at the call (`canonical._stand`) puts into its copy where the caller's value holds
+    an object of a type the reading does not read: an object of the caller's own class, a Mapping that is no dict, a
+    callable, a datetime whose tzinfo is the caller's, a frozenset holding such an object. Each such type gets one
+    subclass that carries its name (`canonical._fremdkoerper`), and an instance holds nothing of the caller: it compares
+    and hashes by its identity, and no method of the caller's object can run through it. Every check of the package
+    meets it as a value that is no JSON value and refuses it or grants nothing, as it met the caller's object, so the
+    verdicts and the refusals stay the ones the caller's object got, without its methods (deep gate run 6 at fda55f98
+    and the review before run 7: the reading handed on what it did not know, and the body read it at body time).
+    `type_name` names the caller's type for it, so a refusal reads as before."""
+    __slots__ = ()
+
+
+#: id of each stand-in class -> (a weak reference to the class, the name the caller's type holds, whether that type was
+#: the built-in type of that name). Filled by `canonical._fremdkoerper`; looked up by identity, so a class the caller
+#: derives from `Fremdkoerper` is no entry. The reference is weak and its death takes the entry out
+#: (`canonical._schwach`), so a stand-in class lives no longer than its stand-ins and the caller's type.
+FREMDKOERPER_KLASSEN: dict = {}
 
 
 def is_member(value: Any, container: Container) -> bool:
@@ -114,7 +136,7 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     predicate now so the boundary and the exporters answer one question with one function; a second
     check beside it would have been two promises for one invariant.
 
-    ``isinstance(value, bool)`` is the whole test and it is the right one: ``bool`` subclasses ``int``,
+    A bool test is the whole test and it is the right one: ``bool`` subclasses ``int``,
     so an ``int``-typed check would accept ``True`` while this rejects ``1`` and ``0``, which is what a
     JSON document that meant a number must not be allowed to mean.
 
@@ -129,8 +151,101 @@ def is_bool(value: Any) -> TypeGuard[bool]:
     one, because ``adapters/eee.py`` imports numpy: a harness that hands a numpy scalar straight into a
     claim gets a refusal naming the type. The fix for that is a conversion at the harness boundary,
     where the value is known, not a wider test here.
+
+    ``type(value) is bool`` AND NOT ``isinstance`` (2026-09-27). ``isinstance`` also believes an object's
+    own ``__class__``: an object whose ``__class__`` property said ``bool`` passed this predicate and then
+    decided the verdict with its own ``__bool__``, and one whose ``__class__`` raised escaped every caller.
+    ``bool`` cannot be subclassed, so for every real value the two tests agree.
     """
-    return isinstance(value, bool)
+    return type(value) is bool
+
+
+#: The getter behind ``type.__name__``, taken from ``type`` itself, so no metaclass of the caller runs.
+_TYPE_NAME_GETTER = type.__dict__["__name__"]
+
+#: What :func:`type_name` says for a type whose name cannot be read without running code of the caller.
+_UNNAMED_TYPE = "<unnamed type>"
+
+#: The built-in types by name: a foreign type that carries one of these names is named as such.
+_BUILTIN_TYPES = {t.__name__: t for t in (bool, int, float, str, list, tuple, dict, bytes, bytearray,
+                                          set, frozenset, type(None), object)}
+
+
+def type_name(value: Any) -> str:
+    """The name of ``type(value)`` for a message, read without running code of the caller. Never raises.
+
+    ``type(value).__name__`` looks the attribute up on the metaclass first, so a metaclass with a
+    ``__name__`` property would run its own code inside a refusal. The getter of ``type`` itself is
+    used instead, behind an ``issubclass`` check against ``type`` (an identity walk of the metaclass's
+    MRO, the same check the getter makes). A name longer than 80 characters is cut. A type that
+    carries the name of a built-in type and is not that type says so: ``numpy.bool`` is named
+    ``bool (not the built-in bool)``, because a refusal that read "must be a bool, not bool" would
+    explain nothing."""
+    typ = type(value)
+    eintrag = FREMDKOERPER_KLASSEN.get(id(typ))
+    if eintrag is not None and eintrag[0]() is typ:
+        # A stand-in of the reading: the name of the caller's type it stands for, read when the class was made, and
+        # whether that type was the built-in one of that name.
+        name, eingebaut = eintrag[1], eintrag[2]
+    else:
+        try:
+            if not issubclass(type(typ), type):
+                return _UNNAMED_TYPE
+            name = _TYPE_NAME_GETTER.__get__(typ)
+            if type(name) is not str:
+                if not issubclass(type(name), str):
+                    return _UNNAMED_TYPE
+                name = str.__str__(name)
+        except Exception:  # noqa: BLE001 - a name for a message; the refusal itself must still happen
+            return _UNNAMED_TYPE
+        eingebaut = _BUILTIN_TYPES.get(name) is typ
+    if len(name) > 80:
+        name = name[:77] + "..."
+    if not eingebaut and _BUILTIN_TYPES.get(name) is not None:
+        return f"{name} (not the built-in {name})"
+    return name
+
+
+def require_switch(value: Any, name: str, *, allow_none: bool = False) -> Optional[bool]:
+    """``value`` when it is an exact ``bool`` (or ``None`` with ``allow_none``); otherwise
+    :class:`~proofbundle.errors.SwitchTypeError`, naming ``name`` and the type it got.
+
+    THE DEFECT CLASS, as the violated assumption: *a switch the caller passes is a bool.* It does not
+    have to be, and a switch read by its truth decides against what the caller wrote: ``"false"`` is
+    truthy and turned on every ``allow_*`` switch it met, ``None`` is falsy and switched
+    ``classify_digest_evidence(applicable=None)`` off, so a weak field left an AND summary and the summary
+    rose. The rule, for every switch whose one side weakens a verdict or a check, or changes what is
+    signed or published: only an exact bool is read, anything else is refused here, before the function
+    computes or signs anything. ``type(value) is bool`` runs none of the value's code (:func:`is_bool`).
+
+    Switches that only tighten (default ``False``, ``True`` adds a check or a refusal: ``strict``,
+    ``require_*``) do not route through here: a value read by its truth there either tightens or equals
+    leaving the switch out. The contract test ``tests/test_a_caller_verdict_counts_only_as_a_bool.py``
+    discovers every bool keyword of the public API at run time and holds each one to its class."""
+    if type(value) is bool or (allow_none is True and value is None):
+        return value
+    raise SwitchTypeError(
+        f"{name} must be a bool (True or False{' or None' if allow_none is True else ''}), not a value of type "
+        f"{type_name(value)}; a switch that is not a bool is refused rather than read by its truth")
+
+
+def stored_str_items(value: Any) -> dict:
+    """What a ``dict`` (or a dict subclass) stores under keys that are exactly ``str``, as a new plain dict,
+    read without running code of the caller; ``{}`` for a value that is not a dict. Never raises.
+
+    THE DEFECT CLASS, as the violated assumption: *reading a dict by what it stores runs no code of the
+    caller.* ``dict.get(value, "ok")`` of the base type still does: a stored key whose hash equals
+    ``hash("ok")`` is compared through that key's own ``__eq__``, which can raise or answer True and so
+    stand in for ``"ok"`` (measured on 3d5b992a: a registered anchor verifier's result ``{K(): True}``
+    with a raising ``K.__eq__`` escaped ``verify_anchor`` as a RuntimeError, and one answering True
+    verified the anchor). Iterating the base type's items yields each stored key and value without
+    hashing or comparing either, and a key counts only when its type is exactly ``str``, whose hash and
+    comparison run no code of the caller. A key of any other type, a ``str`` subclass included, is left
+    out, so it can neither raise nor answer for a name it is not. The values come back as stored;
+    reading them is the caller's next step and must go by their exact type as well."""
+    if not issubclass(type(value), dict):
+        return {}
+    return {key: item for key, item in dict.items(value) if type(key) is str}
 
 
 def as_dict(value: Any) -> dict:

@@ -93,6 +93,36 @@ def _fail(case_id: str, msg: str) -> dict:
     return {"caseId": case_id, "ok": False, "detail": msg}
 
 
+def _decision_recorded_at(receipt_path: pathlib.Path) -> str | None:
+    """Nachtrag 49b: the receipt's own ``recordedAt`` (else ``decidedAt``) as a historical ``--verification-time``,
+    so a decision case is evaluated AS OF an instant inside the receipt's validity window — the lineage/policy
+    verdict the case tests is not masked by the fixture's fixed-date ``validity.expiresAt`` expiring against the
+    drifting wall clock (CX-02 folds an expired expiresAt into the exit). Deterministic: the instant comes from the
+    signed predicate, not the clock. Returns None when the receipt carries no usable timestamp or cannot be read,
+    so the case then falls back to the wall clock exactly as before."""
+    import base64  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+    try:
+        env = json.loads(receipt_path.read_text(encoding="utf-8"))
+        payload = env.get("payload") if isinstance(env, dict) else None
+        if not isinstance(payload, str):
+            return None
+        predicate = json.loads(base64.b64decode(payload)).get("predicate")
+        if not isinstance(predicate, dict):
+            return None
+        stamp = predicate.get("recordedAt") or predicate.get("decidedAt")
+        if not isinstance(stamp, str):
+            return None
+        # Only a parseable PAST instant is usable (the CLI rejects a future --verification-time); otherwise the
+        # wall-clock fallback keeps the prior behaviour rather than turning a reader error into a verdict.
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed >= datetime.now(timezone.utc):
+            return None
+        return stamp
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _content_root_hex(statement: dict) -> str:
     r = statement_content_root(statement)
     return r.hex() if isinstance(r, (bytes, bytearray)) else str(r)
@@ -283,6 +313,13 @@ def _check_relation(case: dict, case_dir: pathlib.Path, *, verb: str) -> dict:
     except Exception:
         return _fail(cid, "pub.b64 is not valid base64")
     argv = [verb, "verify", str(receipt), "--pub", pub_b64, "--json"]
+    # Nachtrag 49b (CX-02/CX-05): evaluate a decision receipt AS OF an instant inside its own validity window
+    # (its recordedAt), so the lineage/policy verdict this case tests is not masked by the fixture's fixed-date
+    # expiresAt expiring against the drifting wall clock. Only `decision verify` accepts --verification-time.
+    if verb == "decision":
+        _vt = _decision_recorded_at(receipt)
+        if _vt is not None:
+            argv += ["--verification-time", _vt]
     related = case.get("related") or []
     for rel_name in related:
         rel = _confined(rel_name)
