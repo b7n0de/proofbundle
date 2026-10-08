@@ -86,13 +86,14 @@ To reproduce the independent pycose check, use pycose 1.1.0 with cbor2 5.9.0 and
 
 ## Measured in a fresh virtual environment
 
-On 27 September 2026, 20:31Z, the steps of "Check it" were run on a copy of this directory as
-committed at `7e42877a` (the checker and every file it reads as they stand after the external review)
-in a new virtual environment: CPython 3.11.15, pip 24.0, and from PyPI cbor2 6.1.4 and cryptography
-50.0.1 (with cffi 2.1.1 and pycparser 3.0), nothing else installed. `verify.py` printed 29 lines, 28
-checks and the summary `ALL OK: 0 check(s) failed`, and exited 0. The same `verify.py` in a Linux network
-namespace with no network interface up (`unshare -n`) printed the same 29 lines, byte for byte, and
-exited 0.
+On 8 October 2026, the steps of "Check it" were run on a copy of this directory as committed at
+`597424ba` (the checker after Codex threads 4217204734 and 4217204745 on pull request 298, and every file it
+reads) in a new virtual environment: CPython 3.10.12, pip 22.0.2, and from PyPI cbor2 6.1.5 and cryptography
+50.0.2 (with cffi 2.1.1, pycparser 3.0 and typing_extensions 4.16.0), nothing else installed beyond the
+environment's own setuptools. `verify.py` printed 37 lines, 36 checks and the summary
+`ALL OK: 0 check(s) failed`, and exited 0. The same `verify.py` in a Linux network namespace with no network
+interface up (`unshare -rn`) printed the same 37 lines, byte for byte, and exited 0. The measurement of
+27 September 2026 at `7e42877a` (CPython 3.11.15, 29 lines, 28 checks) is the checker before those threads.
 
 Not measured: other Python versions, other operating systems, and other versions of the two
 libraries.
