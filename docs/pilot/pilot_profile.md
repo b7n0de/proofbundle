@@ -33,6 +33,7 @@ condition attached: an answer that needs a condition is not `accepted`.
 | issuer role | signed by the pinned gate key; `decisionMaker.id` is the gate's id | signed by the pinned observer key; `executor.id` is the account GitHub reports as author | both keys pinned by the relying party; the agent holds neither; `executor.id` is observed data and is not compared with the gate's id |
 | audience | `validity.audience` names the observer | `validity.audience` names the observer | both are addressed to the observer the relying party pins; another audience is `not accepted` |
 | policy digest | `policyBoundary.policyDigest` (required in strict mode) | none | recorded, not interpreted |
+| strict mode | the decision is verified in strict mode: `notChecked`, `decisionChangeConditions` and `privacy` are present, `privacy.rawInputsIncluded` is a boolean, `policyBoundary.policyDigest` carries a sha256, and `validity` carries `audience` and `nonce` | none | a decision without one of them does not verify: `not accepted` |
 | action id, attempt | `decisionId` = `<action id>#<attempt>`; `validity.nonce` names the attempt | `validity.nonce` = the decision's nonce | an outcome answers one attempt |
 | freshness | `decidedAt`, `validity.expiresAt` | `performedAt` = the time GitHub states for the effect; `recordedAt` = the observer's reading | `decidedAt` ≤ `performedAt` ≤ `expiresAt`, inclusive at both ends, compared as instants with their fractions of a second, any number of digits for `decidedAt` and `performedAt`; the decision itself is verified one second before its `decidedAt`, not at the reader's clock, so that this window, not the verifier's expiry rule, decides; `expiresAt` is read first by that verifier, which reads at most six fraction digits, so an expiry with more does not verify and is `not accepted` |
 | outcome scope | `proposedAction.actionType` = the surface, `proposedAction.target.uri` = the target | `actualActionDigest.sha256` = SHA-256 of the RFC 8785 form of `{surface, target, objectId}`, a descriptor that travels beside the outcome | the descriptor matches the signed digest, has exactly these three keys, each a non-empty string, and its surface and target are the approved ones |
@@ -45,7 +46,8 @@ Surfaces the profile knows: `github.conversationComment`, `github.reviewThreadRe
 
 The other values the builder writes into the decision (`policyBoundary.policyId` and `decisionPath`, the
 `inputSnapshot`, `notChecked`, `decisionChangeConditions` and `privacy`) are recorded, not read: no rule of the
-profile depends on them. The same holds for the outcome's `outcomeId`, `recordedAt` and `limitations`. Every check that can be made is made before a gap is reported, so a check known to
+profile depends on what they hold. Strict mode requires `notChecked`, `decisionChangeConditions` and `privacy`
+to be present, as the table states, so a decision without one of them is `not accepted`. The same holds for the outcome's `outcomeId`, `recordedAt` and `limitations`. Every check that can be made is made before a gap is reported, so a check known to
 fail gives `not accepted` even where another record is missing.
 
 Two readings are stated rather than hidden. The outcome's signer is the observer, and `executor.id` names the

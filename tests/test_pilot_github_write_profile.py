@@ -67,6 +67,44 @@ class TheVectors(unittest.TestCase):
         self.assertIn("expiresAt", " ".join(gruende))
         self.assertEqual(ergebnisse["approved and arrived, the expiry with six fraction digits"][0], self.g.ACCEPTED)
 
+    def test_the_strict_fields_are_constraints_the_profile_states(self) -> None:
+        """Codex thread 4219676762: the decision is verified in strict mode, which requires notChecked,
+        decisionChangeConditions and privacy, and the profile called them recorded, not read. The profile states
+        them as constraints, and a decision without one of them, signed by the gate, is not accepted."""
+        g = self.g
+        gate, observer = g.test_key("gate"), g.test_key("observer")
+        args = dict(action_id="action-0001", attempt=1, decided_at="2026-09-27T00:40:00Z",
+                    expires_at="2026-09-27T00:45:00Z", surface="github.conversationComment", target=g._TARGET,
+                    approved=g._TEXT, verdict="ALLOW", reasons=["rules.satisfied"], gate_id=g.GATE_ID,
+                    agent_id="agent:session-a", principal_id="operator",
+                    policy_digest=g.sha256_hex(b"outbound gate rules, revision 1"), nonce="attempt-0001-1",
+                    audience=g.OBSERVER_ID)
+        scope = g.scope_descriptor("github.conversationComment", g._TARGET, "issuecomment-5851339484")
+
+        def lies(praedikat):
+            # signed outside strict mode: the generator's sign_decision refuses such a decision before signing
+            dec = g.emit_decision_receipt(praedikat, gate, strict=False)
+            out = g.sign_outcome(g.outcome_predicate(
+                outcome_id="observation-0001", decision_root=g.content_root(dec), executor_id="github:b7n0de",
+                approved=g._TEXT, performed_at="2026-09-27T00:40:09Z", recorded_at="2026-09-27T00:41:00Z",
+                stored=g._TEXT, scope=scope, nonce="attempt-0001-1", audience=g.OBSERVER_ID), observer)
+            return g.reconcile(dec, out, scope, gate_key=g._pub(gate), gate_id=g.GATE_ID,
+                               observer_key=g._pub(observer), observer_id=g.OBSERVER_ID)
+        self.assertEqual(lies(g.decision_predicate(**args))["verdict"], g.ACCEPTED, "control: the full decision")
+        profil = " ".join((REPO / "docs/pilot/pilot_profile.md").read_text(encoding="utf-8").split())
+        zeile = profil[profil.index("| strict mode |"):]
+        zeile = zeile[:zeile.index(" | ", zeile.index("| none |") + 3)]
+        for feld in ("notChecked", "decisionChangeConditions", "privacy"):
+            with self.subTest(field=feld):
+                praedikat = g.decision_predicate(**args)
+                del praedikat[feld]
+                antwort = lies(praedikat)
+                self.assertEqual(antwort["verdict"], g.NOT_ACCEPTED)
+                self.assertIn(f"missing required field '{feld}'", " ".join(antwort["reasons"]))
+                self.assertIn(f"`{feld}`", zeile)
+        self.assertIn("Strict mode requires `notChecked`, `decisionChangeConditions` and `privacy` to be present",
+                      profil)
+
     def test_a_status_other_than_executed_is_not_accepted(self) -> None:
         """Codex thread 4217993684: failed, refused and partial, signed by the observer, read as unknown."""
         ergebnisse = {n: b for n, _, b, _ in self.g.check_vectors(self.daten)}

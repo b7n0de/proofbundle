@@ -214,7 +214,8 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     # profile states when expiresAt equals decidedAt (Codex thread 4217993712 on pull request 303). The verifier reads
     # expiresAt with at most six fraction digits, although its validator takes any number: an expiry with more does
     # not verify, and the answer is not accepted. The profile promises no more than the verifier it reuses reads
-    # (thread 4218663063); the vectors hold that boundary.
+    # (thread 4218663063); the vectors hold that boundary. strict=True makes notChecked, decisionChangeConditions,
+    # privacy and the policy digest required; the profile states them as its constraints (thread 4219676762).
     d = verify_decision_receipt(decision_env, gate_key, strict=True, expected_audience=observer_id,
                                 expected_nonce=(pred.get("validity") or {}).get("nonce"),
                                 require_derived_subject=True, now=entschieden[0] - 1)
