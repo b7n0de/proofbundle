@@ -816,9 +816,11 @@ jobs:
           set -uo pipefail
           jobs=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null) || {
             echo "Wanduhr NICHT MESSBAR: jobs-API nicht erreichbar"; exit 0; }
-          python3 - <<'PYEOF' <<<"$jobs"
-          import datetime as dt, json, sys
-          j = json.load(sys.stdin).get("jobs", [])
+          # The program comes from the here-document and the JSON through the environment: with a second stdin
+          # redirection (<<<) the JSON replaced the program, which never ran (Codex thread 4220761948 on pull request 310).
+          JOBS_JSON="$jobs" python3 - <<'PYEOF'
+          import datetime as dt, json, os
+          j = json.loads(os.environ["JOBS_JSON"]).get("jobs", [])
           m = [x for x in j if x["name"].startswith("mutation (")]
           P = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
           fertig = [x for x in m if x.get("started_at") and x.get("completed_at")]

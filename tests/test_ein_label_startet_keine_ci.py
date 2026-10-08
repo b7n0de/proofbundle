@@ -435,29 +435,60 @@ def test_fangnachweis_ein_zu_kurzer_warter_wird_gefunden():
                                                                   "coverage may take 300 minutes"]
 
 
-def _wanduhr_programm() -> str:
-    """The Python program of the wall-clock step of mutation-summary in landung.yml (ci.yml carries the same copy)."""
-    schritte = _lade("landung.yml")["jobs"]["mutation-summary"]["steps"]
-    run = next(str(s["run"]) for s in schritte if "Schwelle 1200 s" in str(s.get("run", "")))
-    return run.split("<<'PYEOF' <<<\"$jobs\"\n", 1)[1].split("\nPYEOF", 1)[0]
+def _wanduhr_schritt(datei: str) -> str:
+    """The run script of the wall-clock step, as the runner gets it, with the two expressions it uses filled in."""
+    for job in _lade(datei)["jobs"].values():
+        for schritt in job.get("steps", []):
+            if "Schwelle 1200 s" in str(schritt.get("run", "")):
+                return (str(schritt["run"]).replace("${{ github.repository }}", "o/r")
+                        .replace("${{ github.run_id }}", "1"))
+    raise AssertionError(f"{datei} has no wall-clock step")
 
 
-@pytest.mark.parametrize("sekunden,urteil", [(1199, "UNTER"), (1200, "NICHT ENTSCHEIDBAR"), (1201, "UEBER")])
-def test_die_schwelle_urteilt_nur_wo_die_sekundenaufloesung_es_traegt(sekunden, urteil):
-    """Codex on pull request 310, round seven (P2): with marks of one second of resolution, a measured span of 1200 s
-    may be longer than 1200 s, and the step printed UNTER. The true span lies in (w - 1, w + 1)."""
-    import datetime as dt
+def _fahre_wanduhr(datei: str, jobs: object, tmp_path):
+    """The whole step under bash, with a gh on PATH that answers the jobs request: the wiring is part of what is
+    measured. Codex thread 4220761948 on pull request 310: the program was cut out of the step and run alone, so
+    the second stdin redirection that replaced it with the JSON was never run by any test."""
+    import os
     import subprocess
-    import sys
+    gh = tmp_path / "gh"
+    gh.write_text('#!/bin/sh\ncat "$FAKE_JOBS"\n', encoding="utf-8")
+    gh.chmod(0o755)
+    daten = tmp_path / "jobs.json"
+    daten.write_text(json.dumps(jobs), encoding="utf-8")
+    env = dict(os.environ, PATH=f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_JOBS=str(daten))
+    return subprocess.run(["bash", "-c", _wanduhr_schritt(datei)], env=env, capture_output=True, text=True, timeout=60)
+
+
+def _jobs(sekunden: int, ende: "object" = True) -> dict:
+    import datetime as dt
     t0 = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
     stempel = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
-    jobs = {"jobs": [{"name": "mutation (1)", "started_at": stempel(t0),
-                      "completed_at": stempel(t0 + dt.timedelta(seconds=sekunden))}]}
-    lauf = subprocess.run([sys.executable, "-c", _wanduhr_programm()], input=json.dumps(jobs), capture_output=True,
-                          text=True, timeout=60)
+    return {"jobs": [{"name": "mutation (1)", "started_at": stempel(t0),
+                      "completed_at": stempel(t0 + dt.timedelta(seconds=sekunden)) if ende else None},
+                     {"name": "test (3.12)", "started_at": None, "completed_at": None}]}
+
+
+@pytest.mark.parametrize("datei", ["landung.yml", "ci.yml"])
+@pytest.mark.parametrize("sekunden,urteil", [(1199, "UNTER"), (1200, "NICHT ENTSCHEIDBAR"), (1201, "UEBER")])
+def test_die_schwelle_urteilt_nur_wo_die_sekundenaufloesung_es_traegt(sekunden, urteil, datei, tmp_path):
+    """Codex on pull request 310, round seven (P2): with marks of one second of resolution, a measured span of 1200 s
+    may be longer than 1200 s, and the step printed UNTER. The true span lies in (w - 1, w + 1). Measured through the
+    whole step of both copies, so the program must actually run; a job with JSON null in it is part of the input."""
+    lauf = _fahre_wanduhr(datei, _jobs(sekunden), tmp_path)
     assert lauf.returncode == 0, lauf.stderr
+    assert f"MATRIX_WANDUHR_S={sekunden}" in lauf.stdout, lauf.stdout + lauf.stderr
     zeile = next(z for z in lauf.stdout.splitlines() if z.startswith("Schwelle 1200 s: "))
     assert zeile.startswith(f"Schwelle 1200 s: {urteil}"), zeile
+
+
+@pytest.mark.parametrize("datei", ["landung.yml", "ci.yml"])
+def test_ohne_beide_marken_sagt_der_schritt_nicht_messbar(datei, tmp_path):
+    """The control of the wiring: an empty list and a shard without its end mark reach the program's own answer."""
+    for jobs in ({"jobs": []}, _jobs(10, ende=False)):
+        lauf = _fahre_wanduhr(datei, jobs, tmp_path)
+        assert lauf.returncode == 0, lauf.stderr
+        assert "Wanduhr NICHT MESSBAR" in lauf.stdout, lauf.stdout + lauf.stderr
 
 
 def test_die_schritte_beider_kopien_sind_gleich():
