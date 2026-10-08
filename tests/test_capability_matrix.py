@@ -687,11 +687,25 @@ class TheDocsAreReadAsTheyRender(unittest.TestCase):
                      "promptfoo (adapter)\n---\n", "## [promptfoo](https://example.org) (adapter)\n"):
             with self.subTest(text=text):
                 self.assertEqual(self._modul(text)._label_at("r", heading), ("## promptfoo (adapter)", "NOTES.md"))
-        zeile = [("NOTES.md", r"^\| x/v1 \| ([^|]+) \|")]
+        zeile = [("NOTES.md", ("row", r"x/v1\Z", 1))]
         for text in ("| name | status |\n|---|---|\n| `x/v1` | **EXPERIMENTAL** (3.2) |\n",
                      "| name | status |\n|---|---|\n| x/v1 | EXPERIMENTAL (3.2) |\n"):
             with self.subTest(table=text):
                 self.assertEqual(self._modul(text)._label_at("r", zeile)[0], "EXPERIMENTAL (3.2)")
+
+    def test_a_table_label_is_its_cell(self) -> None:
+        """Thread 4224150092: the cells were joined into a row again with an escaped pipe, and a pattern over that row
+        found no label in `stable \\| EXPERIMENTAL`. A table label is a cell, named by its row's first cell and its
+        column, so a pipe the cell renders is the cell's text."""
+        zeile = [("NOTES.md", ("row", r"x/v1\Z", 1))]
+        modul = self._modul("| name | status |\n|---|---|\n| x/v1 | stable \\| EXPERIMENTAL |\n")
+        label, _ = modul._label_at("r", zeile)
+        self.assertEqual(label, "stable | EXPERIMENTAL")
+        self.assertEqual(_load().status(True, label), "experimental")
+        for text in ("| name | status |\n|---|---|\n| x/v10 | stable |\n", "| name |\n|---|\n| x/v1 |\n",
+                     "x/v1 | stable\n"):
+            with self.subTest(no_label=text):
+                self.assertEqual(self._modul(text)._label_at("r", zeile), (None, None))
 
     def test_the_status_reads_the_word_that_renders(self) -> None:
         cap = [("NOTES.md", r"^(the x capability[^\n]*)")]
@@ -832,19 +846,18 @@ class TheReadmeTablesAreTheData(unittest.TestCase):
             zeilen[z["name"]] = z
         tabelle = modul.render_table(dict(d, rows=list(zeilen.values())))
         modul._git_bytes = lambda ref, pfad: tabelle.encode()
-        gelesen = [t for art, _e, t in modul._bloecke("r", "README.md") if art == "row"][1:]
+        gelesen = [zellen for art, _e, _t, zellen in modul._bloecke("r", "README.md") if art == "row"][1:]
         self.assertEqual(len(gelesen), len(zeilen))
         gezeigt = 0
-        for zeile in gelesen:
-            name, _kanal, zelle = zeile.split(" | ")[:3]
-            z = zeilen[name[2:]]
+        for name, _kanal, zelle, *_rest in gelesen:
+            z = zeilen[name]
             if z["release"]["status"] == "absent":
                 continue                                    # an absent cell shows no label
             erwartet = z["release"]["status"] + " — " + re.sub(r"^#+ ", "", z["release"]["label"])
             with self.subTest(row=z["id"]):
                 # the cell is the status and the label, then at most the parity registry's counts
-                self.assertTrue(zelle.startswith(erwartet.replace("|", "\\|")), zelle)
-                self.assertIn(zelle[len(erwartet.replace("|", "\\|")):], ("", _registry_suffix(z)))
+                self.assertTrue(zelle.startswith(erwartet), zelle)
+                self.assertIn(zelle[len(erwartet):], ("", _registry_suffix(z)))
                 gezeigt += 1
         self.assertGreaterEqual(gezeigt, 10, "control: most release cells show a label")
 

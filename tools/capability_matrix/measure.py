@@ -57,7 +57,10 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 #: subcommands, `entry_points` "group:name", `repo_paths` repository paths that are no package member.
 #: `label` lists (file, pattern) pairs that state the project's own status for the capability; the first pattern that
 #: matches the rendered text of a block of its file at a ref (`_bloecke`) gives the label text there, and
-#: "experimental" in it makes the cell experimental.
+#: "experimental" in it makes the cell experimental. A label in a table is named as ("row", pattern, column): the first
+#: row whose first cell the pattern matches from its start gives the text of that column's cell, read as a cell and
+#: never out of a row joined again (Codex thread 4224150092 on pull request 304: a pipe a cell renders was taken for
+#: the next cell).
 #: A capability present at a ref with no label found there stops the measurement (fail closed). `branch` names a
 #: branch for a capability that is on neither the tag nor main; `elsewhere` names the outside provider, and
 #: `provider` the name the docs must carry at both refs for it. `git_tag_from` is the pattern for the tag of this
@@ -67,10 +70,10 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 CAPABILITIES = [
     {"id": "decision", "name": "Decision receipt (decision-receipt/v0.1)",
      "modules": ["proofbundle/decision.py"], "cli": ["decision"],
-     "label": [("docs/predicates/README.md", r"^\| decision-receipt/v0\.1 \| ([^|]+) \|")]},
+     "label": [("docs/predicates/README.md", ("row", r"decision-receipt/v0\.1\Z", 1))]},
     {"id": "outcome", "name": "Action outcome (action-outcome/v0.1)",
      "modules": ["proofbundle/outcome.py"], "cli": ["outcome"],
-     "label": [("docs/predicates/README.md", r"^\| action-outcome/v0\.1 \| ([^|]+) \|")]},
+     "label": [("docs/predicates/README.md", ("row", r"action-outcome/v0\.1\Z", 1))]},
     {"id": "hf-export", "name": "Hugging Face Community Evals export (verifyToken, .eval_results entry)",
      "modules": ["proofbundle/hf_evals.py"], "cli": ["hf-token"],
      "label": [("INTEGRATIONS.md", r"^(## Hugging Face Community Evals[^\n]*)")]},
@@ -80,7 +83,7 @@ CAPABILITIES = [
     {"id": "rust-verifier", "name": "Rust second verifier (pb_verify_rs)",
      "repo_paths": ["tools/pb_verify_rs/src/main.rs", "tools/pb_verify_rs/Cargo.toml"],
      "registry": "scripts/rust_parity_registry.json",
-     "label": [("README.md", r"^\| Independent Rust cross-verifier[^|]*\|[^|]*\| ([^|]+) \|"),
+     "label": [("README.md", ("row", r"Independent Rust cross-verifier", 2)),
                ("README.md", r"(The Rust cross verifier is [^.]*\.)")]},
     {"id": "inspect-hook", "name": "Inspect lifecycle hook (inspect_ai entry point)",
      "modules": ["proofbundle/inspect_hook.py", "proofbundle/_inspect_registry.py"],
@@ -363,9 +366,9 @@ def _inline_text(token) -> str:
 
 
 def _bloecke(ref: str, datei: str) -> list:
-    """The blocks of `datei` at `ref` as a reader of the rendered docs sees them, in order, each (kind, level, text):
-    a heading as its level in `#` and its text, a paragraph as its text, a table row as its cells between `|`, a code
-    block as its content, and an HTML block as a block with no text that is read. A link reference definition and a
+    """The blocks of `datei` at `ref` as a reader of the rendered docs sees them, in order, each (kind, level, text,
+    cells): a heading as its level in `#` and its text, a paragraph as its text, a table row as the rendered text of
+    each of its cells, a code block as its content, and an HTML block as a block with no text that is read. A link reference definition and a
     block of HTML comments render nothing and are no block. Every reader of the docs reads through this, so a pattern
     is matched against what renders and never against the Markdown that renders it (Codex thread 4222919983 on pull
     request 304: `## **promptfoo**` lost its label and `exper&#105;mental` its status, after threads 4221639836 and
@@ -379,18 +382,18 @@ def _bloecke(ref: str, datei: str) -> list:
         if tok.type == "inline" and i and tokens[i - 1].type in ("heading_open", "paragraph_open"):
             offen = tokens[i - 1]
             kopf = "#" * int(offen.tag[1:]) + " " if offen.type == "heading_open" else ""
-            bloecke.append(("heading" if kopf else "paragraph", offen.level, kopf + _inline_text(tok)))
+            bloecke.append(("heading" if kopf else "paragraph", offen.level, kopf + _inline_text(tok), ()))
         elif tok.type in ("fence", "code_block"):
-            bloecke.append(("code", tok.level, tok.content))
+            bloecke.append(("code", tok.level, tok.content, ()))
         elif tok.type == "tr_open":
             zellen, j = [], i + 1
             while tokens[j].type != "tr_close":
                 if tokens[j].type == "inline":
-                    zellen.append(_inline_text(tokens[j]).replace("|", "\\|"))
+                    zellen.append(_inline_text(tokens[j]))
                 j += 1
-            bloecke.append(("row", tok.level, "| " + " | ".join(zellen) + " |"))
+            bloecke.append(("row", tok.level, "", tuple(zellen)))
         elif tok.type == "html_block" and not re.fullmatch(r"\s*(?:<!--.*?-->\s*)+", tok.content, re.S):
-            bloecke.append(("html", tok.level, ""))
+            bloecke.append(("html", tok.level, "", ()))
     return bloecke
 
 
@@ -404,23 +407,29 @@ def _ohne_element(text, datei: str, ref: str):
 
 
 def _treffer(ref: str, paare: list):
-    """(match, block index, blocks, file) of the first (file, pattern) whose pattern matches the rendered text of a
-    block at `ref`, the blocks in the order they render, else four None."""
+    """(label text, block index, blocks, file) of the first (file, pattern) that finds its label at `ref`, the blocks
+    in the order they render, else four None. A pattern is matched against the text of a block that is no table row,
+    a ("row", pattern, column) against the first cell of each table row."""
     for datei, muster in paare:
         bloecke = _bloecke(ref, datei)
-        for i, (_art, _ebene, text) in enumerate(bloecke):
-            treffer = re.search(muster, text)
-            if treffer:
-                return treffer, i, bloecke, datei
+        for i, (art, _ebene, text, zellen) in enumerate(bloecke):
+            if isinstance(muster, tuple):
+                _row, erste, spalte = muster
+                if art == "row" and len(zellen) > spalte and re.match(erste, zellen[0]):
+                    return zellen[spalte], i, bloecke, datei
+            elif art != "row":
+                treffer = re.search(muster, text)
+                if treffer:
+                    return treffer.group(1), i, bloecke, datei
     return None, None, None, None
 
 
 def _label_at(ref: str, paare: list):
-    """(label text, file) of the first (file, pattern) that matches at `ref`, else (None, None)."""
-    treffer, _i, _bloecke_dort, datei = _treffer(ref, paare)
-    if treffer is None:
+    """(label text, file) of the first (file, pattern) that finds its label at `ref`, else (None, None)."""
+    label, _i, _bloecke_dort, datei = _treffer(ref, paare)
+    if label is None:
         return None, None
-    return _ohne_element(" ".join(treffer.group(1).split()), datei, ref), datei
+    return _ohne_element(" ".join(label.split()), datei, ref), datei
 
 
 def _cited_passage(ref: str, paare: list):
@@ -439,7 +448,7 @@ def _cited_passage(ref: str, paare: list):
         if folgend[0] != "code" or folgend[1] != bloecke[i][1]:
             break
         passage.append(folgend)
-    _ohne_element("\n".join(text for _art, _ebene, text in passage), datei, ref)
+    _ohne_element("\n".join(text for _art, _ebene, text, _zellen in passage), datei, ref)
     return passage, datei
 
 
@@ -449,7 +458,7 @@ def _documented_tag(ref: str, cap: dict):
     passage, datei = _cited_passage(ref, cap["label"])
     # A commented-out line of an example is no instruction (Codex thread 4221179850); an HTML comment renders nothing
     # and is not in the passage.
-    zeilen = [z for art, _ebene, text in passage or () for z in text.splitlines()
+    zeilen = [z for art, _ebene, text, _zellen in passage or () for z in text.splitlines()
               if not (art == "code" and z.lstrip().startswith("#"))]
     tags = sorted(set(re.findall(cap["git_tag_from"], "\n".join(zeilen)))) if passage is not None else []
     if len(tags) != 1:
@@ -502,7 +511,7 @@ def _names_provider(ref: str, cap: dict) -> bool:
     together with a negation stops the measurement, as the reading cannot tell a provider from a warning against it
     (Codex thread 4221179864: "Do not use actions/attest-build-provenance" counted as naming it)."""
     passage, _datei = _cited_passage(ref, cap["label"])
-    text = "\n".join(t for _art, _ebene, t in passage or ())
+    text = "\n".join(t for _art, _ebene, t, _zellen in passage or ())
     if passage is None or cap["provider"] not in text:
         return False
     for satz in re.split(r"(?<=[.;!?])\s+|\n", text):
