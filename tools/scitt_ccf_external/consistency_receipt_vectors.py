@@ -432,7 +432,8 @@ def synthetic_vectors(b: Builder) -> None:
     # -- outside the profile ------------------------------------------------------------------------------
     b.zero_signatures = True
     for vid, what, rc, readable in (
-        ("o01-untagged", "the receipt is not tagged 18", b.crec(tag=b""), True),
+        # not readable: a receipt of the profile is a tag 18 array (base 3010d4bd, ADR 0009 Decision 10)
+        ("o01-untagged", "the receipt is not tagged 18", b.crec(tag=b""), False),
         ("o02-alg-es512", "alg -36, not in v1", b.crec(prot_pairs=pp(alg=uint(-36))), True),
         ("o03-alg-ps256", "alg -37, a statement algorithm, not a receipt one", b.crec(prot_pairs=pp(alg=uint(-37))),
          True),
