@@ -229,6 +229,14 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                 return a.MerkleAccumulator().append(data)
         with self.assertRaisesRegex(TypeError, "takes a MerkleAccumulator"):
             a.emit_bundle_incremental(b"payload", echt, Aehnlich())
+        # Codex thread 4220760321: a method assigned on one instance shadowed the class's; there is no instance
+        # dictionary to assign it in, and a new attribute of any name is refused the same way.
+        akku = a.MerkleAccumulator()
+        for name, wert in (("append", lambda _: (b"\x22" * 32, [])), ("root", lambda: b"\x22" * 32),
+                           ("anything", 1)):
+            with self.subTest(assigns=name), self.assertRaises(AttributeError):
+                setattr(akku, name, wert)
+        self.assertFalse(hasattr(akku, "__dict__"))
         for vorher in (0, 1, 5):
             leaves = [f"event {i}".encode() for i in range(vorher)]
             neu = a.emit_bundle_incremental(b"payload", echt, a.MerkleAccumulator.from_leaves(leaves))

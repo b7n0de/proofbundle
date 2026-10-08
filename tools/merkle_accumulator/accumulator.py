@@ -45,7 +45,9 @@ the caller can override any of them, `__getattribute__` included, and four revie
 each time (Codex threads 4219691072, 4220260056, 4220260071 and 4220260074 on pull request 307): the size read
 before an append, the frontier the root check folds, the append a rebuild calls. So the class refuses to be
 subclassed, and emit_bundle_incremental takes only an object of exactly this class. The tool is new and has no
-subclass to keep; a caller who wants other behaviour wraps an accumulator instead of deriving from it.
+subclass to keep; a caller who wants other behaviour wraps an accumulator instead of deriving from it. The same
+holds for one instance: the class has `__slots__` for its three fields and no `__dict__`, so a method cannot be
+assigned on an instance and shadow the class's (Codex thread 4220760321), and the emitter calls the class's append.
 
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
 not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
@@ -88,6 +90,9 @@ def _node(left: bytes, right: bytes) -> bytes:
 class MerkleAccumulator:
     """Only appends, within one object (a restored state is one snapshot, see the module docstring);
     `size` leaves so far; `frontier` as (height, root) pairs, leftmost first."""
+
+    # The state and nothing else: no instance dictionary, so no method of the class can be shadowed on an instance.
+    __slots__ = ("size", "frontier", "leaf_hashes")
 
     def __init_subclass__(cls, **kwargs) -> None:
         raise TypeError("MerkleAccumulator cannot be subclassed: its bundle and restore guarantees rest on its own "
@@ -309,7 +314,7 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     if _puffer_von(payload) is not None:
         payload = _puffer_von(payload)
     index = accumulator.size
-    wurzel, pfad = accumulator.append(payload)
+    wurzel, pfad = MerkleAccumulator.append(accumulator, payload)   # the class's method, never an instance's
     # The size the root and the path describe is the one after this append, index + 1, and it is not read back
     # from the accumulator: the signer's public_key and sign could append to it (Codex thread 4218672721 on pull
     # request 307), and so could an append a subclass overrides, before it returns (thread 4219691072).
