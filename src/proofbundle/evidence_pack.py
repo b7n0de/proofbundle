@@ -32,6 +32,7 @@ from typing import Optional
 
 from .anchors_ots import (OtsProofTooLarge, _calendar_uris_of, _classify, _deserialize_detached,
                           calendar_operators, verify_opentimestamps)
+from .canonical import _abbild_stand, _ein_stand, _plain_for_jcs
 from ._wire_b64 import decode_b64
 
 __all__ = [
@@ -51,6 +52,7 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
+@_ein_stand
 def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     """True iff ``proof`` is an UPGRADED OTS proof (a Bitcoin block-header attestation) — self-contained,
     so verifying existence-in-Bitcoin no longer needs a calendar. A pending-only or malformed proof is
@@ -63,6 +65,7 @@ def ots_upgraded_proof_is_self_contained(proof: bytes) -> bool:
     return has_bitcoin
 
 
+@_ein_stand
 def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
                         declared_calendars: Optional[list[str]] = None,
                         bundled_headers: Optional[dict[str, str]] = None) -> dict:
@@ -93,7 +96,21 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
 
     The proof is deserialized ONCE for both figures below (the same class as 229A-01 in
     ``describe_proof``; here the two deserializations ran one after the other, doubling the work, not the
-    peak)."""
+    peak).
+
+    The proof and the bundled headers are read once (lens run 8 at fddc00f4, the sweep of finding B):
+    the figures derived from the proof and the proof written into the pack are one byte string, read
+    from storage (a `bytes` or `bytearray`), and the header map that decides `bundledHeaderEvidence` is
+    the one copied into `frozen`."""
+    from ._plain_value import plain_json  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    from .signature import plain_bytes  # noqa: PLC0415
+    proof_bytes = plain_bytes(proof)
+    if proof_bytes is None:
+        raise BundleFormatError(f"the OTS proof must be bytes or bytearray, got {type(proof).__name__}")
+    proof = proof_bytes
+    if bundled_headers is not None and isinstance(bundled_headers, dict):
+        bundled_headers = plain_json(bundled_headers, what="bundled_headers", error=BundleFormatError)
     try:
         timestamp = _deserialize_detached(proof).timestamp
     except Exception:   # no [anchors] extra, malformed, or over the cap: no calendars, not self-contained
@@ -131,6 +148,7 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
     return pack
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
                          now: Optional[int] = None) -> dict:
     """Verify an evidence pack OFFLINE (no network I/O). Delegates to the OTS verifier with the pack's
@@ -161,6 +179,15 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     except ProofBundleError as exc:
         return {"ok": False, "warn": False, "status": "over_budget",
                 "detail": f"evidence pack exceeds the verification budget (fail-closed): {exc}"}
+    # ONE READING (round 12; lens run 11 named it, not measured): after the budget, the pack is read
+    # into the plain copy of what it stores, and the proof and root are decoded from that copy. At
+    # cd5d39f4 the budget walked the stored contents and `pack["proof"]` then read the caller's own
+    # `__getitem__`, so the size the budget bounded and the proof decoded were two readings.
+    try:
+        pack = _plain_for_jcs(pack, ValueError)
+    except ValueError as exc:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack is not a JSON object: {exc}"}
     try:
         proof = decode_b64(pack["proof"])
         canonical_root = decode_b64(pack["canonicalRoot"])
@@ -171,6 +198,7 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     return verify_opentimestamps(proof, canonical_root, frozen=frozen, now=now, rp_trust=rp_trust)
 
 
+@_ein_stand
 def describe_proof(proof: bytes) -> dict:
     """Lifecycle transparency for a raw OTS proof (WP-B1) — for ``proofbundle anchor inspect`` and the
     upgrade report. Returns ``{state, selfContained, bitcoinHeights, provenCalendars,

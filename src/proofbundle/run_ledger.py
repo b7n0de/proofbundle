@@ -18,8 +18,9 @@ import re
 from typing import Any
 
 from ._statement_payload import load_statement_strict
+from .canonical import _ein_stand, _eine_kopie, _pruefkopie
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, require_switch
 
 RUN_LEDGER_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/run-ledger/v0.1"
 RUN_LEDGER_SCHEMA_VERSION = "0.1.0"
@@ -50,12 +51,17 @@ def _digest_hex(obj: Any) -> str | None:
     return obj["sha256"] if _is_digest(obj) else None
 
 
+@_ein_stand
 def validate_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return fail-closed errors for a ``run-ledger/v0.1`` predicate (empty = valid).
 
     Beyond per-field shape this enforces the ledger INVARIANTS: seq starts at 1 and is strictly monotone with
     no gaps; the first run's prevDigest is null; every later run's prevDigest equals the previous run's
     resultDigest (the chain — a silently dropped run breaks it); and runs never exceed runBudget."""
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -157,30 +163,44 @@ def _validate_run_shape(run: Any) -> list[str]:
     return errs
 
 
+@_ein_stand
 def require_valid_run_ledger_predicate(predicate: Any, *, strict: bool = False) -> None:
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
 
 
+@_ein_stand
 def link_runs(result_digests: list[str], statuses: list[str] | None = None) -> list[dict]:
     """Helper: build a well-formed, chained ``runs`` list from an ordered list of result-digest hexes.
 
     ``statuses`` defaults to all ``completed``. seq is 1-based; prevDigest chains each run to the previous
     result; the first prevDigest is null. Fail-closed: a non-64-hex digest raises ``RunLedgerError`` (the
     ledger never carries a malformed chain link)."""
-    statuses = statuses or ["completed"] * len(result_digests)
-    if len(statuses) != len(result_digests):
+    # READ ONCE (lens run 8 at fddc00f4, the sweep of finding B): the length check asked the caller's
+    # `__len__` and the loop its `__iter__`, and a status was checked through a `str` subclass's
+    # `__eq__` and `__hash__` and written as the object; each list and each text is read once here.
+    from ._plain_value import plain_list  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    digests = plain_list(result_digests)
+    if digests is None:
+        digests = list(result_digests)
+    stored = plain_list(statuses) if statuses is not None else []
+    if stored is None:
+        stored = list(statuses) if statuses else []
+    stati = stored or ["completed"] * len(digests)
+    if len(stati) != len(digests):
         raise RunLedgerError("statuses length must match result_digests length")
     runs: list[dict] = []
     prev: dict | None = None
-    for i, (rd, st) in enumerate(zip(result_digests, statuses)):
-        if not (isinstance(rd, str) and _SHA256_HEX.match(rd)):
+    for i, (rd, st) in enumerate(zip(digests, stati)):
+        rd_text, st_text = plain_text(rd), plain_text(st)
+        if rd_text is None or not _SHA256_HEX.match(rd_text):
             raise RunLedgerError(f"result_digests[{i}] is not a 64-hex sha256")
-        if not is_member(st, _RUN_STATUS):
+        if st_text is None or not is_member(st_text, _RUN_STATUS):
             raise RunLedgerError(f"statuses[{i}] must be one of {sorted(_RUN_STATUS)}")
-        runs.append({"seq": i + 1, "status": st, "resultDigest": {"sha256": rd}, "prevDigest": prev})
-        prev = {"sha256": rd}
+        runs.append({"seq": i + 1, "status": st_text, "resultDigest": {"sha256": rd_text}, "prevDigest": prev})
+        prev = {"sha256": rd_text}
     return runs
 
 
@@ -202,8 +222,24 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not issubclass(type(predicate), dict):   # its own type: `isinstance` reads `__class__`
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the run-ledger predicate",
+                      error=lambda m: RunLedgerError(f"invalid run-ledger predicate: {m}"))
+
+
+@_ein_stand
 def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = None,
                                subject_sha256: str | None = None) -> dict:
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, RunLedgerError, "run-ledger predicate")   # one reading (round 12)
     errs = validate_run_ledger_predicate(predicate, strict=False)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
@@ -217,10 +253,20 @@ def build_run_ledger_statement(predicate: dict, *, subject_name: str | None = No
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_run_ledger(predicate: dict, signer, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, keyid: str | None = None,
                     strict: bool = True) -> dict:
+    """Sign a Run Ledger as a DSSE-signed in-toto Statement; an invalid predicate raises before signing.
+
+    ``strict`` (default True) must be a bool; anything else raises
+    :class:`~proofbundle.errors.SwitchTypeError` before the predicate is validated or signed. The validator
+    reads no ``strict`` today, so nothing relaxed yet; the check keeps a falsy value that is not a bool
+    from relaxing it the day the validator does (``emit_decision_receipt`` shows the shape)."""
     from . import dsse  # noqa: PLC0415
+    require_switch(strict, "strict")
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, RunLedgerError, "run-ledger predicate")   # one reading (round 12)
     errs = validate_run_ledger_predicate(predicate, strict=strict)
     if errs:
         raise RunLedgerError("invalid run-ledger predicate: " + "; ".join(errs))
@@ -252,6 +298,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False) -> dict:
     """Verify a DSSE-signed Run Ledger. Crypto first, then structure over the EXACT signed bytes.
 
@@ -269,12 +316,16 @@ def verify_run_ledger(envelope: dict, public_key: bytes, *, strict: bool = False
         # untrusted envelope yields a fail-closed verdict — never a raw uncaught exception out of this
         # dict-returning verify surface (mirrors decision/outcome; BudgetExceeded is a ProofBundleError sibling
         # of BundleFormatError the old narrow except let escape).
-        r["crypto_ok"] = bool(dsse.verify_envelope(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         # The ONE Statement oracle (budget, strict parse, object, `_type` = in-toto Statement v1; deep
-        # gate Z195, L3-Z195-01 class, mirror of decision.py).
+        # gate Z195, L3-Z195-01 class, mirror of decision.py), over the bytes the signature covers.
         # The oracle checks input_bytes too; this line keeps the site in the budget call-site registry
         # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
         DEFAULT_BUDGET.check("input_bytes", len(body))

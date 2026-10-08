@@ -28,6 +28,7 @@ says so quietly reads, in a pull-request check list, exactly like one that passe
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import pathlib
 import re
@@ -82,6 +83,171 @@ _JEDE_KLAMMER = re.compile(rf"\[ *[0-9]+(?:\.[0-9]+)* +{_KENNUNG} *\]")
 #: Where the scope ends. Everything after that (Out, rationales, owner doors) is NOT the set
 #: against which a pull request is checked — those are lines that are explicitly not being built.
 _ENDE_DES_UMFANGS = re.compile(r"^##\s+Out\b", re.M)
+
+#: A scope file is named by the release it scopes: `docs/release_scope/<major>.<minor>.<patch>.md`.
+_UMFANGSDATEI = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)\.md$")
+
+#: A source version that names a release which is out: three numbers, optionally a post-release.
+#: A pre-release or a local suffix says the release is not out yet, and which scope that leaves
+#: open is not guessed here.
+_FREIGEGEBEN = re.compile(r"^([0-9]+)\.([0-9]+)\.([0-9]+)(?:\.post[0-9]+)?$")
+
+
+def _tag_stand(wurzel: pathlib.Path, version: str) -> str:
+    """Whether this clone SHOWS `v<version>`: "da", "fehlt", or the reason the tags cannot be read.
+    A clone that shows no release tag at all (the CI checkout at depth 1 fetches none) says
+    nothing about any tag, so that is not "fehlt".
+
+    "fehlt" MEANS NOT SHOWN HERE, NOT ABSENT UPSTREAM (Codex on pull request 294, round four, P1).
+    `git tag --list` lists the tags this clone holds; a clone whose tags were fetched in part shows
+    `v6.1.0` and not `v6.2.0` whether or not `v6.2.0` exists. Only "da" is a fact about the release;
+    the callers read "fehlt" as not knowing."""
+    import subprocess  # noqa: PLC0415
+    try:
+        r = subprocess.run(["git", "-C", str(wurzel), "tag", "--list", "v[0-9]*"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"git could not be asked: {type(e).__name__}"
+    if r.returncode != 0:
+        return "not a git repository, or git refused the question"
+    tags = set(r.stdout.split())
+    if not tags:
+        return "this clone shows no release tag"
+    return "da" if f"v{version}" in tags else "fehlt"
+
+
+def umfangskandidaten_ohne_tags(wurzel: pathlib.Path = REPO) -> list[str]:
+    """The releases a run without `--version` may be judging when this clone does not show the
+    source version's tag, because the tags cannot be read or because `v<source>` is not among the
+    ones it shows: the source version, which has its own scope file, and the oldest scope file
+    above it. Empty when the source version has no scope file of its own (then
+    `naechste_umfangsversion` decides without tags), when its tag is shown here (then the next
+    scope file decides alone), or when the version cannot be read."""
+    version, _ = naechste_umfangsversion(wurzel)
+    if version is not None:
+        return []
+    leser = pathlib.Path(__file__).resolve().parent / "check_version_and_changelog.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_release_integrity_version_k", leser)
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        quelle = modul._pyproject_version(wurzel)
+        namen = sorted(p.name for p in (wurzel / "docs" / "release_scope").iterdir() if p.is_file())
+    except Exception:  # noqa: BLE001 - no candidates; the caller keeps its NOT MEASURABLE
+        return []
+    m = _FREIGEGEBEN.match(quelle) if isinstance(quelle, str) else None
+    if m is None or ".post" in quelle:
+        return []
+    draussen = tuple(int(x) for x in m.groups())
+    eigene = ".".join(str(x) for x in draussen)
+    if f"{eigene}.md" not in namen or _tag_stand(wurzel, eigene) == "da":
+        # Only a tag this clone SHOWS decides by itself, and a NOT MEASURABLE it leaves (no scope
+        # file above a tagged source) stays one. A tag not shown here opens the candidates, whether
+        # the tags cannot be read at all or the clone holds some of them: a tag not fetched is not
+        # a tag that does not exist (Codex on pull request 294, round four, P1).
+        return []
+    darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
+                                  for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
+    return [eigene] + ([".".join(str(x) for x in darueber[0])] if darueber else [])
+
+
+def naechste_umfangsversion(wurzel: pathlib.Path = REPO) -> tuple[str | None, str]:
+    """The release a run WITHOUT `--version` judges, and how it was found: (version, origin).
+
+    THE DEFAULT WAS A TYPED NUMBER, "6.1.0", in this gate and in the landing card, and a typed
+    release number goes stale at the release it names. Measured on 2026-09-27 at 351fce0c, the head
+    of the 6.2.0 cut: the CI step calls this gate without `--version`, so it judged every pull
+    request against the scope of a release that was already out. A pull request from
+    `fix/the-commit-pattern-holds-at-the-verify-boundary`, the branch of line R-B1 of 6.2.0, came
+    back green and "outside the scope"; with `--version 6.2.0` the same call is RED and asks for
+    `[6.2.0 R-B1]`.
+
+    THE RULE: the OLDEST scope file whose version is above the source version, `[project] version`
+    in `pyproject.toml`. The source version is the release that is out, and the next scope file
+    above it is the release being built. When the next release raises the source version, the
+    answer moves with it, so there is no number here to keep in step.
+
+    WHY NOT GIT TAGS ALONE, though "the newest scope file without a tag" was the first candidate. The
+    CI job that calls this gate checks out at depth 1 and fetches no tag, so there every scope file
+    looks untagged. And with tags visible that rule still picks wrongly in both directions: the
+    NEWEST untagged scope file is the release after next (6.3.0 while 6.2.0 is being built), the
+    OLDEST untagged one is 3.7.1, a patch scope that never shipped.
+
+    THE ONE QUESTION A TAG ANSWERS (Codex on pull request 294, round three, P1): when the source
+    version has a scope file of its own, is it out or being built? RELEASE.md bumps the version in
+    the release-prep pull request and tags after the merge, so the version alone cannot tell. And
+    only a tag this clone SHOWS answers it (round four, P1): `git tag --list` lists the tags a clone
+    holds, so a clone whose tags were fetched in part shows `v6.1.0` without `v6.2.0` whether or not
+    `v6.2.0` is out. Measured at 5a9ddc06 with the source at 6.2.0 and only `v6.1.0` in the clone: a
+    branch that only the 6.3.0 scope names was judged against 6.2.0, outside the scope, exit 0. So
+    `v<source>` shown here, the answer is the scope file above; not shown, whether because the
+    clone shows no tag at all or because it shows others, NOT MEASURABLE, and the gate's `main`
+    then judges the branch by whichever of the two scope files names it
+    (`umfangskandidaten_ohne_tags`). The landing card counts one release and has no branch to
+    choose by, so there it stays NOT MEASURABLE until the tag is fetched or `--version` is given.
+
+    THE SOURCE VERSION IS READ BY THE RELEASE-INTEGRITY GATE'S OWN READER,
+    `scripts/check_version_and_changelog.py::_pyproject_version`, loaded from beside this file, not by
+    a second reader here. The first version of this rule parsed pyproject.toml with `tomllib`, and
+    `tomli` below Python 3.11. That is an import outside the standard library of 3.10, the floor of
+    this repository, and `tests/test_release_tooling_refuses_weak_pinned_keys.py` refuses it there
+    (measured in CI at caccdbad, crypto-floor: `tomllib` and `tomli` seen, not in the table). A table
+    entry would be stale on 3.11 and later, where `tomllib` is standard. The release-integrity gate
+    already reads this version, and it is the reading a release is checked against, so this rule
+    reads the same one.
+
+    Not measurable, with the reason in the second value: the reader not loadable, an unreadable or
+    version-less pyproject.toml, a source version that is not a released one, a source version
+    with a scope file of its own whose tag this clone does not show, or no scope file above it.
+    """
+    leser = pathlib.Path(__file__).resolve().parent / "check_version_and_changelog.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_release_integrity_version", leser)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {leser}")
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        quelle = modul._pyproject_version(wurzel)
+    except Exception as e:  # noqa: BLE001 - not knowing the source version blocks, it never passes
+        return None, (f"NOT MEASURABLE: the source version in pyproject.toml cannot be read with "
+                      f"{leser.name} ({type(e).__name__}: {e})")
+    m = _FREIGEGEBEN.match(quelle) if isinstance(quelle, str) else None
+    if m is None:
+        return None, (f"NOT MEASURABLE: the source version {quelle!r} in pyproject.toml is not a "
+                      "released version (X.Y.Z, optionally .postN), so which scope comes next is "
+                      "not decided here")
+    draussen = tuple(int(x) for x in m.groups())
+    try:
+        namen = sorted(p.name for p in (wurzel / "docs" / "release_scope").iterdir() if p.is_file())
+    except OSError as e:
+        return None, f"NOT MEASURABLE: docs/release_scope is not readable ({type(e).__name__}: {e})"
+    # A SOURCE VERSION WITH A SCOPE FILE OF ITS OWN IS OUT ONLY ONCE ITS TAG EXISTS (Codex on pull
+    # request 294, round three, P1, measured with pyproject.toml at 6.2.0). RELEASE.md bumps the
+    # version inside the release-prep pull request and tags after the merge, so between the bump and
+    # the tag the source version names the release being built, and "the oldest scope file above
+    # it" judged a 6.2.0 correction against 6.3.0: outside the scope, and green. The tag is the one
+    # fact that tells the two states apart. A post-release (`X.Y.Z.postN`) says `X.Y.Z` is out.
+    #
+    # AND ONLY A TAG THIS CLONE SHOWS IS THAT FACT (round four, P1). Round three read a tag missing
+    # from a clone that shows other tags as a tag that does not exist, and a partial fetch made that
+    # a pass: 6.2.0 judged while `v6.2.0` may be out upstream. Not shown here is not knowing.
+    eigene = ".".join(str(x) for x in draussen)
+    if f"{eigene}.md" in namen and ".post" not in quelle:
+        stand = _tag_stand(wurzel, eigene)
+        if stand != "da":
+            warum = (f"this clone shows release tags and not v{eigene}, and a tag it has not "
+                     "fetched may exist upstream" if stand == "fehlt" else stand)
+            return None, (f"NOT MEASURABLE: the source version {quelle} has its own scope file, "
+                          f"and whether v{eigene} is tagged cannot be read here ({warum}); tagged, "
+                          f"the release being built is the next scope file, untagged it is {eigene}")
+    darueber = sorted(v for v in (tuple(int(x) for x in t.groups())
+                                  for t in map(_UMFANGSDATEI.match, namen) if t) if v > draussen)
+    if not darueber:
+        return None, (f"NOT MEASURABLE: no scope file above the source version {quelle} in "
+                      f"docs/release_scope ({namen}); the release being built has no scope file")
+    version = ".".join(str(x) for x in darueber[0])
+    return version, (f"derived: the oldest scope file above the source version {quelle} "
+                     "in pyproject.toml")
 
 
 def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], str]:
@@ -288,8 +454,14 @@ def pruefe_umfangsdatei(pfad: pathlib.Path) -> dict:
                for k, v in sorted(kollisionen.items())]
     # A LINE THIS MODULE CANNOT READ IS A FINDING, NOT AN ABSENCE. Without this, an unknown
     # identifier shape leaves the count silently and the verdict gets GREENER, not redder.
-    unlesbar, _ = zeilen_ohne_kennung(pfad)
-    if unlesbar:
+    # A GUARD THAT DID NOT RUN IS NOT A GUARD THAT FOUND NOTHING (the sweep for Codex round five on
+    # pull request 294). The guard answers NOT MEASURABLE when no table header names a branch
+    # column, and its empty list then says nothing about the rows it never reached.
+    unlesbar, lage = zeilen_ohne_kennung(pfad)
+    if lage != "gemessen":
+        gruende.append(f"the guard against lines without a readable identifier did not run over "
+                       f"this file ({lage}); a row it never reached is not a row it read")
+    elif unlesbar:
         gruende.append(
             f"{len(unlesbar)} Zeile(n) des In-Abschnitts fuehren keine lesbare Kennung {unlesbar} "
             "— sie fallen aus der Zaehlung und die Landekarte kann sie nie zaehlen. Zu tun ist es "
@@ -332,7 +504,10 @@ def pruefe(*, branch: str, title: str, version: str,
     # `pruefe_umfangsdatei` alone it would never be seen: CI calls `main`, and `main` calls this
     # function. A guard nobody calls is the same shape of failure it exists to catch.
     unlesbar, _ul = zeilen_ohne_kennung(pfad)
-    if unlesbar:
+    if _ul != "gemessen":
+        gruende.append(f"the guard against lines without a readable identifier did not run over "
+                       f"the scope file ({_ul}); a row it never reached is not a row it read")
+    elif unlesbar:
         gruende.append(
             f"die Umfangsdatei fuehrt {len(unlesbar)} Zeile(n) ohne lesbare Kennung {unlesbar} — "
             "sie fallen aus der Zaehlung, und kein Titel kann je auf sie zeigen")
@@ -411,22 +586,70 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
     }
 
 
+def _nach_dem_zweig(branch: str, kandidaten: list[str], herkunft: str) -> tuple[str | None, str]:
+    """Without a source tag this clone shows, the release is chosen by the branch: the one
+    candidate whose scope file names it. A branch named by two candidates is ambiguous and not
+    measurable; a branch named by none is outside every candidate, and the newest candidate
+    reports that.
+
+    A CANDIDATE THIS GATE CANNOT READ DECIDES NOTHING (Codex on pull request 294, round five, P1).
+    `lies_umfang` returns an empty mapping together with its NOT MEASURABLE, and this function kept
+    the mapping only. Measured at 76f260a2: a 6.2.0 scope naming `fix/a1` without its `## Out`, and a
+    readable 6.3.0 scope, judged `fix/a1` against 6.3.0, outside the scope, exit 0. Whether an
+    unreadable scope names the branch is not known, so the release is not decided, whichever
+    candidate it is and whichever branch is asked about."""
+    treffer = []
+    for v in kandidaten:
+        zu_zweig, _mitlaeufer, zustand = lies_umfang(REPO / "docs" / "release_scope" / f"{v}.md")
+        if zustand != "gemessen":
+            return None, (f"{herkunft}; the scope file of candidate {v} cannot be read here "
+                          f"({zustand}), so whether it names the branch {branch!r} is not known")
+        if branch in zu_zweig:
+            treffer.append(v)
+    if len(treffer) > 1:
+        return None, (f"{herkunft}; the branch {branch!r} stands in the scope files of {treffer}, "
+                      "so which release it belongs to is not decided")
+    gewaehlt = treffer[0] if treffer else kandidaten[-1]
+    grund = (f"it stands in the scope file of {gewaehlt} only" if treffer
+             else f"it stands in none of {kandidaten}")
+    return gewaehlt, f"{herkunft}; judged by the branch: {grund}"
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--branch", required=True, help="der head-Zweig des Pull Requests")
     p.add_argument("--title", required=True, help="der Titel des Pull Requests")
-    p.add_argument("--version", default="6.1.0")
+    p.add_argument("--version", default=None,
+                   help="the release whose scope file judges the title; without it, the oldest "
+                        "scope file above the source version in pyproject.toml")
     p.add_argument("--scope", default=None, help="Pfad der Umfangsdatei (sonst aus --version)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
-    d = pruefe(branch=a.branch, title=a.title, version=a.version,
-               scope_pfad=pathlib.Path(a.scope) if a.scope else None)
+    if a.version is None:
+        version, herkunft = naechste_umfangsversion()
+        kandidaten = umfangskandidaten_ohne_tags() if version is None else []
+        if kandidaten:
+            version, herkunft = _nach_dem_zweig(a.branch, kandidaten, herkunft)
+    else:
+        version, herkunft = a.version, "argument --version"
+    if version is None:
+        # RED, like a missing scope file: without a release to judge against, whether this pull
+        # request carries a scope line is not measurable, and not knowing blocks.
+        d = _urteil(a.branch, a.title, None,
+                    [f"{herkunft}; without a release to judge against, whether this pull request "
+                     "carries a scope line is not measurable, and not knowing blocks"],
+                    None, {}, [], herkunft)
+    else:
+        d = pruefe(branch=a.branch, title=a.title, version=version,
+                   scope_pfad=pathlib.Path(a.scope) if a.scope else None)
+    d["version_herkunft"] = herkunft
     if a.json:
         print(json.dumps(d, ensure_ascii=False, indent=2))
     else:
         marke = "ausserhalb des Umfangs" if d["ausserhalb_des_umfangs"] else (
             d["kennung_des_zweigs"] or "—")
         print(f"release-scope-title: {d['urteil']} · {d['branch']} · {marke}")
+        print(f"  version: {d['version']} ({herkunft})")
         for g in d["gruende"]:
             print(f"  ! {g}")
         print(f"  geprueft: {d['geprueft_wird']}")

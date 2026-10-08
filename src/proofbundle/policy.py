@@ -18,14 +18,16 @@ Design invariants:
 
 from __future__ import annotations
 
-import copy
+import hashlib
 import hmac
 import re
 from datetime import datetime, timezone
-from typing import Union
+from typing import Union, cast
 
 from ._strict_json import enforce_structural_budget, loads_strict
-from .budget import DEFAULT_BUDGET, render_keys_safe
+from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
+from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _plain_for_jcs, _pruefkopie, _zeichen_von,
+                        _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
@@ -53,6 +55,14 @@ def _as_dict(v):
 def _as_list(v):
     """Ein Config-Sub-Feld als Liste/Tupel, sonst [] (dito fuer ``or []``)."""
     return v if isinstance(v, (list, tuple)) else []
+
+
+def _nennen(value) -> str:
+    """A caller's value in a policy message: a ``str`` as its ``repr``, as the messages always named it (the Rust
+    policy reader words it the same way), and any other value bounded by :func:`budget.render_safe`, because
+    ``repr`` of an int beyond CPython's 4300-digit limit raises a raw ``ValueError`` where the message was meant
+    to explain a refusal."""
+    return repr(value) if type(value) is str else render_safe(value)
 
 
 class PolicyError(ProofBundleError):
@@ -182,7 +192,21 @@ _CHECKPOINT_KEYS = {"origin", "root", "treeSize", "hashAlg", "checkpointSigner",
                     "issuedAt", "validUntil", "signature"}
 _CHECKPOINT_REQUIRED = ("origin", "root", "treeSize", "hashAlg", "checkpointSigner", "signature")
 _SDJWT_KEYS = {"require_key_binding_when_cnf_present", "expected_aud", "require_nonce",
-               "max_iat_age_seconds", "expected_vct"}
+               "max_iat_age_seconds", "expected_vct", "issuer_key_pin"}
+#: sd_jwt policy keys that trust a value read from the issuer-signed SD-JWT or from a KB-JWT bound to its cnf
+#: (Nachtrag 36, Z309 / PR 311 P1). Every one of these MUST go through ``_sd_jwt_issuer_trusted``: the KB-JWT
+#: hangs on the SD-JWT's cnf, and the SD-JWT's verifying key is supplied outside the bundle's signed payload,
+#: so a value here means nothing until the issuer is pinned or the SD-JWT binds to the signed payload.
+_SDJWT_KEYS_NEED_ISSUER_TRUST = frozenset({
+    "require_key_binding_when_cnf_present", "require_nonce", "expected_aud", "expected_vct"})
+#: sd_jwt policy keys that do NOT trust an SD-JWT/KB-JWT value: ``issuer_key_pin`` IS the trust anchor the
+#: relying party sets independently of the bundle, and ``max_iat_age_seconds`` bounds the issuer-bound eval
+#: claim's OWN timestamp through ``decode_eval_claim`` (a separate trust path), never a KB-JWT value.
+_SDJWT_KEYS_NO_ISSUER_TRUST = frozenset({"issuer_key_pin", "max_iat_age_seconds"})
+#: The algorithm prefixes a trust policy's ``sd_jwt.issuer_key_pin`` may carry (Nachtrag 32, the Critical).
+#: The pin is algorithm-bound: ``"<alg>:<standard-base64 of the raw issuer public key>"``, matched byte-exact
+#: against the fingerprint of the key that actually verified the SD-JWT issuer signature.
+_ISSUER_KEY_PIN_PREFIXES = ("ed25519:", "es256:")
 _STATUS_KEYS = {"reject_self_issued", "allowed_status_authorities"}
 _ASSURANCE_KEYS = {"minimum_level", "reject_self_attested_without_prereg"}
 
@@ -202,8 +226,9 @@ def _require_dict(value, where: str) -> dict:
 def _huelle_relations(rel) -> None:
     """Die Huelle der ``relations``-Sektion — eigene Funktion, weil
     :func:`proofbundle.relation.evaluate_relations_policy` NUR diese Sektion bekommt und sie mit
-    derselben Regel pruefen muss wie ``load_policy``. Eine Nicht-dict-Sektion ist hier KEIN Fehler:
-    den Typ meldet ``load_policy`` an seiner Stelle, die Auswerter behandeln sie als leer."""
+    derselben Regel pruefen muss wie ``load_policy``. A section that is no dict is no error here:
+    ``load_policy`` reports its type where it reads it, and ``evaluate_relations_policy`` refuses it before
+    this call (deep gate at 7409b123: read as empty, every rule of the section was dropped)."""
     if not isinstance(rel, dict):
         return
     _reject_unknown(rel, _RELATIONS_KEYS, "relations")
@@ -264,9 +289,70 @@ def _huelle_pruefen(policy: dict) -> None:
 
 def _require_bool(obj: dict, key: str, where: str) -> None:
     """A present flag MUST be a real JSON boolean — a string like "false" is truthy and would
-    silently flip a fail-closed toggle (the schema declares these boolean)."""
-    if key in obj and not isinstance(obj[key], bool):
+    silently flip a fail-closed toggle (the schema declares these boolean). ``type()``, not
+    ``isinstance()``: ``isinstance`` also believes an object's own ``__class__``, and an object whose
+    ``__class__`` says ``bool`` passed this check and later decided the flag with its own ``__bool__``.
+    ``bool`` cannot be subclassed, so for every honest value the two tests agree."""
+    if key in obj and type(obj[key]) is not bool:
         raise PolicyError(f"{where}.{key} must be a boolean (true/false)")
+
+
+#: Every boolean field of a trust policy, by section (``None`` is the top level), in the words
+#: ``load_policy`` names them. The evaluators check these with the loader's own ``_require_bool`` at
+#: entry (:func:`_check_bool_fields`), so a policy dict handed straight to ``evaluate_policy`` or
+#: ``evaluate_decision_policy`` is judged by the rule ``load_policy`` applies. A contract test holds this
+#: table equal to the set of fields ``load_policy`` refuses as "must be a boolean".
+_BOOL_FIELDS: tuple = (
+    (None, ("deploymentReady", "requiresIdentityOverlay")),
+    ("signature", ("require_expected_signer",)),
+    ("merkle", ("require_authenticated_root",)),
+    ("sd_jwt", ("require_key_binding_when_cnf_present", "require_nonce")),
+    ("status", ("reject_self_issued",)),
+    ("assurance", ("reject_self_attested_without_prereg",)),
+    ("anchors", ("allow_pending",)),
+    ("relations", ("reject_superseded", "reject_retracted")),
+    ("decision_receipt", _DECISION_BOOL_KEYS),
+)
+
+
+def _check_bool_fields(policy: dict) -> None:
+    """Refuse a policy whose boolean field is not a bool, with the message ``load_policy`` gives.
+
+    THE DEFECT, measured on the library path (``verify_decision_receipt(policy=<dict>)`` and
+    ``evaluate_policy`` without ``load_policy``): the evaluators read these fields by their truth or
+    with ``is True``. ``decision_receipt.allow_raw_inputs: "false"`` and ``allow_pending: "false"``
+    were read as True and gave ``policy_ok``, ``ok`` and ``safeForAutomation`` all true;
+    ``requiresIdentityOverlay: "true"`` was read as False, so a raw template authorised a decision;
+    and ``require_*: 0`` switched a requirement off. ``load_policy`` refuses every one of these, and
+    :func:`_huelle_pruefen` left types to it, so the two paths disagreed. A section that is not a dict
+    is skipped here, as in :func:`_huelle_pruefen`: its type is ``load_policy``'s to report. Raises
+    :class:`PolicyError`."""
+    for section, keys in _BOOL_FIELDS:
+        obj = policy if section is None else policy.get(section)
+        if not isinstance(obj, dict):
+            continue
+        for key in keys:
+            _require_bool(obj, key, "trust policy" if section is None else section)
+
+
+def _bool_field_refusal_as_stored(policy: object) -> "str | None":
+    """The message of :func:`_check_bool_fields` for a policy that holds a value that is no JSON value,
+    read from what the policy stores, or None.
+
+    The evaluators read a policy once, into its plain copy, and refuse a policy the copy cannot make
+    (round 12 of PR 300). PR 291 lands before it and refuses a boolean field that is not a bool with the
+    loader's own message, an object whose ``__class__`` says bool included; the copy refused such a
+    policy with its own message first. When the copy refuses, the boolean fields are read here from the
+    stored items of the policy and of each section (`_membership.stored_str_items`, whose reading runs
+    no code of the caller), and the loader's message is the one given."""
+    from ._membership import stored_str_items  # noqa: PLC0415 - local, as the module's peers
+    top = stored_str_items(policy)
+    for section, keys in _BOOL_FIELDS:
+        obj = top if section is None else stored_str_items(top.get(section))
+        for key in keys:
+            if key in obj and type(obj[key]) is not bool:
+                return f"{'trust policy' if section is None else section}.{key} must be a boolean (true/false)"
+    return None
 
 
 def _require_str_or_null(obj: dict, key: str, where: str) -> None:
@@ -339,13 +425,17 @@ def _validate_checkpoint_entry(entry, idx: int) -> None:
                 raise PolicyError(f"{where}.{tkey} must be an ISO-8601 timestamp string")
 
 
+@_ein_stand
 def load_policy(source: Union[str, dict]) -> dict:
     """Parse and structurally validate a trust policy, fail-closed. ``source`` is a path or a dict.
 
     Every section is checked for unknown fields (a typo that silently weakens a policy is impossible),
     the schema version is pinned, and ``policy_id`` is required. No network, no I/O beyond reading the
     file. Raises :class:`PolicyError` on anything malformed."""
-    if isinstance(source, str):
+    # The type is the object's own and a path its characters (round 12): `isinstance` read a caller's
+    # `__class__` for every source that is no str.
+    if issubclass(type(source), str):
+        source = str.__str__(source)
         try:
             import os  # noqa: PLC0415
             import stat as _stat  # noqa: PLC0415
@@ -386,18 +476,46 @@ def load_policy(source: Union[str, dict]) -> dict:
             raise PolicyError(f"trust policy structure exceeds the verification budget: {exc}") from exc
         # defensive copy (verify-lens L4): a caller who validates a dict then mutates the SAME object
         # before evaluate_policy must not be able to bypass these checks — evaluate the copy.
-        policy = copy.deepcopy(source)
+        # THE PLAIN COPY, not `copy.deepcopy` (round 12): deepcopy rebuilds a dict subclass as that
+        # subclass, so its own `get` kept answering every check after the load. `_plain_for_jcs` reads
+        # what the policy stores into exact built-in types and runs no code of the caller; a policy
+        # holding a value that is no JSON value is PolicyError, as a malformed file is.
+        policy = _plain_for_jcs(source, lambda text: PolicyError(f"trust policy is not a JSON object: {text}"))
     policy = _require_dict(policy, "trust policy")
 
     if policy.get("schema") not in _SUPPORTED_SCHEMAS:
         raise PolicyError(
-            f"unsupported trust policy schema {policy.get('schema')!r}, expected one of {list(_SUPPORTED_SCHEMAS)}")
+            f"unsupported trust policy schema {_nennen(policy.get('schema'))}, expected one of "
+            f"{list(_SUPPORTED_SCHEMAS)}")
     _huelle_pruefen(policy)   # EINE Huelle fuer alle Ebenen — dieselbe Regel wie in den Auswertern
     # decision_receipt is a v0.2-only additive section; under v0.1 it is a fail-closed error.
     if "decision_receipt" in policy and policy.get("schema") != POLICY_SCHEMA_V0_2:
         raise PolicyError("decision_receipt section requires schema proofbundle/trust-policy/v0.2")
     if not (isinstance(policy.get("policy_id"), str) and policy["policy_id"]):
         raise PolicyError("trust policy requires a non-empty string policy_id")
+    _felder_pruefen(policy, schema_gate=True)   # the same field rule the evaluators apply
+    return policy
+
+
+def _felder_pruefen(policy: dict, *, schema_gate: bool) -> None:
+    """Every rule ``load_policy`` applies to a field that is PRESENT, as one function.
+
+    THE DEFECT (deep gate of the 6.2.0 release preparation at 7409b123, a P1 confirmed by three of three
+    blind jurors): ``evaluate_decision_policy`` read ``decision_receipt.trusted_decision_makers`` with
+    ``_as_list``, so a value of another type became ``[]``, which pins nobody, and ``verify_decision_receipt``
+    reported ``ok`` True for a receipt signed by a key the policy does not trust. ``load_policy`` refuses that
+    policy. The evaluators applied the hull (:func:`_huelle_pruefen`, round 14) and the boolean fields
+    (:func:`_check_bool_fields`, pull request 291) and left "required fields and types" to the loader, so every
+    other field of another type was read as empty, and empty is no constraint: the same held for
+    ``allowed_issuers``, ``allowed_algs``, ``trusted_roots``, ``trusted_checkpoints``, the relation rules and a
+    whole section of another type.
+
+    ONE RULE, TWO KINDS OF CALLER: ``load_policy`` calls this after its own checks of ``schema`` and
+    ``policy_id``, and the evaluators (``evaluate_policy``, ``evaluate_decision_policy``, ``lint_policy``) call it
+    at entry, so the library path judges a present field by the loader's rule and message. ``schema_gate``
+    keeps what only a loaded policy knows: the evaluators take a partial policy without ``schema`` since they
+    exist, so the v0.2-only sections are gated on the schema only in ``load_policy``. Raises
+    :class:`PolicyError`."""
     # AP-2 §6.2: template metadata. `deploymentReady`/`requiresIdentityOverlay` are optional additive
     # booleans (a hand-written production policy omits them); when present they MUST be real booleans.
     for _meta in ("deploymentReady", "requiresIdentityOverlay"):
@@ -429,7 +547,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         if policy["policyPurpose"] not in POLICY_PURPOSES:
             raise PolicyError(
                 f"policyPurpose must be one of {list(POLICY_PURPOSES)} or null, "
-                f"got {policy['policyPurpose']!r}")
+                f"got {_nennen(policy['policyPurpose'])}")
     # A-P0-5 §9.2: template provenance is a string (stamped by `policy instantiate`), display/audit only.
     _require_str_or_null(policy, "generatedFromTemplate", "trust policy")
 
@@ -479,6 +597,26 @@ def load_policy(source: Union[str, dict]) -> dict:
         # construction, same as sdjwt_vc.py — see evaluate_policy for the "verified vs. merely present"
         # gating this field requires).
         _require_str_or_null(sdj, "expected_vct", "sd_jwt")
+        # Nachtrag 32 (the Critical): the issuer key the SD-JWT is verified under
+        # (sd_jwt_vc.issuer_public_key_b64) lives OUTSIDE the bundle's signed payload, so it is
+        # attacker-chosen. expected_vct is trustworthy only when that key is pinned here, independently of
+        # the bundle, or when the SD-JWT binds to the signed payload. The pin is algorithm-bound:
+        # "<alg>:<standard-base64 of the raw issuer public key>", matched byte-exact at evaluation time.
+        _require_str_or_null(sdj, "issuer_key_pin", "sd_jwt")
+        _pin = sdj.get("issuer_key_pin")
+        if isinstance(_pin, str):
+            _pref = next((p for p in _ISSUER_KEY_PIN_PREFIXES if _pin.startswith(p)), None)
+            if _pref is None:
+                raise PolicyError(
+                    "sd_jwt.issuer_key_pin must start with an algorithm prefix, one of "
+                    f"{list(_ISSUER_KEY_PIN_PREFIXES)} (algorithm-bound), e.g. 'ed25519:<base64 key>'")
+            try:
+                if not decode_b64(_pin[len(_pref):]):
+                    raise ValueError("empty key")
+            except (ValueError, TypeError) as exc:
+                raise PolicyError(
+                    "sd_jwt.issuer_key_pin must carry a non-empty base64 public key after its algorithm "
+                    f"prefix ({exc})") from exc
     if "status" in policy:
         st = _require_dict(policy["status"], "status")
         _require_bool(st, "reject_self_issued", "status")
@@ -493,7 +631,7 @@ def load_policy(source: Union[str, dict]) -> dict:
         # WP-A1: the anchor requirement as a POLICY key (v0.2-gated like decision_receipt) — so a
         # relying party pins "must carry a verifying preRegistration anchor" in the policy file
         # instead of remembering CLI flags.
-        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+        if schema_gate and policy.get("schema") != POLICY_SCHEMA_V0_2:
             raise PolicyError("anchors section requires schema proofbundle/trust-policy/v0.2")
         anc = _require_dict(policy["anchors"], "anchors")
         _require_str_or_null(anc, "require_anchor", "anchors")
@@ -521,60 +659,9 @@ def load_policy(source: Union[str, dict]) -> dict:
                                   "64-char hex merkle root")
     if "relations" in policy:
         # relation/v0.1 lineage requirements (v0.2-gated like decision_receipt/anchors).
-        if policy.get("schema") != POLICY_SCHEMA_V0_2:
+        if schema_gate and policy.get("schema") != POLICY_SCHEMA_V0_2:
             raise PolicyError("relations section requires schema proofbundle/trust-policy/v0.2")
-        rel = _require_dict(policy["relations"], "relations")
-        if "require_relation_resolution" in rel:
-            rr = rel["require_relation_resolution"]
-            if (not isinstance(rr, list) or not rr
-                    or not all(isinstance(x, str) and x in _RELATION_NAMES for x in rr)):
-                raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
-                                  f"relation names out of {list(_RELATION_NAMES)}")
-        _require_bool(rel, "reject_superseded", "relations")
-        _require_bool(rel, "reject_retracted", "relations")
-        # WP-A relation_signer (WHO may replace): map relation -> {mode:same-key} | {mode:pinned,keys:[b64…]}.
-        # Fail-closed: unknown relation, unknown mode, extra field, non-b64/low-order key, empty keys list.
-        if "relation_signer" in rel:
-            rs = _require_dict(rel["relation_signer"], "relations.relation_signer")
-            for relname, rule in rs.items():
-                if relname not in _RELATION_NAMES:
-                    raise PolicyError(f"relations.relation_signer key {relname!r} is not a relation "
-                                      f"name out of {list(_RELATION_NAMES)}")
-                rule = _require_dict(rule, f"relations.relation_signer[{relname}]")
-                mode = rule.get("mode")
-                if mode not in _RELATION_SIGNER_MODES:
-                    raise PolicyError(f"relations.relation_signer[{relname}].mode must be one of "
-                                      f"{list(_RELATION_SIGNER_MODES)} (fail-closed), got {mode!r}")
-                if mode == "same-key":
-                    if "keys" in rule:
-                        raise PolicyError(f"relations.relation_signer[{relname}] mode 'same-key' takes "
-                                          "no 'keys' (fail-closed)")
-                else:  # pinned
-                    keys = rule.get("keys")
-                    if not isinstance(keys, list) or not keys \
-                            or not all(isinstance(k, str) for k in keys):
-                        raise PolicyError(f"relations.relation_signer[{relname}] mode 'pinned' needs a "
-                                          "non-empty 'keys' list of base64 Ed25519 public keys "
-                                          "(empty = vacuous pin, fail-closed)")
-                    for k in keys:
-                        _validate_pinned_ed25519_pubkey(k, f"relations.relation_signer[{relname}]")
-        # WP-A2 require_relation_target (WHICH parent): map relation -> 64-hex content root | [roots…].
-        # Fail-closed: unknown relation, non-hex, empty list. Closes the decoy-parent gap.
-        if "require_relation_target" in rel:
-            rt = _require_dict(rel["require_relation_target"], "relations.require_relation_target")
-            for relname, roots in rt.items():
-                if relname not in _RELATION_NAMES:
-                    raise PolicyError(f"relations.require_relation_target key {relname!r} is not a "
-                                      f"relation name out of {list(_RELATION_NAMES)}")
-                items = roots if isinstance(roots, list) else [roots]
-                if isinstance(roots, list) and not roots:
-                    raise PolicyError(f"relations.require_relation_target[{relname}] must not be an "
-                                      "empty list (vacuous pin, fail-closed)")
-                for root in items:
-                    if not (isinstance(root, str) and _HEX64.match(root)):
-                        raise PolicyError(f"relations.require_relation_target[{relname}] must be a "
-                                          "64-char lowercase hex content root (jcs-sha256-v1), or a "
-                                          "non-empty list of them")
+        _relations_felder_pruefen(_require_dict(policy["relations"], "relations"))
     if "decision_receipt" in policy:
         dr = _require_dict(policy["decision_receipt"], "decision_receipt")
         if "trusted_decision_makers" in dr and not isinstance(dr["trusted_decision_makers"], list):
@@ -590,14 +677,215 @@ def load_policy(source: Union[str, dict]) -> dict:
                     "accepted_predicate_types"):
             if key in dr:
                 _require_list_of_str(dr, key, "decision_receipt")
+        # AN ALLOW-LIST THAT ADMITS NOTHING IS NO DEACTIVATION (the closed world of owner point 6 of 2026-10-01, the
+        # review before run 7): the three sibling lists read an empty list as no rule, while an empty
+        # accepted_predicate_types accepted no predicate type and failed every receipt (measured at fda55f98: decision
+        # verify exit 3). A restriction that can never be met is refused where the policy is read, with its reason.
+        if dr.get("accepted_predicate_types") == []:
+            raise PolicyError("decision_receipt.accepted_predicate_types is an empty list: an allow-list that admits no "
+                              "predicate type refuses every receipt and is no deactivation; omit the key to accept "
+                              "every predicate type")
         for key in _DECISION_BOOL_KEYS:
             if key in dr:
                 _require_bool(dr, key, "decision_receipt")
-    return policy
 
 
+def _abgelehnt_vom_loader(policy: dict) -> str | None:
+    """The loader's refusal of a policy that is a plain JSON object, as its message, or None when the loader's
+    rule for present fields passes (``schema`` and ``policy_id`` are the loader's own business).
+
+    The one entry rule of every surface that takes a whole policy: ``evaluate_policy`` and
+    ``evaluate_decision_policy``, and the outcome and relation statement verifiers, which judge only the
+    ``relations`` section of it. Those two read a typo in a top-level key (``"relationz"``) as no relations
+    section and judged an attached retraction with no rule, where ``load_policy`` and the decision verifier
+    refuse the policy (verify lens on the cross-check fix at bc3d275f, 2026-09-29)."""
+    try:
+        _huelle_pruefen(policy)
+        _check_bool_fields(policy)   # a boolean field that is not a bool: the loader's rule and message
+        _felder_pruefen(policy, schema_gate=False)   # every other present field: the loader's rule too
+    except PolicyError as exc:
+        return str(exc)
+    return None
+
+
+#: Every rule a trust policy can set, as (its section, or None for the top level, its key). The metadata (``schema``,
+#: ``policy_id``, ``deploymentReady``, ``generatedFromTemplate``) set no rule.
+_REGELN = frozenset(
+    {(None, k) for k in ("allowed_schema_versions", "allowed_issuers", "valid_until", "valid_from", "policyPurpose",
+                         "requiresIdentityOverlay")}
+    | {(abschnitt, k) for abschnitt, keys in (("signature", _SIG_KEYS), ("merkle", _MERKLE_KEYS),
+                                              ("sd_jwt", _SDJWT_KEYS), ("status", _STATUS_KEYS),
+                                              ("assurance", _ASSURANCE_KEYS), ("anchors", _ANCHORS_KEYS),
+                                              ("decision_receipt", _DECISION_KEYS),
+                                              ("relations", _RELATIONS_KEYS)) for k in keys})
+#: The shared fields, which every receipt path applies (owner point 6 of 2026-10-01).
+_GEMEINSAME_REGELN = frozenset({(None, "valid_until"), (None, "valid_from"), (None, "policyPurpose"),
+                                (None, "requiresIdentityOverlay")})
+_EVAL_REGELN = frozenset({(None, "allowed_schema_versions"), (None, "allowed_issuers")}
+                         | {r for r in _REGELN if r[0] in ("signature", "merkle", "sd_jwt", "status", "assurance")})
+_ANKER_REGELN = frozenset(r for r in _REGELN if r[0] == "anchors")
+#: The part of the anchors section `decision verify` applies, beside ``--anchors`` only: the relying party's trust.
+_ANKER_VERTRAUEN = frozenset({("anchors", "trusted_tsa_roots"), ("anchors", "bitcoin_block_headers"),
+                              ("anchors", "trusted_tsa_policy_oids")})
+_ENTSCHEIDUNGS_REGELN = frozenset(r for r in _REGELN if r[0] == "decision_receipt")
+#: The relations rules the decision and outcome paths apply; ``reject_retracted`` judges a statement's own
+#: assertion and is applied by the relation-statement path only (`relation.evaluate_relations_policy`).
+_RELATIONS_REGELN = frozenset(r for r in _REGELN if r[0] == "relations") - {("relations", "reject_retracted")}
+
+#: The rules each check path applies (T16 after F2 of the review before run 7, owner point 4 of 2026-10-01): "For
+#: every verify command each policy rule it is given is handled by the contract of that command." The CLI paths name
+#: the command, the library paths the function. The CLI applies the anchors section itself (`verify`, and the trust
+#: material beside `decision verify --anchors`) and hands the library the policy without it.
+ANGEWANDTE_REGELN: dict = {
+    "verify": _EVAL_REGELN | _ANKER_REGELN | _GEMEINSAME_REGELN,
+    "evaluate_policy": _EVAL_REGELN | _GEMEINSAME_REGELN,
+    "decision verify": _ENTSCHEIDUNGS_REGELN | _RELATIONS_REGELN | _GEMEINSAME_REGELN,
+    "decision verify --anchors": _ENTSCHEIDUNGS_REGELN | _RELATIONS_REGELN | _GEMEINSAME_REGELN | _ANKER_VERTRAUEN,
+    "verify_decision_receipt": _ENTSCHEIDUNGS_REGELN | _RELATIONS_REGELN | _GEMEINSAME_REGELN,
+    "evaluate_decision_policy": _ENTSCHEIDUNGS_REGELN | _GEMEINSAME_REGELN,
+    "outcome": _RELATIONS_REGELN | _GEMEINSAME_REGELN,
+    "relation_statement": _RELATIONS_REGELN | {("relations", "reject_retracted")} | _GEMEINSAME_REGELN,
+}
+
+
+#: A permission that acts only beside the requirement it relaxes, by (section, key) -> the requirement's (section, key).
+#: Deep gate run 7 at 1a3cd672 (L3-620v7-T18-SET-RULE-NOT-APPLIED-AT-VERIFY-01, P2, a neighbour of the P1 below):
+#: `decision verify` took ``decision_receipt.allow_pending: true`` without ``require_external_anchor`` and printed
+#: POLICY: OK, although no anchor was checked and the permission relaxed nothing. Set without its requirement, the
+#: permission is applied by no check, so `_ungehandhabte_regeln` names it. The anchors section has the same shape at
+#: `verify`, where the requirement may also come from a command line flag; the CLI refuses that case itself.
+_ERLAUBNIS_BRAUCHT: dict = {("decision_receipt", "allow_pending"): ("decision_receipt", "require_external_anchor")}
+
+
+def _setzt(wert) -> bool:
+    """Whether a value of a policy field sets its rule. Absence, None, False, an empty list and an empty object set
+    none: the absence and the deactivations the loader allows. Every other value sets the rule, a permission such as
+    ``allow_pending: true`` included."""
+    return not (wert is None or wert is False or ((type(wert) is list or type(wert) is dict) and not wert))
+
+
+def _ungehandhabte_regeln(policy: dict, pfad: str) -> list:
+    """The rules a plain, loader-checked ``policy`` sets that the check path ``pfad`` does not apply, by name
+    (``decision_receipt.allow_pending``), sorted. A permission set without the requirement it relaxes
+    (`_ERLAUBNIS_BRAUCHT`) is applied by no check either and is named with that reason."""
+    angewandt = ANGEWANDTE_REGELN[pfad]
+    gefunden = []
+    for abschnitt, schluessel in _REGELN:
+        quelle = policy if abschnitt is None else policy.get(abschnitt)
+        if not isinstance(quelle, dict) or schluessel not in quelle:
+            continue
+        if not _setzt(quelle[schluessel]):
+            continue
+        name = schluessel if abschnitt is None else f"{abschnitt}.{schluessel}"
+        if (abschnitt, schluessel) not in angewandt:
+            gefunden.append(name)
+            continue
+        braucht = _ERLAUBNIS_BRAUCHT.get((abschnitt, schluessel))
+        if braucht is not None:
+            b_quelle = policy if braucht[0] is None else policy.get(braucht[0])
+            if not (isinstance(b_quelle, dict) and _setzt(b_quelle.get(braucht[1]))):
+                gefunden.append(f"{name} (it relaxes {braucht[0]}.{braucht[1]}, which the policy does not set)")
+    return sorted(gefunden)
+
+
+def _regelfehler(policy: dict, pfad: str) -> "str | None":
+    """The refusal of a policy that sets a rule the check path does not apply, or None.
+
+    THE DEFECT (deep gate run 6 at fda55f98, L3-620v6-T16-RELATIONS-RULE-NOT-APPLIED-01, three of three jurors P1; F2 of
+    the review before run 7): a command took a policy, applied the rules it knows and dropped the others in silence.
+    `outcome verify` printed POLICY: OK over an attached, verified retraction under a policy whose only rule was
+    ``reject_retracted``, and beside an applied rule the same policy passed at `outcome verify` and ended like no
+    policy at `decision verify` (measurement 1 of 2026-10-01). POLICY: OK requires that no requirement given is left
+    unattended, so such a policy is refused: exit 2 at the CLI, policy_ok False in the library."""
+    fehlend = _ungehandhabte_regeln(policy, pfad)
+    if not fehlend:
+        return None
+    return (f"the policy sets {len(fehlend)} rule(s) this check does not apply ({', '.join(fehlend)}); every rule "
+            "a policy sets must be applied by the check it is given to, so the policy is refused (fail-closed)")
+
+
+def _gemeinsame_fehler(policy: dict, zweck: "str | None", now=None) -> list:
+    """The shared fields of a plain policy (validity, purpose, the raw-template flag), one message for each that fails
+    on a receipt path whose purpose is ``zweck`` (None: no declared purpose fits the path, the relation statements
+    have none). Owner point 6 of 2026-10-01: they belong to every receipt command's contract. Measured at fda55f98:
+    `outcome verify` and `relation-statement verify` passed an expired policy, one not yet valid, one for another
+    path and a raw template, where `verify` and `decision verify` fail each."""
+    fehler = []
+    if policy.get("requiresIdentityOverlay") is True:
+        fehler.append("policy is a raw template (requiresIdentityOverlay:true) — instantiate it before using it "
+                      "to authorise anything")
+    if policy_expired(policy, now=now):
+        fehler.append(f"policy valid_until {policy.get('valid_until')!r} is in the past — expired")
+    if policy_not_yet_valid(policy, now=now):
+        fehler.append(f"policy valid_from {policy.get('valid_from')!r} is in the future — not yet valid")
+    if policy.get("policyPurpose") is not None and policy["policyPurpose"] != zweck:   # null == absent
+        fehler.append(f"policyPurpose {_nennen(policy['policyPurpose'])} — this policy is not for this verify path "
+                      "(wrong purpose, fail-closed)")
+    return fehler
+
+
+def _relations_felder_pruefen(rel: dict) -> None:
+    """The loader's rule for the fields of a ``relations`` section that is a dict, the one rule for
+    ``load_policy`` (through :func:`_felder_pruefen`) and for :func:`proofbundle.relation.evaluate_relations_policy`,
+    which receives the section alone. A ``require_relation_resolution`` that is not a list, a ``relation_signer``
+    or ``require_relation_target`` that is not a dict, a relation name out of the registry: each was read as no
+    rule by the evaluator, and the loader refuses each. Raises :class:`PolicyError`."""
+    if "require_relation_resolution" in rel:
+        rr = rel["require_relation_resolution"]
+        if (not isinstance(rr, list) or not rr
+                or not all(isinstance(x, str) and x in _RELATION_NAMES for x in rr)):
+            raise PolicyError("relations.require_relation_resolution must be a non-empty list of "
+                              f"relation names out of {list(_RELATION_NAMES)}")
+    _require_bool(rel, "reject_superseded", "relations")
+    _require_bool(rel, "reject_retracted", "relations")
+    # WP-A relation_signer (WHO may replace): map relation -> {mode:same-key} | {mode:pinned,keys:[b64…]}.
+    # Fail-closed: unknown relation, unknown mode, extra field, non-b64/low-order key, empty keys list.
+    if "relation_signer" in rel:
+        rs = _require_dict(rel["relation_signer"], "relations.relation_signer")
+        for relname, rule in rs.items():
+            if relname not in _RELATION_NAMES:
+                raise PolicyError(f"relations.relation_signer key {_nennen(relname)} is not a relation "
+                                  f"name out of {list(_RELATION_NAMES)}")
+            rule = _require_dict(rule, f"relations.relation_signer[{relname}]")
+            mode = rule.get("mode")
+            if mode not in _RELATION_SIGNER_MODES:
+                raise PolicyError(f"relations.relation_signer[{relname}].mode must be one of "
+                                  f"{list(_RELATION_SIGNER_MODES)} (fail-closed), got {_nennen(mode)}")
+            if mode == "same-key":
+                if "keys" in rule:
+                    raise PolicyError(f"relations.relation_signer[{relname}] mode 'same-key' takes "
+                                      "no 'keys' (fail-closed)")
+            else:  # pinned
+                keys = rule.get("keys")
+                if not isinstance(keys, list) or not keys \
+                        or not all(isinstance(k, str) for k in keys):
+                    raise PolicyError(f"relations.relation_signer[{relname}] mode 'pinned' needs a "
+                                      "non-empty 'keys' list of base64 Ed25519 public keys "
+                                      "(empty = vacuous pin, fail-closed)")
+                for k in keys:
+                    _validate_pinned_ed25519_pubkey(k, f"relations.relation_signer[{relname}]")
+    # WP-A2 require_relation_target (WHICH parent): map relation -> 64-hex content root | [roots…].
+    # Fail-closed: unknown relation, non-hex, empty list. Closes the decoy-parent gap.
+    if "require_relation_target" in rel:
+        rt = _require_dict(rel["require_relation_target"], "relations.require_relation_target")
+        for relname, roots in rt.items():
+            if relname not in _RELATION_NAMES:
+                raise PolicyError(f"relations.require_relation_target key {_nennen(relname)} is not a "
+                                  f"relation name out of {list(_RELATION_NAMES)}")
+            items = roots if isinstance(roots, list) else [roots]
+            if isinstance(roots, list) and not roots:
+                raise PolicyError(f"relations.require_relation_target[{relname}] must not be an "
+                                  "empty list (vacuous pin, fail-closed)")
+            for root in items:
+                if not (isinstance(root, str) and _HEX64.match(root)):
+                    raise PolicyError(f"relations.require_relation_target[{relname}] must be a "
+                                      "64-char lowercase hex content root (jcs-sha256-v1), or a "
+                                      "non-empty list of them")
+
+
+@_ein_stand(aussen={"now": "uhr"})
 def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict, *,
-                             signer_public_key_b64: str, anchor_status: str | None = None) -> dict:
+                             signer_public_key_b64: str, anchor_status: str | None = None, now=None) -> dict:
     """Apply the v0.2 decision_receipt policy section over an already crypto-verified Decision Receipt. Returns
     ``{"policy_ok": bool|None, "signer_trusted": bool|None, "errors": [...]}``. Never trusts decisionMaker.id on
     the JSON claim alone: the signer key (that verified the DSSE) is matched against trusted_decision_makers.
@@ -605,25 +893,99 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
 
     ``anchor_status`` is the PASS/WARN/FAIL/SKIP verdict from the DETACHED anchor verification done in
     verify_decision_receipt (anchors are not in the signed predicate; Fix 2). require_external_anchor gates on
-    it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object)."""
+    it, never on a claimed in-predicate ``status`` field (which does not exist on a real anchor object).
+
+    ``now`` (Nachtrag 49b CX-03): the ONE evaluation time for the policy lifecycle (``valid_until`` /
+    ``valid_from``), an aware ``datetime`` or None. When given, ``policy_expired`` / ``policy_not_yet_valid``
+    judge against it instead of reading the wall clock themselves (so a historical verify judges the policy at
+    the same instant as the receipt). None → the wall clock, the behaviour before this Nachtrag (narrowing)."""
     # RE-GATE never-raise (F2 / REGATE-CRYPTO-02, layer a): a non-dict `policy` (a caller-supplied JSON
     # scalar/list) must not raise a raw AttributeError from policy.get(...) — the never-raise verify surfaces
     # reach here with attacker-influenceable input. Fail-closed: a malformed policy is a hard policy fail, not
     # a silent None (a requested-but-unparseable policy must never read as "no policy to check").
-    if not isinstance(policy, dict):
+    if not issubclass(type(policy), dict):
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": ["policy must be a JSON object — malformed policy (fail-closed)"]}
+    # ONE READING of the policy, the statement and the signer key (round 12): the plain copies of
+    # what they hold, so no method of a caller's dict subclass or `str` subclass decides a check (a
+    # trusted decision maker matched through the caller's own `__eq__`, a section read through its
+    # own `get`). A policy or statement holding a value that is no JSON value is a fail-closed
+    # verdict.
+    try:
+        policy_kopie = _plain_for_jcs(policy, PolicyError)
+        if issubclass(type(statement), dict):
+            statement = _plain_for_jcs(statement, PolicyError)
+    except PolicyError as exc:
+        grund = _bool_field_refusal_as_stored(policy)
+        if grund is not None:   # the loader's message wins (PR 291)
+            return {"policy_ok": False, "signer_trusted": False,
+                    "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
+                               f"load_policy applies): {grund}"]}
+        return {"policy_ok": False, "signer_trusted": False,
+                "errors": [f"policy or statement is not a JSON object (fail-closed): {exc}"]}
+    policy = policy_kopie
+    signer_public_key_b64 = _zeichen_von(signer_public_key_b64)
+    # Nachtrag 49b CX-03: the policy-lifecycle clock is read once here (mirrors evaluate_policy), so a historical
+    # verify judges valid_until/valid_from at the caller's evaluation time, not a fresh wall-clock read. A `now`
+    # that is neither None nor an aware datetime is a malformed clock -> fail-closed (never silently the wall clock).
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        return {"policy_ok": False, "signer_trusted": False,
+                "errors": [f"now must be a datetime, got {type(now).__name__} (fail-closed)"]}
+    now = _uhr
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
-    try:
-        _huelle_pruefen(policy)
-    except PolicyError as exc:
+    grund = _abgelehnt_vom_loader(policy)
+    if grund is not None:
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"policy rejected before evaluation (fail-closed, the same rule "
-                           f"load_policy applies): {exc}"]}
+                           f"load_policy applies): {grund}"]}
+    # Every rule the policy sets is one this check applies (T16, `_regelfehler`): a section of another path, an eval
+    # or anchors rule, a relations rule (`verify_decision_receipt` applies those and hands this function the policy
+    # without its relations section), refuses the policy.
+    grund = _regelfehler(policy, "evaluate_decision_policy")
+    if grund is not None:
+        return {"policy_ok": False, "signer_trusted": False, "errors": [grund]}
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F1): the result must be the one
+    # THIS process's verify_decision_receipt produced for exactly this statement and signer. This function took
+    # verify_result and never read it, so signer_trusted/policy_ok came from the caller-supplied pin alone — an
+    # empty or hand-built result with a merely-named signer was trusted (measured). Bind the three:
+    #   - crypto_ok is EXACTLY True (never a total `ok` that itself depends on this policy — no circularity);
+    #   - the result's captured payload digest equals sha256 of this statement's RFC-8785 canonicalization (the
+    #     bytes the signature covered — hash_binding makes them equal for a valid receipt);
+    #   - the result's captured verified signer equals signer_public_key_b64; AND
+    #   - the result carries an authentic origin token this process stamped over exactly those fields.
+    # Missing or divergent -> fail-closed, no decision rule evaluated, no positive verdict.
+    from .decision import _DECISION_ORIGIN_DOMAIN, _rfc8785_available, _rfc8785_bytes  # noqa: PLC0415
+    from .errors import _origin_authentic  # noqa: PLC0415
+    _res = verify_result if issubclass(type(verify_result), dict) else {}
+    _bound = False
+    if _res.get("crypto_ok") is True and _rfc8785_available():
+        try:
+            _stmt_digest = hashlib.sha256(_rfc8785_bytes(statement)).hexdigest()
+        except Exception:   # noqa: BLE001 - a non-canonicalizable statement is simply not bound (fail-closed)
+            _stmt_digest = None
+        _rsig = _res.get("verified_signer_pub_b64")
+        _rdig = _res.get("verified_payload_digest")
+        if (isinstance(_rdig, str) and _stmt_digest is not None and hmac.compare_digest(_rdig, _stmt_digest)
+                and isinstance(_rsig, str) and signer_public_key_b64 is not None
+                and hmac.compare_digest(_rsig, signer_public_key_b64)
+                and _origin_authentic(_DECISION_ORIGIN_DOMAIN, _res.get("verified_origin"), (_rsig, _rdig))):
+            _bound = True
+    if not _bound:
+        return {"policy_ok": False, "signer_trusted": False, "errors": [
+            "the verification result was not produced by this process's verify_decision_receipt for exactly "
+            "this statement and signer (crypto_ok must be True and the result's captured signer, payload digest "
+            "and origin token must bind this statement; a hand-built, empty or mismatched result is refused, "
+            "fail-closed)"]}
     section = policy.get("decision_receipt")
     if not isinstance(section, dict):
+        # The shared fields apply without the section too (owner point 6): an expired policy, one for another path
+        # or a raw template authorises no decision, whatever section it lacks.
+        fehler = _gemeinsame_fehler(policy, "decision", now=now)
+        if fehler:
+            return {"policy_ok": False, "signer_trusted": None, "errors": fehler}
         return {"policy_ok": None, "signer_trusted": None, "errors": []}
     predicate = statement.get("predicate") if isinstance(statement, dict) else None
     if not isinstance(predicate, dict):
@@ -640,16 +1002,16 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if policy.get("requiresIdentityOverlay") is True:
         errors.append("policy is a raw template (requiresIdentityOverlay:true) — instantiate it with "
                       "decision_receipt.trusted_decision_makers before using it to authorise a decision")
-    if policy_expired(policy):
+    if policy_expired(policy, now=now):
         errors.append(f"policy valid_until {policy.get('valid_until')!r} is in the past — expired, cannot "
                       "authorise a decision (re-instantiate with a current validity window)")
-    if policy_not_yet_valid(policy):
+    if policy_not_yet_valid(policy, now=now):
         errors.append(f"policy valid_from {policy.get('valid_from')!r} is in the future — not yet valid, "
                       "cannot authorise a decision (A-P0-2 lifecycle parity)")
     # A-P0-4 §8.2: the decision verifier accepts only a decision-purpose policy. Absent = transitional
     # default (documented), matching the eval path's treatment of legacy policies without the field.
     if policy.get("policyPurpose") is not None and policy["policyPurpose"] != "decision":  # null == absent
-        errors.append(f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the "
+        errors.append(f"policyPurpose {_nennen(policy['policyPurpose'])} — this policy is not for the "
                       "decision verify path (wrong purpose, fail-closed)")
 
     # predicateType allow-list (confusion defense at the policy layer)
@@ -663,7 +1025,8 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if tdm:
         claimed_id = _as_dict(predicate.get("decisionMaker")).get("id")
         match = next((m for m in tdm
-                      if isinstance(m, dict) and m.get("public_key_b64") == signer_public_key_b64), None)
+                      if isinstance(m, dict) and signer_public_key_b64 is not None
+                      and m.get("public_key_b64") == signer_public_key_b64), None)
         signer_trusted = match is not None
         if match is None:
             errors.append("signer key is not in trusted_decision_makers")
@@ -690,7 +1053,10 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     req_rel = [r for r in _as_list(section.get("required_evidence_relations")) if isinstance(r, str)]  # adversarial re-audit r5
     if req_rel:
         _erefs = predicate.get("evidenceRefs", [])  # adversarial re-audit round 4: non-iterable evidenceRefs guard
-        have = ({r.get("relation") for r in _erefs if isinstance(r, dict)}
+        # Only a relation that is text is one a reference names (deep gate run 6 at fda55f98, lens L8 and three
+        # jurors): a signed `relation` that is a list or an object was hashed into this set and escaped as a raw
+        # TypeError under any policy with required_evidence_relations, the shipped strict example included.
+        have = ({r.get("relation") for r in _erefs if isinstance(r, dict) and isinstance(r.get("relation"), str)}
                 if isinstance(_erefs, (list, tuple)) else set())
         missing = [r for r in req_rel if r not in have]
         if missing:
@@ -721,39 +1087,70 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
         errors.append("policy requires traceContext but it is absent")
 
     # privacy: allow_raw_inputs defaults FALSE — a receipt carrying raw inputs is rejected unless opted in.
-    if not section.get("allow_raw_inputs"):
+    # An opt-in counts only as the exact True (a non-bool is refused at entry by _check_bool_fields; this
+    # read stays exact so the permissive side can never be reached by truthiness).
+    if section.get("allow_raw_inputs") is not True:
         _praw = predicate.get("privacy")
         priv = _praw if isinstance(_praw, dict) else {}
         if priv.get("rawInputsIncluded") is True:
             errors.append("privacy.rawInputsIncluded=true but the policy does not allow raw inputs (allow_raw_inputs)")
 
     if section.get("require_external_anchor"):
-        allow_pending = bool(section.get("allow_pending"))
+        allow_pending = section.get("allow_pending") is True
         # Anchors are DETACHED (Fix 2): the real anchor verification ran in verify_decision_receipt and its
         # status is passed in as anchor_status. A PASS (a full verifying anchor) always satisfies; a
         # pending/inclusion-only anchor (WARN) satisfies ONLY when allow_pending is set (default false —
         # pending is the ABSENCE of a time anchor, not a weaker one). SKIP (no anchors) and FAIL never satisfy.
-        satisfied = anchor_status == "PASS" or (allow_pending and anchor_status == "WARN")
+        # A plain str only: `anchor_status == "PASS"` ran the caller's own __eq__, and an object answering
+        # True satisfied the requirement (measured). Anything else counts as no anchor status at all.
+        _status = anchor_status if type(anchor_status) is str else None
+        satisfied = _status == "PASS" or (allow_pending and _status == "WARN")
         if not satisfied:
             errors.append(
-                f"policy requires an external anchor but none satisfies it (anchor status: {anchor_status or 'none'}"
+                f"policy requires an external anchor but none satisfies it (anchor status: {_status or 'none'}"
                 + ("" if allow_pending else "; pending excluded, set allow_pending to accept a pending anchor") + ")")
 
     policy_ok = (not errors) and (signer_trusted is not False)
     return {"policy_ok": policy_ok, "signer_trusted": signer_trusted, "errors": errors}
 
 
+def _projizierbar(policy) -> dict:
+    """A policy a projection may read: the plain copy of a dict the loader's rule for present fields accepts,
+    or :class:`PolicyError` with the loader's message.
+
+    THE FINDING (verify lens on the cross-check fix at bc3d275f, 2026-09-29): the two projections below are
+    how the CLI turns a policy into ``verify_bundle(expected_aud=...)`` and ``rp_trust``, and they read a
+    section of another type as no section. For a policy that never passed ``load_policy`` an ``sd_jwt`` that
+    is no object dropped the audience binding, an ``anchors.trusted_tsa_policy_oids`` of another type dropped
+    the TSA policy pin, and a ``bitcoin_block_headers`` that is no object raised a raw ``AttributeError``. The
+    CLI loads every policy first, so it was not affected; the library path now refuses such a policy here."""
+    if not issubclass(type(policy), dict):
+        raise PolicyError("trust policy must be a JSON object")
+    kopie = _plain_for_jcs(policy, PolicyError)
+    grund = _abgelehnt_vom_loader(kopie)
+    if grund is not None:
+        raise PolicyError(f"policy rejected before projection (fail-closed, the same rule load_policy applies): "
+                          f"{grund}")
+    return kopie
+
+
+@_ein_stand
 def policy_expected_aud(policy: dict):
     """The aud the policy wants bound (sd_jwt.expected_aud), or None. Used by the CLI to reconcile
-    with the --aud flag (a policy/flag conflict is an error, never a silent override)."""
+    with the --aud flag (a policy/flag conflict is an error, never a silent override). A policy the loader
+    refuses is :class:`PolicyError` (`_projizierbar`)."""
+    policy = _projizierbar(policy)
     return _as_dict(policy.get("sd_jwt")).get("expected_aud")
 
 
+@_ein_stand
 def policy_anchor_trust(policy: dict) -> dict | None:
     """WP-A1: the relying-party anchor TRUST material carried in the policy's ``anchors`` section, as an
     ``rp_trust`` dict (``trusted_tsa_roots`` / ``bitcoin_block_headers`` / ``trusted_tsa_policy_oids``), or
     None when the policy declares none. Mirrors the CLI ``--trusted-tsa-root`` / ``--bitcoin-header``; the
-    CLI unions the two. Validated already in ``load_policy`` (fail-closed), so this is a pure projection."""
+    CLI unions the two. A pure projection of a policy the loader's rule accepts; a policy it refuses is
+    :class:`PolicyError` (`_projizierbar`)."""
+    policy = _projizierbar(policy)
     anc = _as_dict(policy.get("anchors"))
     rp: dict = {}
     if anc.get("trusted_tsa_roots"):
@@ -765,6 +1162,23 @@ def policy_anchor_trust(policy: dict) -> dict | None:
     return rp or None
 
 
+def _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=None) -> "tuple[bool, str]":
+    """Whether an SD-JWT / KB-JWT value may be trusted, as a class (Nachtrag 36, Z309 / PR 311 P1; the shared
+    gate moved to bundle.py in Nachtrag 38 so the crypto layer and the policy layer apply one rule). Delegates to
+    the bundle-level ``_sd_jwt_issuer_is_trusted`` with the policy's ``sd_jwt.issuer_key_pin`` as the pin: the
+    issuer signature must have verified AND either the SD-JWT is bound to the signed payload (an eval receipt) or
+    its key matches the pin the relying party supplied independently of the bundle. Every issuer-trusting
+    ``sd_jwt`` policy rule and the direct ``verify``/``verify_bundle`` KB-JWT path now share this one decision.
+    Returns ``(trusted, detail)``.
+
+    Nachtrag 44 (Z309 / PR 311 review 5409929917 P1): the payload-binding path trusts the SD-JWT only when its
+    verifying key is the BUNDLE signer — ``bundle_signer_pub`` is the bundle's own signing key (decoded), so the
+    policy layer applies the same binding the crypto layer and ``decode_eval_claim`` do."""
+    from .bundle import _sd_jwt_issuer_is_trusted  # noqa: PLC0415
+    return _sd_jwt_issuer_is_trusted(sd, result, sdj.get("issuer_key_pin"), bundle_signer_pub=bundle_signer_pub)
+
+
+@_ein_stand(aussen={"now": "uhr"})
 def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """Evaluate a trust policy OVER a completed crypto verification.
 
@@ -777,16 +1191,40 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     """
     # adversarial re-audit round 4: a non-dict `policy` (raw dict bypasses load_policy's validation) crashed the
     # `.get`/section walks below — a malformed policy is a fail-closed verdict, never a raw AttributeError.
-    if not isinstance(policy, dict):
+    if not issubclass(type(policy), dict):
         return {"policy_ok": False, "checks": [], "reason": "policy is not a dict"}
+    # ONE READING (round 12, lens run 11 F1, P0): the policy and the bundle are read once, into the
+    # plain copies of what they store, and every check below reads the copies. At cd5d39f4 the signer
+    # pin (:802, :850) and the stated root (:942) were read through the caller's own `get`, while
+    # `verify_bundle` verified what the bundle stores: a bundle signed by a key the policy does not
+    # trust got policy_ok True when its own `get("signature")` named a trusted key, when its
+    # `public_key_b64` was a `str` subclass claiming that key through `__eq__` and `__hash__`, and when
+    # its own `get("merkle")` answered a trusted root. `verify_bundle` reads the same stored contents
+    # since round 11, so the policy now judges the bundle that was verified. A bundle or policy that is
+    # no JSON object is a fail-closed verdict.
+    try:
+        policy_kopie = _plain_for_jcs(policy, PolicyError)
+    except PolicyError as exc:
+        grund = _bool_field_refusal_as_stored(policy)
+        if grund is not None:   # the loader's message wins (PR 291)
+            grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {grund}"
+            return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
+                    "reason": grund}
+        return {"policy_ok": False, "checks": [], "reason": f"policy is not a JSON object: {exc}"}
+    policy = policy_kopie
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy (Klasse und Messung
     # bei _huelle_pruefen). Ein unbekannter Schluessel ist ein fail-closed Verdikt, kein Wurf —
     # diese Flaeche liefert Verdikte.
-    try:
-        _huelle_pruefen(policy)
-    except PolicyError as exc:
-        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {exc}"
+    grund = _abgelehnt_vom_loader(policy)
+    if grund is not None:
+        grund = f"policy rejected before evaluation (fail-closed, the same rule load_policy applies): {grund}"
         return {"policy_ok": False, "checks": [{"name": "policy:shape", "ok": False, "detail": grund}],
+                "reason": grund}
+    # Every rule the policy sets is one this check applies (T16, `_regelfehler`). The anchors section is applied by
+    # `verify`, which hands this function the policy without it.
+    grund = _regelfehler(policy, "evaluate_policy")
+    if grund is not None:
+        return {"policy_ok": False, "checks": [{"name": "policy:rules", "ok": False, "detail": grund}],
                 "reason": grund}
     checks: list = []
 
@@ -795,11 +1233,109 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     # A policy is NEVER evaluated on unverified bytes (verify-lens L2): enforce the module invariant
     # HERE, not only in the CLI caller, so any public-API consumer of evaluate_policy is safe too.
-    if not getattr(result, "ok", False):
-        return {"policy_ok": None, "checks": [],
-                "reason": "crypto verification did not pass — policy not evaluated"}
+    # Crypto passed only when every check's ok and result.ok are the exact True (bundle._checks_passed,
+    # the rule root_authenticity_summary uses too). `result.ok` alone folded the checks by their truth, so
+    # a caller-built Check("root-authenticity", "false") passed this gate and then satisfied
+    # require_authenticated_root, require_key_binding_when_cnf_present, require_nonce and expected_vct.
+    from .bundle import _checks_passed  # noqa: PLC0415 - local import, as the rest of this module's peers
+    crypto_passed, not_bool = _checks_passed(result)
+    if not crypto_passed:
+        reason = "crypto verification did not pass — policy not evaluated"
+        if not_bool:
+            reason += (f" (not a bool: {', '.join(not_bool)}; a crypto verdict counts only as the exact "
+                       "True)")
+        return {"policy_ok": None, "checks": [], "reason": reason}
+    # The clock is read once (`canonical._zeitpunkt_von`, verify lane on pull request 312): every lifecycle
+    # and freshness check below compares against the plain instant, and no method of a datetime subclass runs.
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        grund = f"now must be a datetime, got {type(now).__name__} (fail-closed)"
+        return {"policy_ok": False, "checks": [{"name": "policy:clock", "ok": False, "detail": grund}],
+                "reason": grund}
+    now = _uhr
+    try:
+        if not issubclass(type(bundle), dict):
+            raise PolicyError("the bundle must be a JSON object")
+        bundle = _plain_for_jcs(bundle, PolicyError)
+    except PolicyError as exc:
+        grund = f"the bundle is not a JSON object, so no policy can judge it (fail-closed): {exc}"
+        return {"policy_ok": False, "checks": [{"name": "policy:bundle", "ok": False, "detail": grund}],
+                "reason": grund}
 
     sig = _as_dict(bundle.get("signature"))
+
+    # Nachtrag 46 (Z309, 6.2.0, F2): the result must have been produced from THIS bundle. evaluate_policy takes
+    # the crypto `result` and the `bundle` as separate arguments; `_checks_passed` above only proves SOME result
+    # passed, never that it verified this bundle. A good result of bundle A combined with a different, unsigned
+    # bundle B let every sd_jwt rule read positive and policy_ok True — the signer was re-decoded from B and B's
+    # self-signed SD-JWT verified under it. Bind the two: the result's recorded verified signer and payload digest
+    # (set by verify_bundle ONLY on a passing bundle signature) MUST equal this bundle's signer and payload digest.
+    # Missing or different -> fail-closed and no rule is evaluated. This gate governs the WHOLE function, not only
+    # the sd_jwt rules.
+    _result_signer = getattr(result, "verified_signer_pub", None)
+    _result_digest = getattr(result, "verified_payload_digest", None)
+    try:
+        # Nachtrag 46c: cast is a runtime no-op; a None/non-str payload_b64 still raises below and is caught.
+        _bundle_digest = hashlib.sha256(decode_b64(cast(Union[str, bytes], bundle.get("payload_b64")))).hexdigest()
+    except (ValueError, TypeError):
+        _bundle_digest = None
+    _bundle_signer = None
+    _bundle_pk = sig.get("public_key_b64")
+    if isinstance(_bundle_pk, str):
+        try:
+            _bundle_signer = decode_b64(_bundle_pk)
+        except (ValueError, TypeError):
+            _bundle_signer = None
+    _bound_to_bundle = (
+        isinstance(_result_digest, str) and _bundle_digest is not None
+        and hmac.compare_digest(_result_digest, _bundle_digest)
+        and isinstance(_result_signer, (bytes, bytearray)) and isinstance(_bundle_signer, (bytes, bytearray))
+        and hmac.compare_digest(bytes(_result_signer), bytes(_bundle_signer)))
+    if not _bound_to_bundle:
+        grund = ("the verification result was not produced from this bundle — its recorded verified signer and "
+                 "payload digest do not match this bundle, so no policy can judge it (fail-closed; pass the "
+                 "VerificationResult that verify_bundle returned for exactly this bundle)")
+        return {"policy_ok": False,
+                "checks": [{"name": "policy:result_bundle_binding", "ok": False, "detail": grund}],
+                "reason": grund}
+    # Nachtrag 46b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): the signer + payload digest above
+    # bind the SIGNED bytes, but merely-filled result fields are no proof of a verification run — a hand-built
+    # or post-stamp-mutated result with matching signer+digest would pass. Require the result to carry an
+    # authentic ORIGIN token this process's verify_bundle stamped over exactly the fields it now holds. A
+    # non-VerificationResult, a hand-built one (no token) or a mutated one is refused; no rule is evaluated.
+    _origin_ok = callable(getattr(result, "origin_authentic", None)) and result.origin_authentic()
+    if not _origin_ok:
+        grund = ("the verification result carries no authentic origin token — it was not produced by this "
+                 "process's verify_bundle for these verified fields (a hand-built or mutated result is refused; "
+                 "pass the VerificationResult that verify_bundle returned for exactly this bundle)")
+        return {"policy_ok": False,
+                "checks": [{"name": "policy:result_origin", "ok": False, "detail": grund}],
+                "reason": grund}
+
+    # Addendum R6a-1 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): the signer + payload digest gate
+    # above binds the SIGNED bytes, but the ``sd_jwt_vc`` block lives OUTSIDE the signed payload. A copy with
+    # the same signer and payload digest but a changed ``sd_jwt_vc.compact`` (for example one altered KB-JWT
+    # signature character) passes both gates above, yet its SD-JWT/KB-JWT state differs from the one this result
+    # verified — so adopting the result's ``sd-jwt-key-binding`` / nonce / aud / vct verdict for it (rules 5/5a/5b)
+    # would judge a DIFFERENT presentation. ``verified_sd_jwt_vc_compact`` is the exact compact the result
+    # verified (origin-covered, set on a passing bundle signature). Require the PASSED bundle's compact to equal
+    # it before any sd_jwt rule runs: both-absent is fine; otherwise an exact byte match, else fail-closed.
+    _result_compact = getattr(result, "verified_sd_jwt_vc_compact", None)
+    _bundle_sd = bundle.get("sd_jwt_vc")
+    _bundle_compact = _bundle_sd.get("compact") if isinstance(_bundle_sd, dict) else None
+    _sd_bound = (
+        (_bundle_compact is None and _result_compact is None)
+        or (isinstance(_bundle_compact, str) and isinstance(_result_compact, str)
+            and hmac.compare_digest(_bundle_compact.encode("utf-8"), _result_compact.encode("utf-8"))))
+    if not _sd_bound:
+        grund = ("the verification result's authenticated sd_jwt_vc does not match this bundle's sd_jwt_vc — "
+                 "the sd_jwt_vc block is outside the signed payload, so a copy with the same signer and payload "
+                 "but a different SD-JWT/KB-JWT presentation must not inherit this result's key-binding/nonce "
+                 "verdict (fail-closed; pass the VerificationResult that verify_bundle returned for exactly this "
+                 "bundle)")
+        return {"policy_ok": False,
+                "checks": [{"name": "policy:result_sd_jwt_binding", "ok": False, "detail": grund}],
+                "reason": grund}
 
     # 0. A-P0-2 §6 + A-P0-4 §8: policy LIFECYCLE and PURPOSE are part of the policy evaluation
     # itself (POLICY: FAIL, exit 3) — parity with the decision path's AP-2 sibling gate. Previously
@@ -807,8 +1343,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     if policy.get("policyPurpose") is not None:   # null == absent (Lens-4 F1)
         purpose_ok = policy["policyPurpose"] == "eval"
         add("policy:purpose", purpose_ok,
-            f"policyPurpose {policy['policyPurpose']!r} accepted on the eval verify path" if purpose_ok
-            else f"policyPurpose {policy['policyPurpose']!r} — this policy is not for the eval "
+            f"policyPurpose {_nennen(policy['policyPurpose'])} accepted on the eval verify path" if purpose_ok
+            else f"policyPurpose {_nennen(policy['policyPurpose'])} — this policy is not for the eval "
                  "verify path (wrong purpose, fail-closed)")
     if policy.get("requiresIdentityOverlay") is True:
         add("policy:not_template", False,
@@ -872,6 +1408,20 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
     root_authenticated = None
 
+    # Addendum R6a-2 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): a root is AUTHENTICATED for THIS
+    # bundle only if the authentic result proved Merkle inclusion of this bundle's payload UNDER that exact
+    # root. The stated root is not signed; a trusted_roots pin, an --expected-root, and a signed checkpoint
+    # each authenticate a root's BYTES, but none is an inclusion proof for THIS bundle's data — so a copy that
+    # relabels merkle.root_b64 to an authenticated foreign root (same signer and payload) must not pass. The
+    # result records the root its merkle-inclusion check passed under (``verified_inclusion_root``, origin-
+    # covered, set only on a passing signature AND a passing inclusion); every root-authentication path below
+    # requires the stated root to equal it.
+    _vir = getattr(result, "verified_inclusion_root", None)
+
+    def _proved_inclusion_under(stated: bytes) -> bool:
+        return (isinstance(_vir, (bytes, bytearray)) and bool(stated)
+                and hmac.compare_digest(bytes(_vir), stated))
+
     # 4b. A-P0-1 §5: trusted CHECKPOINTS — root and tree size authenticated ATOMICALLY from one signed
     # source. A naked root pin (4c) can never tell a (index, tree_size) relabel apart (the relabelled
     # proof carries the SAME root); only a match of BOTH fields against ONE authenticated checkpoint sets
@@ -925,7 +1475,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             else "no pinned trusted checkpoint atomically authenticates this bundle's "
                  f"(root, tree_size): {'; '.join(reasons) or 'no entries'}")
         if matched:
-            root_authenticated = True   # the checkpoint authenticates the root bytes too
+            # R6a-2: the checkpoint authenticates the root BYTES, but this bundle's payload is authenticated
+            # under it only if the authentic result proved inclusion under exactly this stated root.
+            root_authenticated = _proved_inclusion_under(stated_root)
 
     # 4c. merkle root AUTHENTICATION (P0-A §6.2): the stated root is not signed, so a coherent one-leaf
     # rewrap re-anchors the same payload under a different root. Require the root be authenticated —
@@ -937,13 +1489,21 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     require_auth_root = bool(mk_pol.get("require_authenticated_root"))
     trusted_roots = _as_list(mk_pol.get("trusted_roots"))
     if require_auth_root or trusted_roots:
-        ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
-        via_expected = ra_check is not None and ra_check.ok
         stated_root_b64 = _as_dict(bundle.get("merkle")).get("root_b64")
         try:
             stated_root = decode_b64(stated_root_b64) if isinstance(stated_root_b64, str) else b""
         except (ValueError, TypeError):
             stated_root = b""
+        ra_check = next((c for c in result.checks if c.name == "root-authenticity"), None)
+        # Nachtrag 46b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): a positive root-authenticity
+        # check is adopted ONLY for the root the result actually verified. The stated Merkle root is not signed,
+        # so a bundle re-anchoring the SAME payload under a DIFFERENT root (same signer + payload digest, which
+        # the N46 binding alone accepts) would otherwise inherit an old positive verdict. Require the result's
+        # recorded verified_merkle_root to equal THIS bundle's stated root.
+        _vmr = getattr(result, "verified_merkle_root", None)
+        via_expected = (ra_check is not None and ra_check.ok is True
+                        and isinstance(_vmr, (bytes, bytearray)) and bool(stated_root)
+                        and hmac.compare_digest(bytes(_vmr), stated_root))   # exact, as the crypto gate above
         via_trusted = False
         for tr in trusted_roots:
             try:
@@ -955,7 +1515,10 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 break
         # A matching checkpoint (4b) authenticates the root too (Lens-6 review): a belt-and-suspenders
         # require_authenticated_root + trusted_checkpoints config must not fail closed on a real match.
-        root_authenticated = bool(via_expected or via_trusted or _cp_matched)
+        # R6a-2: whichever path authenticates the root's bytes, the authentic result must also have proved
+        # inclusion of THIS bundle's payload under exactly that stated root (a pin is no inclusion proof).
+        root_authenticated = bool((via_expected or via_trusted or _cp_matched)
+                                  and _proved_inclusion_under(stated_root))
         # A non-empty trusted_roots ENFORCES on its own (not only when require_authenticated_root is set):
         # listing the roots you trust means the stated root MUST be one of them, else a policy that pins
         # trusted_roots but forgets the boolean would silently pass a foreign root (fail-open footgun,
@@ -967,10 +1530,17 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                  "--expected-root nor any trusted_roots entry nor a pinned checkpoint (coherent-rewrap "
                  "guard, fail-closed)")
 
-    # 5. SD-JWT / KB-JWT policy. The aud VALUE was already bound by verify_bundle (the CLI passed the
-    #    reconciled effective aud); here we enforce the remaining presence/structure requirements.
+    # 5. SD-JWT / KB-JWT policy. On the CLI path the aud VALUE was already bound by verify_bundle (the CLI passed the
+    #    reconciled effective aud); this function applies it itself as well (5a), so a library caller is bound too.
     sdj = _as_dict(policy.get("sd_jwt"))
     sd = bundle.get("sd_jwt_vc")
+    # Nachtrag 44: the bundle's own signing key is required so _sd_jwt_issuer_trusted can tie the SD-JWT's
+    # verifying key to the bundle signer on the payload-binding path (the same binding decode_eval_claim makes).
+    # Nachtrag 46 (Z309, 6.2.0, F2): take that signer from the RESULT, not re-decoded from the bundle. The
+    # binding gate above already proved result.verified_signer_pub equals this bundle's signer, and the result is
+    # the authenticated source (set only on a passing signature), so a claimed-but-unverified bundle key can
+    # never reach the binding path.
+    _signer_pub = bytes(cast(bytes, _result_signer))   # Nachtrag 46c: non-None here, proven by the binding gate above; cast is a runtime no-op
     kb = None
     if isinstance(sd, dict) and isinstance(sd.get("compact"), str):
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)
@@ -980,8 +1550,19 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # authoritative when present.
         kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
         if kb_check is not None:
-            add("policy:key_binding_present", kb_check.ok,
-                "key binding verified" if kb_check.ok else f"key binding failed: {kb_check.detail}")
+            # Nachtrag 36 (the class): a verified key binding is only meaningful when the issuer is trusted. The
+            # cnf holder key the KB-JWT proves possession of lives in the issuer-signed SD-JWT payload, whose
+            # verifying key is attacker-chosen (outside the signed bundle) — so a "verified key binding" from an
+            # untrusted self-signed SD-JWT binds an attacker-chosen holder key and must fail closed.
+            kb_trusted, kb_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
+            if kb_check.ok is not True:
+                add("policy:key_binding_present", False, f"key binding failed: {kb_check.detail}")
+            elif not kb_trusted:
+                add("policy:key_binding_present", False,
+                    f"a KB-JWT verified, but {kb_trust_detail} — the cnf holder key is then attacker-chosen, so "
+                    "the key binding proves nothing (fail-closed)")
+            else:
+                add("policy:key_binding_present", True, "key binding verified under a trusted issuer")
         elif kb is not None and kb.get("present"):
             # a KB-shaped segment IS attached but no crypto verdict exists for it (no cnf AND no issuer
             # key → sd-jwt-key-binding was never run). An UNVERIFIED KB is not an acceptable "key
@@ -1000,11 +1581,42 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # PRESENCE of a nonce in a verified KB-JWT; binding the nonce VALUE to this transaction still
         # requires --nonce (RFC 9901 challenge, exactly like --aud) — see docs/TRUST_ANCHORS.md.
         kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
-        verified_nonce = bool(kb_check is not None and kb_check.ok and kb and kb.get("nonce"))
+        # Nachtrag 36 (the class): a nonce is only replay protection when it comes from a KB-JWT under a TRUSTED
+        # issuer. Under an untrusted self-signed SD-JWT the attacker chose the cnf and signed the KB-JWT, so its
+        # nonce is attacker-written and binds nothing — require issuer trust alongside the crypto verdict.
+        kb_trusted, _kb_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
+        verified_nonce = bool(kb_trusted and kb_check is not None and kb_check.ok is True and kb and kb.get("nonce"))
         add("policy:nonce_present", verified_nonce,
-            "verified KB-JWT carries a nonce" if verified_nonce
-            else "policy requires a nonce from a VERIFIED key binding, but none is present "
-                 "(fail-closed: an unauthenticated nonce provides no replay protection)")
+            "a verified KB-JWT under a trusted issuer carries a nonce" if verified_nonce
+            else "policy requires a nonce from a VERIFIED key binding under a TRUSTED issuer, but none is present "
+                 "(fail-closed: an unauthenticated or untrusted-issuer nonce provides no replay protection)")
+
+    # 5a. sd_jwt.expected_aud, APPLIED HERE. Deep gate run 7 at 1a3cd672 (L3-620v7-T18-EVALUATE-POLICY-EXPECTED-AUD-
+    # UNAPPLIED-01, three of three jurors P1): the contract of this function (`ANGEWANDTE_REGELN["evaluate_policy"]`)
+    # lists the rule, so `_regelfehler` does not refuse it, and this body never read it. The CLI binds the audience
+    # through `verify_bundle(expected_aud=...)`, but a library caller who verified with `verify_bundle(bundle)` and
+    # handed the policy here got policy_ok True for a KB-JWT bound to another audience (measured, and the same at
+    # v6.1.0). The rule is applied the way `verify_bundle(expected_aud=...)` applies it: the audience counts only from
+    # a key binding whose verification passed, and it must equal the policy's value; without one it fails closed.
+    expected_aud = sdj.get("expected_aud")
+    if expected_aud is not None:
+        kb_check = next((c for c in result.checks if c.name == "sd-jwt-key-binding"), None)
+        compact = sd.get("compact") if isinstance(sd, dict) else None
+        # Nachtrag 36 (the class): the KB-JWT audience is only a binding target when it comes from a KB-JWT under
+        # a TRUSTED issuer; an untrusted self-signed SD-JWT's KB-JWT carries an attacker-chosen aud.
+        aud_trusted, _aud_trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
+        if kb_check is None or kb_check.ok is not True or not isinstance(compact, str) or not aud_trusted:
+            add("policy:expected_aud", False,
+                f"policy requires the KB-JWT audience {_nennen(expected_aud)} from a VERIFIED key binding under a "
+                "TRUSTED issuer, but none verified (fail-closed: an audience not bound by a verified key binding "
+                "under a trusted issuer binds nothing)")
+        else:
+            gebunden = verify_key_binding(compact, expected_aud=expected_aud)
+            aud_ok = gebunden.get("ok") is True
+            add("policy:expected_aud", aud_ok,
+                f"KB-JWT audience equals the policy's expected_aud {_nennen(expected_aud)}" if aud_ok
+                else f"KB-JWT audience {_nennen(gebunden.get('aud'))} is not the policy's expected_aud "
+                     f"{_nennen(expected_aud)} (fail-closed)")
 
     # 5b. Finding 20 / issue #27 (PB-2026-07-15): sd_jwt.expected_vct — the RP verifier flag issue #27's
     # item 3 asked for. Mirrors nonce_present's "verified vs. merely present" discipline (the doc's own
@@ -1015,12 +1627,17 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # policy:nonce_present above, never re-derived from an unauthenticated re-parse.
     expected_vct = sdj.get("expected_vct")
     if expected_vct is not None:
-        sig_check = next((c for c in result.checks if c.name == "sd-jwt-issuer-signature"), None)
-        if sig_check is None or not sig_check.ok:
+        # Nachtrag 32 (the Critical) closed this at expected_vct; Nachtrag 36 moves the same test into the shared
+        # _sd_jwt_issuer_trusted helper so every issuer-trusting sd_jwt rule applies it identically. A valid issuer
+        # signature is NOT enough: the verifying key (sd_jwt_vc.issuer_public_key_b64) is supplied outside the
+        # bundle's signed payload, so the vct is trustworthy only under a matching sd_jwt.issuer_key_pin or an
+        # SD-JWT bound to the signed payload. The identity check (sd-jwt-issuer-identity) is NOT a substitute: it
+        # binds the key to a DISCLOSED issuer claim that is itself attacker-chosen.
+        pin = sdj.get("issuer_key_pin")
+        trusted, trust_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
+        if not trusted:
             add("policy:expected_vct", False,
-                "policy requires a specific vct but the SD-JWT issuer signature was never verified "
-                "(fail-closed: an unverified vct claim proves nothing — supply "
-                "sd_jwt_vc.issuer_public_key_b64)")
+                f"policy requires a specific vct but {trust_detail} (fail-closed)")
         else:
             from .sdjwt_issue import _jwt_payload as _sd_issuer_payload  # noqa: PLC0415
             # evaluate_policy is a public function a caller may invoke with a hand-built `result` that
@@ -1040,7 +1657,8 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             got_vct = _issuer_payload.get("vct") if isinstance(_issuer_payload, dict) else None
             vct_ok = got_vct == expected_vct
             add("policy:expected_vct", vct_ok,
-                f"vct {got_vct!r} matches expected {expected_vct!r}" if vct_ok
+                f"vct {got_vct!r} matches expected {expected_vct!r} (issuer key "
+                f"{'pinned' if pin is not None else 'bound to the signed payload'})" if vct_ok
                 else f"vct {got_vct!r} does not match policy's expected_vct {expected_vct!r} "
                      "(fail-closed)")
 
@@ -1097,12 +1715,14 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
 
 # ── WP-TP1: explain / lint / vacuous-pass warning ────────────────────────────
 
+@_ein_stand
 def explain_policy(policy: dict) -> list:
     """Human-readable list of the EFFECTIVE pins a (already load_policy-validated) policy makes.
 
     One line per active constraint; an empty list means the policy pins nothing (see
     :func:`lint_policy` — such a policy is wirkungslos and `POLICY: OK` under it attributes the
-    bytes to nobody)."""
+    bytes to nobody). The policy is read once, into the plain copy of what it stores (round 12)."""
+    policy = _gelesene_richtlinie(policy)
     lines: list = []
     # A-P0-4/A-P0-2: purpose, lifecycle and the raw-template flag are ENFORCED by evaluate_policy (exit
     # 3), so explain MUST list them (explain⟺enforce parity — else lint calls a policy vacuous that
@@ -1147,9 +1767,16 @@ def explain_policy(policy: dict) -> list:
     if sdj.get("require_nonce"):
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
     if sdj.get("max_iat_age_seconds") is not None:
-        lines.append(f"eval claim freshness <= {sdj['max_iat_age_seconds']}s")
+        # Bounded (`_nennen`): a huge int passes the loader and raised a raw ValueError here (int->str cap).
+        lines.append(f"eval claim freshness <= {_nennen(sdj['max_iat_age_seconds'])}s")
     if sdj.get("expected_vct") is not None:
-        lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (from a VERIFIED issuer signature)")
+        if sdj.get("issuer_key_pin") is not None:
+            lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} from the pinned issuer key "
+                         f"{sdj['issuer_key_pin']!r} (Nachtrag 32: the verifying key is attacker-chosen unless "
+                         "pinned)")
+        else:
+            lines.append(f"SD-JWT VC: vct == {sdj['expected_vct']!r} (only from an SD-JWT bound to the signed "
+                         "payload; set sd_jwt.issuer_key_pin to trust a stand-alone issuer key — Nachtrag 32)")
     st = _as_dict(policy.get("status"))
     if st.get("reject_self_issued") or _as_list(st.get("allowed_status_authorities")):
         lines.append("status-list requirement declared (v0.1 verify has no snapshot input: fail-closed)")
@@ -1175,8 +1802,10 @@ def explain_policy(policy: dict) -> list:
         if anc.get("allow_pending"):
             detail += " (pending accepted)"
         lines.append(f"external time anchor required ({detail})")
-    # relation/v0.1: the relations section is enforced by the decision verify path (a
-    # violation fails policy_ok, exit 3; the outcome-path policy gate is a documented follow-up) — listed here for explain⟺enforce parity, same rule as anchors.
+    # relation/v0.1: the relations section is enforced by the decision, outcome and relation-statement verify paths
+    # (a violation fails policy_ok, exit 3), each applying the rules `ANGEWANDTE_REGELN` names for it — listed here
+    # for explain⟺enforce parity, same rule as anchors. (This said the outcome-path gate was a follow-up; outcome
+    # verify applies the section since 3.6.0, WP-B.)
     rel = _as_dict(policy.get("relations"))
     if rel.get("require_relation_resolution"):
         lines.append("lineage relations must resolve (target attached + verified): "
@@ -1188,7 +1817,8 @@ def explain_policy(policy: dict) -> list:
     # ONLY pin is reject_retracted vacuous while verify actually FAILs it (explain⟺enforce parity).
     if rel.get("reject_retracted"):
         lines.append("retracted receipt rejected (a verified relation-statement RETRACTS the target, "
-                     "blocking continued automated use)")
+                     "blocking continued automated use; applied by relation-statement verify only, and the "
+                     "decision and outcome verify commands refuse a policy that sets it)")
     # WP-A / WP-A2: the two 3.4.0 pins — explain MUST list them (explain⟺enforce parity, same rule as
     # anchors); a policy whose ONLY pin was one of these must not read as wirkungslos in `policy lint`.
     rsig = _as_dict(rel.get("relation_signer"))
@@ -1216,12 +1846,16 @@ def _attributes_to_nobody(policy: dict) -> bool:
     require_expected_signer (eval side) AND no trusted_decision_makers (decision side). Crypto OK
     under such a policy proves integrity by an UNKNOWN party — 'attribution to nobody'
     (docs/TRUST_ANCHORS.md's first row)."""
-    has_issuers = bool(policy.get("allowed_issuers"))
-    has_require = bool(_as_dict(policy.get("signature")).get("require_expected_signer"))
-    has_dm = bool(_as_dict(policy.get("decision_receipt")).get("trusted_decision_makers"))
+    # A list only: a value of another type pins nobody (the evaluators read it as empty and refuse it), and
+    # bool() of it counted a string or a single object as a signer pin and suppressed this warning.
+    has_issuers = bool(_as_list(policy.get("allowed_issuers")))
+    # Exact True only: bool("false") counted a string as a signer pin and suppressed this warning.
+    has_require = _as_dict(policy.get("signature")).get("require_expected_signer") is True
+    has_dm = bool(_as_list(_as_dict(policy.get("decision_receipt")).get("trusted_decision_makers")))
     return not (has_issuers or has_require or has_dm)
 
 
+@_ein_stand
 def policy_warnings(policy: dict) -> list:
     """Non-fatal honesty warnings for a valid policy (surfaced by `verify` next to POLICY: OK)."""
     warnings: list = []
@@ -1233,6 +1867,24 @@ def policy_warnings(policy: dict) -> list:
     return warnings
 
 
+def _gelesene_richtlinie(policy):
+    """A policy dict as the plain copy of what it stores (round 12), so the readers below judge what it
+    holds and run none of its methods; a dict holding a value that is no JSON value is read as an
+    empty policy, which pins nothing and is reported so. Any other JSON value is its plain copy, for
+    the reader's own handling as before; a value of another type is PolicyError, so an object that
+    claims to be a dict through ``__class__`` is never read through its own ``get``."""
+    if not issubclass(type(policy), dict):
+        try:
+            return _pruefkopie(policy)
+        except ValueError as exc:
+            raise PolicyError(f"trust policy is not a JSON object: {exc}") from exc
+    try:
+        return _plain_for_jcs(policy, PolicyError)
+    except PolicyError:
+        return {}
+
+
+@_ein_stand(aussen={"now": "uhr"})
 def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
     in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
@@ -1250,6 +1902,7 @@ def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     return current > parsed
 
 
+@_ein_stand(aussen={"now": "uhr"})
 def policy_not_yet_valid(policy: dict, *, now=None) -> Union[bool, None]:
     """A-P0-2 §6: True iff the policy carries a ``valid_from`` still in the FUTURE, False iff it
     carries one already reached, None iff it carries none. Mirrors :func:`policy_expired`; both are
@@ -1318,6 +1971,7 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     return True, "checkpoint signature verified"
 
 
+@_ein_stand(aussen={"now": "uhr"})
 def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     """Lint a policy for WIRKUNGSLOSIGKEIT (vacuous pass), fail-closed style.
 
@@ -1325,7 +1979,21 @@ def lint_policy(policy: dict, *, strict: bool = False, now=None) -> dict:
     the policy makes NO effective pin at all — `evaluate_policy` would return ``policy_ok=True``
     with an EMPTY check list (``all([]) is True``), the exact vacuous-pass trap TP1 closes.
     ``strict`` additionally promotes the attributes-to-nobody warning to an error AND rejects a raw
-    template used productively (AP-2 §6.4). ``now`` is threaded into the expiry check for tests."""
+    template used productively (AP-2 §6.4). ``now`` is threaded into the expiry check for tests.
+    The policy is read once, into the plain copy of what it stores (round 12)."""
+    policy = _gelesene_richtlinie(policy)
+    # The evaluators' entry rule first, the loader's rule and message (hull, boolean fields, every other present
+    # field): explain_policy reads the flags by their truth, so a string "false" counted as a pin, and it read a
+    # field of another type as empty or failed on it (a list of ints in allowed_issuers raised AttributeError, a
+    # bool in trusted_roots TypeError). A policy the rule refuses is a lint error, and no pin is read from it.
+    try:
+        _require_dict(policy, "trust policy")
+        _huelle_pruefen(policy)
+        _check_bool_fields(policy)
+        _felder_pruefen(policy, schema_gate=False)
+    except PolicyError as exc:
+        return {"ok": False, "errors": [str(exc)],
+                "warnings": policy_warnings(policy) if isinstance(policy, dict) else [], "pins": []}
     pins = explain_policy(policy)
     errors: list = []
     warnings = policy_warnings(policy)
