@@ -254,6 +254,13 @@ _BEFORE_THE_FOOTER = {
     "session-link-bracket-in-the-user-name": '<a href="https://u[s:p@tool.example/session_0000">run</a>',
     "session-link-trailing-no-break-space": '<a href="session_0000&nbsp;">run</a>',
     "session-link-tab-inside": '<a href="ses&#9;sion_0000">run</a>',
+    # Codex threads 4224159486 and 4224159495: a letter that folds to an ASCII letter is no scheme, and a dot segment at
+    # the end leaves a slash after the session segment
+    "session-link-long-s-is-no-scheme": "[run](\u017f://session_0000)",
+    "session-link-sharp-s-is-no-scheme": "[run](\u00df://session_0000)",
+    "session-link-sessions-then-parent": "[run](https://tool.example/sessions/x/..)",
+    "session-link-sessions-then-encoded-parent": "[run](https://tool.example/sessions/x/%2e%2e)",
+    "session-link-sessions-then-dot": "[run](tool:/sessions/x/.)",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
@@ -305,11 +312,15 @@ process.stdout.write(JSON.stringify(targets.map(t => { try { return new URL(t, b
 def _generated_targets() -> list:
     """Every combination of the parts the review rounds of pull request 308 varied, each with the edges a browser
     trims or keeps: a scheme, the slashes and backslashes after it, an authority, a path, and a character at each end."""
-    schemes = ["", "http:", "https:", "ftp:", "ws:", "wss:", "file:", "tool:", "mailto:", "HTTP:"]
+    # round twelve (Codex threads 4224159486 and 4224159495): letters that fold to an ASCII letter, and a dot segment
+    # at the end of a path that keeps a session segment followed by a slash
+    schemes = ["", "http:", "https:", "ftp:", "ws:", "wss:", "file:", "tool:", "mailto:", "HTTP:", "\u017f:",
+               "\u00df:", "\u212a:", "\u0130:"]
     slashes = ["", "/", "//", "///", "\\", "\\\\", "/\\", "\\/"]
     authorities = ["", "h.example", "[::1]", "\\[::1]", "u[s:p@h.example", "[::1", "h.example:80", "a@b@h.example"]
     paths = ["/session_1", "\\session_1", "/sessions/0", "/a/../session_1", "/session_1/..", "/session_1/%2e%2E",
-             "session_1", "/%5Csession_1", "/ok", "?x=/session_1", "#/session_1", "/a/%2e./session_1"]
+             "session_1", "/%5Csession_1", "/ok", "?x=/session_1", "#/session_1", "/a/%2e./session_1",
+             "/sessions/x/..", "/sessions/x/.", "/sessions/x/%2E%2e", "/sessions"]
     edges = [("", ""), ("\u00a0", ""), ("\u2003", ""), (" ", ""), ("\t", ""), ("\x01", "\x1f"), ("", "\u00a0"),
              ("\n", " ")]
     return sorted({left + s + sl + a + p + right for s, sl, a, p, (left, right)
@@ -335,9 +346,9 @@ def test_every_generated_target_resolves_as_a_browser_resolves_it():
     done = subprocess.run(["node", "-e", _ORACLE], input=json.dumps(targets), capture_output=True, text=True,
                           timeout=300, check=True)
     pathnames = json.loads(done.stdout)
-    assert len(pathnames) == len(targets) > 50000, "control: the oracle answered every generated target"
+    assert len(pathnames) == len(targets) > 100000, "control: the oracle answered every generated target"
     resolved = [(t, p) for t, p in zip(targets, pathnames) if p is not None]
-    assert len(resolved) > 40000, "control: the browser resolves most of the generated targets"
+    assert len(resolved) > 80000, "control: the browser resolves most of the generated targets"
     differ = [(t, p) for t, p in resolved
               if GATE._session_path(t, aus_text=False) is not _oracle_has_session_segment(p)]
     assert not differ, differ[:10]

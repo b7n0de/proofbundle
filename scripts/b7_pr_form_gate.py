@@ -203,7 +203,9 @@ _BASIS = "https://github.com/b7n0de/proofbundle/pull/1"
 #: What the WHATWG URL parser trims from both ends of an input: the C0 controls and the space, and nothing else.
 _C0_UND_LEERZEICHEN = "".join(map(chr, range(0x21)))
 #: A scheme as the WHATWG URL parser reads one: an ASCII letter, then letters, digits, `+`, `-` or `.`, then a colon.
-_SCHEMA = re.compile(r"\A([a-z][a-z0-9+.-]*):", re.IGNORECASE)
+#: ASCII only: with IGNORECASE alone `[a-z]` also matches the long s, the dotless i, the dotted capital I and the Kelvin
+#: sign, which a browser does not read as a scheme (Codex thread 4224159486 on pull request 308).
+_SCHEMA = re.compile(r"\A([a-z][a-z0-9+.-]*):", re.IGNORECASE | re.ASCII)
 
 
 def _aufgeloest(ziel: str) -> str:
@@ -224,7 +226,7 @@ def _aufgeloest(ziel: str) -> str:
     which is stricter than the browser and never looser."""
     ziel = re.sub(r"[\t\n\r]", "", ziel.strip(_C0_UND_LEERZEICHEN))
     treffer = _SCHEMA.match(ziel)
-    schema = treffer.group(1).casefold() if treffer else ""
+    schema = treffer.group(1).lower() if treffer else ""
     # every special scheme reads a backslash as a slash, not only http and https (Codex thread 4221178333)
     if schema == "" or schema in _SPECIAL:
         ziel = ziel.replace("\\", "/")
@@ -259,14 +261,19 @@ def _ohne_punktsegmente(pfad: str) -> list[str]:
     """The segments of a path after its dot segments are removed, as a browser removes them from every URL, an
     absolute one included: urljoin removes them only from a relative reference (Codex thread 4220250628 on pull
     request 308, `https://example.org/session_123/..` kept its segment), and the WHATWG parser reads `%2e` as a dot
-    there."""
+    there. A dot segment at the end leaves the path ending in a slash, as the WHATWG parser appends an empty segment
+    there: `/sessions/x/..` resolves to `/sessions/` (Codex thread 4224159495)."""
     aus: list[str] = []
-    for s in pfad.split("/"):
+    teile = pfad.split("/")
+    for n, s in enumerate(teile):
         if _PUNKT_PUNKT.match(s):
             if aus:
                 aus.pop()
         elif not _PUNKT.match(s):
             aus.append(s)
+            continue
+        if n == len(teile) - 1:
+            aus.append("")
     return aus
 
 
@@ -276,8 +283,9 @@ def _session_path(adresse: str, *, aus_text: bool) -> bool:
     (`tool.example/code/...`; Codex thread 4219210671 on pull request 308: the host reading was applied to every
     target, and a rootless relative target became a host with an empty path). Both are then resolved as a browser
     resolves them on the pull request page (`_aufgeloest`) and their dot segments removed; thread 4220250591: an
-    address from the text was read as written, so `https://example.org/session_123/..` was red."""
-    adresse = adresse.casefold()
+    address from the text was read as written, so `https://example.org/session_123/..` was red. The address is parsed
+    as written and only its segments are folded: folded first, `ſ://session_1` became the scheme `s` with the host
+    session_1, where a browser reads a relative path with that segment (Codex thread 4224159486)."""
     if aus_text and "://" not in adresse:
         adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
     teile = urllib.parse.urlsplit(_aufgeloest(adresse))   # _aufgeloest returns an address urlsplit has read once
