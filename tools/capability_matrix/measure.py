@@ -142,11 +142,28 @@ def _subcommands(cli_source: str) -> set:
         baum = ast.parse(cli_source)
     except SyntaxError as exc:
         raise SystemExit(f"cli.py does not parse ({exc.msg}); its subcommands are not measured") from exc
-    return {k.args[0].value for k in ast.walk(baum)
-            if isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "add_parser"
-            and isinstance(k.func.value, ast.Name) and k.func.value.id == "sub" and k.args
-            and isinstance(k.args[0], ast.Constant) and isinstance(k.args[0].value, str)
-            and re.fullmatch(r"[a-z0-9-]+", k.args[0].value)}
+    # Read statically, so what a static reading cannot decide stops the measurement instead of guessing (Codex thread
+    # 4221179837): a registration with a computed name, or one under a condition that is a constant, such as
+    # `if False:`, whose branch the reading cannot tell taken from dead.
+    namen, eltern = set(), {}
+    for knoten in ast.walk(baum):
+        for kind in ast.iter_child_nodes(knoten):
+            eltern[kind] = knoten
+    for k in ast.walk(baum):
+        if not (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "add_parser"
+                and isinstance(k.func.value, ast.Name) and k.func.value.id == "sub"):
+            continue
+        if not (k.args and isinstance(k.args[0], ast.Constant) and isinstance(k.args[0].value, str)):
+            raise SystemExit("cli.py registers a subcommand with a computed name; its subcommands are not measured")
+        oben = eltern.get(k)
+        while oben is not None:
+            if isinstance(oben, (ast.If, ast.While, ast.IfExp)) and isinstance(oben.test, ast.Constant):
+                raise SystemExit("cli.py registers a subcommand under a constant condition; its subcommands are not "
+                                 "measured")
+            oben = eltern.get(oben)
+        if re.fullmatch(r"[a-z0-9-]+", k.args[0].value):
+            namen.add(k.args[0].value)
+    return namen
 
 
 def _registry_counts(ref: str, pfad: str):
@@ -173,18 +190,50 @@ def _entry_points(text: str) -> set:
     return gefunden
 
 
+#: A TOML key as written: bare, a basic string in double quotes, or a literal string in single quotes.
+_TOML_SCHLUESSEL = r"""(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')"""
+
+
+def _toml_schluessel(roh: str) -> str:
+    """The key a TOML key spells: a basic string's escapes decoded, a literal string as written."""
+    if roh.startswith('"'):
+        return json.loads(roh)
+    if roh.startswith("'"):
+        return roh[1:-1]
+    return roh
+
+
 def _entry_points_in_pyproject(text: str) -> set:
-    """Entry points declared in pyproject.toml ([project.scripts] and [project.entry-points.<g>])."""
-    gefunden, gruppe = set(), None
+    """Entry points declared in pyproject.toml ([project.scripts] and [project.entry-points.<g>]). Read by hand, as
+    tomllib is not in Python 3.10, with every TOML spelling of a key: bare, double-quoted and single-quoted (Codex
+    thread 4221179857: a single-quoted key was recorded with its quotes). A declaration in another form, a dotted key
+    or an inline table under [project] or [project.entry-points], stops the measurement instead of being missed."""
+    gefunden, gruppe, abschnitt = set(), None, None
+    kopf_muster = re.compile(r"\[\s*project\s*\.\s*(?:(scripts)|entry-points\s*\.\s*(" + _TOML_SCHLUESSEL + r"))\s*\]")
+    eintrag_muster = re.compile(r"(" + _TOML_SCHLUESSEL + r")\s*=")
     for zeile in text.splitlines():
-        kopf = re.fullmatch(r"\[project\.(scripts|entry-points\.\"?([A-Za-z0-9_.-]+)\"?)\]", zeile.strip())
-        if kopf:
-            gruppe = "console_scripts" if kopf.group(1) == "scripts" else kopf.group(2)
+        rein = zeile.strip()
+        if not rein or rein.startswith("#"):
             continue
-        if zeile.strip().startswith("["):
+        kopf = kopf_muster.fullmatch(rein)
+        if kopf:
+            gruppe = "console_scripts" if kopf.group(1) else _toml_schluessel(kopf.group(2))
+            abschnitt = None
+            continue
+        if rein.startswith("["):
             gruppe = None
-        elif gruppe and "=" in zeile and not zeile.strip().startswith("#"):
-            gefunden.add(f"{gruppe}:{zeile.split('=', 1)[0].strip().strip(chr(34))}")
+            abschnitt = re.sub(r"\s+", "", rein)
+            continue
+        if gruppe:
+            eintrag = eintrag_muster.match(rein)
+            if not eintrag:
+                raise SystemExit(f"pyproject.toml declares an entry point of {gruppe} in a form this reader does not "
+                                 "read; entry points are not measured")
+            gefunden.add(f"{gruppe}:{_toml_schluessel(eintrag.group(1))}")
+        elif (abschnitt == "[project.entry-points]"
+              or (abschnitt == "[project]" and re.match(r"""(?:scripts|["']?entry-points["']?)\s*[.=]""", rein))):
+            raise SystemExit("pyproject.toml declares entry points as a dotted key or an inline table; entry "
+                             "points are not measured")
     return gefunden
 
 
@@ -245,6 +294,10 @@ def _documented_tag(ref: str, cap: dict):
     """The one tag the passage the row's label cites at `ref` pins with `uses:`, or a SystemExit when it pins none
     or more than one, or when there is no such passage."""
     passage, datei = _cited_passage(ref, cap["label"])
+    if passage is not None:
+        # A commented-out line, in the example or as an HTML comment, is no instruction (Codex thread 4221179850).
+        passage = "\n".join(z for z in re.sub(r"<!--.*?-->", "", passage, flags=re.S).splitlines()
+                             if not z.lstrip().startswith("#"))
     tags = sorted(set(re.findall(cap["git_tag_from"], passage))) if passage is not None else []
     if len(tags) != 1:
         raise SystemExit(f"{cap['id']}: the passage its label cites in {datei or 'no file'} at {ref[:12]} pins "
@@ -286,10 +339,23 @@ def _tag_carries(tag: str, cap: dict) -> str:
     return commit
 
 
+#: A sentence that turns a provider's name against it: a warning, a refusal or a migration away from it.
+_VERNEINT_ANBIETER = re.compile(r"\b(?:do\s+not|don't|not|never|no\s+longer|unsupported|deprecated|avoid|instead\s+of)\b",
+                                re.IGNORECASE)
+
+
 def _names_provider(ref: str, cap: dict) -> bool:
-    """Whether the passage the row's label cites at `ref` names the provider."""
+    """Whether the passage the row's label cites at `ref` names the provider. A sentence of the passage that names it
+    together with a negation stops the measurement, as the reading cannot tell a provider from a warning against it
+    (Codex thread 4221179864: "Do not use actions/attest-build-provenance" counted as naming it)."""
     passage, _datei = _cited_passage(ref, cap["label"])
-    return passage is not None and cap["provider"] in passage
+    if passage is None or cap["provider"] not in passage:
+        return False
+    for satz in re.split(r"(?<=[.;!?])\s+|\n", passage):
+        if cap["provider"] in satz and _VERNEINT_ANBIETER.search(satz):
+            raise SystemExit(f"{cap['id']}: the passage its label cites at {ref[:12]} names {cap['provider']} in a "
+                             "negated sentence; from elsewhere is not measured")
+    return True
 
 
 def _present_at(ref: str, module: list, cli: list, eps: list, repo: list) -> bool:

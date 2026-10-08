@@ -459,6 +459,65 @@ class WhatIsReadIsReadByItsMeaning(unittest.TestCase):
             modul.status(True, "experimental in 6.0, no longer experimental in 6.1")
 
 
+class WhatAStaticReadingCannotDecideStops(unittest.TestCase):
+    """Round eight of Codex on pull request 304: each reader read a spelling, and what it cannot read now stops."""
+
+    def test_a_computed_or_guarded_registration_stops_the_measurement(self) -> None:
+        """Thread 4221179837: `if False:` above a registration counted it, and a computed name was dropped."""
+        modul = _load()
+        for quelle in ('if False:\n    sub.add_parser("decision")\n',
+                       'name = "decision"\nsub.add_parser(name)\n',
+                       'x = sub.add_parser("decision") if 0 else None\n',
+                       'while False:\n    sub.add_parser("decision")\n'):
+            with self.subTest(source=quelle), self.assertRaisesRegex(SystemExit, "not measured"):
+                modul._subcommands(quelle)
+        self.assertEqual(modul._subcommands('if args.x:\n    pass\nsub.add_parser("verify")\n'), {"verify"},
+                         "control: a condition that is not a constant does not stop it")
+
+    def test_a_commented_out_pin_is_no_channel(self) -> None:
+        """Thread 4221179850: a cited fenced block holding only `# uses: ...@v1.0.0` was read as the documented tag."""
+        modul = _load()
+        cap = {"id": "x", "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}
+        for kommentiert in ("```yaml\n# uses: x@v1\n```\n", "```yaml\n  #   - uses: x@v1\n```\n",
+                            "<!-- uses: x@v1 -->\n"):
+            modul._git_bytes = lambda ref, pfad, k=kommentiert: (f"the x capability\n{k}".encode()
+                                                                 if pfad == "NOTES.md" else None)
+            with self.subTest(text=kommentiert), self.assertRaisesRegex(SystemExit, "pins no tag"):
+                modul._documented_tag("v6.1.0", cap)
+        modul._git_bytes = lambda ref, pfad: b"the x capability\n```yaml\n- uses: x@v1\n```\n" if pfad == "NOTES.md" else None
+        self.assertEqual(modul._documented_tag("v6.1.0", cap), "v1", "control: an active pin is read")
+
+    def test_entry_points_are_read_with_every_toml_key_spelling(self) -> None:
+        """Thread 4221179857: a single-quoted key was recorded with its quotes, and the release-present hook read as
+        absent from main. Every spelling of a key is read, and a form the reader does not read stops it."""
+        modul = _load()
+        for text in ("[project.entry-points.inspect_ai]\nproofbundle = 'proofbundle.inspect_hook'\n",
+                     "[project.entry-points.inspect_ai]\n'proofbundle' = 'proofbundle.inspect_hook'\n",
+                     '[project.entry-points."inspect_ai"]\n"proofbundle" = "proofbundle.inspect_hook"\n',
+                     "[ project . entry-points . 'inspect_ai' ]\nproofbundle = 'x'\n"):
+            with self.subTest(text=text):
+                self.assertEqual(modul._entry_points_in_pyproject(text), {"inspect_ai:proofbundle"})
+        self.assertEqual(modul._entry_points_in_pyproject('[project.scripts]\nproofbundle = "proofbundle.cli:main"\n'),
+                         {"console_scripts:proofbundle"})
+        for unlesbar in ('[project]\nentry-points.inspect_ai.proofbundle = "x"\n',
+                         '[project]\nscripts = {proofbundle = "x"}\n',
+                         '[project.entry-points]\ninspect_ai = {proofbundle = "x"}\n'):
+            with self.subTest(form=unlesbar), self.assertRaisesRegex(SystemExit, "not measured"):
+                modul._entry_points_in_pyproject(unlesbar)
+
+    def test_a_provider_named_in_a_negated_sentence_stops_the_measurement(self) -> None:
+        """Thread 4221179864: "Do not use actions/attest-build-provenance" counted as naming it as the provider."""
+        modul = _load()
+        cap = {"id": "x", "provider": "actions/attest", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}
+        for satz in ("Do not use actions/attest; it is unsupported.", "actions/attest is deprecated here.",
+                     "Use our step instead of actions/attest."):
+            modul._git_bytes = lambda ref, pfad, t=satz: f"the x capability\n{t}\n".encode() if pfad == "NOTES.md" else None
+            with self.subTest(sentence=satz), self.assertRaisesRegex(SystemExit, "negated sentence"):
+                modul._names_provider("v6.1.0", cap)
+        modul._git_bytes = lambda ref, pfad: b"the x capability\nProvenance comes from actions/attest.\n" if pfad == "NOTES.md" else None
+        self.assertTrue(modul._names_provider("v6.1.0", cap), "control: a plain naming counts")
+
+
 class FromElsewhereSaysWhatWasMeasured(unittest.TestCase):
     """Codex thread 4219678096: the status said another project provides the capability, and what is measured is that
     the cited docs name the provider. The vocabulary and the README say so and claim no availability."""
