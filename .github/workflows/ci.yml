@@ -814,13 +814,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          jobs=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null) || {
+          jobs_datei=$(mktemp)
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" >"$jobs_datei" 2>/dev/null || {
             echo "Wanduhr NICHT MESSBAR: jobs-API nicht erreichbar"; exit 0; }
-          # The program comes from the here-document and the JSON through the environment: with a second stdin
-          # redirection (<<<) the JSON replaced the program, which never ran (Codex thread 4220761948 on pull request 310).
-          JOBS_JSON="$jobs" python3 - <<'PYEOF'
+          # The program comes from the here-document and the JSON from a file: with a second stdin redirection (<<<)
+          # the JSON replaced the program, which never ran (Codex thread 4220761948 on pull request 310), and an
+          # environment entry has a size ceiling the response can pass (thread 4221177615).
+          JOBS_DATEI="$jobs_datei" python3 - <<'PYEOF'
           import datetime as dt, json, os
-          j = json.loads(os.environ["JOBS_JSON"]).get("jobs", [])
+          with open(os.environ["JOBS_DATEI"], encoding="utf-8") as f:
+              j = json.load(f).get("jobs", [])
           m = [x for x in j if x["name"].startswith("mutation (")]
           P = lambda s: dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
           fertig = [x for x in m if x.get("started_at") and x.get("completed_at")]

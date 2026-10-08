@@ -483,6 +483,20 @@ def test_die_schwelle_urteilt_nur_wo_die_sekundenaufloesung_es_traegt(sekunden, 
 
 
 @pytest.mark.parametrize("datei", ["landung.yml", "ci.yml"])
+def test_eine_grosse_jobs_antwort_erreicht_das_programm(datei, tmp_path):
+    """Codex thread 4221177615 on pull request 310: the JSON went through one environment entry, which Linux caps at
+    about 128 KiB, and a jobs response of a large matrix can pass that; the step then ran nothing. The response goes
+    through a file now. Measured with a response of more than 300 KB."""
+    jobs = _jobs(1000)
+    jobs["jobs"] += [{"name": f"job {i}", "started_at": None, "completed_at": None, "steps": ["x" * 300]}
+                     for i in range(1000)]
+    assert len(json.dumps(jobs)) > 300_000
+    lauf = _fahre_wanduhr(datei, jobs, tmp_path)
+    assert lauf.returncode == 0, lauf.stderr[-500:]
+    assert "MATRIX_WANDUHR_S=1000" in lauf.stdout, (lauf.stdout + lauf.stderr)[-500:]
+
+
+@pytest.mark.parametrize("datei", ["landung.yml", "ci.yml"])
 def test_ohne_beide_marken_sagt_der_schritt_nicht_messbar(datei, tmp_path):
     """The control of the wiring: an empty list and a shard without its end mark reach the program's own answer."""
     for jobs in ({"jobs": []}, _jobs(10, ende=False)):
