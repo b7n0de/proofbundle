@@ -26,6 +26,8 @@ import hashlib
 import re
 from typing import Any
 
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie, _pruefkopie,
+                        _richtlinie_von)
 from .errors import ProofBundleError
 from ._membership import is_member
 
@@ -52,6 +54,7 @@ class RelationStatementError(ProofBundleError):
     """A relation-statement/v0.1 predicate is malformed (fail-closed)."""
 
 
+@_ein_stand
 def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     """Return a list of fail-closed errors (empty == valid). RETURNS, never raises — do NOT wrap
     in try/except (a caller that treats "no exception" as valid would report a malformed predicate
@@ -59,6 +62,10 @@ def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     or anything other than EXACTLY ONE well-formed edge is an error."""
     from .relation import validate_relationships  # noqa: PLC0415
 
+    try:
+        predicate = _pruefkopie(predicate)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        return [f"predicate is not a JSON value: {exc}"]
     errors: list[str] = []
     if not isinstance(predicate, dict):
         return ["predicate must be a JSON object"]
@@ -89,6 +96,7 @@ def validate_relation_statement_predicate(predicate: Any) -> list[str]:
     return errors
 
 
+@_ein_stand
 def require_valid_relation_statement_predicate(predicate: Any) -> None:
     """Raise :class:`RelationStatementError` if the predicate is invalid; return None if valid."""
     errs = validate_relation_statement_predicate(predicate)
@@ -114,11 +122,27 @@ def _rfc8785_available() -> bool:
         return False
 
 
+def _predicate_once(predicate):
+    """The caller's predicate read ONCE from its storage (`_plain_value.plain_json`), so that the
+    validator, the subject digest and the signed statement read one value (lens run 8 at fddc00f4,
+    finding B, the sweep). The validator read a dict subclass through its `get` and `__getitem__`
+    while the canonicaliser wrote what `dict(obj)` and `float(obj)` return; a subclass could have one
+    predicate validated and another signed. A value that cannot be read this way is refused."""
+    if not issubclass(type(predicate), dict):   # its own type: `isinstance` reads `__class__`
+        return predicate          # the validator's own refusal names a predicate that is no object
+    from ._plain_value import plain_json  # noqa: PLC0415
+    return plain_json(predicate, what="the relation-statement predicate",
+                      error=lambda m: RelationStatementError(f"invalid relation-statement predicate: {m}"))
+
+
+@_ein_stand
 def build_relation_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the relation-statement. The subject
     is by DEFAULT a commitment to the predicate (sha256 over its RFC-8785 canonical form). A
     caller-supplied override is self-attested and NOT cross-checked (No-Overclaim)."""
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, RelationStatementError, "relation-statement predicate")   # one reading (round 12)
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
@@ -132,11 +156,14 @@ def build_relation_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_relation_statement(predicate: dict, signer, *, subject_name: str | None = None,
                             subject_sha256: str | None = None, keyid: str | None = None) -> dict:
     """Sign a relation-statement as a DSSE-signed in-toto Statement. Emission is RFC-8785 canonical.
     Fail-closed: an invalid predicate raises before signing."""
     from . import dsse  # noqa: PLC0415
+    predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
+    predicate = _eine_kopie(predicate, RelationStatementError, "relation-statement predicate")   # one reading (round 12)
     errs = validate_relation_statement_predicate(predicate)
     if errs:
         raise RelationStatementError("invalid relation-statement predicate: " + "; ".join(errs))
@@ -170,6 +197,7 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand
 def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool = False,
                               require_derived_subject: bool = False,
                               related: dict | None = None, policy: dict | None = None) -> dict:
@@ -196,11 +224,21 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         LINEAGE_FAIL,
         LINEAGE_VERIFIED,
         SUCCESSOR_RELATIONS,
-        evaluate_relations_policy,
+        _abschnitt_urteil,
+        _stamp_lineage_origin,
         verify_relationship_edges,
     )
     r = _empty_result()
-    related = related if isinstance(related, dict) else None
+    # A `related` that is neither None nor a dict is handed on as it is: the shared engine refuses it
+    # (`relation._related_abgelehnt`, deep gate at 7409b123, L4-620b-01). It was replaced by None here, so a
+    # Mapping that is no dict holding a verified retraction read as nothing attached.
+    # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L4-620-01), as in
+    # decision.verify_decision_receipt: the policy was read through its own `get` and `__getitem__` at the
+    # relations gate and the self-assertion gate, and a dict subclass hid a verified retraction.
+    schluessel = _bytes_von(public_key)
+    if schluessel is None:
+        schluessel = public_key
+    richtlinie = _richtlinie_von(policy)
 
     try:
         # RE-GATE never-raise (REGATE-BUDGET-01 / RE-TCE-01): crypto verify + body load + input_bytes budget
@@ -208,11 +246,15 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # malformed untrusted envelope yields a fail-closed verdict, never a raw uncaught BudgetExceeded (a
         # ProofBundleError sibling of BundleFormatError the old narrow except let escape) out of this
         # dict-returning verify surface (mirrors decision/outcome).
-        r["crypto_ok"] = bool(dsse.verify_envelope(
-            envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE))
+        # ONE READING (round 11, class A, owner decision option A): `body` is the payload the signature was
+        # checked over, read once from the plain copy of the envelope (`dsse._verify_and_load`). At fa555f13
+        # verify_envelope and load_payload read the caller's envelope twice, and a dict subclass answering
+        # the second read with another statement got ok=True for a statement the key never signed.
+        crypto_ok, body = dsse._verify_and_load(envelope, schluessel,
+                                                payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        r["crypto_ok"] = bool(crypto_ok)
         if not r["crypto_ok"]:
             r["errors"].append("DSSE signature verification failed — payload is unauthenticated")
-        body = dsse.load_payload(envelope)
         # L4-01 (deep gate 2026-09-05): the ONE payload oracle shared with the --with-related resolver, so
         # "well-formed standalone" and "well-formed as an attached target" can never mean two things.
         # (input_bytes budget + strict parse + object check; canonicality is judged below, as before.)
@@ -251,6 +293,10 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     canonicality_ok = canonical_ok is True  # absent (None) or non-canonical (False) never passes (fail-closed)
     r["structure_ok"] = (not struct_errs) and bool(r["predicate_type_ok"]) and canonicality_ok
 
+    _sw = None  # Nachtrag 46d: the single reading of supersededByAttached, reused by the relation origin stamp
+    # below. Preset BEFORE the predicate-dict block (mirrors decision.py / outcome.py): the relations-policy
+    # branch reads `_sw` gated on crypto_ok + a relations section, NOT on a dict predicate — a validly signed
+    # statement whose predicate is not a dict skips the block below, so without this preset the read is unbound.
     if isinstance(predicate, dict) and r["crypto_ok"]:
         try:
             _subject_hex = _anchors.statement_content_root(body).hex()
@@ -327,18 +373,29 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
     # (require_relation_resolution / relation_signer / require_relation_target). The successor issuer
     # key is the STATEMENT's own signing key (--pub). Plus the ONE standalone extension:
     # reject_retracted / reject_superseded fire on the statement's OWN verified assertion.
-    if policy is not None and not isinstance(policy, dict):
+    if policy is not None and not issubclass(type(policy), dict):
         # RE-GATE never-raise (REGATE-CRYPTO-RELSTMT-POLICY / mirror decision.py + outcome.py): a caller-
         # supplied non-dict `policy` (a JSON scalar or list) must be a fail-closed policy verdict, not a raw
         # AttributeError from policy.get('relations'). A requested-but-malformed policy is never a silent pass.
         r["policy_ok"] = False
         r["errors"].append("trust policy must be a JSON object — malformed policy argument (fail-closed)")
-    elif isinstance(policy, dict) and isinstance(policy.get("relations"), dict) and r["crypto_ok"]:
+    # Every present section goes to the gate, which refuses one that is no dict with its own code (deep gate at
+    # 7409b123, the sweep of L4-620b-01), JSON null included (the cross-check of 2026-09-29: `{"relations": null}`
+    # judged a verified retraction with no rule); only an absent section is no relations rule.
+    elif _abschnitt_von(policy, richtlinie, "relations", _FEHLT) is not _FEHLT and r["crypto_ok"]:
         import base64 as _b64  # noqa: PLC0415
-        relations = policy["relations"]
-        _viol = evaluate_relations_policy(
-            relations, _as_dict(r.get("lineage")),
-            successor_key_b64=_b64.b64encode(public_key).decode())
+        # The section by what the policy stores (`_abschnitt_von`, deep gate 6.2.0, L4-620-01): the gate
+        # refuses a section it cannot read with its own code, and the self-assertion gate below reads only
+        # the plain copy of the section; a section with no plain copy has already failed the gate.
+        _abschnitt = _abschnitt_von(policy, richtlinie, "relations")
+        relations = _richtlinie_von(_abschnitt) or {}
+        # Nachtrag 48/48b (Z309, F2): bind relation_signer to the verified successor receipt by stamping the
+        # lineage result with the key this statement verified under (only on a passing signature, as required here).
+        _successor_b64 = _b64.b64encode(schluessel).decode()
+        _stamp_lineage_origin(r.get("lineage"), _successor_b64, _sw)
+        _viol = _abschnitt_urteil(
+            _abschnitt, _as_dict(r.get("lineage")),
+            successor_key_b64=_successor_b64)
         # Standalone self-assertion gate (SPEC §2.5): a VERIFIED retracts/supersedes statement of a
         # (pinned/authorized) signer is a LIVE blocker for a relying party who asks "is my target still
         # safe for automation?". reject_retracted covers `retracts`; reject_superseded covers the
@@ -366,6 +423,29 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
             for v in _viol:
                 r["errors"].append(f"{v['code']}: {v['message']}")
             r["relations_policy_codes"] = sorted({v["code"] for v in _viol})
+    if richtlinie is None and policy is not None and issubclass(type(policy), dict):
+        # A dict holding a value that is no JSON value cannot be read as a whole (deep gate 6.2.0,
+        # L4-620-01); a requested policy that cannot be read is never a silent pass.
+        r["policy_ok"] = False
+        r["errors"].append("trust policy holds a value that is no JSON value — not evaluated (fail-closed)")
+    elif richtlinie is not None:
+        # The loader's rule over the whole policy, as in outcome.verify_outcome_receipt (verify lens on the
+        # cross-check fix at bc3d275f): a top-level typo such as "relationz" read as no relations rule.
+        from .policy import _abgelehnt_vom_loader, _gemeinsame_fehler, _regelfehler  # noqa: PLC0415
+        _grund = _abgelehnt_vom_loader(richtlinie)
+        if _grund is not None:
+            r["policy_ok"] = False
+            r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
+                               f"load_policy applies): {_grund}")
+        elif r["crypto_ok"]:
+            # Every rule the policy sets is one this verifier applies (T16), and the shared fields apply here too
+            # (owner point 6), as in outcome.verify_outcome_receipt. A relation statement has no purpose of its own
+            # among the registered ones, so a policy that declares one is for another path.
+            _regel = _regelfehler(richtlinie, "relation_statement")
+            _fehler = ([_regel] if _regel is not None else []) + _gemeinsame_fehler(richtlinie, None)
+            if _fehler:
+                r["policy_ok"] = False
+                r["errors"].extend(_fehler)
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]

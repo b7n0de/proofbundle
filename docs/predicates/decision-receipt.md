@@ -128,9 +128,13 @@ structure_ok, crypto_ok, signer_trusted, predicate_type_ok, policy_ok, evidence_
 audience_ok, nonce_ok, freshness_ok, anchors_ok, action_outcome_proven, warnings[], errors[]
 ```
 
-Non-applicable checks are `null`. `freshness_ok` is **always `null` for decision receipts** — a
-pure-offline verifier has no trusted clock, so statement-time freshness is a relying-party policy
-concern, not something this path decides (it is a live check only on the eval-claim policy path).
+Non-applicable checks are `null`. `freshness_ok` is `null` **only when `validity.expiresAt` is absent** —
+there is then no statement expiry to judge. When `validity.expiresAt` **is** present it is judged (since
+6.2.0) at one evaluation time: `true` or `false` against `--verification-time` (a past UTC `Z` instant)
+when that option is given, otherwise against the verifier's wall clock. A `false` folds into `ok` (the
+receipt is not OK) and the CLI exits `2`; an unreadable or JSON-`null` `expiresAt` is fail-closed the same
+way, never silently treated as "no expiry". The lifecycle of an attached `--policy` is a separate,
+relying-party concern, evaluated at that same one instant.
 `action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
 signed/digest-bound `outcomeRef`.
 

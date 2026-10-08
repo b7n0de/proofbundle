@@ -320,6 +320,9 @@ def test_readable_means_the_consistency_proofs_parsed_under_the_05_cddl():
 
 def test_profile_untagged_and_crit_unprotected():
     assert check(receipt(tagged=False)).status == "outside_profile"
+    # an untagged receipt is no COSE_Sign1 of the profile, so its proofs do not make it readable (ADR 0009,
+    # Decision 10 and the structure row; Codex, PR 278, thread 4121760552, the sibling of the inclusion receipt)
+    assert check(receipt(tagged=False)).readable is False
     assert check(receipt(unprot_extra={2: [1]})).status == "outside_profile"
 
 

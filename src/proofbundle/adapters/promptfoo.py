@@ -21,7 +21,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
+from .._strict_json import loads_reject_duplicate_keys
 from ..evalclaim import build_eval_claim
+from ..canonical import _ein_stand
 
 _SCALE = 6  # pass_rate decimal places — fixed-point, schema-conformant
 
@@ -34,6 +36,7 @@ def _pass_rate(successes: int, failures: int, errors: int) -> "tuple[str, int]":
     return f"{rate:.{_SCALE}f}", total
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: str,
                            model_salt: Optional[bytes] = None,
                            dataset_salt: Optional[bytes] = None):
@@ -49,7 +52,9 @@ def from_promptfoo_results(path, *, comparator: str, threshold: str, timestamp: 
       records which case applies (`dataset_commitment_scope`) so the binding is never overstated.
     - provenance: promptfooVersion, evalId, summary timestamp, per-outcome counts.
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    # Nachtrag 51 (K6-03): reject a duplicate JSON key fail-closed before stats.successes feeds the pass
+    # rate (last-wins would sign a rate a differing reader computes otherwise). No new size cap.
+    data = loads_reject_duplicate_keys(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("results"), dict):
         raise ValueError("not a promptfoo output file (missing results object)")
     summary = data["results"]

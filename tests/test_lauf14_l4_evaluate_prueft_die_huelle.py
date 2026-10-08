@@ -16,19 +16,42 @@ Lauf 13 im Rust-Zweitverifizierer (`policy_huelle_pruefen`). Fix: EINE Huellenpr
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+
 import pytest
 
 from proofbundle import policy, relation
+from proofbundle.errors import VerificationResult
 from proofbundle.policy import PolicyError, evaluate_decision_policy, evaluate_policy, load_policy
 
+_SIGNER_B64 = base64.b64encode(bytes(32)).decode("ascii")   # a canonical 32-byte key placeholder
+_PAYLOAD_B64 = base64.b64encode(b"{}").decode("ascii")
 
-class _R:
-    ok = True
-    checks: list = []
+
+def _R() -> VerificationResult:
+    """A passed verify result, as `verify_bundle` returns one. Until the fix of deep gate run 6 a class of the test's
+    own with ``ok`` and ``checks`` served; since then an object of a caller's class reaches the body as a stand-in that
+    holds nothing of the caller, and the policy is not evaluated (fail-closed, policy_ok None).
+
+    Nachtrag 46 (F2): verify_bundle now records on the result the signer and payload digest it verified, and
+    evaluate_policy requires them to match the bundle it judges. This stand-in carries the signer and digest of
+    ``_BUNDLE`` so the hull-check assertions (the point of this file) still reach the rule body.
+
+    Nachtrag 46b: evaluate_policy also requires the result to carry an authentic origin token verify_bundle
+    stamps over its verified fields. This stand-in simulates that verifier output, so it stamps the token over
+    its own fields (in-process stamping is explicitly out of the review's threat model for a hand-off)."""
+    r = VerificationResult()
+    r.add("crypto", True)
+    r.verified_signer_pub = base64.b64decode(_SIGNER_B64)
+    r.verified_payload_digest = hashlib.sha256(base64.b64decode(_PAYLOAD_B64)).hexdigest()
+    r.stamp_origin()
+    return r
 
 
 _BUNDLE = {"schema": "proofbundle/v1",
-           "signature": {"alg": "ed25519", "public_key_b64": "any-attacker-key-at-all"}, "merkle": {}}
+           "signature": {"alg": "ed25519", "public_key_b64": _SIGNER_B64}, "merkle": {},
+           "payload_b64": _PAYLOAD_B64}
 _KEY = "hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo="   # ein kanonischer, hoher Ed25519-Punkt
 _CP = {"origin": "example.org/log", "root": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
        "treeSize": 1, "hashAlg": "sha256-rfc6962", "checkpointSigner": "n+abcd1234+AAAA",
@@ -95,9 +118,12 @@ def test_evaluate_relations_policy_weist_einen_tippfehler_ab():
 def test_positivkontrolle_korrekt_geschriebene_policies_bleiben_unveraendert():
     r = evaluate_policy(_BUNDLE, _R(), {"signature": {"allowed_algs": ["ed25519"]}})
     assert r["policy_ok"] is True and r["checks"][0]["name"] == "policy:signature_alg"
+    # Since T16 (owner point 4 of 2026-10-01) every check refuses a rule it does not apply: the signature rule of the
+    # eval path is no deactivation on the decision path any more, it refuses the policy.
     r = evaluate_decision_policy({"predicate": {}}, {}, {"signature": {"allowed_algs": ["ed25519"]}},
                                  signer_public_key_b64=_KEY)
-    assert r["policy_ok"] is None
+    assert r["policy_ok"] is False
+    assert any("signature.allowed_algs" in e for e in r["errors"])
     assert relation.evaluate_relations_policy({"reject_superseded": False}, {"edges": []}, successor_key_b64=None) == []
 
 

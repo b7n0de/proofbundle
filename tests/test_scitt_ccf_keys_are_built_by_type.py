@@ -67,7 +67,7 @@ def _cert(public) -> bytes:
 
 def _statement(alg: int, chain: list, sign) -> bytes:
     import cbor2  # noqa: PLC0415
-    prot = cbor2.dumps({1: alg, 258: -16, 259: "application/json", 15: {1: "did:example:signer"},
+    prot = cbor2.dumps({1: alg, 258: -16, 259: "application/json", 15: {1: "did:example:signer", 2: "s"},
                         33: chain})
     tbs = cbor2.dumps(["Signature1", prot, b"", PAYLOAD])
     return cbor2.dumps(cbor2.CBORTag(18, [prot, {}, PAYLOAD, sign(tbs)]))

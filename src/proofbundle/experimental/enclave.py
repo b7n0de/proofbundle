@@ -50,8 +50,9 @@ from typing import Optional
 
 from .._strict_json import loads_strict
 from ..errors import BundleFormatError, ProofBundleError
-from ..signature import verify_ed25519_pinned
+from ..signature import _reject_jws_crit, verify_ed25519_pinned
 from .._wire_b64 import decode_b64, decode_b64url
+from ..canonical import _ein_stand
 
 __all__ = ["EAT_TYP", "enclave_binding_for", "verify_enclave_attestation",
            "issue_enclave_attestation"]
@@ -69,6 +70,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def enclave_binding_for(bundle: dict) -> str:
     """The value an Attestation Result's ``eat_nonce`` MUST carry to be bound to ``bundle``.
 
@@ -95,6 +97,7 @@ def _match_nonce(eat_nonce, expected: str) -> bool:
     return False
 
 
+@_ein_stand
 def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected_binding: str,
                                expected_profile: Optional[str] = None,
                                now: Optional[int] = None) -> dict:
@@ -113,10 +116,15 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
     """
     result = {"ok": False, "tier": None, "profile": None, "ueid": None, "nonce_ok": False,
               "fresh": None, "iat": None, "exp": None, "detail": ""}
-    if not isinstance(eat_jws, str) or eat_jws.count(".") != 2:
+    # The token as the text it holds, read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the shape
+    # check and the split were two readings, a `str` subclass through its own `count` and `split`, and a count
+    # that answered 2 beside a split into four parts escaped this surface as a raw ValueError.
+    from ..canonical import _zeichen_von  # noqa: PLC0415
+    text = _zeichen_von(eat_jws)
+    if text is None or text.count(".") != 2:
         result["detail"] = "not a compact JWS"
         return result
-    header_b64, payload_b64, sig_b64 = eat_jws.split(".")
+    header_b64, payload_b64, sig_b64 = text.split(".")
     try:
         header = loads_strict(_b64url_decode(header_b64))   # WP-C1: dup keys fail-closed
         claims = loads_strict(_b64url_decode(payload_b64))
@@ -132,6 +140,13 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
         return result
     if not isinstance(header, dict) or not isinstance(claims, dict):
         result["detail"] = "malformed EAT token"
+        return result
+    # Nachtrag 50 (Z309, sibling of K5-01/K5-02): RFC 7515 §4.1.11 — an un-understood critical header
+    # makes the JWS invalid. Checked right after reading the header and BEFORE typ/alg, so an EAT whose
+    # protected header carries `crit` fails closed (ok stays False) instead of reaching ok=True.
+    _crit_reason = _reject_jws_crit(header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
         return result
     if header.get("typ") != EAT_TYP:
         result["detail"] = f"EAT typ must be '{EAT_TYP}'"
@@ -173,12 +188,19 @@ def verify_enclave_attestation(eat_jws: str, *, verifier_pubkey: bytes, expected
             result["fresh"] = None            # unbounded — cannot judge (relying-party policy)
         else:
             result["fresh"] = (iat is None or iat <= now) and now < exp
+            if result["fresh"] is False:
+                # Nachtrag 49 K4-04 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): an attestation expired
+                # or not yet valid at the evaluation time is never a positive authenticated verdict. A missing
+                # `now` or a missing `exp` leaves `fresh` None (unbounded — relying-party policy), unchanged.
+                result["detail"] = "enclave attestation is not fresh (expired or not yet valid) at the evaluation time"
+                return result
 
     result["ok"] = True
     result["detail"] = f"enclave attestation verified (tier={result['tier']!r})"
     return result
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
                               ueid: Optional[str] = None, iat: Optional[int] = None,
                               exp: Optional[int] = None) -> str:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 from ._wire_b64 import decode_b64
 from typing import Optional
+from .canonical import _abbild_stand, _ein_stand
 
 
 def _load_der_cert(b64: str):
@@ -23,6 +24,7 @@ def _load_der_cert(b64: str):
     return x509.load_der_x509_certificate(decode_b64(b64))
 
 
+@_ein_stand(frozen=_abbild_stand, rp_trust=_abbild_stand)
 def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Optional[int] = None,
                    rp_trust: Optional[dict] = None) -> dict:
     """Fail-closed offline verify of an RFC 3161 token. Returns {ok, detail}.
@@ -93,6 +95,16 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     if rp_trust is not None and not _nutzbares_mapping(rp_trust):
         from .errors import BundleFormatError as _BFE  # noqa: PLC0415
         raise _BFE(f"rp_trust must be a usable mapping (with .get), got {type(rp_trust).__name__} (fail-closed)")
+    # ONE READING of both mappings (`canonical._abbild_von`, verify lane on pull request 312), as in
+    # anchors_ots: every read below is of the plain copy, and a mapping holding a value that is no JSON
+    # value is refused the way a mapping without `.get` is.
+    from .canonical import _abbild_von  # noqa: PLC0415
+    _frozen_kopie = _abbild_von(frozen)
+    _rp_kopie = _abbild_von(rp_trust) if rp_trust is not None else None
+    if _frozen_kopie is None or (rp_trust is not None and _rp_kopie is None):
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE("frozen and rp_trust must hold only JSON values (fail-closed)")
+    frozen, rp_trust = _frozen_kopie, _rp_kopie
     try:
         import rfc3161_client as tsp  # noqa: PLC0415
     except ImportError:
@@ -106,7 +118,15 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
                 "detail": "RFC 3161 token needs a relying-party-supplied TSA root certificate "
                           "(--trusted-tsa-root / policy anchors.trusted_tsa_roots). The bundle's own frozen "
                           "root is producer-controlled evidence, not trust; not claiming a pass"}
-    rp_policy_oids = rp.get("trusted_tsa_policy_oids") or []
+    # A PRESENT POLICY OID PIN OF ANOTHER SHAPE IS REFUSED, never read as no pin (verify lens on the cross-check
+    # fix at bc3d275f, 2026-09-29). `... or []` read 0, False, "", {} and None as no pin, and a list whose FIRST
+    # entry is falsy ("", None, 0, []) pinned nothing either, so a token under another TSA policy verified; the
+    # loader refuses each of these values in `anchors.trusted_tsa_policy_oids`. An empty list stays "no pin".
+    rp_policy_oids = rp.get("trusted_tsa_policy_oids", [])
+    if not (type(rp_policy_oids) is list and all(type(o) is str and o for o in rp_policy_oids)):
+        return {"ok": False, "status": "rp_trust_malformed",
+                "detail": "rp_trust.trusted_tsa_policy_oids must be a list of dotted-decimal strings; a pin of "
+                          "another shape is refused, never read as no pin (fail-closed)"}
     try:
         from cryptography.x509 import ObjectIdentifier  # noqa: PLC0415
         response = tsp.decode_timestamp_response(proof)
@@ -146,6 +166,7 @@ def verify_rfc3161(proof: bytes, canonical_root: bytes, *, frozen: dict, now: Op
     return out
 
 
+@_ein_stand
 def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
                           root_certs_der: list, tsa_cert_der: Optional[bytes] = None,
                           intermediate_certs_der: Optional[list] = None,
@@ -156,7 +177,16 @@ def create_rfc3161_anchor(canonical_root: bytes, target: str, *, tsa_url: str,
     do not embed it, the TSA cert) so the chain can be frozen for offline re-verification. This function
     only builds and returns the anchor dict — writing it into a receipt is the caller's job, so a network
     failure here never corrupts the local receipt.
+
+    The root is read once (lens run 8 at fddc00f4, the sweep of finding B): the request, the self-check
+    and the written `canonicalRoot` each read it through its buffer, which a class can answer for from
+    Python 3.12 on; the stored bytes are stamped, checked and written.
     """
+    from .signature import plain_bytes  # noqa: PLC0415
+    root_bytes = plain_bytes(canonical_root)
+    if root_bytes is None:
+        raise ValueError(f"canonical_root must be bytes or bytearray, got {type(canonical_root).__name__}")
+    canonical_root = root_bytes
     import urllib.request  # noqa: PLC0415
 
     import rfc3161_client as tsp  # noqa: PLC0415
