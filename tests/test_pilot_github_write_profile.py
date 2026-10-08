@@ -40,19 +40,31 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 34)
+        self.assertEqual(len(ergebnisse), 36)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)
 
-    def test_the_accepted_vectors_are_the_four_named(self) -> None:
+    def test_the_accepted_vectors_are_the_ones_named(self) -> None:
         """The positive case, its twin a fraction of a second after the approval (Codex thread 4121766408), the
-        time with ten fraction digits (4217993700), and the inclusive boundary at both ends (4217993712)."""
+        time with ten fraction digits (4217993700), the inclusive boundary at both ends (4217993712), and the
+        expiry with six fraction digits, the most its verifier reads (4218663063)."""
         angenommen = [f["case"] for f in self.daten["cases"] if f["expected"] == self.g.ACCEPTED]
         self.assertEqual(angenommen, ["approved and arrived as approved",
                                       "approved and arrived a fraction of a second after the approval",
                                       "approved and arrived, the time with ten fraction digits",
-                                      "approved and arrived at the second the approval was made and expires"])
+                                      "approved and arrived at the second the approval was made and expires",
+                                      "approved and arrived, the expiry with six fraction digits"])
+
+    def test_the_profile_promises_no_more_than_the_verifier_it_reuses_reads(self) -> None:
+        """Codex thread 4218663063: the profile read any number of fraction digits, and the decision's verifier reads
+        expiresAt with at most six, so a seven-digit expiry the profile called in window did not verify. The vector
+        holds the boundary, with the verifier's reason, beside its six-digit control."""
+        ergebnisse = {n: (b, g) for n, _, b, g in self.g.check_vectors(self.daten)}
+        verdict, gruende = ergebnisse["approved and arrived, the expiry with seven fraction digits"]
+        self.assertEqual(verdict, self.g.NOT_ACCEPTED)
+        self.assertIn("expiresAt", " ".join(gruende))
+        self.assertEqual(ergebnisse["approved and arrived, the expiry with six fraction digits"][0], self.g.ACCEPTED)
 
     def test_a_status_other_than_executed_is_not_accepted(self) -> None:
         """Codex thread 4217993684: failed, refused and partial, signed by the observer, read as unknown."""

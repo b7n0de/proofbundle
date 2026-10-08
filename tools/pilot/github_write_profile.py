@@ -59,7 +59,8 @@ ACCEPTED, NOT_ACCEPTED, UNKNOWN = "accepted", "not accepted", "unknown"
 _DECISION_ID = re.compile(r"^(?P<action>[A-Za-z0-9:._-]+)#(?P<attempt>[1-9][0-9]*)$")
 #: An RFC 3339 instant in UTC as the receipts write it, ASCII digits only, fraction optional.
 # Any number of fraction digits, as action-outcome/v0.1 accepts (Codex thread 4217993700 on pull request 303: a cap at
-# nine turned a valid ten-digit fraction into unknown).
+# nine turned a valid ten-digit fraction into unknown). The profile reads decidedAt and performedAt so; expiresAt is
+# read first by decision-receipt/v0.1's verifier, which reads at most six (thread 4218663063), see `reconcile`.
 _INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z\Z", re.ASCII)
 DECISION_TYPE, METHOD = "preActionAuthorization", "write"
 SCOPE_KEYS = ("surface", "target", "objectId")
@@ -209,7 +210,10 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     # Verified one second before its own decidedAt: the profile judges the window against GitHub's performedAt
     # below, so the reader's clock would turn every past approval into an expired one (main since 6.2.0 fails
     # expiry closed), and the verifier's own rule, expired AT expiresAt, would refuse the inclusive boundary the
-    # profile states when expiresAt equals decidedAt (Codex thread 4217993712 on pull request 303).
+    # profile states when expiresAt equals decidedAt (Codex thread 4217993712 on pull request 303). The verifier reads
+    # expiresAt with at most six fraction digits, although its validator takes any number: an expiry with more does
+    # not verify, and the answer is not accepted. The profile promises no more than the verifier it reuses reads
+    # (thread 4218663063); the vectors hold that boundary.
     d = verify_decision_receipt(decision_env, gate_key, strict=True, expected_audience=observer_id,
                                 expected_nonce=(pred.get("validity") or {}).get("nonce"),
                                 require_derived_subject=True, now=entschieden[0] - 1)
@@ -446,6 +450,14 @@ def build_vectors() -> dict:
     o_gleich, s_gleich = outcome(d_gleich, performed_at="2026-09-27T00:40:00Z")
     fall("approved and arrived at the second the approval was made and expires", ACCEPTED, d_gleich, o_gleich, s_gleich,
          "thread 4217993712: decidedAt <= performedAt <= expiresAt is inclusive at both ends")
+    d_sieben = decision(expires_at="2026-09-27T00:45:00.0000001Z")
+    o_sieben, s_sieben = outcome(d_sieben)
+    fall("approved and arrived, the expiry with seven fraction digits", NOT_ACCEPTED, d_sieben, o_sieben, s_sieben,
+         "thread 4218663063: the decision's verifier reads expiresAt with at most six fraction digits")
+    d_sechs = decision(expires_at="2026-09-27T00:45:00.000001Z")
+    o_sechs, s_sechs = outcome(d_sechs)
+    fall("approved and arrived, the expiry with six fraction digits", ACCEPTED, d_sechs, o_sechs, s_sechs,
+         "thread 4218663063, the control: six digits are read")
     manipuliert = dict(d0)
     roh = bytearray(decode_b64_either(d0["payload"]))
     roh[roh.index(b"ALLOW")] = ord("B")
