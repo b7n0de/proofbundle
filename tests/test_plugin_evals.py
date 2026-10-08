@@ -776,8 +776,8 @@ def test_each_done_case_scaffolds_the_state_its_receipt_names_or_not(done_output
 
 
 def test_the_stop_hook_gives_each_done_case_its_verdict(done_outputs):
-    lines = {"not_done": "proofbundle done check: the receipt says the tests did not pass. ",
-             "stale_receipt": "proofbundle done check: the tests ran on tree "}
+    lines = {"not_done": "proofbundle done check: check tests is red: the receipt says the tests did not pass. ",
+             "stale_receipt": "proofbundle done check: check tests is stale: the tests ran on tree "}
     for case, (_, output) in done_outputs.items():
         answer = json.loads(output)
         verdict = DONE_CASES[case][1]

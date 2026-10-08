@@ -1,5 +1,5 @@
 ---
 type: regex
 target: trace
-pattern: '^(?:(?!proofbundle gate: done\. The receipt)[\s\S])*$'
+pattern: '^(?:(?!proofbundle gate: done\.)[\s\S])*$'
 ---

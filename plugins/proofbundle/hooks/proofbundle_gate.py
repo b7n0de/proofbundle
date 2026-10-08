@@ -46,6 +46,7 @@ from __future__ import annotations
 import base64
 import binascii
 import collections
+import fnmatch
 import hashlib
 import json
 import os
@@ -74,6 +75,27 @@ KINDS = ("bundle", "decision")
 #: The optional done check of the declaration (DECISIONS.md, D26): the receipt of the last test run, in the
 #: working tree, and the trust policy at HEAD it must verify under.
 DONE_KEYS = frozenset({"receipt", "policy"})
+#: The order form of the done section (D28): the checks the task requires, and optionally the paths the work may
+#: change and how many blocks without progress the Stop hook makes before it writes a blocker.
+DONE_ORDER_KEYS = frozenset({"policy", "checks"})
+DONE_ORDER_OPTIONAL = frozenset({"paths", "max_blocks"})
+CHECK_KEYS = frozenset({"id", "args", "receipt"})
+MAX_CHECKS = 8
+MAX_CHECK_ARGS = 64
+MAX_PATHS = 64
+#: Blocks without progress before the blocker (N3): three by default, at most seven, under the eight continuations
+#: after which Claude Code overrides a Stop hook.
+DEFAULT_MAX_BLOCKS = 3
+MAX_BLOCKS_LIMIT = 7
+_CHECK_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
+#: The done check's own files in the evidence folder, untracked and outside the working state (D28).
+DONE_STATE = EVIDENCE_DIR + "done-state.json"
+DONE_METRICS = EVIDENCE_DIR + "done-metrics.json"
+DONE_BLOCKER = EVIDENCE_DIR + "done-blocker.json"
+DONE_OWN_FILES = (DONE_STATE, DONE_METRICS, DONE_BLOCKER)
+DONE_FILES_SCHEMA = "proofbundle-plugin/done-{}/v0.1"
+METRIC_KEYS = ("blocked", "task_blocked", "missing_checks", "completed_after_block", "blockers", "done")
+MAX_STATE_BYTES = 64 * 1024
 DONE_RECEIPT = EVIDENCE_DIR + "proofbundle_pytest_receipt.json"
 DONE_POLICY = EVIDENCE_DIR + "done-policy.json"
 DONE_KEY_FILE = "done-test.key"
@@ -1649,13 +1671,62 @@ def parse_declaration(raw: bytes) -> list[dict]:
 
 
 def _done_section(value: object) -> dict:
-    """The done check of the declaration (D26): exactly a receipt and a policy, two paths under .proofbundle/."""
-    if not isinstance(value, dict) or set(value) != DONE_KEYS:
-        raise GateError(f"done must be an object with exactly the keys {', '.join(sorted(DONE_KEYS))}")
-    done = {"receipt": _relative(value["receipt"], "done.receipt"), "policy": _relative(value["policy"], "done.policy")}
-    if done["receipt"] == done["policy"] or DECLARATION in done.values():
-        raise GateError("done.receipt and done.policy must name two files other than the declaration")
+    """The done check of the declaration (D26, D28), as {"policy", "checks", "paths", "max_blocks"}. Two forms:
+    - {"receipt", "policy"}: one check, "tests", the pytest run its receipt names, with any selection;
+    - {"policy", "checks"[, "paths"][, "max_blocks"]}: the order. Each check is {"id", "args", "receipt"}: the pytest
+      arguments the run must have been given and the receipt it leaves. "paths" are the patterns the work may change
+      (fnmatch, `*` also matches `/`), compared with the commit that last changed the declaration; "max_blocks" is
+      how many blocks without progress the Stop hook makes before it writes a blocker (1 to 7, default 3).
+    Every file lies under .proofbundle/ and is a file of its own."""
+    if isinstance(value, dict) and set(value) == DONE_KEYS:
+        done = {"policy": _relative(value["policy"], "done.policy"), "paths": None, "max_blocks": DEFAULT_MAX_BLOCKS,
+                "checks": [{"id": "tests", "args": None, "receipt": _relative(value["receipt"], "done.receipt")}]}
+    elif isinstance(value, dict) and DONE_ORDER_KEYS <= set(value) <= DONE_ORDER_KEYS | DONE_ORDER_OPTIONAL:
+        done = {"policy": _relative(value["policy"], "done.policy"), "checks": _done_checks(value["checks"]),
+                "paths": _done_paths(value["paths"]) if "paths" in value else None,
+                "max_blocks": _max_blocks(value.get("max_blocks", DEFAULT_MAX_BLOCKS))}
+    else:
+        raise GateError("done must be an object with exactly the keys policy and receipt, or with the keys policy "
+                        "and checks and optionally paths and max_blocks")
+    files = [done["policy"], *(check["receipt"] for check in done["checks"])]
+    if len(set(files)) != len(files) or DECLARATION in files or any(f in DONE_OWN_FILES for f in files):
+        raise GateError("done.policy and every receipt must name files of their own, other than the declaration and "
+                        "the done check's own state files")
     return done
+
+
+def _done_checks(value: object) -> list[dict]:
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_CHECKS:
+        raise GateError(f"done.checks must be a list of 1 to {MAX_CHECKS} checks")
+    checks, seen = [], set()
+    for n, check in enumerate(value):
+        where = f"done.checks[{n}]"
+        if not isinstance(check, dict) or set(check) != CHECK_KEYS:
+            raise GateError(f"{where} must be an object with exactly the keys args, id and receipt")
+        ident, args = check["id"], check["args"]
+        if not (isinstance(ident, str) and _CHECK_ID.fullmatch(ident)) or ident in seen:
+            raise GateError(f"{where}.id must be a name of its own, of lowercase letters, digits, - and _ (at most 32)")
+        if not (isinstance(args, list) and len(args) <= MAX_CHECK_ARGS
+                and all(isinstance(a, str) and a and len(a) <= 1024 and "\0" not in a for a in args)):
+            raise GateError(f"{where}.args must be a list of at most {MAX_CHECK_ARGS} non-empty strings, the arguments "
+                            "pytest is given")
+        seen.add(ident)
+        checks.append({"id": ident, "args": list(args), "receipt": _relative(check["receipt"], f"{where}.receipt")})
+    return checks
+
+
+def _done_paths(value: object) -> list[str]:
+    if not (isinstance(value, list) and 1 <= len(value) <= MAX_PATHS
+            and all(isinstance(p, str) and p and len(p) <= 256 and "\0" not in p and not p.startswith("/")
+                    for p in value)):
+        raise GateError(f"done.paths must be a list of 1 to {MAX_PATHS} path patterns relative to the repository")
+    return list(value)
+
+
+def _max_blocks(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= MAX_BLOCKS_LIMIT:
+        raise GateError(f"done.max_blocks must be a whole number from 1 to {MAX_BLOCKS_LIMIT}")
+    return value
 
 
 def parse_done(raw: bytes) -> dict | None:
@@ -3655,7 +3726,7 @@ def _state_excluded(path: bytes) -> bool:
 
 
 def working_state(repo: str, deadline: float) -> dict:
-    """{"commit", "tree", "worktree", "problem"} of the repository: HEAD's commit and tree id, and the tree id of
+    """{"commit", "tree", "worktree", "problem", "files"} of the repository: HEAD's commit and tree id, and the tree id of
     the working state, the files of HEAD and every other file git does not ignore, read as raw bytes and modes
     (100755 when the owner may execute a file, else 100644), outside untracked files of the top-level
     .proofbundle/ folder and of __pycache__ folders. No clean or smudge filter, line-ending rule, fsmonitor, hook
@@ -3672,7 +3743,7 @@ def working_state(repo: str, deadline: float) -> dict:
             raise GateError("the repository has no commit at HEAD")
         ids.append(value)
     commit, tree = ids
-    state = {"commit": commit, "tree": tree, "worktree": None, "problem": None}
+    state = {"commit": commit, "tree": tree, "worktree": None, "problem": None, "files": None}
     listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, deadline=deadline)
     if listing.returncode != 0:
         raise GateError(f"git could not list the tree of {commit[:12]}")
@@ -3751,6 +3822,7 @@ def working_state(repo: str, deadline: float) -> dict:
         hasher.update(data)
         files[path] = (mode, hasher.hexdigest())
     state["worktree"] = _tree_object_id(len(commit), files)
+    state["files"] = files
     return state
 
 
@@ -3795,13 +3867,42 @@ def tested_tree(provenance: object) -> str | None:
         c in "0123456789abcdef" for c in value) else None
 
 
-def _done_command(done: dict, environ: dict) -> str:
+def _short(text: str, limit: int = 240) -> str:
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def check_command(check: dict, environ: dict) -> str:
+    """The command that runs one check of the done section and leaves its receipt (D26, D28). A check of the
+    order names its pytest arguments and clears PYTEST_ADDOPTS, so the receipt names exactly that selection."""
     key = environ.get("PROOFBUNDLE_KEY")
     if not (key and os.path.isabs(key)):
         directory = _gate_dir(environ)
         key = os.path.join(directory, DONE_KEY_FILE) if directory else "<your test key file>"
-    return (f"PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT={shlex.quote(done['receipt'])} "
-            f"PROOFBUNDLE_KEY={shlex.quote(key)} python -m pytest")
+    selection = "" if check["args"] is None else "PYTEST_ADDOPTS= "
+    args = "" if check["args"] is None else "".join(" " + shlex.quote(a) for a in check["args"])
+    return (f"{selection}PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT={shlex.quote(check['receipt'])} "
+            f"PROOFBUNDLE_KEY={shlex.quote(key)} python -m pytest{args}")
+
+
+def selection_problem(check: dict, provenance: dict) -> str | None:
+    """Why the receipt's run is not the run the check asks for, or None. A check of the order asks for exactly its
+    pytest arguments, an empty PYTEST_ADDOPTS and no deselected test; the one-check form asks for no selection. Not
+    seen here: plugins or conftest code that skip, select or rewrite tests in other ways (D28)."""
+    if check["args"] is None:
+        return None
+    args, addopts, deselected = (provenance.get("pytest_args"), provenance.get("pytest_addopts"),
+                                 provenance.get("n_deselected"))
+    if not (isinstance(args, list) and all(isinstance(a, str) for a in args) and isinstance(addopts, str)
+            and type(deselected) is int):
+        return "the receipt does not name how pytest was asked to run (pytest_args, pytest_addopts, n_deselected)"
+    if args != check["args"]:
+        return _short(f"the receipt's run had the pytest arguments {json.dumps(args)}, the check asks for "
+                      f"{json.dumps(check['args'])}")
+    if addopts.strip():
+        return _short(f"the receipt's run had PYTEST_ADDOPTS {addopts!r}, which the check does not allow")
+    if deselected != 0:
+        return f"the receipt's run deselected {deselected} tests"
+    return None
 
 
 def _receipt_bytes(path: str) -> bytes | None:
@@ -3821,116 +3922,395 @@ def _receipt_bytes(path: str) -> bytes | None:
         return handle.read(MAX_EVIDENCE_BYTES + 1)
 
 
-def done_verdict(directory: str, deadline: float, receipt_path: str | None = None,
-                 environ: dict | None = None) -> Verdict:
-    """Whether the session may end (D26): pass when a receipt verifies under the declared policy at HEAD, says
-    that every test passed, and names the tree of the working state now; inactive (NOT MEASURED, no block) where
-    no done check is declared; deny otherwise, with what is missing and the command that delivers it.
-    `receipt_path` overrides the declared receipt, for the CI check, whose receipt lies outside the checkout."""
+def _signed_payload(content: bytes) -> bytes | None:
+    """B of a proofbundle bundle: the payload bytes its signature covers, or None where there is none to read."""
+    try:
+        bundle = strict_json(content)
+        return base64.b64decode(bundle["payload_b64"], validate=True) if isinstance(bundle, dict) else None
+    except (KeyError, TypeError, ValueError, binascii.Error):
+        return None
+
+
+def changed_paths(repo: str, commit: str, files: dict, deadline: float) -> tuple[str, list[str]]:
+    """The commit that set the order, the last commit at or before HEAD that changed the declaration, and the paths
+    whose mode or bytes differ between its tree and the working state `files` (D28). `rev-list`, not `log`: no
+    signature check, no pager, no program a configuration names."""
+    proc = _git(repo, "rev-list", "-1", commit, "--", DECLARATION, deadline=deadline)
+    base = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode != 0 or len(base) not in _BLOB_HASHES:
+        raise GateError("git could not name the commit that set the order")
+    listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", base, deadline=deadline)
+    if listing.returncode != 0:
+        raise GateError(f"git could not list the tree of {base[:12]}, the commit that set the order")
+    before = {}
+    for record in listing.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, tab, path = record.partition(b"\t")
+        fields = meta.split(b" ")
+        if not tab or len(fields) != 3 or fields[1] != b"blob":
+            raise GateError(f"the tree of {base[:12]}, the commit that set the order, holds an entry the gate cannot "
+                            "compare as a file")
+        before[path] = (fields[0], fields[2].decode("ascii", "replace"))
+    changed = sorted(p for p in set(before) | set(files) if before.get(p) != files.get(p))
+    return base, [p.decode("utf-8", "surrogateescape") for p in changed]
+
+
+#: Which reason id a deny of the done check carries for its first open point.
+_OPEN_REASON = {"missing": "no_receipt", "unverified": "verification_failed", "red": "not_done",
+                "other_selection": "other_selection", "no_state": "not_done", "stale": "stale_receipt",
+                "outside_paths": "outside_paths"}
+
+
+def done_evaluation(directory: str, deadline: float, receipt_path: str | None = None, environ: dict | None = None,
+                    receipt_dir: str | None = None) -> dict:
+    """The done check (D26, D28) with what it found: {"verdict", "done", "repo", "commit", "state", "checks",
+    "open", "policy", "base"}. Pass when every check of the done section has a receipt that verifies under the
+    declared policy at HEAD, says that every test passed, was run with the check's selection, names HEAD's commit
+    and tree and the tree of the working state now, and the working state changes no path the order does not
+    allow; inactive (NOT MEASURED, no block) where no done check is declared; deny otherwise, naming the first open
+    point and the command that closes it. `receipt_path` (one check) and `receipt_dir` (receipts named <id>.json)
+    override the declared receipts, for the CI check, whose receipts lie outside the checkout."""
     environ = os.environ if environ is None else environ
+    result = {"verdict": None, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
+              "policy": None, "base": None}
     top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
     if top.returncode != 0:
-        return Verdict("inactive", "NOT MEASURED: not a git repository; no done check applies.", "no_repository")
+        result["verdict"] = Verdict("inactive", "NOT MEASURED: not a git repository; no done check applies.",
+                                    "no_repository")
+        return result
     repo = os.fsdecode(top.stdout.rstrip(b"\n"))
     head = _git(repo, "rev-parse", "--verify", "-q", "HEAD^{commit}", deadline=deadline)
     commit = head.stdout.decode("ascii", "replace").strip() if head.returncode == 0 else ""
+    result.update(repo=repo, commit=commit or None)
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES) if commit else None
     if raw is None:
         if _absent_in_working_tree(repo):
-            return Verdict("inactive", f"NOT MEASURED: no declaration ({DECLARATION} is absent at HEAD and in the "
-                                       "working tree); no done check applies.", "nothing_declared", repo=repo,
-                           head=commit or None)
-        return Verdict("deny", f"NOT MEASURED: {DECLARATION} is in the working tree but not at HEAD.",
-                       "declaration_not_committed", evidence=f"the declaration {DECLARATION}",
-                       failed="the declaration is not committed, so the done check cannot read it from HEAD",
-                       next_step=f"commit {DECLARATION}", repo=repo, head=commit or None)
+            result["verdict"] = Verdict("inactive", f"NOT MEASURED: no declaration ({DECLARATION} is absent at HEAD "
+                                                    "and in the working tree); no done check applies.",
+                                        "nothing_declared", repo=repo, head=commit or None)
+            return result
+        result["verdict"] = Verdict("deny", f"NOT MEASURED: {DECLARATION} is in the working tree but not at HEAD.",
+                                    "declaration_not_committed", evidence=f"the declaration {DECLARATION}",
+                                    failed="the declaration is not committed, so the done check cannot read it from "
+                                           "HEAD", next_step=f"commit {DECLARATION}", repo=repo, head=commit or None)
+        return result
     done = parse_done(raw)
     if done is None:
-        return Verdict("inactive", f"NOT MEASURED: {DECLARATION} at HEAD declares no done check.", "no_done_check",
-                       repo=repo, head=commit)
-    command = _done_command(done, environ)
+        result["verdict"] = Verdict("inactive", f"NOT MEASURED: {DECLARATION} at HEAD declares no done check.",
+                                    "no_done_check", repo=repo, head=commit)
+        return result
+    result["done"] = done
+    checks = done["checks"]
+    if receipt_path is not None and len(checks) != 1:
+        raise GateError(f"the done check declares {len(checks)} checks; name a folder of receipts with --receipt-dir")
     policy = _blob(repo, commit, done["policy"], deadline, MAX_DECLARATION_BYTES)
     if policy is None:
-        return Verdict("deny", f"proofbundle gate: the done policy {done['policy']} is missing at HEAD.", "missing_file",
-                       evidence=f"the done policy {done['policy']}", failed="the policy is missing at HEAD",
-                       next_step=f"commit the policy {done['policy']} that pins your test key", repo=repo, head=commit)
+        result["verdict"] = Verdict("deny", f"proofbundle gate: the done policy {done['policy']} is missing at HEAD.",
+                                    "missing_file", evidence=f"the done policy {done['policy']}",
+                                    failed="the policy is missing at HEAD",
+                                    next_step=f"commit the policy {done['policy']} that pins your test key",
+                                    repo=repo, head=commit)
+        return result
     require_pinned_signer(policy, f"the done policy {done['policy']}")
-    receipt_file = receipt_path if receipt_path is not None else os.path.join(repo, *done["receipt"].split("/"))
-    content = _receipt_bytes(receipt_file)
-    if content is None:
-        return Verdict("deny", f"proofbundle gate: there is no receipt at {receipt_file}.", "no_receipt",
-                       evidence=f"the receipt {done['receipt']}", failed="no test run left a receipt",
-                       next_step=f"run the tests with a receipt: {command}", repo=repo, head=commit)
-    with tempfile.TemporaryDirectory(prefix="proofbundle-done-") as scratch:
-        targets = []
-        for name, data in (("receipt.json", content), ("policy.json", policy)):
-            targets.append(os.path.join(scratch, name))
-            with open(targets[-1], "wb") as handle:
-                handle.write(data)
-        result = verify_items([{"kind": "bundle", "path": targets[0], "policy_path": targets[1]}], deadline)[0]
-    exit_code = result.get("exit_code")
-    if result["is_error"] or not (isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code == 0):
-        why = result.get("error") or f"exit {exit_code!r}: {result.get('meaning')}"
-        return Verdict("deny", f"proofbundle gate: the receipt does not verify under {done['policy']}: {why}.",
-                       "verification_failed", evidence=f"the receipt {done['receipt']}",
-                       failed=f"it does not verify under the done policy ({why})",
-                       next_step=f"run the tests again with the key the policy pins: {command}", repo=repo, head=commit)
-    try:
-        bundle = strict_json(content)
-        payload = base64.b64decode(bundle["payload_b64"], validate=True) if isinstance(bundle, dict) else None
-        claim = strict_json(payload) if payload is not None else None
-    except (KeyError, TypeError, ValueError, binascii.Error):
-        claim = None
-    problem = done_claim_problem(claim)
-    if problem is None:
-        tested = tested_tree(claim.get("provenance"))
-        problem = None if tested is not None else "the receipt names no git state the tests ran on"
-    if problem is not None:
-        return Verdict("deny", f"proofbundle gate: {problem}.", "not_done", evidence=f"the receipt {done['receipt']}",
-                       failed=problem, next_step=f"make every test pass, then run them with a receipt: {command}",
-                       repo=repo, head=commit)
-    state = working_state(repo, deadline)
-    if state["worktree"] is None:
-        return Verdict("deny", f"NOT MEASURED: the working state cannot be read as files: {state['problem']}.",
-                       "state_not_measured", evidence="the working tree", failed=state["problem"],
-                       next_step="remove the cause named here, then run the tests with a receipt", repo=repo, head=commit)
-    if tested != state["worktree"]:
-        return Verdict("deny", f"proofbundle gate: the receipt's tests ran on tree {tested}, the working state is "
-                               f"tree {state['worktree']}.", "stale_receipt", evidence=f"the receipt {done['receipt']}",
-                       failed=f"the tests ran on tree {tested[:12]}, and the working state now is tree "
-                              f"{state['worktree'][:12]}",
-                       next_step=f"run the tests on this state with a receipt: {command}", repo=repo, head=commit)
-    return Verdict("pass", f"proofbundle gate: done. The receipt {done['receipt']} verifies under {done['policy']}, "
-                           f"says every one of {claim['n']} tests passed with exit status 0, and names tree "
-                           f"{tested}, the working state now (HEAD {commit[:12]}, "
-                           f"{'clean' if tested == state['tree'] else 'with uncommitted changes'}). This proves who "
-                           "signed the receipt and which tree it names, not that the tests test anything.",
-                   "done", repo=repo, head=commit)
+    result["policy"] = policy
+    rows = []
+    for check in checks:
+        if receipt_path is not None:
+            location = receipt_path
+        elif receipt_dir is not None:
+            location = os.path.join(receipt_dir, check["id"] + ".json")
+        else:
+            location = os.path.join(repo, *check["receipt"].split("/"))
+        row = {"id": check["id"], "receipt": check["receipt"], "location": location, "status": None, "failed": "",
+               "command": check_command(check, environ), "content": None, "payload": None}
+        try:
+            row["content"] = _receipt_bytes(location)
+        except GateError as exc:
+            row.update(status="unverified", failed=str(exc))
+        if row["status"] is None and row["content"] is None:
+            shown = check["receipt"] if receipt_path is None and receipt_dir is None else location
+            row.update(status="missing", failed=f"no test run left a receipt at {shown}")
+        rows.append(row)
+    present = [row for row in rows if row["status"] is None]
+    if present:
+        with tempfile.TemporaryDirectory(prefix="proofbundle-done-") as scratch:
+            policy_file = os.path.join(scratch, "policy.json")
+            with open(policy_file, "wb") as handle:
+                handle.write(policy)
+            requests = []
+            for n, row in enumerate(present):
+                target = os.path.join(scratch, f"receipt-{n}.json")
+                with open(target, "wb") as handle:
+                    handle.write(row["content"])
+                requests.append({"kind": "bundle", "path": target, "policy_path": policy_file})
+            answers = verify_items(requests, deadline)
+        for row, answer in zip(present, answers):
+            exit_code = answer.get("exit_code")
+            if answer["is_error"] or not (isinstance(exit_code, int) and not isinstance(exit_code, bool)
+                                          and exit_code == 0):
+                why = answer.get("error") or f"exit {exit_code!r}: {answer.get('meaning')}"
+                row.update(status="unverified", failed=f"it does not verify under the done policy ({why})")
+    state = None
+    for row, check in zip(rows, checks):
+        if row["status"] is not None:
+            continue
+        row["payload"] = _signed_payload(row["content"])
+        try:
+            claim = strict_json(row["payload"]) if row["payload"] is not None else None
+        except ValueError:
+            claim = None
+        problem = done_claim_problem(claim)
+        if problem is not None:
+            row.update(status="red", failed=problem)
+            continue
+        provenance = claim["provenance"]
+        problem = selection_problem(check, provenance)
+        if problem is not None:
+            row.update(status="other_selection", failed=problem)
+            continue
+        tested = tested_tree(provenance)
+        if tested is None:
+            row.update(status="no_state", failed="the receipt names no git state the tests ran on")
+            continue
+        if state is None:
+            state = working_state(repo, deadline)
+            result["state"] = state
+            if state["worktree"] is None:
+                result["checks"] = rows
+                result["verdict"] = Verdict("deny", f"NOT MEASURED: the working state cannot be read as files: "
+                                                    f"{state['problem']}.", "state_not_measured",
+                                            evidence="the working tree", failed=state["problem"],
+                                            next_step="remove the cause named here, then run the tests with a "
+                                                      "receipt", repo=repo, head=commit)
+                return result
+        named = (provenance.get("git_hash"), provenance.get("git_tree"))
+        if named != (state["commit"], state["tree"]):
+            row.update(status="stale", failed=f"the receipt names commit {str(named[0])[:12]} with tree "
+                                              f"{str(named[1])[:12]}, and HEAD is commit {state['commit'][:12]} with "
+                                              f"tree {state['tree'][:12]}")
+            continue
+        if tested != state["worktree"]:
+            row.update(status="stale", failed=f"the tests ran on tree {tested[:12]}, and the working state now is "
+                                              f"tree {state['worktree'][:12]}")
+            continue
+        row.update(status="green", tested=tested, tests=claim["n"])
+    result["checks"] = rows
+    opened = [{"id": row["id"], "status": row["status"], "failed": row["failed"], "command": row["command"],
+               "receipt": row["receipt"]} for row in rows if row["status"] != "green"]
+    if not opened and done["paths"] is not None:
+        if state is None:
+            state = result["state"] = working_state(repo, deadline)
+        base, changed = changed_paths(repo, commit, state["files"], deadline)
+        result["base"] = base
+        outside = [p for p in changed if not any(fnmatch.fnmatchcase(p, pattern) for pattern in done["paths"])]
+        if outside:
+            shown = ", ".join(outside[:5]) + (f" and {len(outside) - 5} more" if len(outside) > 5 else "")
+            opened.append({"id": "paths", "status": "outside_paths",
+                           "failed": _short(f"the work changes paths the order does not allow since {base[:12]}: "
+                                            f"{shown}", 400),
+                           "command": "undo the changes outside the allowed paths, or ask the owner to change the "
+                                      "order", "outside": outside})
+    result["open"] = opened
+    if opened:
+        first = opened[0]
+        others = [f"{p['id']} ({p['status'].replace('_', ' ')})" for p in opened[1:]]
+        failed = f"check {first['id']} is {first['status'].replace('_', ' ')}: {first['failed']}"
+        if others:
+            failed += "; also open: " + ", ".join(others)
+        next_step = first["command"] if first["status"] == "outside_paths" else f"run {first['command']}"
+        result["verdict"] = Verdict("deny", f"proofbundle gate: {failed}.", _OPEN_REASON[first["status"]],
+                                    evidence=f"the receipt {first['receipt']}" if "receipt" in first
+                                    else "the working state", failed=failed, next_step=next_step, repo=repo,
+                                    head=commit)
+        return result
+    tested = rows[0]["tested"]
+    names = ", ".join(row["id"] for row in rows)
+    result["verdict"] = Verdict(
+        "pass", f"proofbundle gate: done. {len(rows)} {'check' if len(rows) == 1 else 'checks'} ({names}): every "
+                f"receipt verifies under {done['policy']}, says every one of its tests passed with exit status 0, was "
+                f"run with the check's selection, and names commit {commit[:12]} and tree {tested}, the working state "
+                f"now ({'clean' if tested == state['tree'] else 'with uncommitted changes'})"
+                + (f"; no path outside the order changed since {result['base'][:12]}" if result["base"] else "")
+                + ". This proves who signed the receipts and which tree they name, not that the tests test anything.",
+        "done", repo=repo, head=commit)
+    return result
+
+
+def done_verdict(directory: str, deadline: float, receipt_path: str | None = None,
+                 environ: dict | None = None) -> Verdict:
+    """The verdict of done_evaluation alone."""
+    return done_evaluation(directory, deadline, receipt_path, environ)["verdict"]
 
 
 def _done_line(verdict: Verdict) -> str:
-    """The one line a blocked end shows: what is missing and which command delivers it."""
+    """The one line a blocked end shows: the open point and the command that closes it."""
     return (f"proofbundle done check: {verdict.failed.rstrip('.')}. Next: {verdict.next_step.rstrip('.')}. "
             "Never weaken the declaration, the policy or the key to end the session.")
 
 
-def stop_command(argv: list[str]) -> int:
-    """The Stop hook (D26). Prints a block with one line, a message for a pass, nothing where no done check is
-    declared; exits 0. Any failure inside the check blocks: the session does not end on a check that reached no
-    verdict. Claude Code lets the session end after nine blocks in a row without a tool call (measured, Claude Code
-    2.1.294), which is why the hard boundary is the CI check (README)."""
-    deadline = time.monotonic() + DEADLINE_SECONDS
-    host, event = "claude", None
+# --- the done check's own files in the evidence folder (D28) -------------------------------------------------------
+
+def _evidence_folder(repo: str) -> str | None:
+    """The repository's .proofbundle folder when it is a real directory (not a link), else None."""
+    path = os.path.join(repo, EVIDENCE_DIR.rstrip("/"))
     try:
-        host = _host(argv)
+        return path if stat.S_ISDIR(os.lstat(path).st_mode) else None
+    except OSError:
+        return None
+
+
+def _read_done_file(repo: str, name: str, kind: str) -> dict | None:
+    """One of the done check's own files, or None where it is absent, not a regular file, too large, not strict
+    JSON or of another schema. Its content is counted, never trusted for a verdict."""
+    if _evidence_folder(repo) is None:
+        return None
+    path = os.path.join(repo, *name.split("/"))
+    try:
+        st = os.lstat(path)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_STATE_BYTES:
+            return None
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as handle:
+            doc = strict_json(handle.read(MAX_STATE_BYTES + 1))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) and doc.get("schema") == DONE_FILES_SCHEMA.format(kind) else None
+
+
+def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
+    """Write one of the done check's own files through a fresh temporary file that replaces it; never through a
+    link. None on success, else why not."""
+    folder = _evidence_folder(repo)
+    if folder is None:
+        return f"{EVIDENCE_DIR} is not a directory of the repository"
+    target = os.path.join(repo, *name.split("/"))
+    temporary = os.path.join(folder, f".{os.path.basename(name)}.{secrets.token_hex(6)}.tmp")
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write((json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+        os.replace(temporary, target)
+    except OSError as exc:
         try:
-            event = strict_json(sys.stdin.read())
-        except ValueError as exc:
-            raise GateError(f"the hook input is not JSON ({exc})") from exc
-        if not isinstance(event, dict) or event.get("hook_event_name") != "Stop":
-            raise GateError("the hook input is not a Stop event")
-        cwd = event.get("cwd")
-        verdict = done_verdict(cwd if isinstance(cwd, str) and os.path.isabs(cwd) else os.getcwd(), deadline)
+            os.unlink(temporary)
+        except OSError:
+            pass
+        return f"{name} could not be written: {exc}"
+    return None
+
+
+def _tally(repo: str, **increments) -> None:
+    """Add to the local counters in DONE_METRICS (D28, N5): no network, nothing leaves the machine. A file that is
+    not the counters' own form is started afresh."""
+    metrics = _read_done_file(repo, DONE_METRICS, "metrics")
+    if metrics is None or not all(type(metrics.get(k)) is int for k in METRIC_KEYS) \
+            or not isinstance(metrics.get("open"), dict):
+        metrics = {"schema": DONE_FILES_SCHEMA.format("metrics"), "first": _now(), "open": {},
+                   **{k: 0 for k in METRIC_KEYS}}
+    opened = increments.pop("open", ())
+    for key, value in increments.items():
+        metrics[key] += value
+    for status in opened:
+        metrics["open"][status] = (metrics["open"].get(status) if type(metrics["open"].get(status)) is int else 0) + 1
+    metrics["last"] = _now()
+    _write_done_file(repo, DONE_METRICS, metrics)
+
+
+def _blocker(result: dict, session: str, blocks: int) -> dict:
+    state = result["state"] or {}
+    checks = [{"id": row["id"], "status": row["status"], "detail": row["failed"] or "verified", "command": row["command"]}
+              for row in result["checks"]]
+    opened = [p for p in result["open"] if p["id"] == "paths"]
+    return {"schema": DONE_FILES_SCHEMA.format("blocker"), "verdict": "NOT DONE", "written": _now(),
+            "session": session, "blocks_without_progress": blocks - 1, "head": result["commit"],
+            "tree": state.get("tree"), "working_tree": state.get("worktree"),
+            "clean": (state.get("worktree") == state.get("tree")) if state else None, "checks": checks,
+            "outside_paths": opened[0].get("outside", []) if opened else [],
+            "text": "NOT DONE. The Stop hook stopped blocking after the same open points stayed open; this file names "
+                    "them and the state the gate measured. It is not a receipt and proves nothing about the tests."}
+
+
+def _account_block(result: dict, event: dict | None) -> str | None:
+    """Count one blocked end (D28, N3 and N5) and decide whether to keep blocking. Returns None to block, else the
+    path of the blocker file written instead: after max_blocks blocks with the same open points (no progress) in the
+    same session the hook writes the blocker and lets the session end without a done verdict."""
+    repo, done = result["repo"], result["done"]
+    session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
+    signature = [[p["id"], p["status"]] for p in result["open"]]
+    previous = _read_done_file(repo, DONE_STATE, "state")
+    same = (previous is not None and previous.get("session") == session and previous.get("open") == signature
+            and type(previous.get("blocks")) is int and previous["blocks"] >= 0)
+    blocks = previous["blocks"] + 1 if same else 1
+    statuses = [p["status"] for p in result["open"]]
+    if blocks > done["max_blocks"]:
+        first = not (same and previous.get("blocker") is True)
+        problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, session, blocks)) if first else None
+        if problem is not None:
+            _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
+            _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+                                                "open": signature, "blocks": blocks, "blocker": False})
+            return None
+        if first:
+            _tally(repo, blockers=1)
+        _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+                                            "open": signature, "blocks": blocks, "blocker": True})
+        return DONE_BLOCKER
+    _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
+    _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+                                        "open": signature, "blocks": blocks, "blocker": False})
+    return None
+
+
+def _account_pass(result: dict, event: dict | None) -> None:
+    """Count a done verdict, and a completion after at least one block in the same session; the blocker of an
+    earlier stop no longer stands and is removed."""
+    repo = result["repo"]
+    session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
+    previous = _read_done_file(repo, DONE_STATE, "state")
+    after_block = previous is not None and previous.get("session") == session and \
+        type(previous.get("blocks")) is int and previous["blocks"] >= 1
+    _tally(repo, done=1, completed_after_block=1 if after_block else 0)
+    _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session, "open": [],
+                                        "blocks": 0, "blocker": False})
+    blocker = os.path.join(repo, *DONE_BLOCKER.split("/"))
+    try:
+        if stat.S_ISREG(os.lstat(blocker).st_mode):
+            os.unlink(blocker)
+    except OSError:
+        pass
+
+
+def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
+    host = _host(argv)
+    try:
+        event = strict_json(sys.stdin.read())
+    except ValueError as exc:
+        raise GateError(f"the hook input is not JSON ({exc})") from exc
+    if not isinstance(event, dict) or event.get("hook_event_name") != name:
+        raise GateError(f"the hook input is not a {name} event")
+    return host, event
+
+
+def _event_directory(event: dict) -> str:
+    cwd = event.get("cwd")
+    return cwd if isinstance(cwd, str) and os.path.isabs(cwd) else os.getcwd()
+
+
+def stop_command(argv: list[str]) -> int:
+    """The Stop hook (D26, D28), the same for Claude Code and Codex. Prints a block with one line, a message for a
+    pass, nothing where no done check is declared; exits 0. It never sets continue: a block asks the host to go on
+    working (Codex inserts the reason as a new turn), it never stops the host. Any failure inside the check blocks:
+    the session does not end on a check that reached no verdict. After max_blocks blocks without progress it writes
+    DONE_BLOCKER and stops blocking (N3). Claude Code overrides a Stop hook after eight continuations without a tool
+    call in between (documented; nine blocks measured with Claude Code 2.1.294), which is why the hard boundary is
+    the CI check (README)."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    host, event, result = "claude", None, None
+    try:
+        host, event = _hook_event(argv, "Stop")
+        result = done_evaluation(_event_directory(event), deadline)
+        verdict = result["verdict"]
     except GateError as exc:
         verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
                           failed=f"the check reached no verdict ({exc})", next_step="fix the cause named here")
@@ -3938,37 +4318,82 @@ def stop_command(argv: list[str]) -> int:
         verdict = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}.", "internal_error",
                           evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
                           next_step="report this error")
+    blocker = None
+    try:
+        if result is not None and result["done"] is not None and result["open"] and verdict.decision == "deny":
+            blocker = _account_block(result, event)
+        elif result is not None and result["done"] is not None and verdict.decision == "pass":
+            _account_pass(result, event)
+    except Exception:  # noqa: BLE001 - counting never changes the answer
+        blocker = None
     try:
         write_log(log_entry(host, event, Outcome(verdict.decision, verdict.text(), [verdict]), ["Stop"]), host)
     except Exception:  # noqa: BLE001 - the log never changes the answer
         pass
     if verdict.decision == "pass":
         sys.stdout.write(json.dumps({"systemMessage": verdict.detail}) + "\n")
+    elif blocker is not None:
+        sys.stdout.write(json.dumps({"systemMessage": (
+            f"proofbundle done check: NOT DONE. The same open points stayed open through {result['done']['max_blocks']} "
+            f"blocks, so the hook stops blocking and the session ends without a done verdict. The open points and the "
+            f"state the gate measured are in {blocker}. Open: {verdict.failed.rstrip('.')}.")}) + "\n")
     elif verdict.decision != "inactive":
         line = _done_line(verdict)
         sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
     return 0
 
 
-DONE_CHECK_USAGE = "usage: done-check --repo DIR [--receipt FILE]"
+def task_completed_command(argv: list[str]) -> int:
+    """The TaskCompleted hook of Claude Code (D28): the same check as the Stop hook. Prints the one line on stdout
+    when the task must stay open, nothing when it may be marked completed, and exits 0 either way; the hook command
+    in hooks.json turns a printed line into exit 2 with the line on stderr, and any other exit into exit 2 with its
+    own line. Python itself exits 2 when it cannot open the gate (measured), so exit 2 cannot be the gate's own
+    signal. Any failure inside the check keeps the task open. Codex has no such event."""
+    deadline = time.monotonic() + DEADLINE_SECONDS
+    result = None
+    try:
+        _host_name, event = _hook_event(argv, "TaskCompleted")
+        result = done_evaluation(_event_directory(event), deadline)
+        verdict = result["verdict"]
+    except GateError as exc:
+        verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
+                          failed=f"the check reached no verdict ({exc})", next_step="fix the cause named here")
+    except Exception as exc:  # noqa: BLE001 - any failure inside the check keeps the task open
+        verdict = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}.", "internal_error",
+                          evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
+                          next_step="report this error")
+    if verdict.decision != "deny":
+        return 0
+    try:
+        if result is not None and result["done"] is not None:
+            _tally(result["repo"], task_blocked=1)
+    except Exception:  # noqa: BLE001 - counting never changes the answer
+        pass
+    sys.stdout.write(_done_line(verdict) + "\n")
+    return 0
+
+
+DONE_CHECK_USAGE = "usage: done-check --repo DIR [--receipt FILE | --receipt-dir DIR]"
 
 
 def done_check_command(argv: list[str]) -> int:
     """The done check in CI (D26, Teil 3): exit 0 only for a pass; every NOT MEASURED, every deny and a repository
     that declares no done check exit 1; a wrong call exits 2."""
-    options, i = {"--repo": None, "--receipt": None}, 0
+    options, i = {"--repo": None, "--receipt": None, "--receipt-dir": None}, 0
     while i < len(argv):
         if argv[i] in options and i + 1 < len(argv) and options[argv[i]] is None:
             options[argv[i]], i = argv[i + 1], i + 2
         else:
             print(f"{DONE_CHECK_USAGE}; unexpected {argv[i]!r}", file=sys.stderr)
             return 2
-    if options["--repo"] is None or options["--repo"] == "" or options["--receipt"] == "":
+    if not options["--repo"] or options["--receipt"] == "" or options["--receipt-dir"] == "" or \
+            (options["--receipt"] is not None and options["--receipt-dir"] is not None):
         print(DONE_CHECK_USAGE, file=sys.stderr)
         return 2
     deadline = time.monotonic() + DEADLINE_SECONDS
     try:
-        verdict = done_verdict(options["--repo"], deadline, options["--receipt"])
+        verdict = done_evaluation(options["--repo"], deadline, options["--receipt"],
+                                  receipt_dir=options["--receipt-dir"])["verdict"]
     except GateError as exc:
         verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
                           failed=str(exc), next_step="fix the cause named here")
@@ -4052,18 +4477,19 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
     with open(declaration, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(doc, indent=2) + "\n")
     ignore = os.path.join(repo, ".proofbundle", ".gitignore")
-    line = DONE_RECEIPT.split("/", 1)[1]
     existing = open(ignore, encoding="utf-8").read().splitlines() if os.path.lexists(ignore) else []
-    if line not in existing:
+    missing = [name.split("/", 1)[1] for name in (DONE_RECEIPT, *DONE_OWN_FILES) if name.split("/", 1)[1] not in existing]
+    missing += [] if "receipts/" in existing else ["receipts/"]
+    if missing:
         with open(ignore, "a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+            handle.write("".join(line + "\n" for line in missing))
     staged = _git(repo, "add", "--", DECLARATION, DONE_POLICY, ".proofbundle/.gitignore", deadline=deadline)
     if staged.returncode != 0:
         raise GateError("git could not stage the done check")
     return (f"proofbundle done check set up in {repo}: test key {key_path} (a local test key, never a release key), "
             f"{DONE_POLICY} pins it, {DECLARATION} declares the done check, .proofbundle/.gitignore keeps the receipt "
-            f"out of the tree. Staged. Next: git commit -m \"declare the done check\"; then the tests run with a "
-            f"receipt: {_done_command(doc['done'], dict(environ, PROOFBUNDLE_KEY=key_path))}")
+            f"and the done check's own files out of the tree. Staged. Next: git commit -m \"declare the done check\"; then the tests run with a "
+            f"receipt: {check_command(_done_section(doc['done'])['checks'][0], dict(environ, PROOFBUNDLE_KEY=key_path))}")
 
 
 def done_init_command(argv: list[str]) -> int:
@@ -4606,6 +5032,8 @@ def main(argv: list[str] | None = None) -> int:
         return done_check_command(argv[1:])
     if argv[:1] == ["done-init"]:
         return done_init_command(argv[1:])
+    if argv[:1] == ["task-completed"]:
+        return task_completed_command(argv[1:])
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event, actions = "claude", None, []
     try:

@@ -103,8 +103,9 @@ def _declare_done(repo: pathlib.Path, public: str, evidence=()) -> None:
 
 
 def _receipt(repo: pathlib.Path, signer, *, passed_tests=3, failed=0, threshold="1", exit_status=None,
-             provenance_git=None, out: pathlib.Path | None = None) -> pathlib.Path:
-    """A pytest receipt as the package's plugin writes it, with the git state of the working tree now."""
+             provenance_git=None, out: pathlib.Path | None = None, selection: dict | None = None) -> pathlib.Path:
+    """A pytest receipt as the package's plugin writes it, with the git state of the working tree now and, when
+    given, how pytest was asked to run (pytest_args, pytest_addopts, n_deselected)."""
     ran = passed_tests + failed
     state = gate.working_state(str(repo), time.monotonic() + 60)
     if provenance_git is None:
@@ -114,7 +115,7 @@ def _receipt(repo: pathlib.Path, signer, *, passed_tests=3, failed=0, threshold=
             provenance_git["git_worktree_tree"] = state["worktree"]
     provenance = {"harness": "pytest", "exit_status": (1 if failed else 0) if exit_status is None else exit_status,
                   "tests_ran": ran, "tests_passed": passed_tests, "n_passed": passed_tests, "n_failed": failed,
-                  "n_error": 0, "n_skipped": 0, "n_xfailed": 0, "n_xpassed": 0, **provenance_git}
+                  "n_error": 0, "n_skipped": 0, "n_xfailed": 0, "n_xpassed": 0, **(selection or {}), **provenance_git}
     score = format(passed_tests / ran, ".6f").rstrip("0").rstrip(".") or "0"
     claim, _ = build_eval_claim(suite="pytest", suite_version="9", metric="pass_rate", comparator=">=",
                                 threshold=threshold, score=score, n=ran, model_id=f"gitCommit:{state['commit']}",
@@ -210,13 +211,15 @@ def test_a_green_receipt_for_the_current_tree_lets_the_session_end(env, declared
     assert "not that the tests test anything" in answer["systemMessage"]
 
 
-def test_a_green_receipt_for_another_tree_blocks(env, declared, keys):
+def test_a_green_receipt_for_another_commit_blocks_and_names_both(env, declared, keys):
     _receipt(declared, keys.signer)
+    named = _git(declared, "rev-parse", "HEAD^{tree}")
     _write(declared / "src" / "module.py", "VALUE = 2\n")
     _commit(declared, "change")
     reason = blocked(stop(env, declared)[1])
-    assert "the tests ran on tree" in reason and "PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1" in reason
-    assert "python -m pytest" in reason
+    assert "check tests is stale: the receipt names commit" in reason
+    assert named[:12] in reason and _git(declared, "rev-parse", "HEAD^{tree}")[:12] in reason
+    assert "PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1" in reason and "python -m pytest" in reason
 
 
 def test_a_file_changed_after_the_run_blocks(env, declared, keys):
@@ -276,7 +279,9 @@ def test_an_uncommitted_state_with_its_own_receipt_ends_and_a_later_change_block
     assert claim["provenance"]["git_worktree_tree"] == _git_tree_of_working_state(declared)
     assert stop(env, declared)[1].keys() == {"systemMessage"}
     _git(declared, "add", "src")                               # the same bytes, committed; the receipt stays out
-    _git(declared, "commit", "-q", "-m", "the same bytes")    # the tested tree is now HEAD's tree
+    _git(declared, "commit", "-q", "-m", "the same bytes")    # the tested tree is now HEAD's tree, the commit is new
+    assert "the receipt names commit" in blocked(stop(env, declared)[1])
+    _receipt(declared, keys.signer)                            # a run on the new commit ends the session
     assert stop(env, declared)[1].keys() == {"systemMessage"}
     _write(declared / "src" / "new.py", "NEW = 2\n")
     blocked(stop(env, declared)[1])
@@ -399,3 +404,330 @@ def test_the_stop_hook_is_a_command_hook():
     assert hook["type"] == "command" and "matcher" not in entry
     assert hook["command"].startswith('python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" stop ||')
     assert "exit 2" in hook["command"]
+
+
+# --- the order: required checks, their selection, allowed paths (D28, N1 and N2) -----------------------------------
+
+UNIT = {"id": "unit", "args": ["tests/unit"], "receipt": ".proofbundle/receipts/unit.json"}
+INTEGRATION = {"id": "integration", "args": ["tests/integration"], "receipt": ".proofbundle/receipts/integration.json"}
+
+
+def _selection(check: dict, **changes) -> dict:
+    return {"pytest_args": list(check["args"]), "pytest_addopts": "", "n_deselected": 0, **changes}
+
+
+def _declare_order(repo: pathlib.Path, public: str, checks=(UNIT, INTEGRATION), **extra) -> None:
+    _write(repo / POLICY, _policy(public))
+    _write(repo / gate.DECLARATION, {"schema": gate.DECLARATION_SCHEMA, "evidence": [],
+                                     "done": {"policy": POLICY, "checks": list(checks), **extra}})
+
+
+def _run(repo: pathlib.Path, signer, check: dict, **kwargs) -> pathlib.Path:
+    return _receipt(repo, signer, out=kwargs.pop("out", repo / check["receipt"]),
+                    selection=kwargs.pop("selection", _selection(check)), **kwargs)
+
+
+@pytest.fixture
+def ordered(repo: pathlib.Path, keys: Keys) -> pathlib.Path:
+    _declare_order(repo, keys.public)
+    _commit(repo, "the order: two checks")
+    return repo
+
+
+def test_an_order_with_two_checks_names_the_missing_one_and_its_command(env, ordered, keys):
+    _run(ordered, keys.signer, UNIT)
+    reason = blocked(stop(env, ordered)[1])
+    assert "check integration is missing: no test run left a receipt" in reason
+    assert ("Next: run PYTEST_ADDOPTS= PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 "
+            "PROOFBUNDLE_OUT=.proofbundle/receipts/integration.json PROOFBUNDLE_KEY=") in reason
+    assert reason.count("python -m pytest tests/integration.") == 1 and "also open" not in reason
+    _run(ordered, keys.signer, INTEGRATION)
+    code, answer, _ = stop(env, ordered)
+    assert code == 0 and set(answer) == {"systemMessage"}
+    assert "done. 2 checks (unit, integration)" in answer["systemMessage"]
+
+
+def test_every_open_check_is_listed_after_the_first(env, ordered):
+    reason = blocked(stop(env, ordered)[1])
+    assert "check unit is missing" in reason and "also open: integration (missing)" in reason
+
+
+def test_a_receipt_of_one_check_does_not_stand_for_another(env, ordered, keys):
+    _run(ordered, keys.signer, UNIT)
+    _run(ordered, keys.signer, UNIT, out=ordered / INTEGRATION["receipt"])
+    reason = blocked(stop(env, ordered)[1])
+    assert 'check integration is other selection: the receipt\'s run had the pytest arguments ["tests/unit"]' in reason
+
+
+@pytest.mark.parametrize(("changes", "expected"), [
+    ({"pytest_addopts": "-k fast"}, "PYTEST_ADDOPTS '-k fast'"),
+    ({"n_deselected": 2}, "deselected 2 tests"),
+    ({"pytest_args": ["tests/unit", "-k", "fast"]}, '["tests/unit", "-k", "fast"]'),
+])
+def test_a_run_with_another_selection_blocks(env, ordered, keys, changes, expected):
+    _run(ordered, keys.signer, INTEGRATION)
+    _run(ordered, keys.signer, UNIT, selection=_selection(UNIT, **changes))
+    reason = blocked(stop(env, ordered)[1])
+    assert "check unit is other selection" in reason and expected in reason
+
+
+def test_a_receipt_that_does_not_name_its_selection_blocks_under_an_order(env, ordered, keys):
+    _run(ordered, keys.signer, INTEGRATION)
+    _run(ordered, keys.signer, UNIT, selection={})
+    assert "does not name how pytest was asked to run" in blocked(stop(env, ordered)[1])
+
+
+def test_missing_foreign_stale_and_manipulated_receipts_each_block(env, ordered, keys):
+    """The four counter-probes of the milestone, one check at a time, the other check green."""
+    _run(ordered, keys.signer, INTEGRATION)
+    assert "check unit is missing" in blocked(stop(env, ordered)[1])
+    _run(ordered, generate_signer(), UNIT)                                       # foreign: another key
+    assert "check unit is unverified: it does not verify under the done policy" in blocked(stop(env, ordered)[1])
+    path = _run(ordered, keys.signer, UNIT)                                      # manipulated: payload changed
+    bundle = json.loads(path.read_text())
+    claim = json.loads(base64.b64decode(bundle["payload_b64"]))
+    claim["provenance"]["n_deselected"] = 0
+    claim["n"] = claim["n"] + 1
+    bundle["payload_b64"] = base64.b64encode(json.dumps(claim).encode()).decode()
+    _write(path, bundle)
+    assert "check unit is unverified" in blocked(stop(env, ordered)[1])
+    _run(ordered, keys.signer, UNIT)
+    assert stop(env, ordered)[1].keys() == {"systemMessage"}
+    _write(ordered / "src" / "module.py", "VALUE = 7\n")                         # stale: the state moved on
+    reason = blocked(stop(env, ordered)[1])
+    assert "check unit is stale: the tests ran on tree" in reason and "also open: integration (stale)" in reason
+
+
+def test_red_tests_of_one_check_block(env, ordered, keys):
+    _run(ordered, keys.signer, INTEGRATION)
+    _run(ordered, keys.signer, UNIT, passed_tests=2, failed=1)
+    assert "check unit is red: the receipt says the tests did not pass" in blocked(stop(env, ordered)[1])
+
+
+@pytest.mark.parametrize("done", [
+    {"policy": POLICY, "checks": []},
+    {"policy": POLICY, "checks": [UNIT, UNIT]},
+    {"policy": POLICY, "checks": [dict(UNIT, id="Unit")]},
+    {"policy": POLICY, "checks": [dict(UNIT, args="tests/unit")]},
+    {"policy": POLICY, "checks": [dict(UNIT, args=[""])]},
+    {"policy": POLICY, "checks": [dict(UNIT, receipt="receipts/unit.json")]},
+    {"policy": POLICY, "checks": [dict(UNIT, receipt=POLICY)]},
+    {"policy": POLICY, "checks": [dict(UNIT, receipt=gate.DONE_STATE)]},
+    {"policy": POLICY, "checks": [UNIT, dict(INTEGRATION, receipt=UNIT["receipt"])]},
+    {"policy": POLICY, "checks": [UNIT], "paths": []},
+    {"policy": POLICY, "checks": [UNIT], "paths": ["/abs"]},
+    {"policy": POLICY, "checks": [UNIT], "max_blocks": 0},
+    {"policy": POLICY, "checks": [UNIT], "max_blocks": 8},
+    {"policy": POLICY, "checks": [UNIT], "max_blocks": True},
+    {"policy": POLICY, "checks": [UNIT], "extra": 1},
+    {"policy": POLICY, "receipt": RECEIPT, "checks": [UNIT]},
+    {"policy": POLICY, "checks": [dict(UNIT, more=1)]},
+])
+def test_a_malformed_order_blocks_and_is_refused_by_the_parser(env, repo, keys, done):
+    _write(repo / POLICY, _policy(keys.public))
+    _write(repo / gate.DECLARATION, {"schema": gate.DECLARATION_SCHEMA, "evidence": [], "done": done})
+    _commit(repo)
+    with pytest.raises(gate.GateError):
+        gate._done_section(done)
+    assert "the check reached no verdict" in blocked(stop(env, repo)[1])
+
+
+def test_the_one_check_form_reads_as_one_check_without_a_selection():
+    done = gate._done_section({"receipt": RECEIPT, "policy": POLICY})
+    assert done["checks"] == [{"id": "tests", "args": None, "receipt": RECEIPT}]
+    assert (done["paths"], done["max_blocks"]) == (None, 3)
+
+
+def test_paths_outside_the_order_block_and_the_base_is_the_commit_that_set_it(env, repo, keys):
+    _declare_order(repo, keys.public, checks=(UNIT,), paths=["src/*"])
+    _commit(repo, "the order")
+    base = _git(repo, "rev-parse", "HEAD")
+    _write(repo / "src" / "module.py", "VALUE = 8\n")
+    _run(repo, keys.signer, UNIT)
+    assert stop(env, repo)[1].keys() == {"systemMessage"}
+    assert f"no path outside the order changed since {base[:12]}" in stop(env, repo)[1]["systemMessage"]
+    _write(repo / "test_ok.py", "def test_ok():\n    assert 1\n")
+    _run(repo, keys.signer, UNIT)
+    reason = blocked(stop(env, repo)[1])
+    assert f"check paths is outside paths: the work changes paths the order does not allow since {base[:12]}: " \
+           "test_ok.py" in reason
+    assert "Next: undo the changes outside the allowed paths, or ask the owner to change the order" in reason
+
+
+def test_a_changed_policy_is_a_path_outside_the_order(env, repo, keys):
+    _declare_order(repo, keys.public, checks=(UNIT,), paths=["src/*"])
+    _commit(repo, "the order")
+    policy = json.loads((repo / POLICY).read_text())
+    policy["policy_id"] = "changed"
+    _write(repo / POLICY, policy)
+    _commit(repo, "a changed policy")
+    _run(repo, keys.signer, UNIT)
+    assert "since" in blocked(stop(env, repo)[1]) and POLICY in blocked(stop(env, repo)[1])
+
+
+# --- the return path: a blocker after blocks without progress, and the counters (D28, N3 and N5) -------------------
+
+def _done_file(repo: pathlib.Path, name: str) -> dict:
+    return json.loads((repo / name).read_text())
+
+
+def test_after_max_blocks_without_progress_a_blocker_is_written_and_the_session_ends(env, repo, keys):
+    _declare_order(repo, keys.public, max_blocks=2)
+    _commit(repo, "the order")
+    _run(repo, keys.signer, UNIT)
+    blocked(stop(env, repo)[1])
+    blocked(stop(env, repo)[1])
+    code, answer, _ = stop(env, repo)
+    assert code == 0 and set(answer) == {"systemMessage"}
+    assert answer["systemMessage"].startswith("proofbundle done check: NOT DONE. The same open points stayed open "
+                                              "through 2 blocks")
+    assert gate.DONE_BLOCKER in answer["systemMessage"] and "check integration is missing" in answer["systemMessage"]
+    blocker = _done_file(repo, gate.DONE_BLOCKER)
+    assert blocker["verdict"] == "NOT DONE" and blocker["head"] == _git(repo, "rev-parse", "HEAD")
+    assert blocker["tree"] == _git(repo, "rev-parse", "HEAD^{tree}") and blocker["clean"] is True
+    assert [(c["id"], c["status"]) for c in blocker["checks"]] == [("unit", "green"), ("integration", "missing")]
+    assert "python -m pytest tests/integration" in blocker["checks"][1]["command"]
+    assert stop(env, repo)[1].keys() == {"systemMessage"}                       # it stays ended, not blocked again
+    metrics = _done_file(repo, gate.DONE_METRICS)
+    assert (metrics["blocked"], metrics["blockers"], metrics["missing_checks"], metrics["done"]) == (2, 1, 2, 0)
+    _run(repo, keys.signer, INTEGRATION)                                         # the step is made up
+    assert "done. 2 checks" in stop(env, repo)[1]["systemMessage"]
+    metrics = _done_file(repo, gate.DONE_METRICS)
+    assert (metrics["completed_after_block"], metrics["done"]) == (1, 1)
+    assert not (repo / gate.DONE_BLOCKER).exists()
+
+
+def test_progress_resets_the_count(env, repo, keys):
+    _declare_order(repo, keys.public, max_blocks=1)
+    _commit(repo, "the order")
+    blocked(stop(env, repo)[1])                                                  # unit and integration missing
+    _run(repo, keys.signer, UNIT)
+    blocked(stop(env, repo)[1])                                                  # one fewer open point: progress
+    assert _done_file(repo, gate.DONE_STATE)["blocks"] == 1
+    assert "NOT DONE" in stop(env, repo)[1]["systemMessage"]
+
+
+def test_another_session_starts_its_own_count(env, repo, keys):
+    _declare_order(repo, keys.public, max_blocks=1)
+    _commit(repo, "the order")
+    event = {"hook_event_name": "Stop", "session_id": "first", "cwd": str(repo), "stop_hook_active": False}
+    blocked(stop(env, repo, event)[1])
+    blocked(stop(env, repo, dict(event, session_id="second"))[1])
+
+
+def test_the_done_files_are_not_part_of_the_working_state_and_a_link_is_not_followed(env, repo, keys, tmp_path):
+    _declare_order(repo, keys.public, checks=(UNIT,))
+    _commit(repo, "the order")
+    outside = tmp_path / "outside.json"
+    outside.write_text("unchanged")
+    os.symlink(outside, repo / gate.DONE_METRICS)
+    blocked(stop(env, repo)[1])
+    assert outside.read_text() == "unchanged" and not (repo / gate.DONE_METRICS).is_symlink()
+    _run(repo, keys.signer, UNIT)
+    assert "done. 1 check (unit)" in stop(env, repo)[1]["systemMessage"]
+
+
+def test_counters_need_no_network_and_name_each_open_kind(env, ordered, keys):
+    _run(ordered, generate_signer(), UNIT)
+    blocked(stop(env, ordered)[1])
+    metrics = _done_file(ordered, gate.DONE_METRICS)
+    assert metrics["open"] == {"unverified": 1, "missing": 1} and metrics["missing_checks"] == 1
+    assert metrics["schema"] == "proofbundle-plugin/done-metrics/v0.1"
+
+
+# --- TaskCompleted, Claude Code (D28, N3) ---------------------------------------------------------------------------
+
+def task_completed(env: dict, cwd: pathlib.Path, event: dict | None = None) -> subprocess.CompletedProcess:
+    event = {"hook_event_name": "TaskCompleted", "session_id": "s", "cwd": str(cwd), "task_id": "1",
+             "task_subject": "finish"} if event is None else event
+    return subprocess.run([sys.executable, "-I", str(GATE), "task-completed"], input=json.dumps(event),
+                          capture_output=True, text=True, env=env, cwd=cwd, timeout=180, check=False)
+
+
+def test_task_completed_keeps_the_task_open_with_the_same_line_and_lets_it_close_when_done(env, ordered, keys):
+    proc = task_completed(env, ordered)
+    assert proc.returncode == 0 and proc.stderr == ""
+    assert proc.stdout.startswith("proofbundle done check: check unit is missing") and proc.stdout.count("\n") == 1
+    _run(ordered, keys.signer, UNIT)
+    _run(ordered, keys.signer, INTEGRATION)
+    proc = task_completed(env, ordered)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+    assert _done_file(ordered, gate.DONE_METRICS)["task_blocked"] == 1
+
+
+def test_task_completed_without_a_done_check_and_on_a_wrong_event(env, repo):
+    assert (task_completed(env, repo).returncode, task_completed(env, repo).stdout) == (0, "")
+    proc = task_completed(env, repo, {"hook_event_name": "Stop", "cwd": str(repo)})
+    assert proc.returncode == 0 and "not a TaskCompleted event" in proc.stdout
+
+
+def test_the_task_completed_hook_wraps_the_check_and_blocks_when_it_cannot_run(env, ordered, tmp_path):
+    (entry,) = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]["TaskCompleted"]
+    (hook,) = entry["hooks"]
+    assert hook["type"] == "command" and "matcher" not in entry and " task-completed) || " in hook["command"]
+    event = json.dumps({"hook_event_name": "TaskCompleted", "cwd": str(ordered), "session_id": "s"})
+    real = subprocess.run(["sh", "-c", hook["command"]], input=event, capture_output=True, text=True,
+                          env=dict(env, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), cwd=ordered, timeout=180, check=False)
+    assert real.returncode == 2 and real.stderr.startswith("proofbundle done check: check unit is missing")
+    assert "could not run" not in real.stderr
+    broken = subprocess.run(["sh", "-c", hook["command"]], input=event, capture_output=True, text=True,
+                            env=dict(env, CLAUDE_PLUGIN_ROOT=str(tmp_path / "absent")), cwd=ordered, timeout=60,
+                            check=False)
+    assert broken.returncode == 2 and "the check could not run, so the task stays open" in broken.stderr
+    _write(ordered / UNIT["receipt"], "{}")                         # the line is the gate's, whatever the receipt holds
+    passed = subprocess.run(["sh", "-c", hook["command"]], input=event, capture_output=True, text=True,
+                            env=dict(env, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), cwd=ordered, timeout=180, check=False)
+    assert passed.returncode == 2 and passed.stderr.count("\n") == 1
+
+
+# --- one Stop hook for both hosts (D28) -----------------------------------------------------------
+
+#: The fields Codex reads from a Stop hook's JSON (codex-rs/hooks/src/schema.rs, StopCommandOutputWire with the
+#: universal fields, deny_unknown_fields; read in the source fetched 2026-09-30).
+CODEX_STOP_FIELDS = {"continue", "stopReason", "suppressOutput", "systemMessage", "decision", "reason"}
+
+
+def test_codex_runs_the_same_stop_hook_from_the_same_folder():
+    manifest = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+    (entry,) = manifest["hooks"]["hooks"]["Stop"]
+    (hook,) = entry["hooks"]
+    assert hook["type"] == "command" and "matcher" not in entry
+    assert hook["command"].startswith('python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" stop --host codex ||')
+    assert "exit 2" in hook["command"]
+
+
+def test_every_stop_answer_is_one_codex_reads_and_none_sets_continue(env, repo, keys):
+    _declare_order(repo, keys.public, checks=(UNIT,), max_blocks=1)
+    _commit(repo, "the order")
+    event = {"hook_event_name": "Stop", "session_id": "s", "turn_id": "t", "cwd": str(repo), "stop_hook_active": False,
+             "transcript_path": None, "model": "m", "permission_mode": "default", "last_assistant_message": None}
+    answers = []
+    for step in ("block", "blocker", "error", "pass"):
+        if step == "error":
+            proc = subprocess.run([sys.executable, "-I", str(GATE), "stop", "--host", "codex"], input="not json",
+                                  capture_output=True, text=True, env=env, cwd=repo, timeout=180, check=False)
+        else:
+            if step == "pass":
+                _run(repo, keys.signer, UNIT)
+            proc = subprocess.run([sys.executable, "-I", str(GATE), "stop", "--host", "codex"],
+                                  input=json.dumps(event), capture_output=True, text=True, env=env, cwd=repo,
+                                  timeout=180, check=False)
+        assert proc.returncode == 0
+        answers.append(json.loads(proc.stdout))
+    for answer in answers:
+        assert set(answer) <= CODEX_STOP_FIELDS and "continue" not in answer
+    assert [a.get("decision") for a in answers] == ["block", None, "block", None]
+    assert "NOT DONE" in answers[1]["systemMessage"] and "done." in answers[3]["systemMessage"]
+
+
+# --- done-check in CI with several receipts ------------------------------------------------------------------------
+
+def test_done_check_reads_a_folder_of_receipts_for_an_order(env, ordered, keys, tmp_path):
+    folder = tmp_path / "ci-receipts"
+    for check in (UNIT, INTEGRATION):
+        _receipt(ordered, keys.signer, out=folder / f"{check['id']}.json", selection=_selection(check))
+    proc = _done_check(env, "--repo", str(ordered), "--receipt-dir", str(folder))
+    assert proc.returncode == 0, proc.stderr
+    proc = _done_check(env, "--repo", str(ordered), "--receipt", str(folder / "unit.json"))
+    assert proc.returncode == 1 and "--receipt-dir" in json.loads(proc.stdout)["message"]
+    assert _done_check(env, "--repo", str(ordered), "--receipt", "x", "--receipt-dir", "y").returncode == 2

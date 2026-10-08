@@ -1,5 +1,5 @@
 ---
 type: regex
 target: trace
-pattern: 'proofbundle gate: done\. The receipt \.proofbundle/proofbundle_pytest_receipt\.json verifies'
+pattern: 'proofbundle gate: done\. 1 check \(tests\): every receipt verifies under \.proofbundle/done-policy\.json'
 ---

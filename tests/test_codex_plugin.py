@@ -100,7 +100,8 @@ def _codex_hook_matcher() -> str:
 
 def _codex_hook() -> dict:
     groups = CODEX["hooks"]["hooks"]["PreToolUse"]
-    assert set(CODEX["hooks"]["hooks"]) == {"PreToolUse"}
+    # D28: the Stop hook of the done check runs from the same folder; tests/test_plugin_done_check.py holds its form
+    assert set(CODEX["hooks"]["hooks"]) == {"PreToolUse", "Stop"}
     # Nachtrag 19b, Punkt 7/8: the Bash and MCP matchers are Claude's; the file matcher adds Codex's apply_patch,
     # whose hook name is apply_patch with the matcher aliases Write and Edit (Codex at 14a477ea, hook_names.rs)
     assert [g["matcher"] for g in groups][:2] == [g["matcher"] for g in CLAUDE_HOOKS["hooks"]["PreToolUse"]][:2]

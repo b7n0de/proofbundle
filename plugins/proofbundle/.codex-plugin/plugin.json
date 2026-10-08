@@ -60,6 +60,17 @@
             }
           ]
         }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 -I \"${PLUGIN_ROOT}/hooks/proofbundle_gate.py\" stop --host codex || { echo 'proofbundle done check: the check could not run, so the session goes on' >&2; exit 2; }",
+              "timeout": 120
+            }
+          ]
+        }
       ]
     }
   }
