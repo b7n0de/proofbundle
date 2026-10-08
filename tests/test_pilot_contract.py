@@ -109,9 +109,8 @@ class ThePilotContract(unittest.TestCase):
         It is matched to none, M1 is unknown for each, and it counts under M6 when one of them was refused."""
         text = " ".join(_text().split())
         massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
-        self.assertIn("An effect that matches more than one proposed action of the window is matched to none of them",
-                      massnahmen)
-        self.assertIn("M1 is `ambiguous` for each action it matches", massnahmen)
+        self.assertIn("An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class "
+                      "`ambiguous effect`: M1 is `ambiguous` for each of them", massnahmen)
         self.assertIn("it counts under M6 when any of them was refused", massnahmen)
 
     def test_the_witness_was_authorized_before_the_write(self) -> None:
@@ -140,7 +139,7 @@ class ThePilotContract(unittest.TestCase):
         text = " ".join(_text().split())
         self.assertIn("arrived, not arrived, ambiguous, not yet observed, unknown", text)
         massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
-        self.assertIn("M1 is `ambiguous` for each action it matches", massnahmen)
+        self.assertIn("M1 is `ambiguous` for each of them", massnahmen)
         kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
         self.assertIn("`ambiguous` once the maintainer has decided that class under criterion 3", kriterien)
         self.assertIn("an action whose M1 is `ambiguous` is never the witness of criterion 1", kriterien)
@@ -150,8 +149,9 @@ class ThePilotContract(unittest.TestCase):
         disappeared with M5 at 0."""
         text = " ".join(_text().split())
         massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
-        self.assertIn("A proposed action is matched to at most one effect, the first the API shows", massnahmen)
-        self.assertIn("every further effect that matches it counts under M5 as an unapproved effect", massnahmen)
+        self.assertIn("each takes one proposed action of the window with the same target and identity that no earlier "
+                      "effect took", massnahmen)
+        self.assertIn("An effect that finds no action left counts under M5 as an unapproved effect", massnahmen)
 
     def test_the_closing_rule_at_approval_time_is_kept(self) -> None:
         """Codex thread 4221183336: M4 reads the closing rule at approval time, and nothing kept that rule, so a
@@ -160,6 +160,27 @@ class ThePilotContract(unittest.TestCase):
         daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
         self.assertIn("The closing rule each surface requires at approval time is kept with the decision record", daten)
         self.assertIn("as recorded with the decision (section 8)", text)
+
+    def test_the_compared_fields_are_not_part_of_the_match(self) -> None:
+        """Codex thread 4221644932: bytes and surface had to be equal for a match, so an approved action that arrived
+        altered or on another surface became not arrived plus an unapproved effect, and M2 or M3 `different` could
+        never be recorded. The match uses target and identity; surface, bytes and closing lines are compared."""
+        text = " ".join(_text().split())
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("An effect is matched to a proposed action by its target and by the agent identity that wrote it",
+                      massnahmen)
+        self.assertIn("Surface, bytes and closing lines are not part of the match", massnahmen)
+        self.assertNotIn("matched to a proposed action by surface, target and bytes", massnahmen)
+
+    def test_an_ambiguous_effect_still_takes_an_approval(self) -> None:
+        """Codex thread 4221644945: an ambiguous effect took no action, so with two identical approvals and three
+        identical effects all three were ambiguous and M5 stayed 0. Every effect takes one action, and approvals of
+        one verdict are interchangeable, so the third effect counts under M5."""
+        text = " ".join(_text().split())
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("actions of different verdicts", massnahmen)
+        self.assertIn("it still takes the earliest decided of them", massnahmen)
+        self.assertIn("a rerun under criterion 4 reproduces every match", massnahmen)
 
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()

@@ -84,13 +84,16 @@ mismatch with a name. M5 and M6 are measured over the observation window, not pe
 two writes are recorded as two; "none found" is the count 0 and means none found in what the API returned then, and
 says nothing about writes the API does not list.
 
-An effect is matched to a proposed action by surface, target and bytes, since the API shows no proposal identifier.
-A proposed action is matched to at most one effect, the first the API shows; every further effect that matches it
-counts under M5 as an unapproved effect, so one approval never covers two writes. An effect that matches more than
-one proposed action of the window is matched to none of them: it is the mismatch class `ambiguous effect`, M1 is
-`ambiguous` for each action it matches, and it counts under M6 when any of them was refused. Assigning it to one of
-them would decide by choice which verdict caused it, and a rerun under criterion 4 could not recover that choice
-from the stored records.
+An effect is matched to a proposed action by its target and by the agent identity that wrote it, since the API shows
+no proposal identifier. Surface, bytes and closing lines are not part of the match: they are what M2, M3 and M4
+compare, so an action that arrived altered or on another surface answers under M2 or M3. Effects are taken in the
+order the API shows them, and each takes one proposed action of the window with the same target and identity that
+no earlier effect took: the one whose surface and bytes it equals when exactly one does, otherwise the earliest
+decided. An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class
+`ambiguous effect`: M1 is `ambiguous` for each of them, it counts under M6 when any of them was refused, and it
+still takes the earliest decided of them. An effect that finds no action left counts under M5 as an unapproved
+effect, so one approval never covers two writes. The rule decides by the stored records alone, so a rerun under
+criterion 4 reproduces every match.
 
 ## 6. Exit criteria
 
