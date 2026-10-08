@@ -1,5 +1,8 @@
 # proofbundle plugin for Claude Code and Codex
 
+Your agent can call a task done only when every check you required has a signed, passing test receipt for exactly
+the commit and tree it leaves behind, and when one is missing it is told which one and the command that runs it.
+
 Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, and review
 verification results separately from recorded claims. Receipt signing is experimental and requires an
 explicit user request. Verification proves authorship and integrity of what was recorded, not that any
@@ -269,24 +272,80 @@ change the digest.
 
 ## Done only with a receipt (the Stop hook)
 
-A `Stop` hook runs `hooks/proofbundle_gate.py stop` when Claude Code would end its turn. In a repository whose
-declaration names a done check, the turn ends only when a test receipt
+A `Stop` hook runs `hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the
+same folder, in Codex (`stop --host codex`). Claude Code also runs the same check as a `TaskCompleted` hook. In a
+repository whose declaration names a done check, the turn ends, and a task can be marked completed, only when every
+required check has a receipt that
 
 - verifies under the trust policy the declaration names at HEAD, with the key that policy pins,
 - says that every test passed: a pytest pass rate with comparator `>=` and threshold `1`, `passed: true`, at
   least one test and pytest's exit status 0,
+- was run with the check's selection: exactly its pytest arguments, an empty `PYTEST_ADDOPTS` and no deselected
+  test (the receipt names them as `pytest_args`, `pytest_addopts` and `n_deselected`),
+- names HEAD's commit and tree (`git_hash`, `git_tree`),
 - and names the tree of the working state now: the receipt's `git_tree` for a run on a clean tree, its
   `git_worktree_tree` for a run on uncommitted changes, compared with the tree id of the files in the working
   tree, read as raw bytes without filters.
 
-Otherwise the hook blocks with one line: what is missing and the command that delivers it. A repository without
-a declaration, or whose declaration names no done check, gets no block and no message (NOT MEASURED), as with the
-`PreToolUse` gate. The check is a command hook; nothing in it is decided by the model (Z355). It needs the
-proofbundle release whose pytest receipt names the git state (the release after 6.2.0); the receipt is still
-verified by the plugin's pinned `proofbundle==6.1.0`. Codex has no `Stop` hook in this plugin: there the check is
-NOT MEASURED.
+When the order names `paths`, the work also changes no other path since the commit that set the order.
 
-Setup, three commands, with a local test key and never a release key:
+### The order
+
+The `done` section of `.proofbundle/evidence.json` is the order (D28): the checks the task requires, each with the
+pytest arguments it runs and the receipt it leaves, and optionally the paths the work may change.
+
+```json
+"done": {
+  "policy": ".proofbundle/done-policy.json",
+  "checks": [
+    {"id": "unit", "args": ["tests/unit"], "receipt": ".proofbundle/receipts/unit.json"},
+    {"id": "integration", "args": ["tests/integration"], "receipt": ".proofbundle/receipts/integration.json"}
+  ],
+  "paths": ["src/*", "tests/*"],
+  "max_blocks": 3
+}
+```
+
+The order is changed by a commit, like the rest of the declaration; who may change it is whoever may merge a change
+to `.proofbundle/`, which `ci/CODEOWNERS.template` assigns. The one-check form `{"receipt", "policy"}` that `done-init`
+writes still works: one check, `tests`, with any selection.
+
+### What a block says, and when the hook stops blocking
+
+A block is one line: the open check, whether it is missing, unverified (another key, a changed file), red, run with
+another selection or stale, and the command that closes it, for example
+
+```text
+proofbundle done check: check integration is missing: no test run left a receipt at .proofbundle/receipts/integration.json.
+Next: run PYTEST_ADDOPTS= PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT=.proofbundle/receipts/integration.json
+PROOFBUNDLE_KEY=<gate directory>/done-test.key python -m pytest tests/integration. Never weaken the declaration, the
+policy or the key to end the session.
+```
+
+The hook never sets `continue: false`; a block asks the host to go on working. After `max_blocks` blocks (3 by
+default, at most 7) with the same open points in the same session, the hook writes `.proofbundle/done-blocker.json`
+with the open points, the commands, and the commit, tree and working tree it measured, and lets the session end
+without a done verdict (`NOT DONE`). The file is not a receipt and proves nothing about the tests. A later pass
+removes it. `.proofbundle/done-metrics.json` counts, locally and without any network, the blocked ends, the
+missing checks, the ends after a block that were completed, the blockers and the passes, and
+`.proofbundle/done-state.json` holds the count of the current session. None of the three is part of the working
+state.
+
+A repository without a declaration, or whose declaration names no done check, gets no block and no message (NOT
+MEASURED), as with the `PreToolUse` gate. The check is a command hook; nothing in it is decided by the model (Z355).
+It needs the proofbundle release whose pytest receipt names the git state and the selection (the release after
+6.2.0); the receipt is still verified by the plugin's pinned `proofbundle==6.1.0`.
+
+### With `/goal`
+
+`/goal` keeps Claude Code working towards a condition that a small model judges from the conversation; it runs no
+command. Use it together with this hook: set the goal as the task plus "finished when `proofbundle_gate.py
+done-check --repo .` exits 0 for HEAD", and let the Stop hook run the check. Do not use `proofbundle verify` as the
+condition: it exits 0 for the receipt of a red run, because it checks authorship and integrity, not the result.
+
+### Setup
+
+Three commands, with a local test key and never a release key:
 
 ```sh
 pip install "proofbundle[pytest,eval]"
@@ -295,31 +354,50 @@ git commit -m "declare the done check"
 ```
 
 `done-init` makes the key with the package's own key path (a 32-byte seed file, the file `PROOFBUNDLE_KEY`
-names) in the gate directory, writes `.proofbundle/done-policy.json` that pins it, adds the `done` section to
-`.proofbundle/evidence.json`, keeps the receipt out of the tree with `.proofbundle/.gitignore`, and stages the
-three files. It prints the command a test run with a receipt uses:
+names) in the gate directory, writes `.proofbundle/done-policy.json` that pins it, adds the one-check `done` section
+to `.proofbundle/evidence.json`, keeps the receipts and the hook's own files out of the tree with
+`.proofbundle/.gitignore`, and stages the three files. It prints the command a test run with a receipt uses:
 
 ```sh
 PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT=.proofbundle/proofbundle_pytest_receipt.json \
   PROOFBUNDLE_KEY=<gate directory>/done-test.key python -m pytest
 ```
 
-Limits, in plain words:
+For an order with several checks, edit the `done` section as above and commit it.
 
-- **Claude Code ends the turn anyway after nine blocks in a row without a tool call** (measured with Claude Code
-  2.1.294 in the eval `done-receipt-other-tree-blocks`; `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises the limit). The
-  hook is an early warning, not a boundary. The hard boundary is the required CI check (`done-check`, D26 and `ci/`).
+### As an in-toto Statement
+
+`proofbundle_gate.py done-statement --repo DIR --key FILE --out FILE --resource-uri URI` writes, for a passing done
+check on a clean state, an in-toto Statement v1 with the SLSA Verification Summary v1 predicate in a DSSE envelope
+(D29): the subject is HEAD by `gitCommit` and `gitTree`, each receipt is an `inputAttestation` named by the SHA-256
+of its signed payload, `verificationResult` is `PASSED` and `verifiedLevels` is `SLSA_SOURCE_LEVEL_UNEVALUATED`. The
+envelope's `keyid` is the SHA-256 of the raw public key. A consumer accepts only the signer and verifier pairs it
+trusts. It states what the done check verified, not that the tests test anything.
+
+### Limits, in plain words
+
+- **The hook is an early warning, not a boundary.** Claude Code overrides a Stop hook after eight continuations in a
+  row without a tool call (documented; nine blocks measured with Claude Code 2.1.294;
+  `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises it), which is why the hook stops on its own after `max_blocks`. The hard
+  boundary is the required CI check (`done-check`, D26 and `ci/`).
 - The agent that runs the tests can read the test key, so a receipt proves what that key signed on this machine,
   not that a person checked the run. Code of the repository runs under pytest and can write the receipt itself.
+- The agent can also commit a changed order, or write the hook's count file; the first changes what the local hook
+  asks for, the second can only end the session without a done verdict. Review of `.proofbundle/` in CI is the
+  boundary for the order.
 - A receipt that is committed changes the tree it would have to name; keep it untracked, as `done-init` does.
 - Files git ignores are not part of the state, and they can influence the run.
-- **A receipt binds the tree, not which tests ran.** A run that leaves a failing test out (`-k`, a path,
-  `--deselect`, `PYTEST_ADDOPTS`) gets a green receipt for the same tree, and the hook lets the session end
-  (measured with `-k` on 2026-10-08). The CI job runs the repository's own test command, so there the selection is
-  the reviewed one (option A in `ci/`).
+- **A check binds the pytest arguments, not every way to leave a test out.** Plugins and conftest code that skip,
+  select or rewrite tests are not seen. The one-check form binds no selection at all (measured with `-k` on
+  2026-10-08).
+- The `PreToolUse` gate asks before `git add` and `git commit` (Claude Code) or denies them (Codex). In a run without
+  a person, the agent cannot commit, and the done check can then only pass on an uncommitted state (measured in the
+  host runs of 2026-10-08).
+- The `TaskCompleted` hook keeps every task open in a repository whose order is not done, whatever the task.
 
-`proofbundle_gate.py done-check --repo DIR [--receipt FILE]` makes the same check in CI and exits 0 only for a
-pass; every NOT MEASURED, every block and a repository without a done check exit 1, a wrong call exits 2.
+`proofbundle_gate.py done-check --repo DIR [--receipt FILE | --receipt-dir DIR]` makes the same check in CI and exits
+0 only for a pass; every NOT MEASURED, every block and a repository without a done check exit 1, a wrong call exits
+2. `--receipt-dir` reads one receipt per check, named `<id>.json`.
 
 ## Install from this repository
 
@@ -365,8 +443,11 @@ The gate behaves differently under Codex in two ways:
   `verify_receipt` carries a `gate_note` that says so; the server cannot see whether the hooks are
   trusted.
 
-Whether the gate runs inside a Codex turn is NOT MEASURED. It is measured after the tag v6.2.0 at the
-owner's machine, with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16).
+Whether the gate runs inside a Codex turn with a real model is NOT MEASURED. It is measured after the tag v6.2.0 at
+the owner's machine, with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16). Measured on 2026-10-08 with Codex
+0.161.0 and a scripted local model (the host and its hook engine real, the model's answers fixed): Codex loads the
+`Stop` hook from `.codex-plugin/plugin.json`, runs it only after it is trusted, inserts a block as a `hook_prompt` in
+the same turn, and ends the turn after the hook's own blocker or a pass (D28).
 
 Codex starts an MCP server with only a short list of environment variables. The plugin data directory
 is not among them, so under Codex `emit_receipt` needs an explicit `key_path`. If `uv` needs proxy or

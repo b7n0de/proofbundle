@@ -26,8 +26,9 @@ cloud session.
    Before the plugin lands on the default branch, add the marketplace from the local checkout instead:
    `codex plugin marketplace add <proofbundle checkout>`.
 
-3. Start `codex` once in any directory, open `/hooks`, and trust the two `PreToolUse` hooks of
-   `proofbundle`: the matcher `Bash` and the matcher `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`.
+3. Start `codex` once in any directory, open `/hooks`, and trust the hooks of `proofbundle`: the
+   `PreToolUse` matchers `Bash`, `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`
+   and `^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$`, and the `Stop` hook of the done check (D28).
    Leave Codex again.
 
 ## The cases
@@ -145,3 +146,18 @@ For each case: the mode, the Codex version, the message Codex showed, `pushed` o
 or fail. A case that could not be run is reported as NOT MEASURED with the reason, never as a pass. When
 all cases pass, the README line "Whether the gate runs inside a Codex turn is NOT MEASURED" is replaced by
 the measured result with its date and Codex version.
+
+## The done check inside a Codex turn
+
+Measured on 2026-10-08 in a cloud session with Codex 0.161.0 and a scripted local model, not with your account: the
+`Stop` hook loads from `.codex-plugin/plugin.json` and is untrusted until its hash is trusted; a block arrives in the
+same turn as a `hook_prompt` with the hook's line; three blocks without progress end the turn with the hook's
+blocker; a pass ends it. What a real model does with the line is not measured there. To measure it here, make a
+repository with an order of two checks (README, "The order"), ask Codex to run only the first check, and record
+whether the second one is named, run and accepted:
+
+```sh
+test -e .proofbundle/done-blocker.json && echo "blocker" || echo "no blocker"
+python3 <plugin folder>/hooks/proofbundle_gate.py done-check --repo .
+```
+

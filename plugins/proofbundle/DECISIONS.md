@@ -1142,7 +1142,7 @@ that runs the tests can read the test key, and repository code under pytest can 
 the tree, not which tests the run selected: a run that leaves a failing test out (`-k`, a path, `--deselect`,
 `PYTEST_ADDOPTS`) signs passed true for the same tree (measured with `-k`, 2026-10-08), so only a run with the
 repository's own command, as in the CI job, decides which tests count. Codex is not
-wired: NOT MEASURED there.
+wired: NOT MEASURED there. (D28 wires Codex to the same Stop hook and binds the selection of each check.)
 
 Options:
 - A. The done section in the declaration, a command Stop hook and the same check in CI (chosen).
@@ -1170,3 +1170,106 @@ Owner rule (2026-10-08, for findings on the plugin from now on):
 - Review round 15 in its former form is dropped; the review of the whole user path replaces it. D24B stays an
   owner decision.
 
+
+## D28. The order: required checks, each bound to HEAD, for both hosts
+
+Owner choices (2026-10-08, 16:3x and 18:32 Berlin, cards KRAXO-CLOUD-NUTZERWEG-SCHAERFEN-01 and
+KRAXO-CLOUD-NUTZERWEG-NORDSTERN-01): done only with a receipt for commit and tree, from one folder for Claude Code
+and Codex; a task names its required checks; a missing step is named and handed back; only the matching closure is
+accepted.
+
+Measured first (2026-10-08): the decision receipt (`decision-receipt/v0.1`) carries a signed authorization whose
+`decision.obligations` and `decision.allowedScope` are untyped arrays, so it carries checks and paths only by a
+convention on those arrays that no format defines; the signed evaluation receipt carries a `criteria_digest` of a
+criteria set, not commands, paths or a key. Neither carries the order as it stands.
+
+Chosen (option B of the owner card for N1):
+- The `done` section may be the order `{"policy", "checks"[, "paths"][, "max_blocks"]}`. Each check is
+  `{"id", "args", "receipt"}`: a name, the pytest arguments the run must have been given, and the receipt it leaves
+  under `.proofbundle/`. `paths` are fnmatch patterns (`*` also matches `/`) of the paths the work may change,
+  compared between the tree of the last commit at or before HEAD that changed the declaration and the working
+  state; `max_blocks` is 1 to 7, default 3. The one-check form `{"receipt", "policy"}` stays and is one check,
+  `tests`, with any selection. The order is changed by a commit; who may change it is whoever may merge a change to
+  `.proofbundle/`, which CODEOWNERS assigns in CI. Locally the hook cannot tell the owner's commit from the agent's.
+- Every check needs its own receipt that verifies under the policy at HEAD, says that every test passed (D26),
+  names HEAD's commit and tree, names the tree of the working state now, and, under the order, was run with exactly
+  the check's pytest arguments, an empty `PYTEST_ADDOPTS` and no deselected test. The package's pytest plugin
+  writes `pytest_args`, `pytest_addopts` and `n_deselected` into `provenance` (core change of the same date).
+- A block names the first open check, its kind (missing, unverified, red, other selection, no state, stale,
+  outside paths), the command that closes it and the other open checks, in one line. Claude Code and Codex read
+  the same answer: `decision` and `reason` for a block, `systemMessage` for a pass or a blocker; the hook never
+  sets `continue`. Codex runs the same `stop` from `.codex-plugin/plugin.json` with `--host codex`.
+- After `max_blocks` blocks with the same open points (kind and check, not the trees) in the same session, the hook
+  writes `.proofbundle/done-blocker.json` with the open points, their commands and the commit, tree and working
+  tree it measured, and lets the session end without a done verdict. A pass removes the blocker.
+  `.proofbundle/done-metrics.json` counts blocked ends, blocked task completions, missing checks, ends completed
+  after a block, blockers and passes; `.proofbundle/done-state.json` holds the current count. The files are written
+  through a fresh temporary file that replaces them, never through a link, and are untracked under `.proofbundle/`,
+  so they are not part of the working state. Their content is counted, never trusted for a verdict.
+- Claude Code's `TaskCompleted` hook runs the same check. The gate prints the line and exits 0; the hook command
+  turns a printed line into exit 2 with the line on stderr, and any other exit into exit 2 with its own line,
+  because Python itself exits 2 when it cannot open the gate (measured). Codex has no such event.
+- `done-check --receipt-dir DIR` reads one receipt per check from `DIR/<id>.json` for CI.
+
+Measured in host runs on 2026-10-08 (runs2 of the report): with Claude Code 2.1.294 and `claude -p --plugin-dir`,
+valid work ends at the first stop; missing, foreign, stale, manipulated and red receipts block with their kind
+and end in the blocker after three blocks when the agent is told not to run anything; the agent that is told to
+run one of two checks is blocked with the other one's command, runs it and ends with a pass; `TaskUpdate` to
+completed is refused with the same line. With Codex 0.161.0 and a scripted local model, the same cases give the
+same answers in the same order.
+
+Limits: everything in D26 and D27. The agent can commit a changed order or write the count file; the first changes
+what the local hook asks for, the second can only end the session without a done verdict. A check binds the pytest
+arguments, not plugins or conftest code that skip, select or rewrite tests. The `PreToolUse` gate asks before (Claude
+Code) or denies (Codex) `git add` and `git commit` (D3, Nachtrag 23), so in a run without a person the agent cannot
+commit and the done check can only pass on an uncommitted state. The `TaskCompleted` hook keeps every task open in a
+repository whose order is not done.
+
+Options for the carrier of the order (owner card N1):
+- A. A decision receipt signed by the owner's key, with the checks in `obligations` and the paths in
+  `allowedScope`. Carries the key that may change it, but needs a convention for both arrays, which is a new
+  profile of the format, and a pin of the owner key that the agent cannot rewrite.
+- B. The `done` section of the declaration at HEAD (chosen). No new evidence format; the key that may change it is
+  not carried, review of `.proofbundle/` decides.
+- C. The criteria set of a signed evaluation receipt. Carries criteria, not commands, paths or a key; rejected.
+
+## D29. The done check as an in-toto Statement v1 in DSSE
+
+Owner choice (2026-10-08): the output also as an in-toto Statement v1 in a DSSE envelope, built as
+draft-gruszka-evaluation-receipt-mappings describes, with commit and tree as subject and the receipt cited by
+digest; no new format and no new predicate type.
+
+Measured first: the mappings draft cites a receipt from an in-toto Statement only in the SLSA Verification Summary
+(its Section 4.3, `inputAttestations`); it does not cite from the test-result predicate (Section 4.2), and its DSSE
+form (Section 4.1) carries the receipt's bytes, not a subject. The receipts of this user path are pytest receipts of
+the package (`proofbundle/eval-claim/v0.1` in a `proofbundle/v0.1` bundle), not signed evaluation receipts of
+draft-gruszka-signed-evaluation-receipts, which no release of the package writes yet.
+
+Chosen:
+- `done-statement --repo DIR --key FILE --out FILE --resource-uri URI [--receipt-dir DIR]` writes, only for a passing
+  done check on a clean state, a Statement v1 with predicate type `https://slsa.dev/verification_summary/v1`:
+  subject `{"name": <resource URI>, "digest": {"gitCommit", "gitTree"}}` of HEAD; `inputAttestations` one
+  `{"digest": {"sha256": <SHA-256 over the receipt's signed payload bytes B>}}` per check, in the declared order;
+  `policy` with the URI `<resource URI>@<commit>#<policy path>` and its `sha256` and `gitBlob`; `verifier.id` the
+  plugin's done check with the versions of the plugin and the pinned package; `verificationResult` `PASSED`;
+  `verifiedLevels` `["SLSA_SOURCE_LEVEL_UNEVALUATED"]`; `slsaVersion` `1.2`. The envelope is the package's own DSSE
+  (`dsse.sign_envelope`), with `keyid` the SHA-256 of the raw public key, signed with the key file through the pinned
+  package. A resource URI with user information is refused, so no token lands in a signed statement.
+- A foreign reader is a test (`PROOFBUNDLE_FOREIGN_INTOTO_PYTHON`): securesystemslib 1.5.1 verifies the envelope with
+  the test key and refuses another key and a changed payload; in-toto-attestation 0.9.3 reads and validates the
+  Statement.
+
+Measured on the foreign reader: the VSA v1 binding of in-toto-attestation 0.9.3 types `verifiedLevels` as one string
+where SLSA VSA v1.2 has an array, has no `verifier.version`, and reads only `uri` and `digest` in an
+`inputAttestation`; it refuses the specification's shape even with unknown fields ignored, and refuses the
+`mediaType` of the mappings draft's own example in strict mode. The statement follows the specification and cites by
+digest alone; the test holds the binding's refusal so that a release that reads the specification turns it red.
+
+Options:
+- A. A Verification Summary from the done check (chosen): the only way the mappings draft cites a receipt from a
+  Statement.
+- B. A test-result Statement from the pytest plugin: the draft does not cite from it, and the producer would attest
+  its own run.
+- C. The receipt itself as a DSSE envelope: no subject, no Statement.
+- D. The package's own `verification-summary/v0.1` predicate: not the draft's mapping, and a predicate type the
+  owner did not choose.

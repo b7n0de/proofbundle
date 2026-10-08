@@ -481,7 +481,8 @@ def _descriptions() -> dict[str, str]:
             if line.startswith(f"| {host} | "):
                 found[key] = [c.strip() for c in line.strip("|").split(" | ")][1]
     readme = (PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")
-    found["7"] = " ".join(readme[1].split())
+    # The owner's sentence of 2026-10-08 (what the user gets, one sentence) opens the README; text 7 follows it.
+    found["7"] = " ".join(readme[2].split())
     decisions = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
     d14 = decisions.split("## D14.", 1)[1].split("\n## ", 1)[0]
     found["11"] = " ".join(d14.split("Addendum (owner, 2026-09-30): ", 1)[1].split("\n\n", 1)[0].split())
@@ -496,7 +497,10 @@ def test_every_description_carries_the_owners_text_word_for_word():
     for key in ("5", "6"):
         assert found[key] == OWNER_TEXTS[key].rstrip("."), "a catalog cell ends without a period"
         assert not found[key].endswith(".")
-    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README opens with the owner's text"
+    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README's second paragraph is the owner's text"
+    opening = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")[1].split())
+    assert opening.startswith("Your agent can call a task done only when") and opening.count(". ") == 0
+    assert opening.endswith(".")
     for key in ("1", "2", "4", "5", "6", "7"):
         assert found[key].startswith("Verify"), key
         assert "Receipt signing is experimental and requires an explicit user request" in found[key], key
