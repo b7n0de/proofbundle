@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """How the files of this package were made. Needs cbor2 and cryptography.
 
-Running this again makes two new Ed25519 key pairs and therefore new signatures and new digests;
-the committed files are one run of it. It generates the keys in memory and writes the two public
+Running this again makes two new Ed25519 key pairs and therefore new signatures, key identifiers and digests in
+references.json; what is derived from fixed inputs only (the artifact digest in the payloads, the audit text, the
+times and the subject) stays the same. The committed files are one run of it. It generates the keys in memory and writes the two public
 keys only.
 
 Usage: python3 build.py   (writes into the directory this file is in)

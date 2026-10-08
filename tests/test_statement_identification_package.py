@@ -4,7 +4,8 @@ docs/scitt/statement_identification/package/verify.py is run as a user runs it, 
 package, once per case, with one change per case. The cases start from the sixteen of the external
 review of 27 September 2026 (PR 298, commit fb1c1786) and add the ones the owner's order of the same
 day names: every reference carried in a signed protected header is listed in references.json and every
-listed one is carried; the descriptive manifest fields are checked; malformed input ends on the
+listed one is carried; every manifest field is compared with the files or named as a description, and
+an unknown field fails (Codex thread 4217204734); malformed input ends on the
 documented FAILED line with exit 1, never in an uncaught exception; and the envelope experiment is two
 separately labelled cases, tag 18 kept with an unprotected parameter added, and the tag removed.
 
@@ -182,6 +183,61 @@ class TestManifestFields:
         rc, out, err = run(pkg)
         assert_failed_cleanly(rc, out, err)
         assert fails_naming(out, ORIGINAL, "size_bytes")
+
+
+    def test_covered_bytes_that_do_not_describe_the_signed_bytes_fail(self, pkg):
+        """Codex thread 4217204734: `covered_bytes` was never read, so a manifest claiming the signature is
+        covered reached ALL OK."""
+        edit_manifest(pkg, lambda d: d["references"][0].update(
+            covered_bytes="the bytes of the whole referenced COSE_Sign1, tag and signature included"))
+        rc, out, err = run(pkg)
+        assert_failed_cleanly(rc, out, err)
+        assert fails_naming(out, "reference 0", "covered_bytes")
+
+    def test_an_unknown_manifest_field_fails(self, pkg):
+        for where, change in (("reference", lambda d: d["references"][1].update(signature_covered=True)),
+                              ("statement", lambda d: d["statements"][AUDIT].update(note="x")),
+                              ("top", lambda d: d.update(version="2"))):
+            edit_manifest(pkg, change)
+            rc, out, err = run(pkg)
+            assert_failed_cleanly(rc, out, err)
+            assert fails_naming(out, f"manifest {where}", "unknown")
+            shutil.copy(PACKAGE / "references.json", pkg / "references.json")
+
+    def test_a_missing_checked_field_fails_and_a_description_may_change(self, pkg):
+        edit_manifest(pkg, lambda d: d["references"][0].pop("covered_bytes"))
+        assert fails_naming(run(pkg)[1], "manifest reference 0", "missing")
+        shutil.copy(PACKAGE / "references.json", pkg / "references.json")
+        edit_manifest(pkg, lambda d: d["references"][0].update(why_these_bytes="reworded"))
+        rc, out, err = run(pkg)
+        assert rc == 0 and out[-1] == "ALL OK: 0 check(s) failed", out + [err]
+
+
+# ------------------------------------------------------------------------------------------------
+# Rebuilding: what changes and what stays (Codex thread 4217204745)
+# ------------------------------------------------------------------------------------------------
+class TestRebuilding:
+    def test_two_rebuilds_differ_in_every_key_dependent_value_and_keep_the_fixed_ones(self, tmp_path):
+        import cbor2
+        builds = []
+        for i in range(2):
+            dst = tmp_path / f"build{i}"
+            shutil.copytree(PACKAGE, dst)
+            subprocess.run([sys.executable, str(dst / "build.py")], check=True, capture_output=True, timeout=120)
+            rc, out, err = run(dst)
+            assert rc == 0 and out[-1] == "ALL OK: 0 check(s) failed", out + [err]
+            doc = json.loads((dst / "references.json").read_text(encoding="utf-8"))
+            payload = json.loads(cbor2.loads(read(dst, ORIGINAL)).value[2])
+            builds.append((doc, payload))
+        (doc_a, pay_a), (doc_b, pay_b) = builds
+        for name in (ORIGINAL, AUDIT, CORRECTION):
+            for field in ("sha256_to_be_signed", "sha256_cose_sign1"):
+                assert doc_a["statements"][name][field] != doc_b["statements"][name][field], (name, field)
+        assert [r["digest"] for r in doc_a["references"]] != [r["digest"] for r in doc_b["references"]]
+        assert pay_a["sha256"] == pay_b["sha256"], "the artifact digest comes from fixed bytes"
+        text = " ".join((PACKAGE / "README.md").read_text(encoding="utf-8").split())
+        assert "Every signature and every digest then differs" not in text
+        assert "What build.py derives from fixed inputs only stays the same" in text
 
 
 # ------------------------------------------------------------------------------------------------

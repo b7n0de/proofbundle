@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Check this package offline: every statement, every reference, every manifest field. Needs cbor2 and cryptography.
+"""Check this package offline: every statement, every reference, and every manifest field that states a fact about
+the files. Needs cbor2 and cryptography.
+
+The manifest fields `package`, `reference_format` and `why_these_bytes` are descriptions and are not checked; each
+other field is compared with the files, and a field the checker does not know is a FAIL, so no field goes unread
+in silence (Codex thread 4217204734 on pull request 298: `covered_bytes` was never read).
 
 Usage: python3 verify.py [package directory]   (default: the directory this file is in)
 Prints one line per check, OK or FAIL, then "ALL OK" or "FAILED", and exits 0 only if every check is OK.
@@ -23,6 +28,18 @@ REF = -70001    # the private-use header label this package uses for references
 ADDED = -70002  # a private-use label for the unprotected parameter the envelope experiment adds
 DIGESTS = {-16: ("SHA-256 (COSE algorithm -16)", hashlib.sha256)}   # the one digest algorithm used here
 COVERS = ("ToBeSigned", "COSE_Sign1")
+#: What `covered_bytes` must say for each value of the signed covered-bytes element.
+COVERED_BYTES = {
+    "ToBeSigned": ("the Sig_structure [\"Signature1\", body_protected, external_aad, payload] of the referenced "
+                   "COSE_Sign1, encoded as RFC 9052 sections 4.4 and 9 specify; the protected value is the original "
+                   "byte-string contents; external_aad is the empty byte string and the payload is embedded"),
+    "COSE_Sign1": "the bytes of the whole referenced COSE_Sign1, tag and signature included",
+}
+#: Every field of the manifest, at each level: the ones compared with the files, and the descriptions.
+FIELDS = {"top": ({"statements", "references"}, {"package", "reference_format"}),
+          "statement": ({"public_key", "iss", "sub", "sha256_to_be_signed", "sha256_cose_sign1", "size_bytes"}, set()),
+          "reference": ({"from", "location", "to", "digest_algorithm", "covers", "covered_bytes", "digest"},
+                        {"why_these_bytes"})}
 
 HERE = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent
 failed = 0
@@ -129,6 +146,17 @@ def main() -> int:
     doc = json.loads((HERE / "references.json").read_text(encoding="utf-8"))
     raw, headers, tbs, keys = {}, {}, {}, {}
 
+    # 0a. Every manifest field is one this checker compares or one it names as a description.
+    for level, fields in [("top", [doc])] + [("statement", list(doc["statements"].values()))] + [
+            ("reference", list(doc["references"]))]:
+        checked, described = FIELDS[level]
+        for i, part in enumerate(fields):
+            unknown = sorted(set(part) - checked - described)
+            missing = sorted(checked - set(part))
+            check(not unknown and not missing,
+                  f"manifest {level} {i}: every field is checked or a named description"
+                  + (f" (unknown: {unknown})" if unknown else "") + (f" (missing: {missing})" if missing else ""))
+
     # 0. The statement files are exactly the ones the manifest lists.
     files, listed = sorted(p.name for p in HERE.glob("*.cose.hex")), sorted(doc["statements"])
     check(files == listed, f"statement files {files} are the {len(listed)} references.json lists"
@@ -187,6 +215,8 @@ def main() -> int:
               f"{REF}, entry {i}, in its protected header")
         check(ref.get("digest_algorithm") == name_of,
               f"reference {n}: digest_algorithm {ref.get('digest_algorithm')!r} is the signed algorithm {entry[0]}")
+        check(ref.get("covered_bytes") == COVERED_BYTES[entry[1]],
+              f"reference {n}: covered_bytes describes the signed covered bytes {entry[1]!r}")
         if dst not in headers:
             check(False, f"reference {n}: {src} -> {dst}: the target is not a readable statement of this package")
             continue

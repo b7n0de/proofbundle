@@ -43,7 +43,7 @@ or `xxd -r -p 01-original.cose.hex > 01-original.cose`.
 ## What the checks show
 
 1. For the supplied statements, the checker verifies tag 18 and algorithm -8, verifies each signature under the named public key, and recomputes the recorded digests. It compares issuer and subject with the manifest. It checks that each statement is a COSE_Sign1 of four elements of the expected types, with no duplicate map key and no trailing input, that the statement files are exactly the ones the manifest lists, and that each recorded `size_bytes` is the file's size. Malformed input ends on the `FAILED` line with exit status 1. It is a package checker, not a general COSE conformance validator.
-2. Each reference listed in `references.json` is checked against its signed protected-header entry and against the target's ToBeSigned digest, and its `digest_algorithm` against the algorithm in that signed entry. The checker also establishes that the manifest lists every reference carried under label -70001 in a signed protected header, and that every listed reference is carried.
+2. Each reference listed in `references.json` is checked against its signed protected-header entry and against the target's ToBeSigned digest, its `digest_algorithm` against the algorithm in that signed entry, and its `covered_bytes` against the description of the signed covered-bytes element. Every manifest field is either compared with the files or one of three named descriptions (`package`, `reference_format`, `why_these_bytes`), which are not checked; a field the checker does not know fails. The checker also establishes that the manifest lists every reference carried under label -70001 in a signed protected header, and that every listed reference is carried.
 3. Reference extraction does not interpret the application payloads: `02` carries text and `03` carries JSON. Their raw payload bytes still participate in signature verification.
 4. `01` and `03` share issuer and subject but have different signed contents and ToBeSigned digests. The two references select `01`. All three fixtures share the subject, so subject alone does not select that target.
 5. Two transformations of `01`, each on its own. With tag 18 kept, one unprotected parameter is added; separately, tag 18 is removed and nothing else changes. For each, the checker verifies the signature, exact ToBeSigned equality and a changed whole-object digest. The untagged object is a generic COSE case, not an RFC 9943 Signed Statement. The added parameter is an arbitrary private-use parameter, not a Receipt.
@@ -99,6 +99,8 @@ libraries.
 
 ## Rebuilding
 
-`python3 build.py` writes a new package into this directory with two new key pairs. Every signature
-and every digest then differs from the committed ones, and `verify.py` checks the new set the same
-way.
+`python3 build.py` writes a new package into this directory with two new key pairs. Every signature, every
+key identifier and every digest in `references.json` then differs from the committed ones, and `verify.py`
+checks the new set the same way. What build.py derives from fixed inputs only stays the same: the artifact
+digest inside the payloads of `01` and `03` is computed from fixed example bytes, and so are the payloads of
+`02`, the issued-at times and the subject.
