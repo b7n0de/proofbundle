@@ -113,7 +113,9 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
   find a key. Every envelope now carries the signer's OpenSSH SHA256 fingerprint
   (`dsse.openssh_sha256_keyid`), the form go-securesystemslib's `dsse.SHA256KeyID` derives and
   sigstore's key providers compare. Pass `keyid=` to write another, or `keyid=""` to write none. The
-  keyid is not signed, and no verdict of this package reads it.
+  keyid is not signed and selects no key: among well-formed envelopes no verdict of this package changes
+  with its value. A keyid that is not well-formed JSON text, a lone surrogate, makes the envelope
+  malformed, as any other field would.
 - **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
   algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension
   fields to any JSON object" and "Consumers MUST ignore unrecognized fields". The default strict parse

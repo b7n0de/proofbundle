@@ -15,7 +15,9 @@ Oracles:
   (tools/intoto_external/results/results.json, ``cross_checks.keyid``, at 13d8faa).
 - FOREIGN, live: the ``cryptography`` library's OpenSSH public-key encoding, hashed here.
 
-A keyid is an unauthenticated hint. The verdict of this package never depends on it, held below.
+A keyid is an unauthenticated hint that selects no key: among well-formed envelopes no verdict of this
+package changes with its value, held below. It is JSON text like any other field, so a lone surrogate in
+it makes the envelope malformed, and that boundary is held below too.
 """
 from __future__ import annotations
 
@@ -139,7 +141,9 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
 
 
 class TheVerdictIgnoresIt(unittest.TestCase):
-    """A keyid is not signed. Removing, changing or forging it never changes a verdict."""
+    """A keyid is not signed. Among well-formed envelopes, removing, changing or forging it never changes a
+    verdict; a keyid that is not well-formed text makes the envelope malformed (Codex thread 4217984354 on
+    pull request 287: the earlier text said no verdict depends on it at all)."""
 
     def test_eval_result_verdict_is_the_same_with_any_keyid(self):
         signer = _signer()
@@ -154,6 +158,71 @@ class TheVerdictIgnoresIt(unittest.TestCase):
                 variant = dict(base, signatures=[entry])
                 self.assertIs(intoto.verify_eval_result_dsse(variant, pub)["ok"], want, (keyid, want))
                 self.assertIs(dsse.verify_envelope(variant, pub, payload_type=variant["payloadType"]), want)
+
+    def test_a_keyid_that_is_not_well_formed_text_makes_the_envelope_malformed(self):
+        """The boundary of the sentence above, measured: the same good envelope with a lone surrogate as its
+        keyid is refused by the structural check every field passes, not by any reading of the keyid."""
+        from proofbundle.errors import ProofBundleError
+        signer = _signer()
+        env = intoto.export_eval_result_dsse(_claim(signer), signer, root_b64="cm9vdA==")
+        pub = _raw_pub(signer)
+        kaputt = dict(env, signatures=[dict(env["signatures"][0], keyid="\ud800")])
+        self.assertIs(intoto.verify_eval_result_dsse(kaputt, pub)["ok"], False)
+        with self.assertRaises(ProofBundleError):
+            dsse.verify_envelope(kaputt, pub, payload_type=kaputt["payloadType"])
+        self.assertIs(intoto.verify_eval_result_dsse(env, pub)["ok"], True, "control: the same envelope as written")
+
+
+class TheShippedCorpusNamesItsKeys(unittest.TestCase):
+    """Codex thread 4217984342 on pull request 287: the agent-review vectors were regenerated, and 117 envelopes
+    under conformance/relation, shipped in the sdist by `graft conformance`, still had no keyid. Every DSSE
+    envelope under conformance/ names a keyid in the form this package writes, and where a key the case
+    records verifies the signature, the keyid is that key's fingerprint."""
+
+    def test_every_envelope_under_conformance_names_its_key(self):
+        import base64  # noqa: PLC0415 - decoding the recorded keys of a case
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+        def huellen(x):
+            if isinstance(x, dict):
+                if "payloadType" in x and isinstance(x.get("signatures"), list):
+                    yield x
+                for v in x.values():
+                    yield from huellen(v)
+            elif isinstance(x, list):
+                for v in x:
+                    yield from huellen(v)
+        gezaehlt = 0
+        for pfad in sorted((REPO / "conformance").rglob("*.json")):
+            try:
+                inhalt = json.loads(pfad.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            schluessel = set()
+            for q in pfad.parent.glob("*.b64"):
+                try:
+                    schluessel.add(base64.b64decode(q.read_text(encoding="utf-8").strip()))
+                except ValueError:
+                    pass
+            fall = pfad.parent / "case.json"
+            if fall.is_file():
+                schluessel |= {base64.b64decode(k) for k in json.loads(fall.read_text(encoding="utf-8")).get(
+                    "relatedPubs", []) if isinstance(k, str)}
+            for h in huellen(inhalt):
+                for eintrag in h["signatures"]:
+                    gezaehlt += 1
+                    with self.subTest(file=str(pfad.relative_to(REPO))):
+                        keyid = eintrag.get("keyid")
+                        self.assertRegex(keyid or "", r"\ASHA256:[A-Za-z0-9+/]{43}\Z")
+                        pae = dsse.pae(h["payloadType"], base64.b64decode(h["payload"]))
+                        for k in (k for k in schluessel if len(k) == 32):
+                            try:
+                                Ed25519PublicKey.from_public_bytes(k).verify(base64.b64decode(eintrag["sig"]), pae)
+                            except InvalidSignature:
+                                continue
+                            self.assertEqual(keyid, dsse.openssh_sha256_keyid(k))
+        self.assertGreaterEqual(gezaehlt, 129, "the corpus holds 117 relation and 12 agent-review signatures")
 
 
 @unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")

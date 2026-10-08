@@ -100,8 +100,10 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
     The in-toto envelope layer says a keyid SHOULD be included for each signing key (in-toto/attestation
     v1.2.0, spec/v1/envelope.md), and securesystemslib and GUAC refuse an envelope without one (Z225, F3).
     So `keyid=None` writes the signer's OpenSSH SHA256 fingerprint (`openssh_sha256_keyid`), a given
-    string is written as it is, and `keyid=""` writes none. The keyid is not signed; no verifier in this
-    package reads it for a verdict."""
+    string is written as it is, and `keyid=""` writes none. The keyid is not signed and selects no key:
+    among well-formed envelopes no verdict of this package changes with its value. It is part of the
+    envelope's JSON all the same, so a keyid that is not well-formed text (a lone surrogate) makes the
+    envelope malformed, as any other field would."""
     typ_text, body = _zeichen_von(payload_type), _puffer_von(body)
     if typ_text is None or body is None:
         raise BundleFormatError("DSSE sign_envelope needs a str payload type and a bytes body")
