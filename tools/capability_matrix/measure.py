@@ -103,7 +103,8 @@ CAPABILITIES = [
      "label": [("CHANGELOG.md", r"(\(`src/proofbundle/adapters/agt_receipt\.py`\)[^\n]*)")]},
     {"id": "scitt", "name": "SCITT receipts (scitt-ccf/v1 reader)",
      "modules": ["proofbundle/scitt_ccf.py"], "branch": "feat/640-scitt-anker",
-     "label": [("CHANGELOG.md", r"(scitt-ccf/v1[^\n]*)")]},
+     "label": [("CHANGELOG.md", r"(scitt-ccf/v1[^\n]*)"),
+               ("docs/adr/0009-scitt-anchor-cose-profile.md", r"(\*\*Status:\*\* [^\n]*)")]},
 ]
 
 
@@ -192,11 +193,22 @@ class LabelMissing(Exception):
 
 
 def status(present: bool, label, *, main_only: bool = False, elsewhere: bool = False, planned: bool = False) -> str:
-    """The cell's status from what was measured; the only place a status is decided."""
+    """The cell's status from what was measured; the only place a status is decided.
+
+    Every status that says a user can get the capability somewhere needs the project's own words for it: a present
+    one, a planned one (its label read at the branch head) and one provided elsewhere (the docs that point there).
+    Codex thread 4217201386 on pull request 304: planned and from elsewhere returned before this check, so a row
+    whose label had gone kept asserting the branch or the provider."""
     if elsewhere:
+        if label is None:
+            raise LabelMissing("provided elsewhere, but the docs that point there were not found")
         return "from elsewhere"
     if not present:
-        return "planned" if planned else "absent"
+        if not planned:
+            return "absent"
+        if label is None:
+            raise LabelMissing("planned on a branch, but the project's label for it was not found at the branch head")
+        return "planned"
     if label is None:
         raise LabelMissing("present, but the project's label for it was not found")
     if main_only:
@@ -321,6 +333,8 @@ def measure_rows(artefakte: dict, main: str) -> list:
                 raise SystemExit(f"{cap['id']}: branch {branch} at {head} does not carry the capability; "
                                  "planned is not measured")
             branch_kopf = head
+            # The capability lives at the branch head only, so the project's words for it are read there.
+            label_main, quelle_main = _label_at(head, cap["label"])
         if not rel_da and not cap.get("elsewhere"):
             kanal = f"branch {branch} only" if branch_kopf else "main tree only, in no release"
         try:

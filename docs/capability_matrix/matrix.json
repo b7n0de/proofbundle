@@ -960,7 +960,8 @@
     "entry_points": [],
     "repo_paths": [],
     "label_sources": [
-     "CHANGELOG.md"
+     "CHANGELOG.md",
+     "docs/adr/0009-scitt-anchor-cose-profile.md"
     ],
     "elsewhere": null
    },
@@ -986,8 +987,8 @@
    },
    "main": {
     "status": "planned",
-    "label": null,
-    "label_source": null,
+    "label": "**Status:** proposed. Fixes the profile, the four values, the trust interface, the error states",
+    "label_source": "docs/adr/0009-scitt-anchor-cose-profile.md",
     "measured": {
      "modules_at_main": {
       "proofbundle/scitt_ccf.py": false
@@ -1171,5 +1172,15 @@
     "proofbundle/adapters/agt_receipt.py"
    ]
   }
- }
+ },
+ "relabelled": [
+  {
+   "row": "scitt",
+   "cell": "main",
+   "branch_head": "531e256423b317839f8927dae8b4fb9ab45f9e48",
+   "by": "tools/capability_matrix/measure.py (_label_at at the branch head, status)",
+   "why": "Codex thread 4217201386 on pull request 304: a planned cell needs the project's label, read at the branch head; the CHANGELOG pattern finds none there, ADR 0009 does",
+   "utc": "2026-10-08T10:17:51Z"
+  }
+ ]
 }

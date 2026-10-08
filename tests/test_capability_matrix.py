@@ -223,6 +223,44 @@ class PlannedIsMeasuredAtTheRecordedBranchHead(unittest.TestCase):
             _measure(_X)
 
 
+class EveryStatusThatPointsSomewhereNeedsItsLabel(unittest.TestCase):
+    """Codex thread 4217201386: `planned` and `from elsewhere` returned before the label check, so a row whose
+    label had gone kept asserting its branch or its provider. Each needs the project's words now, a planned row
+    read at the branch head it records."""
+
+    def test_the_rule_refuses_both_without_a_label(self) -> None:
+        modul = _load()
+        for args, kwargs in (((False, None), {"planned": True}), ((True, None), {"elsewhere": True}),
+                             ((False, None), {"elsewhere": True})):
+            with self.subTest(args=args, kwargs=kwargs), self.assertRaises(modul.LabelMissing):
+                modul.status(*args, **kwargs)
+        self.assertEqual(modul.status(False, "**Status:** proposed.", planned=True), "planned")
+        self.assertEqual(modul.status(True, "Optional, complementary", elsewhere=True), "from elsewhere")
+
+    def test_a_planned_row_reads_its_label_at_the_branch_head(self) -> None:
+        modul = _load()
+        orte = {modul.TAG: set(), _MAIN: set(), _HEAD: {_X_SRC}}
+        notizen = {_HEAD: b"the x capability, proposed\n"}
+
+        def git_bytes(ref: str, pfad: str):
+            if pfad == "NOTES.md":
+                return notizen.get(ref)
+            return b"" if pfad in orte[ref] else None
+
+        def git(*args: str) -> str:
+            if args[:2] == ("rev-parse", "origin/feat/x"):
+                return _HEAD + "\n"
+            raise AssertionError(f"a git call the fixture does not serve: {args}")
+        modul._git_bytes, modul._git = git_bytes, git
+        modul.CAPABILITIES = [dict(_X, branch="feat/x", label=[("NOTES.md", r"(the x capability[^\n]*)")])]
+        artefakte = {"wheel_files": {}, "wheel_subcommands": [], "wheel_entry_points": [], "sdist_files": []}
+        z = modul.measure_rows(artefakte, _MAIN)[0]
+        self.assertEqual((z["main"]["status"], z["main"]["label"]), ("planned", "the x capability, proposed"))
+        notizen.clear()
+        with self.assertRaisesRegex(SystemExit, r"^x: planned on a branch, but the project's label"):
+            modul.measure_rows(artefakte, _MAIN)
+
+
 class TheReadmeTablesAreTheData(unittest.TestCase):
     def test_both_rendered_blocks_equal_the_recorded_data(self) -> None:
         modul = _load()
@@ -272,7 +310,7 @@ class ANewUserSignsAndSeesATamperRefused(unittest.TestCase):
 
     def test_the_readme_names_both_findings(self) -> None:
         text = _README.read_text(encoding="utf-8")
-        self.assertIn("A wheel built from main is also called 6.1.0", text)
+        self.assertIn("A wheel built from main at `0ace3039` was also called 6.1.0", text)
         self.assertRegex(text, re.escape("uses: b7n0de/proofbundle/action@v1.0.0"))
 
 

@@ -20,8 +20,10 @@ are rendered from that file by the same script; a test holds them to it.
   capability that lives only in the repository (the Rust verifier, the GitHub Action) is looked up at the
   tag and at main.
 - **Label.** The project's own words for the capability are read at the tag and at main, from the file the
-  row names (the predicate inventory, COMPATIBILITY.md, README.md, INTEGRATIONS.md or CHANGELOG.md). A
-  present capability whose label is not found stops the measurement; its status is then not measured.
+  row names (the predicate inventory, COMPATIBILITY.md, README.md, INTEGRATIONS.md, CHANGELOG.md or an ADR). A
+  present capability whose label is not found stops the measurement; its status is then not measured. The same
+  holds for a planned capability, whose label is read at the branch head the row records, and for one provided
+  elsewhere, whose label is the text in the docs that points there.
 - **Status.** Derived, never set by hand: `experimental` when the label says experimental, `published`
   otherwise; `main only` when present on main and absent from the release; `planned` when present on a
   named branch only, looked up at the branch head the row records; `from elsewhere` when another project
@@ -89,11 +91,13 @@ run the built-in demo. Once with the wheel from PyPI, once with a wheel built fr
 
 ## Two findings the measurement made
 
-1. **A wheel built from main is also called 6.1.0.** `pyproject.toml` on main still says `6.1.0`, so the
-   wheel built from `0ace3039` is `proofbundle-6.1.0-py3-none-any.whl` like the published one, with other
-   bytes (its SHA-256 is in `matrix.json`) and with `proofbundle/adapters/agt_receipt.py` inside, a module
-   that is in no release. The version string alone does not tell the two apart. Whoever reports a result
-   from a source build names the commit, not only the version.
+1. **A wheel built from main at `0ace3039` was also called 6.1.0.** `pyproject.toml` at that commit said
+   `6.1.0`, so the wheel built from it was `proofbundle-6.1.0-py3-none-any.whl` like the published one, with
+   other bytes (its SHA-256 is in `matrix.json`) and with `proofbundle/adapters/agt_receipt.py` inside, a
+   module that was in no release then. Main has since moved to `6.2.0`, whose CHANGELOG section names that
+   adapter; this matrix answers for `0ace3039` and is not re-measured here. The finding holds for every
+   source build between two releases: the version string alone does not tell it from the published one.
+   Whoever reports a result from a source build names the commit, not only the version.
 2. **The docs pin the GitHub Action at `v1.0.0`.** INTEGRATIONS.md shows
    `uses: b7n0de/proofbundle/action@v1.0.0`. The action file at that tag differs from the one at `v6.1.0`
    and on main (one file, 42 lines added, 2 removed): the later file passes both inputs through the
