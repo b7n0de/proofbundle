@@ -349,6 +349,26 @@ def test_die_landung_zaehlt_nicht_die_zeit_des_merge_commits():
     assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
 
 
+def test_ein_lauf_in_der_sekunde_der_landung_zaehlt_nicht():
+    """Codex on pull request 310, round six (P1): both times have one second of resolution, and a run created in the
+    second the base landed may have started before it. It does not count; one a second later does."""
+    s = _skript()
+    gleich = dict(LAUF, created_at="2026-01-02T00:00:00Z")
+    api = _FalscheApi([[gleich]] * 100, GRUEN, basis="2026-01-02T00:00:00Z")
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
+    spaeter = dict(LAUF, created_at="2026-01-02T00:00:01Z")
+    api = _FalscheApi([[spaeter]], GRUEN, basis="2026-01-02T00:00:00Z")
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
+
+
+def test_die_grenze_ist_streng_an_der_landung_und_offen_am_eigenen_lauf():
+    s = _skript()
+    t = s._instant("2026-01-02T00:00:00Z")
+    eine = s.dt.timedelta(seconds=1)
+    assert not s.counts(t, t, None) and s.counts(t + eine, t, None)
+    assert s.counts(t + eine, t, t + eine) and not s.counts(t + eine, t, t + 2 * eine)
+
+
 @pytest.mark.parametrize("aktivitaet", [[], [{"ref": "refs/heads/main", "after": "d" * 40, "timestamp": "2026-02-01T00:00:00Z"}],
                                         [{"ref": "refs/heads/other", "after": "c" * 40, "timestamp": "2025-12-31T00:00:00Z"}]])
 def test_eine_landung_ausserhalb_der_aktivitaet_ist_sofort_rot(aktivitaet):

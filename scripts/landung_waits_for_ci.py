@@ -35,7 +35,9 @@ WHEN THE BASE LANDED is the time the base branch moved to `BASE_SHA`, read from 
 records each update of a ref with its time (measured 2026-10-08: main moved to c335c6ee at 08:19:17Z). It is not
 a commit's own time (Codex on pull request 310, round five, P1): a merge commit exists before the branch moves to
 it, in the merge queue in particular, and a run between the two tested the old base. A landing that is not among
-the last `ACTIVITY_PAGE` entries of the activity is red: which run counts cannot be decided.
+the last `ACTIVITY_PAGE` entries of the activity is red: which run counts cannot be decided. Both times have one
+second of resolution, so a run created in the second the base landed is not known to have started after it and
+does not count: the run must be created in a LATER second (Codex on pull request 310, round six, P1).
 
 THREE OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
 succeeded. `red` as soon as one needed job finished with anything but success (skipped and cancelled
@@ -149,13 +151,19 @@ def landed_at(fetch, repo: str, base_ref: str, base: str, token) -> dt.datetime:
                       "repository activity, so when the base landed is not known")
 
 
-def earliest_counted(fetch, repo: str, base_ref: str, base: str, action: str, run_id: str, token) -> dt.datetime:
-    """The earliest creation time of a ci.yml run that counts as evidence for the current merge candidate."""
+def counts(created: dt.datetime, landed: dt.datetime, own_floor: "dt.datetime | None") -> bool:
+    """Whether a ci.yml run created at `created` counts: strictly after the second the base landed, and, on a new
+    head, not before this landung run started, less SKEW_S."""
+    return created > landed and (own_floor is None or created >= own_floor)
+
+
+def floors(fetch, repo: str, base_ref: str, base: str, action: str, run_id: str, token):
+    """(when the base landed, the earliest creation of a new run of this event or None)."""
     landed = landed_at(fetch, repo, base_ref, base, token)
     if action in NEW_RUN_EVENTS:
         own = _instant(fetch(f"repos/{repo}/actions/runs/{run_id}", token).get("created_at"))
-        return max(landed, own - dt.timedelta(seconds=SKEW_S))
-    return landed
+        return landed, own - dt.timedelta(seconds=SKEW_S)
+    return landed, None
 
 
 def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> int:
@@ -169,12 +177,12 @@ def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> 
     while True:
         try:
             if floor is None:
-                floor = earliest_counted(fetch, repo, env["BASE_REF"], env["BASE_SHA"], env["EVENT_ACTION"],
-                                         env["GITHUB_RUN_ID"], token)
+                floor = floors(fetch, repo, env["BASE_REF"], env["BASE_SHA"], env["EVENT_ACTION"],
+                               env["GITHUB_RUN_ID"], token)
             runs = fetch(f"repos/{repo}/actions/workflows/{CI_WORKFLOW}/runs"
                          f"?head_sha={sha}&event=pull_request&per_page=100", token)
             alle = [r for r in runs.get("workflow_runs") or [] if r.get("head_sha") == sha]
-            runs = [r for r in alle if _instant(r.get("created_at")) >= floor]
+            runs = [r for r in alle if counts(_instant(r.get("created_at")), *floor)]
             if runs:
                 run = max(runs, key=lambda r: (str(r.get("created_at")), int(r.get("id") or 0)))
                 page = fetch(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", token)
@@ -184,12 +192,12 @@ def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> 
                     return 1
                 state, why = judge(jobs, str(run.get("status")))
             elif clock() - start > APPEAR_S:
-                alt = (f"; {len(alle)} earlier run(s) of this head started before {floor.isoformat()} and tested an "
+                alt = (f"; {len(alle)} earlier run(s) of this head started no later than {floor[0].isoformat()} and tested an "
                        "older merge candidate, so a new push (or closing and reopening) runs ci.yml on the current "
                        "one" if alle else "")
                 state, why = "red", f"no ci.yml run of event pull_request for {sha} after {APPEAR_S} s{alt}"
             else:
-                state, why = "wait", f"no ci.yml run for {sha} created after {floor.isoformat()} yet"
+                state, why = "wait", f"no ci.yml run for {sha} created after {floor[0].isoformat()} yet"
             errors = 0
         except Undecidable as exc:
             print(f"::error::{exc}")
