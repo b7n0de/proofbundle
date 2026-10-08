@@ -356,7 +356,9 @@ fn validate_receipt(raw: &Item) -> Result<ValidReceipt, ()> {
     let consistency_present =
         matches!(vdp_of(&rc), Some(Item::Map(vdp)) if get(vdp, CONSISTENCY).is_some());
     Ok(ValidReceipt {
-        readable: ccf && !inclusion.is_empty(),
+        // Python's `_receipt` (base 3010d4bd): an untagged receipt's proofs parse, but it is not one that
+        // parses under the -05 CDDL, so it is not readable.
+        readable: ccf && !inclusion.is_empty() && rc.tagged,
         rc,
         kid,
         iss,
@@ -575,9 +577,11 @@ pub fn verify_transparent_statement(
         }
         _ => None,
     };
-    let readable = passed
-        .as_ref()
-        .is_some_and(|p| p.iter().any(|r| r.as_ref().is_ok_and(|v| v.readable)));
+    // readable needs the statement itself to be tagged 18 too (base 3010d4bd, ADR 0009 Decision 10).
+    let readable = st.tagged
+        && passed
+            .as_ref()
+            .is_some_and(|p| p.iter().any(|r| r.as_ref().is_ok_and(|v| v.readable)));
 
     // THE STATUS LOGIC
     let payload_digest = st.payload.clone().filter(|p| p.len() == 32);
