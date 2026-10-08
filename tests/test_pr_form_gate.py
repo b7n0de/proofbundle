@@ -83,11 +83,18 @@ def _rules(out: str) -> set:
     # leaves no session segment in the path.
     TEXT + "\n\nSee [the host](///session_123) for the steps.\n\n" + FOOTER,
     TEXT + "\n\nSee [the parent](session_123/..) for the steps.\n\n" + FOOTER,
+    # Codex threads 4220250591 and 4220250628: dot segments of an absolute address, in a link or in the text, are
+    # removed as a browser removes them, `%2e` included, and `https:///session_123` names a host.
+    TEXT + "\n\nSee [the parent](https://example.org/session_123/..) for the steps.\n\n" + FOOTER,
+    TEXT + "\n\nSee [the parent](https://example.org/session_123/%2e%2E) for the steps.\n\n" + FOOTER,
+    TEXT + "\n\nSee https://example.org/session_123/.. for the steps.\n\n" + FOOTER,
+    TEXT + "\n\nSee https:///session_123 for the steps.\n\n" + FOOTER,
 ], ids=["body", "footer-only", "trailing-lf", "trailing-crlf", "crlf", "prose-generated-with",
         "prose-sessions-page", "prose-session-id", "prose-generated-by-then-a-link",
         "undefined-shortcut-reference", "undefined-full-reference", "undefined-collapsed-reference",
         "session-in-the-query", "session-in-the-fragment", "label-with-underscore", "label-with-star",
-        "label-with-backtick", "label-with-tilde", "triple-slash-is-a-host", "dot-segment-resolved-away"])
+        "label-with-backtick", "label-with-tilde", "triple-slash-is-a-host", "dot-segment-resolved-away",
+        "absolute-dot-segment", "absolute-encoded-dot-segment", "text-dot-segment", "text-triple-slash-is-a-host"])
 def test_green_a_milestone_and_the_footer_as_the_last_text(tmp_path, capsys, body):
     code, out = _judge(tmp_path, capsys, body=body)
     assert code == 0, out
@@ -200,6 +207,10 @@ _BEFORE_THE_FOOTER = {
     "session-link-backslash-path": "[run](\\sessions\\0000)",
     "session-link-backslash-after-host": "[run](https://tool.example\\code\\session_0000)",
     "session-link-backslash-in-an-anchor": '<a href="\\code\\session_0000">run</a>',
+    # the controls of thread 4220250628: a dot segment that leaves the session segment in the path stays red
+    "session-link-single-dot-after": "[run](https://tool.example/session_0000/.)",
+    "session-link-after-a-parent": "[run](https://tool.example/a/%2e%2e/session_0000)",
+    "session-address-after-a-parent": "see https://tool.example/a/../session_0000 for it",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),

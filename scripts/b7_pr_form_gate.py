@@ -215,18 +215,38 @@ def _aufgeloest(ziel: str) -> str:
     return urllib.parse.urljoin(_BASIS, ziel)
 
 
+#: A single-dot and a double-dot path segment as the WHATWG URL parser reads them, `%2e` for a dot included.
+_PUNKT = re.compile(r"\A(?:\.|%2e)\Z", re.IGNORECASE)
+_PUNKT_PUNKT = re.compile(r"\A(?:\.|%2e){2}\Z", re.IGNORECASE)
+
+
+def _ohne_punktsegmente(pfad: str) -> list[str]:
+    """The segments of a path after its dot segments are removed, as a browser removes them from every URL, an
+    absolute one included: urljoin removes them only from a relative reference (Codex thread 4220250628 on pull
+    request 308, `https://example.org/session_123/..` kept its segment), and the WHATWG parser reads `%2e` as a dot
+    there."""
+    aus: list[str] = []
+    for s in pfad.split("/"):
+        if _PUNKT_PUNKT.match(s):
+            if aus:
+                aus.pop()
+        elif not _PUNKT.match(s):
+            aus.append(s)
+    return aus
+
+
 def _session_path(adresse: str, *, aus_text: bool) -> bool:
     """Whether the path of an address has a session segment. A link target the parser yields is a URL reference,
-    resolved as a browser resolves it on the pull request page (`_aufgeloest`), so `session_123` is a relative path;
-    only an address found in the text without a scheme is read as a host first (`tool.example/code/...`). Codex
-    thread 4219210671 on pull request 308: the host reading was applied to every target, and a rootless relative
-    target became a host with an empty path."""
+    so `session_123` is a relative path; only an address found in the text without a scheme is read as a host first
+    (`tool.example/code/...`; Codex thread 4219210671 on pull request 308: the host reading was applied to every
+    target, and a rootless relative target became a host with an empty path). Both are then resolved as a browser
+    resolves them on the pull request page (`_aufgeloest`) and their dot segments removed; thread 4220250591: an
+    address from the text was read as written, so `https://example.org/session_123/..` was red."""
     adresse = adresse.casefold()
     if aus_text and "://" not in adresse:
         adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
-    elif not aus_text:
-        adresse = _aufgeloest(adresse)
-    segmente = urllib.parse.unquote(urllib.parse.urlsplit(adresse).path).split("/")
+    adresse = _aufgeloest(adresse)
+    segmente = [urllib.parse.unquote(s) for s in _ohne_punktsegmente(urllib.parse.urlsplit(adresse).path)]
     return any(_SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segmente))
                for i, s in enumerate(segmente))
 
