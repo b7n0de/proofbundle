@@ -54,7 +54,10 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 #: `label` lists (file, pattern) pairs that state the project's own status for the capability; the first
 #: that matches at a ref gives the label text there, and "experimental" in it makes the cell experimental.
 #: A capability present at a ref with no label found there stops the measurement (fail closed). `branch` names a
-#: branch for a capability that is on neither the tag nor main; `elsewhere` names the outside provider.
+#: branch for a capability that is on neither the tag nor main; `elsewhere` names the outside provider, and
+#: `provider` the name the docs must carry at both refs for it. `git_tag_from` is (file, pattern) for the tag of
+#: this repository the docs pin, read at both refs, never configured here (Codex threads 4217983161 and 4217983172
+#: on pull request 304: the provider and the tag were taken from this table, not from the docs).
 CAPABILITIES = [
     {"id": "decision", "name": "Decision receipt (decision-receipt/v0.1)",
      "modules": ["proofbundle/decision.py"], "cli": ["decision"],
@@ -81,10 +84,12 @@ CAPABILITIES = [
      "modules": ["proofbundle/pytest_plugin.py"], "entry_points": ["pytest11:proofbundle"],
      "label": [("INTEGRATIONS.md", r"(## pytest \(pytest11 plugin\)[^\n]*)")]},
     {"id": "github-action", "name": "GitHub Action (action/action.yml)",
-     "repo_paths": ["action/action.yml"], "git_tag": "v1.0.0",
+     "repo_paths": ["action/action.yml"],
+     "git_tag_from": ("INTEGRATIONS.md", r"uses: b7n0de/proofbundle/action@(\S+)"),
      "label": [("INTEGRATIONS.md", r"(A composite action is prepared[^\n]*)")]},
     {"id": "slsa-provenance", "name": "SLSA build provenance over a receipt",
      "elsewhere": "actions/attest-build-provenance (GitHub), referenced in INTEGRATIONS.md; no code here",
+     "provider": "actions/attest-build-provenance",
      "label": [("INTEGRATIONS.md", r"(\*\*Optional, complementary\*\* [^\n]*)")]},
     {"id": "promptfoo", "name": "promptfoo adapter (results.json)",
      "modules": ["proofbundle/adapters/promptfoo.py"],
@@ -178,6 +183,21 @@ def _label_at(ref: str, paare: list):
         if treffer:
             return " ".join(treffer.group(1).split()), datei
     return None, None
+
+
+def _documented_tag(ref: str, quelle: tuple):
+    """The one tag the docs at `ref` pin with `uses:`, or a SystemExit when they pin none or more than one."""
+    datei, muster = quelle
+    roh = _git_bytes(ref, datei)
+    tags = sorted(set(re.findall(muster, roh.decode("utf-8")))) if roh is not None else []
+    if len(tags) != 1:
+        raise SystemExit(f"{datei} at {ref[:12]} pins {tags or 'no tag'} with `uses:`; the channel is not measured")
+    return tags[0]
+
+
+def _names_provider(ref: str, datei: str, provider: str) -> bool:
+    roh = _git_bytes(ref, datei)
+    return roh is not None and provider in roh.decode("utf-8")
 
 
 def _present_at(ref: str, module: list, cli: list, eps: list, repo: list) -> bool:
@@ -285,11 +305,21 @@ def measure_rows(artefakte: dict, main: str) -> list:
         if cap.get("registry"):
             mess_rel["parity_registry_at_tag"] = _registry_counts(TAG, cap["registry"])
             mess_main["parity_registry_at_main"] = _registry_counts(main, cap["registry"])
-        if cap.get("git_tag"):
-            # The docs pin a tag of this repository; what the user gets is that tag's file, not the release's.
-            mess_rel["documented_tag"] = cap["git_tag"]
+        if cap.get("git_tag_from"):
+            # The docs pin a tag of this repository; what the user gets is that tag's file, not the release's. The tag
+            # is read from the docs at the release and at main.
+            mess_rel["documented_tag"] = _documented_tag(TAG, cap["git_tag_from"])
+            mess_main["documented_tag_at_main"] = _documented_tag(main, cap["git_tag_from"])
             mess_rel["changed_between_documented_tag_and_release"] = _git(
-                "diff", "--shortstat", cap["git_tag"], TAG, "--", *repo).strip() or "no change"
+                "diff", "--shortstat", mess_rel["documented_tag"], TAG, "--", *repo).strip() or "no change"
+        if cap.get("elsewhere"):
+            # From elsewhere needs the docs to point there: the provider is named in the label's file at both refs.
+            for ref, wo in ((TAG, mess_rel), (main, mess_main)):
+                datei = cap["label"][0][0]
+                wo["provider_named_in_docs"] = _names_provider(ref, datei, cap["provider"])
+                if not wo["provider_named_in_docs"]:
+                    raise SystemExit(f"{cap['id']}: {datei} at {ref[:12]} does not name {cap['provider']}; "
+                                     "from elsewhere is not measured")
         label_tag, quelle_tag = _label_at(TAG, cap["label"])
         label_main, quelle_main = _label_at(main, cap["label"])
         kanal = "PyPI wheel"
@@ -304,7 +334,8 @@ def measure_rows(artefakte: dict, main: str) -> list:
         else:
             rel_da = all(mess_rel["repo_paths_at_tag"].values())
             main_da = all(mess_main["repo_paths_at_main"].values())
-            kanal = f"git tag {cap['git_tag']}" if cap.get("git_tag") else "repository only (built from source)"
+            kanal = (f"git tag {mess_rel['documented_tag']}" if cap.get("git_tag_from")
+                     else "repository only (built from source)")
         if not rel_da and not cap.get("elsewhere"):
             # The release column reads the wheel (the tag for a repository capability), but main only and
             # planned promise absence from every v6.1.0 artifact and from the tag. The sdist is read as a file
@@ -336,7 +367,10 @@ def measure_rows(artefakte: dict, main: str) -> list:
             # The capability lives at the branch head only, so the project's words for it are read there.
             label_main, quelle_main = _label_at(head, cap["label"])
         if not rel_da and not cap.get("elsewhere"):
-            kanal = f"branch {branch} only" if branch_kopf else "main tree only, in no release"
+            # Only what was inspected: the v6.1.0 artifacts and tag, main and the named branch head. Releases before
+            # 6.1.0 are not measured (Codex thread 4217983178 on pull request 304: "in no release" said more).
+            kanal = (f"branch {branch}, not in v{VERSION} or on main" if branch_kopf
+                     else f"main tree only, not in v{VERSION}")
         try:
             st_rel = status(rel_da, label_tag, elsewhere=bool(cap.get("elsewhere")))
             st_main = status(main_da, label_main, main_only=main_da and not rel_da,

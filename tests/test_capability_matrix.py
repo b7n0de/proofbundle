@@ -180,6 +180,8 @@ class MainOnlyIsAbsentFromEveryReleaseArtifact(unittest.TestCase):
             with self.subTest(pfad):
                 z = _measure(cap, main={pfad})
                 self.assertEqual((z["release"]["status"], z["main"]["status"]), ("absent", "main only"))
+                # Codex thread 4217983178: only v6.1.0 was inspected, so the channel says so and not "in no release"
+                self.assertEqual(z["channel"], "main tree only, not in v6.1.0")
 
     def test_a_module_the_sdist_carries_stops_the_measurement(self) -> None:
         with self.assertRaisesRegex(SystemExit, r"^x: .*carried by the sdist"):
@@ -206,7 +208,7 @@ class PlannedIsMeasuredAtTheRecordedBranchHead(unittest.TestCase):
         z = _measure(dict(_X, cli=["x"], branch="feat/x"), branch={_X_SRC, "cli:x"})
         self.assertEqual((z["release"]["status"], z["main"]["status"]), ("absent", "planned"))
         self.assertEqual(z["main"]["branch"], {"name": "feat/x", "head": _HEAD})
-        self.assertEqual(z["channel"], "branch feat/x only")
+        self.assertEqual(z["channel"], "branch feat/x, not in v6.1.0 or on main")
 
     def test_a_branch_head_without_the_capability_stops_the_measurement(self) -> None:
         for fall, zweig in (("module missing", {"cli:x"}), ("subcommand missing", {_X_SRC}), ("empty", set())):
@@ -259,6 +261,42 @@ class EveryStatusThatPointsSomewhereNeedsItsLabel(unittest.TestCase):
         notizen.clear()
         with self.assertRaisesRegex(SystemExit, r"^x: planned on a branch, but the project's label"):
             modul.measure_rows(artefakte, _MAIN)
+
+
+class TheDocsAreReadForProviderAndTag(unittest.TestCase):
+    """Codex threads 4217983161 and 4217983172: the provider of a from-elsewhere row and the tag the docs pin for the
+    GitHub Action came from the table in measure.py, so docs that stopped naming them kept the cells. Both are read
+    from the docs at the release and at main now, and the measurement stops when they say nothing or two things."""
+
+    def _modul(self, texte: dict):
+        modul = _load()
+        modul._git_bytes = lambda ref, pfad: texte.get((ref, pfad))
+        return modul
+
+    def test_the_documented_tag_is_the_one_the_docs_pin(self) -> None:
+        quelle = ("INTEGRATIONS.md", r"uses: b7n0de/proofbundle/action@(\S+)")
+        modul = self._modul({("r", "INTEGRATIONS.md"): b"- uses: b7n0de/proofbundle/action@v2.0.0\n"})
+        self.assertEqual(modul._documented_tag("r", quelle), "v2.0.0")
+        for fall, text in (("no uses line", b"A composite action is prepared\n"),
+                           ("two tags", b"uses: b7n0de/proofbundle/action@v1\nuses: b7n0de/proofbundle/action@v2\n")):
+            with self.subTest(fall), self.assertRaisesRegex(SystemExit, "the channel is not measured"):
+                self._modul({("r", "INTEGRATIONS.md"): text})._documented_tag("r", quelle)
+
+    def test_the_provider_must_be_named_in_the_docs(self) -> None:
+        modul = self._modul({("r", "INTEGRATIONS.md"): b"- uses: actions/attest-build-provenance@sha\n"})
+        self.assertTrue(modul._names_provider("r", "INTEGRATIONS.md", "actions/attest-build-provenance"))
+        modul = self._modul({("r", "INTEGRATIONS.md"): b"**Optional, complementary** - a provenance\n"})
+        self.assertFalse(modul._names_provider("r", "INTEGRATIONS.md", "actions/attest-build-provenance"))
+
+    def test_the_recorded_rows_carry_what_the_docs_say(self) -> None:
+        d = json.loads(_MATRIX.read_text(encoding="utf-8"))
+        reihen = {z["id"]: z for z in d["rows"]}
+        ga = reihen["github-action"]
+        self.assertEqual(ga["channel"], f"git tag {ga['release']['measured']['documented_tag']}")
+        self.assertEqual(ga["main"]["measured"]["documented_tag_at_main"], ga["release"]["measured"]["documented_tag"])
+        sl = reihen["slsa-provenance"]
+        self.assertIs(sl["release"]["measured"]["provider_named_in_docs"], True)
+        self.assertIs(sl["main"]["measured"]["provider_named_in_docs"], True)
 
 
 class TheReadmeTablesAreTheData(unittest.TestCase):

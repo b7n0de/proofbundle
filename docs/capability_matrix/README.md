@@ -61,8 +61,8 @@ repository (`git ls-files` finds none, measured at `0ace3039`).
 | lm-evaluation-harness adapter (results_*.json) | PyPI wheel | published — lm-evaluation-harness (results_*.json adapter, v0.6; sample-count provenance since v3.7.0) | published | no change |
 | Inspect log adapter (read_eval_log) | PyPI wheel | published — inspect_ai (end-of-task hook) | published | no change |
 | Every Eval Ever converter (from_eee_dataset) | PyPI wheel | published — Every Eval Ever converter (`proofbundle.adapters.from_eee_dataset`): reads an EEE v0.2.2 aggregate | published | no change |
-| AGT MCP tool-call receipt verifier (adapters.agt_receipt) | main tree only, in no release | absent | main only — (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT | — |
-| SCITT receipts (scitt-ccf/v1 reader) | branch feat/640-scitt-anker only | absent | planned (branch `feat/640-scitt-anker` at `531e2564`) | — |
+| AGT MCP tool-call receipt verifier (adapters.agt_receipt) | main tree only, not in v6.1.0 | absent | main only — (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT | — |
+| SCITT receipts (scitt-ccf/v1 reader) | branch feat/640-scitt-anker, not in v6.1.0 or on main | absent | planned (branch `feat/640-scitt-anker` at `531e2564`) | — |
 
 <!-- end of matrix -->
 

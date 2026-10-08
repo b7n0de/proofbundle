@@ -634,7 +634,8 @@
      "entry_points_at_main": {},
      "repo_paths_at_main": {
       "action/action.yml": true
-     }
+     },
+     "documented_tag_at_main": "v1.0.0"
     },
     "changed_since_release": "no change",
     "branch": null
@@ -667,7 +668,8 @@
      "entry_points_in_wheel": {},
      "repo_paths_in_sdist": {},
      "repo_paths_at_tag": {},
-     "subcommands_at_tag": {}
+     "subcommands_at_tag": {},
+     "provider_named_in_docs": true
     }
    },
    "main": {
@@ -678,7 +680,8 @@
      "modules_at_main": {},
      "subcommands_at_main": {},
      "entry_points_at_main": {},
-     "repo_paths_at_main": {}
+     "repo_paths_at_main": {},
+     "provider_named_in_docs": true
     },
     "changed_since_release": null,
     "branch": null
@@ -899,7 +902,7 @@
   {
    "id": "agt-receipt",
    "name": "AGT MCP tool-call receipt verifier (adapters.agt_receipt)",
-   "channel": "main tree only, in no release",
+   "channel": "main tree only, not in v6.1.0",
    "evidence": {
     "modules": [
      "proofbundle/adapters/agt_receipt.py"
@@ -951,7 +954,7 @@
   {
    "id": "scitt",
    "name": "SCITT receipts (scitt-ccf/v1 reader)",
-   "channel": "branch feat/640-scitt-anker only",
+   "channel": "branch feat/640-scitt-anker, not in v6.1.0 or on main",
    "evidence": {
     "modules": [
      "proofbundle/scitt_ccf.py"
@@ -1181,6 +1184,23 @@
    "by": "tools/capability_matrix/measure.py (_label_at at the branch head, status)",
    "why": "Codex thread 4217201386 on pull request 304: a planned cell needs the project's label, read at the branch head; the CHANGELOG pattern finds none there, ADR 0009 does",
    "utc": "2026-10-08T10:17:51Z"
+  }
+ ],
+ "rederived": [
+  {
+   "rows": [
+    "github-action",
+    "slsa-provenance",
+    "agt-receipt",
+    "scitt"
+   ],
+   "at": {
+    "tag": "v6.1.0",
+    "main": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a"
+   },
+   "by": "tools/capability_matrix/measure.py (_documented_tag, _names_provider, the channel rule)",
+   "why": "Codex threads 4217983161, 4217983172 and 4217983178 on pull request 304: the provider and the action tag are read from the docs at both refs, and the channel names only what was inspected",
+   "utc": "2026-10-08T10:57:18Z"
   }
  ]
 }
