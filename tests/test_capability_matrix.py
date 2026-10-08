@@ -12,10 +12,15 @@ for that commit. Re-measuring is `tools/capability_matrix/measure.py`, with netw
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import io
 import json
 import re
+import tarfile
+import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -273,20 +278,60 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
         modul._git_bytes = lambda ref, pfad: texte.get((ref, pfad))
         return modul
 
-    def test_the_documented_tag_is_the_one_the_docs_pin(self) -> None:
-        quelle = ("INTEGRATIONS.md", r"uses: b7n0de/proofbundle/action@(\S+)")
-        modul = self._modul({("r", "INTEGRATIONS.md"): b"- uses: b7n0de/proofbundle/action@v2.0.0\n"})
-        self.assertEqual(modul._documented_tag("r", quelle), "v2.0.0")
-        for fall, text in (("no uses line", b"A composite action is prepared\n"),
-                           ("two tags", b"uses: b7n0de/proofbundle/action@v1\nuses: b7n0de/proofbundle/action@v2\n")):
-            with self.subTest(fall), self.assertRaisesRegex(SystemExit, "the channel is not measured"):
-                self._modul({("r", "INTEGRATIONS.md"): text})._documented_tag("r", quelle)
+    _AKTION = {"id": "ga", "label": [("INTEGRATIONS.md", r"(A composite action is prepared[^\n]*)")],
+               "git_tag_from": r"uses: b7n0de/proofbundle/action@(\S+)"}
+    _SLSA = {"id": "slsa", "label": [("INTEGRATIONS.md", r"(\*\*Optional, complementary\*\* [^\n]*)")],
+             "provider": "actions/attest-build-provenance"}
+    _BEISPIEL = ("## GitHub Action\n\nA composite action is prepared. Usage:\n\n```yaml\n"
+                 "- uses: b7n0de/proofbundle/action@v2.0.0\n```\n\n**Optional, complementary** - a provenance over\n"
+                 "the receipt. Add:\n\n```yaml\n- uses: actions/attest-build-provenance@sha\n```\n\n## promptfoo\n")
 
-    def test_the_provider_must_be_named_in_the_docs(self) -> None:
-        modul = self._modul({("r", "INTEGRATIONS.md"): b"- uses: actions/attest-build-provenance@sha\n"})
-        self.assertTrue(modul._names_provider("r", "INTEGRATIONS.md", "actions/attest-build-provenance"))
-        modul = self._modul({("r", "INTEGRATIONS.md"): b"**Optional, complementary** - a provenance\n"})
-        self.assertFalse(modul._names_provider("r", "INTEGRATIONS.md", "actions/attest-build-provenance"))
+    def test_the_documented_tag_is_the_one_the_cited_passage_pins(self) -> None:
+        modul = self._modul({("r", "INTEGRATIONS.md"): self._BEISPIEL.encode()})
+        self.assertEqual(modul._documented_tag("r", self._AKTION), "v2.0.0")
+        anderswo = "A composite action is prepared.\n\n## Other\n\n- uses: b7n0de/proofbundle/action@v9\n"
+        for fall, text in (("no uses line", "A composite action is prepared\n"),
+                           ("two tags", "A composite action is prepared.\n```\nuses: b7n0de/proofbundle/action@v1\n"
+                                        "uses: b7n0de/proofbundle/action@v2\n```\n"),
+                           # Codex thread 4218719393, the sibling of the provider: a tag outside the cited passage
+                           ("the tag only in another section", anderswo),
+                           ("no label", "- uses: b7n0de/proofbundle/action@v1\n")):
+            with self.subTest(fall), self.assertRaisesRegex(SystemExit, "the channel is not measured"):
+                self._modul({("r", "INTEGRATIONS.md"): text.encode()})._documented_tag("r", self._AKTION)
+
+    def test_the_provider_must_be_named_in_the_cited_passage(self) -> None:
+        """Codex thread 4218719393: the provider was searched in the whole file. It must stand in the passage the
+        label cites, the paragraph and its example; a mention anywhere else does not keep the cell."""
+        modul = self._modul({("r", "INTEGRATIONS.md"): self._BEISPIEL.encode()})
+        self.assertTrue(modul._names_provider("r", self._SLSA))
+        ohne = self._BEISPIEL.replace("actions/attest-build-provenance@sha", "actions/upload-artifact@sha")
+        for fall, text in (("not named at all", ohne),
+                           ("named in an unrelated section", ohne + "\nSee actions/attest-build-provenance.\n"),
+                           ("named in a later paragraph of the same section",
+                            ohne.replace("## promptfoo", "It works with actions/attest-build-provenance.\n\n## promptfoo"))):
+            with self.subTest(fall):
+                self.assertFalse(self._modul({("r", "INTEGRATIONS.md"): text.encode()})._names_provider("r", self._SLSA))
+
+    def test_two_documented_tags_are_both_named_in_the_channel(self) -> None:
+        """Codex thread 4218719408: the channel was built from the release's tag alone, so docs at main that pin
+        another tag stood beside a column that named the release's."""
+        for main_tag, kanal in (("v2", "git tag v1 at v6.1.0, v2 at main"), ("v1", "git tag v1")):
+            with self.subTest(main_tag=main_tag):
+                modul = _load()
+                texte = {modul.TAG: "the x capability, stable\n```\nuses: x@v1\n```\n",
+                         _MAIN: f"the x capability, stable\n```\nuses: x@{main_tag}\n```\n"}
+
+                def git_bytes(ref, pfad, texte=texte):
+                    if pfad == "NOTES.md":
+                        return texte[ref].encode()
+                    return b"" if pfad == "action/action.yml" else None
+                modul._git_bytes = git_bytes
+                modul._git = lambda *args: ""
+                modul.CAPABILITIES = [{"id": "x", "name": "x", "repo_paths": ["action/action.yml"],
+                                       "git_tag_from": r"uses: x@(\S+)",
+                                       "label": [("NOTES.md", r"(the x capability[^\n]*)")]}]
+                artefakte = {"wheel_files": {}, "wheel_subcommands": [], "wheel_entry_points": [], "sdist_files": []}
+                self.assertEqual(modul.measure_rows(artefakte, _MAIN)[0]["channel"], kanal)
 
     def test_the_recorded_rows_carry_what_the_docs_say(self) -> None:
         d = json.loads(_MATRIX.read_text(encoding="utf-8"))
@@ -297,6 +342,52 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
         sl = reihen["slsa-provenance"]
         self.assertIs(sl["release"]["measured"]["provider_named_in_docs"], True)
         self.assertIs(sl["main"]["measured"]["provider_named_in_docs"], True)
+
+
+class AFailedProvenanceCheckStopsTheMeasurement(unittest.TestCase):
+    """Codex thread 4218719417: a SHA-256 that is not PyPI's, and wheel files that differ from the tag or are absent
+    there, were recorded and the release column was derived from the local bytes all the same."""
+
+    def _artefakte(self, d: Path, *, pypi_digest=None, am_tag=b"print('cli')\n"):
+        modul = _load()
+        cli = b"print('cli')\n"
+        rad = d / "proofbundle-6.1.0-py3-none-any.whl"
+        with zipfile.ZipFile(rad, "w") as z:
+            z.writestr("proofbundle/cli.py", cli)
+            z.writestr("proofbundle-6.1.0.dist-info/entry_points.txt", "[console_scripts]\nproofbundle = x\n")
+        sdist = d / "proofbundle-6.1.0.tar.gz"
+        with tarfile.open(sdist, "w:gz") as t:
+            info = tarfile.TarInfo("proofbundle-6.1.0/README.md")
+            info.size = 1
+            t.addfile(info, io.BytesIO(b"x"))
+        urls = []
+        for datei, art in ((rad, "bdist_wheel"), (sdist, "sdist")):
+            digest = hashlib.sha256(datei.read_bytes()).hexdigest()
+            urls.append({"filename": datei.name, "packagetype": art, "url": "https://example.invalid/" + datei.name,
+                         "upload_time_iso_8601": "2026-09-27T00:00:00Z",
+                         "digests": {"sha256": (pypi_digest or {}).get(art, digest)}})
+        modul._git_bytes = lambda ref, pfad: am_tag if pfad == "src/proofbundle/cli.py" else None
+        return modul, {"urls": urls}
+
+    def test_consistent_artifacts_are_measured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            modul, pypi = self._artefakte(Path(tmp))
+            ergebnis = modul.measure_artifacts(Path(tmp), pypi)
+            self.assertEqual(modul.provenance_problems(ergebnis), [])
+            self.assertEqual(ergebnis["wheel_against_tag"], {"identical": 1, "different": [], "absent_at_tag": []})
+
+    def test_each_failed_check_stops_it(self) -> None:
+        for fall, kwargs, wort in (("a wheel digest that is not PyPI's", {"pypi_digest": {"bdist_wheel": "0" * 64}},
+                                    "is not PyPI's"),
+                                   ("an sdist digest that is not PyPI's", {"pypi_digest": {"sdist": "0" * 64}},
+                                    "sdist proofbundle-6.1.0.tar.gz"),
+                                   ("a wheel file that differs from the tag", {"am_tag": b"print('other')\n"},
+                                    "differ from v6.1.0"),
+                                   ("a wheel file absent at the tag", {"am_tag": None}, "absent at v6.1.0")):
+            with self.subTest(fall), tempfile.TemporaryDirectory() as tmp:
+                modul, pypi = self._artefakte(Path(tmp), **kwargs)
+                with self.assertRaisesRegex(SystemExit, wort):
+                    modul.measure_artifacts(Path(tmp), pypi)
 
 
 class TheReadmeTablesAreTheData(unittest.TestCase):

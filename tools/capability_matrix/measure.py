@@ -55,9 +55,10 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 #: that matches at a ref gives the label text there, and "experimental" in it makes the cell experimental.
 #: A capability present at a ref with no label found there stops the measurement (fail closed). `branch` names a
 #: branch for a capability that is on neither the tag nor main; `elsewhere` names the outside provider, and
-#: `provider` the name the docs must carry at both refs for it. `git_tag_from` is (file, pattern) for the tag of
-#: this repository the docs pin, read at both refs, never configured here (Codex threads 4217983161 and 4217983172
-#: on pull request 304: the provider and the tag were taken from this table, not from the docs).
+#: `provider` the name the docs must carry at both refs for it. `git_tag_from` is the pattern for the tag of this
+#: repository the docs pin, read at both refs, never configured here (Codex threads 4217983161 and 4217983172 on pull
+#: request 304: the provider and the tag were taken from this table, not from the docs). Provider and tag are read in
+#: the passage the row's label cites, never elsewhere in the file (`_cited_passage`, Codex thread 4218719393).
 CAPABILITIES = [
     {"id": "decision", "name": "Decision receipt (decision-receipt/v0.1)",
      "modules": ["proofbundle/decision.py"], "cli": ["decision"],
@@ -85,7 +86,7 @@ CAPABILITIES = [
      "label": [("INTEGRATIONS.md", r"(## pytest \(pytest11 plugin\)[^\n]*)")]},
     {"id": "github-action", "name": "GitHub Action (action/action.yml)",
      "repo_paths": ["action/action.yml"],
-     "git_tag_from": ("INTEGRATIONS.md", r"uses: b7n0de/proofbundle/action@(\S+)"),
+     "git_tag_from": r"uses: b7n0de/proofbundle/action@(\S+)",
      "label": [("INTEGRATIONS.md", r"(A composite action is prepared[^\n]*)")]},
     {"id": "slsa-provenance", "name": "SLSA build provenance over a receipt",
      "elsewhere": "actions/attest-build-provenance (GitHub), referenced in INTEGRATIONS.md; no code here",
@@ -185,19 +186,64 @@ def _label_at(ref: str, paare: list):
     return None, None
 
 
-def _documented_tag(ref: str, quelle: tuple):
-    """The one tag the docs at `ref` pin with `uses:`, or a SystemExit when they pin none or more than one."""
-    datei, muster = quelle
-    roh = _git_bytes(ref, datei)
-    tags = sorted(set(re.findall(muster, roh.decode("utf-8")))) if roh is not None else []
+def _passage(text: str, stelle: int) -> str:
+    """The passage around position `stelle`: its paragraph and the fenced code blocks that follow it directly,
+    up to the next paragraph of prose or heading. That is the text a label cites, its example included."""
+    zeilen = text.splitlines(keepends=True)
+    anfang, n = 0, 0
+    for i, zeile in enumerate(zeilen):
+        if n + len(zeile) > stelle:
+            anfang = i
+            break
+        n += len(zeile)
+    while anfang > 0 and zeilen[anfang - 1].strip() and not zeilen[anfang - 1].lstrip().startswith(("#", "```")):
+        anfang -= 1
+    ende = anfang
+    while ende < len(zeilen) and zeilen[ende].strip():
+        ende += 1
+    while True:
+        weiter = ende
+        while weiter < len(zeilen) and not zeilen[weiter].strip():
+            weiter += 1
+        if weiter >= len(zeilen) or not zeilen[weiter].lstrip().startswith("```"):
+            break
+        weiter += 1
+        while weiter < len(zeilen) and not zeilen[weiter].lstrip().startswith("```"):
+            weiter += 1
+        ende = min(weiter + 1, len(zeilen))
+    return "".join(zeilen[anfang:ende])
+
+
+def _cited_passage(ref: str, paare: list):
+    """(passage, file) the first (file, pattern) of a label cites at `ref`, the match's passage, else (None, None).
+
+    Codex thread 4218719393 on pull request 304: the provider was searched in the whole file, so a docs page that
+    dropped it from the cited example and named it in an unrelated paragraph kept the cell. The tag the docs pin is
+    the same class and is read here too."""
+    for datei, muster in paare:
+        roh = _git_bytes(ref, datei)
+        text = roh.decode("utf-8") if roh is not None else ""
+        treffer = re.search(muster, text)
+        if treffer:
+            return _passage(text, treffer.start()), datei
+    return None, None
+
+
+def _documented_tag(ref: str, cap: dict):
+    """The one tag the passage the row's label cites at `ref` pins with `uses:`, or a SystemExit when it pins none
+    or more than one, or when there is no such passage."""
+    passage, datei = _cited_passage(ref, cap["label"])
+    tags = sorted(set(re.findall(cap["git_tag_from"], passage))) if passage is not None else []
     if len(tags) != 1:
-        raise SystemExit(f"{datei} at {ref[:12]} pins {tags or 'no tag'} with `uses:`; the channel is not measured")
+        raise SystemExit(f"{cap['id']}: the passage its label cites in {datei or 'no file'} at {ref[:12]} pins "
+                         f"{tags or 'no tag'} with `uses:`; the channel is not measured")
     return tags[0]
 
 
-def _names_provider(ref: str, datei: str, provider: str) -> bool:
-    roh = _git_bytes(ref, datei)
-    return roh is not None and provider in roh.decode("utf-8")
+def _names_provider(ref: str, cap: dict) -> bool:
+    """Whether the passage the row's label cites at `ref` names the provider."""
+    passage, _datei = _cited_passage(ref, cap["label"])
+    return passage is not None and cap["provider"] in passage
 
 
 def _present_at(ref: str, module: list, cli: list, eps: list, repo: list) -> bool:
@@ -274,11 +320,30 @@ def measure_artifacts(verzeichnis: Path, pypi: dict) -> dict:
         else:
             anders.append(n)
     ergebnis["wheel_against_tag"] = {"identical": gleich, "different": anders, "absent_at_tag": fehlt}
+    # A provenance check that fails stops the measurement: the release column says what PyPI serves as v6.1.0 and
+    # that the wheel is the tag, and bytes that disprove either are no ground for a status (Codex thread 4218719417
+    # on pull request 304: a mismatch was recorded and the rows were derived from the local bytes all the same).
+    problems = provenance_problems(ergebnis)
+    if problems:
+        raise SystemExit("the v6.1.0 artifacts are not the published ones: " + "; ".join(problems))
     with tarfile.open(verzeichnis / ergebnis["files"]["sdist"]["filename"]) as tar:
         sdist = sorted(m.name.split("/", 1)[1] for m in tar.getmembers() if m.isfile() and "/" in m.name)
     ergebnis["sdist_file_count"] = len(sdist)
     ergebnis["sdist_files"] = sdist
     return ergebnis
+
+
+def provenance_problems(ergebnis: dict) -> list:
+    """Every recorded provenance check that failed: a file whose SHA-256 is not PyPI's, and a package file of the
+    wheel that differs from the tag or is absent there."""
+    out = [f"{art} {d['filename']}: SHA-256 {d['sha256'][:12]} is not PyPI's {d['sha256_pypi'][:12]}"
+           for art, d in sorted(ergebnis["files"].items()) if not d["digest_matches_pypi"]]
+    vergleich = ergebnis.get("wheel_against_tag") or {}
+    if vergleich.get("different"):
+        out.append(f"wheel files that differ from {TAG}: {', '.join(vergleich['different'])}")
+    if vergleich.get("absent_at_tag"):
+        out.append(f"wheel files absent at {TAG}: {', '.join(vergleich['absent_at_tag'])}")
+    return out
 
 
 def measure_rows(artefakte: dict, main: str) -> list:
@@ -307,19 +372,18 @@ def measure_rows(artefakte: dict, main: str) -> list:
             mess_main["parity_registry_at_main"] = _registry_counts(main, cap["registry"])
         if cap.get("git_tag_from"):
             # The docs pin a tag of this repository; what the user gets is that tag's file, not the release's. The tag
-            # is read from the docs at the release and at main.
-            mess_rel["documented_tag"] = _documented_tag(TAG, cap["git_tag_from"])
-            mess_main["documented_tag_at_main"] = _documented_tag(main, cap["git_tag_from"])
+            # is read from the passage the label cites, at the release and at main.
+            mess_rel["documented_tag"] = _documented_tag(TAG, cap)
+            mess_main["documented_tag_at_main"] = _documented_tag(main, cap)
             mess_rel["changed_between_documented_tag_and_release"] = _git(
                 "diff", "--shortstat", mess_rel["documented_tag"], TAG, "--", *repo).strip() or "no change"
         if cap.get("elsewhere"):
-            # From elsewhere needs the docs to point there: the provider is named in the label's file at both refs.
+            # From elsewhere needs the docs to point there: the passage the label cites names the provider at both refs.
             for ref, wo in ((TAG, mess_rel), (main, mess_main)):
-                datei = cap["label"][0][0]
-                wo["provider_named_in_docs"] = _names_provider(ref, datei, cap["provider"])
+                wo["provider_named_in_docs"] = _names_provider(ref, cap)
                 if not wo["provider_named_in_docs"]:
-                    raise SystemExit(f"{cap['id']}: {datei} at {ref[:12]} does not name {cap['provider']}; "
-                                     "from elsewhere is not measured")
+                    raise SystemExit(f"{cap['id']}: the passage its label cites at {ref[:12]} does not name "
+                                     f"{cap['provider']}; from elsewhere is not measured")
         label_tag, quelle_tag = _label_at(TAG, cap["label"])
         label_main, quelle_main = _label_at(main, cap["label"])
         kanal = "PyPI wheel"
@@ -334,8 +398,12 @@ def measure_rows(artefakte: dict, main: str) -> list:
         else:
             rel_da = all(mess_rel["repo_paths_at_tag"].values())
             main_da = all(mess_main["repo_paths_at_main"].values())
-            kanal = (f"git tag {mess_rel['documented_tag']}" if cap.get("git_tag_from")
-                     else "repository only (built from source)")
+            kanal = ("repository only (built from source)" if not cap.get("git_tag_from")
+                     else f"git tag {mess_rel['documented_tag']}"
+                     if mess_rel["documented_tag"] == mess_main["documented_tag_at_main"]
+                     # Codex thread 4218719408 on pull request 304: one channel column for two refs said the release's
+                     # tag beside a main cell whose docs pin another; when they differ, both are named.
+                     else f"git tag {mess_rel['documented_tag']} at {TAG}, {mess_main['documented_tag_at_main']} at main")
         if not rel_da and not cap.get("elsewhere"):
             # The release column reads the wheel (the tag for a repository capability), but main only and
             # planned promise absence from every v6.1.0 artifact and from the tag. The sdist is read as a file

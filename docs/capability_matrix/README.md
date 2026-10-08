@@ -14,7 +14,8 @@ are rendered from that file by the same script; a test holds them to it.
 
 - **The artifacts.** The wheel and the sdist of 6.1.0 are downloaded from PyPI, and their SHA-256 is
   compared with the digest PyPI states for them. Every package file in the wheel is compared byte for
-  byte with the same file at the tag `v6.1.0`.
+  byte with the same file at the tag `v6.1.0`. A digest that is not PyPI's, or a wheel file that differs from
+  the tag or is absent there, stops the measurement.
 - **Presence.** A capability is present when its package modules, its console subcommands and its entry
   points are all found: in the wheel for the release column, at the main commit for the main column. A
   capability that lives only in the repository (the Rust verifier, the GitHub Action) is looked up at the
@@ -23,7 +24,9 @@ are rendered from that file by the same script; a test holds them to it.
   row names (the predicate inventory, COMPATIBILITY.md, README.md, INTEGRATIONS.md, CHANGELOG.md or an ADR). A
   present capability whose label is not found stops the measurement; its status is then not measured. The same
   holds for a planned capability, whose label is read at the branch head the row records, and for one provided
-  elsewhere, whose label is the text in the docs that points there.
+  elsewhere, whose label is the text in the docs that points there. The provider of such a row, and the tag
+  the docs pin for the GitHub Action, are read in the passage the label cites (its paragraph and the example
+  that follows it), at both refs; one not named there stops the measurement.
 - **Status.** Derived, never set by hand: `experimental` when the label says experimental, `published`
   otherwise; `main only` when present on main and absent from the release; `planned` when present on a
   named branch only, looked up at the branch head the row records; `from elsewhere` when another project
@@ -32,7 +35,8 @@ are rendered from that file by the same script; a test holds them to it.
   and main lacks, and one that neither main nor its named branch head carries have no status in this
   vocabulary, and the measurement stops.
 - **Channel.** How a user gets it: the PyPI wheel, a git tag of this repository, the repository only
-  (built from source), or another project.
+  (built from source), or another project. When the docs at the tag and at main pin different tags, the
+  channel names both.
 - **Changed since v6.1.0.** `git diff --shortstat` between the tag and main over the capability's files.
 
 ## Why not an existing list
