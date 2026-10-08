@@ -40,16 +40,28 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 29)
+        self.assertEqual(len(ergebnisse), 34)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)
 
-    def test_the_accepted_vectors_are_the_two_named(self) -> None:
-        """The positive case, and its twin a fraction of a second after the approval (Codex thread 4121766408)."""
+    def test_the_accepted_vectors_are_the_four_named(self) -> None:
+        """The positive case, its twin a fraction of a second after the approval (Codex thread 4121766408), the
+        time with ten fraction digits (4217993700), and the inclusive boundary at both ends (4217993712)."""
         angenommen = [f["case"] for f in self.daten["cases"] if f["expected"] == self.g.ACCEPTED]
         self.assertEqual(angenommen, ["approved and arrived as approved",
-                                      "approved and arrived a fraction of a second after the approval"])
+                                      "approved and arrived a fraction of a second after the approval",
+                                      "approved and arrived, the time with ten fraction digits",
+                                      "approved and arrived at the second the approval was made and expires"])
+
+    def test_a_status_other_than_executed_is_not_accepted(self) -> None:
+        """Codex thread 4217993684: failed, refused and partial, signed by the observer, read as unknown."""
+        ergebnisse = {n: b for n, _, b, _ in self.g.check_vectors(self.daten)}
+        faelle = [n for n in ergebnisse if n.startswith("the observer signed status")]
+        self.assertEqual(len(faelle), 3)
+        for n in faelle:
+            with self.subTest(case=n):
+                self.assertEqual(ergebnisse[n], self.g.NOT_ACCEPTED)
 
     def test_the_named_classes_never_read_as_accepted(self) -> None:
         klassen = ("wrong issuer", "wrong subject", "expired approval", "missing effect")
@@ -101,6 +113,12 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         self.assertLess(i("2026-09-27T00:45:00Z"), i("2026-09-27T00:45:00.9Z"))
         self.assertLess(i("2026-09-27T00:45:00.09Z"), i("2026-09-27T00:45:00.1Z"))
         self.assertEqual(i("2026-09-27T00:45:00.50Z"), i("2026-09-27T00:45:00.5Z"))
+        self.assertEqual(i("2026-09-27T00:45:00.000Z"), i("2026-09-27T00:45:00Z"))
+        # Codex thread 4217993700: any number of fraction digits, as action-outcome/v0.1 takes them
+        self.assertLess(i("2026-09-27T00:45:00Z"), i("2026-09-27T00:45:00.0000000001Z"))
+        self.assertLess(i("2026-09-27T00:45:00.1Z"), i("2026-09-27T00:45:00.10001Z"))
+        lang = "2026-09-27T00:45:00." + "1" * 5000
+        self.assertLess(i(lang + "Z"), i(lang + "2Z"))
         for falsch in ("2026-09-27T00:45:00", "2026-13-01T00:00:00Z", "2026-09-27T00:45:00+00:00",
                        "\u0662\u0660\u0662\u0666-09-27T00:45:00Z", None, 5):
             with self.subTest(value=repr(falsch)):

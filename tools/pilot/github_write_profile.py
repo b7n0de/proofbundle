@@ -42,7 +42,6 @@ import json
 import re
 import sys
 from datetime import datetime, timezone
-from fractions import Fraction
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -59,17 +58,22 @@ SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pu
 ACCEPTED, NOT_ACCEPTED, UNKNOWN = "accepted", "not accepted", "unknown"
 _DECISION_ID = re.compile(r"^(?P<action>[A-Za-z0-9:._-]+)#(?P<attempt>[1-9][0-9]*)$")
 #: An RFC 3339 instant in UTC as the receipts write it, ASCII digits only, fraction optional.
-_INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z\Z", re.ASCII)
+# Any number of fraction digits, as action-outcome/v0.1 accepts (Codex thread 4217993700 on pull request 303: a cap at
+# nine turned a valid ten-digit fraction into unknown).
+_INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z\Z", re.ASCII)
 DECISION_TYPE, METHOD = "preActionAuthorization", "write"
 SCOPE_KEYS = ("surface", "target", "objectId")
 
 
-def instant(text) -> "tuple[int, Fraction] | None":
-    """The instant `text` names, as (POSIX seconds, fraction of a second), or None for anything else.
+def instant(text) -> "tuple[int, str] | None":
+    """The instant `text` names, as (POSIX seconds, the digits of the fraction without trailing zeros), or None
+    for anything else.
 
     Codex thread 4121766408 on pull request 303: the window compared the strings, and "." sorts before "Z", so
     an effect at 00:45:00.9Z read as before an expiry at 00:45:00Z. Instants are compared as numbers now, the
-    fraction exactly."""
+    fraction exactly: decimal digits without trailing zeros order as the fractions they name, at any length.
+    Codex thread 4217993700: a cap at nine digits made a valid instant unknown, and `int()` of a digit string
+    has a cap of its own (4300 digits), so the fraction is never turned into a number."""
     m = _INSTANT.match(text) if isinstance(text, str) else None
     if m is None:
         return None
@@ -77,8 +81,7 @@ def instant(text) -> "tuple[int, Fraction] | None":
         sekunden = int(datetime(*(int(m.group(i)) for i in range(1, 7)), tzinfo=timezone.utc).timestamp())
     except (ValueError, OverflowError):
         return None
-    bruch = m.group(7) or "0"
-    return sekunden, Fraction(int(bruch), 10 ** len(bruch))
+    return sekunden, (m.group(7) or "").rstrip("0")
 
 
 def scope_problem(descriptor) -> str:
@@ -148,11 +151,11 @@ def decision_predicate(*, action_id: str, attempt: int, decided_at: str, expires
 
 def outcome_predicate(*, outcome_id: str, decision_root: str, executor_id: str, approved: bytes,
                       performed_at: str, recorded_at: str, stored: bytes | None, scope: dict | None, nonce: str,
-                      audience: str) -> dict:
+                      audience: str, status: str = "executed") -> dict:
     pred = {
         "schemaVersion": "0.1.0", "outcomeId": outcome_id, "decisionRef": {"sha256": decision_root},
         "executor": {"id": executor_id}, "requestedActionDigest": {"sha256": sha256_hex(approved)},
-        "status": "executed", "performedAt": performed_at, "recordedAt": recorded_at,
+        "status": status, "performedAt": performed_at, "recordedAt": recorded_at,
         "limitations": ["read from the GitHub API at recordedAt; a later edit or deletion is not covered",
                         "the signer is the observer; executor.id is the account GitHub reports, not a key"],
         "validity": {"audience": [audience], "nonce": nonce},
@@ -203,11 +206,13 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["decided_at_readable"] = entschieden is not None
     if entschieden is None:
         return _answer(UNKNOWN, ["decidedAt is not an RFC 3339 instant in UTC"], checks)
-    # Verified at its own time: the profile judges the window against GitHub's performedAt below, so the
-    # reader's clock would turn every past approval into an expired one (main since 6.2.0 fails expiry closed).
+    # Verified one second before its own decidedAt: the profile judges the window against GitHub's performedAt
+    # below, so the reader's clock would turn every past approval into an expired one (main since 6.2.0 fails
+    # expiry closed), and the verifier's own rule, expired AT expiresAt, would refuse the inclusive boundary the
+    # profile states when expiresAt equals decidedAt (Codex thread 4217993712 on pull request 303).
     d = verify_decision_receipt(decision_env, gate_key, strict=True, expected_audience=observer_id,
                                 expected_nonce=(pred.get("validity") or {}).get("nonce"),
-                                require_derived_subject=True, now=entschieden[0])
+                                require_derived_subject=True, now=entschieden[0] - 1)
     checks["decision_signed_by_gate_key"] = d["crypto_ok"]
     if not d["crypto_ok"]:
         return _answer(NOT_ACCEPTED, ["the decision is not signed by the pinned gate key"], checks)
@@ -261,6 +266,11 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     # Every check that can be made is made, and only then is a gap reported. Codex thread 4121766426 on pull
     # request 303: stored bytes known to differ were reported as unknown when the scope was absent.
     gruende, fehlt = [], []
+    # The observer's signed status is a known answer: only `executed` is an effect that arrived (Codex thread
+    # 4217993684 on pull request 303: failed, refused or partial read as a missing record, unknown).
+    checks["status_executed"] = opred.get("status") == "executed"
+    if not checks["status_executed"]:
+        gruende.append(f"the observer signed the status {opred.get('status')!r}, not executed")
     checks["execution_proven"] = o["execution_proven"]
     if o["execution_proven"] is not True or "effectDigest" not in opred:
         fehlt.append("the outcome carries no digest of the stored bytes")
@@ -424,6 +434,18 @@ def build_vectors() -> dict:
     o_ohne_ablauf, s_ohne_ablauf = outcome(d_ohne_ablauf, stored=_TEXT + b"x")
     fall("stored bytes differ, and no expiry stated", NOT_ACCEPTED, d_ohne_ablauf, o_ohne_ablauf, s_ohne_ablauf,
          "thread 4121766426, the sibling at the expiry")
+    # Codex round of 2026-10-08 on pull request 303:
+    for status in ("failed", "refused", "partial"):
+        o_status, s_status = outcome(d0, status=status)
+        fall(f"the observer signed status {status}", NOT_ACCEPTED, d0, o_status, s_status,
+             "thread 4217993684: only executed is an effect that arrived")
+    o_zehn, s_zehn = outcome(d0, performed_at="2026-09-27T00:40:00.0000000001Z")
+    fall("approved and arrived, the time with ten fraction digits", ACCEPTED, d0, o_zehn, s_zehn,
+         "thread 4217993700: the outcome predicate accepts any number of fraction digits")
+    d_gleich = decision(expires_at="2026-09-27T00:40:00Z")
+    o_gleich, s_gleich = outcome(d_gleich, performed_at="2026-09-27T00:40:00Z")
+    fall("approved and arrived at the second the approval was made and expires", ACCEPTED, d_gleich, o_gleich, s_gleich,
+         "thread 4217993712: decidedAt <= performedAt <= expiresAt is inclusive at both ends")
     manipuliert = dict(d0)
     roh = bytearray(decode_b64_either(d0["payload"]))
     roh[roh.index(b"ALLOW")] = ord("B")
