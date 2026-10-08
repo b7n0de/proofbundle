@@ -341,6 +341,12 @@ class TestTheProducersCheck:
         assert _check(_with_prot(l4="text")).status == "outside_profile"
         assert _check(_with_prot(l4=b"")).status == "outside_profile"
 
+    def test_an_eddsa_statement_carries_no_x5chain(self):
+        """Codex on PR 299 (head 60ad9595): sign_statement names an EdDSA key by kid and refuses an x5chain
+        for it, so the check refuses a re-signed EdDSA header that carries label 33."""
+        r = _check(_with_prot(l33=b"not-even-a-certificate"))
+        assert r.status == "outside_profile" and "label 33" in r.detail
+
     def test_crit_is_refused_in_the_unprotected_header_and_for_labels_not_processed(self):
         c = _control()
         c["unprot"][2] = [258]
@@ -586,6 +592,20 @@ class TestTheEs256Path:
         data, key, _chain = _sign_es256()
         assert scitt_ccf.verify_statement_signature(data, statement_keys=[_spki(key)]) == ("confirmed", True)
         assert scitt_ccf._statement_profile(scitt_ccf.decode_cose_sign1(data)) is None
+
+    def test_an_es256_statement_carries_no_kid(self):
+        """Codex on PR 299 (head 60ad9595): sign_statement names an ES256 key by its protected x5chain and
+        refuses a kid for it, so the check refuses a re-signed ES256 header that carries label 4."""
+        import cbor2  # noqa: PLC0415
+        from proofbundle import scitt_ccf, scitt_statement  # noqa: PLC0415
+        data, key, _chain = _sign_es256()
+        _raw, prot, unprot, payload, _sig = _read(data)
+        prot = dict(prot)
+        prot[4] = b"issuer-key-1"
+        raw = cbor2.dumps(prot, canonical=True)
+        sig = scitt_statement._es256(key, scitt_ccf._sig_structure(raw, payload))
+        r = _check(_encode(prot, dict(unprot), payload, sig, prot_raw=raw), keys=[_spki(key)])
+        assert r.status == "outside_profile" and "label 4" in r.detail
 
     def test_the_producers_check_confirms_it_under_the_leaf_key_only(self):
         from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415

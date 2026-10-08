@@ -418,8 +418,12 @@ def _header_rules(st) -> Optional[str]:
     kid = ph.get(_KID)
     if alg == _EDDSA and (not isinstance(kid, bytes) or not kid):
         return "label 4 (kid) is not a non-empty byte string in the protected header"
+    if alg == _EDDSA and _X5CHAIN in ph:
+        return "label 33 (x5chain) in an EdDSA statement: it names its key by kid, x5chain belongs to ES256"
     if alg == _ES256 and _X5CHAIN not in ph:
         return "no protected x5chain (label 33): an ES256 statement names its key by it (owner answer N7 b)"
+    if alg == _ES256 and _KID in ph:
+        return "label 4 (kid) in an ES256 statement: it names its key by the protected x5chain"
     from .scitt_ccf import _crit_ok  # noqa: PLC0415
     why = _crit_ok(ph, _CRIT_PROCESSED)
     if why:
