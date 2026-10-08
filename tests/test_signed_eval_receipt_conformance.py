@@ -56,7 +56,7 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
         self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
 
     def test_every_rebuilt_receipt_has_the_published_sha256(self):
-        self.assertEqual(len(VECTORS), 65)
+        self.assertEqual(len(VECTORS), 66)
         for v in VECTORS:
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
@@ -98,6 +98,16 @@ class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
         self.assertEqual(got.payload, b_p1)
         got = ser.verify_signed_eval_receipt(n60["receipt"], n60["key"])
         self.assertEqual((got.ok, got.step_label), (False, "5"), got.reason)
+
+    def test_whitespace_before_the_json_text_is_admitted(self):
+        """Step 1 admits insignificant whitespace before the receipt's JSON text as well (RFC 8259
+        Section 2). P13 is a line feed followed by P1's receipt and verifies, with the B of P1."""
+        by_id = {v["id"]: v for v in VECTORS}
+        p1, p13 = by_id["P1"], by_id["P13"]
+        self.assertEqual(p13["receipt"], b"\n" + p1["receipt"])
+        got = ser.verify_signed_eval_receipt(p13["receipt"], p13["key"])
+        self.assertEqual((got.ok, got.step_label), (True, "all"), got.reason)
+        self.assertEqual(got.payload, base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
 
     def test_a_pass_returns_b_and_a_fail_returns_none(self):
         p1 = next(v for v in VECTORS if v["id"] == "P1")
