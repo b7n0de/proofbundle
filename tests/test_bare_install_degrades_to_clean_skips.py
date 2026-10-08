@@ -813,9 +813,16 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         self.assertEqual(self._ausgeliefert_aus(text), alt,
                          "the directive reader and the expression it replaces disagree on the real "
                          "MANIFEST.in, so the sdist comparison no longer covers this code")
-        self.assertEqual(len(alt), 36,
-                         "the lens measured 36 shipped scripts against a real build; a different "
-                         "number here means the file moved and that measurement needs redoing")
+        # 37 SINCE Z230 ROUND 2 (2026-09-26): MANIFEST.in decided scripts/mutation_baseline_allowlist.json
+        # in, and the measurement was redone as this message asks: an sdist of that tree, built through
+        # setuptools 69.5.1's `build_meta.build_sdist`, carries 37 files under scripts/, the directive
+        # reader reads 37, symmetric difference zero.
+        # 38 SINCE PR 296 (2026-09-27): MANIFEST.in decided scripts/cargo_audit_gate.py in, and the
+        # measurement was redone the same way on that tree: 38 files under scripts/ in the sdist, the
+        # directive reader reads 38, symmetric difference zero.
+        self.assertEqual(len(alt), 38,
+                         "38 shipped scripts were measured against a real build; a different number "
+                         "here means the file moved and that measurement needs redoing")
 
     def test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund(self):
         """WITHOUT THIS a rule that rejected every script import would pass the catch above.

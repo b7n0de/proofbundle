@@ -26,10 +26,55 @@ not control.
 An anchor's `canonicalRoot` is the canonical root of its **own** target — for `receipt` the RFC 8785
 (JCS) sha256 of the receipt bundle **excluding its own `anchors` field** (the anchors are detached
 evidence; an anchor cannot attest a root that already contains itself, so a verifier recomputing the
-receipt root MUST strip `anchors`), for `preRegistration` the sha256 of the raw protocol bytes (the
+receipt root MUST strip `anchors`), **with every ES256 signature in `sd_jwt_vc.compact` in its low-`s`
+spelling** (see below), for `preRegistration` the sha256 of the raw protocol bytes (the
 receipt's `prereg_sha256`), for `statement` the sha256 of the exact DSSE payload bytes (the
 `statement_content_root`). A `preRegistration` anchor can therefore never validate a `receipt` or
 `statement` target, and vice versa: the roots differ, and a mismatch is a FAIL.
+
+**The receipt root, step by step** (finding D1, 2026-09-26). An ES256 signature verifies both as
+`(r, s)` and as `(r, n − s)`, where `n` is the order of the P-256 group
+(`0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551`), and the verifier accepts
+both (SPEC §6). So that one receipt has one root, the root is computed over one spelling:
+
+1. Take the receipt bundle and drop its `anchors` field.
+2. If it carries `sd_jwt_vc.compact`, split the compact on `~`. The candidate slots are the first
+   part (the issuer JWT) and, when the last part contains exactly two dots, the last part (the Key
+   Binding JWT). A slot is folded when all of the following hold, and only then:
+   - it has exactly three dot-separated segments;
+   - its header segment is strict base64url: the URL-safe alphabet only, no `=` padding, and pad
+     bits zero (RFC 4648 §5 and §3.5);
+   - the header decodes to a JSON object as proofbundle's strict JSON reader reads it
+     (`_strict_json.loads_strict`, the reader verification uses). That reader is Python's `json`
+     module over the decoded bytes, with a duplicate key or a lone surrogate in a string refused and
+     with the limits of the default verification budget: 200,000 keys and items, nesting depth 64
+     (a value counts one level below the container that holds it, so 64 nested arrays pass only when
+     the innermost one is empty), and integers of 8,192 bits. An integer literal longer than the
+     interpreter's `sys.get_int_max_str_digits()` is refused too; that is 4,300 digits by default in
+     CPython, and a different setting changes it. The reader's input and string limits (8 MiB,
+     1,000,000 characters) do not bind here: the receipt's own budget refuses any string over
+     1,000,000 characters, the compact included, before a root is computed, so such a slot is
+     refused, never folded. Beyond RFC 8259 it accepts what that module accepts from bytes: `NaN`,
+     `Infinity` and `-Infinity`, a leading UTF-8 byte order mark, and UTF-16 or UTF-32 text, so a
+     header in one of these forms is folded too;
+   - that object has `"alg": "ES256"`;
+   - its signature segment is strict base64url in the same sense and decodes to 64 bytes `R‖S`
+     (big-endian) with `⌊n / 2⌋ < S < n`.
+
+   A folded slot gets its signature segment replaced with the base64url, unpadded, of `R‖(n − S)`.
+   Every other slot, and every other byte of the compact, stays as it is. So a slot whose header
+   segment is padded, or whose header carries a duplicate key, is not folded, and its two spellings
+   keep two roots. A bundle that carries such a slot fails verification too, because verification
+   reads the header with the same decoders. The fold does not depend on the verdict: a slot whose
+   header and signature decode as above is folded whether or not its signature verifies.
+3. The root is the SHA-256 of the RFC 8785 (JCS) serialization of the result.
+
+This form exists only to compute the root. The bundle itself is never rewritten: a Key Binding
+JWT's `sd_hash` covers the issuer JWT exactly as presented, so the foreign issuer's bytes travel as
+they came. A `receipt` anchor that an earlier proofbundle version stamped over a bundle with a high
+`s` in one of those signatures does not match this root. The identity of a `pb1.` token
+(`hf_evals.receipt_token_identity`) is this root of the bundle it carries.
+`tests/test_es256_signature_has_one_identity.py` follows these three steps with its own code.
 
 ## Schema
 
@@ -148,30 +193,40 @@ OpenTimestamps client; proofbundle owns the two steps that need no calendar:
 #    ots stamp receipt.canonical-root ; ... wait ... ; ots upgrade receipt.canonical-root.ots
 # 2. bundle the UPGRADED proof into a self-contained, calendar-independent evidence pack:
 proofbundle anchor upgrade --proof proof.ots --target-file target.bytes --out pack.json
-# 3. verify the pack OFFLINE against a relying-party Bitcoin header (your own node or a trusted checkpoint):
-proofbundle anchor verify-pack pack.json --bitcoin-header 800000:<MERKLEROOT_HEX_INTERNAL_ORDER>
+# 3. verify the pack OFFLINE, BOUND to the target you mean, against a relying-party Bitcoin header:
+#    exactly one of --target-file (the bytes the proof must commit to) or --expected-root (its base64 root)
+#    is REQUIRED; the pack's self-declared canonicalRoot is compared to it before the proof is even read.
+proofbundle anchor verify-pack pack.json --target-file target.bytes \
+    --bitcoin-header 800000:<MERKLEROOT_HEX_INTERNAL_ORDER>
 # transparency, no crypto trust: show the lifecycle state and which calendars carry a proof:
 proofbundle anchor inspect proof.ots
 ```
 
 Exit contract: `anchor upgrade` exits 3 (never a fake pass) on a still-PENDING proof and writes no pack;
 `anchor verify-pack` exits 0 confirmed, 3 pending or upgraded-without-a-relying-party-header (honest
-not-pass), 1 hard fail (unbound / block mismatch / malformed pack), 2 malformed input. A calendar outage
+not-pass), 1 hard fail (unbound / block mismatch / **target mismatch** / malformed pack), 2 malformed input
+(**including neither or both of `--target-file` / `--expected-root`**). A calendar outage
 or a calendar defunding therefore affects only STAMPING availability, never the verifiability of a proof
 that is already upgraded: `verify-pack` opens no socket, and it never trusts the pack's own bundled header
 (a producer could self-commit a backdated one), only a header the relying party supplies.
 
-**A pack's `canonicalRoot` is self-declared (read this before trusting a standalone `verify-pack`).**
+**A pack's `canonicalRoot` is self-declared, so `verify-pack` now REQUIRES a target to bind it to.**
 Just as a self-fabricated Chia tree passes level i (see `chia-datalayer/v1` below), a self-fabricated OTS
 pack must not be read as proof of time on its own. In `anchor verify-pack` the `canonicalRoot` is taken
-from the pack verbatim, so it is producer testimony, not a binding to any receipt. Two defences apply.
-First, `verify-pack` refuses a **Null-Op** pack: a `BitcoinBlockHeaderAttestation` planted directly on the
+from the pack verbatim, so it is producer testimony, not a binding to any receipt. Three defences apply.
+First (Nachtrag 32, 6.2.0, breaking), `verify-pack` demands exactly one of `--target-file` or
+`--expected-root`: it computes or decodes that root **independently** of the pack and refuses, before the
+OpenTimestamps proof is even read, any pack whose `canonicalRoot` does not equal it (`target_mismatch`, exit
+1). A timestamp over a root nobody named proves nothing about your evidence, so a bare `verify-pack` with no
+target is no longer accepted (exit 2). Second, `verify-pack` refuses a **Null-Op** pack: a
+`BitcoinBlockHeaderAttestation` planted directly on the
 `canonicalRoot` with no cryptographic op chain (leaf equals root) is not a real Bitcoin timestamp, so it is
 reported `null_op` and is never `confirmed`, even when its attested value equals the relying-party header a
-producer supplies. Second, and this is the guarantee a relying party should depend on, a standalone
-`verify-pack CONFIRMED` does **not** prove the pack anchors YOUR target: the relying party must bind the
-anchor to the receipt independently, which `proofbundle verify --require-anchor` does by cross-checking the
-anchor's `canonicalRoot` against the root it recomputes from the receipt itself. Use `--require-anchor` for
+producer supplies. Third, for a receipt the relying party must still bind the anchor to the receipt's own
+recomputed root: `verify-pack --target-file/--expected-root` binds the proof to a root YOU name, but
+`proofbundle verify --require-anchor` is what cross-checks the anchor's `canonicalRoot` against the root it
+recomputes from the receipt itself, so the target you pass is the receipt's root and not merely asserted. Use
+`--require-anchor` for
 a trust decision; treat a bare `verify-pack` as a lifecycle and header check, not as an existence proof.
 
 ### Calendar transparency and running your own calendar (WP-B)
@@ -250,7 +305,12 @@ register_anchor_type("my-org/timebeacon/v1", verify_my_anchor)
 ```
 
 The contract: a `type` that is REGISTERED, a fail-closed verify callable, and the
-canonicalRoot ↔ target binding enforced by the layer for you. The name is an identifier, not a
+canonicalRoot ↔ target binding enforced by the layer for you. The layer reads the returned dict only
+by exact types, and runs none of its objects' code while doing so: a key counts only as a plain `str`,
+`ok` and the other flags only as the exact `True`, `status` and `detail` only as a `str`, and a
+`trustedTime` only as a dict of `str` keys holding JSON scalars, with a non-empty `source`. `warn` is read in
+the direction that grants nothing: beside `ok` True any `warn` but `False` (or none) makes the anchor pending,
+never full, and beside any other `ok` only the exact `True` makes it pending. The name is an identifier, not a
 grammar — `verify_anchor` asks whether the string is a key of the registry, and neither it nor the
 bundle schema checks its shape. `<org>/<name>/vN` is a RECOMMENDED form for a new name and nothing
 more. Not one of the type names this project itself ships has that shape, and the two built-ins

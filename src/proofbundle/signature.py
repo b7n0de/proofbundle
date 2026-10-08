@@ -13,14 +13,84 @@ before calling into the library, never re-implementing ECDSA itself).
 
 from __future__ import annotations
 
+from typing import Any
+
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+from ._membership import is_member
+from .canonical import _bytes_von, _ein_stand
+
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
-           "verify_ecdsa_p256"]
+           "plain_bytes", "plain_text", "verify_ecdsa_p256", "canonical_es256_signature"]
+
+
+# --- RFC 7515 §4.1.11 critical-header handling (Nachtrag 50, Z309 / 6.2.0) ------------------------
+# A protected JWS header MAY carry `crit`, a list of extension Header Parameter names the producer
+# declares MUST be understood; if a verifier does not understand one, RFC 7515 §4.1.11 says the JWS is
+# INVALID. proofbundle understands NO JWS extension today, so the set of understood names is EMPTY and
+# NOT externally settable — a `crit` present in a protected header always makes the JWS invalid. This
+# one helper is the single decision site shared by every local JWS verifier (SD-JWT issuer, KB-JWT,
+# Status List token, enclave EAT), so none can branch only on the neighbour fields (`alg`, `typ`) and
+# skip the critical-extension mechanism with no fail-closed else-path. A header WITHOUT `crit` returns
+# None here and behaves exactly as before (narrowing only).
+
+#: The critical JWS extensions this library understands. Empty and fixed: proofbundle implements no JWS
+#: extension, so no `crit` can ever be satisfied. This is intentionally not a parameter.
+_UNDERSTOOD_JWS_CRIT: frozenset = frozenset()
+
+#: Header Parameter names defined by RFC 7515 (JWS) and RFC 7518 (JWA). RFC 7515 §4.1.11 forbids `crit`
+#: from naming any of these: `crit` is for EXTENSION parameters, never for a parameter the base spec
+#: already defines.
+_REGISTERED_JOSE_HEADER_PARAMS: frozenset = frozenset({
+    "alg", "jku", "jwk", "kid", "x5u", "x5c", "x5t", "x5t#S256", "typ", "cty", "crit",
+    "enc", "zip", "epk", "apu", "apv", "iv", "tag", "p2s", "p2c",
+})
+
+
+def _reject_jws_crit(header: Any) -> "str | None":
+    """RFC 7515 §4.1.11 critical-header check for a protected JWS header.
+
+    Return a human-readable reason string when ``header``'s ``crit`` member makes the JWS invalid, else
+    ``None``. A header that is not a dict, or carries no ``crit``, returns ``None`` (the pre-Addendum-50
+    behaviour — a header without ``crit`` is unchanged). When ``crit`` IS present every defect named by
+    the RFC gets its own reason — ``crit`` that is not a non-empty array, that holds a non-string or a
+    duplicate name, that names a registered (base-spec) Header Parameter, or that names a parameter
+    absent from the header — and a well-formed ``crit`` still returns a reason, because proofbundle
+    understands no JWS extension (``_UNDERSTOOD_JWS_CRIT`` is empty). Callers apply this right after
+    reading the header and before any other header field, so an un-understood critical extension is a
+    fail-closed verdict, never a silently-ignored header.
+
+    Private (``_`` prefix): an internal shared decision site, imported by the four local JWS verifiers
+    (SD-JWT issuer, KB-JWT, Status List token, enclave EAT). Its ``header`` is always a dict those
+    verifiers have just parsed from already-snapshotted compact bytes, never a caller-supplied live
+    object — so it needs no ``canonical._ein_stand`` read-once wrapper, and its never-raise behaviour is
+    exercised through those four public verify surfaces (the never-raise denominator), not on its own."""
+    if not isinstance(header, dict) or "crit" not in header:
+        return None
+    crit = header["crit"]
+    if not isinstance(crit, list) or len(crit) == 0:
+        return "JWS 'crit' must be a non-empty array of header parameter names (RFC 7515 §4.1.11)"
+    seen: set = set()
+    for name in crit:
+        if not isinstance(name, str):
+            return "JWS 'crit' entries must be strings (RFC 7515 §4.1.11)"
+        if name in seen:
+            return f"JWS 'crit' names a duplicate parameter {name!r} (RFC 7515 §4.1.11)"
+        seen.add(name)
+        if is_member(name, _REGISTERED_JOSE_HEADER_PARAMS):
+            return (f"JWS 'crit' must not name the base-spec header parameter {name!r} "
+                    "(RFC 7515 §4.1.11)")
+        if name not in header:
+            return (f"JWS 'crit' names {name!r}, which is absent from the protected header "
+                    "(RFC 7515 §4.1.11)")
+    unsupported = [n for n in crit if not is_member(n, _UNDERSTOOD_JWS_CRIT)]
+    return ("unsupported critical JWS header parameter(s) "
+            + ", ".join(repr(n) for n in unsupported)
+            + " — proofbundle understands no JWS extension, so the JWS is invalid (RFC 7515 §4.1.11)")
 
 
 _ED25519_P = (1 << 255) - 19          # the field prime 2**255 - 19
@@ -59,6 +129,66 @@ TRUST_ANCHOR_REFUSAL = {
 }
 
 
+@_ein_stand
+def plain_bytes(value: Any) -> "bytes | None":
+    """The bytes a ``bytes`` or ``bytearray`` value holds, as an exact ``bytes``, read ONCE from the
+    value's own storage, or None for a value of any other type.
+
+    THE ONE READ OF A CALLER'S KEY BY A PRODUCER (lens run 7 at 75c3aa48, F1). A producer that writes
+    a caller's Ed25519 key for someone to trust judged it with :func:`ed25519_trust_anchor_weakness`,
+    which reads ``len(key)`` and ``bytes(key)``, and then wrote it through base64 or a concatenation,
+    which read the key's buffer. A ``bytes`` subclass whose ``__bytes__`` returns a real key while its
+    own bytes are the identity point passed the rule and was written, by ``sdjwt_issue.issue_sd_jwt``,
+    ``checkpoint.vkey`` and ``checkpoint.cosign_vkey``. Each such producer reads the key here, once,
+    and the rule, the key ID and the written output all use the value this returns.
+
+    NO METHOD OF THE CALLER'S RUNS, on any interpreter. ``bytes.__getitem__`` and
+    ``bytearray.__getitem__`` with a full slice copy the stored bytes into a new object of the exact
+    type. Measured on 3.10.12, 3.11.15, 3.12.14, 3.13.15 and 3.14.7 with subclasses that override
+    ``__bytes__``, ``__getitem__``, ``__len__``, ``__iter__``, ``__add__``, ``__radd__``, ``__eq__``
+    and ``__buffer__``: this read returned the stored bytes on all five. The other reads do not hold.
+    ``bytes(x)`` runs ``__bytes__``, ``x[:]`` runs ``__getitem__`` and ``b"" + x`` runs ``__radd__``
+    on all five. From 3.12 on a Python class can define ``__buffer__`` (PEP 688), and a ``bytes``
+    subclass that defines only that steers ``memoryview(x)``, ``b"" + x``, base64 and ``hashlib``
+    there, while ``bytes(x)`` of it still reads the storage through the inherited ``bytes.__bytes__``;
+    on 3.10 and 3.11 a ``__buffer__`` of a Python class is never called.
+
+    ONLY ``bytes`` AND ``bytearray``, the two types the rule judges. A ``memoryview``, an ``array``, a
+    ctypes array or a numpy array has no storage apart from its buffer, and from 3.12 on a subclass of
+    ``array``, of a ctypes array or of a numpy array can define ``__buffer__``, so no read of it is safe
+    from the caller's code; such a value is None here and the producer refuses it by its type.
+    """
+    typ = type(value)
+    if typ is bytes:
+        return value
+    if issubclass(typ, bytes):
+        return bytes.__getitem__(value, slice(None))
+    if issubclass(typ, bytearray):
+        return bytes(bytearray.__getitem__(value, slice(None)))
+    return None
+
+
+@_ein_stand
+def plain_text(value: Any) -> "str | None":
+    """The text a ``str`` value holds, as an exact ``str``, read ONCE from the value's own storage, or
+    None for a value of any other type.
+
+    THE ONE READ OF A CALLER'S KEY TEXT (lens run 7 at 75c3aa48, F2). ``_wire_b64`` decoded a key given
+    as base64 text through ``s.encode("ascii")``, the caller's own ``encode``, while the producer wrote
+    the text itself: a ``str`` subclass whose ``encode`` returns the base64 of a real key and whose
+    text is the base64 of the identity point passed the rule and was written by
+    ``policy_profiles.instantiate_template``, ``trust_pack.sign_trust_pack``,
+    ``trust_pack.build_trust_pack_statement`` and the three ``assemble`` steps under ``scripts/``.
+    ``str.__str__`` copies the stored text of a subclass into an exact ``str`` and runs no method of the
+    caller's: measured on the same five interpreters with a subclass that overrides ``encode``,
+    ``__str__``, ``__getitem__``, ``__iter__``, ``__len__``, ``__format__``, ``__add__`` and
+    ``__radd__``, it returned the stored text, as ``json.dumps`` writes it, while ``x.encode()``,
+    ``str(x)``, ``f"{x}"`` and ``"" + x`` ran the caller's methods on all five.
+    """
+    return str.__str__(value) if issubclass(type(value), str) else None
+
+
+@_ein_stand
 def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     """Why ``public_key`` cannot stand as a TRUSTED Ed25519 identity, or None when it can.
 
@@ -94,9 +224,13 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     (``DistinctPointsAreNotDistinctParties``). That is one party holding several keys, which any party
     can do by generating a second key; no signature reveals it, so a count of distinct keys is never a
     count of distinct parties."""
-    if not isinstance(public_key, (bytes, bytearray)) or len(public_key) != 32:
+    # Read by what the key stores (round 12, `canonical._bytes_von`): `len()` and `bytes()` of a
+    # `bytes` subclass run its own `__len__` and `__bytes__`, and the verify below would then read
+    # another key than the one this rule judged.
+    public_key = _bytes_von(public_key)
+    if public_key is None or len(public_key) != 32:
         return "malformed"
-    y = int.from_bytes(bytes(public_key), "little") & _ED25519_Y_MASK   # strip the x sign bit
+    y = int.from_bytes(public_key, "little") & _ED25519_Y_MASK   # strip the x sign bit
     if y >= _ED25519_P:
         return "non-canonical"
     if y in _LOW_ORDER_ED25519_Y:
@@ -104,17 +238,23 @@ def ed25519_trust_anchor_weakness(public_key) -> "str | None":
     return None
 
 
+@_ein_stand
 def verify_ed25519_pinned(public_key: bytes, signature: bytes, message: bytes) -> bool:
     """:func:`verify_ed25519` for a key the CALLER trusts: False when the key is malformed, non-canonical
     or low-order (:func:`ed25519_trust_anchor_weakness`), before any signature arithmetic. Same
     never-raise contract. Every verify path whose key is a trust anchor supplied from outside the
     signed object goes through here; the in-band key of a bundle, whose trust comes from a policy pin,
     keeps the plain SPEC §4a check."""
-    if ed25519_trust_anchor_weakness(public_key) is not None:
+    # ONE READING (round 12): the key this rule judges is the key the signature is checked under. At
+    # cd5d39f4 both read the caller's object, and a `bytes` subclass whose own `__bytes__` answered a
+    # sound key to the rule and the identity point to the check passed the rule with a low-order key.
+    public_key = _bytes_von(public_key)
+    if public_key is None or ed25519_trust_anchor_weakness(public_key) is not None:
         return False
     return verify_ed25519(public_key, signature, message)
 
 
+@_ein_stand
 def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     """Return True iff ``signature`` is a valid Ed25519 signature over ``message``.
 
@@ -122,8 +262,12 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     the 64 byte raw signature. Any malformed input returns False rather than
     raising, so callers get a boolean per check.
     """
-    if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
-            or not isinstance(message, (bytes, bytearray))):
+    # Each input is read once, by what it stores (round 12, `canonical._bytes_von`): a `bytes` or
+    # `bytearray` as plain `bytes`, anything else malformed. `bytes(x)` and `len(x)` of a subclass run
+    # its own `__bytes__` and `__len__`, and the length checked below and the bytes verified could
+    # then be two readings.
+    public_key, signature, message = _bytes_von(public_key), _bytes_von(signature), _bytes_von(message)
+    if public_key is None or signature is None or message is None:
         return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
         # adversarial re-audit: ``message`` was previously unguarded — a non-bytes ``message`` (None) reached
         # cryptography's .verify(sig, data) and raised a raw TypeError that the (InvalidSignature, ValueError)
@@ -131,17 +275,15 @@ def verify_ed25519(public_key: bytes, signature: bytes, message: bytes) -> bool:
     if len(public_key) != 32 or len(signature) != 64:
         return False
     try:
-        # CB-01 (RE-GATE never-raise): the isinstance guard admits a bytearray, but
-        # Ed25519PublicKey.from_public_bytes / .verify require exact ``bytes`` and raise a raw TypeError on a
-        # bytearray — which escaped every DSSE verify_* entrypoint (decision/outcome/…) as an uncaught crash,
-        # defeating their never-raise contract. Coerce to bytes so a VALID bytearray key/sig VERIFIES
-        # (correct) rather than crashing; mirrors verify_ecdsa_p256, which already coerces.
-        Ed25519PublicKey.from_public_bytes(bytes(public_key)).verify(bytes(signature), bytes(message))
+        # CB-01 (RE-GATE never-raise): a bytearray key or signature verifies as the bytes it holds; the
+        # plain copy above is exact `bytes`, which Ed25519PublicKey.from_public_bytes / .verify require.
+        Ed25519PublicKey.from_public_bytes(public_key).verify(signature, message)
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
 
 
+@_ein_stand
 def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bool:
     """Return True iff ``signature`` is a valid ECDSA P-256 (ES256, RFC 7518 §3.4) signature
     over ``message``.
@@ -155,20 +297,75 @@ def verify_ecdsa_p256(public_key: bytes, signature: bytes, message: bytes) -> bo
     curve (raises ``ValueError``, caught below) — a malformed/forged public key never silently
     verifies. Any malformed input returns False rather than raising, matching
     :func:`verify_ed25519`'s contract so callers get a boolean per check regardless of alg.
+
+    Both spellings of a signature verify, ``(r, s)`` and ``(r, n - s)``; see
+    :func:`canonical_es256_signature` for why that stays so and what an identity is formed over.
     """
-    if (not isinstance(public_key, (bytes, bytearray)) or not isinstance(signature, (bytes, bytearray))
-            or not isinstance(message, (bytes, bytearray))):
+    # One reading by what each input stores, as in `verify_ed25519` (round 12).
+    public_key, signature, message = _bytes_von(public_key), _bytes_von(signature), _bytes_von(message)
+    if public_key is None or signature is None or message is None:
         return False   # non-bytes (e.g. None) is malformed input → False, never a raise (contract).
         # adversarial re-audit: ``message`` guard mirrors verify_ed25519 — a non-bytes ``message`` reached
         # pub.verify(sig, data) and raised a raw TypeError the (InvalidSignature, ValueError) except missed.
-    if len(public_key) != 65 or bytes(public_key[:1]) != b"\x04" or len(signature) != 64:
+    if len(public_key) != 65 or public_key[:1] != b"\x04" or len(signature) != 64:
         return False   # SEC1 uncompressed only (0x04 prefix) — compressed/hybrid points are rejected
     try:
-        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes(public_key))
-        r = int.from_bytes(bytes(signature[:32]), "big")
-        s = int.from_bytes(bytes(signature[32:]), "big")
+        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_key)
+        r = int.from_bytes(signature[:32], "big")
+        s = int.from_bytes(signature[32:], "big")
         der_sig = encode_dss_signature(r, s)
-        pub.verify(der_sig, bytes(message), ec.ECDSA(hashes.SHA256()))
+        pub.verify(der_sig, message, ec.ECDSA(hashes.SHA256()))
         return True
     except (InvalidSignature, ValueError, TypeError):
         return False   # TypeError belt-and-suspenders: any residual raw crypto-lib type crash → False
+
+
+#: The order n of the P-256 group (FIPS 186-5, SEC 2 secp256r1). The r and s of an ES256 signature
+#: are integers modulo n.
+_P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+_P256_HALF_N = _P256_N // 2
+
+
+def _es256_other_spelling(signature: bytes) -> "bytes | None":
+    """The second valid spelling ``R || (n - S)`` of a 64-byte ES256 signature, or None when ``S`` is
+    not in ``(0, n)``: such a signature never verifies, so it has no second spelling."""
+    s = int.from_bytes(signature[32:], "big")
+    if not 0 < s < _P256_N:
+        return None
+    return signature[:32] + (_P256_N - s).to_bytes(32, "big")
+
+
+@_ein_stand
+def canonical_es256_signature(signature):
+    """The one spelling of an ES256 signature that an identity is formed over: ``R || min(S, n - S)``.
+
+    ECDSA verification computes a point from ``s`` and compares only its x-coordinate; ``n - s`` gives
+    the negated point, which has the same x-coordinate. So whoever sees a valid ``(r, s)`` can write
+    ``(r, n - s)`` without the key, and :func:`verify_ecdsa_p256` accepts it as well. It keeps accepting
+    both, by the owner's decision on finding D1 (2026-09-26): RFC 7518 §3.4 does not require the low
+    half, OpenSSL (which ``cryptography`` wraps) signs with either half and accepts both, and three of
+    the five IETF SD-JWT VC examples vendored in ``tests/fixtures/sdjwtvc`` carry a high ``s`` (the
+    fourth and the fifth in the issuer signature, the second in its Key Binding JWT).
+    What must not follow from it is a second identity. Every identity, receipt root, dedup, replay or
+    log key that proofbundle computes from bytes carrying an ES256 signature is computed over this
+    function's output, the spelling with ``s <= n / 2``, so ``(r, s)`` and ``(r, n - s)`` have one
+    identity. The bytes themselves are never rewritten: a signature made by someone else is passed
+    on and returned as it came, because another signature can cover it (a Key Binding JWT's
+    ``sd_hash`` covers the issuer JWT). Only a signature proofbundle makes itself carries the low
+    ``s``; today proofbundle makes no ES256 signature. Its own signatures on these paths are
+    Ed25519; it also signs with ML-DSA elsewhere (``pqsig.sign_mldsa``), and whether an ML-DSA
+    signature has a second spelling was not measured.
+
+    Anything that is not a 64-byte ``R || S`` with ``0 < S < n`` is returned unchanged: no such value
+    verifies, so it has no second spelling to fold. A value of a mutable type (a ``bytearray``, a list) is
+    returned as the one reading of it at the call (`canonical._ein_stand`), which equals it: the length check
+    and the copy read a caller's ``bytearray`` at two times before. Never raises.
+    """
+    if not isinstance(signature, (bytes, bytearray)) or len(signature) != 64:
+        return signature
+    sig = bytes(signature)
+    if int.from_bytes(sig[32:], "big") > _P256_HALF_N:
+        other = _es256_other_spelling(sig)
+        if other is not None:
+            return other
+    return sig

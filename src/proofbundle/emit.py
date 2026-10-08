@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.serialization import (
 
 from . import merkle
 from .bundle import SCHEMA
+from .canonical import _ein_stand
 
 __all__ = [
     "generate_signer",
@@ -42,6 +43,7 @@ def _raw_pub(key: Ed25519PrivateKey) -> bytes:
     return key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 
 
+@_ein_stand
 def generate_signer() -> Ed25519PrivateKey:
     """Generate a fresh Ed25519 signing key."""
     return Ed25519PrivateKey.generate()
@@ -66,6 +68,7 @@ def _pfad_boden(path) -> None:
         raise _BFE(f"signer key path must be a path string, got {type(path).__name__} (fail-closed)")
 
 
+@_ein_stand(aussen={"key": "signierer", "path": "pfad"})
 def save_signer(key: Ed25519PrivateKey, path: str) -> None:
     """Write the 32 byte raw Ed25519 private seed to ``path``, mode 0600.
 
@@ -84,6 +87,7 @@ def save_signer(key: Ed25519PrivateKey, path: str) -> None:
         handle.write(raw)
 
 
+@_ein_stand(aussen={"path": "pfad"})
 def load_signer(path: str) -> Ed25519PrivateKey:
     """Load an Ed25519 signing key from a 32 byte raw seed file."""
     # TYPE FLOOR, same invariant as evalcard/prereg (L1-01) — applied here only on 2026-08-16, because
@@ -100,6 +104,7 @@ def load_signer(path: str) -> Ed25519PrivateKey:
         return Ed25519PrivateKey.from_private_bytes(handle.read())
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_bundle(
     payload: bytes,
     signer: Ed25519PrivateKey,
@@ -114,8 +119,26 @@ def emit_bundle(
     accepted by :func:`proofbundle.verify_bundle`.
 
     ``sd_jwt_vc`` is passed through verbatim if given (for example
-    ``{"compact": "...", "issuer_public_key_b64": "..."}``).
+    ``{"compact": "...", "issuer_public_key_b64": "..."}``). Its bytes belong to a foreign issuer and
+    are never rewritten, an ES256 signature with a high s included: a Key Binding JWT's ``sd_hash``
+    covers the issuer JWT exactly as presented (RFC 9901 §4.3), and rewriting it broke that binding
+    for every verifier that hashes the bytes it gets (finding D1, measured on f536af50). An identity
+    of the bundle is computed over the canonical low-s form instead
+    (:func:`proofbundle.anchors.receipt_canonical_root`).
+
+    Each input is read once, by what it holds (round 12): the payload and every prior leaf as the bytes
+    they store (so the bytes signed, hashed into the tree and written are one reading, not three calls
+    of a `bytes` subclass's own buffer; a ``memoryview`` as the bytes it views, as the leaf hash read it
+    before), the prior leaves through the base iteration, and a dict ``sd_jwt_vc`` as the plain copy of
+    what it stores, which is what the bundle carries.
     """
+    from .canonical import _folge_von, _plain_for_jcs, _puffer_von  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
+    if _puffer_von(payload) is not None:
+        payload = _puffer_von(payload)
+    prior_leaves = [_puffer_von(p) if _puffer_von(p) is not None else p for p in _folge_von(prior_leaves)]
+    if sd_jwt_vc is not None and issubclass(type(sd_jwt_vc), dict):
+        sd_jwt_vc = _plain_for_jcs(sd_jwt_vc, lambda text: BundleFormatError(f"sd_jwt_vc: {text}"))
     leaves = list(prior_leaves) + [payload]
     index = len(leaves) - 1
     root = merkle.merkle_tree_hash(leaves)

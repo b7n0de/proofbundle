@@ -245,10 +245,45 @@ jobs:
         run: PYTHONPATH=src python tools/pb_verify_rs/crosscheck.py
       - name: Rust parity report (advisory — PENDING is the expected, honest majority state)
         run: python scripts/rust_parity_gate.py --strict --json
+      # Owner decision of 2026-09-27 (option A): the locked Rust dependencies are audited against the
+      # RustSec advisory database, warnings (unmaintained, unsound, yanked) included. The step runs in
+      # tools/pb_verify_rs because cargo-audit reads its exceptions from .cargo/audit.toml in the
+      # directory it runs in (measured with 0.22.2); each exception stands there with its reason and a
+      # review date, never as a flag here. It is the last step, so a red audit does not skip the
+      # crosscheck and the parity report above.
+      # --deny warnings refuses unmaintained, unsound and yanked only: an informational "notice"
+      # advisory passes it with exit 0, and --deny notice and --deny all are refused by the tool (lens
+      # finding F1 on PR 296, measured with 0.22.2). scripts/cargo_audit_gate.py therefore judges
+      # `cargo audit --json` too, and fails on any vulnerability or warning of any kind whose advisory
+      # ID audit.toml does not list; its --self-test proves both directions on every run (a lock with a
+      # notice fails, the listed rsa exception passes and fails without audit.toml).
+      - name: Rust dependency audit (cargo audit, deny warnings, every unlisted warning)
+        run: |
+          cd tools/pb_verify_rs
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo audit --file Cargo.lock --deny warnings
+          python ../../scripts/cargo_audit_gate.py --dir . --no-fetch
+          python ../../scripts/cargo_audit_gate.py --dir . --no-fetch --self-test
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # 70, NOT 50 (owner decision of 2026-09-28 on card OA-cb15f2bf74, option A). Measured through the
+    # GitHub API: test (3.10) was cut at its 50-minute limit twice before its suite had finished
+    # (373bf64b, and 2399e4e0 after 50:24); the longest finished leg over the 40 most recent runs
+    # took 46.3 min (3.14 at 3c5755c0). The limit stays finite and still stops a hung run; no test
+    # becomes weaker.
+    # 120, NOT 70 (owner decision of 2026-10-01 on card OA-52e183ce21, option A). Since 8f2fa980 every
+    # public function reads its arguments at its call, and the CHANGELOG names that cost (the median call
+    # 1.47 times its time at d388ed3d). Measured through the GitHub API: at d388ed3d the five legs took
+    # 25 to 55 min; at 6b02d9f7 test (3.11) and (3.12) took 54 and 53 min and (3.10), (3.13) and (3.14)
+    # were cut at 70 without a failing test. On the release machine the full suite took 40 to
+    # 44 min at trees before 6d674973 and 63 to 69 min at the heads of this chain.
+    # 180, NOT 120 (owner decision of 2026-10-02 on card OA-32ba6e0c7a, option A). Measured through the
+    # GitHub API over the heads of the 6.2.0 chain: test (3.10) took 66 min at 198af5c5, 81 at fda55f98,
+    # 97 at a1d5a815, 94 at 52c7e634 and 105 at 53bbb94c, with src/ unchanged between 198af5c5 and
+    # 53bbb94c; the spread is the speed of the runner, and 105 with the reserve of
+    # tests/test_der_ci_schnitt_haelt.py needs 132.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -423,7 +458,19 @@ jobs:
     # flakiness from extras-dependent line counts; raise it over time. Runs the FULL pytest suite (the
     # unittest-discover CI job runs only TestCase classes, so this counts the pytest-function tests too).
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 80, NOT 60 (the same decision). Measured through the GitHub API: 57:03 at main a1e9774e, 59.5 min
+    # for the longest finished run over the 40 most recent runs (0d262332), and cut at 60:22 at
+    # 2399e4e0. The limit stays finite and still stops a hung run; the coverage floor is unchanged.
+    # 150, NOT 80 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 53 min at d388ed3d, cut
+    # at 80 at 110cdad9 and at 6b02d9f7. The reading at each call is plain Python, and the tracer of
+    # coverage weighs on it more than on the rest of the suite.
+    # 300, NOT 150 (owner decision of 2026-10-02 on card OA-32ba6e0c7a, option A): 75 min at fda55f98,
+    # 115 at 198af5c5 and 144 at a1d5a815, then cut at 150 at 52c7e634 (72 % done) and at 53bbb94c
+    # (65 % done). Between 198af5c5 and 53bbb94c src/, scripts/, the installed packages (106, the same
+    # versions) and the runner image (ubuntu-24.04 20260927.320.1) are the same; one stretch of identical
+    # test files took 68 min against 28, the rest about 1.35 times as long. The spread is the speed of
+    # the runner, and the mutation layer, which needs coverage, was skipped at 52c7e634 because of it.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -441,7 +488,9 @@ jobs:
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support
     # so a future floor bump can't silently break the trusted core.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
+    # cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at each call.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -488,14 +537,28 @@ jobs:
     #
     # The acceptance was never time, it was the verdict: the full 88-operator run with the exclusion
     # active reproduced the canonical result exactly (87 KILLED, 1 expected SURVIVED, 0 gaps).
+    #
+    # 36 SHARDS AND THE SIX-HOUR JOB LIMIT ARE PROVISIONAL (owner word Z230, 2026-09-26). Since Z230 each
+    # mutant runs the test files that reach it, over a baseline of the same selection. Estimated from
+    # the per-file durations of a local baseline (908 s) scaled by the measured CI/local ratio of the
+    # whole suite (2168 s / 910.9 s): a selection costs up to about 2200 s in CI, because the heaviest
+    # test files import nearly every module, and since round 2 MANIFEST.in and ten modules select
+    # every test file. With the weighted partition and the round-2 selections the longest of 36 shards
+    # comes to 3.7 h, of 28 to 4.9 h, of 24 to 6.0 h; 36 keeps about two hours below the step limit
+    # of 345 minutes, where 28 kept less than one. The final values follow from the first measured CI
+    # run (the MUTATION_DURATIONS line and the wall-clock step of the summary job).
     strategy:
       fail-fast: false          # one red shard must not hide the verdicts of the others
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360        # GitHub's limit for a hosted job
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Full history, as in `test`: the gate clones this checkout, and its tests read git history.
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -521,6 +584,9 @@ jobs:
         # Fehlschlagen ist, koennte still bestehen. Mit `shell: bash` faehrt GitHub
         # `--noprofile --norc -eo pipefail`, und der Exit-Code kommt links aus der Pipe.
         shell: bash
+        # The step's limit is 15 minutes below the job's, so the steps below still run when it is
+        # reached: they record how many verdicts the shard wrote and upload that.
+        timeout-minutes: 345
         run: |
           # `-u` IS NOT COSMETIC — it is the condition under which this step can be diagnosed at all.
           # MEASURED 2026-09-10 on head 1b2adc2, shard 6 of this very matrix: the step started at
@@ -534,7 +600,7 @@ jobs:
           # switches Python's stdout from line- to block-buffering, so nothing is visible until a
           # 4-8 KB buffer fills. A long run without visible progress is indistinguishable from a
           # hung one, and both look identical to whoever reads the job while it is red.
-          python -u scripts/mutation_check.py --shard ${{ matrix.shard }}/10 \
+          python -u scripts/mutation_check.py --shard ${{ matrix.shard }}/36 \
             | tee "$RUNNER_TEMP/mutation-shard.log"
       - name: Record how many operators this shard actually ran
         # The count comes from the run's OWN closing line, not from the matrix index. A shard that
@@ -570,7 +636,12 @@ jobs:
           # damit der Sammel-Job Vereinigung und Disjunktheit RECHNEN kann statt sie zu glauben.
           idx="$(grep -oE '^  shard-item [0-9]+' "$RUNNER_TEMP/mutation-shard.log" \
                  | grep -oE '[0-9]+' | sort -n | tr '\n' ',' | sed 's/,$//' || true)"
-          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0} indizes=${idx:-}" \
+          # HOW FAR A CUT SHARD GOT (Z230 round 2). A shard stopped at the step limit has no closing
+          # line, so it records operators=0 total=0 and its indices; `judged=` counts the verdict
+          # lines it did write (`  ok   [` / `  GAP  [`). The summary job still fails such a shard:
+          # the matrix result is not success, and its total is 0.
+          geurteilt="$(grep -cE '^  (ok  |GAP ) \[' "$RUNNER_TEMP/mutation-shard.log" || true)"
+          echo "shard=${{ matrix.shard }} operators=${n:-0} total=${gesamt:-0} indizes=${idx:-} judged=${geurteilt:-0}" \
             > "$RUNNER_TEMP/mutation-shard-${{ matrix.shard }}.txt"
       - name: Upload shard result
         if: always()
@@ -644,7 +715,7 @@ jobs:
           MUTATION_RESULT: ${{ needs.mutation.result }}
         run: |
           set -euo pipefail
-          K=10
+          K=36
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::mutation matrix result=$MUTATION_RESULT — mindestens ein Shard ist rot"
             exit 1

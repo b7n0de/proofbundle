@@ -221,12 +221,60 @@ def test_jeder_laufende_job_traegt_ein_zeitbudget():
     assert not ohne, f"Jobs ohne timeout-minutes: {ohne}"
 
 
-def test_ein_mutationsshard_bleibt_unter_einer_stunde():
-    """Der Auftrag woertlich: 'Mutation nicht ueber 60 Minuten je Shard, sonst ist der Shard falsch
-    geschnitten.' Gemessen liefen Shards 151 bis 288 Minuten."""
-    d = _workflows()["ci.yml"]
-    t = d["jobs"]["mutation"]["timeout-minutes"]
-    assert t <= 60, f"Mutations-Shard mit {t} Minuten Budget — ueber der angeordneten Grenze von 60"
+#: GitHub's limit for a job on a hosted runner, in minutes. A budget above it is not a budget: GitHub
+#: stops the job at 360 minutes whatever the workflow says.
+GITHUB_JOB_GRENZE_MIN = 360
+
+
+def _mutationsdeckel_verletzt(d: dict) -> list[str]:
+    """Where the mutation job breaks its cap. Pure, so a built counter-example can make it fail."""
+    job = d["jobs"]["mutation"]
+    t = job.get("timeout-minutes")
+    if not isinstance(t, int):
+        return [f"the job carries no numeric timeout-minutes ({t!r})"]
+    schlecht = []
+    if t > GITHUB_JOB_GRENZE_MIN:
+        schlecht.append(f"job budget {t} minutes, above GitHub's limit of {GITHUB_JOB_GRENZE_MIN}")
+    schritte = [s for s in job.get("steps") or [] if s.get("name") == "Mutation check"]
+    if len(schritte) != 1:
+        return schlecht + [f"{len(schritte)} steps named 'Mutation check', expected one"]
+    s = schritte[0].get("timeout-minutes")
+    if not isinstance(s, int) or s >= t:
+        schlecht.append(f"the step 'Mutation check' has {s!r} minutes and must stop below the job's "
+                        f"{t}, or the steps after it never record how far the shard got")
+    return schlecht
+
+
+def test_ein_mutationsshard_bleibt_in_seinem_deckel():
+    """TWO ORDERS, AND THE YOUNGER ONE HOLDS. The first, from 13.09.2026, in translation: "mutation
+    not above 60 minutes per shard, otherwise the shard is cut wrong." Measured then, shards ran 151
+    to 288 minutes. The second is the owner word on Z230 of 26.09.2026, in translation: "job cap and
+    shard count provisionally such that a shard safely finishes within the upper limit of a GitHub
+    job of 6 hours; you set the final values after the first measured CI run time."
+
+    Since Z230 each mutant runs over a baseline of its own selection, and a selection costs about
+    2000 to 2200 s in CI, so one mutant alone comes close to the old 60 minutes. The contract holds
+    the younger order: the job stays within GitHub's limit, and the gate step stops before the job,
+    so the shard still records how far it got. PROVISIONAL like the values it checks: when the first
+    measured CI run sets the final cap and shard count, this contract follows them.
+    """
+    assert _mutationsdeckel_verletzt(_workflows()["ci.yml"]) == []
+
+
+def test_fangnachweis_ein_deckel_ueber_der_github_grenze_wird_gefunden():
+    def wf(job, schritt):
+        return {"jobs": {"mutation": {"timeout-minutes": job,
+                                      "steps": [{"name": "Mutation check",
+                                                 "timeout-minutes": schritt}]}}}
+    assert _mutationsdeckel_verletzt(wf(361, 345)) == [
+        "job budget 361 minutes, above GitHub's limit of 360"]
+    assert _mutationsdeckel_verletzt(wf(360, 360)) == [
+        "the step 'Mutation check' has 360 minutes and must stop below the job's 360, or the steps "
+        "after it never record how far the shard got"]
+    assert _mutationsdeckel_verletzt(wf(360, None))[0].startswith("the step 'Mutation check' has None")
+    assert _mutationsdeckel_verletzt({"jobs": {"mutation": {"timeout-minutes": 360, "steps": []}}}) == [
+        "0 steps named 'Mutation check', expected one"]
+    assert _mutationsdeckel_verletzt(wf(360, 345)) == [], "the provisional values are reported"
 
 
 def test_mutation_startet_erst_nach_test_und_coverage():
@@ -380,7 +428,26 @@ def test_fangnachweis_ein_prosa_vorspann_wird_gefunden():
 #: Beide Budgets tragen die korrigierten Werte weiterhin: coverage braucht ceil(41*1.25)=52 bei 60,
 #: `test` braucht ceil(33*1.25)=42 bei 50. Die Workflows aendern sich dadurch NICHT — korrigiert wird
 #: die Behauptung, nicht die Verdrahtung.
-GEMESSENE_MAXIMA_MIN = {"test": 33, "coverage": 41}
+#:
+#: MEASURED AGAIN 2026-09-28, AND THE OLD NUMBERS HAD STOPPED MEANING ANYTHING. Over the 40 most recent
+#: completed CI runs (139 jobs that ended success or failure, the same method as above), the longest
+#: test leg took 46.3 min (3.14, run 36414971006 at 3c5755c0) and the longest coverage run 59.5 min
+#: (run 36434288455 at 0d262332). With 33 and 41 here this case stayed green while test (3.10) was cut
+#: at its 50-minute limit twice and coverage at 60:22: a guard that compares against a measurement
+#: from two weeks ago judges a machine that no longer exists. With today's maxima, 50 and 60 fail it
+#: (59 and 75 needed); the owner decision of 2026-09-28 (card OA-cb15f2bf74) sets 70 and 80.
+#:
+#: MEASURED AGAIN 2026-10-01, after the reading at each call (8f2fa980 and after). Over the CI runs at d388ed3d
+#: and 6b02d9f7, the longest finished test leg took 55 min (3.10 at d388ed3d); at 6b02d9f7 test (3.11) and (3.12) took 54 and 53 min, and
+#: (3.10), (3.13), (3.14) and coverage ran into 70 and 80 without a failing test, so their length there is
+#: not measured. The owner decision of 2026-10-01 (card OA-52e183ce21) sets 120 and 150,
+#: and crypto-floor and hermetic-cleanroom 45.
+#:
+#: MEASURED AGAIN 2026-10-02 over the heads of the 6.2.0 chain. The longest finished test leg took 105 min
+#: (3.10 at 53bbb94c), the longest finished coverage run 144 min (a1d5a815); coverage ran into 150 at
+#: 52c7e634 and 53bbb94c with src/, the packages and the runner image the same as at 198af5c5, where it took
+#: 115. The owner decision of 2026-10-02 (card OA-32ba6e0c7a) sets 180 and 300.
+GEMESSENE_MAXIMA_MIN = {"test": 105, "coverage": 144}
 
 #: Reserve auf die gemessene Hoechstdauer. Ein Limit GLEICH dem Maximum ist kein Budget, sondern
 #: eine Wette darauf, dass kein Lauf je langsamer wird — `test` stand genau dort.

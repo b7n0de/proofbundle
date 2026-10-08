@@ -252,24 +252,49 @@ def build_body(measurement: dict, *, repo: Path, version: str, producer_tool: st
 
 def assemble(body: dict, sig_b64: str, signer_pubkey_b64: str) -> dict:
     """Wrap an externally produced signature. REFUSES on a mismatch — fail-closed, so a bad
-    signature/body pair never becomes an artifact on disk."""
+    signature/body pair never becomes an artifact on disk.
+
+    AND IT REFUSES A KEY THE TRUST-ANCHOR RULE REFUSES (SPEC section 4b), before anything is written.
+    This is where the signer's key ENTERS the artifact. Measured on 3c9c98c3: the identity point with
+    the signature R = identity, S = 0 was assembled into an artifact, exit 0, because the check here
+    used the section 4a profile and left the refusal to `audit_candidate_matrix`. The rule is the
+    shared one (`signature.ed25519_trust_anchor_weakness`), not a copy.
+
+    Each field handed in is read once (`_wire_b64.wire_value`), and that plain value is decoded,
+    judged and written (lens run 7 at 75c3aa48, F2): a `str` subclass whose `encode` answered for a
+    real key passed the rule while its own text, the identity point, went into the artifact."""
     import binascii  # noqa: PLC0415
-    from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey  # noqa: PLC0415
-    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64, wire_value  # noqa: PLC0415
+    from proofbundle.signature import (  # noqa: PLC0415
+        TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned)
+    pub_feld, sig_feld = wire_value(signer_pubkey_b64), wire_value(sig_b64)
+    # THE BODY IS READ ONCE TOO, from its storage (lens run 8 at fddc00f4, finding B): the signature
+    # check read it through `canonical_bytes`, which runs a dict subclass's `items()` or `__getitem__`,
+    # and the copy below read its storage, so a body storing B and answering A was written as B
+    # under a signature over A. The plain copy is what is verified and what is written.
+    from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    if not issubclass(type(body), dict):
+        raise SystemExit(f"assemble: the artifact body must be a JSON object, got "
+                         f"{type(body).__name__} — refusing")
+    body = plain_json(body, what="the artifact body",
+                       error=lambda m: SystemExit(f"assemble: {m} — refusing"))
     # LAUF11-L2: strikt und kanonisch, und eine unkanonische Schreibweise wird ABGEWIESEN statt
     # zu werfen — dieselbe Form wie der Signatur-Mismatch eine Zeile weiter.
     try:
-        pub = Ed25519PublicKey.from_public_bytes(decode_b64(signer_pubkey_b64))
-        roh_sig = decode_b64(sig_b64)
+        if pub_feld is None or sig_feld is None:
+            raise binascii.Error("the signature and the public key must be base64 text")
+        pub = decode_b64(pub_feld)
+        roh_sig = decode_b64(sig_feld)
     except (binascii.Error, ValueError) as e:
         raise SystemExit(f"assemble: signature/pubkey field is not canonical base64 — refusing: {e}")
-    try:
-        pub.verify(roh_sig, canonical_bytes(body))
-    except InvalidSignature:
+    grund = ed25519_trust_anchor_weakness(pub)
+    if grund is not None:
+        raise SystemExit(f"assemble: the signer public key is a {grund} Ed25519 key, refused as a "
+                         f"trusted key: {TRUST_ANCHOR_REFUSAL[grund]} — refusing")
+    if not verify_ed25519_pinned(pub, roh_sig, canonical_bytes(body)):
         raise SystemExit("assemble: the signature does not verify over the canonical body — refusing")
     out = dict(body)
-    out[SIGNATURE_KEY] = {"alg": "ed25519", "public_key_b64": signer_pubkey_b64, "sig_b64": sig_b64}
+    out[SIGNATURE_KEY] = {"alg": "ed25519", "public_key_b64": pub_feld, "sig_b64": sig_feld}
     return out
 
 

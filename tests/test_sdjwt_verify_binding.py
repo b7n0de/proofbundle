@@ -42,8 +42,7 @@ def _eval_bundle_with_sd_jwt(*, bind_root: bool, signed: bool):
     plain = emit_eval_receipt(ev_claim, signer)
     real_root = (plain.get("merkle") or {}).get("root_b64")
     payload_claim = json.loads(base64.b64decode(plain["payload_b64"]))
-    sd_claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
-                "issuer": payload_claim["issuer"]}
+    sd_claim = payload_claim   # the SD-JWT is a view of this signed claim (6.2.0: a partial one is refused)
     commit_root = real_root if bind_root else "d3Jvbmc="   # "wrong"
     compact = issue_sd_jwt(sd_claim, signer, root_b64=commit_root, exact_score="0.9",
                            holder_public_key=_raw_pub(holder))
@@ -120,8 +119,8 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
         plain = emit_eval_receipt(ev_claim, signer)
         real_root = (plain.get("merkle") or {}).get("root_b64")
         trusted_issuer = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
-        forged = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
-                  "issuer": trusted_issuer}   # names the trusted issuer…
+        forged = json.loads(base64.b64decode(plain["payload_b64"]))   # names the trusted issuer…
+        self.assertEqual(forged["issuer"], trusted_issuer)
         compact = issue_sd_jwt(forged, att, root_b64=real_root, exact_score="0.99999",   # …but signed by att
                                holder_public_key=_raw_pub(holder))
         presented = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=_IAT)
@@ -149,8 +148,9 @@ class TestSdJwtVerifyBinding(unittest.TestCase):
         bad_payload = json.dumps({"schema": "proofbundle/eval-claim/v0.1",
                                   "issuer": "ed25519:" + base64.b64encode(_raw_pub(att)).decode("ascii"),
                                   "suite": "safety", "comparator": ">=", "threshold": "0.8"}).encode()
-        sd_claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
-                    "issuer": "ed25519:" + base64.b64encode(_raw_pub(att)).decode("ascii")}
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
+        sd_claim = full_eval_claim("ed25519:" + base64.b64encode(_raw_pub(att)).decode("ascii"),
+                                   suite="safety", threshold="0.8")
         compact = issue_sd_jwt(sd_claim, att, root_b64="cm9vdA==", exact_score="0.9",
                                holder_public_key=_raw_pub(holder))
         presented = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=_IAT)
@@ -182,8 +182,9 @@ class TestN1UnbindableEvalSdJwt(unittest.TestCase):
 
     def test_eval_sd_jwt_on_non_eval_payload_is_refused(self):
         signer = generate_signer()
-        sd_claim = {"passed": True, "threshold": "0.8", "comparator": ">=", "suite": "safety",
-                    "issuer": "ed25519:" + base64.b64encode(self._raw(signer)).decode()}
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
+        sd_claim = full_eval_claim("ed25519:" + base64.b64encode(self._raw(signer)).decode(),
+                                   suite="safety", threshold="0.8")
         # issued with a root from ELSEWHERE (the graft) — issuer-VALID but bound to no real bundle
         compact = issue_sd_jwt(sd_claim, signer, root_b64="c29tZS1vdGhlci1yb290", exact_score="0.9")
         vc = {"compact": compact, "issuer_public_key_b64": base64.b64encode(self._raw(signer)).decode()}

@@ -18,6 +18,9 @@ RFC 9901 requirements enforced here (verifier side, §4.3):
     to AND INCLUDING the tilde immediately before the KB-JWT, hashed with the
     SD-JWT's ``_sd_alg`` hash. This binds the KB-JWT to the *presented
     disclosure set*: swapping or dropping a disclosure after signing breaks it.
+    An ES256 issuer signature has two spellings that both verify, ``(r, s)``
+    and ``(r, n - s)``; the hash is accepted over either (finding D1), so the
+    verdict does not depend on which one a relay passed on.
   - the signature is verified with the holder key from the issuer-signed
     payload's ``cnf.jwk`` (RFC 7800; OKP/Ed25519), or an explicitly supplied
     holder key. The cnf key wins when both are available — the issuer's binding
@@ -37,8 +40,10 @@ import json
 from typing import Optional, Tuple
 
 from ._strict_json import loads_strict
+from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import ProofBundleError
-from .signature import verify_ed25519_pinned
+from .sdjwt import _es256_signature_spellings
+from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
 
@@ -63,6 +68,7 @@ def _b64url_nopad(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
 
+@_ein_stand
 def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     """Split a compact SD-JWT into (sd_part, kb_jwt_or_None).
 
@@ -82,7 +88,8 @@ def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     # never-raise-Eigenschaft, sodass nichts mehr danach fragte. Das ist dieselbe Form, die die
     # Eigenschaft selbst als Wurzel des cosign_*-Vorfalls dokumentiert: ein Verbraucher liegt
     # ausserhalb des Nenners, und nichts sagt es.
-    if not isinstance(compact, str):
+    compact = _zeichen_von(compact)   # its characters, one reading (round 12)
+    if compact is None:
         from .errors import BundleFormatError  # noqa: PLC0415 - lokal wie die Geschwister oben
         raise BundleFormatError(
             "compact presentation must be a string (non-str is malformed, fail-closed)")
@@ -95,6 +102,7 @@ def split_key_binding(compact: str) -> Tuple[str, Optional[str]]:
     return head + "~", tail
 
 
+@_ein_stand
 def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     """Extract the raw 32-byte Ed25519 holder key from a ``cnf.jwk`` claim (RFC 7800).
 
@@ -110,7 +118,12 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     # von "keine brauchbare Bestaetigungs-Schluessel-Angabe"; die Funktion gibt schon fuer ein
     # fehlendes `cnf`, ein Nicht-dict-`jwk` und ein falsches `kty` `None` zurueck. Ein Wurf waere
     # hier die INKONSISTENTE Antwort.
-    if not isinstance(issuer_payload, dict):
+    if not issubclass(type(issuer_payload), dict):
+        return None
+    # By what the payload stores (round 12): a dict subclass's own `get` never chooses the holder key.
+    try:
+        issuer_payload = _plain_for_jcs(issuer_payload, ValueError)
+    except ValueError:
         return None
     cnf = issuer_payload.get("cnf")
     if not isinstance(cnf, dict):
@@ -135,12 +148,25 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     return raw if len(raw) == 32 else None
 
 
+# Nachtrag 49 K4-02 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a KB-JWT is a PRESENTATION-freshness
+# proof. When the relying party supplies an evaluation time (`now`, POSIX seconds), the holder's `iat` is judged
+# against it: a conservative default presentation age (5 minutes) bounds replay, and a small skew window absorbs
+# clock drift. Without `now` the freshness CANNOT be judged (offline/historical verification), so `fresh` stays
+# None and the verdict is unchanged — exactly as the sibling status-list and enclave verifiers treat a missing
+# `now`. A relying party verifying an older presentation on purpose passes its own `now`/`max_age_seconds`.
+_KB_DEFAULT_MAX_AGE_SECONDS = 300
+_KB_FUTURE_SKEW_SECONDS = 60
+
+
+@_ein_stand
 def verify_key_binding(
     compact: str,
     holder_pubkey: Optional[bytes] = None,
     *,
     expected_aud: Optional[str] = None,
     expected_nonce: Optional[str] = None,
+    now: Optional[int] = None,
+    max_age_seconds: Optional[int] = None,
 ) -> dict:
     """Verify the Key Binding JWT of a compact SD-JWT presentation.
 
@@ -153,8 +179,12 @@ def verify_key_binding(
     available (the issuer's binding is authoritative), else from
     ``holder_pubkey``. If neither exists the check fails — never skips.
     """
-    result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None}
-    if not isinstance(compact, str):
+    result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None,
+              "fresh": None}
+    # One reading of the presentation, by its characters (round 12): the sd_hash, the issuer payload
+    # and the KB-JWT below all come from the same text, and no method of a `str` subclass runs.
+    compact = _zeichen_von(compact) if _zeichen_von(compact) is not None else compact
+    if type(compact) is not str:   # `type()`: a `__class__` claim is no str (round 12)
         # RE-GATE never-raise (breadth sweep): a non-str `compact` presentation is malformed input — a
         # fail-closed verdict (present=False, ok=False), never a raw AttributeError from split_key_binding's
         # string operations (e.g. `.endswith`). This dict-returning surface must always return a verdict.
@@ -189,6 +219,14 @@ def verify_key_binding(
     if not isinstance(kb_header, dict) or not isinstance(kb_payload, dict) \
             or not isinstance(issuer_payload, dict):
         result["detail"] = "malformed KB-JWT or issuer JWT"
+        return result
+
+    # Nachtrag 50 (Z309, K5-01): RFC 7515 §4.1.11 — a critical header the verifier does not understand
+    # makes the JWS invalid. Checked right after reading the KB-JWT header and BEFORE typ/alg, so a KB-JWT
+    # with a `crit` member fails closed (ok stays False, detail names crit) instead of reaching ok=True.
+    _crit_reason = _reject_jws_crit(kb_header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
         return result
 
     # Header: typ MUST be kb+jwt; alg MUST NOT be none; we support EdDSA only.
@@ -238,15 +276,27 @@ def verify_key_binding(
         return result
     h.update(_sd_bytes)
     if _b64url_nopad(h.digest()) != sd_hash:
-        result["detail"] = "sd_hash does not match the presented SD-JWT and disclosures"
-        return result
+        # Finding D1 (owner decision 2026-09-26): an ES256 issuer signature verifies in two spellings,
+        # (r, s) and (r, n - s), and anyone who relays the presentation can turn one into the other.
+        # The holder hashed the spelling it received. The KB-JWT binds the presentation, not the
+        # spelling, so the other spelling is compared too; the two differ in the issuer signature
+        # segment only, never in the payload, a disclosure or the KB-JWT. Measured on 126ed1dc: the
+        # twin of a genuine presentation failed here while verify_sd_jwt accepted it.
+        other_spellings = [s for s in _es256_signature_spellings(sd_part) if s != sd_part]
+        if not any(_b64url_nopad(hashlib.new(_HASH_ALG[sd_alg], s.encode("ascii")).digest()) == sd_hash
+                   for s in other_spellings):
+            result["detail"] = "sd_hash does not match the presented SD-JWT and disclosures"
+            return result
 
     # Caller policy on aud/nonce values (only enforced when expectations given). `aud` is guaranteed a single
     # non-empty string above (RFC 9901 §4.3), so a direct comparison suffices (no list handling).
-    if expected_aud is not None and expected_aud != aud:
+    # The expectations by their characters (round 12, lens run 11 O1's class): at cd5d39f4 a `str`
+    # subclass's own `__ne__` answered False for another audience or nonce. An expectation that is no
+    # string never matches.
+    if expected_aud is not None and _zeichen_von(expected_aud) != aud:
         result["detail"] = "KB-JWT aud does not match the expected audience"
         return result
-    if expected_nonce is not None and nonce != expected_nonce:
+    if expected_nonce is not None and nonce != _zeichen_von(expected_nonce):
         result["detail"] = "KB-JWT nonce does not match the expected nonce"
         return result
 
@@ -269,6 +319,33 @@ def verify_key_binding(
     if not sig_ok:
         result["detail"] = f"KB-JWT signature invalid ({key_source})"
         return result
+
+    # Nachtrag 49 K4-02 (Z309): presentation freshness, judged only when the relying party gives one evaluation
+    # time. `iat` is a number here (checked above). A `now` that is not a real number is a malformed relying-party
+    # argument when freshness was requested — fail-closed, never a silent pass. Default presentation age applies
+    # when `now` is given but `max_age_seconds` is not; an explicit non-negative `max_age_seconds` overrides it.
+    if now is not None:
+        from ._plain_value import plain_int  # noqa: PLC0415
+        # The clock and the age bound as exact ints, read once (the one rule for a caller's number,
+        # _plain_value.plain_int): an int subclass runs no method here. A `now` that is not an exact int is a
+        # malformed relying-party argument when freshness was requested -> fail-closed. A `max_age_seconds` that
+        # is not a non-negative exact int falls back to the conservative default.
+        _now = plain_int(now)
+        if _now is None:
+            result["detail"] = "KB-JWT now (evaluation time) must be a POSIX-seconds integer (fail-closed)"
+            return result
+        _max_age = plain_int(max_age_seconds)
+        if _max_age is None or _max_age < 0:
+            _max_age = _KB_DEFAULT_MAX_AGE_SECONDS
+        if iat > _now + _KB_FUTURE_SKEW_SECONDS:
+            result["fresh"] = False
+            result["detail"] = "KB-JWT iat is in the future beyond the allowed clock skew (fail-closed)"
+            return result
+        if iat < _now - _max_age:
+            result["fresh"] = False
+            result["detail"] = "KB-JWT iat is older than the allowed presentation age (fail-closed)"
+            return result
+        result["fresh"] = True
 
     result["ok"] = True
     result["detail"] = f"key binding valid ({key_source})"

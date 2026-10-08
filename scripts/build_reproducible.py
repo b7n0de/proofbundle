@@ -7,7 +7,8 @@ pypa/setuptools#2133): setuptools does NOT natively honour ``SOURCE_DATE_EPOCH``
 sdist tarball (member mtimes, uid/gid, order and the gzip header still vary). So this script does the
 robust thing: it builds the sdist, then NORMALISES the tarball to a canonical form:
 
-  * every member mtime set to ``SOURCE_DATE_EPOCH`` (default: the HEAD commit time),
+  * every member mtime set to ``SOURCE_DATE_EPOCH`` (default: the time of the last commit that
+    touches a shipped path, see ``head_commit_epoch``),
   * uid/gid = 0, uname/gname = "" (no build-host identity leaks into the artifact),
   * mode normalised (dirs 0755, files 0644), members sorted by name,
   * re-gzipped with a zeroed gzip header timestamp.
@@ -47,11 +48,40 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 
-def head_commit_epoch() -> int:
-    """The HEAD commit time (a stable, content-derived epoch). Falls back to a fixed constant if git
-    is unavailable (still deterministic, just not commit-derived)."""
+#: Two paths the package does not ship, and the only two the tag chain writes after the release commit:
+#: MANIFEST.in never lists `release_notes/` and prunes `audit_artifacts/`, and the wheel is built from
+#: `src/`. The same two prefixes are `render_release.NICHT_AUSGELIEFERT`, the line between the tree the
+#: notes describe and the tagged tree. That script is not in the sdist, so this one cannot import it; a
+#: contract test holds the two copies equal (tests/test_the_build_epoch_ignores_notes_and_evidence_commits.py).
+#: Other unshipped paths (`tools/`, `.github/`) are not listed, so a commit there still moves the epoch;
+#: that costs a rebuild, never a binding.
+NICHT_AUSGELIEFERT = ("release_notes/", "audit_artifacts/")
+
+
+def head_commit_epoch(repo: Path = REPO) -> int:
+    """The time of the last commit that touches a path outside `NICHT_AUSGELIEFERT`, as the build epoch.
+
+    IT WAS THE TIME OF HEAD, and that made the distributions a function of the commit rather than of
+    the content. Measured on 2026-09-29 in a local probe of the 6.2.0 chain: the receipt commit, the
+    evidence commit and the merge that carries the tag change only `audit_artifacts/`, yet each built
+    a different sdist and wheel; with one epoch the three were byte-identical. The signed soak and
+    differential bind the distributions of the head they are signed at, and the tag sits on a later
+    commit, so the published bytes were never the bound ones (6.1.0: bound sdist 62a00fb7…, on PyPI
+    d6355491…).
+
+    A commit confined to release notes or audit artefacts now leaves the epoch where it was, a merge
+    whose tree is such a commit's tree included. The name stays because callers use it; what it
+    returns is this rule.
+
+    LIMIT, said here rather than found later: the answer needs the history back to the last shipped
+    change. A shallow clone treats its boundary commit as a root that touches every path and returns
+    that commit's time. `release.yml` checks out with `fetch-depth: 0` for the notes binding, which
+    covers this too. Falls back to a fixed constant if git is unavailable or no commit touches a
+    shipped path (still deterministic, just not commit-derived)."""
+    ausnahmen = [f":(exclude){p}" for p in NICHT_AUSGELIEFERT]
     try:
-        out = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%ct"],
+        out = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%ct", "--", ".",
+                              *ausnahmen],
                              capture_output=True, text=True, check=True)
         return int(out.stdout.strip())
     except (subprocess.CalledProcessError, OSError, ValueError):
@@ -332,7 +362,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--outdir", type=Path, default=REPO / "dist",
                    help="where to write the normalised sdist (default: ./dist)")
     p.add_argument("--epoch", type=int, default=None,
-                   help="SOURCE_DATE_EPOCH (default: HEAD commit time)")
+                   help="SOURCE_DATE_EPOCH (default: the time of the last commit that touches a "
+                        "shipped path)")
     p.add_argument("--with-wheel", action="store_true",
                    help="zusaetzlich zum sdist ein KANONISIERTES wheel in --outdir bauen (der "
                         "Bauweg des Release-Workflows; ohne das liefert release.yml ein wheel, "

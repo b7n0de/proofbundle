@@ -348,7 +348,11 @@ class TestVerifySideInvariants(unittest.TestCase):
     def _base_claim(self, **over):
         c = {"schema": "proofbundle/eval-claim/v0.1", "suite": "s", "suite_version": "1",
              "metric": "pass_rate", "comparator": ">=", "threshold": "0.5", "passed": True,
-             "n": 100, "model_id_commit": "sha256:x", "dataset_id_commit": "sha256:y",
+             # The form salted_commit produces. With `sha256:x` / `sha256:y` here, R-B1's pattern
+             # check refused every claim of this class, so the three cases expecting a refusal would
+             # have passed for the wrong reason: the placeholder, not the samples defect they name.
+             "n": 100, "model_id_commit": "sha256:" + "0" * 64,
+             "dataset_id_commit": "sha256:" + "1" * 64,
              "commit_alg": "sha256-salted-v1", "issuer": "ed25519:z",
              "timestamp": "2026-07-02T00:00:00Z", "assurance_level": "self_attested"}
         c.update(over)
