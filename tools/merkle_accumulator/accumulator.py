@@ -51,11 +51,11 @@ assigned on an instance and shadow the class's (Codex thread 4220760321), and th
 The three fields are private and read through properties that return copies, so a caller cannot change them through
 what it read (thread 4221180480), and assigning an attribute raises.
 
-THE FIELDS ARE CHECKED, NOT GUARDED. Python lets any code write a slot with `object.__setattr__`, and nothing in a
-class can stop that; a method that did the write for the class was one more way in (Codex thread 4222117574). So the
+THE FIELDS ARE CHECKED, NOT GUARDED. Python lets any code write a slot with `object.__setattr__`, or delete one with
+`object.__delattr__`, and nothing in a class can stop that; a method that did the write for the class was one more way in (Codex thread 4222117574). So the
 class does not rely on the write being stopped. Every operation first checks that the fields fit each other, at no
-hash: the types the class writes, one frontier root of 32 bytes per set bit of the size, and as many kept leaf hashes
-as leaves. The operations that read the kept leaf hashes, the later proofs and `state`, check as well that they
+hash: that each is there, the types the class writes, one frontier root of 32 bytes per set bit of the size, and as
+many kept leaf hashes as leaves. The operations that read the kept leaf hashes, the later proofs and `state`, check as well that they
 reproduce the frontier, at O(n) hashes, the order those operations cost anyway. A state that does not fit is refused
 with AccumulatorStateError, never used. What no check can see is a frontier replaced by another one of the same shape,
 with a size and leaf hashes to match: that is the state of another tree, one the caller could equally have built with
@@ -120,6 +120,9 @@ class MerkleAccumulator:
     def __setattr__(self, name, value) -> None:
         raise AttributeError(f"a MerkleAccumulator is read-only from outside; {name} cannot be set")
 
+    def __delattr__(self, name) -> None:
+        raise AttributeError(f"a MerkleAccumulator is read-only from outside; {name} cannot be deleted")
+
     def __init__(self, keep_leaf_hashes: bool = False) -> None:
         object.__setattr__(self, "_size", 0)
         object.__setattr__(self, "_frontier", ())
@@ -128,7 +131,13 @@ class MerkleAccumulator:
     def _check_fields(self) -> None:
         """Refuses a state whose fields do not fit each other, at no hash: the types this class writes, one frontier
         root of 32 bytes per set bit of the size, largest first, and as many kept leaf hashes as leaves."""
-        groesse, front, blaetter = self._size, self._frontier, self._leaf_hashes
+        # A slot deleted from outside (object.__delattr__ deletes past the guard above) is a field that does not fit
+        # either, refused like one, never a raw AttributeError (Codex thread 4222912721 on pull request 307).
+        try:
+            groesse, front, blaetter = self._size, self._frontier, self._leaf_hashes
+        except AttributeError:
+            raise AccumulatorStateError("a field of the accumulator was deleted from outside the class, and it is "
+                                        "refused") from None
         if not (type(groesse) is int and type(front) is tuple and (blaetter is None or type(blaetter) is list)):
             raise TypeError("the accumulator's private fields hold another type than this class writes there")
         erwartet = tuple(i for i in range(groesse.bit_length() - 1, -1, -1) if groesse >> i & 1)
@@ -233,9 +242,8 @@ class MerkleAccumulator:
 
     def _unsigned_state(self) -> dict:
         # A state is signed only over fields that fit each other, and over leaf hashes that reproduce the frontier.
-        if self._leaf_hashes is None:
-            self._check_fields()
-        else:
+        self._check_fields()
+        if self._leaf_hashes is not None:
             self._check_leaf_hashes()
         return {"format": STATE_FORMAT, "what_is_signed": WHAT_IS_SIGNED, "tree_size": self._size,
                 "frontier": [{"height": h, "root": r.hex()} for h, r in self._frontier], "root": self.root().hex(),

@@ -125,6 +125,10 @@ class TheSameValuesAsTheMerkleModule(unittest.TestCase):
                          "72458930727ef63aeb4e6c92adcdc57b5e601d73a6c7415b6c00427ccc848fae")
 
 
+#: Stands for a field deleted with object.__delattr__ in the cases of a field written from outside.
+_GELOESCHT = object()
+
+
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
 class TheSameBundleAsEmitBundle(unittest.TestCase):
     def test_byte_identical_bundles_and_they_verify(self) -> None:
@@ -288,6 +292,9 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         a = _load()
         echt = _emitter_key()
         self.assertFalse(hasattr(a.MerkleAccumulator, "_setze"), "no method writes a field by a caller's name")
+        for name in ("_size", "_frontier", "_leaf_hashes"):
+            with self.subTest(deletes=name), self.assertRaises(AttributeError):
+                delattr(a.MerkleAccumulator(), name)
         leer = a.MerkleAccumulator()
         object.__setattr__(leer, "_size", 5)
         with self.assertRaises(a.AccumulatorStateError):
@@ -305,7 +312,10 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                   ("_frontier", [(1, h(1)), (0, h(2))], False),
                   ("_leaf_hashes", [], False), ("_leaf_hashes", [h(1)] * 4, False),
                   ("_leaf_hashes", (h(1),) * 3, False),
-                  ("_leaf_hashes", [h(1)] * 3, True), ("_leaf_hashes", [b"short"] * 3, True))
+                  ("_leaf_hashes", [h(1)] * 3, True), ("_leaf_hashes", [b"short"] * 3, True),
+                  # Codex thread 4222912721: a slot deleted with object.__delattr__ is refused like one written
+                  ("_size", _GELOESCHT, False), ("_frontier", _GELOESCHT, False),
+                  ("_leaf_hashes", _GELOESCHT, False))
 
         def operationen(akku):
             return {"append": lambda: akku.append(b"d"), "root": akku.root, "size": lambda: akku.size,
@@ -320,8 +330,11 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         for feld, wert, nur_blaetter in faelle:
             for name in operationen(a.MerkleAccumulator()):
                 akku = a.MerkleAccumulator.from_leaves([b"a", b"b", b"c"], keep_leaf_hashes=True)
-                # a fresh list each time: an append the operation makes must not reach the next case
-                object.__setattr__(akku, feld, list(wert) if type(wert) is list else wert)
+                if wert is _GELOESCHT:
+                    object.__delattr__(akku, feld)
+                else:
+                    # a fresh list each time: an append the operation makes must not reach the next case
+                    object.__setattr__(akku, feld, list(wert) if type(wert) is list else wert)
                 with self.subTest(field=feld, value=repr(wert)[:40], operation=name):
                     if nur_blaetter and name not in lesen_die_blaetter:
                         operationen(akku)[name]()   # the number fits, and this operation reads no leaf hash
