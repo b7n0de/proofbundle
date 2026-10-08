@@ -87,8 +87,8 @@ class TestDuplicateCnfRejected(unittest.TestCase):
     def test_legit_single_cnf_presentation_still_verifies(self):
         """Bidirectional: no over-rejection — an ordinary single-cnf presentation still passes."""
         issuer, holder = generate_signer(), generate_signer()
-        claim = {"schema": "proofbundle/eval-claim/v0.1", "passed": True,
-                 "threshold": 0.9, "comparator": ">=", "suite": "s", "issuer": "ed25519:x"}
+        from _full_eval_claim import full_eval_claim  # noqa: PLC0415
+        claim = full_eval_claim("ed25519:x", suite="s", threshold="0.9")
         compact = issue_sd_jwt(claim, issuer, root_b64="cm9vdA==", exact_score="0.92",
                                holder_public_key=_raw_pub(holder))
         presented = present_with_key_binding(compact, holder, aud="verifier.example", nonce="n-1", iat=IAT)

@@ -26,6 +26,8 @@ import inspect
 import pathlib
 import unittest
 
+from _pytest.outcomes import Skipped
+
 QUELLE = pathlib.Path(__file__).resolve().parents[1] / "src" / "proofbundle"
 ZIEL = "enforce_structural_budget"
 _STRUKTUR = ("dict", "Mapping", "list", "Sequence", "Any")
@@ -260,12 +262,67 @@ class StrukturBudgetErreichbarkeit(unittest.TestCase):
                     ist, 0.95 * m["limit"],
                     f"{dimension!r}: die gemessene Kurve in {kurve_mod.__name__} erreicht nur {ist} "
                     f"von {m['limit']} — misst nicht den teuersten zugelassenen Fall")
-                self.assertLessEqual(
-                    m["kosten_am_limit_max"], kurve_mod.GRENZE_S,
-                    f"{dimension!r}: {m['kosten_am_limit_max']:.3f} s (Maximum ueber "
-                    f"{kurve_mod.MAX_WIEDERHOLUNGEN} Laeufe) am Limit ({m['limit']}) ueberschreitet "
-                    f"die eigene Obergrenze {kurve_mod.GRENZE_S:.1f} s — der Ausschluss behauptet "
-                    "eine Kostenschranke, die die eigene Kurve nicht haelt")
+                # The cost verdict is the curve's own, through its own test method, never a second
+                # copy of its rule. The copy that stood here compared the maximum with the bare
+                # GRENZE_S: no machine factor (OA-0646ecdf70) and no reference-machine binding
+                # (OA-dc37e26295), so on a CI runner under coverage it judged the runner, not the
+                # code. Measured 2026-09-28 at 3977fcdf: 1.025 s against 1.0 s, red, while the
+                # curve itself skipped the same axis on that host with the measured factor as its
+                # reason. The same pattern is used by scripts/budget_axis_measurement.py.
+                fall = kurve_mod.TestObergrenzeAmGroesstenZugelassenenWert()
+                try:
+                    fall.test_kosten_am_limit_unter_der_obergrenze(dimensionen_nach_name[dimension])
+                except Skipped as e:
+                    self.skipTest(f"{dimension!r}, the curve's own verdict: {e.msg}")
+
+    # ── counter-examples for the cost verdict: it is the curve's, and it can still be red ──────────
+
+    def _kosten_urteil_bei(self, kosten_s: float, marke: "str | None") -> unittest.TestResult:
+        """Run the cost case above against a planted measurement of the one excluded dimension.
+
+        The clamp is the reference machine's own recording, so the machine factor is 1.0 on every
+        host and the verdict turns on the planted cost alone. The build-host mark belongs to the
+        case, not to the environment the suite happens to run in."""
+        kurve_mod = importlib.import_module("test_budget_kostenkurve")
+        (dimension, _grund), = _EIGENE_SCHRANKE.values()
+        limit = getattr(kurve_mod.B, dimension)
+        vorher = dict(kurve_mod._MESSUNGEN)
+        kurve_mod._MESSUNGEN[dimension] = {
+            "limit": limit, "reihe": [(limit, 0.0, None)],
+            "rand": {limit - 1: (limit - 1, 0.0, True), limit: (limit, 0.0, True),
+                     limit + 1: (limit + 1, 0.0, False)},
+            "kosten_am_limit_max": kosten_s,
+            "referenz_klammer": list(kurve_mod._REFERENZ_FARMER_S),
+            "referenz_klammer_frei": list(kurve_mod._REFERENZ_FARMER_HASHFREI_S)}
+        ergebnis = unittest.TestResult()
+        try:
+            with kurve_mod._bauhost_marke(marke):
+                StrukturBudgetErreichbarkeit("test_eine_eigene_schranke_muss_ihre_KOSTEN_belegen").run(ergebnis)
+        finally:
+            kurve_mod._MESSUNGEN.clear()
+            kurve_mod._MESSUNGEN.update(vorher)
+        return ergebnis
+
+    def test_fangnachweis_kosten_ueber_der_latte_bleiben_rot(self):
+        """Five times the bound on the reference machine fails, with the curve's own message."""
+        r = self._kosten_urteil_bei(5.0, None)
+        self.assertEqual((len(r.failures), len(r.errors), len(r.skipped)), (1, 0, 0),
+                         f"failures={r.failures} errors={r.errors} skipped={r.skipped}")
+        self.assertIn("L2-600-01", r.failures[0][1])
+
+    def test_fangnachweis_kosten_unter_der_latte_bleiben_gruen(self):
+        r = self._kosten_urteil_bei(0.5, None)
+        self.assertEqual((len(r.failures), len(r.errors), len(r.skipped)), (0, 0, 0),
+                         f"failures={r.failures} errors={r.errors} skipped={r.skipped}")
+
+    def test_fangnachweis_ein_bauhost_urteilt_nicht_ueber_seine_maschine(self):
+        """The value measured on the CI runner at 3977fcdf, 1.025 s, is over the bare bound. The copy
+        of the rule that stood here failed on it; the curve's own verdict does not judge a build host
+        and says so, naming the owner card and the measured factor (OA-dc37e26295)."""
+        r = self._kosten_urteil_bei(1.025, "GITHUB_ACTIONS")
+        self.assertEqual((len(r.failures), len(r.errors), len(r.skipped)), (0, 0, 1),
+                         f"failures={r.failures} errors={r.errors} skipped={r.skipped}")
+        self.assertIn("OA-dc37e26295", r.skipped[0][1])
 
     def test_ein_ausschluss_ohne_eintrag_verschwindet_nicht(self):
         """Die Gegenrichtung dazu: was NICHT in _EIGENE_SCHRANKE steht, muss den Riegel erreichen."""

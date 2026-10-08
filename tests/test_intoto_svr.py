@@ -96,26 +96,36 @@ class TestSVRShape(unittest.TestCase):
 
     def test_sample_and_conditional_properties_are_earned_not_placeholders(self):
         # svr_properties emits a conditional property ONLY when its check genuinely holds.
-        from proofbundle.errors import VerificationResult
         from proofbundle.intoto import svr_properties
-        result = VerificationResult()
-        result.add("ed25519-signature", True, "")
-        result.add("merkle-inclusion", True, "")
-        base = {"passed": True}
-        self.assertNotIn("PROOFBUNDLE_SAMPLE_ROOT_VALID", svr_properties(result, base))
-        with_samples = {"passed": True, "samples": {"root_b64": "x", "n": 5, "leaf_alg": "sha256"}}
-        self.assertIn("PROOFBUNDLE_SAMPLE_ROOT_VALID", svr_properties(result, with_samples))
+        # Nachtrag 48/48b (F3): svr_properties earns a property only for a result bound to EXACTLY the passed
+        # claim (its payload digest + an authentic origin token), so each claim variant gets its own bound result
+        # (a mutated or foreign claim with a reused result earns nothing) — svr_result_for stamps it as a passing
+        # verify does. Whole claims since 6.2.0: svr_properties holds the claim rule, so a garbage samples block
+        # is refused before any binding.
+        from _svr_binding import svr_result_for  # type: ignore
+        base, _ = build_eval_claim(
+            suite="safety-refusals", suite_version="1.2.0", metric="refusal_rate", comparator=">=",
+            threshold="0.98", score="0.99", n=5, model_id="acme/secret-model", dataset_id="acme/secret-set",
+            issuer="ed25519:AAAA", timestamp="2026-07-05T12:00:00Z", model_salt=_FIXED_SALT,
+            dataset_salt=_FIXED_SALT)
+        self.assertNotIn("PROOFBUNDLE_SAMPLE_ROOT_VALID", svr_properties(svr_result_for(base), base))
+        with_samples = dict(base, samples={"root_b64": base64.b64encode(bytes(32)).decode(), "n": 5,
+                                           "leaf_alg": "sha256-rfc6962-sdjwt-v1"})
+        self.assertIn("PROOFBUNDLE_SAMPLE_ROOT_VALID",
+                      svr_properties(svr_result_for(with_samples), with_samples))
+        with self.assertRaises(BundleFormatError):
+            garbage = dict(base, samples={"root_b64": "x", "n": 5, "leaf_alg": "sha256"})
+            svr_properties(svr_result_for(garbage), garbage)
         # prereg/anchor only when the caller confirms a real offline verification happened
-        with_prereg = {"passed": True, "prereg_sha256": "e5" * 32}
-        self.assertNotIn("PROOFBUNDLE_PREREG_BOUND", svr_properties(result, with_prereg))
+        with_prereg = dict(base, prereg_sha256="e5" * 32)
+        self.assertNotIn("PROOFBUNDLE_PREREG_BOUND", svr_properties(svr_result_for(with_prereg), with_prereg))
         self.assertIn("PROOFBUNDLE_PREREG_BOUND",
-                      svr_properties(result, with_prereg, prereg_verified=True))
+                      svr_properties(svr_result_for(with_prereg), with_prereg, prereg_verified=True))
         self.assertIn("PROOFBUNDLE_ANCHOR_VALID",
-                      svr_properties(result, base, anchor_verified=True))
-        # a failing signature check → no SIGNATURE_VALID property
-        bad = VerificationResult()
-        bad.add("ed25519-signature", False, "")
-        self.assertNotIn("PROOFBUNDLE_SIGNATURE_VALID", svr_properties(bad, base))
+                      svr_properties(svr_result_for(base), base, anchor_verified=True))
+        # a failing signature check → no SIGNATURE_VALID property (result bound to base, signature check False)
+        self.assertNotIn("PROOFBUNDLE_SIGNATURE_VALID",
+                         svr_properties(svr_result_for(base, checks=(("ed25519-signature", False),)), base))
 
 
 class TestSVRVerify(unittest.TestCase):

@@ -94,7 +94,8 @@ class TestShowEvalDeclaresClass(unittest.TestCase):
             Path(claim).write_text(json.dumps({
                 "schema": "proofbundle/eval-claim/v0.1", "suite": "s", "suite_version": "v1",
                 "metric": "acc", "comparator": ">=", "threshold": "0.80", "passed": True, "n": 100,
-                "model_id_commit": "sha256:x", "dataset_id_commit": "sha256:y",
+                # The form salted_commit produces (R-B1: `sha256:x` is refused at both boundaries).
+                "model_id_commit": "sha256:" + "0" * 64, "dataset_id_commit": "sha256:" + "1" * 64,
                 "commit_alg": "sha256-salted-v1", "issuer": "ed25519:z",
                 "timestamp": "2026-07-01T12:00:00Z"}), encoding="utf-8")
             out = os.path.join(d, "receipt.json")
