@@ -927,7 +927,9 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
             newer_roots = [_consistency_roots(p)[1] for p in consistency or []]
         except _ProofRefused as exc:
             return out("malformed", detail=str(exc))
-        base.update(readable=bool(parsed))
+        # A COSE_Sign1 of the profile is a tag 18 array (ADR 0009, the structure row): an untagged receipt's
+        # proofs parse, but the receipt is not one that parses under the -05 CDDL (Codex, PR 278, thread 4121760552).
+        base.update(readable=bool(parsed) and rc.tagged)
     why = _receipt_outside(rc, kid, iss)
     if why is None and rc.payload is not None:
         why = "the receipt payload is attached; -05 requires it detached"
@@ -1044,8 +1046,10 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
     receipt_statuses = [c.status for c in checks]
     best = CONFIRMED if CONFIRMED in receipt_statuses else _first(receipt_statuses)
     status = best if statement_status == CONFIRMED else _first([statement_status, best])
+    # readable needs the statement itself to be a tagged COSE_Sign1 too (ADR 0009, Decision 10; Codex, PR 278,
+    # thread 4121760552): an untagged statement whose receipts parse is outside the profile and not readable.
     return verdict(status,
-                   readable=any(c.readable for c in checks),
+                   readable=st.tagged and any(c.readable for c in checks),
                    signature_valid=any(c.signature_valid is True for c in checks),
                    statement_status=statement_status,
                    statement_signature_valid=stmt_valid,
@@ -1141,7 +1145,7 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
             inclusion_roots = [_inclusion_root(p)[0] for p in inclusion or []]
         except _ProofRefused as exc:
             return out("malformed", detail=str(exc))
-        base.update(proofs=len(computed), readable=bool(computed))
+        base.update(proofs=len(computed), readable=bool(computed) and rc.tagged)
     why = _receipt_outside(rc, kid, iss) or _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)

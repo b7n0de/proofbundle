@@ -303,6 +303,20 @@ def test_structure_statement(mutate, status):
     assert verify(mutate(control()[1])).status == status
 
 
+def test_readable_needs_tag_18_on_the_statement_and_on_each_receipt():
+    """readable means the proof parses as a tagged COSE_Sign1 with at least one receipt that parses (ADR 0009,
+    Decision 10), and a COSE_Sign1 is a tag 18 array in the statement and in every receipt (ADR 0009, the structure
+    row). Without the tag the bytes are outside the profile, and never readable (Codex, PR 278, thread 4121760552)."""
+    _st, ts = control()
+    untagged_statement = verify(b"\x84" + ts[2:])
+    assert (untagged_statement.status, untagged_statement.readable) == ("outside_profile", False)
+    st = Stmt()
+    untagged_receipt = verify(transparent(st, [Rcpt(data_hash=dh_of(st), tagged=False).build()]))
+    assert (untagged_receipt.receipts[0].status, untagged_receipt.receipts[0].readable) == ("outside_profile", False)
+    assert untagged_receipt.readable is False
+    assert verify(ts).readable is True          # the control, tagged in both places
+
+
 def test_structure_no_receipt_is_not_a_transparent_statement():
     st = Stmt()
     ts = b"\xd2\x84" + enc(st.protected()) + b"\xa0" + enc(st.payload) + enc(st.signature())
