@@ -79,3 +79,18 @@ def test_f15_4_the_server_refuses_a_request_with_a_non_json_constant():
                           env=dict(os.environ, PYTHONPATH=str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)))
     reply = json.loads(proc.stdout.splitlines()[0])
     assert reply["error"]["code"] == -32700
+
+
+# --- F15-2: a freed call is visible ---------------------------------------------------------------------------------
+
+def test_f15_2_a_rule_that_frees_a_call_names_the_mode_and_the_rules_and_claims_nothing_false(monkeypatch, tmp_path):
+    gate_dir = tmp_path / "g"
+    gate_dir.mkdir()
+    (gate_dir / "mode").write_text("with-approvals\n")
+    (gate_dir / "rules.json").write_text("[]")
+    monkeypatch.setenv("PROOFBUNDLE_GATE_DIR", str(gate_dir))
+    outcome = gate._approved_outcome({"repo": str(tmp_path), "form": "git status", "effect": "free",
+                                      "state_digest": "0" * 64})
+    assert str(gate_dir / "mode") in outcome.text and str(gate_dir / "rules.json") in outcome.text
+    assert "last changed" in outcome.text and "a shell command can" in outcome.text
+    assert "model can neither set the mode" not in outcome.text

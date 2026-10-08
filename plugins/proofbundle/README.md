@@ -171,7 +171,11 @@ and the plugin only reads; each rule is `{repo, form, effect, state_digest}`, wh
 attributes and environment) at the time it was written. A human computes that digest with
 `proofbundle_gate.py state-digest [--repo DIR]`. If any of that state changes, the digest differs and the rule
 stops acting — the gate asks again. A write by a file tool to anything under the gate directory is **denied**,
-not asked, under both hosts, so the model can never create or change an approval. Under Codex both modes deny.
+not asked, under both hosts. A shell command can still write the mode and the rules (review Runde 15, F15-2:
+`printf with-approvals > "$PROOFBUNDLE_GATE_DIR/mode"` switched the mode without a gate call), so every call a
+rule frees names the mode and rules files, when each last changed and its sha256, and says that the gate cannot
+tell who wrote them. The local gate is an early warning; the boundary is the CI check (D22). Under Codex both
+modes deny.
 The mode, and any applied rule, appear in every gate-log line. A human revokes an approval by editing
 `rules.json`. The one-time click path is deferred to a measured owner choice (D25, card 1); until then only the
 read-only rule file acts.

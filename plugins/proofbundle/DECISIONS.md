@@ -1064,10 +1064,14 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
   environment. A rule carries the digest of the state when the human wrote it; the gate recomputes and compares.
   If the configuration, the hooks or that environment change, the digest differs and the rule stops acting — the
   gate asks again. A human computes the digest for a rule with `proofbundle_gate.py state-digest [--repo DIR]`.
-- The model can never create an approval (Punkt 3): `decide_write` denies — not asks — every write by a file
+- No file tool can create an approval (Punkt 3): `decide_write` denies — not asks — every write by a file
   tool whose target is the mode file, the rule file, the log file, or anything under the gate directory, under
-  both hosts. A git command that would change those paths is never free. There is no code path by which the
-  model writes a rule or an approval; the rule file is read-only to the gate.
+  both hosts. A git command that would change those paths is never free. The gate has no code path that writes a
+  rule or an approval; the rule file is read-only to the gate. A shell command can still write the gate directory
+  (review Runde 15, F15-2, measured by the reviewer with `printf with-approvals > "$PROOFBUNDLE_GATE_DIR/mode"`).
+  Under the owner's rule for the user path (2026-10-08, D27) making that visible is enough: every call a rule
+  frees names the mode and rules files, when each last changed and its sha256, and says that the gate cannot tell
+  who wrote them.
 - Logging (Punkt 5): each gate-log entry carries the `mode`, and when a rule acted, `applied_rule`
   (origin `rule`, the form, the effect, the state match). A human revokes an approval by editing the rule file;
   the gate re-reads it on every call. The click path, when it ships, logs origin `click`.
@@ -1093,3 +1097,7 @@ Options:
 - B. One mode with always-on rules. Rejected: the owner asked for two modes, and a strict default is the safe
   one when the setting is missing.
 - C. Rules inside the repository. Rejected as the default: the model and any pusher could write them (card 3).
+
+## D26. Done only with a receipt (the Stop hook)
+
+Owner choices (2026-10-08, 12:0x Berlin, Z169 aim E3): the user path "Claude says done" gets a loc

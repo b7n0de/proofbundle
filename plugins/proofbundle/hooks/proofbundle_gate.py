@@ -3007,14 +3007,37 @@ def _match_rule(command: str, cwd: str, deadline: float, environ: dict) -> tuple
 
 def _approved_outcome(rule: dict) -> "Outcome":
     """The free outcome for a call a human rule frees: a `pass`, with an applied-rule note for the log."""
-    detail = (f"proofbundle gate: a human rule frees this form in with-approvals mode. Approved form "
+    detail = (f"proofbundle gate: a rule frees this form in with-approvals mode. Approved form "
               f"{rule['form']!r} in {rule['repo']}; the gate recomputed the repository's program-selecting state "
               f"(configuration, hooks, gitattributes and the GIT_* environment) and it matches the digest the "
-              f"rule carries. The gate asks again if that state changes; push and gh are never freed, and the "
-              f"model can neither set the mode nor write a rule (N24; DECISIONS.md D25).")
+              f"rule carries. The gate asks again if that state changes; push and gh are never freed. "
+              f"{_gate_files_stamp(os.environ)} A file tool cannot write these files; a shell command can, and "
+              f"the gate cannot tell who wrote them, so check that you set this mode and rule yourself. The local "
+              f"gate is an early warning; the boundary is the CI check (N24; DECISIONS.md D25).")
     verdict = Verdict("pass", detail, "approved_by_rule", repo=rule["repo"])
     applied = {"origin": "rule", "repo": rule["repo"], "form": rule["form"], "effect": "free", "state_match": True}
     return Outcome("pass", verdict.text(), [verdict], applied_rule=applied)
+
+
+def _gate_files_stamp(environ: dict) -> str:
+    """Where the mode and the rules a freed call relied on live, and when each last changed (review Runde 15,
+    F15-2: a shell command switched the mode silently; the owner's rule for the user path is that making it
+    visible is enough)."""
+    directory = _gate_dir(environ)
+    if directory is None:
+        return "The gate directory is unknown."
+    parts = []
+    for name in ("mode", "rules.json"):
+        path = os.path.join(directory, name)
+        try:
+            st = os.lstat(path)
+            with open(path, "rb") as handle:
+                digest = hashlib.sha256(handle.read(MAX_RULES_BYTES + 1)).hexdigest()[:16]
+            when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime))
+            parts.append(f"{path} last changed {when} (sha256 {digest}…)")
+        except OSError:
+            parts.append(f"{path} cannot be read")
+    return "Mode and rules: " + "; ".join(parts) + "."
 
 
 def _within_gate_dir(path: str, cwd: str, gate_dir: str) -> str | None:
