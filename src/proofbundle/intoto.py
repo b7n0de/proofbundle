@@ -615,8 +615,9 @@ def _eval_result_claim_fields(predicate: dict) -> list:
 
 def _descriptor_claim_fields(bezeichnung: str, eintrag: Any) -> tuple[list, list]:
     """(teile, urteile) for one resource descriptor, wherever it stands in a statement of the
-    verifier's own type: an entry of a test-result `configuration`, or an entry of the `subject` of
-    either statement.
+    verifier's own type: an entry of a test-result `configuration`, an entry of the `subject` of
+    either statement, or, in an eval-result v0.2 predicate, the `model`, the `dataset`, the `harness`
+    and an `evidence` entry (`_eval_result_v02_statement_claim_fields`).
 
     THE OWNERSHIP RULE, one function for every place a descriptor stands. A descriptor is ours when
     its digest carries `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`; the claim rule
@@ -690,6 +691,21 @@ def _eval_result_statement_claim_fields(statement: dict, predicate: dict) -> lis
     """What `verify_eval_result_dsse` judges: the predicate's claim fields and the subject."""
     return ([(f"predicate {b}", f) for b, f in _eval_result_claim_fields(predicate)]
             + _subject_claim_fields(statement)[0])
+
+
+def _eval_result_v02_statement_claim_fields(statement: dict, predicate: dict) -> list:
+    """`_eval_result_statement_claim_fields`, and the places eval-result v0.2 adds for a descriptor: the
+    predicate's top-level `model`, `dataset` and `harness`, and each `evidence` entry. Codex thread 4218003341
+    on pull request 301: a signed v0.2 statement whose top-level model descriptor carried our commitment key
+    with `passed` "false" verified ok=True, because the ownership rule never reached that location. v0.1 has
+    none of these fields and keeps its walk, so an unknown field there stays unread (G2)."""
+    teile = []
+    for name in ("model", "dataset", "harness"):
+        if name in predicate:
+            teile += _descriptor_claim_fields(name, predicate[name])[0]
+    if "evidence" in predicate:
+        teile += _descriptor_list_claim_fields("evidence", predicate["evidence"])[0]
+    return _eval_result_statement_claim_fields(statement, predicate) + [(f"predicate {b}", f) for b, f in teile]
 
 
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
@@ -1181,7 +1197,8 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                    and statement.get("predicateType") == EVAL_RESULT_V02_PREDICATE_TYPE else EVAL_RESULT_PREDICATE_TYPE)
     res = _judge_claim_fields(
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
-        eigener_typ, _eval_result_statement_claim_fields)
+        eigener_typ, (_eval_result_v02_statement_claim_fields if eigener_typ == EVAL_RESULT_V02_PREDICATE_TYPE
+                      else _eval_result_statement_claim_fields))
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
     # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
     # statement is never judged under v0.2. v0.1 has no shape contract and gets none now (G2: old

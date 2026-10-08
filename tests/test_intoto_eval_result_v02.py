@@ -743,6 +743,65 @@ class TheV02PathHoldsTheRulesOfV01(unittest.TestCase):
         self.assertIs(res["predicate_claim_ok"], True, "control: the draft's example passes the claim rule")
         self.assertIs(res["ok"], True)
 
+    def test_the_ownership_rule_reaches_every_place_v02_adds_for_a_descriptor(self):
+        """Codex thread 4218003341: the claim rule walked the predicate's scalar fields and the subject, so a model
+        descriptor of ours at the top level, annotated with `passed` "false", verified ok=True although the same
+        descriptor in the subject is refused. The dataset, an evidence entry and the harness are the siblings."""
+        ours = {"digest": {I.MODEL_COMMIT_DIGEST_KEY: "aa" * 32}, "annotations": {"passed": "false"}}
+        ours_ds = {"digest": {I.DATASET_COMMIT_DIGEST_KEY: "aa" * 32}, "annotations": {"passed": "false"}}
+
+        def model(p):
+            del p["commitments"]["model"]
+            p["model"] = copy.deepcopy(ours)
+
+        def dataset(p):
+            del p["commitments"]["dataset"]
+            p["dataset"] = copy.deepcopy(ours_ds)
+        cases = {
+            "model": model,
+            "dataset": dataset,
+            "an evidence entry": lambda p: p["evidence"].append(copy.deepcopy(ours)),
+            "the harness": lambda p: p.__setitem__("harness", dict(copy.deepcopy(ours), name="h", version="1")),
+        }
+        for case, change in cases.items():
+            with self.subTest(case=case):
+                statement = _base_statement()
+                change(statement["predicate"])
+                res = _verify_v02(statement)
+                self.assertIs(res["predicate_shape_ok"], True, "the shape alone accepts it")
+                self.assertIs(res["predicate_claim_ok"], False, res["content_root_detail"])
+                self.assertIs(res["ok"], False)
+            with self.subTest(case=case, control="a boolean passed"):
+                statement = _base_statement()
+                change(statement["predicate"])
+                for wo in ("model", "dataset", "harness"):
+                    if wo in statement["predicate"]:
+                        statement["predicate"][wo]["annotations"]["passed"] = False
+                for eintrag in statement["predicate"].get("evidence", []):
+                    if "annotations" in eintrag:
+                        eintrag["annotations"]["passed"] = False
+                self.assertIs(_verify_v02(statement)["ok"], True)
+        with self.subTest(case="the same descriptor in the subject, the rule this extends"):
+            statement = _base_statement()
+            statement["subject"].append(dict(copy.deepcopy(ours), name="m"))
+            self.assertIs(_verify_v02(statement)["predicate_claim_ok"], False)
+
+    def test_a_v01_statement_does_not_read_the_places_v02_adds(self):
+        """G2, the other direction: v0.1 defines no top-level model, dataset or evidence, so such a field is unknown
+        there and stays unread, as the released verifier leaves it; its harness keeps the v0.1 walk too."""
+        ours = {"digest": {I.MODEL_COMMIT_DIGEST_KEY: "aa" * 32}, "annotations": {"passed": "false"}}
+        env = json.loads(_G2_LEGACY.read_text(encoding="utf-8"))
+        statement = json.loads(base64.b64decode(env["payload"]))
+        self.assertEqual(statement["predicateType"], V01)
+        for wo in ("model", "dataset", "evidence"):
+            with self.subTest(field=wo):
+                kopie = copy.deepcopy(statement)
+                kopie["predicate"][wo] = [copy.deepcopy(ours)] if wo == "evidence" else copy.deepcopy(ours)
+                res = I.verify_eval_result_dsse(_sign(kopie), _pub())
+                self.assertEqual(res["predicate_type"], V01)
+                self.assertIs(res["predicate_claim_ok"], True, res["content_root_detail"])
+                self.assertIs(res["ok"], True)
+
 
 class TheCommandLine(unittest.TestCase):
     def setUp(self) -> None:
