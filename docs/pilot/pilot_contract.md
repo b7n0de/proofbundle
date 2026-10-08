@@ -69,10 +69,10 @@ own and are never counted as agreement.
 
 | measure | question | values |
 |---|---|---|
-| M1 arrival | Does the API return an effect for this proposed action? | arrived, not arrived, not yet observed, unknown |
+| M1 arrival | Does the API return an effect for this proposed action? | arrived, not arrived, ambiguous, not yet observed, unknown |
 | M2 bytes | Is the SHA-256 of the stored bytes the SHA-256 of the approved bytes? | identical, different, not measured |
 | M3 surface | Is the observed surface the approved surface? | same, different, not measured |
-| M4 closing lines | Do the stored bytes end with the closing lines the approved surface requires at approval time? | yes, no, not measured |
+| M4 closing lines | Do the stored bytes end with the closing lines the approved surface requires at approval time, as recorded with the decision (section 8)? | yes, no, not measured |
 | M5 unapproved effect | How many writes by an agent identity with no approval that matches them does the API show? | a count (0 is none found), not measured |
 | M6 refused but arrived | How many effects match an action the gate refused? | a count (0 is none found), not measured |
 | M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target; no observation; not measured |
@@ -85,10 +85,12 @@ two writes are recorded as two; "none found" is the count 0 and means none found
 says nothing about writes the API does not list.
 
 An effect is matched to a proposed action by surface, target and bytes, since the API shows no proposal identifier.
-An effect that matches more than one proposed action of the window is matched to none of them: it is the mismatch
-class `ambiguous effect`, M1 is `unknown` for each action it matches, and it counts under M6 when any of them was
-refused. Assigning it to one of them would decide by choice which verdict caused it, and a rerun under criterion 4
-could not recover that choice from the stored records.
+A proposed action is matched to at most one effect, the first the API shows; every further effect that matches it
+counts under M5 as an unapproved effect, so one approval never covers two writes. An effect that matches more than
+one proposed action of the window is matched to none of them: it is the mismatch class `ambiguous effect`, M1 is
+`ambiguous` for each action it matches, and it counts under M6 when any of them was refused. Assigning it to one of
+them would decide by choice which verdict caused it, and a rerun under criterion 4 could not recover that choice
+from the stored records.
 
 ## 6. Exit criteria
 
@@ -110,10 +112,11 @@ The pilot ends, with a written result, when all of these hold:
    pass unseen; and every proposed action carries the records and measures section 4 and section 5 define per
    action, as its reconciliation reads them: a decision receipt that verifies offline with the operator's gate
    key, and, for every effect GitHub shows of it, an outcome receipt that verifies with the operator's observer
-   key; M1 as arrived or not arrived, M2, M3 and M4 measured when it was approved and arrived, and M7 and M8
-   recorded. A receipt that does not verify, `unknown` or `not yet observed` in M1, or `not measured` where one of
-   the others is required, keeps the pilot open, because a mismatch whose authorship or form is not established
-   cannot be decided;
+   key; M1 as arrived, not arrived, or `ambiguous` once the maintainer has decided that class under criterion 3,
+   M2, M3 and M4 measured when it was approved and arrived, and M7 and M8 recorded. A receipt that does not verify,
+   `unknown` or `not yet observed` in M1, or `not measured` where one of the others is required, keeps the pilot
+   open, because a mismatch whose authorship or form is not established cannot be decided; an action whose M1 is
+   `ambiguous` is never the witness of criterion 1;
 3. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
    agent, change the rule, or accept);
 4. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
@@ -151,6 +154,9 @@ It stops early, with the reason written down, when:
 - No record carries an access token, a request header, a private key or the content of the environment.
 - The stored API responses are kept as returned, with the time of the request, so that criterion 4 can be
   met without calling the API again.
+- The closing rule each surface requires at approval time is kept with the decision record, as its text or as the
+  digest of a versioned rule file kept beside the records, so that criterion 4 reads M4 against the rule that
+  applied and not against a later one.
 
 ## 9. First reconciliation example
 

@@ -111,7 +111,7 @@ class ThePilotContract(unittest.TestCase):
         massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
         self.assertIn("An effect that matches more than one proposed action of the window is matched to none of them",
                       massnahmen)
-        self.assertIn("M1 is `unknown` for each action it matches", massnahmen)
+        self.assertIn("M1 is `ambiguous` for each action it matches", massnahmen)
         self.assertIn("it counts under M6 when any of them was refused", massnahmen)
 
     def test_the_witness_was_authorized_before_the_write(self) -> None:
@@ -132,6 +132,34 @@ class ThePilotContract(unittest.TestCase):
         daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
         self.assertIn("in the gate's records and in the decision receipt", daten)
         self.assertIn("that response is the only record of the pilot that holds them", daten)
+
+    def test_an_ambiguous_effect_can_reach_a_result(self) -> None:
+        """Codex thread 4221183314: an ambiguous effect gave M1 unknown, which criterion 2 never lets pass, and a
+        decision under criterion 3 could not change it, so the pilot could never end. M1 has its own value for it,
+        which criterion 2 accepts once the maintainer decided the class, and which never witnesses a surface."""
+        text = " ".join(_text().split())
+        self.assertIn("arrived, not arrived, ambiguous, not yet observed, unknown", text)
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("M1 is `ambiguous` for each action it matches", massnahmen)
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        self.assertIn("`ambiguous` once the maintainer has decided that class under criterion 3", kriterien)
+        self.assertIn("an action whose M1 is `ambiguous` is never the witness of criterion 1", kriterien)
+
+    def test_one_approval_covers_at_most_one_write(self) -> None:
+        """Codex thread 4221183326: two identical writes both matched the one allowed proposal, and the second
+        disappeared with M5 at 0."""
+        text = " ".join(_text().split())
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("A proposed action is matched to at most one effect, the first the API shows", massnahmen)
+        self.assertIn("every further effect that matches it counts under M5 as an unapproved effect", massnahmen)
+
+    def test_the_closing_rule_at_approval_time_is_kept(self) -> None:
+        """Codex thread 4221183336: M4 reads the closing rule at approval time, and nothing kept that rule, so a
+        rerun after a rule change could classify the same action differently."""
+        text = " ".join(_text().split())
+        daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
+        self.assertIn("The closing rule each surface requires at approval time is kept with the decision record", daten)
+        self.assertIn("as recorded with the decision (section 8)", text)
 
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
