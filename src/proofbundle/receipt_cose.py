@@ -499,23 +499,24 @@ def _profile_holds(key: bytes, signature: bytes, message: bytes) -> bool:
     return True
 
 
-def _algs(algs: Any) -> tuple:
-    if not isinstance(algs, (list, tuple)) or not algs or any(type(a) is not int or a not in ALGS for a in algs):
-        raise ValueError(f"algs must name one or more of {list(ALGS)}")
-    return tuple(algs)
-
-
 # ---- backward ----------------------------------------------------------------------------------------------
 def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
-                    statement_keys: Sequence[tuple[str, bytes]], algs: Sequence[int] = ALGS) -> StatementCheck:
+                    statement_keys: Sequence[tuple[str, bytes]]) -> StatementCheck:
     """Check STATEMENT, a COSE_Sign1 under the rule of the module docstring, against RECEIPT, verified under
     RECEIPT_KEY (32 raw bytes) by the draft's Section 6, with the relying party's STATEMENT_KEYS: pairs of
     an issuer URI and a raw 32-byte Ed25519 public key, configured by the relying party. The statement's
-    ``iss`` and kid only select among the pairs; a key counts for the one issuer it is paired with. ALGS
-    narrows the accepted alg values; -8 passes only under such an Ed25519 key, because no other kind of
-    key is ever counted. Never raises for what it reads; every refusal is a status, and a check that stops
-    at a resource limit returns ``resource_limit``, which is none."""
-    accepted = _algs(algs)
+    ``iss`` and kid only select among the pairs; a key counts for the one issuer it is paired with. Every
+    relying party reads both values of ALGS, and no argument narrows them, so one statement has one status
+    (Sections 5.2.1 and 5.2.4 of the mappings draft); -8 passes only under such an Ed25519 key, because no
+    other kind of key is ever counted. Never raises for what it reads; every refusal is a status, and a
+    check that stops at a resource limit returns ``resource_limit``, which is none."""
+    return _check(statement, receipt=receipt, receipt_key=receipt_key, statement_keys=statement_keys, algs=ALGS)
+
+
+def _check(statement: bytes, *, receipt: bytes, receipt_key: bytes, statement_keys: Sequence[tuple[str, bytes]],
+           algs: tuple) -> StatementCheck:
+    """``check_statement`` with the alg values it reads named: ALGS for every relying party; the forward
+    direction reads its own statement back against the one value it wrote."""
     seen: dict = {}
     ignored: list = []
     try:
@@ -531,7 +532,7 @@ def check_statement(statement: bytes, *, receipt: bytes, receipt_key: bytes,
                 "issuer": claims.get(_ISS) if type(claims.get(_ISS)) is str else None,
                 "subject": claims.get(_SUB) if type(claims.get(_SUB)) is str else None,
                 "payload": st.payload}
-        why = _rule_broken(st, accepted)
+        why = _rule_broken(st, algs)
         if why:
             raise _Refused("outside_profile", why)
         keys, ignored = _statement_keys(statement_keys)
@@ -580,8 +581,8 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     is made. ISSUER becomes ``iss`` and must be an absolute URI (RFC 3986 section 4.3); ALG can only be
     -19, the one value this direction
     writes: -8 is refused here and accepted only by ``check_statement``. The bytes are
-    read back and checked with ``check_statement`` under the pair of ISSUER and the signer's public key
-    before they are returned.
+    read back and checked as ``check_statement`` checks them, under the pair of ISSUER and the signer's
+    public key and against the one alg value written, before they are returned.
     Raises ``ReceiptCoseError`` for anything it cannot write honestly, ``CoseUnavailable`` without the
     ``[scitt]`` extra."""
     if type(alg) is not int or alg != WRITE_ALG:
@@ -607,8 +608,7 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     protected_raw = _enc(protected)
     signature = signer.sign(_sig_structure(protected_raw, digest))
     data = _head(6, _TAG_SIGN1) + _enc([protected_raw, {}, digest, signature])
-    check = check_statement(data, receipt=receipt, receipt_key=receipt_key, statement_keys=[(issuer, public)],
-                            algs=(alg,))
+    check = _check(data, receipt=receipt, receipt_key=receipt_key, statement_keys=[(issuer, public)], algs=(alg,))
     if not check.ok:
         raise ReceiptCoseError(f"the statement did not read back as written: {check.status}, {check.detail}")
     # A second, foreign decoder reads it back too: cbor2 in its strict mode, the [scitt] extra.

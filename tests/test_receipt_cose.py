@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import importlib.util
+import inspect
 import json
 import re
 import subprocess
@@ -61,10 +62,9 @@ def test_the_written_seed_is_the_draft_1_test_seed():
 
 
 def _check(vector: dict) -> rc.StatementCheck:
-    extra = {"algs": tuple(vector["algs"])} if "algs" in vector else {}
     return rc.check_statement(bytes.fromhex(vector["statement_hex"]), receipt=_receipt(vector["receipt"]),
                               receipt_key=KEYS[VECTORS["receipt_key"]],
-                              statement_keys=[(iss, KEYS[k]) for iss, k in vector["statement_keys"]], **extra)
+                              statement_keys=[(iss, KEYS[k]) for iss, k in vector["statement_keys"]])
 
 
 def test_the_kid_is_the_rfc9679_thumbprint_of_the_issuer_test_key():
@@ -144,8 +144,8 @@ def test_the_forward_direction_signs_only_with_an_ed25519_key():
 @needs_cbor2
 def test_the_forward_direction_returns_nothing_its_own_check_refuses(monkeypatch):
     """Function contract of the read-back: when the check of the written bytes does not accept them, no
-    bytes are returned."""
-    monkeypatch.setattr(rc, "check_statement", lambda *a, **k: rc.StatementCheck("outside_profile", "planted"))
+    bytes are returned. The read-back is the module's own check against the value written (``_check``)."""
+    monkeypatch.setattr(rc, "_check", lambda *a, **k: rc.StatementCheck("outside_profile", "planted"))
     with pytest.raises(rc.ReceiptCoseError, match="did not read back"):
         rc.receipt_to_statement(_receipt("P1"), KEYS["issuer"], _issuer_key(), issuer=VECTORS["issuer"], alg=-19)
 
@@ -233,20 +233,75 @@ def test_neither_a_statement_key_of_mixed_order_nor_one_without_a_point_counts()
     assert "rule 1 of Section 4.4" in result.ignored_keys[0]
 
 
-@needs_cbor2
-def test_alg_minus_8_is_read_only_under_an_ed25519_statement_key():
-    """B2 carries -8: accepted under the Ed25519 issuer key, untrusted under a P-256 key alone (B36), and
-    outside the profile for a relying party that reads -19 only (B10)."""
-    b2 = bytes.fromhex(next(v for v in VECTORS["backward"] if v["id"] == "B2")["statement_hex"])
-    assert rc._read(b2).protected[1] == -8
+#: M2 with alg -8 in place of -19, signed anew with the issuer test seed: the counterexample of the third
+#: review of 2026-10-08, SHA-256 of its bytes.
+M2_MINUS_8_SHA256 = "4ffcd0d2a970d9dfa17cc9ffed00d7ff84b368177390bb170ee270bc1a336bda"
 
-    def status(keys, **kw):
-        return rc.check_statement(b2, receipt=_receipt("P1"), receipt_key=KEYS["issuer"], statement_keys=keys,
-                                  **kw).status
-    assert status(PAIRS) == rc.ACCEPTED
-    assert status([(ISSUER, KEYS["p256"])]) == "untrusted_key"
-    assert status([(ISSUER, KEYS["p256"]), (ISSUER, KEYS["issuer"])]) == rc.ACCEPTED
-    assert status(PAIRS, algs=(-19,)) == "outside_profile"
+
+def _m2_with_alg_minus_8() -> bytes:
+    """M2 (vector F1) with alg -8 in its protected header and a new signature under the issuer test seed."""
+    st = rc._read(bytes.fromhex(next(v for v in VECTORS["forward"] if v["id"] == "F1")["statement_hex"]))
+    protected = dict(st.protected)
+    protected[1] = -8
+    protected_raw = rc._enc(protected)
+    signature = _issuer_key().sign(rc._sig_structure(protected_raw, st.payload))
+    return rc._head(6, 18) + rc._enc([protected_raw, {}, st.payload, signature])
+
+
+@needs_cbor2
+def test_m2_with_alg_minus_8_is_vector_b2():
+    data = _m2_with_alg_minus_8()
+    assert hashlib.sha256(data).hexdigest() == M2_MINUS_8_SHA256
+    assert data == _vector("B2")
+    assert rc._read(data).protected[1] == -8
+
+
+@needs_cbor2
+@pytest.mark.parametrize("statement_keys, expected", [
+    (PAIRS, rc.ACCEPTED),
+    ([(ISSUER, KEYS["p256"])], "untrusted_key"),
+    ([(ISSUER, KEYS["p256"]), (ISSUER, KEYS["issuer"])], rc.ACCEPTED),
+], ids=["issuer-ed25519", "p256-only", "p256-then-ed25519"])
+def test_m2_with_alg_minus_8_has_one_status_for_every_receiver(statement_keys, expected):
+    """Section 5.2.1 of the mappings draft: a Receiver MUST accept both values; 5.2.4: every Receiver
+    accepts -8, so that one statement gives one status. M2 with alg -8 (vector B2) is accepted under the
+    Ed25519 issuer key and untrusted under a P-256 key alone (vector B36), and no call sets up a Receiver
+    that reads -19 only: the status does not depend on a setting of the relying party."""
+    data = _m2_with_alg_minus_8()
+    result = rc.check_statement(data, receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                statement_keys=statement_keys)
+    assert result.status == expected
+    try:
+        narrowed = rc.check_statement(data, receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
+                                      statement_keys=statement_keys, algs=(-19,))
+    except TypeError:
+        narrowed = None
+    assert narrowed is None, f"a Receiver set to read -19 only gives the same statement {narrowed.status}"
+
+
+def test_check_statement_takes_no_alg_setting():
+    """The check reads the statement, the receipt, the receipt key and the relying party's pairs, and
+    nothing else: no argument narrows the alg values it reads."""
+    assert list(inspect.signature(rc.check_statement).parameters) == [
+        "statement", "receipt", "receipt_key", "statement_keys"]
+
+
+@pytest.mark.parametrize("algs", [(-19,), (-8,), (-19, -8), (), (-7,), None])
+def test_a_call_that_restricts_alg_is_a_call_error(algs):
+    with pytest.raises(TypeError):
+        rc.check_statement(b"", receipt=b"", receipt_key=b"", statement_keys=[], algs=algs)
+
+
+@needs_cbor2
+def test_the_forward_read_back_accepts_only_the_alg_it_wrote():
+    """receipt_to_statement reads its own bytes back against the one value it wrote, -19, inside the module;
+    the same statement with -8 is outside that read-back and accepted by the check every Receiver runs."""
+    b2 = _vector("B2")
+    pairs = [(ISSUER, KEYS["issuer"])]
+    written = rc._check(b2, receipt=_receipt("P1"), receipt_key=KEYS["issuer"], statement_keys=pairs,
+                        algs=(rc.WRITE_ALG,))
+    assert written.status == "outside_profile"
+    assert rc.check_statement(b2, receipt=_receipt("P1"), receipt_key=KEYS["issuer"], statement_keys=pairs).ok
 
 
 @needs_cbor2
@@ -255,12 +310,6 @@ def test_the_check_never_raises_for_what_it_reads(statement):
     result = rc.check_statement(statement, receipt=_receipt("P1"), receipt_key=KEYS["issuer"],
                                 statement_keys=PAIRS)
     assert result.status == "malformed"
-
-
-@pytest.mark.parametrize("algs", [(), (-7,), (True,), "-19", None])
-def test_the_accepted_algs_are_a_choice_among_minus_19_and_minus_8(algs):
-    with pytest.raises(ValueError):
-        rc.check_statement(b"", receipt=b"", receipt_key=b"", statement_keys=[], algs=algs)
 
 
 # ---- CBOR only through the [scitt] extra ------------------------------------------------------------------
