@@ -48,6 +48,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
+      # The CommonMark parser rule (c) decides links with (scripts/b7_pr_form_gate.py, WHAT RENDERS AS A
+      # LINK), from a file that pins each package by hash; without it the gate says NOT MEASURABLE.
+      - name: Install the CommonMark parser
+        run: python -m pip install --no-deps --require-hashes -r .github/pr-form-requirements.txt
       # THE DESCRIPTION COMES THROUGH THE PAYLOAD FILE, NOT THROUGH THE COMMAND LINE. It is text
       # anyone who opens a pull request writes; no expression splices it into this line.
       - name: Pull-request form gate

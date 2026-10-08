@@ -24,7 +24,10 @@ Properties, each with a case that fails without it:
 - exactly one step runs the gate on the runner's own event payload, `$GITHUB_EVENT_PATH`, never on
   text spliced into the command line, and its exit is the step's exit: executed under `bash -e`, the
   shell the runner uses, with `python` replaced by a stand-in that records each call;
-- ci.yml neither runs the gate nor subscribes to the three events the gate needs.
+- ci.yml neither runs the gate nor subscribes to the three events the gate needs;
+- the CommonMark parser that rule (c) decides links with is installed before the gate runs, from
+  `.github/pr-form-requirements.txt`, where each package is pinned to a version and a hash (Codex
+  threads 4218677402, 4218677417 and 4218677425 on pull request 308: patterns decided what renders).
 """
 from __future__ import annotations
 
@@ -42,6 +45,9 @@ FORM = WORKFLOWS / "pr-form.yml"
 CI = WORKFLOWS / "ci.yml"
 
 FORM_GATE = "b7_pr_form_gate.py"
+REQUIREMENTS = REPO / ".github" / "pr-form-requirements.txt"
+INSTALL = "python -m pip install --no-deps --require-hashes -r .github/pr-form-requirements.txt"
+_PIN_LINE = re.compile(r"[A-Za-z0-9_.-]+==[0-9][0-9A-Za-z.]*(?: --hash=sha256:[0-9a-f]{64})+")
 GATE_CALL = f'python scripts/{FORM_GATE} --event "$GITHUB_EVENT_PATH"'
 FORM_EVENTS = ("edited", "milestoned", "demilestoned")
 PUSH_EVENTS = ("opened", "synchronize", "reopened")
@@ -135,6 +141,24 @@ def ci_findings(workflow: dict) -> list[str]:
     return found
 
 
+def install_findings(workflow: dict, requirements: str) -> list[str]:
+    """The parser is installed once, from the pinned file, before the gate runs; every line pins a version
+    and a hash, and the parser and its dependency are both there."""
+    steps = [step for _, step in _steps(workflow)]
+    gate = [i for i, step in enumerate(steps) if FORM_GATE in str(step.get("run") or "")]
+    install = [i for i, step in enumerate(steps) if str(step.get("run") or "").strip() == INSTALL]
+    found = []
+    if len(install) != 1:
+        found.append(f"{len(install)} steps install the parser from the pinned file, not one")
+    elif not gate or install[0] > gate[0]:
+        found.append("the parser is installed after the gate runs")
+    zeilen = [z.strip() for z in requirements.splitlines() if z.strip() and not z.lstrip().startswith("#")]
+    found += [f"not pinned to a version and a hash: {z.split()[0]}" for z in zeilen if not _PIN_LINE.fullmatch(z)]
+    namen = {z.split("==")[0].lower() for z in zeilen}
+    found += [f"{n} is not in the pinned file" for n in ("markdown-it-py", "mdurl") if n not in namen]
+    return found
+
+
 def run_step(workflow: dict, form_exit: int, tmp_path: pathlib.Path) -> tuple[int, list[str]]:
     (_, step), = _gate_steps(workflow)
     log = tmp_path / "calls"
@@ -179,6 +203,10 @@ def test_the_gate_runs_and_its_exit_is_the_steps_exit(form, tmp_path, form_exit,
     code, calls = run_step(form, form_exit, tmp_path)
     assert calls == [f"scripts/{FORM_GATE}"], calls
     assert (code == 0) is step_green, f"step exit {code} for gate exit {form_exit}"
+
+
+def test_the_parser_is_installed_pinned_before_the_gate_runs(form):
+    assert install_findings(form, REQUIREMENTS.read_text(encoding="utf-8")) == []
 
 
 def test_ci_yml_neither_runs_the_gate_nor_starts_on_its_events():
@@ -261,6 +289,22 @@ def test_catch_proof_an_ignored_red_turns_the_step_green(form, tmp_path):
     step["run"] = str(step["run"]) + " || true"
     code, _ = run_step(m, 1, tmp_path)
     assert code == 0
+
+
+def test_catch_proof_a_missing_late_or_unpinned_install(form):
+    text = REQUIREMENTS.read_text(encoding="utf-8")
+    m = _mutant(form)
+    job = next(iter(m["jobs"].values()))
+    job["steps"] = [step for step in job["steps"] if str(step.get("run") or "").strip() != INSTALL]
+    assert install_findings(m, text) == ["0 steps install the parser from the pinned file, not one"]
+    m = _mutant(form)
+    job = next(iter(m["jobs"].values()))
+    install = next(step for step in job["steps"] if str(step.get("run") or "").strip() == INSTALL)
+    job["steps"] = [step for step in job["steps"] if step is not install] + [install]
+    assert install_findings(m, text) == ["the parser is installed after the gate runs"]
+    ohne_hash = text.replace(" --hash=sha256:", " #sha256:", 1)
+    assert install_findings(form, ohne_hash)[0].startswith("not pinned to a version and a hash: markdown-it-py")
+    assert install_findings(form, text.replace("mdurl==", "# mdurl==")) == ["mdurl is not in the pinned file"]
 
 
 def test_catch_proof_the_gate_back_in_ci_yml():
