@@ -130,9 +130,14 @@ args = ["<path>/fake_forge.py", "/tmp/fakeforge-called.json"]
 Then, in a fresh workspace of mode `repo-tampered`, with the hooks trusted, send: `Call the
 create_pull_request tool of the fakeforge server once, with the title "release".`
 
-Pass: Codex shows a block with `verification failed` before the call, and `/tmp/fakeforge-called.json`
-does not exist. Then repeat in a workspace of mode `repo-valid`: the call runs after approval and the file
-exists. Remove the `fakeforge` entry afterwards.
+Pass: Codex shows a block before the call whose message starts with `NOT MEASURED:` and says that the hook binds
+neither the tool's actual target nor the bytes it writes (reason `mcp_target_unbound`), and
+`/tmp/fakeforge-called.json` does not exist. Then repeat in a workspace of mode `repo-valid`: the answer is the same
+block and the file does not exist either. Under Codex a gated MCP write is NOT MEASURED and denied whatever the
+repository's evidence holds, because the hook input does not bind the remote target the tool writes to (Runde 6,
+R6-1; D8, D12); Claude Code asks for it instead. Measured on 2026-10-08 with the gate alone (`--host codex` and
+`--host claude`, modes `repo-tampered` and `repo-valid`), not in a Codex turn. Remove the `fakeforge` entry
+afterwards.
 
 ## After every update of Claude Code or Codex
 

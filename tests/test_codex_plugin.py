@@ -630,3 +630,22 @@ def test_under_codex_a_rules_change_push_is_not_measured_while_claude_asks(shim,
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
     assert "evidence rules" in claude["systemMessage"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="git or bash missing")
+@pytest.mark.parametrize("mode", ["repo-tampered", "repo-valid"])
+def test_the_runbook_mcp_matcher_case_gets_the_answer_the_runbook_names(shim, tmp_path, mode):
+    """RUNBOOK_CODEX.md, "The MCP matcher" (corrected on 2026-10-08): under Codex a gated MCP write is denied as NOT
+    MEASURED (`mcp_target_unbound`) in both modes, whatever the evidence holds (R6-1); Claude Code asks."""
+    work = tmp_path / "w"
+    work.mkdir()
+    subprocess.run(["bash", str(PLUGIN / "evals" / "_fixtures" / "scaffold.sh"), mode], cwd=work, check=True,
+                   capture_output=True)
+    codex = _run(shim, work, "--host", "codex", tool="mcp__fakeforge__create_pull_request")
+    assert _codex_valid(codex) == "deny" and codex["systemMessage"].startswith("NOT MEASURED:"), codex
+    assert "binds neither the tool's actual target" in codex["systemMessage"]
+    claude = _run(shim, work, tool="mcp__fakeforge__create_pull_request")
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    section = (PLUGIN / "RUNBOOK_CODEX.md").read_text(encoding="utf-8").split("## The MCP matcher", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    assert "mcp_target_unbound" in section and "the call runs after approval" not in section
