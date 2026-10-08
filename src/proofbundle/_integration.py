@@ -100,7 +100,8 @@ def emit_claim_receipt(claim: dict, default_name: str, *, scitt: bool = False) -
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
         print(f"[proofbundle] wrote signed eval receipt → {out}")
-        if scitt:
+        # only the exact True, as emit_enabled reads its flag: "false" or 1 writes no signed statement
+        if scitt is True:
             _emit_scitt_statement(bundle, signer, out)
         return str(out)
     except Exception as e:  # noqa: BLE001 — never let emission break the host run

@@ -1371,6 +1371,7 @@ _SWITCHES = {
     ("proofbundle.trust_pack", "verify_trust_pack", "allow_unverified_rotation"): _RELAXING_VERDICT,
     # relaxing, read as the exact True and never raising (a host-run gate; the helper's own switch)
     ("proofbundle._integration", "emit_enabled", "flag"): _EXACT_TRUE,
+    ("proofbundle._integration", "emit_claim_receipt", "scitt"): _EXACT_TRUE,
     ("proofbundle._membership", "require_switch", "allow_none"): _EXACT_TRUE,
     # verdict inputs
     **{("proofbundle.bundle", "root_authenticity_summary", k): _VERDICT_INPUT for k in (
@@ -1804,6 +1805,27 @@ class TestEverySwitchOfThePublicApiHoldsItsClass(unittest.TestCase):
                     calls.clear()
                     self.assertIs(_integration.emit_enabled(value), False)
                     self.assertEqual(calls, [], "the flag's own methods ran")
+
+    def test_the_scitt_switch_of_an_emitted_receipt_signs_a_statement_only_for_the_exact_true(self):
+        """``emit_claim_receipt(..., scitt=...)`` read its switch by its truth: ``"false"`` or ``1`` wrote a SCITT
+        Signed Statement next to the receipt that no caller asked for. The receipt is written either way."""
+        import os  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        from unittest import mock  # noqa: PLC0415
+        from proofbundle import _integration  # noqa: PLC0415
+        claim, _ = build_eval_claim(
+            suite="s", suite_version="1", metric="acc", comparator=">=", threshold="0.8", score="0.9",
+            n=10, model_id="m", dataset_id="d", issuer="Lab", timestamp="2026-07-02T00:00:00Z")
+        calls: list = []
+        env = {"PROOFBUNDLE_SCITT_ISSUER": "https://issuer.example", "PROOFBUNDLE_SCITT_SUBJECT": "eval:x"}
+        for label, value in _not_bools(calls):
+            with self.subTest(scitt=label), tempfile.TemporaryDirectory() as tmp, \
+                    mock.patch.dict(os.environ, dict(env, PROOFBUNDLE_OUT=tmp), clear=False):
+                os.environ.pop("PROOFBUNDLE_KEY", None)
+                calls.clear()
+                self.assertIsNotNone(_integration.emit_claim_receipt(claim, "r.json", scitt=value))
+                self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["r.json"])
+                self.assertEqual(calls, [], "the switch's own methods ran")
 
     def test_the_helpers_own_switch_admits_none_only_for_the_exact_true(self):
         calls: list = []
