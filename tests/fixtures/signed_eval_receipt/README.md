@@ -14,10 +14,12 @@ Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
   order, fails at step 11 for rule 2 of R, where the cofactored equation holds. No other vector
   changed its verdict or first failing step. The receipt has no inclusion member since 2026-10-03; the seven vectors that only
   exercised the inclusion proof (P3, P5, N8, N27, N28, N29, N47) are gone and their identifiers
-  are not reused. Since 2026-10-07 the receipt type is `application/eval-receipt+json` and the
-  payload schema `urn:ietf:params:eval-receipt:v1`; both enter B or the signature, so every B,
-  signature and receipt digest differs from the vectors before that day, while each vector keeps
-  its identifier, verdict and first failing step.
+  are not reused. Since 2026-10-08 the receipt type is
+  `application/vnd.signed-evidence.eval-receipt+json` and the payload schema
+  `https://signed-evidence.org/eval-receipt/v1`, names under the project domain signed-evidence.org
+  (owner choice of 2026-10-08); both enter B or the signature, so every B, signature and receipt digest
+  differs from the vectors before that day, while each vector keeps its identifier, verdict and first
+  failing step.
 - Compact form: every payload B is stored once under `payloads`, and a receipt names its
   `payload_b64` by the token `@Bn@` when that value is exactly the base64 of a stored B. The test
   rebuilds the exact receipt bytes and checks each against the SHA-256 the draft publishes

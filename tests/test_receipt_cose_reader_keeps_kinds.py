@@ -37,10 +37,10 @@ ISSUER_KEY = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
 ISSUER_PUB = ISSUER_KEY.public_key().public_bytes_raw()
 PAIRS = [(COSE["issuer"], ISSUER_PUB)]
 B1 = bytes.fromhex(next(v for v in COSE["backward"] if v["id"] == "B1")["statement_hex"])
-#: B1 as written: tag 18 (d2), an array of four (84), the protected header as a byte string of 182 bytes
-#: (58 b6), the empty unprotected header (a0), the 32-byte payload (58 20) and the signature (58 40).
-PROTECTED = B1[4:4 + 182]
-PAYLOAD = B1[4 + 182 + 1 + 2:4 + 182 + 1 + 2 + 32]
+#: B1 as written: tag 18 (d2), an array of four (84), the protected header as a byte string of 202 bytes
+#: (58 ca), the empty unprotected header (a0), the 32-byte payload (58 20) and the signature (58 40).
+PROTECTED = B1[4:4 + 202]
+PAYLOAD = B1[4 + 202 + 1 + 2:4 + 202 + 1 + 2 + 32]
 
 
 def _receipt_p1() -> bytes:

@@ -302,7 +302,7 @@ def main() -> None:
 
     # ---- added 2026-10-07: the pair of issuer and key, and the rules of Section 4.4 -------------------------
     other = signed(protected(k15={1: OTHER_ISSUER, 2: p1_b["model_id_commit"]}))
-    assert hashlib.sha256(other).hexdigest() == "1e205e47f7f0e71ae16a0c35b55728369561d0984a83253f3f3b38b1f791ad28"
+    assert hashlib.sha256(other).hexdigest() == "823b72998028ce9c638c4447102cf7475dc0f41f2f2aa27448dc8d341694a04a"
     bwd("B37", other, "P1", "untrusted_key",
         "B1 with iss https://other-issuer.example/eval, signed with the issuer test seed: the relying party "
         "trusts that key for https://issuer.example/eval only, and the received iss does not make it trusted "

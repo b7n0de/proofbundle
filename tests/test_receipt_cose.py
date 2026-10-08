@@ -31,7 +31,7 @@ ISSUER = VECTORS["issuer"]
 PAIRS = [(ISSUER, KEYS["issuer"])]
 #: Vector M2 of draft-gruszka-evaluation-receipt-mappings-00: its kid and the SHA-256 of its bytes.
 M2_KID = "c94d618c32417cedb44280d4d66029e6486aa834802d12cd919c817453eb1561"
-M2_SHA256 = "c987b06017a54d89b3c3553c54544bc7d95f7220e6e87e1a9a6369505401260e"
+M2_SHA256 = "64e78be4636b8d1e90cb7a1ebe06c4cfba2848603d6f64958d7c2080a901c575"
 #: The Draft 1 PURE TEST seed of the issuer key, written out as in tests/test_signed_eval_receipt_conformance.py:
 #: a shipped test builds a throwaway key from a literal and loads no key from outside
 #: (tests/test_sdist_ohne_signierwerkzeug.py). A test below holds it equal to the fixture's seed.

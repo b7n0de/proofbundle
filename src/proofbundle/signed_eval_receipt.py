@@ -2,9 +2,10 @@
 
 A receipt is one JSON object ``{"schema", "payload_b64", "signature"}``. B, the RFC 8785 bytes of the
 payload, is signed with pure Ed25519 over PAE(type, B), the DSSE pre-authentication encoding with the fixed
-type ``application/eval-receipt+json``; the payload schema is ``urn:ietf:params:eval-receipt:v1``. Both
-are neutral names whose registration the draft requests from IANA; the vendor-tree type and the vendor
-schema URI used before 2026-10-07 are gone, and with them every earlier B and signature. The receipt
+type ``application/vnd.signed-evidence.eval-receipt+json``; the payload schema is
+``https://signed-evidence.org/eval-receipt/v1``. Both stand under signed-evidence.org, the project domain
+chosen on 2026-10-08: the type is a media type name in the vendor tree, and the draft requests no IANA
+action. The names used before 2026-10-08 are gone, and with them every earlier B and signature. The receipt
 carries no inclusion proof (removed from the draft on 2026-10-03): transparency comes from registering a
 receipt in an envelope, not from the receipt.
 
@@ -48,8 +49,8 @@ from ._membership import is_member, require_switch
 from ._wire_b64 import decode_b64
 from .signature import plain_bytes, verify_ed25519_pinned
 
-RECEIPT_TYPE = "application/eval-receipt+json"
-PAYLOAD_SCHEMA = "urn:ietf:params:eval-receipt:v1"
+RECEIPT_TYPE = "application/vnd.signed-evidence.eval-receipt+json"
+PAYLOAD_SCHEMA = "https://signed-evidence.org/eval-receipt/v1"
 COMMIT_ALG = "sha256-salted-v1"
 DRAFT = "draft-gruszka-signed-evaluation-receipts-00"
 
