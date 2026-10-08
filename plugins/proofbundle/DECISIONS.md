@@ -1100,4 +1100,47 @@ Options:
 
 ## D26. Done only with a receipt (the Stop hook)
 
-Owner choices (2026-10-08, 12:0x Berlin, Z169 aim E3): the user path "Claude says done" gets a loc
+Owner choices (2026-10-08, 12:0x Berlin, Z169 aim E3): the user path "Claude says done" gets a local hook as an
+early warning, with the hard boundary in CI. The promise: when Claude says done, that can be checked; the tests
+ran at exactly this state, and anyone checks it without a network.
+
+Chosen:
+- The declaration may carry `"done": {"receipt": <path under .proofbundle/>, "policy": <path under
+  .proofbundle/>}`, exactly these two keys. The schema string stays `proofbundle-plugin/evidence/v0.2`; the key
+  is additive inside the unreleased 0.3.0 (D17, D18). A declaration with a done check and an empty evidence list
+  gates no push: the push answer is NOT MEASURED without a decision (`done_only`), because nothing is declared for
+  it.
+- A `Stop` command hook (`proofbundle_gate.py stop`) reads the declaration and the policy from HEAD (D2) and the
+  receipt from the working tree. The turn ends only when the receipt verifies under that policy (which must pin a
+  signer, D7), its signed claim says that every test passed — pytest, `pass_rate`, comparator `>=`, threshold 1,
+  `passed` true, `n` at least 1 and `provenance.exit_status` 0 — and the tree it ran on equals the tree id of the
+  working state now. A threshold below 1 signs `passed` true for failing tests, and pytest's receipt signs
+  `passed` true for a run that exited 1 when the rate met the threshold (measured 2026-09-30, D23), so neither is
+  done.
+- The tree the receipt ran on is `provenance.git_tree` when `git_clean` is true and `git_worktree_tree` when it
+  is false; the package's pytest plugin writes both (the core change of the same date). The working state is the
+  files of HEAD and every other file git does not ignore, outside untracked files of the top-level `.proofbundle/`
+  folder and of `__pycache__` folders, read as raw bytes and modes (100755 when the owner may execute a file)
+  without filters, fsmonitor, hooks or the index, and hashed into git's tree object format. The package and the
+  gate use the same rules, so both name the same tree for the same bytes; a test compares the gate's tree id with
+  git's own for a working tree without filters.
+- No declaration, or a declaration without a done check: no block and no message (NOT MEASURED, as D5). A
+  declaration only in the working tree, a missing policy or receipt, a receipt that is a link, a verifier that
+  cannot run, a working state that cannot be read as files and any error inside the check block: the turn does
+  not end on a check that reached no verdict. Every block is one line with what is missing, the command that
+  delivers it and the rule never to weaken the declaration, the policy or the key (D19).
+- `done-check --repo DIR [--receipt FILE]` is the same check for CI (exit 0 only for a pass), and `done-init`
+  sets the check up: a local test key with the package's key path in the gate directory, a policy that pins it,
+  the done section and an ignore rule for the receipt, staged.
+
+Limits: Claude Code ends the turn after eight blocks in a row without a tool call (the hooks guide, read
+2026-10-07, not measured here), so the hook is an early warning; the boundary is the required CI check. The agent
+that runs the tests can read the test key, and repository code under pytest can write the receipt. Codex is not
+wired: NOT MEASURED there.
+
+Options:
+- A. The done section in the declaration, a command Stop hook and the same check in CI (chosen).
+- B. A Stop hook that runs the tests itself. Rejected: a hook that runs repository code at every end of a turn is
+  a new execution surface and slow; the receipt already records the run.
+- C. A done check without a declaration, for every repository. Rejected: it would block repositories that never
+  asked for it, against D5.

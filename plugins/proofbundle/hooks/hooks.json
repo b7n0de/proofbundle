@@ -1,5 +1,5 @@
 {
-  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or merges a pull request, verify the evidence the repository declares at HEAD. A failed check denies the call. A repository that declares nothing, neither at HEAD nor in the working tree, gets no decision, marked NOT MEASURED; every other case where nothing was verified asks. A push that changes the evidence rules against what the remote is known to hold is asked. Before a file tool (Write, Edit, MultiEdit, NotebookEdit) writes a repository's git configuration or hooks, or a file the effective configuration includes, the call is NOT MEASURED and asked; every other write is left alone.",
+  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or merges a pull request, verify the evidence the repository declares at HEAD. A failed check denies the call. A repository that declares nothing, neither at HEAD nor in the working tree, gets no decision, marked NOT MEASURED; every other case where nothing was verified asks. A push that changes the evidence rules against what the remote is known to hold is asked. Before a file tool (Write, Edit, MultiEdit, NotebookEdit) writes a repository's git configuration or hooks, or a file the effective configuration includes, the call is NOT MEASURED and asked; every other write is left alone. When the session would end in a repository whose declaration names a done check, the end waits for a test receipt that verifies under the declared policy, says every test passed and names the tree of the working state; without a done check nothing is blocked (NOT MEASURED).",
   "hooks": {
     "PreToolUse": [
       {
@@ -28,6 +28,17 @@
           {
             "type": "command",
             "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" stop || { echo 'proofbundle done check: the check could not run, so the session does not end' >&2; exit 2; }",
             "timeout": 120
           }
         ]
