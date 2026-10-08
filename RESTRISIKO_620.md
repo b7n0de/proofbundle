@@ -1667,7 +1667,33 @@ without a verdict is counted as SURVIVED rather than NOT MEASURED. The same stan
 change, and that change adds no path to it on Linux. The shard-26 run of operator 96 belongs to the
 canonical mutation run on the frozen tree, the first after the cap landed; this file is written before it.
 
-## Open — wall-clock cases of the cost curve under load
+## Partly closed after the freeze — wall-clock cases of the cost curve under load
+
+Closed for the shape of the curves by owner order Z309 of 2026-10-07, in the change that carries this paragraph.
+The three tests that judged how a cost grows by a ratio of run times now judge counted work, which the speed of the
+machine does not change: the lines of Python run, plus the length of every receiver a built-in method walks
+(`list.count`, `str.find` and the others in `tests/_arbeitszaehler.py`). They are the curve of
+`tests/test_budget_kostenkurve.py`, the linearity case of `tests/test_cap1_regeln.py` and the tuple copy
+case of `tests/test_a_verifier_reads_a_callers_value_once.py`. Their bounds (1.2, 1.35 and a ratio of 64)
+are unchanged. Each was run against the source of the head before the fix it was written against and
+fails there: `renewal_ats_chain` at 917edc69 with a counted exponent of 2.00, cap1 at c59209d9 with 1.995
+with the duplicate, the copy of 32000 tuples at 8f2fa980 above 64 times the copy of 2000. At b1f8d355 all
+three pass, and the counted exponents of the twelve dimensions are the same with and without 36 busy
+loops on 24 cores (load up to 49). The time exponent is still reported and decides nothing.
+
+What stays open, named. The count does not see quadratic work inside one C call or operator: `x in a_list`,
+a slice, a concatenation, `list(xs)`, `sorted(xs)` and the like. A review of the change planted such regressions
+in the three paths, and the counted tests stayed green where the old timed tests turned red; only a count of
+machine instructions sees that work without a clock, and it needs valgrind or a hardware counter, neither of
+which an ordinary test run here has. For the same reason `string_len` (the C scanner of `json`) is outside the
+count and named in the test, and `int_bits`, whose time curve is quadratic in integer arithmetic, counts as
+linear. The CPU ceiling at the limit is not part of the change: it compares the cost at the limit with a
+reference load measured in the same run, so it too rests on a ratio of two run times, and on the reference
+machine it failed once on 2026-10-07 under a load between 10 and 15 (3.035 s against 3.005 s); on a build
+host it is skipped (owner card OA-dc37e26295). Both are on the list for 6.2.1 (owner answers A on
+OA-40e1616759 and OA-883f83ad26), which keeps the three planted regressions as mutants that a count of machine
+instructions has to fail on; until then the pre-tag receipt run of 6.2.0 runs only in a quiet load window.
+The rest of this section is the record as it stood at the freeze.
 
 `tests/test_budget_kostenkurve.py` measures time exponents. Under a machine load near 15 the
 `input_bytes` case failed with an exponent of 1.23 against a bound of 1.2, on a tree with and on a
