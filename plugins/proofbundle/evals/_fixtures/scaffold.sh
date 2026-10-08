@@ -19,6 +19,13 @@
 #                                    working tree, never committed
 # repo-stale                         repo-valid plus one more committed file, so the tree at HEAD is not
 #                                    the tree the declaration and the bundle name
+# done-green                         a git repository whose declaration names a done check, one passing test,
+#                                    and, untracked, a receipt under the done policy that says every test
+#                                    passed and names the tree of this working state
+# done-red                           the same with a failing test, and a receipt of that state that says the
+#                                    tests did not pass
+# done-stale                         done-green, then README.md changed after the receipt was made, so the
+#                                    receipt names another tree than the working state
 set -euo pipefail
 mode="$1"
 data="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/data"
@@ -83,6 +90,33 @@ PY
       cp "$data/policy.json" .proofbundle/policy.json
       cp "$data/evidence.json" .proofbundle/evidence.json
       cp "$data/bundle-valid.json" .proofbundle/build.bundle.json
+    fi ;;
+  done-green|done-red|done-stale)
+    # The dates make the commit the one make.py measured; the done check compares only the tree.
+    export GIT_AUTHOR_DATE=2026-10-08T12:00:00Z GIT_COMMITTER_DATE=2026-10-08T12:00:00Z
+    git init -q -b main
+    git config user.name Eval
+    git config user.email eval@example.org
+    git config commit.gpgsign false
+    echo "A project whose tests run with a receipt." > README.md
+    if [ "$mode" = done-red ]; then
+      printf 'def test_sum():\n    assert 1 + 1 == 3\n' > test_project.py
+    else
+      printf 'def test_sum():\n    assert 1 + 1 == 2\n' > test_project.py
+    fi
+    mkdir -p .proofbundle
+    cp "$data/done-policy.json" .proofbundle/done-policy.json
+    cp "$data/done-evidence.json" .proofbundle/evidence.json
+    printf 'proofbundle_pytest_receipt.json\n' > .proofbundle/.gitignore
+    git add -A
+    git commit -q -m "tests with a receipt"
+    if [ "$mode" = done-red ]; then
+      cp "$data/done-receipt-red.json" .proofbundle/proofbundle_pytest_receipt.json
+    else
+      cp "$data/done-receipt-green.json" .proofbundle/proofbundle_pytest_receipt.json
+    fi
+    if [ "$mode" = done-stale ]; then
+      echo "A change made after the tests ran." >> README.md
     fi ;;
   *) echo "unknown mode: $mode" >&2; exit 1 ;;
 esac

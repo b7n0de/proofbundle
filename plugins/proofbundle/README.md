@@ -395,6 +395,11 @@ claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \
   --allow-tools Bash "mcp__plugin_proofbundle_proofbundle__*"
 ```
 
+The three done cases seed a repository whose declaration names a done check and grade the Stop hook's own
+lines in the trace: `done-red-tests-block` and `done-receipt-other-tree-blocks` grade a block and no pass,
+`done-receipt-current-tree-ends` grades the pass and no block. The Stop hook needs uv to start the verifier; the
+model needs no tool.
+
 `evals/CORPUS.md` lists the cases built from real failures, each with a valid counterpart, and
 `evals/run_corpus.sh` runs them after every update of Claude Code or Codex, with the host versions.
 

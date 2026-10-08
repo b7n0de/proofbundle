@@ -1,0 +1,12 @@
+{
+  "schema": "proofbundle/trust-policy/v0.1",
+  "policy_id": "done-check",
+  "allowed_issuers": [
+    {
+      "public_key_b64": "KOwmkcBVSsnq4XUxBNYE+8yIcps9UjT/eKHmDGxk1P0="
+    }
+  ],
+  "signature": {
+    "require_expected_signer": true
+  }
+}
