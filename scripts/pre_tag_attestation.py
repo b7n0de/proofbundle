@@ -55,6 +55,13 @@ def build_statement(*, commit: str, version: str, verifier_id: str, time_verifie
                     policy_uri: str, result: str = "PASSED",
                     subject_name: str = "git+https://github.com/b7n0de/proofbundle") -> dict:
     """Die in-toto-Aussage, die signiert wird. Reine Funktion, damit ein Test sie ohne CI baut."""
+    # The three checked values are read once as the text they hold (lens run 8 at fddc00f4, the sweep
+    # of finding B): the checks asked a `str` subclass's `__eq__` and pattern methods, the statement
+    # wrote its storage.
+    from proofbundle.signature import plain_text  # noqa: PLC0415
+    result = plain_text(result)
+    commit = plain_text(commit) if commit is not None else commit
+    version = plain_text(version) if version is not None else version
     if result not in ("PASSED", "FAILED"):
         raise ValueError("result must be PASSED or FAILED (VSA's two-valued shape, deliberately "
                          "no third value: 'partially' would be read as a pass)")
