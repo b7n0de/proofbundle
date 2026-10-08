@@ -419,6 +419,31 @@ def test_fangnachweis_ein_zu_kurzer_warter_wird_gefunden():
                                                                   "coverage may take 300 minutes"]
 
 
+def _wanduhr_programm() -> str:
+    """The Python program of the wall-clock step of mutation-summary in landung.yml (ci.yml carries the same copy)."""
+    schritte = _lade("landung.yml")["jobs"]["mutation-summary"]["steps"]
+    run = next(str(s["run"]) for s in schritte if "Schwelle 1200 s" in str(s.get("run", "")))
+    return run.split("<<'PYEOF' <<<\"$jobs\"\n", 1)[1].split("\nPYEOF", 1)[0]
+
+
+@pytest.mark.parametrize("sekunden,urteil", [(1199, "UNTER"), (1200, "NICHT ENTSCHEIDBAR"), (1201, "UEBER")])
+def test_die_schwelle_urteilt_nur_wo_die_sekundenaufloesung_es_traegt(sekunden, urteil):
+    """Codex on pull request 310, round seven (P2): with marks of one second of resolution, a measured span of 1200 s
+    may be longer than 1200 s, and the step printed UNTER. The true span lies in (w - 1, w + 1)."""
+    import datetime as dt
+    import subprocess
+    import sys
+    t0 = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+    stempel = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    jobs = {"jobs": [{"name": "mutation (1)", "started_at": stempel(t0),
+                      "completed_at": stempel(t0 + dt.timedelta(seconds=sekunden))}]}
+    lauf = subprocess.run([sys.executable, "-c", _wanduhr_programm()], input=json.dumps(jobs), capture_output=True,
+                          text=True, timeout=60)
+    assert lauf.returncode == 0, lauf.stderr
+    zeile = next(z for z in lauf.stdout.splitlines() if z.startswith("Schwelle 1200 s: "))
+    assert zeile.startswith(f"Schwelle 1200 s: {urteil}"), zeile
+
+
 def test_die_schritte_beider_kopien_sind_gleich():
     assert _kopien_weichen_ab(_lade("ci.yml"), _lade("landung.yml")) == []
 

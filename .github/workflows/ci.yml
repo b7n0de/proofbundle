@@ -832,7 +832,10 @@ jobs:
           print(f"MATRIX_WANDUHR_S={w:.0f}")
           print(f"MATRIX_CPU_MIN={sum(d)/60:.1f}")
           print(f"MATRIX_SHARD_MIN_S={min(d):.0f} MATRIX_SHARD_MAX_S={max(d):.0f}")
-          print(f"Schwelle 1200 s: {'UNTER' if w <= 1200 else 'UEBER'}")
+          # Both marks have one second of resolution, so the true span lies in (w - 1, w + 1): UNTER only when w + 1
+          # stays within 1200, UEBER only when w - 1 exceeds it, and the second in between is not decidable.
+          print("Schwelle 1200 s: " + ("UNTER" if w <= 1199 else "UEBER" if w >= 1201
+                                       else "NICHT ENTSCHEIDBAR (Sekundenaufloesung)"))
           PYEOF
   mutant-signature-guard:
     # Fail-closed guard against mutation-mutant signatures reaching main (incident 2026-07-23:
