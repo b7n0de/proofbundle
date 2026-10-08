@@ -72,8 +72,9 @@ def _wartet_nicht(d: dict) -> list[str]:
         schlecht.append(f"{VORBEDINGUNG} does not run scripts/landung_waits_for_ci.py exactly once")
     elif (laeufe[0].get("env") or {}).get("HEAD_SHA") != "${{ github.event.pull_request.head.sha }}":
         schlecht.append(f"{VORBEDINGUNG} does not name the head of the event")
-    elif ((laeufe[0].get("env") or {}).get("BASE_SHA"), (laeufe[0].get("env") or {}).get("EVENT_ACTION")) != (
-            "${{ github.event.pull_request.base.sha }}", "${{ github.event.action }}"):
+    elif tuple((laeufe[0].get("env") or {}).get(k) for k in ("BASE_SHA", "BASE_REF", "EVENT_ACTION")) != (
+            "${{ github.event.pull_request.base.sha }}", "${{ github.event.pull_request.base.ref }}",
+            "${{ github.event.action }}"):
         schlecht.append(f"{VORBEDINGUNG} does not name the base and the action of the event")
     if (jobs[VORBEDINGUNG].get("permissions") or {}).get("actions") != "read":
         schlecht.append(f"{VORBEDINGUNG} cannot read the runs of ci.yml")
@@ -258,18 +259,26 @@ def test_das_urteil_des_skripts(jobs, lauf, erwartet):
 
 
 class _FalscheApi:
-    """The GitHub answers the script reads, the runs served from a list of states, one per poll; the base's
-    landing time and this landung run's creation time are fixed per case."""
+    """The GitHub answers the script reads, the runs served from a list of states, one per poll; the time main moved
+    to the base (its activity), the base commit's own time and this landung run's creation time are fixed per case."""
 
-    def __init__(self, laeufe_je_ruf, jobs, basis="2025-12-31T00:00:00Z", eigener="2026-01-01T00:00:00Z"):
+    def __init__(self, laeufe_je_ruf, jobs, basis="2025-12-31T00:00:00Z", eigener="2026-01-01T00:00:00Z",
+                 commit_zeit="2025-12-30T00:00:00Z", aktivitaet=None):
         self.laeufe_je_ruf, self.jobs, self.schlaf, self.uhr = list(laeufe_je_ruf), jobs, 0, 0.0
-        self.basis, self.eigener = basis, eigener
+        self.basis, self.eigener, self.commit_zeit = basis, eigener, commit_zeit
+        self.aktivitaet = aktivitaet
 
     def fetch(self, path, token):
         if "/jobs?" in path:
             return {"total_count": len(self.jobs), "jobs": self.jobs}
+        if "/activity?" in path:
+            assert "ref=refs%2Fheads%2Fmain" in path, path
+            if self.aktivitaet is not None:
+                return self.aktivitaet
+            return [{"ref": "refs/heads/main", "after": "d" * 40, "timestamp": "2026-02-01T00:00:00Z"},
+                    {"ref": "refs/heads/main", "after": "c" * 40, "timestamp": self.basis}]
         if "/commits/" in path:
-            return {"commit": {"committer": {"date": self.basis}}}
+            return {"commit": {"committer": {"date": self.commit_zeit}}}
         if "/workflows/" not in path:
             return {"created_at": self.eigener}
         return {"workflow_runs": self.laeufe_je_ruf.pop(0) if self.laeufe_je_ruf else []}
@@ -280,8 +289,8 @@ class _FalscheApi:
 
 
 # Fixture values, not measurements: a head, and the creation stamps of two runs in a fixed order.
-ENV = {"GITHUB_REPOSITORY": "o/r", "HEAD_SHA": "a" * 40, "BASE_SHA": "c" * 40, "EVENT_ACTION": "labeled",
-       "GITHUB_RUN_ID": "99"}
+ENV = {"GITHUB_REPOSITORY": "o/r", "HEAD_SHA": "a" * 40, "BASE_SHA": "c" * 40, "BASE_REF": "main",
+       "EVENT_ACTION": "labeled", "GITHUB_RUN_ID": "99"}
 LAUF = {"id": 7, "head_sha": "a" * 40, "created_at": "2026-01-01T00:00:00Z", "status": "completed"}
 
 
@@ -327,6 +336,29 @@ def test_ein_lauf_vor_der_landung_der_basis_zaehlt_nicht():
     assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
 
 
+def test_die_landung_zaehlt_nicht_die_zeit_des_merge_commits():
+    """Codex on pull request 310, round five (P1): the floor was the base commit's own time, and a merge commit exists
+    before main moves to it (the merge queue builds it first). A run between the two tested the old base. The floor is
+    the time main moved to the base, from the repository activity."""
+    s = _skript()
+    lauf = dict(LAUF, created_at="2026-01-01T12:00:00Z")
+    api = _FalscheApi([[lauf]] * 100, GRUEN, commit_zeit="2026-01-01T00:00:00Z", basis="2026-01-02T00:00:00Z")
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
+    # the control: main moved to the base before the run, so the same run counts
+    api = _FalscheApi([[lauf]], GRUEN, commit_zeit="2026-01-01T00:00:00Z", basis="2026-01-01T06:00:00Z")
+    assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
+
+
+@pytest.mark.parametrize("aktivitaet", [[], [{"ref": "refs/heads/main", "after": "d" * 40, "timestamp": "2026-02-01T00:00:00Z"}],
+                                        [{"ref": "refs/heads/other", "after": "c" * 40, "timestamp": "2025-12-31T00:00:00Z"}]])
+def test_eine_landung_ausserhalb_der_aktivitaet_ist_sofort_rot(aktivitaet):
+    """When the activity does not hold the update of the base branch to the base, which run counts cannot be decided:
+    red at once, not a wait for a run that could never count."""
+    api = _FalscheApi([[LAUF]], GRUEN, aktivitaet=aktivitaet)
+    assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 1
+    assert api.schlaf == 0
+
+
 @pytest.mark.parametrize("aktion", ["synchronize", "reopened"])
 def test_auf_einem_neuen_lauf_wird_der_vorige_lauf_nicht_gelesen(aktion):
     """Round four, the sibling: on synchronize and reopened ci.yml starts a new run, and the previous run of the
@@ -339,7 +371,7 @@ def test_auf_einem_neuen_lauf_wird_der_vorige_lauf_nicht_gelesen(aktion):
 
 def test_ohne_basis_und_aktion_wird_es_rot():
     api = _FalscheApi([[LAUF]], GRUEN)
-    for fehlt in ("BASE_SHA", "EVENT_ACTION", "GITHUB_RUN_ID"):
+    for fehlt in ("BASE_SHA", "BASE_REF", "EVENT_ACTION", "GITHUB_RUN_ID"):
         env = {k: v for k, v in ENV.items() if k != fehlt}
         assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=env) == 1, fehlt
 

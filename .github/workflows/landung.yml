@@ -75,9 +75,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          # Which ci.yml run counts: one that started after this base landed, and on a new head after this
-          # run started (scripts/landung_waits_for_ci.py, WHICH RUN COUNTS).
+          # Which ci.yml run counts: one that started after this base landed on its branch, and on a new head
+          # after this run started (scripts/landung_waits_for_ci.py, WHICH RUN COUNTS, WHEN THE BASE LANDED).
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           EVENT_ACTION: ${{ github.event.action }}
         run: python3 scripts/landung_waits_for_ci.py
 

@@ -25,12 +25,17 @@ there, so the layer waits for the fork's next push, which runs the full matrix u
 WHICH RUN COUNTS (Codex on pull request 310, round four, P1). A ci.yml run tested the merge of the head into
 the base as the base stood when it started. When main moved on and the head did not, the label starts no new
 run, and the old run is evidence for other bytes than the ones the layer checks out. So a run counts only when
-it started after the current base landed on main (the committer time of `BASE_SHA`; main takes merges only,
-and a merge's committer time is the time it landed), and, on `synchronize` and `reopened`, after this run of
-landung.yml started, less `SKEW_S`: those events start a new ci.yml run, and the previous run of the same head
-must not be read before the new one appears. A pull request's base in the run object cannot serve: GitHub
-reports the current base there, not the one the run tested (measured 2026-10-08: a run of 2026-09-28 named
-c335c6ee, which landed on 2026-10-08).
+it started after the current base landed, and, on `synchronize` and `reopened`, after this run of landung.yml
+started, less `SKEW_S`: those events start a new ci.yml run, and the previous run of the same head must not be
+read before the new one appears. A pull request's base in the run object cannot serve: GitHub reports the current
+base there, not the one the run tested (measured 2026-10-08: a run of 2026-09-28 named c335c6ee, which landed on
+2026-10-08).
+
+WHEN THE BASE LANDED is the time the base branch moved to `BASE_SHA`, read from the repository activity, which
+records each update of a ref with its time (measured 2026-10-08: main moved to c335c6ee at 08:19:17Z). It is not
+a commit's own time (Codex on pull request 310, round five, P1): a merge commit exists before the branch moves to
+it, in the merge queue in particular, and a run between the two tested the old base. A landing that is not among
+the last `ACTIVITY_PAGE` entries of the activity is red: which run counts cannot be decided.
 
 THREE OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
 succeeded. `red` as soon as one needed job finished with anything but success (skipped and cancelled
@@ -38,8 +43,8 @@ included), when the run finished without one of them, when no ci.yml run appears
 `APPEAR_S`, or when the API cannot be read `MAX_READ_ERRORS` times in a row. `wait` otherwise; the
 job's own timeout in landung.yml bounds the waiting.
 
-Usage (in landung.yml): GITHUB_REPOSITORY, HEAD_SHA, BASE_SHA, EVENT_ACTION, GITHUB_RUN_ID and GITHUB_TOKEN
-from the environment; a missing one is red.
+Usage (in landung.yml): GITHUB_REPOSITORY, HEAD_SHA, BASE_SHA, BASE_REF, EVENT_ACTION, GITHUB_RUN_ID and
+GITHUB_TOKEN from the environment; a missing one is red.
 Exit 0 green, 1 red. Standard library only.
 """
 from __future__ import annotations
@@ -51,6 +56,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 API = "https://api.github.com"
@@ -69,6 +75,8 @@ MAX_READ_ERRORS = 3
 SKEW_S = 120
 #: The events on which ci.yml starts a new run for the head, together with this workflow.
 NEW_RUN_EVENTS = ("synchronize", "reopened")
+#: How many entries of the repository activity are read for the landing of the base, newest first.
+ACTIVITY_PAGE = 100
 
 
 def _instant(text: object) -> dt.datetime:
@@ -84,6 +92,10 @@ class ReadError(RuntimeError):
     """The API could not be read."""
 
 
+class Undecidable(RuntimeError):
+    """The API was read, and which ci.yml run counts cannot be decided from it."""
+
+
 def _get(path: str, token: str | None) -> dict:
     req = urllib.request.Request(f"{API}/{path}", headers={"Accept": "application/vnd.github+json",
                                                             "X-GitHub-Api-Version": "2022-11-28",
@@ -95,8 +107,8 @@ def _get(path: str, token: str | None) -> dict:
             data = json.loads(r.read().decode("utf-8"))
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
         raise ReadError(f"{path}: {type(exc).__name__}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ReadError(f"{path}: the answer is not an object")
+    if not isinstance(data, (dict, list)):
+        raise ReadError(f"{path}: the answer is neither an object nor a list")
     return data
 
 
@@ -123,10 +135,23 @@ def judge(jobs: list[dict], run_status: str) -> tuple[str, str]:
     return "green", f"{', '.join(sorted(j['name'] for j in wanted))} succeeded on this head"
 
 
-def earliest_counted(fetch, repo: str, base: str, action: str, run_id: str, token) -> dt.datetime:
+def landed_at(fetch, repo: str, base_ref: str, base: str, token) -> dt.datetime:
+    """When the base branch moved to `base`: the newest update of the ref to that commit in the repository
+    activity (WHEN THE BASE LANDED)."""
+    ref = f"refs/heads/{base_ref}"
+    eintraege = fetch(f"repos/{repo}/activity?ref={urllib.parse.quote(ref, safe='')}&per_page={ACTIVITY_PAGE}", token)
+    if not isinstance(eintraege, list):
+        raise ReadError("the repository activity is not a list")
+    for e in eintraege:
+        if isinstance(e, dict) and e.get("ref") == ref and e.get("after") == base:
+            return _instant(e.get("timestamp"))
+    raise Undecidable(f"the update of {ref} to {base} is not among the last {len(eintraege)} entries of the "
+                      "repository activity, so when the base landed is not known")
+
+
+def earliest_counted(fetch, repo: str, base_ref: str, base: str, action: str, run_id: str, token) -> dt.datetime:
     """The earliest creation time of a ci.yml run that counts as evidence for the current merge candidate."""
-    landed = _instant(((fetch(f"repos/{repo}/commits/{base}", token).get("commit") or {}).get("committer") or {})
-                      .get("date"))
+    landed = landed_at(fetch, repo, base_ref, base, token)
     if action in NEW_RUN_EVENTS:
         own = _instant(fetch(f"repos/{repo}/actions/runs/{run_id}", token).get("created_at"))
         return max(landed, own - dt.timedelta(seconds=SKEW_S))
@@ -134,7 +159,8 @@ def earliest_counted(fetch, repo: str, base: str, action: str, run_id: str, toke
 
 
 def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> int:
-    fehlt = [k for k in ("GITHUB_REPOSITORY", "HEAD_SHA", "BASE_SHA", "EVENT_ACTION", "GITHUB_RUN_ID") if not env.get(k)]
+    fehlt = [k for k in ("GITHUB_REPOSITORY", "HEAD_SHA", "BASE_SHA", "BASE_REF", "EVENT_ACTION", "GITHUB_RUN_ID")
+             if not env.get(k)]
     if fehlt:
         print(f"::error::the environment lacks {', '.join(fehlt)}; which ci.yml run counts cannot be decided")
         return 1
@@ -143,8 +169,8 @@ def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> 
     while True:
         try:
             if floor is None:
-                floor = earliest_counted(fetch, repo, env["BASE_SHA"], env["EVENT_ACTION"], env["GITHUB_RUN_ID"],
-                                         token)
+                floor = earliest_counted(fetch, repo, env["BASE_REF"], env["BASE_SHA"], env["EVENT_ACTION"],
+                                         env["GITHUB_RUN_ID"], token)
             runs = fetch(f"repos/{repo}/actions/workflows/{CI_WORKFLOW}/runs"
                          f"?head_sha={sha}&event=pull_request&per_page=100", token)
             alle = [r for r in runs.get("workflow_runs") or [] if r.get("head_sha") == sha]
@@ -165,6 +191,9 @@ def main(fetch=_get, sleep=time.sleep, clock=time.monotonic, env=os.environ) -> 
             else:
                 state, why = "wait", f"no ci.yml run for {sha} created after {floor.isoformat()} yet"
             errors = 0
+        except Undecidable as exc:
+            print(f"::error::{exc}")
+            return 1
         except ReadError as exc:
             errors += 1
             if errors >= MAX_READ_ERRORS:
