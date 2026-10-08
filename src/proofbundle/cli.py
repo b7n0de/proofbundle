@@ -775,6 +775,25 @@ def _pem_or_der(raw: bytes, what: str) -> bytes:
         raise ValueError(f"{what}: the PEM body is not canonical base64") from exc
 
 
+def _is_spki(der: bytes) -> bool:
+    """The DER shape of a SubjectPublicKeyInfo (RFC 5280 section 4.1) over all of its input: a SEQUENCE of an
+    AlgorithmIdentifier SEQUENCE that opens with an OID, and a BIT STRING. No key is built here: a generic
+    loader builds whatever type the bytes name, and the check builds the key by its own type."""
+    from .scitt_ccf import _der, _KeyRefused  # noqa: PLC0415
+    try:
+        tag, s, e = _der(der, 0, len(der))
+        if tag != 0x30 or e != len(der):
+            return False
+        tag, a, a_end = _der(der, s, e)
+        if tag != 0x30:
+            return False
+        tag, _o, _o_end = _der(der, a, a_end)
+        tag_bits, b, b_end = _der(der, a_end, e)
+    except _KeyRefused:
+        return False
+    return tag == 0x06 and tag_bits == 0x03 and b_end == e and b_end > b
+
+
 def _load_scitt_inputs(args: argparse.Namespace):
     """The statement bytes and trust material for ``verify --scitt-statement``, or None without it.
     A trust flag without a statement is a usage error (exit 2): the question would silently not be asked."""
@@ -799,19 +818,13 @@ def _load_scitt_inputs(args: argparse.Namespace):
             raise ValueError("--scitt-statement-kid must not be empty")
         kid = kid.encode("utf-8")
     keys: list = []
-    from cryptography.exceptions import UnsupportedAlgorithm  # noqa: PLC0415
-    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
     for key_path in getattr(args, "scitt_statement_key", None) or []:
         with _open_input(key_path, binary=True) as handle:
             der = _pem_or_der(_read_capped_bytes(handle), f"--scitt-statement-key {key_path!r}")
         # A file that holds no SubjectPublicKeyInfo at all ended like no --scitt-statement-key (needs_rp_trust,
         # exit 3); it is unusable input. A key of a type the check does not take stays absent trust there.
-        try:
-            serialization.load_der_public_key(der)
-        except UnsupportedAlgorithm:
-            pass
-        except ValueError as exc:
-            raise ValueError(f"--scitt-statement-key {key_path!r}: not a public key (SubjectPublicKeyInfo)") from exc
+        if not _is_spki(der):
+            raise ValueError(f"--scitt-statement-key {key_path!r}: not a public key (SubjectPublicKeyInfo)")
         keys.append({"spki": der, "kid": kid} if kid is not None else der)
     rp_trust = None
     if service_keys is not None:
