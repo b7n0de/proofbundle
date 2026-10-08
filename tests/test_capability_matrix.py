@@ -312,6 +312,32 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
             with self.subTest(fall):
                 self.assertFalse(self._modul({("r", "INTEGRATIONS.md"): text.encode()})._names_provider("r", self._SLSA))
 
+    def test_a_documented_tag_must_carry_the_action(self) -> None:
+        """Codex thread 4219207478: the tags were read from the docs and never looked up, so a tag that does not
+        exist, or one from before the action was added, became the channel of a published row."""
+        def messe(tags_am_ziel):
+            modul = _load()
+            texte = {modul.TAG: "the x capability, stable\n```\nuses: x@v1\n```\n",
+                     _MAIN: "the x capability, stable\n```\nuses: x@v2\n```\n"}
+
+            def git_bytes(ref, pfad):
+                if pfad == "NOTES.md":
+                    return texte[ref].encode() if ref in texte else None
+                if pfad == "action/action.yml":
+                    return b"" if ref in (modul.TAG, _MAIN) or ref in tags_am_ziel else None
+                return None
+            modul._git_bytes = git_bytes
+            modul._git = lambda *args: ""
+            modul.CAPABILITIES = [{"id": "x", "name": "x", "repo_paths": ["action/action.yml"],
+                                   "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}]
+            artefakte = {"wheel_files": {}, "wheel_subcommands": [], "wheel_entry_points": [], "sdist_files": []}
+            return modul.measure_rows(artefakte, _MAIN)[0]
+        self.assertEqual(messe({"v1", "v2"})["channel"], "git tag v1 at v6.1.0, v2 at main")
+        for fall, tags in (("main's tag lacks the action", {"v1"}), ("the release's tag lacks it", {"v2"}),
+                           ("neither tag carries it", set())):
+            with self.subTest(fall), self.assertRaisesRegex(SystemExit, "does not carry action/action.yml"):
+                messe(tags)
+
     def test_two_documented_tags_are_both_named_in_the_channel(self) -> None:
         """Codex thread 4218719408: the channel was built from the release's tag alone, so docs at main that pin
         another tag stood beside a column that named the release's."""
@@ -323,7 +349,7 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
 
                 def git_bytes(ref, pfad, texte=texte):
                     if pfad == "NOTES.md":
-                        return texte[ref].encode()
+                        return texte[ref].encode() if ref in texte else None
                     return b"" if pfad == "action/action.yml" else None
                 modul._git_bytes = git_bytes
                 modul._git = lambda *args: ""

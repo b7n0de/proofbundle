@@ -26,7 +26,8 @@ are rendered from that file by the same script; a test holds them to it.
   holds for a planned capability, whose label is read at the branch head the row records, and for one provided
   elsewhere, whose label is the text in the docs that points there. The provider of such a row, and the tag
   the docs pin for the GitHub Action, are read in the passage the label cites (its paragraph and the example
-  that follows it), at both refs; one not named there stops the measurement.
+  that follows it), at both refs; one not named there stops the measurement, and so does a documented tag
+  that does not resolve or does not carry the action's files.
 - **Status.** Derived, never set by hand: `experimental` when the label says experimental, `published`
   otherwise; `main only` when present on main and absent from the release; `planned` when present on a
   named branch only, looked up at the branch head the row records; `from elsewhere` when another project

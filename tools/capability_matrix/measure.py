@@ -240,6 +240,16 @@ def _documented_tag(ref: str, cap: dict):
     return tags[0]
 
 
+def _tag_carries(tag: str, cap: dict) -> None:
+    """A SystemExit unless the documented tag resolves and carries every repository path of the capability: a
+    channel names how a user gets it, and a tag without the action gives the user nothing (Codex thread 4219207478
+    on pull request 304: the tag was read from the docs and never looked up)."""
+    fehlt = [p for p in cap.get("repo_paths", []) if _git_bytes(tag, p) is None]
+    if fehlt:
+        raise SystemExit(f"{cap['id']}: the documented tag {tag} does not carry {', '.join(fehlt)} (or does not "
+                         "resolve); the channel is not measured")
+
+
 def _names_provider(ref: str, cap: dict) -> bool:
     """Whether the passage the row's label cites at `ref` names the provider."""
     passage, _datei = _cited_passage(ref, cap["label"])
@@ -375,6 +385,8 @@ def measure_rows(artefakte: dict, main: str) -> list:
             # is read from the passage the label cites, at the release and at main.
             mess_rel["documented_tag"] = _documented_tag(TAG, cap)
             mess_main["documented_tag_at_main"] = _documented_tag(main, cap)
+            for tag in sorted({mess_rel["documented_tag"], mess_main["documented_tag_at_main"]}):
+                _tag_carries(tag, cap)
             mess_rel["changed_between_documented_tag_and_release"] = _git(
                 "diff", "--shortstat", mess_rel["documented_tag"], TAG, "--", *repo).strip() or "no change"
         if cap.get("elsewhere"):
