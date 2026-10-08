@@ -241,6 +241,29 @@ class ThePilotContract(unittest.TestCase):
         self.assertNotIn("recorded with each run.", offen)
         self.assertIn("keeps them as the roster of section 8", offen)
 
+    def test_every_rule_version_instant_and_decision_the_rerun_applies_is_kept(self) -> None:
+        """Codex threads 4224140053 and 4224140059: the pilot profile PB-02 decides the match and the instant decides a
+        receipt with an expiry, and neither was kept, so a rerun after a profile change or after the expiry could
+        classify the same records differently. The class is anything the reconciliation applies rather than reads;
+        the sweep found the verifier with a trust policy, the rules that name the forbidden surfaces and the
+        maintainer's decisions too. Section 8 keeps each, and its closing rule names all four kinds."""
+        text = " ".join(_text().split())
+        daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
+        for behalten in ("The pilot profile (PB-02) the reconciliation applies",
+                         "is kept as the digest of its versioned file beside the records before the first decision",
+                         "The verifier the receipts are verified with is kept by its name, its version and the digest",
+                         "and so is a trust policy when one is passed to it",
+                         "The instant each receipt's validity is judged at is kept with the reconciliation",
+                         "at that instant and not at its own clock",
+                         "`--verification-time`, together with a trust policy",
+                         "AGENTS.md as criterion 1 and M5 and M6 read it, are kept as the digest of that file",
+                         "The maintainer's decision on each mismatch class under criterion 3 is kept with its date",
+                         "every record it reads, and every rule, version, instant and decision it applies"):
+            with self.subTest(kept=behalten[:40]):
+                self.assertIn(behalten, daten)
+        aufzeichnungen = text[text.index("## 4. Records"):text.index("## 5. Measures")]
+        self.assertIn("the version the reconciliation applies is kept (section 8)", aufzeichnungen)
+
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
         self.assertIn("The agent never holds the gate's or the observer's key.", text)

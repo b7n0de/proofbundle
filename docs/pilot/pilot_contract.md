@@ -62,8 +62,8 @@ pilot profile fixes, so the stored records tell two verdicts for one retried act
 actions, and M8 counts the decision receipts that share an action id.
 
 The outcome refers to the decision by its content root, never the reverse. The mapping of gate fields and
-GitHub observations onto the two predicates is the pilot profile (PB-02); this contract fixes only what must
-be recorded. Refused actions get a decision receipt and, if GitHub nevertheless shows a matching effect, an
+GitHub observations onto the two predicates is the pilot profile (PB-02), and the version the reconciliation
+applies is kept (section 8); this contract fixes only what must be recorded. Refused actions get a decision receipt and, if GitHub nevertheless shows a matching effect, an
 outcome receipt; that pair is the most important mismatch the pilot can find.
 
 ## 5. Measures
@@ -177,8 +177,22 @@ It stops early, with the reason written down, when:
   stored API responses, so that criterion 4 reads M5 and M6 over the same window.
 - The two public keys the receipts verify with, the gate's and the observer's, are kept beside the records before the
   first decision, so that a rerun verifies against the keys the pilot named and not against keys handed over later.
-- The reconciliation reads no input that this section does not keep. An input it would need and no record keeps is a
-  gap in this contract, and the pilot does not start, or stays open, until a record keeps it.
+- The pilot profile (PB-02) the reconciliation applies, its mapping of gate fields and GitHub observations onto the
+  two predicates with every extraction and normalization rule it names, is kept as the digest of its versioned file
+  beside the records before the first decision and is not changed during the pilot.
+- The verifier the receipts are verified with is kept by its name, its version and the digest of its distribution,
+  and so is a trust policy when one is passed to it.
+- The instant each receipt's validity is judged at is kept with the reconciliation, so a rerun judges a receipt with a
+  `validity.expiresAt` at that instant and not at its own clock. The verifier takes such an instant as
+  `--verification-time`, together with a trust policy (`docs/predicates/decision-receipt.md`), and that policy is then
+  kept as above.
+- The repository rules that say which surfaces an agent session may write, AGENTS.md as criterion 1 and M5 and M6
+  read it, are kept as the digest of that file at the start of the pilot.
+- The maintainer's decision on each mismatch class under criterion 3 is kept with its date, since criterion 2 reads
+  it for `ambiguous`.
+- The reconciliation reads no input that this section does not keep: every record it reads, and every rule, version,
+  instant and decision it applies. An input it would need and no record keeps is a gap in this contract, and the
+  pilot does not start, or stays open, until a record keeps it.
 
 ## 9. First reconciliation example
 
