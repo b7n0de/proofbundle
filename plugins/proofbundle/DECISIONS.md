@@ -3,7 +3,8 @@
 The gate in `hooks/proofbundle_gate.py` runs before every Bash call and before an MCP tool that opens a
 pull request, a merge request or a release, pushes files, writes a file or merges a pull request. Where
 the design was open, it takes the smallest variant that fails closed. Each decision below names that
-choice and the options the owner can pick instead. The owner decided D2, D8, D13, D14, D16 and D17 on
+choice and the options the owner can pick instead. D26 and D27 follow the owner's choices of 2026-10-08 for the
+user path "Claude says done" (a local hook as early warning, the hard boundary in CI). The owner decided D2, D8, D13, D14, D16 and D17 on
 2026-09-29 and D5 and D18 on 2026-09-30. D19 and later are the smallest variants for the owner's points
 of 2026-09-30 that fail closed; the owner reviews them. The rest is open until the owner decides.
 
@@ -1144,3 +1145,23 @@ Options:
   a new execution surface and slow; the receipt already records the run.
 - C. A done check without a declaration, for every repository. Rejected: it would block repositories that never
   asked for it, against D5.
+
+## D27. Local hooks are an early warning; the ways around the shell check are a class
+
+Owner rule (2026-10-08, for findings on the plugin from now on):
+- Local hooks are an early warning, not a boundary. The boundary for publishing is the required CI check (D22,
+  D26).
+- The ways around the shell check of the `PreToolUse` gate are not chased one by one any more. They stand here
+  as one known limit, a class with examples: R14-1 to R14-4 (a wrapper option or a reserved word that shifts the
+  program position, a context the lexer cannot parse, a `$(…)` boundary the net could misread, the verifier's
+  initialisation and notification contract), F15-1 (an extended glob such as `bash -O extglob -c 'g@(it)
+  status'` builds the program word `git`), F15-3 (the state digest binds the search path, not the program it
+  selects, so a swapped `git` at the same path keeps a rule acting) and others of the same kind. A shell can
+  build a command from text the gate does not model; Level 1 cannot close that class.
+- Repaired is what makes a receipt, a verify or the required CI check falsely green, and what lets the agent
+  switch the early warning off silently. F15-4 is repaired: no JSON read of the gate or the server takes `NaN`,
+  `Infinity` or `-Infinity`, and a logging notification with a level MCP does not define refuses the verifier
+  run (at 13753b7e a progress notification with `NaN` let a green reply through). F15-2 is made visible (D25).
+- Review round 15 in its former form is dropped; the review of the whole user path replaces it. D24B stays an
+  owner decision.
+
