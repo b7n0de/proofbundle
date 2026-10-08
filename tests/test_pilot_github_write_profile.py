@@ -105,6 +105,22 @@ class TheVectors(unittest.TestCase):
         self.assertIn("Strict mode requires `notChecked`, `decisionChangeConditions` and `privacy` to be present",
                       profil)
 
+    def test_an_outcome_whose_subject_is_not_derived_is_not_accepted(self) -> None:
+        """Codex thread 4220243730: the outcome is verified with require_derived_subject, and the profile stated the
+        derivation only for the decision. It states it for both, and an observer-signed outcome with the right
+        decisionRef and a subject not derived from its predicate is not accepted."""
+        g = self.g
+        d0 = next(f for f in self.daten["cases"] if f["case"] == "approved and arrived as approved")
+        gate, observer = g.test_key("gate"), g.test_key("observer")
+        self.assertEqual(g._pub(gate).hex(), self.daten["gate_public_key"], "control: the generator's gate key")
+        praedikat = g._statement(d0["outcome"])["predicate"]
+        for subjekt, erwartet in ((None, g.ACCEPTED), ("0" * 64, g.NOT_ACCEPTED)):
+            out = g.emit_outcome_receipt(praedikat, observer, subject_sha256=subjekt)
+            antwort = g.reconcile(d0["decision"], out, d0["observed_scope"], gate_key=g._pub(gate), gate_id=g.GATE_ID,
+                                  observer_key=g._pub(observer), observer_id=g.OBSERVER_ID)
+            with self.subTest(subject=subjekt):
+                self.assertEqual(antwort["verdict"], erwartet, antwort["reasons"])
+
     def test_a_status_other_than_executed_is_not_accepted(self) -> None:
         """Codex thread 4217993684: failed, refused and partial, signed by the observer, read as unknown."""
         ergebnisse = {n: b for n, _, b, _ in self.g.check_vectors(self.daten)}
@@ -132,6 +148,44 @@ class TheVectors(unittest.TestCase):
 
 
 @unittest.skipUnless(_RFC8785, "the profile emits RFC 8785 canonical statements (the [eval] extra)")
+class EveryArgumentOfTheReusedVerifiersIsAProfileRule(unittest.TestCase):
+    """Codex threads 4219676762 and 4220243730: an argument the profile passes to a reused verifier, beyond its
+    default, narrows what verifies, and twice the profile did not say so. Every keyword of both calls is mapped to the
+    words the profile states it with, in the column of its receipt; a keyword added later fails here until the profile
+    names it."""
+
+    _GESAGT = {
+        "verify_decision_receipt": {"strict": "verified in strict mode", "expected_audience": "`validity.audience`",
+                                    "expected_nonce": "`validity.nonce`",
+                                    "require_derived_subject": "`require_derived_subject`",
+                                    "now": "one second before its `decidedAt`"},
+        "verify_outcome_receipt": {"strict": "verified in strict mode", "expected_decision_ref": "`decisionRef.sha256`",
+                                   "expected_audience": "`validity.audience`", "expected_nonce": "`validity.nonce`",
+                                   "require_derived_subject": "`require_derived_subject`"},
+    }
+
+    def test_each_keyword_of_both_calls_is_stated_in_its_column(self) -> None:
+        import ast
+        baum = ast.parse(_TOOL.read_text(encoding="utf-8"))
+        aufrufe = {}
+        for knoten in ast.walk(baum):
+            if isinstance(knoten, ast.Call) and getattr(knoten.func, "id", None) in self._GESAGT:
+                aufrufe.setdefault(knoten.func.id, []).append(sorted(k.arg for k in knoten.keywords))
+        self.assertEqual(sorted(aufrufe), sorted(self._GESAGT), "control: both calls are found")
+        zeilen = [z for z in (REPO / "docs/pilot/pilot_profile.md").read_text(encoding="utf-8").splitlines()
+                  if z.startswith("| ") and not z.startswith("| aspect")]
+        spalte = {"verify_decision_receipt": 2, "verify_outcome_receipt": 3}
+        for name, liste in aufrufe.items():
+            for schluessel in liste:
+                with self.subTest(call=name):
+                    self.assertEqual(sorted(schluessel), sorted(self._GESAGT[name]))
+            text = " ".join(z.split("|")[spalte[name]] for z in zeilen if z.count("|") >= 5)
+            alles = " ".join(zeilen)
+            for schluessel, worte in self._GESAGT[name].items():
+                with self.subTest(call=name, keyword=schluessel):
+                    self.assertIn(worte, alles if schluessel == "now" else text)
+
+
 class TheOldFormatIsNotReinterpreted(unittest.TestCase):
     def setUp(self) -> None:
         self.g = _load()
