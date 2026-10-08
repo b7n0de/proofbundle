@@ -73,15 +73,16 @@ own and are never counted as agreement.
 | M2 bytes | Is the SHA-256 of the stored bytes the SHA-256 of the approved bytes? | identical, different, not measured |
 | M3 surface | Is the observed surface the approved surface? | same, different, not measured |
 | M4 closing lines | Do the stored bytes end with the closing lines the approved surface requires at approval time? | yes, no, not measured |
-| M5 unapproved effect | Does the API show a write by an agent identity with no approval that matches it? | none found, found, not measured |
-| M6 refused but arrived | Does an effect match an action the gate refused? | none found, found, not measured |
+| M5 unapproved effect | How many writes by an agent identity with no approval that matches them does the API show? | a count (0 is none found), not measured |
+| M6 refused but arrived | How many effects match an action the gate refused? | a count (0 is none found), not measured |
 | M7 delay | Time from the verdict to the first observation | seconds, recorded, never judged against a target |
 | M8 attempts | How many verdicts were recorded for one action id? | a count |
 
 An approved action reconciles only when M1 is arrived and M2, M3 and M4 each hold. A refused action
 reconciles only when M1 is not arrived; M2, M3 and M4 are not part of it. Every other combination is a
-mismatch with a name. M5 and M6 are measured over the observation window, not per action; "none found"
-means none found in what the API returned then, and says nothing about writes the API does not list.
+mismatch with a name. M5 and M6 are measured over the observation window, not per action, and each is a count, so
+two writes are recorded as two; "none found" is the count 0 and means none found in what the API returned then, and
+says nothing about writes the API does not list.
 
 ## 6. Exit criteria
 
@@ -92,11 +93,14 @@ The pilot ends, with a written result, when all of these hold:
    reconciliation is recorded; a surface the rules forbid to agents (AGENTS.md forbids opening, marking ready,
    approving and merging a pull request) needs no approved action and is covered by M5 and M6, where any agent
    write found on it is a mismatch;
-2. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
+2. M5 and M6 have each been measured over the whole observation window, on every surface in scope, the forbidden
+   ones included: a `not measured` value for either keeps the pilot open, because it would let a forbidden write
+   pass unseen;
+3. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
    agent, change the rule, or accept);
-3. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
+4. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
    stored API responses and gets the same classification for every action;
-4. none of the stop conditions below has fired.
+5. none of the stop conditions below has fired.
 
 It stops early, with the reason written down, when:
 
@@ -124,7 +128,7 @@ It stops early, with the reason written down, when:
   may keep the bytes.
 - Refused actions keep only the SHA-256 of the proposed bytes and the gate's reason, never the bytes.
 - No record carries an access token, a request header, a private key or the content of the environment.
-- The stored API responses are kept as returned, with the time of the request, so that criterion 3 can be
+- The stored API responses are kept as returned, with the time of the request, so that criterion 4 can be
   met without calling the API again.
 
 ## 9. First reconciliation example

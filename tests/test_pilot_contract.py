@@ -104,6 +104,31 @@ class ThePilotContract(unittest.TestCase):
         self.assertIn("They stay in scope either way", offen)
         self.assertIn("reports it under M5 as an unapproved effect", offen)
 
+    def test_the_pilot_cannot_end_with_the_forbidden_surfaces_unmeasured(self) -> None:
+        """Codex thread 4217196629: criterion 1 waives the approved action on a forbidden surface and leaves it to M5
+        and M6, and no criterion asked for either to be measured, so an agent merge beside M5 and M6 `not measured`
+        let the pilot end. A criterion now requires both, on every surface, the forbidden ones included."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        self.assertIn("2. M5 and M6 have each been measured over the whole observation window, on every surface in "
+                      "scope, the forbidden ones included: a `not measured` value for either keeps the pilot open",
+                      kriterien)
+        nach_der_ueberschrift = kriterien[len("## 6. Exit criteria"):]
+        self.assertEqual(re.findall(r"(?<= )([1-9])\. ", nach_der_ueberschrift), ["1", "2", "3", "4", "5"])
+        self.assertIn("so that criterion 4 can be met without calling the API again", text)
+
+    def test_the_writes_that_bypass_the_gate_are_counted(self) -> None:
+        """Codex thread 4217196633: M5 recorded found or none found, so two writes that bypass the gate gave the value
+        of one, while section 10 promises to say how many there were. M5 and M6 are counts."""
+        messungen = _measures(_text())
+        for mid in ("M5", "M6"):
+            with self.subTest(measure=mid):
+                self.assertIn("a count", messungen[mid])
+                self.assertNotIn("found, not measured", messungen[mid])
+        text = " ".join(_text().split())
+        self.assertIn("each is a count, so two writes are recorded as two", text)
+        self.assertIn("the result says how many there were", text)
+
     def test_the_first_example_keeps_what_was_not_measured_apart(self) -> None:
         text = _text()
         beispiel = text[text.index("## 9. First reconciliation example"):text.index("## 10.")]
