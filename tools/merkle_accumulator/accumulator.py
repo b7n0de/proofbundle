@@ -295,11 +295,14 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     # append to this accumulator (Codex thread 4218672721 on pull request 307: tree_size was read after them).
     groesse = accumulator.size
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731 - the encoding emit.py uses
+    # The signer's methods in emit_bundle's order, sign first and the public key after it: a caller's object may
+    # answer by the order it is asked in (Codex thread 4219203464 on pull request 307: public_key came first here).
+    signatur = signer.sign(payload)
     oeffentlich = signer.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     return {
         "schema": SCHEMA,
         "payload_b64": b64(payload),
-        "signature": {"alg": "ed25519", "public_key_b64": b64(oeffentlich), "sig_b64": b64(signer.sign(payload))},
+        "signature": {"alg": "ed25519", "public_key_b64": b64(oeffentlich), "sig_b64": b64(signatur)},
         "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": index, "tree_size": groesse,
                    "inclusion_proof_b64": [b64(p) for p in pfad], "root_b64": b64(wurzel)},
     }

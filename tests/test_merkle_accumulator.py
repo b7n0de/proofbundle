@@ -201,6 +201,32 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                     self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                     self.assertTrue(verify_bundle(neu).ok)
 
+    def test_the_signer_is_asked_in_emit_bundles_order(self) -> None:
+        """Codex thread 4219203464 on pull request 307: emit_bundle signs and then reads the public key, and the
+        accumulator read the key first. A signer whose public_key answers by whether it has signed yet then gave the
+        two paths different keys beside one signature. The order is emit_bundle's, and the bundles are the same."""
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.emit import emit_bundle
+        a = _load()
+
+        class NachDerSignatur:
+            def __init__(self):
+                self.a, self.b, self.signiert = _emitter_key(), _other_key(), False
+
+            def sign(self, data):
+                self.signiert = True
+                return self.a.sign(data)
+
+            def public_key(self):
+                return (self.a if self.signiert else self.b).public_key()
+        for vorher in (0, 3):
+            leaves = [f"event {i}".encode() for i in range(vorher)]
+            alt = emit_bundle(b"payload", NachDerSignatur(), prior_leaves=leaves)
+            neu = a.emit_bundle_incremental(b"payload", NachDerSignatur(), a.MerkleAccumulator.from_leaves(leaves))
+            with self.subTest(history=vorher):
+                self.assertTrue(verify_bundle(alt).ok, "control: emit_bundle's bundle verifies")
+                self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
 class TheRestartRule(unittest.TestCase):
