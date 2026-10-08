@@ -221,8 +221,9 @@ def _aufgeloest(ziel: str) -> str:
     segment that does not begin with `session` (Codex thread 4222922558). Every tab and line break is removed. The
     scheme is read by the parser's rule, not by urlsplit, which refused `http://\\[::1]/ok` before its backslash was a
     slash (Codex thread 4222922549). The authority, the part between `//` and the path, is replaced by one fixed
-    host before urljoin: the path never depends on it, and urlsplit refuses what a browser accepts there, such as a
-    backslash before an IPv6 literal or a `[` in the user name. A host a browser refuses is still read for its path,
+    host: the path never depends on it, and urlsplit refuses what a browser accepts there, such as a backslash before
+    an IPv6 literal or a `[` in the user name. A relative reference is joined to the page's path here, not by urljoin
+    (thread 4224373558). A host a browser refuses is still read for its path,
     which is stricter than the browser and never looser."""
     ziel = re.sub(r"[\t\n\r]", "", ziel.strip(_C0_UND_LEERZEICHEN))
     treffer = _SCHEMA.match(ziel)
@@ -243,11 +244,21 @@ def _aufgeloest(ziel: str) -> str:
     rest = ziel[len(schema) + 1:] if schema else ziel
     if rest.startswith("//"):
         ende = min((i for i in (rest.find(z, 2) for z in "/?#") if i >= 0), default=len(rest))
-        ziel = (schema + ":" if schema else "") + "//host.invalid" + rest[ende:]
-    try:
-        return urllib.parse.urljoin(_BASIS, ziel)
-    except ValueError as exc:  # a form urlsplit refuses and this function does not yet know: unread, never green
-        raise NotMeasurable(f"a link target cannot be resolved ({type(exc).__name__})") from exc
+        rest = "//host.invalid" + rest[ende:]
+        ziel = (schema + ":" if schema else "") + rest
+    if schema and (schema != "https" or rest.startswith("//")):
+        return ziel                       # an absolute address
+    # A reference relative to the page, resolved here and not by urljoin: urljoin drops the empty segments of a path
+    # before it reads `..` and does not read `%2e` as a dot, so `sessions//../x` and `sessions/%2e/../x` came out the
+    # other way round from a browser (Codex thread 4224373558 on pull request 308). The path is only joined here; its
+    # dot segments go in `_ohne_punktsegmente`, as the WHATWG parser removes them.
+    if rest.startswith("//"):
+        return "https:" + rest
+    if rest.startswith("/"):
+        return "https://github.com" + rest
+    if rest[:1] in ("", "?", "#"):
+        return _BASIS + rest
+    return _BASIS.rsplit("/", 1)[0] + "/" + rest
 
 
 #: The special schemes of the WHATWG URL standard; every other scheme without a slash after its colon has an opaque path.
@@ -259,9 +270,9 @@ _PUNKT_PUNKT = re.compile(r"\A(?:\.|%2e){2}\Z", re.IGNORECASE)
 
 def _ohne_punktsegmente(pfad: str) -> list[str]:
     """The segments of a path after its dot segments are removed, as a browser removes them from every URL, an
-    absolute one included: urljoin removes them only from a relative reference (Codex thread 4220250628 on pull
-    request 308, `https://example.org/session_123/..` kept its segment), and the WHATWG parser reads `%2e` as a dot
-    there. A dot segment at the end leaves the path ending in a slash, as the WHATWG parser appends an empty segment
+    absolute one included (Codex thread 4220250628 on pull request 308, `https://example.org/session_123/..` kept its
+    segment), with `%2e` read as a dot and every empty segment kept, as the WHATWG parser reads them; this is the only
+    place they are removed (thread 4224373558). A dot segment at the end leaves the path ending in a slash, as the WHATWG parser appends an empty segment
     there: `/sessions/x/..` resolves to `/sessions/` (Codex thread 4224159495)."""
     aus: list[str] = []
     teile = pfad.split("/")
@@ -288,7 +299,10 @@ def _session_path(adresse: str, *, aus_text: bool) -> bool:
     session_1, where a browser reads a relative path with that segment (Codex thread 4224159486)."""
     if aus_text and "://" not in adresse:
         adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
-    teile = urllib.parse.urlsplit(_aufgeloest(adresse))   # _aufgeloest returns an address urlsplit has read once
+    try:
+        teile = urllib.parse.urlsplit(_aufgeloest(adresse))
+    except ValueError as exc:  # a form urlsplit refuses and the resolver does not yet know: unread, never green
+        raise NotMeasurable(f"a link target cannot be resolved ({type(exc).__name__})") from exc
     # An opaque path, a scheme that is not special with no slash after its colon (`mailto:`, `data:`), keeps its dot
     # segments: a browser removes them only from a hierarchical path (Codex thread 4220777693 on pull request 308).
     undurchsichtig = teile.scheme not in _SPECIAL and not teile.path.startswith("/")

@@ -105,6 +105,8 @@ def _rules(out: str) -> set:
     # Codex thread 4222922558: only C0 controls and the space are trimmed, so the segment begins with the other space
     TEXT + '\n\nSee <a href="&nbsp;session_123">run</a> for it.\n\n' + FOOTER,
     TEXT + '\n\nSee <a href="&#x2003;session_123">run</a> for it.\n\n' + FOOTER,
+    # Codex thread 4224373558: `%2e` is a dot, so the parent segment after it removes the session segment
+    TEXT + "\n\nSee [the note](sessions/%2e/../x) for it.\n\n" + FOOTER,
 ], ids=["body", "footer-only", "trailing-lf", "trailing-crlf", "crlf", "prose-generated-with",
         "prose-sessions-page", "prose-session-id", "prose-generated-by-then-a-link",
         "undefined-shortcut-reference", "undefined-full-reference", "undefined-collapsed-reference",
@@ -113,7 +115,7 @@ def _rules(out: str) -> set:
         "absolute-dot-segment", "absolute-encoded-dot-segment", "text-dot-segment", "text-triple-slash-is-a-host",
         "encoded-backslash-is-data", "encoded-backslash-before-sessions", "http-one-slash-is-a-host",
         "ftp-no-slash-is-a-host", "backslash-before-an-ipv6-host", "bracket-in-the-user-name",
-        "leading-no-break-space", "leading-em-space"])
+        "leading-no-break-space", "leading-em-space", "encoded-dot-then-parent"])
 def test_green_a_milestone_and_the_footer_as_the_last_text(tmp_path, capsys, body):
     code, out = _judge(tmp_path, capsys, body=body)
     assert code == 0, out
@@ -261,6 +263,8 @@ _BEFORE_THE_FOOTER = {
     "session-link-sessions-then-parent": "[run](https://tool.example/sessions/x/..)",
     "session-link-sessions-then-encoded-parent": "[run](https://tool.example/sessions/x/%2e%2e)",
     "session-link-sessions-then-dot": "[run](tool:/sessions/x/.)",
+    # Codex thread 4224373558: an empty segment before a parent segment, as a browser keeps it
+    "session-link-empty-segment-before-parent": "[run](sessions//../x)",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
@@ -294,7 +298,7 @@ def test_red_c_a_link_target_urllib_cannot_resolve_is_not_measurable(tmp_path, c
     uncaught exception (Codex thread 4222922549: exit 1 without a reason)."""
     def refuses(*_args, **_kwargs):
         raise ValueError("Invalid IPv6 URL")
-    monkeypatch.setattr(GATE.urllib.parse, "urljoin", refuses)
+    monkeypatch.setattr(GATE.urllib.parse, "urlsplit", refuses)
     code, out = _judge(tmp_path, capsys, body=TEXT + "\n\nSee [the guide](https://docs.example.org/).\n\n" + FOOTER)
     assert code == 1
     assert _rules(out) == {"(c)"} and "NOT MEASURABLE" in out, out
@@ -355,6 +359,25 @@ def test_every_generated_target_resolves_as_a_browser_resolves_it():
     for t, p in zip(targets, pathnames):
         if p is None:
             GATE._session_path(t, aus_text=False)       # a target the browser refuses is read, never an exception
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="the oracle is the WHATWG URL parser of Node, not installed")
+def test_every_path_of_up_to_four_segments_resolves_as_a_browser_resolves_it():
+    """Codex thread 4224373558: urljoin dropped an empty segment before `..` and did not read `%2e` as a dot, so
+    `sessions//../x` and `sessions/%2e/../x` came out the other way round from a browser. The class is any step that
+    changes the segments of a path before its dot segments are removed, so every path of up to four segments drawn from
+    a session segment, a plain one, an empty one and each spelling of a dot segment is held to the browser, relative to
+    the page and absolute."""
+    teile = ["sessions", "session_1", "x", "", ".", "..", "%2e", "%2E%2e"]
+    pfade = {"/".join(p) for n in range(1, 5) for p in itertools.product(teile, repeat=n)}
+    targets = sorted({v + p for p in pfade for v in ("", "/", "https://h.example/", "tool:/")})
+    done = subprocess.run(["node", "-e", _ORACLE], input=json.dumps(targets), capture_output=True, text=True,
+                          timeout=300, check=True)
+    pathnames = json.loads(done.stdout)
+    assert len(pathnames) == len(targets) > 15000, "control: the oracle answered every generated path"
+    differ = [(t, p) for t, p in zip(targets, pathnames)
+              if p is not None and GATE._session_path(t, aus_text=False) is not _oracle_has_session_segment(p)]
+    assert not differ, differ[:10]
 
 
 def test_red_b_and_c_the_form_a_tool_appends_after_the_footer(tmp_path, capsys):
