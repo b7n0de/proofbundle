@@ -255,8 +255,9 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         object.__setattr__(akku, "_frontier", Fremd(akku.frontier))
         with self.assertRaisesRegex(TypeError, "private fields"):
             a.emit_bundle_incremental(b"payload", echt, akku)
-        # Codex thread 4221630977: the private slots were writable as well. No attribute can be set from outside, a
-        # kept frontier is a tuple, and the kept leaf hashes, the one list left, do not reach the bundle.
+        # Codex thread 4221630977: the private slots were writable as well. No attribute can be set by assignment, and
+        # a kept frontier is a tuple. A leaf hash appended to the kept list from outside leaves more leaf hashes than
+        # leaves, and the emitter refuses the accumulator (thread 4222117574, THE FIELDS ARE CHECKED).
         akku = a.MerkleAccumulator(keep_leaf_hashes=True)
         for blatt in (b"a", b"b", b"c"):
             akku.append(blatt)
@@ -266,9 +267,8 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         gehalten = akku._frontier
         self.assertIs(type(gehalten), tuple)
         akku._leaf_hashes.append(b"\x22" * 32)
-        neu = a.emit_bundle_incremental(b"payload", echt, akku)
-        alt = emit_bundle(b"payload", echt, prior_leaves=[b"a", b"b", b"c"])
-        self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+        with self.assertRaises(a.AccumulatorStateError):
+            a.emit_bundle_incremental(b"payload", echt, akku)
         for vorher in (0, 1, 5):
             leaves = [f"event {i}".encode() for i in range(vorher)]
             neu = a.emit_bundle_incremental(b"payload", echt, a.MerkleAccumulator.from_leaves(leaves))
@@ -276,6 +276,58 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
             with self.subTest(control=vorher):
                 self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                 self.assertTrue(verify_bundle(neu).ok)
+
+    def test_a_field_written_from_outside_is_refused_by_every_operation(self) -> None:
+        """Codex thread 4222117574 on pull request 307: the class's own slot writer could be called from outside, and
+        a size of 5 written into an empty accumulator gave the next emission leaf_index 5 and tree_size 6 with an
+        empty path; object.__setattr__ does the same, for the frontier and the leaf hashes too. Python cannot stop
+        such a write, so every operation checks the fields against each other first. Each field is written here with
+        object.__setattr__, in each way that breaks the fit, and every operation refuses. Leaf hashes that keep their
+        number and lose their values reach only the operations that read them, the later proofs and state, which
+        check them against the frontier."""
+        a = _load()
+        echt = _emitter_key()
+        self.assertFalse(hasattr(a.MerkleAccumulator, "_setze"), "no method writes a field by a caller's name")
+        leer = a.MerkleAccumulator()
+        object.__setattr__(leer, "_size", 5)
+        with self.assertRaises(a.AccumulatorStateError):
+            a.emit_bundle_incremental(b"payload", echt, leer)
+
+        def h(i):
+            return bytes([i]) * 32
+        # (field, value, whether only the operations that read the leaf hashes can see it), on a tree of three leaves
+        faelle = (("_size", 5, False), ("_size", 2, False), ("_size", 4, False), ("_size", -1, False),
+                  ("_size", True, False), ("_frontier", (), False), ("_frontier", ((0, h(1)),), False),
+                  ("_frontier", ((0, h(1)), (1, h(2))), False), ("_frontier", ((1, h(1)), (0, b"short")), False),
+                  ("_frontier", ((1, h(1)), (0, bytearray(h(2)))), False),
+                  ("_frontier", ((True, h(1)), (0, h(2))), False),
+                  ("_frontier", ((1, h(1)), (0, h(2)), (0, h(3))), False),
+                  ("_frontier", [(1, h(1)), (0, h(2))], False),
+                  ("_leaf_hashes", [], False), ("_leaf_hashes", [h(1)] * 4, False),
+                  ("_leaf_hashes", (h(1),) * 3, False),
+                  ("_leaf_hashes", [h(1)] * 3, True), ("_leaf_hashes", [b"short"] * 3, True))
+
+        def operationen(akku):
+            return {"append": lambda: akku.append(b"d"), "root": akku.root, "size": lambda: akku.size,
+                    "frontier": lambda: akku.frontier, "leaf_hashes": lambda: akku.leaf_hashes, "copy": akku.copy,
+                    "state": lambda: akku.state(echt), "inclusion_proof_at": lambda: akku.inclusion_proof_at(0),
+                    "consistency_proof_from": lambda: akku.consistency_proof_from(1),
+                    "emit_bundle_incremental": lambda: a.emit_bundle_incremental(b"payload", echt, akku)}
+        lesen_die_blaetter = {"state", "inclusion_proof_at", "consistency_proof_from"}
+        for name in operationen(a.MerkleAccumulator()):
+            with self.subTest(control=name):
+                operationen(a.MerkleAccumulator.from_leaves([b"a", b"b", b"c"], keep_leaf_hashes=True))[name]()
+        for feld, wert, nur_blaetter in faelle:
+            for name in operationen(a.MerkleAccumulator()):
+                akku = a.MerkleAccumulator.from_leaves([b"a", b"b", b"c"], keep_leaf_hashes=True)
+                # a fresh list each time: an append the operation makes must not reach the next case
+                object.__setattr__(akku, feld, list(wert) if type(wert) is list else wert)
+                with self.subTest(field=feld, value=repr(wert)[:40], operation=name):
+                    if nur_blaetter and name not in lesen_die_blaetter:
+                        operationen(akku)[name]()   # the number fits, and this operation reads no leaf hash
+                    else:
+                        with self.assertRaises((TypeError, a.AccumulatorStateError)):
+                            operationen(akku)[name]()
 
     def test_the_rebuild_reads_the_leaves_as_the_reference_does(self) -> None:
         """Codex thread 4219691080 on pull request 307: from_leaves iterated the caller's list through its own

@@ -48,9 +48,19 @@ subclassed, and emit_bundle_incremental takes only an object of exactly this cla
 subclass to keep; a caller who wants other behaviour wraps an accumulator instead of deriving from it. The same
 holds for one instance: the class has `__slots__` for its three fields and no `__dict__`, so a method cannot be
 assigned on an instance and shadow the class's (Codex thread 4220760321), and the emitter calls the class's append.
-The three fields are private and read through properties that return copies, so a caller cannot put a container of
-its own in their place or change them through what it read (thread 4221180480); the emitter refuses an accumulator
-whose private fields hold another type than the class writes there.
+The three fields are private and read through properties that return copies, so a caller cannot change them through
+what it read (thread 4221180480), and assigning an attribute raises.
+
+THE FIELDS ARE CHECKED, NOT GUARDED. Python lets any code write a slot with `object.__setattr__`, and nothing in a
+class can stop that; a method that did the write for the class was one more way in (Codex thread 4222117574). So the
+class does not rely on the write being stopped. Every operation first checks that the fields fit each other, at no
+hash: the types the class writes, one frontier root of 32 bytes per set bit of the size, and as many kept leaf hashes
+as leaves. The operations that read the kept leaf hashes, the later proofs and `state`, check as well that they
+reproduce the frontier, at O(n) hashes, the order those operations cost anyway. A state that does not fit is refused
+with AccumulatorStateError, never used. What no check can see is a frontier replaced by another one of the same shape,
+with a size and leaf hashes to match: that is the state of another tree, one the caller could equally have built with
+`from_leaves`, and a bundle from it describes that tree. Its root is not signed (see A BATCH ROOT below), and a state
+of it signed with `state` is a statement of the key that signs it.
 
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
 not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
@@ -79,7 +89,8 @@ WHAT_IS_SIGNED = ("one state of an RFC 6962 tree (its size, frontier and root), 
 
 
 class AccumulatorStateError(ValueError):
-    """A persisted state that does not verify. It is refused, never rebuilt."""
+    """A state that does not verify: a persisted one, or the one an accumulator holds after its fields were written
+    from outside the class. It is refused, never rebuilt."""
 
 
 def _leaf(data: bytes) -> bytes:
@@ -96,10 +107,10 @@ class MerkleAccumulator:
 
     # The state and nothing else: no instance dictionary, so no method of the class can be shadowed on an instance.
     # The fields are private and read through properties that hand out copies (Codex thread 4221180480 on pull
-    # request 307). No attribute can be assigned from outside, the private ones included (thread 4221630977): the
-    # class writes its own fields through object.__setattr__. The size is an int and the frontier a tuple, so
-    # neither can be changed through a reference a caller kept; the kept leaf hashes are a list the class appends
-    # to, and they feed only the later proofs, never the bundle.
+    # request 307). Assigning an attribute raises (thread 4221630977), and the class writes its own fields with
+    # object.__setattr__, inline, through no method a caller could call with a name of its choosing (thread
+    # 4222117574). What the class cannot stop, a write with object.__setattr__ from outside, every operation finds
+    # by checking the fields against each other first (THE FIELDS ARE CHECKED in the module docstring).
     __slots__ = ("_size", "_frontier", "_leaf_hashes")
 
     def __init_subclass__(cls, **kwargs) -> None:
@@ -109,38 +120,62 @@ class MerkleAccumulator:
     def __setattr__(self, name, value) -> None:
         raise AttributeError(f"a MerkleAccumulator is read-only from outside; {name} cannot be set")
 
-    def _setze(self, name: str, value) -> None:
-        object.__setattr__(self, name, value)
-
     def __init__(self, keep_leaf_hashes: bool = False) -> None:
-        self._setze("_size", 0)
-        self._setze("_frontier", ())
-        self._setze("_leaf_hashes", [] if keep_leaf_hashes else None)
+        object.__setattr__(self, "_size", 0)
+        object.__setattr__(self, "_frontier", ())
+        object.__setattr__(self, "_leaf_hashes", [] if keep_leaf_hashes else None)
+
+    def _check_fields(self) -> None:
+        """Refuses a state whose fields do not fit each other, at no hash: the types this class writes, one frontier
+        root of 32 bytes per set bit of the size, largest first, and as many kept leaf hashes as leaves."""
+        groesse, front, blaetter = self._size, self._frontier, self._leaf_hashes
+        if not (type(groesse) is int and type(front) is tuple and (blaetter is None or type(blaetter) is list)):
+            raise TypeError("the accumulator's private fields hold another type than this class writes there")
+        erwartet = tuple(i for i in range(groesse.bit_length() - 1, -1, -1) if groesse >> i & 1)
+        if groesse < 0 or tuple(e[0] if type(e) is tuple and len(e) == 2 else None for e in front) != erwartet or any(
+                type(e[0]) is not int or type(e[1]) is not bytes or len(e[1]) != 32 for e in front):
+            raise AccumulatorStateError("the accumulator's frontier is not one 32-byte root per set bit of its size: "
+                                        "its fields were written from outside the class, and it is refused")
+        if blaetter is not None and len(blaetter) != groesse:
+            raise AccumulatorStateError("the accumulator keeps another number of leaf hashes than its size: its "
+                                        "fields were written from outside the class, and it is refused")
+
+    def _check_leaf_hashes(self) -> List[bytes]:
+        """The kept leaf hashes, after the fields fit and the hashes reproduce the frontier, at O(n) hashes."""
+        self._check_fields()
+        if self._leaf_hashes is None:
+            raise ValueError("this accumulator keeps no leaf hashes: only the root and the path of the leaf "
+                             "just appended are available")
+        blaetter = self._leaf_hashes
+        if any(type(h) is not bytes or len(h) != 32 for h in blaetter) or (
+                MerkleAccumulator._frontier_from_leaf_hashes(blaetter) != list(self._frontier)):
+            raise AccumulatorStateError("the accumulator's leaf hashes do not reproduce its frontier: its fields were "
+                                        "written from outside the class, and it is refused")
+        return blaetter
 
     @property
     def size(self) -> int:
+        self._check_fields()
         return self._size
 
     @property
     def frontier(self) -> List[tuple]:
         """A copy: changing it changes nothing here."""
+        self._check_fields()
         return list(self._frontier)
 
     @property
     def leaf_hashes(self) -> Optional[List[bytes]]:
         """A copy, or None when no leaf hashes are kept: changing it changes nothing here."""
+        self._check_fields()
         return None if self._leaf_hashes is None else list(self._leaf_hashes)
 
-    def _eigene_felder(self) -> bool:
-        """Whether the private fields hold what this class puts there: a plain int, a plain tuple and a plain list."""
-        return (type(self._size) is int and type(self._frontier) is tuple
-                and (self._leaf_hashes is None or type(self._leaf_hashes) is list))
-
     def copy(self) -> "MerkleAccumulator":
+        self._check_fields()
         neu = MerkleAccumulator()
-        neu._setze("_size", self._size)
-        neu._setze("_frontier", tuple(self._frontier))
-        neu._setze("_leaf_hashes", None if self._leaf_hashes is None else list(self._leaf_hashes))
+        object.__setattr__(neu, "_size", self._size)
+        object.__setattr__(neu, "_frontier", tuple(self._frontier))
+        object.__setattr__(neu, "_leaf_hashes", None if self._leaf_hashes is None else list(self._leaf_hashes))
         return neu
 
     # -- appending ----------------------------------------------------------------------------------------
@@ -148,6 +183,7 @@ class MerkleAccumulator:
     def append(self, data: bytes) -> tuple:
         """Append one leaf's data. Returns (root, inclusion path of that leaf): what merkle_tree_hash and
         inclusion_proof over the whole list would give."""
+        self._check_fields()
         wert = _leaf(data)
         if self._leaf_hashes is not None:
             self._leaf_hashes.append(wert)
@@ -159,8 +195,8 @@ class MerkleAccumulator:
             wert = _node(links, wert)
             hoehe += 1
         front.append((hoehe, wert))
-        self._setze("_frontier", tuple(front))
-        self._setze("_size", self._size + 1)
+        object.__setattr__(self, "_frontier", tuple(front))
+        object.__setattr__(self, "_size", self._size + 1)
         wurzel = wert
         for _, links in reversed(front[:-1]):
             pfad.append(links)
@@ -168,6 +204,7 @@ class MerkleAccumulator:
         return wurzel, pfad
 
     def root(self) -> bytes:
+        self._check_fields()
         if not self._frontier:
             return hashlib.sha256(b"").digest()   # merkle_tree_hash([]), RFC 6962 MTH of the empty list
         wurzel = self._frontier[-1][1]
@@ -178,10 +215,7 @@ class MerkleAccumulator:
     # -- later proofs, from the kept leaf hashes ------------------------------------------------------------
 
     def _need_leaf_hashes(self) -> List[bytes]:
-        if self._leaf_hashes is None:
-            raise ValueError("this accumulator keeps no leaf hashes: only the root and the path of the leaf "
-                             "just appended are available")
-        return self._leaf_hashes
+        return self._check_leaf_hashes()
 
     def inclusion_proof_at(self, index: int) -> List[bytes]:
         blaetter = self._need_leaf_hashes()
@@ -198,6 +232,11 @@ class MerkleAccumulator:
     # -- persisting ----------------------------------------------------------------------------------------
 
     def _unsigned_state(self) -> dict:
+        # A state is signed only over fields that fit each other, and over leaf hashes that reproduce the frontier.
+        if self._leaf_hashes is None:
+            self._check_fields()
+        else:
+            self._check_leaf_hashes()
         return {"format": STATE_FORMAT, "what_is_signed": WHAT_IS_SIGNED, "tree_size": self._size,
                 "frontier": [{"height": h, "root": r.hex()} for h, r in self._frontier], "root": self.root().hex(),
                 "leaf_hashes_sha256": (hashlib.sha256(b"".join(self._leaf_hashes)).hexdigest()
@@ -250,9 +289,10 @@ class MerkleAccumulator:
         erwartet = [i for i in range(groesse.bit_length() - 1, -1, -1) if groesse >> i & 1]
         if hoehen != erwartet or any(len(r) != 32 for _, r in front):
             raise AccumulatorStateError("the frontier does not have one root per set bit of the size")
-        neu = cls(keep_leaf_hashes=leaf_hashes is not None)
-        neu._setze("_size", groesse)
-        neu._setze("_frontier", tuple(front))
+        # Without leaf hashes first, so the fields fit while the root is checked; checked ones are set at the end.
+        neu = cls()
+        object.__setattr__(neu, "_size", groesse)
+        object.__setattr__(neu, "_frontier", tuple(front))
         # The checks fold with this class's own methods, not with ones a subclass of the caller overrides (the
         # class of Codex thread 4219691072 on pull request 307, swept here): an overridden root or frontier
         # rebuild could answer with the stated values.
@@ -276,7 +316,7 @@ class MerkleAccumulator:
             probe = MerkleAccumulator._frontier_from_leaf_hashes(blaetter)
             if probe != front:
                 raise AccumulatorStateError("the leaf hashes do not reproduce the frontier")
-            neu._setze("_leaf_hashes", blaetter)
+            object.__setattr__(neu, "_leaf_hashes", blaetter)
         return neu
 
     @staticmethod
@@ -348,8 +388,9 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     if type(accumulator) is not MerkleAccumulator:
         raise TypeError("emit_bundle_incremental takes a MerkleAccumulator, not another object with its methods "
                         "(see NO SUBCLASS in the module docstring)")
-    if not accumulator._eigene_felder():
-        raise TypeError("the accumulator's private fields hold another type than this class writes there")
+    # The fields are checked against each other before the size is read (Codex thread 4222117574 on pull request
+    # 307: a size written from outside gave leaf_index 5 and tree_size 6 with an empty path); the append checks again.
+    MerkleAccumulator._check_fields(accumulator)
     if _puffer_von(payload) is not None:
         payload = _puffer_von(payload)
     index = accumulator.size
