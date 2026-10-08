@@ -117,6 +117,15 @@ class ThePilotContract(unittest.TestCase):
         self.assertEqual(re.findall(r"(?<= )([1-9])\. ", nach_der_ueberschrift), ["1", "2", "3", "4", "5"])
         self.assertIn("so that criterion 4 can be met without calling the API again", text)
 
+    def test_an_action_counts_toward_exit_only_with_m1_to_m4_measured(self) -> None:
+        """Codex thread 4217987319: one approved, arrived action per surface with M2, M3 and M4 `not measured`
+        met criterion 1, and criterion 3 let the maintainer accept each such mismatch, so the pilot could end
+        without answering in which form any action arrived."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        self.assertIn("reconciliation is recorded with M1, M2, M3 and M4 each measured: an action with `not measured` "
+                      "or `unknown` in any of them does not count here", kriterien)
+
     def test_the_writes_that_bypass_the_gate_are_counted(self) -> None:
         """Codex thread 4217196633: M5 recorded found or none found, so two writes that bypass the gate gave the value
         of one, while section 10 promises to say how many there were. M5 and M6 are counts."""
