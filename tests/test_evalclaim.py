@@ -55,17 +55,22 @@ class TestEvalClaim(unittest.TestCase):
                           "a claim whose issuer is not the signing key must not decode")
 
     def test_decode_rejects_bad_comparator_and_threshold(self):
-        # release-review CRITICAL: emit_eval_receipt signs a hand-built claim WITHOUT build_eval_claim's checks,
-        # so decode_eval_claim must enforce comparator-enum + decimal-threshold at the verify boundary — else a
-        # downstream value-consistency check silently no-ops on comparator "==" / non-finite threshold "inf".
+        # release-review CRITICAL: decode_eval_claim must enforce comparator-enum + decimal-threshold at
+        # the verify boundary — else a downstream value-consistency check silently no-ops on comparator
+        # "==" / non-finite threshold "inf". The claim is signed with emit_bundle, past the emitter: since
+        # the emitter runs the same claim validation as decode, it refuses these before signing, and
+        # this case is about what the VERIFY boundary does with one that was signed anyway.
+        from proofbundle.emit import emit_bundle
         signer = generate_signer()
         for key, bad in (("comparator", "=="), ("comparator", "~="),
                          ("threshold", "inf"), ("threshold", "nan"), ("threshold", "1e5")):
             claim, _ = _claim(signer)
             claim[key] = bad
-            bundle = emit_eval_receipt(claim, signer)
+            bundle = emit_bundle(canonicalize(claim), signer)
             self.assertTrue(verify_bundle(bundle).ok, f"{key}={bad}: bundle still signs/verifies")
             self.assertIsNone(decode_eval_claim(bundle), f"{key}={bad}: claim must NOT decode")
+            with self.assertRaises(EvalClaimError, msg=f"{key}={bad}: the emitter must not sign it"):
+                emit_eval_receipt(claim, signer)
 
     def test_decode_enforces_required_and_unknown_fields(self):
         # F3 (v1.9.2): the exact key set is a VERIFY-path invariant, not only an emit-side one.

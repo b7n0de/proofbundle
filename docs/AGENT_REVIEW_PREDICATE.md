@@ -311,10 +311,14 @@ What v0.2 adds, each with its conformance case:
   a defect). Without a policy the result carries `policy_decision: null`, the advisory code
   `POLICY_NOT_EVALUATED`, and `automation.safeForAutomation` is false; `ok` is unaffected, because a
   check that was not run is not a failed check. A `reject` or an `insufficient_evidence` sets `ok`
-  to false. The policy file itself is validated before it decides: `blocking`, `never_blocking` and
-  `require_coverage_status` must be lists of known names (a string would be read as characters and
-  match nothing), and a `time` block, if present, must name a known kind. A policy that fails this
-  reaches the result as `POLICY_NOT_EVALUABLE` with `insufficient_evidence`.
+  to false. The policy file itself is validated before it decides: `blocking` and `never_blocking`
+  must each be a list of known code strings or null, and `require_coverage_status` a list of known
+  status strings or null. Null means no rule, as the loader reads it: with `blocking` null no code
+  blocks, with `never_blocking` null no code is exempt, and with `require_coverage_status` null no
+  coverage status is required. A string is refused, because it would be read as characters and match
+  nothing, or turn the coverage membership test into a substring test. A `time` block, if present,
+  must name a known kind. A policy that fails this reaches the result as `POLICY_NOT_EVALUABLE` with
+  `insufficient_evidence`.
 - **Time claims that contradict each other are fatal.** A `CONFLICT` on the event or observation
   axis sets `time_consistency_ok` to false, adds the reason code `TIME_CLAIMS_CONFLICT`, and makes
   `ok` false regardless of any policy: two statements that disagree are a broken claim, not a weak

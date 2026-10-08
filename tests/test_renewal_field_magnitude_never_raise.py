@@ -139,12 +139,16 @@ def test_evaluate_policy_malformed_deprecated_algs_direct():
 
 def test_from_dict_untrusted_policy_json_never_raw_crashes():
     from proofbundle.renewal import RenewalError
-    # strictness giant int -> typed; max_ats_age non-int -> typed; unhashable deprecated_algs -> filtered
+    # strictness giant int -> typed; max_ats_age non-int -> typed; an unhashable deprecated_algs entry -> typed.
+    # The entry was filtered until the cross-check of 2026-09-29: dropping it deprecated nothing, so an entry that
+    # is no text is refused now, typed, still with no raw crash.
     with pytest.raises(RenewalError):
         RenewalPolicy.from_dict({"strictness": 1 << 20000})
     with pytest.raises(RenewalError):
         RenewalPolicy.from_dict({"max_ats_age": "99"})
-    pol = RenewalPolicy.from_dict({"deprecated_algs": [[], "sha1", {}]})   # junk filtered, str kept
+    with pytest.raises(RenewalError):
+        RenewalPolicy.from_dict({"deprecated_algs": [[], "sha1", {}]})
+    pol = RenewalPolicy.from_dict({"deprecated_algs": ["sha1"]})   # control: a list of names loads
     assert pol.deprecated_algs == frozenset({"sha1"})
 
 
