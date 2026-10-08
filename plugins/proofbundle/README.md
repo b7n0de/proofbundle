@@ -137,6 +137,12 @@ pass and a measured inactive; an ask, an unknown state and any error block (exit
 every disallowed transmission cannot be assured from these local levels; it must be enforced on the
 receiving side.
 
+**A push needs the done check at the pushed commit** (owner choice N2 C, D30). Where the pushed commit's
+declaration names a done check, Level 1 under Claude Code and Level 2 run the same check as at the end of a
+session, for the tree the push sends: every receipt must verify under the done policy of that commit, say that
+every test passed, and name that commit and its tree. An uncommitted change does not matter for the push; a
+receipt of a run on uncommitted changes does not pass it. A failed done check denies the push.
+
 **Level 3 is the CI check (D22).** It evaluates the evidence at the pull request's HEAD, off the
 contributor's machine, and can enforce acceptance into a protected branch only with the required checks and
 review settings of D22; it does not check the push range or prevent transmission to an unprotected remote,
@@ -280,7 +286,8 @@ change the digest.
 ## Done only with a receipt (the Stop hook)
 
 A `Stop` hook runs `hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the
-same folder, in Codex (`stop --host codex`). Claude Code also runs the same check as a `TaskCompleted` hook. In a
+same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
+gate"). Claude Code also runs the same check as a `TaskCompleted` hook. In a
 repository whose declaration names a done check, the turn ends, and a task can be marked completed, only when every
 required check has a receipt that
 
@@ -445,8 +452,8 @@ The gate behaves differently under Codex in two ways:
   so it could judge a different repository than the push acts on. **A `git push` under Codex warns with that
   reason and is not denied** (owner choice Karte 5 A with D, 2026-10-08): the boundary is the done check at the
   end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in its
-  own repository where it is installed; how it is installed is still open (D24B), and without it nothing local
-  stops the push. A push with `--no-verify` or a `core.hooksPath` override is still denied, and so are
+  own repository where it is installed, the evidence and the done check at the pushed commit (D30); how it is
+  installed is still open (D24B), and without it nothing local stops the push. A push with `--no-verify` or a `core.hooksPath` override is still denied, and so are
   `gh pr create` and the other gated gh calls, which start no pre-push hook; a gated MCP write is NOT MEASURED
   and denied as well (R6-1). No transcript
   path is built: until Codex binds the effective execution directory and environment of the same call to

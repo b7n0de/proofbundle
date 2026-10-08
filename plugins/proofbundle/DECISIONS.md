@@ -1112,6 +1112,9 @@ Chosen (a prototype, measured in test fixtures only):
   that any recorded value is true.
 - Level 3 (D22, the CI check) stays the enforcement point a maintainer relies on, off the contributor's
   machine. The three levels see different things and are not substitutes for one another.
+- Since owner choice N2 C (2026-10-08) the hook also runs the done check at every pushed commit (D30), and under
+  Codex it carries the push check, where Level 1 only warns (Karte 5 A with D, D12). How it is installed is
+  still the open owner card D24B; nothing here installs it.
 
 Options:
 - A. A pre-push hook prototype, measured in tests, not installed (chosen).
@@ -1202,8 +1205,8 @@ Chosen:
 - The declaration may carry `"done": {"receipt": <path under .proofbundle/>, "policy": <path under
   .proofbundle/>}`, exactly these two keys. The schema string stays `proofbundle-plugin/evidence/v0.2`; the key
   is additive inside the unreleased 0.3.0 (D17, D18). A declaration with a done check and an empty evidence list
-  gates no push: the push answer is NOT MEASURED without a decision (`done_only`), because nothing is declared for
-  it. Measured on 2026-10-08 (at 395f0a87): the push path, `gh pr create`, the pre-push hook, the CI mode and the
+  declares no evidence for a push (`done_only`); since owner choice N2 C the push runs the done check at the
+  pushed commit instead (D30). Measured on 2026-10-08 (at 395f0a87): the push path, `gh pr create`, the pre-push hook, the CI mode and the
   MCP diagnosis read such a committed declaration as an uncommitted one and asked (`declaration_uncommitted`,
   "a declaration exists in the working tree but is not committed"), and the CI mode failed it with exit 1 even
   without `require-declaration`. Repaired: each path reads it as declaring no evidence (`done_only`); the CI mode
@@ -1371,3 +1374,42 @@ Options:
 - C. The receipt itself as a DSSE envelope: no subject, no Statement.
 - D. The package's own `verification-summary/v0.1` predicate: not the draft's mapping, and a predicate type the
   owner did not choose.
+
+## D30. A push requires the done check at the pushed commit (owner choice N2 C, 2026-10-08)
+
+Chosen: a push runs the done check of D26 and D28 at every commit it sends as a tip, the same check as at the end
+of a session, for the tree the push sends.
+- Where: Level 1 under Claude Code (`git push`, and `gh pr create` and `gh release create` as a push of the
+  current branch to its upstream), and Level 2, the pre-push hook (D24). Under Codex Level 1 only warns (D12,
+  Karte 5 A), so Level 2 carries the check there (Karte 5 D).
+- What: the declaration, the done policy and the order are read from the pushed commit; its tree, read from git
+  (`commit_state`), stands in for the working state; the receipts are read from the working tree, where the
+  tests left them. A receipt passes the push only when it verifies under that policy, says that every test
+  passed, was run with the check's selection, names the pushed commit and its tree, and ran on that tree; with
+  `paths`, the pushed tree changes no other path since the commit that set the order.
+- An uncommitted change in the working tree does not matter for the push (it does for the end of a session),
+  and a receipt of a run on uncommitted changes does not pass the push, because the tree it ran on is not the
+  tree the push sends. A push of a commit that is not HEAD names it, and the next step says to check it out
+  before the tests run.
+- A failed done check denies the push before any ask, as a failed evidence check does, and also where the
+  target comparison is NOT MEASURED (a branch the repository does not track, a new remote ref): the pushed
+  commit is still known, so the failure is proven (Befund 1 of review Runde 6). A pass cannot heal an
+  unmeasured comparison. A pushed commit whose declaration has no done check gets none.
+- Evidence and done are both required where both are declared; a push that declares only a done check passes
+  on a passed done check (reason `done`).
+
+Measured (tests/test_plugin_gate_n2c_push_done.py, 2026-10-08): the counter-probes missing (`no_receipt`),
+foreign key and manipulated receipt (`verification_failed`), receipt for an earlier commit (`stale_receipt`) and
+red tests (`not_done`) deny at Level 1 and make the pre-push hook exit 1; a valid receipt passes both. Through git
+itself, with the hook in a throwaway repository's local `core.hooksPath`, a missing or stale receipt keeps the
+remote ref where it was and a valid one moves it.
+
+Not covered, owner card N2C-1: the done section and the done policy are not evidence rules of the push
+comparison (D20). A push whose own commit swaps the done policy to a new key, with a receipt signed by that key,
+passes Level 1 and Level 2 (measured on 2026-10-08). The local test key is readable by the agent anyway (D26); the
+boundary is the CI check with its own key and the review of `.proofbundle/`.
+
+Options:
+- A. Unchanged: a push runs only the evidence check (D20).
+- B. A push additionally verifies a declared bundle item's run record (D23 option C).
+- C. A push requires the done check at the pushed commit (chosen).

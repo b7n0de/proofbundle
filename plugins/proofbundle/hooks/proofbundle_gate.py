@@ -2727,7 +2727,29 @@ def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: fl
                                   f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
                            failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
                            repo=verdict.repo or repo, head=verdict.head or commit)
+    denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
+    if denial is not None:
+        return Verdict("deny", denial.detail.rstrip() + " Separately, the comparison with the target was NOT "
+                              f"MEASURED: {why.rstrip('.')}.", denial.reason_id, evidence=denial.evidence,
+                       failed=denial.failed, next_step=denial.next_step, repo=repo, head=denial.head)
     return None
+
+
+def _push_done(repo: str, sources: list[str], deadline: float) -> tuple[Verdict | None, list[Verdict]]:
+    """Owner choice N2 C (2026-10-08): a push requires the done check at every commit it sends as a tip, the same
+    check as at the end of a session (D26, D28), for the tree the push sends rather than the working state. Returns
+    the first deny, worded for the push, and the passes; a tip whose declaration has no done check adds neither."""
+    passes = []
+    for commit in dict.fromkeys(sources):
+        verdict = done_evaluation(repo, deadline, at_commit=commit)["verdict"]
+        if verdict.decision == "deny":
+            return Verdict("deny", f"proofbundle gate: the push needs the done check at the pushed commit "
+                                   f"{commit[:12]} (owner choice N2 C, DECISIONS.md D26), and it does not pass: "
+                                   f"{verdict.failed.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
+                           failed=verdict.failed, next_step=verdict.next_step, repo=repo, head=commit), passes
+        if verdict.decision == "pass":
+            passes.append(verdict)
+    return None, passes
 
 
 def _unresolved_verdict(repo: str, head: str | None, why: str) -> Verdict:
@@ -3031,6 +3053,13 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
     for commit in order:  # a deny at any sent commit denies the whole push (a valid tip cannot heal it, N3)
         if verdicts[commit].decision == "deny":
             return verdicts[commit]
+    # Owner choice N2 C: the done check at each pushed tip. A failed one denies the push before any ask, as a
+    # failed evidence check does; its passes are named in the push's pass below.
+    done_denial, done_passes = _push_done(repo, [t.source for t in targets if t.source is not None], deadline)
+    if done_denial is not None:
+        return done_denial
+    done_tail = "".join(f" The done check passed at the pushed commit {v.head[:12]}: "
+                        f"{v.detail.removeprefix('proofbundle gate: ')}" for v in done_passes)
     for commit in order:
         if verdicts[commit].decision == "ask":  # an empty declared list at a sent commit
             return verdicts[commit]
@@ -3076,6 +3105,9 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
                     "pre-push hook." if remote_state else
                     "Any comparison would be against this repository's last known state of the target, not a state "
                     "read from the remote (Ebene 2 makes the authoritative comparison).")
+        if done_passes:
+            return Verdict("pass", f"proofbundle gate: this push declares no evidence (at {where_all}), only a done "
+                                   f"check.{done_tail} {compared}", "done", repo=repo, head=head_commit)
         if done_only:
             return Verdict("inactive", f"NOT MEASURED: this push declares no evidence (at {where_all}; {DECLARATION} "
                                        f"at {', '.join(c[:12] for c in done_only)} declares only a done check for the "
@@ -3091,7 +3123,7 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
                if remote_state else
                "the evidence rules match the target's last known state in this repository, which was not read "
                "from the remote."))
-    return Verdict("pass", tip.detail + tail, "verified", digests=tip.digests, repo=repo, head=head_commit)
+    return Verdict("pass", tip.detail + tail + done_tail, "verified", digests=tip.digests, repo=repo, head=head_commit)
 
 
 #: All-zero object names git writes for a missing side of a pre-push ref line (SHA-1 and SHA-256 lengths).
@@ -4112,6 +4144,37 @@ def working_state(repo: str, deadline: float) -> dict:
     return state
 
 
+def commit_state(repo: str, commit: str, deadline: float) -> dict:
+    """The state of a commit itself, in the shape of working_state: its commit and tree id, its tree as the state
+    the receipts must name ("worktree"), and its files as git lists them (path: (mode, blob id)), not as the disk
+    holds them. The done check at a pushed commit uses it (owner choice N2 C): the push sends that commit's tree,
+    whatever the working tree holds. A submodule or another entry that is not a file leaves it unreadable as files,
+    as in working_state."""
+    _refuse_partial_clone(repo, deadline)
+    proc = _git(repo, "rev-parse", "--verify", "-q", f"{commit}^{{tree}}", deadline=deadline)
+    tree = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode != 0 or len(tree) not in _BLOB_HASHES:
+        raise GateError(f"git could not name the tree of {commit[:12]}")
+    state = {"commit": commit, "tree": tree, "worktree": None, "problem": None, "files": None}
+    listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, deadline=deadline)
+    if listing.returncode != 0:
+        raise GateError(f"git could not list the tree of {commit[:12]}")
+    files = {}
+    for record in listing.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, tab, path = record.partition(b"\t")
+        fields = meta.split(b" ")
+        if not tab or len(fields) != 3:
+            raise GateError("git ls-tree gave a line the gate cannot read")
+        if fields[1] != b"blob":
+            state["problem"] = f"the tree holds a {fields[1].decode(errors='replace')} at {path.decode(errors='replace')}"
+            return state
+        files[path] = (fields[0], fields[2].decode("ascii", "replace"))
+    state["worktree"], state["files"] = tree, files
+    return state
+
+
 _THRESHOLD_ONE = re.compile(r"1(?:\.0+)?")
 
 
@@ -4249,14 +4312,17 @@ _OPEN_REASON = {"missing": "no_receipt", "unverified": "verification_failed", "r
 
 
 def done_evaluation(directory: str, deadline: float, receipt_path: str | None = None, environ: dict | None = None,
-                    receipt_dir: str | None = None) -> dict:
+                    receipt_dir: str | None = None, at_commit: str | None = None) -> dict:
     """The done check (D26, D28) with what it found: {"verdict", "done", "repo", "commit", "state", "checks",
     "open", "policy", "base"}. Pass when every check of the done section has a receipt that verifies under the
     declared policy at HEAD, says that every test passed, was run with the check's selection, names HEAD's commit
     and tree and the tree of the working state now, and the working state changes no path the order does not
     allow; inactive (NOT MEASURED, no block) where no done check is declared; deny otherwise, naming the first open
     point and the command that closes it. `receipt_path` (one check) and `receipt_dir` (receipts named <id>.json)
-    override the declared receipts, for the CI check, whose receipts lie outside the checkout."""
+    override the declared receipts, for the CI check, whose receipts lie outside the checkout. `at_commit` is the
+    check at a pushed commit (owner choice N2 C): the declaration, the policy and the order come from that commit,
+    and its tree, read from git, stands in for the working state; the receipts are still read from the working
+    tree. A pushed commit without a declaration or a done check gets no done check (inactive)."""
     environ = os.environ if environ is None else environ
     result = {"verdict": None, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
               "policy": None, "base": None}
@@ -4267,9 +4333,21 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         return result
     repo = os.fsdecode(top.stdout.rstrip(b"\n"))
     head = _git(repo, "rev-parse", "--verify", "-q", "HEAD^{commit}", deadline=deadline)
-    commit = head.stdout.decode("ascii", "replace").strip() if head.returncode == 0 else ""
+    head_commit = head.stdout.decode("ascii", "replace").strip() if head.returncode == 0 else ""
+    commit, where, now = head_commit, "HEAD", "the working state now"
+    if at_commit is not None:
+        pushed = _git(repo, "rev-parse", "--verify", "-q", f"{at_commit}^{{commit}}", deadline=deadline)
+        commit = pushed.stdout.decode("ascii", "replace").strip()
+        if pushed.returncode != 0 or len(commit) not in _BLOB_HASHES:
+            raise GateError(f"git could not name the pushed commit {at_commit[:12]}")
+        where, now = f"the pushed commit {commit[:12]}", "the tree the push sends"
     result.update(repo=repo, commit=commit or None)
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES) if commit else None
+    if raw is None and at_commit is not None:
+        result["verdict"] = Verdict("inactive", f"NOT MEASURED: no declaration at {where} ({DECLARATION} is absent "
+                                                "there); no done check applies to it.", "nothing_declared", repo=repo,
+                                    head=commit)
+        return result
     if raw is None:
         if _absent_in_working_tree(repo):
             result["verdict"] = Verdict("inactive", f"NOT MEASURED: no declaration ({DECLARATION} is absent at HEAD "
@@ -4283,7 +4361,7 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         return result
     done = parse_done(raw)
     if done is None:
-        result["verdict"] = Verdict("inactive", f"NOT MEASURED: {DECLARATION} at HEAD declares no done check.",
+        result["verdict"] = Verdict("inactive", f"NOT MEASURED: {DECLARATION} at {where} declares no done check.",
                                     "no_done_check", repo=repo, head=commit)
         return result
     result["done"] = done
@@ -4292,9 +4370,9 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         raise GateError(f"the done check declares {len(checks)} checks; name a folder of receipts with --receipt-dir")
     policy = _blob(repo, commit, done["policy"], deadline, MAX_DECLARATION_BYTES)
     if policy is None:
-        result["verdict"] = Verdict("deny", f"proofbundle gate: the done policy {done['policy']} is missing at HEAD.",
+        result["verdict"] = Verdict("deny", f"proofbundle gate: the done policy {done['policy']} is missing at {where}.",
                                     "missing_file", evidence=f"the done policy {done['policy']}",
-                                    failed="the policy is missing at HEAD",
+                                    failed=f"the policy is missing at {where}",
                                     next_step=f"commit the policy {done['policy']} that pins your test key",
                                     repo=repo, head=commit)
         return result
@@ -4308,8 +4386,11 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
             location = os.path.join(receipt_dir, check["id"] + ".json")
         else:
             location = os.path.join(repo, *check["receipt"].split("/"))
+        command = check_command(check, environ)
+        if at_commit is not None and commit != head_commit:  # the receipt must name the pushed commit's tree
+            command = f"git checkout {commit[:12]} && {command}"
         row = {"id": check["id"], "receipt": check["receipt"], "location": location, "status": None, "failed": "",
-               "command": check_command(check, environ), "content": None, "payload": None}
+               "command": command, "content": None, "payload": None}
         try:
             row["content"] = _receipt_bytes(location)
         except GateError as exc:
@@ -4360,11 +4441,11 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
             row.update(status="no_state", failed="the receipt names no git state the tests ran on")
             continue
         if state is None:
-            state = working_state(repo, deadline)
+            state = working_state(repo, deadline) if at_commit is None else commit_state(repo, commit, deadline)
             result["state"] = state
             if state["worktree"] is None:
                 result["checks"] = rows
-                result["verdict"] = Verdict("deny", f"NOT MEASURED: the working state cannot be read as files: "
+                result["verdict"] = Verdict("deny", f"NOT MEASURED: {now} cannot be read as files: "
                                                     f"{state['problem']}.", "state_not_measured",
                                             evidence="the working tree", failed=state["problem"],
                                             next_step="remove the cause named here, then run the tests with a "
@@ -4373,11 +4454,11 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         named = (provenance.get("git_hash"), provenance.get("git_tree"))
         if named != (state["commit"], state["tree"]):
             row.update(status="stale", failed=f"the receipt names commit {str(named[0])[:12]} with tree "
-                                              f"{str(named[1])[:12]}, and HEAD is commit {state['commit'][:12]} with "
-                                              f"tree {state['tree'][:12]}")
+                                              f"{str(named[1])[:12]}, and {where.removesuffix(' ' + commit[:12])} is "
+                                              f"commit {state['commit'][:12]} with tree {state['tree'][:12]}")
             continue
         if tested != state["worktree"]:
-            row.update(status="stale", failed=f"the tests ran on tree {tested[:12]}, and the working state now is "
+            row.update(status="stale", failed=f"the tests ran on tree {tested[:12]}, and {now} is "
                                               f"tree {state['worktree'][:12]}")
             continue
         row.update(status="green", tested=tested, tests=claim["n"])
@@ -4386,7 +4467,8 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
                "receipt": row["receipt"]} for row in rows if row["status"] != "green"]
     if not opened and done["paths"] is not None:
         if state is None:
-            state = result["state"] = working_state(repo, deadline)
+            state = result["state"] = (working_state(repo, deadline) if at_commit is None
+                                       else commit_state(repo, commit, deadline))
         base, changed = changed_paths(repo, commit, state["files"], deadline)
         result["base"] = base
         outside = [p for p in changed if not any(fnmatch.fnmatchcase(p, pattern) for pattern in done["paths"])]
@@ -4415,8 +4497,8 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
     result["verdict"] = Verdict(
         "pass", f"proofbundle gate: done. {len(rows)} {'check' if len(rows) == 1 else 'checks'} ({names}): every "
                 f"receipt verifies under {done['policy']}, says every one of its tests passed with exit status 0, was "
-                f"run with the check's selection, and names commit {commit[:12]} and tree {tested}, the working state "
-                f"now ({'clean' if tested == state['tree'] else 'with uncommitted changes'})"
+                f"run with the check's selection, and names commit {commit[:12]} and tree {tested}, {now}"
+                + ("" if at_commit is not None else f" ({'clean' if tested == state['tree'] else 'with uncommitted changes'})")
                 + (f"; no path outside the order changed since {result['base'][:12]}" if result["base"] else "")
                 + ". This proves who signed the receipts and which tree they name, not that the tests test anything.",
         "done", repo=repo, head=commit)
