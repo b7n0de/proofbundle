@@ -99,10 +99,18 @@ class TestTheVerifyBoundaryTypesWhatItDecodes(unittest.TestCase):
     """A-15 — `passed`, `n` and `metric` are the three fields every consumer reads."""
 
     def _signed_with(self, field, value):
+        """A correctly signed bundle carrying the wrong-typed field, signed PAST the emitter.
+
+        The emitter runs the same claim validation as decode since the follow-up to R-B1, so it
+        refuses every value these cases use before signing; that refusal is asserted here, once per
+        value, and the bundle for the verify-boundary question is then signed with `emit_bundle`.
+        """
         signer = Ed25519PrivateKey.generate()
         claim = dict(_valid_claim(signer))
         claim[field] = value
-        return emit_eval_receipt(claim, signer)
+        with self.assertRaises(EvalClaimError):
+            emit_eval_receipt(claim, signer)
+        return emit_bundle(json.dumps(claim).encode(), signer)
 
     def test_control_the_unmodified_claim_is_accepted(self):
         signer = generate_signer()
@@ -209,10 +217,14 @@ class TestTheHubEntryVerifierIsStoppedByTheSameBoundary(unittest.TestCase):
     """
 
     def _entry(self, claim, signer, value):
-        """A hand-built Hub entry around a CORRECTLY signed receipt: only the claim is wrong-typed."""
+        """A hand-built Hub entry around a CORRECTLY signed receipt: only the claim is wrong-typed.
+
+        Signed with `emit_bundle`, because a third party's receipt is not produced by our emitter,
+        and because our emitter now refuses the wrong-typed claims these cases carry.
+        """
         return {"dataset": {"id": "acme/dataset-y", "task_id": "refusal"},
                 "value": value,
-                "verifyToken": receipt_token(emit_eval_receipt(claim, signer))}
+                "verifyToken": receipt_token(emit_bundle(json.dumps(claim).encode(), signer))}
 
     def test_control_an_honest_entry_still_verifies(self):
         # Without this the rejection below would prove nothing: a harness that rejects everything

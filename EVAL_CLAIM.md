@@ -114,6 +114,10 @@ enforced on the emit path:
 - integers limited to the IEEE-754 safe range (`2^53-1`);
 - compact separators, UTF-8.
 
+The integer range is also part of the claim rule, so it holds at the verify boundary too:
+`decode_eval_claim` refuses an integer beyond `±(2^53-1)` anywhere in the claim (6.2.0). NFC
+strings and the float ban stay emit-only, for the reason given below.
+
 A real RFC 8785 library is used **only on the emit path**. The **verify path never
 canonicalizes** — `decode_eval_claim` checks the exact stored bytes that
 `verify_bundle` already authenticated — so the verifier stays dependency-free

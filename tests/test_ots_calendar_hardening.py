@@ -343,7 +343,9 @@ class TestAnchorCliContract(unittest.TestCase):
         out = str(Path(self.dir) / "pack.json")
         _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
               "--out", out])
-        rc, txt = _run(["anchor", "verify-pack", out, "--bitcoin-header", f"{self.height}:{self.mr}"])
+        # Nachtrag 32: verify-pack now binds the timestamp to the target; the genuine pack's root is the fixture.
+        rc, txt = _run(["anchor", "verify-pack", out, "--target-file", self.synth_target,
+                        "--bitcoin-header", f"{self.height}:{self.mr}"])
         self.assertEqual(rc, 0, txt)
         self.assertIn("CONFIRMED", txt)
 
@@ -351,14 +353,15 @@ class TestAnchorCliContract(unittest.TestCase):
         out = str(Path(self.dir) / "pack.json")
         _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
               "--out", out])
-        rc, txt = _run(["anchor", "verify-pack", out])
+        rc, txt = _run(["anchor", "verify-pack", out, "--target-file", self.synth_target])
         self.assertEqual(rc, 3, txt)   # honest not-pass: relying-party header missing
 
     def test_verify_pack_wrong_header_exit1(self):
         out = str(Path(self.dir) / "pack.json")
         _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
               "--out", out])
-        rc, txt = _run(["anchor", "verify-pack", out, "--bitcoin-header", f"{self.height}:{'00' * 32}"])
+        rc, txt = _run(["anchor", "verify-pack", out, "--target-file", self.synth_target,
+                        "--bitcoin-header", f"{self.height}:{'00' * 32}"])
         self.assertEqual(rc, 1, txt)   # present-and-wrong is a hard fail, never silent
 
     def test_verify_pack_malformed_input_exit2(self):
@@ -382,8 +385,8 @@ class TestAnchorCliContract(unittest.TestCase):
         pack["provenCalendarOperators"] = ["evil-a.example", "evil-b.example", "evil-c.example"]
         pack["selfContained"] = False   # tampered — the real upgraded proof IS self-contained
         Path(out).write_text(json.dumps(pack))
-        rc, txt = _run(["anchor", "verify-pack", out, "--bitcoin-header", f"{self.height}:{self.mr}",
-                        "--json"])
+        rc, txt = _run(["anchor", "verify-pack", out, "--target-file", self.synth_target,
+                        "--bitcoin-header", f"{self.height}:{self.mr}", "--json"])
         self.assertEqual(rc, 0, txt)   # still confirms against the relying-party header
         report = json.loads(txt)
         self.assertEqual(report["operatorRedundancy"], 0, "must recompute from proof, not echo JSON")
@@ -447,7 +450,12 @@ class TestAnchorCliContract(unittest.TestCase):
         # FIX1 red-test: the self-fabricated Null-Op pack must NOT confirm, even with the matching header a
         # producer supplies. Previously this returned ok:true / CONFIRMED / exit 0.
         pack = self._write_null_op_attack_pack()
-        rc, txt = _run(["anchor", "verify-pack", pack, "--bitcoin-header", f"400000:{'aa' * 32}", "--json"])
+        # Nachtrag 32: bind to the pack's own (attacker-chosen) root so the target check passes and the OTS
+        # null-op detection below is what refuses the pack, not the new binding gate.
+        import base64  # noqa: PLC0415
+        expected = base64.b64encode(bytes.fromhex("aa" * 32)).decode()
+        rc, txt = _run(["anchor", "verify-pack", pack, "--expected-root", expected,
+                        "--bitcoin-header", f"400000:{'aa' * 32}", "--json"])
         self.assertNotEqual(rc, 0, txt)                        # never exit 0 / CONFIRMED
         report = json.loads(txt)
         self.assertIs(report["ok"], False)
@@ -459,7 +467,8 @@ class TestAnchorCliContract(unittest.TestCase):
         out = str(Path(self.dir) / "genuine.json")
         _run(["anchor", "upgrade", "--proof", self.synth_proof, "--target-file", self.synth_target,
               "--out", out])
-        rc, txt = _run(["anchor", "verify-pack", out, "--bitcoin-header", f"{self.height}:{self.mr}"])
+        rc, txt = _run(["anchor", "verify-pack", out, "--target-file", self.synth_target,
+                        "--bitcoin-header", f"{self.height}:{self.mr}"])
         self.assertEqual(rc, 0, txt)
         self.assertIn("CONFIRMED", txt)
 
@@ -523,7 +532,10 @@ class TestVerifyPackNeverMirrorsHandEditedTrustFields(unittest.TestCase):
         d = tempfile.mkdtemp()
         pk = Path(d) / "pack.json"
         pk.write_text(json.dumps(pack), encoding="utf-8")
-        ns = argparse.Namespace(pack=str(pk), bitcoin_header=None, json=True)
+        # Nachtrag 32: verify-pack binds the timestamp to a target; bind to the pack's own canonicalRoot so the
+        # binding passes and the trust-field recompute path below is still what the test exercises.
+        ns = argparse.Namespace(pack=str(pk), bitcoin_header=None, json=True,
+                                target_file=None, expected_root=pack.get("canonicalRoot"))
         buf = io.StringIO()
         with redirect_stdout(buf):
             cli._cmd_anchor_verify_pack(ns)
@@ -533,7 +545,9 @@ class TestVerifyPackNeverMirrorsHandEditedTrustFields(unittest.TestCase):
         # A pack claiming declaredCalendarsVerified:true + operatorRedundancy:3 + fabricated provenCalendars
         # must NOT be echoed: declaredCalendarsVerified is forced False and the calendar figures recompute
         # to zeros from the (bogus) proof bytes — the report reflects the proof, never the JSON's claims.
+        import base64  # noqa: PLC0415
         out = self._run({"type": "opentimestamps-evidence-pack", "proof": "AAAA",
+                         "canonicalRoot": base64.b64encode(b"\x11" * 32).decode(),
                          "declaredCalendars": ["https://evil.example"], "declaredCalendarsVerified": True,
                          "operatorRedundancy": 3, "provenCalendars": ["fabricated"],
                          "provenCalendarOperators": ["evil"], "selfContained": True})

@@ -22,13 +22,16 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .budget import DEFAULT_BUDGET
+from .canonical import _ein_stand, _folge_von, _ganzzahl_von, _puffer_von, _zeichen_von
 from .errors import BundleFormatError, UnsupportedError
-from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
+from ._plain_value import plain_int
+from .signature import (TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes, plain_text,
+                        verify_ed25519_pinned)
 # NUR der C2SP-Decoder: jedes base64-Feld dieses Moduls ist ein C2SP-Note-Feld (Wurzel,
 # Signaturzeile, vkey-Schluesselmaterial), und fuer die gilt die dokumentierte Ausnahme zur
 # Ein-Drahtform-Regel. Der strikte `decode_b64` wird hier bewusst NICHT importiert, damit ein
@@ -71,6 +74,7 @@ _MLDSA44_SIG_LEN = 2420             # FIPS 204 ML-DSA-44 signature bytes
 _MLDSA_LABEL = b"subtree/v1\n\x00"  # cosigned_message.label[12] — fixed 12 bytes
 
 
+@_ein_stand
 def expected_origin_wellformed(expected_origin: "str | None") -> "bool | None":
     """Ist der vom AUFRUFER gepinnte Origin nach derselben Regel wohlgeformt wie der des Logs?
 
@@ -96,12 +100,27 @@ def expected_origin_wellformed(expected_origin: "str | None") -> "bool | None":
     """
     if expected_origin is None:
         return None
-    return isinstance(expected_origin, str) and _origin_wellformed(expected_origin)
+    text = _zeichen_von(expected_origin)   # by its characters (round 12), as the compare reads it
+    return text is not None and _origin_wellformed(text)
 
 
 def _root_std_b64(root: bytes) -> str:
     """Standard RFC 4648 §4 base64 (with padding) of the raw Merkle root — NOT base64url."""
     return base64.b64encode(root).decode("ascii")
+
+
+def _text_of(value, what: str) -> str:
+    """A caller's identifier as the characters it holds, or BundleFormatError (round 12).
+
+    The emit side of this module checks an origin, a key name or a witness name with one set of
+    methods and writes it with another (an f-string calls the value's own ``__format__``, a key ID
+    its own ``encode``). A ``str`` subclass could therefore pass the printable-ASCII rule with one
+    text and put another into the signed note or the key ID. Read by `canonical._zeichen_von`, the
+    rule and the bytes see the same characters, and no code of the caller runs."""
+    text = _zeichen_von(value)
+    if text is None:
+        raise BundleFormatError(f"{what} must be a string")
+    return text
 
 
 def _origin_wellformed(origin: str) -> bool:
@@ -141,16 +160,56 @@ def _witness_name_wellformed(name: str) -> bool:
             and name.isascii() and name.isprintable())
 
 
+def _text_once(value, refusal: str) -> str:
+    """A name, an origin or a note given by the caller, read ONCE from its own storage
+    (`signature.plain_text`), or `BundleFormatError(refusal)` for a value that is not text.
+
+    EVERY PRODUCER OF THIS MODULE THAT CHECKS A NAME, AN ORIGIN OR A NOTE AND THEN WRITES IT READS IT
+    HERE FIRST, and the check, the key ID and the written text use only what this returns (lens run 8
+    at fddc00f4, finding A). The name check read the stored text, the key ID `keyname.encode()` and the
+    output `f"{keyname}+…"`, the caller's `__format__`: a `str` subclass whose storage is `log` and
+    whose `__format__` answers a whole vkey line for the identity point followed by a newline got that
+    line written in front of the real vkey, and v6.0.0 and v6.1.0 parse it and verify a checkpoint
+    signed by nobody under it. The same split stood at the origin of `checkpoint_note` and
+    `sign_checkpoint`, the keyname of `sign_checkpoint`, the witness names of `cosign_vkey`,
+    `cosign_vkey_mldsa`, `cosign_checkpoint` and `cosign_checkpoint_mldsa`, and the signed note both
+    cosign steps check and then extend."""
+    text = plain_text(value)
+    if text is None:
+        raise BundleFormatError(refusal)
+    return text
+
+
+def _int_once(value, refusal: str) -> int:
+    """An integer given by the caller as an exact `int` (`_plain_value.plain_int`), or
+    `BundleFormatError(refusal)`. A subclass of `int` is refused: its comparison, its `to_bytes` and its
+    `__format__` are the caller's methods, and the tree size and the cosignature timestamp were checked
+    through one of them and written through another."""
+    number = plain_int(value)
+    if number is None:
+        raise BundleFormatError(refusal)
+    return number
+
+
+@_ein_stand
 def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     """Build the C2SP checkpoint note text (3 lines + trailing newline). ``root`` is the raw RFC 6962
-    Merkle root bytes at ``tree_size``. ``origin`` must be non-empty with no spaces/'+' (a schemeless URL)."""
+    Merkle root bytes at ``tree_size``. ``origin`` must be non-empty with no spaces/'+' (a schemeless URL).
+    Each argument is read once (`_text_once`, `_int_once`, the stored bytes of the root), and the check
+    and the note use that value."""
+    # Each input by what it holds (round 12): the rule below and the text written read the same
+    # characters, the same integer and the same bytes.
+    origin = _text_once(origin, "checkpoint origin must be a printable-ASCII schemeless id without "
+                                "edge/double spaces, invisible characters, or '+'")
     if not _origin_wellformed(origin):
         raise BundleFormatError("checkpoint origin must be a printable-ASCII schemeless id without "
                                 "edge/double spaces, invisible characters, or '+'")
-    if isinstance(tree_size, bool) or not isinstance(tree_size, int) or tree_size < 0:
+    tree_size = _int_once(tree_size, "checkpoint tree_size must be a non-negative integer")
+    if tree_size < 0:
         raise BundleFormatError("checkpoint tree_size must be a non-negative integer")
-    if not isinstance(root, bytes):    # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
+    if not issubclass(type(root), bytes):  # iter5 never-raise: a non-bytes root raised raw TypeError from b64encode
         raise BundleFormatError("checkpoint root must be raw bytes")
+    root = bytes.__getitem__(root, slice(None))    # the stored bytes, read once
     # DER EMITTER DARF NICHTS BAUEN, WAS SEIN EIGENER VERIFIZIERER MALFORMED NENNT (2026-08-18, beim
     # Nachmessen des Befunds PB-CHECKPOINT-CONSTRUCTOR-TYPEERROR-01 gefunden — dessen eigener Kern war
     # laengst geschlossen, DIESER Nachbar nicht). `b""` ist bytes und lief durch, `base64.b64encode(b"")`
@@ -171,35 +230,74 @@ def checkpoint_note(origin: str, tree_size: int, root: bytes) -> str:
     return f"{origin}\n{tree_size}\n{_root_std_b64(root)}\n"
 
 
+def _key_bytes(pubkey, refusal: str) -> bytes:
+    """A caller's public key as exact bytes, read ONCE from its own storage (`signature.plain_bytes`),
+    or `BundleFormatError(refusal)`. Every producer of this module that checks a key and then hashes
+    or writes it reads the key here first and uses only what this returns (lens run 7 at 75c3aa48,
+    F1): the length came from the caller's `__len__`, the rule from its `__bytes__`, and the key ID
+    and the vkey from its buffer or its `__radd__`, so a `bytes` subclass whose `__bytes__` names a
+    real key while its own bytes are the identity point got a vkey for the identity point. `bytes`
+    and `bytearray` are read; a value of any other type is refused."""
+    roh = plain_bytes(pubkey)
+    if roh is None:
+        raise BundleFormatError(refusal)
+    return roh
+
+
+@_ein_stand
 def key_id(keyname: str, pubkey: bytes) -> bytes:
     """C2SP note key ID = first 4 bytes of SHA-256(keyname ‖ 0x0A ‖ 0x01 ‖ 32-byte-Ed25519-pubkey)."""
-    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
+    roh = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    if len(roh) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
+    keyname = _zeichen_von(keyname)   # its characters, not its own `encode` (round 12)
     # DEEP-GATE re-gate F-8/F-10: the log key name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
     # out of this public helper, and a zero-width/invisible name would substitute for a real one.
     # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
-    if not _witness_name_wellformed(keyname):
+    # The name is read once (`_text_once`, finding A of lens run 8): the rule and the hash see one text.
+    name = _text_once(keyname, "key name must be a printable-ASCII identity without spaces or invisible characters")
+    if not _witness_name_wellformed(name):
         raise BundleFormatError("key name must be a printable-ASCII identity without spaces or invisible characters")
-    h = hashlib.sha256(keyname.encode("utf-8") + b"\n" + bytes([_ED25519_SIG_TYPE]) + pubkey).digest()
+    h = hashlib.sha256(name.encode("utf-8") + b"\n" + bytes([_ED25519_SIG_TYPE]) + roh).digest()
     return h[:4]
 
 
+@_ein_stand
 def vkey(keyname: str, pubkey: bytes) -> str:
-    """C2SP verifier key encoding: name + '+' + hex8(keyID) + '+' + base64(0x01 ‖ pubkey)."""
-    kid = key_id(keyname, pubkey)
+    """C2SP verifier key encoding: name + '+' + hex8(keyID) + '+' + base64(0x01 ‖ pubkey).
+
+    A VKEY IS A KEY A VERIFIER WILL TRUST, so it is written only for a key the trust-anchor rule
+    accepts, with the refusal every verifier of a vkey gives (`_refuse_weak_ed25519_vkey`). The
+    parser refused a low-order or non-canonical key since deep gate Z195, while this producer checked
+    only the length and wrote such a key into a vkey: an anchor the tool issued and its own verifier
+    refuses. Measured at a4e2fa5c and at the tags v6.0.0 and v6.1.0 for all 13 weak encodings of the
+    contract; at the two tags the parser did not refuse them either. The key is read once
+    (`_key_bytes`), and the key ID, the rule and the key material all use that one value."""
+    schluessel = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    # THE NAME IS READ ONCE TOO (finding A of lens run 8): the key ID hashed one reading of it and the
+    # line below wrote another, the caller's `__format__`, which could put a whole second vkey line
+    # for the identity point in front of this one.
+    name = _text_once(keyname, "key name must be a printable-ASCII identity without spaces or invisible characters")
+    kid = key_id(name, schluessel)
+    _refuse_weak_ed25519_vkey(schluessel, "vkey")
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
-    keymat = base64.b64encode(bytes([_ED25519_SIG_TYPE]) + pubkey).decode("ascii")
-    return f"{keyname}+{kid_hex}+{keymat}"
+    keymat = base64.b64encode(bytes([_ED25519_SIG_TYPE]) + schluessel).decode("ascii")
+    return f"{name}+{kid_hex}+{keymat}"
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: str) -> str:
     """Produce a signed C2SP checkpoint note. ``signer`` is an Ed25519 private key whose public key must
     correspond to ``keyname``. The signature is over the RAW note-text bytes (including the trailing
     newline), never over base64 and never PAE-wrapped."""
+    # Read once (finding A of lens run 8); `checkpoint_note` reads the origin, the size and the root.
+    keyname = _text_once(keyname, "checkpoint keyname must be a printable-ASCII identity "
+                                  "without spaces, invisible characters, or '+'")
     if not _witness_name_wellformed(keyname):
         raise BundleFormatError("checkpoint keyname must be a printable-ASCII identity "
                                 "without spaces, invisible characters, or '+'")
+    keyname = _text_of(keyname, "checkpoint keyname")
     note = checkpoint_note(origin, tree_size, root)
     pubkey = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     sig = signer.sign(note.encode("utf-8"))
@@ -232,7 +330,10 @@ def _parse_vkey(vkey_str: str, sig_type: int = _ED25519_SIG_TYPE) -> tuple[str, 
     # RE-GATE never-raise consistency: a non-str vkey (None/int/list from a caller/config) is a typed
     # BundleFormatError, never a raw AttributeError from `.split` — this parse helper raises BundleFormatError
     # for every other malformed vkey, so a wrong-type vkey joins that contract instead of an untyped crash.
-    if not isinstance(vkey_str, str):
+    # By its characters (round 12): a `str` subclass's own `split` would otherwise decide which key
+    # material and which key ID the verifier trusts.
+    vkey_str = _zeichen_von(vkey_str)
+    if vkey_str is None:
         raise BundleFormatError("vkey must be a string (name+hexKeyID+base64KeyMaterial)")
     # The key material is standard base64, which can itself contain '+'. Since the name has no '+' (a
     # schemeless origin) and the hex keyID has none, the FIRST TWO '+' are the separators and everything
@@ -349,7 +450,15 @@ def _split_signed_note(signed_note: str, what: str = "signed note", *,
     dekodiert (c). Damit gilt die Zusage von ``_cap_signature_lines`` ("refused before any signature is
     decoded or verified") strikt FRUEHER als vorher, nicht schwaecher.
     """
-    if not isinstance(signed_note, str):
+    # ONE READING BY ITS CHARACTERS (round 12, lens run 11 F3, P0). At cd5d39f4 the note text was
+    # the caller's own slice (`signed_note[:split+1]`), so a `str` subclass decided what the text
+    # was: `verify_checkpoint` checked the signature over its `encode()` and parsed the fields from its
+    # characters, and returned ok=True with tree size 999 for a note signed with tree size 5. The note
+    # is read here once, as `str.__str__` gives its characters, and every surface of this module (and
+    # tlogproof, rootcommit, public_transparency) frames that plain copy; no method of the caller's
+    # object runs.
+    signed_note = _zeichen_von(signed_note)
+    if signed_note is None:
         raise BundleFormatError(f"{what} must be a string (non-str is malformed, fail-closed)")
     # (0) UTF-8 + Steuerzeichen, wie note.Open sie ueber die GANZE Nachricht prueft. Ohne diese Regel
     #     bleibt genau eine Ecke der Klasse offen: eine zusaetzliche, sonst wohlgeformte Signaturzeile
@@ -451,6 +560,7 @@ def _cap_signature_lines(sig_block: str, what: str) -> None:
             "— refused before any signature is decoded or verified (DoS guard, cap before work)")
 
 
+@_ein_stand
 def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
     """Verify a signed C2SP checkpoint against a vkey. Returns {ok, origin, tree_size, root}. ``ok`` is
     True iff a signature line whose keyID matches the vkey verifies (Ed25519) over the exact note-text
@@ -536,6 +646,7 @@ def verify_checkpoint(signed_note: str, vkey_str: str) -> dict:
             "signer_present": signer_present}
 
 
+@_ein_stand
 def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
     """Decode a bundle's standard-base64 Merkle root to raw bytes (for feeding into checkpoint_note)."""
     try:
@@ -563,27 +674,39 @@ def root_bytes_from_b64(root_b64: str) -> Optional[bytes]:
 # ---------------------------------------------------------------------------
 
 
+@_ein_stand
 def cosign_key_id(witness_name: str, pubkey: bytes) -> bytes:
     """Cosignature/v1 key ID = SHA-256(name ‖ 0x0A ‖ 0x04 ‖ 32-byte-Ed25519-pubkey)[:4]."""
-    if not isinstance(pubkey, bytes) or len(pubkey) != 32:
+    roh = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    if len(roh) != 32:
         raise BundleFormatError("Ed25519 public key must be 32 raw bytes")
+    witness_name = _zeichen_von(witness_name)   # its characters, not its own `encode` (round 12)
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
     # out of this public helper, and a zero-width/invisible name would substitute for a real one.
     # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
-    if not _witness_name_wellformed(witness_name):
+    name = _text_once(witness_name, "witness name must be a printable-ASCII identity without spaces or "
+                                    "invisible characters")
+    if not _witness_name_wellformed(name):
         raise BundleFormatError("witness name must be a printable-ASCII identity without spaces or invisible characters")
-    h = hashlib.sha256(witness_name.encode("utf-8") + b"\n"
-                       + bytes([_COSIG_V1_SIG_TYPE]) + pubkey).digest()
+    h = hashlib.sha256(name.encode("utf-8") + b"\n"
+                       + bytes([_COSIG_V1_SIG_TYPE]) + roh).digest()
     return h[:4]
 
 
+@_ein_stand
 def cosign_vkey(witness_name: str, pubkey: bytes) -> str:
-    """Witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x04 ‖ pubkey)."""
-    kid = cosign_key_id(witness_name, pubkey)
+    """Witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x04 ‖ pubkey). Written only for a
+    key the trust-anchor rule accepts, with the refusal the witness-vkey parser gives (see `vkey`),
+    and the key is read once (`_key_bytes`)."""
+    schluessel = _key_bytes(pubkey, "Ed25519 public key must be 32 raw bytes")
+    name = _text_once(witness_name, "witness name must be a printable-ASCII identity without spaces or "
+                                    "invisible characters")
+    kid = cosign_key_id(name, schluessel)
+    _refuse_weak_ed25519_vkey(schluessel, "witness vkey")
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
-    keymat = base64.b64encode(bytes([_COSIG_V1_SIG_TYPE]) + pubkey).decode("ascii")
-    return f"{witness_name}+{kid_hex}+{keymat}"
+    keymat = base64.b64encode(bytes([_COSIG_V1_SIG_TYPE]) + schluessel).decode("ascii")
+    return f"{name}+{kid_hex}+{keymat}"
 
 
 def _note_body_and_sigs(signed_note: str, *,
@@ -645,6 +768,7 @@ def _cosigned_message(note_text: str, timestamp: int) -> bytes:
     return (_COSIG_V1_PREFIX + f"time {timestamp}\n" + note_text).encode("utf-8")
 
 
+@_ein_stand(aussen={"witness_signer": "signierer"})
 def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, timestamp: int) -> str:
     """Append a witness cosignature line to a signed checkpoint note (Ed25519 cosignature/v1).
 
@@ -654,12 +778,19 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     tests/demos and self-witnessing pipelines; real split-view resistance needs INDEPENDENT
     witnesses, which is a deployment property, not a code property.
     """
-    if isinstance(timestamp, bool) or not isinstance(timestamp, int) \
-            or not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
+    # Each argument is read once (finding A of lens run 8): the timestamp that is checked is the one that
+    # is signed and packed, the name that is checked is the one written, and the note that is framed is
+    # the one extended. At cd5d39f4 (round 12) the returned note was `signed_note + line`, the caller's
+    # own `__add__`, beside a signature over its characters.
+    timestamp = _int_once(timestamp, "cosignature timestamp must be an integer in [0, 2^63-1]")
+    if not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
         raise BundleFormatError("cosignature timestamp must be an integer in [0, 2^63-1]")
+    witness_name = _text_once(witness_name, "witness name must be a printable-ASCII identity "
+                                            "without spaces, invisible characters, or '+'")
     if not _witness_name_wellformed(witness_name):
         raise BundleFormatError("witness name must be a printable-ASCII identity "
                                 "without spaces, invisible characters, or '+'")
+    signed_note = _text_once(signed_note, "signed note must be a string (non-str is malformed, fail-closed)")
     # EMIT-Seite: der Notenkoerper darf hier noch ohne Signaturzeile ankommen (Selbstbezeugung), das
     # Ergebnis dieser Funktion ist in jedem Fall kanonisch.
     note_text = _note_text_of(signed_note, require_signature_line=False)
@@ -672,27 +803,38 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     return signed_note + f"{EM_DASH} {witness_name} {base64.b64encode(blob).decode('ascii')}\n"
 
 
+@_ein_stand
 def cosign_key_id_mldsa(witness_name: str, pubkey: bytes) -> bytes:
     """ML-DSA-44 cosignature key ID = SHA-256(name ‖ 0x0A ‖ 0x06 ‖ 1312-byte pubkey)[:4]."""
-    if not isinstance(pubkey, bytes) or len(pubkey) != _MLDSA44_PUB_LEN:
+    roh = _key_bytes(pubkey, "ML-DSA-44 public key must be 1312 raw bytes")
+    if len(roh) != _MLDSA44_PUB_LEN:
         raise BundleFormatError("ML-DSA-44 public key must be 1312 raw bytes")
+    witness_name = _zeichen_von(witness_name)   # its characters, not its own `encode` (round 12)
     # DEEP-GATE re-gate F-8/F-10: the witness name is the third identity slot (with origin and witness
     # name); it is encoded into the keyID, so a surrogate name would raise a raw UnicodeEncodeError
     # out of this public helper, and a zero-width/invisible name would substitute for a real one.
     # Same printable-ASCII rule as origin/witness name — closed at the source that does the encode.
-    if not _witness_name_wellformed(witness_name):
+    name = _text_once(witness_name, "witness name must be a printable-ASCII identity without spaces or "
+                                    "invisible characters")
+    if not _witness_name_wellformed(name):
         raise BundleFormatError("witness name must be a printable-ASCII identity without spaces or invisible characters")
-    h = hashlib.sha256(witness_name.encode("utf-8") + b"\n"
-                       + bytes([_COSIG_MLDSA_SIG_TYPE]) + pubkey).digest()
+    h = hashlib.sha256(name.encode("utf-8") + b"\n"
+                       + bytes([_COSIG_MLDSA_SIG_TYPE]) + roh).digest()
     return h[:4]
 
 
+@_ein_stand
 def cosign_vkey_mldsa(witness_name: str, pubkey: bytes) -> str:
-    """ML-DSA-44 witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x06 ‖ pubkey)."""
-    kid = cosign_key_id_mldsa(witness_name, pubkey)
+    """ML-DSA-44 witness verifier key: name + '+' + hex8(keyID) + '+' + base64(0x06 ‖ pubkey). The
+    key is read once (`_key_bytes`); the Ed25519 rule does not apply to an ML-DSA key, but the key ID
+    and the key material are computed from the same value, as for the two Ed25519 vkeys."""
+    schluessel = _key_bytes(pubkey, "ML-DSA-44 public key must be 1312 raw bytes")
+    name = _text_once(witness_name, "witness name must be a printable-ASCII identity without spaces or "
+                                    "invisible characters")
+    kid = cosign_key_id_mldsa(name, schluessel)
     kid_hex = f"{int.from_bytes(kid, 'big'):08x}"
-    keymat = base64.b64encode(bytes([_COSIG_MLDSA_SIG_TYPE]) + pubkey).decode("ascii")
-    return f"{witness_name}+{kid_hex}+{keymat}"
+    keymat = base64.b64encode(bytes([_COSIG_MLDSA_SIG_TYPE]) + schluessel).decode("ascii")
+    return f"{name}+{kid_hex}+{keymat}"
 
 
 def _mldsa_module():
@@ -733,18 +875,23 @@ def _mldsa_cosigned_message(cosigner_name: str, timestamp: int, origin: str,
             + root)
 
 
+@_ein_stand(aussen={"witness_signer": "signierer"})
 def cosign_checkpoint_mldsa(signed_note: str, witness_signer, witness_name: str,
                             timestamp: int) -> str:
     """Append an ML-DSA-44 witness cosignature line (C2SP type 0x06 — the spec's SHOULD for new
     deployments). ``witness_signer`` is a cryptography MLDSA44PrivateKey. Same input rules as
     :func:`cosign_checkpoint`; the signature blob is keyID[4] ‖ u64-BE-timestamp ‖ sig[2420]."""
     _mldsa_module()                              # capability probe, fail-closed
-    if isinstance(timestamp, bool) or not isinstance(timestamp, int) \
-            or not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
+    # Read once, as in `cosign_checkpoint` (finding A of lens run 8).
+    timestamp = _int_once(timestamp, "cosignature timestamp must be an integer in [0, 2^63-1]")
+    if not 0 <= timestamp <= _MAX_COSIG_TIMESTAMP:
         raise BundleFormatError("cosignature timestamp must be an integer in [0, 2^63-1]")
+    witness_name = _text_once(witness_name, "witness name must be a printable-ASCII identity "
+                                            "without spaces, invisible characters, or '+'")
     if not _witness_name_wellformed(witness_name):
         raise BundleFormatError("witness name must be a printable-ASCII identity "
                                 "without spaces, invisible characters, or '+'")
+    signed_note = _text_once(signed_note, "signed note must be a string (non-str is malformed, fail-closed)")
     note_text = _note_text_of(signed_note, require_signature_line=False)   # EMIT-Seite, siehe oben
     if not signed_note.endswith("\n"):
         raise BundleFormatError("signed note must end with a newline")
@@ -765,7 +912,8 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
     including 0x01: a LOG key must never be accepted as a witness (domain separation)."""
     # RE-GATE never-raise consistency (mirror _parse_vkey): a non-str witness vkey is a typed
     # BundleFormatError, never a raw AttributeError from `.split` (verify_cosignature routes here).
-    if not isinstance(vkey_str, str):
+    vkey_str = _zeichen_von(vkey_str)   # by its characters, as `_parse_vkey` (round 12)
+    if vkey_str is None:
         raise BundleFormatError("vkey must be a string (name+hexKeyID+base64KeyMaterial)")
     parts = vkey_str.split("+", 2)
     if len(parts) != 3:
@@ -808,6 +956,7 @@ def _parse_witness_vkey(vkey_str: str) -> tuple[str, bytes, bytes, int]:
         "witness vkey must be 0x04+32-byte Ed25519 or 0x06+1312-byte ML-DSA-44 key material")
 
 
+@_ein_stand
 def verify_cosignature(signed_note: str, witness_vkey: str) -> dict:
     """Verify one witness cosignature on a signed checkpoint note.
 
@@ -897,7 +1046,13 @@ def _witness_key_material(vkey: str) -> bytes:
     existierende Pad-Bit-Variante — reproduziert, `verify_witnessed_checkpoint` und `witness_quorum` hoben
     darauf eine unabgefangene `binascii.Error`, obwohl `verify_cosignature` dieselbe Zeile mit ok=True
     beurteilte. Zwei Decoder fuer dasselbe Feld sind kein Komfort, sondern eine Divergenz."""
-    return decode_b64_c2sp(vkey.split("+", 2)[2])
+    return decode_b64_c2sp(_zeichen_von(vkey).split("+", 2)[2])   # its characters (round 12)
+
+
+#: A supplied log key material that is no bytes-like value (round 12): it keeps the key-material prong
+#: of `witness_quorum` on and equals no key; before, a str compared unequal to every key and an
+#: object's own `__eq__` answered.
+_KEIN_SCHLUESSEL = object()
 
 
 def _log_key_material_of(log_vkey: str) -> "bytes | None":
@@ -917,6 +1072,7 @@ def _log_key_material_of(log_vkey: str) -> "bytes | None":
         return None
 
 
+@_ein_stand
 def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
                    log_key_material: "bytes | None"):  # DEEP-GATE 4.0.0 D1: REQUIRED keyword (was `= None`)
     """Shared k-of-n witness quorum (release-review fix): counts DISTINCT witness KEY MATERIAL, not names —
@@ -958,18 +1114,36 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     unusable, rather than silently dropping the key-material prong)."""
     keys_ok = set()
     witnesses = {}
-    if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:    # iter5 never-raise (defensive)
+    # By what each input holds (round 12): the threshold as an exact int (a subclass's own `__le__`
+    # decided `len(keys_ok) >= threshold` at cd5d39f4; a subclass is refused now, PR 293's rule for a
+    # number), the note as its characters, and
+    # every roster entry that is a `str` as its characters, so a `str` subclass's own `split` cannot
+    # make one witness key count as two. The log key material as the bytes it stores (a
+    # `memoryview` as the bytes it views, as `==` compared it before); a supplied value that is no
+    # bytes-like value keeps the key-material prong on and never matches (a str never matched before,
+    # and no `__eq__` of the caller's value decides it now).
+    threshold = _ganzzahl_von(threshold)
+    if threshold is None or threshold < 0:    # iter5 never-raise (defensive)
         raise BundleFormatError("witness quorum threshold must be a non-negative integer")
+    if _zeichen_von(signed_note) is not None:
+        signed_note = _zeichen_von(signed_note)
+    log_material: Any = log_key_material
+    if log_key_material is not None:
+        log_material = _puffer_von(log_key_material)
+        if log_material is None:
+            log_material = _KEIN_SCHLUESSEL
     # adversarial re-audit round 4: guard the SHARED SINK, not just one caller — verify_witnessed_checkpoint AND
     # public_transparency.evaluate_public_transparency both funnel witness_vkeys into this loop; a non-iterable
     # (int/bool/object) or a str (per-char iteration) crashed it raw. Fail-closed empty quorum, never a raise.
-    if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
+    # By the value's own type (round 12): `isinstance` read a caller's `__class__` and `hasattr` its
+    # own `__getattribute__`.
+    if issubclass(type(witness_vkeys), (str, bytes, bytearray)) or not hasattr(type(witness_vkeys), "__iter__"):
         return False, {}
     # deep gate 2026-09-05 (L2-BDOS-C2SP-SIGLINES-01, Geschwister): der Roster ist RP-Konfiguration, aber
     # jeder Eintrag treibt einen vollen Scan der Note (verify_cosignature). Dieselbe Budget-Dimension, die
     # trust_pack fuer seine Schluesselmenge traegt (``witnesses``), begrenzt hier die Anzahl der Zeugen,
     # BEVOR der erste Scan laeuft — typisiert, wie ein unparsbarer vkey in derselben Schleife.
-    witness_vkeys = list(witness_vkeys)
+    witness_vkeys = [_zeichen_von(wv) if _zeichen_von(wv) is not None else wv for wv in _folge_von(witness_vkeys)]
     if len(witness_vkeys) > DEFAULT_BUDGET.witnesses:
         raise BundleFormatError(
             f"witness roster carries {len(witness_vkeys)} entries (> witnesses={DEFAULT_BUDGET.witnesses}) "
@@ -984,15 +1158,15 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
         origin = None
     for wv in witness_vkeys:
         res = None
-        if isinstance(wv, str):
+        if type(wv) is str:   # `type()`: an entry claiming str through `__class__` is no vkey (round 12)
             name_hit = origin is not None and wv.split("+", 2)[0] == origin
-            if name_hit or log_key_material is not None:
+            if name_hit or log_material is not None:
                 # Parse to compare key material AND to learn the alg for the report entry. This keeps the
                 # documented raise contract: an unparseable vkey raises here (same typed BundleFormatError
                 # verify_cosignature would raise one line down), and a 0x01 log key is rejected AS a witness
                 # (domain separation) exactly as everywhere else.
                 _name, _kid, wv_pk, sig_type = _parse_witness_vkey(wv)
-                material_hit = log_key_material is not None and wv_pk == log_key_material
+                material_hit = log_material is not None and wv_pk == log_material
                 if name_hit or material_hit:
                     reason = ("its name equals the checked log's own origin" if name_hit
                               else "its key material equals the audited log's own signing key")
@@ -1020,6 +1194,7 @@ def witness_quorum(signed_note: str, witness_vkeys, threshold: int, *,
     return len(keys_ok) >= threshold, witnesses
 
 
+@_ein_stand
 def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, *,
                                 threshold: int = 1,
                                 expected_origin: "str | None" = None) -> dict:
@@ -1050,21 +1225,27 @@ def verify_witnessed_checkpoint(signed_note: str, log_vkey: str, witness_vkeys, 
     absence of one: ``is None`` is deliberate where ``not expected_origin`` would silently collapse
     "asked and empty" into "not asked".
     """
-    if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
+    threshold = _ganzzahl_von(threshold)   # an exact int, or refused below (round 12; PR 293's rule)
+    if threshold is None or threshold < 1:
         raise BundleFormatError("witness threshold must be a positive integer")
     # adversarial re-audit: ``witness_vkeys`` (the relying party's witness roster, a trust-config arg like
     # ``threshold``) was unguarded — a non-iterable (int) crashed ``for wv in witness_vkeys`` in witness_quorum
     # with a raw TypeError out of this public verify_* surface, and a str would silently iterate per-character.
     # Guard it like its sibling config arg: a malformed roster is a typed BundleFormatError, never a raw crash.
-    if isinstance(witness_vkeys, (str, bytes, bytearray)) or not hasattr(witness_vkeys, "__iter__"):
+    if issubclass(type(witness_vkeys), (str, bytes, bytearray)) or not hasattr(type(witness_vkeys), "__iter__"):
         raise BundleFormatError("witness_vkeys must be an iterable of witness vkey strings")
+    if _zeichen_von(signed_note) is not None:
+        signed_note = _zeichen_von(signed_note)   # one reading for the log check and the quorum (round 12)
     log_res = verify_checkpoint(signed_note, log_vkey)
     # Exakt wie in tlogproof.verify_tlog_proof, absichtlich Zeichen fuer Zeichen dieselbe Form: die
     # zwei Flaechen tragen DIESELBE Eigenschaft, und zwei verschiedene Schreibweisen davon waeren
     # die naechste Drift. `is None` und nicht `not expected_origin` — ein leerer String ist eine
     # GESTELLTE Frage, die immer fehlschlaegt, keine abwesende.
+    # The pinned origin is compared by its characters (round 12, O1's class): at cd5d39f4 a `str`
+    # subclass's own `__eq__` answered True for another log's origin. A pin that is no string never
+    # matches.
     log_ok = bool(log_res["ok"]) and (expected_origin is None
-                                      or log_res["origin"] == expected_origin)
+                                      or log_res["origin"] == _zeichen_von(expected_origin))
     # DEEP-GATE F-2: the log's own signing-key public bytes are the operand the log does not choose —
     # pass them so a cosignature made with the log key never counts as a witness, whatever name it wears.
     witnesses_ok, witnesses = witness_quorum(signed_note, witness_vkeys, threshold,
