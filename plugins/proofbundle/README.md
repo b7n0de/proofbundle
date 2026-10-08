@@ -318,12 +318,15 @@ required check has a receipt that
   `git_worktree_tree` for a run on uncommitted changes, compared with the tree id of the files in the working
   tree, read as raw bytes without filters.
 
-When the order names `paths`, the work also changes no other path since the commit that set the order.
+When the order names `paths`, the work must change at least one of them, and no other path, since the commit that
+declared the order (owner choice Nordstern B, D31): with no change in them the session does not end and a push is
+denied, with the missing work named. In a shallow clone cut before that commit the check is NOT MEASURED and blocks.
+This says that something in the paths changed, not that the change does what the order asks.
 
 ### The order
 
 The `done` section of `.proofbundle/evidence.json` is the order (D28): the checks the task requires, each with the
-pytest arguments it runs and the receipt it leaves, and optionally the paths the work may change.
+pytest arguments it runs and the receipt it leaves, and optionally the paths the work must and may change.
 
 ```json
 "done": {

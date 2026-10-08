@@ -1356,17 +1356,18 @@ criteria set, not commands, paths or a key. Neither carries the order as it stan
 Chosen (option B of the owner card for N1):
 - The `done` section may be the order `{"policy", "checks"[, "paths"][, "max_blocks"]}`. Each check is
   `{"id", "args", "receipt"}`: a name, the pytest arguments the run must have been given, and the receipt it leaves
-  under `.proofbundle/`. `paths` are fnmatch patterns (`*` also matches `/`) of the paths the work may change,
-  compared between the tree of the last commit at or before HEAD that changed the declaration and the working
-  state; `max_blocks` is 1 to 7, default 3. The one-check form `{"receipt", "policy"}` stays and is one check,
-  `tests`, with any selection. The order is changed by a commit; who may change it is whoever may merge a change to
-  `.proofbundle/`, which CODEOWNERS assigns in CI. Locally the hook cannot tell the owner's commit from the agent's.
+  under `.proofbundle/`. `paths` are fnmatch patterns (`*` also matches `/`) of the paths the work must and may
+  change, compared between the tree of the commit that declared the order and the working state (since owner choice
+  Nordstern B, D31; before, the last commit that changed the declaration); `max_blocks` is 1 to 7, default 3. The
+  one-check form `{"receipt", "policy"}` stays and is one check, `tests`, with any selection. The order is changed
+  by a commit; who may change it is whoever may merge a change to `.proofbundle/`, which CODEOWNERS assigns in CI.
+  Locally the hook cannot tell the owner's commit from the agent's.
 - Every check needs its own receipt that verifies under the policy at HEAD, says that every test passed (D26),
   names HEAD's commit and tree, names the tree of the working state now, and, under the order, was run with exactly
   the check's pytest arguments, an empty `PYTEST_ADDOPTS` and no deselected test. The package's pytest plugin
   writes `pytest_args`, `pytest_addopts` and `n_deselected` into `provenance` (core change of the same date).
-- A block names the first open check, its kind (missing, unverified, red, other selection, no state, stale,
-  outside paths), the command that closes it and the other open checks, in one line. Claude Code and Codex read
+- A block names the first open check, its kind (no change, missing, unverified, red, other selection, no state,
+  stale, outside paths), the command that closes it and the other open checks, in one line. Claude Code and Codex read
   the same answer: `decision` and `reason` for a block, `systemMessage` for a pass or a blocker; the hook never
   sets `continue`. Codex runs the same `stop` from `.codex-plugin/plugin.json` with `--host codex`.
 - After `max_blocks` blocks with the same open points (kind and check, not the trees) in the same session, the hook
@@ -1455,7 +1456,8 @@ of a session, for the tree the push sends.
   (`commit_state`), stands in for the working state; the receipts are read from the working tree, where the
   tests left them. A receipt passes the push only when it verifies under that policy, says that every test
   passed, was run with the check's selection, names the pushed commit and its tree, and ran on that tree; with
-  `paths`, the pushed tree changes no other path since the commit that set the order.
+  `paths`, the pushed tree changes at least one of them and no other path since the commit that declared the order
+  (D31).
 - An uncommitted change in the working tree does not matter for the push (it does for the end of a session),
   and a receipt of a run on uncommitted changes does not pass the push, because the tree it ran on is not the
   tree the push sends. A push of a commit that is not HEAD names it, and the next step says to check it out
@@ -1496,3 +1498,48 @@ Options:
 - A. Unchanged: a push runs only the evidence check (D20).
 - B. A push additionally verifies a declared bundle item's run record (D23 option C).
 - C. A push requires the done check at the pushed commit (chosen).
+
+## D31. An order that names paths is done only with a change in them (owner choice Nordstern B, 2026-10-08)
+
+Measured in the real Claude Code run Lauf 1 of KARTEN-01 (2026-10-08): the agent changed nothing, ran both checks of
+the order with receipts, and the Stop hook said done, because the receipts named the unchanged state and no path
+outside the order had changed.
+
+Chosen:
+- Where the order names `paths`, the done check also requires a change in them: at least one path that matches a
+  pattern differs (bytes or mode) between the tree of the commit that declared the order and the state the receipts
+  are for. At the end of a session that is the working state, uncommitted changes included (owner choice K1 C); at a
+  push it is the tree of the pushed commit (D30), so an uncommitted change does not count for the push.
+- Without such a change the end of the session blocks with the open point `no_change` first, before missing
+  receipts, naming the paths and the commit that declared the order, with the next step "do the work the order asks
+  for in <paths>, then run the checks again"; a push is denied at Level 1 under Claude Code and at Level 2 (reason
+  `no_change`). A change only outside the paths is both `no_change` and `outside_paths`.
+- The commit that declared the order (`order_base`): on the first-parent line, the newest commit that changed the
+  declaration and whose first parent declares another order or none. A later change of the declaration that keeps
+  the done section as it is (an evidence item, a subject, a reformatting) does not move it; a new order does, and
+  work before it does not count for it. The same base now serves `outside_paths` (D28).
+- Where it cannot be determined, the check is NOT MEASURED and blocks, never a pass (`order_base_not_measured`):
+  a shallow clone cut before it (the cut commit is in git's shallow list), more than `MAX_ORDER_WALK` (256) commits
+  that changed the declaration, or git cannot list them. The next step is `git fetch --unshallow` or a person.
+- An order without paths, and the one-check form, are as before: no change is required.
+
+Delimitation from D26: D26 makes "done" mean that receipts signed by the pinned key name exactly the state at hand
+and say that every test passed; it never said that the work was done, and it still does not. D31 adds one measured
+fact for an order with paths: something in those paths changed since the order was declared. It does not say that
+the change does what the order asks, that the tests test it, or that a change in a test file alone is the work;
+`tests/*` in the paths counts like any other pattern. The patterns are the owner's; an order that names a path the
+agent may change at will gets a weak check. As in D26, the local hook is an early warning (D27); the boundary is
+the required CI check and the review of `.proofbundle/`.
+
+Measured (tests/test_plugin_gate_nordstern_b.py, 2026-10-08): no change blocks with the missing work named; a change
+only outside the paths blocks as no change and outside paths; a change in the paths passes, committed or not; the
+missing work comes before missing receipts; an order without paths is as before; a later declaration change that
+keeps the order does not move the base, a new order does; a root commit can declare the order; a shallow clone cut
+before the order is NOT MEASURED and one deep enough passes; past the walk limit the base is NOT MEASURED; a push of
+a commit without a change in the paths is denied at Level 1 and Level 2, and one with the work passes; an
+uncommitted change does not count for the push. Red at 31031eb6: 11 of 14 (the three green are the controls: an
+order without paths, a deep enough shallow clone, a push with the work).
+
+Options (owner card Nordstern of KARTEN-01):
+- A. Leave it: done means green receipts for the state at hand (D26).
+- B. With paths, done requires a change in them since the commit that declared the order (chosen).

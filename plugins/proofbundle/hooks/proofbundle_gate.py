@@ -1909,8 +1909,8 @@ def _done_section(value: object) -> dict:
     """The done check of the declaration (D26, D28), as {"policy", "checks", "paths", "max_blocks"}. Two forms:
     - {"receipt", "policy"}: one check, "tests", the pytest run its receipt names, with any selection;
     - {"policy", "checks"[, "paths"][, "max_blocks"]}: the order. Each check is {"id", "args", "receipt"}: the pytest
-      arguments the run must have been given and the receipt it leaves. "paths" are the patterns the work may change
-      (fnmatch, `*` also matches `/`), compared with the commit that last changed the declaration; "max_blocks" is
+      arguments the run must have been given and the receipt it leaves. "paths" are the patterns the work must and may
+      change (fnmatch, `*` also matches `/`), compared with the commit that declared the order; "max_blocks" is
       how many blocks without progress the Stop hook makes before it writes a blocker (1 to 7, default 3).
     Every file lies under .proofbundle/ and is a file of its own."""
     if isinstance(value, dict) and set(value) == DONE_KEYS:
@@ -2297,9 +2297,14 @@ def _done_rule(repo: str, commit: str, done: dict | None, deadline: float) -> tu
     done check proves, so a push that changes either needs a review like a change to an evidence policy."""
     if done is None:
         return ()
+    return (_done_canonical(done), _blob_id(repo, commit, done["policy"], deadline))
+
+
+def _done_canonical(done: dict) -> tuple:
+    """The done section in one comparable form: its policy, each check's id, arguments and receipt, the paths and
+    max_blocks."""
     checks = tuple((c["id"], None if c["args"] is None else tuple(c["args"]), c["receipt"]) for c in done["checks"])
-    section = (done["policy"], checks, None if done["paths"] is None else tuple(done["paths"]), done["max_blocks"])
-    return (section, _blob_id(repo, commit, done["policy"], deadline))
+    return (done["policy"], checks, None if done["paths"] is None else tuple(done["paths"]), done["max_blocks"])
 
 
 def _rules_difference(base: tuple, head: tuple) -> str:
@@ -4348,14 +4353,72 @@ def _signed_payload(content: bytes) -> bytes | None:
         return None
 
 
-def changed_paths(repo: str, commit: str, files: dict, deadline: float) -> tuple[str, list[str]]:
-    """The commit that set the order, the last commit at or before HEAD that changed the declaration, and the paths
-    whose mode or bytes differ between its tree and the working state `files` (D28). `rev-list`, not `log`: no
-    signature check, no pager, no program a configuration names."""
-    proc = _git(repo, "rev-list", "-1", commit, "--", DECLARATION, deadline=deadline)
-    base = proc.stdout.decode("ascii", "replace").strip()
-    if proc.returncode != 0 or len(base) not in _BLOB_HASHES:
-        raise GateError("git could not name the commit that set the order")
+#: How many commits that changed the declaration the gate reads back to find the commit that declared the order; past
+#: it the base is NOT MEASURED (owner choice Nordstern B).
+MAX_ORDER_WALK = 256
+
+
+def _shallow_commits(repo: str, deadline: float) -> set[str]:
+    """The commits at which a shallow clone cuts the history (their parents are not in the repository); empty for a
+    full clone. GateError when git cannot say."""
+    proc = _git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline)
+    answer = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode != 0 or answer not in ("true", "false"):
+        raise GateError("git cannot say whether the repository is a shallow clone")
+    if answer == "false":
+        return set()
+    where = _git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow", deadline=deadline)
+    try:
+        with open(os.fsdecode(where.stdout.rstrip(b"\n")), encoding="ascii") as handle:
+            return {line.strip() for line in handle if line.strip()}
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GateError("the repository is a shallow clone and git's list of where it is cut cannot be read") from exc
+
+
+def _order_at(repo: str, commit: str, deadline: float) -> tuple | None:
+    """The canonical done section at a commit, None where it declares none; a declaration that does not parse is an
+    order of its own (its bytes' digest), never the same as a valid one."""
+    raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
+    if raw is None:
+        return None
+    try:
+        done = parse_done(raw)
+    except GateError:
+        return ("malformed", hashlib.sha256(raw).hexdigest())
+    return None if done is None else _done_canonical(done)
+
+
+def order_base(repo: str, commit: str, done: dict, deadline: float) -> tuple[str | None, str]:
+    """The commit that declared the order as it stands at `commit` (owner choice Nordstern B, D28): on the first-parent
+    line, the newest commit that changed the declaration and whose first parent declares another order or none. A
+    change to the declaration that leaves the done section as it is (an evidence item, a subject) does not move it.
+    (None, why) where it cannot be determined: the history is cut (a shallow clone) before it is found, more than
+    MAX_ORDER_WALK commits changed the declaration, or git cannot list them. `rev-list`, not `log`: no signature
+    check, no pager, no program a configuration names."""
+    section = _done_canonical(done)
+    proc = _git(repo, "rev-list", "--first-parent", f"--max-count={MAX_ORDER_WALK + 1}", commit, "--", DECLARATION,
+                deadline=deadline)
+    if proc.returncode != 0:
+        return None, "git could not list the commits that changed the declaration"
+    candidates = proc.stdout.decode("ascii", "replace").split()
+    shallow = _shallow_commits(repo, deadline)
+    for n, candidate in enumerate(candidates):
+        if n == MAX_ORDER_WALK:
+            return None, f"more than {MAX_ORDER_WALK} commits changed {DECLARATION} since the order was declared"
+        if candidate in shallow:
+            return None, (f"the history is cut at {candidate[:12]} (a shallow clone), so the gate cannot tell which "
+                          "commit declared the order")
+        parent = _git(repo, "rev-parse", "--verify", "-q", f"{candidate}^1", deadline=deadline)
+        if parent.returncode != 0:
+            return candidate, ""   # a root commit of a full history declared it
+        if _order_at(repo, parent.stdout.decode("ascii", "replace").strip(), deadline) != section:
+            return candidate, ""
+    return None, f"no commit on the first-parent line of {commit[:12]} declared the order it holds"
+
+
+def changed_paths(repo: str, base: str, files: dict, deadline: float) -> list[str]:
+    """The paths whose mode or bytes differ between the tree of `base`, the commit that declared the order
+    (order_base), and the state `files` (D28)."""
     listing = _git(repo, "ls-tree", "-r", "-z", "--full-tree", base, deadline=deadline)
     if listing.returncode != 0:
         raise GateError(f"git could not list the tree of {base[:12]}, the commit that set the order")
@@ -4370,22 +4433,23 @@ def changed_paths(repo: str, commit: str, files: dict, deadline: float) -> tuple
                             "compare as a file")
         before[path] = (fields[0], fields[2].decode("ascii", "replace"))
     changed = sorted(p for p in set(before) | set(files) if before.get(p) != files.get(p))
-    return base, [p.decode("utf-8", "surrogateescape") for p in changed]
+    return [p.decode("utf-8", "surrogateescape") for p in changed]
 
 
 #: Which reason id a deny of the done check carries for its first open point.
 _OPEN_REASON = {"missing": "no_receipt", "unverified": "verification_failed", "red": "not_done",
                 "other_selection": "other_selection", "no_state": "not_done", "stale": "stale_receipt",
-                "outside_paths": "outside_paths"}
+                "outside_paths": "outside_paths", "no_change": "no_change"}
 
 
 def done_evaluation(directory: str, deadline: float, receipt_path: str | None = None, environ: dict | None = None,
                     receipt_dir: str | None = None, at_commit: str | None = None) -> dict:
     """The done check (D26, D28) with what it found: {"verdict", "done", "repo", "commit", "state", "checks",
-    "open", "policy", "base"}. Pass when every check of the done section has a receipt that verifies under the
-    declared policy at HEAD, says that every test passed, was run with the check's selection, names HEAD's commit
-    and tree and the tree of the working state now, and the working state changes no path the order does not
-    allow; inactive (NOT MEASURED, no block) where no done check is declared; deny otherwise, naming the first open
+    "open", "policy", "base", "inside"}. Pass when every check of the done section has a receipt that verifies under
+    the declared policy at HEAD, says that every test passed, was run with the check's selection, names HEAD's commit
+    and tree and the tree of the working state now, and, for an order with paths, the working state changes at least
+    one path the order names and none it does not allow, since the commit that declared the order; inactive (NOT
+    MEASURED, no block) where no done check is declared; deny otherwise, naming the first open
     point and the command that closes it. `receipt_path` (one check) and `receipt_dir` (receipts named <id>.json)
     override the declared receipts, for the CI check, whose receipts lie outside the checkout. `at_commit` is the
     check at a pushed commit (owner choice N2 C): the declaration, the policy and the order come from that commit,
@@ -4393,7 +4457,7 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
     tree. A pushed commit without a declaration or a done check gets no done check (inactive)."""
     environ = os.environ if environ is None else environ
     result = {"verdict": None, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
-              "policy": None, "base": None}
+              "policy": None, "base": None, "inside": []}
     top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
     if top.returncode != 0:
         result["verdict"] = Verdict("inactive", "NOT MEASURED: not a git repository; no done check applies.",
@@ -4513,11 +4577,7 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
             result["state"] = state
             if state["worktree"] is None:
                 result["checks"] = rows
-                result["verdict"] = Verdict("deny", f"NOT MEASURED: {now} cannot be read as files: "
-                                                    f"{state['problem']}.", "state_not_measured",
-                                            evidence="the working tree", failed=state["problem"],
-                                            next_step="remove the cause named here, then run the tests with a "
-                                                      "receipt", repo=repo, head=commit)
+                result["verdict"] = _state_not_measured(now, state, repo, commit)
                 return result
         named = (provenance.get("git_hash"), provenance.get("git_tree"))
         if named != (state["commit"], state["tree"]):
@@ -4533,13 +4593,35 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
     result["checks"] = rows
     opened = [{"id": row["id"], "status": row["status"], "failed": row["failed"], "command": row["command"],
                "receipt": row["receipt"]} for row in rows if row["status"] != "green"]
-    if not opened and done["paths"] is not None:
+    if done["paths"] is not None:
+        # Owner choice Nordstern B: an order that names paths is done only with a change in them since the commit that
+        # declared it, for the state the receipts are for; and with none outside them (D28).
         if state is None:
             state = result["state"] = (working_state(repo, deadline) if at_commit is None
                                        else commit_state(repo, commit, deadline))
-        base, changed = changed_paths(repo, commit, state["files"], deadline)
+            if state["worktree"] is None:
+                result["verdict"] = _state_not_measured(now, state, repo, commit)
+                return result
+        base, why = order_base(repo, commit, done, deadline)
+        if base is None:
+            result["verdict"] = Verdict(
+                "deny", f"NOT MEASURED: {why}, so the gate cannot tell whether the work changed the paths the order "
+                        "names.", "order_base_not_measured", evidence=f"the history of {DECLARATION}", failed=why,
+                next_step="fetch the full history (git fetch --unshallow) and run the checks again, or have a person "
+                          "judge the work", repo=repo, head=commit)
+            return result
         result["base"] = base
-        outside = [p for p in changed if not any(fnmatch.fnmatchcase(p, pattern) for pattern in done["paths"])]
+        changed = changed_paths(repo, base, state["files"], deadline)
+        named = ", ".join(done["paths"])
+        inside = [p for p in changed if any(fnmatch.fnmatchcase(p, pattern) for pattern in done["paths"])]
+        outside = [p for p in changed if p not in inside]
+        result["inside"] = inside
+        if not inside:
+            opened.insert(0, {"id": "paths", "status": "no_change",
+                              "failed": _short(f"nothing in the paths the order names ({named}) changed in {now} since "
+                                               f"{base[:12]}, the commit that declared the order, so the work the "
+                                               "order asks for is missing", 400),
+                              "command": f"do the work the order asks for in {named}, then run the checks again"})
         if outside:
             shown = ", ".join(outside[:5]) + (f" and {len(outside) - 5} more" if len(outside) > 5 else "")
             opened.append({"id": "paths", "status": "outside_paths",
@@ -4554,7 +4636,7 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         failed = f"check {first['id']} is {first['status'].replace('_', ' ')}: {first['failed']}"
         if others:
             failed += "; also open: " + ", ".join(others)
-        next_step = first["command"] if first["status"] == "outside_paths" else f"run {first['command']}"
+        next_step = first["command"] if first["status"] in ("outside_paths", "no_change") else f"run {first['command']}"
         result["verdict"] = Verdict("deny", f"proofbundle gate: {failed}.", _OPEN_REASON[first["status"]],
                                     evidence=f"the receipt {first['receipt']}" if "receipt" in first
                                     else "the working state", failed=failed, next_step=next_step, repo=repo,
@@ -4567,10 +4649,18 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
                 f"receipt verifies under {done['policy']}, says every one of its tests passed with exit status 0, was "
                 f"run with the check's selection, and names commit {commit[:12]} and tree {tested}, {now}"
                 + ("" if at_commit is not None else f" ({'clean' if tested == state['tree'] else 'with uncommitted changes'})")
-                + (f"; no path outside the order changed since {result['base'][:12]}" if result["base"] else "")
+                + (f"; no path outside the order changed since {result['base'][:12]}, the commit that declared it, "
+                   f"and {len(result['inside'])} {'path' if len(result['inside']) == 1 else 'paths'} in it did"
+                   if result["base"] else "")
                 + ". This proves who signed the receipts and which tree they name, not that the tests test anything.",
         "done", repo=repo, head=commit)
     return result
+
+
+def _state_not_measured(now: str, state: dict, repo: str, commit: str) -> Verdict:
+    return Verdict("deny", f"NOT MEASURED: {now} cannot be read as files: {state['problem']}.", "state_not_measured",
+                   evidence="the working tree", failed=state["problem"],
+                   next_step="remove the cause named here, then run the tests with a receipt", repo=repo, head=commit)
 
 
 def done_verdict(directory: str, deadline: float, receipt_path: str | None = None,

@@ -560,6 +560,7 @@ def test_a_changed_policy_is_a_path_outside_the_order(env, repo, keys):
     policy = json.loads((repo / POLICY).read_text())
     policy["policy_id"] = "changed"
     _write(repo / POLICY, policy)
+    _write(repo / "src" / "module.py", "VALUE = 8\n")   # work in the order's paths, so only the policy is open
     _commit(repo, "a changed policy")
     _run(repo, keys.signer, UNIT)
     assert "since" in blocked(stop(env, repo)[1]) and POLICY in blocked(stop(env, repo)[1])
