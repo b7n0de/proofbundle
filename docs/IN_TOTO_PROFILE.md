@@ -110,7 +110,7 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
 
 - **F3, the DSSE keyid (fixed).** The envelope layer says a `keyid` SHOULD be included for each
   signing key; the export wrote none, so securesystemslib raised `KeyError: 'keyid'` and GUAC could not
-  find a key. Every envelope the package signs now carries the signer's OpenSSH SHA256 fingerprint
+  find a key. By default every envelope the package signs now carries the signer's OpenSSH SHA256 fingerprint
   (`dsse.openssh_sha256_keyid`), the form go-securesystemslib's `dsse.SHA256KeyID` derives and
   sigstore's key providers compare. Pass `keyid=` to write another, or `keyid=""` to write none. The
   keyid is not signed and selects no key: among well-formed envelopes no verdict of this package changes

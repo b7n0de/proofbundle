@@ -1,4 +1,4 @@
-"""Z239 F3: every DSSE envelope this package signs names its key by the keyid foreign tools look up.
+"""Z239 F3: by default, every DSSE envelope this package signs names its key by the keyid foreign tools look up.
 
 The in-toto envelope layer says a keyid SHOULD be included for each signing key (in-toto/attestation
 v1.2.0, spec/v1/envelope.md). Measured on claude/intoto-external at 13d8faa (Z225, finding F3): the
@@ -102,6 +102,22 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
     def test_sign_envelope_writes_the_keyid_by_default(self):
         env = dsse.sign_envelope(b"{}", _signer(), payload_type="application/vnd.in-toto+json")
         self.assertEqual(_keyids(env), [Z225_KEYID_GO_SECURESYSTEMSLIB])
+
+    def test_every_universal_keyid_sentence_names_the_default_path(self):
+        """Codex thread 4219199107 on pull request 287: keyid="" signs and writes no keyid, so a claim of a keyid on
+        all signed envelopes is false. The class is a universal claim that leaves out the public opt-out. Every such
+        sentence in the changelog, the profile and this module's docstring says it is the default."""
+        import re  # noqa: PLC0415
+        satz = re.compile(r"every (?:dsse )?envelope (?:this|the) package signs", re.IGNORECASE)
+        gefunden = 0
+        for pfad in ("CHANGELOG.md", "docs/IN_TOTO_PROFILE.md", "tests/test_dsse_keyid.py"):
+            text = " ".join((REPO / pfad).read_text(encoding="utf-8").split())
+            for m in satz.finditer(text):
+                gefunden += 1
+                with self.subTest(file=pfad, at=m.start()):
+                    self.assertIn("by default", text[max(0, m.start() - 14):m.start()].lower(),
+                                  text[max(0, m.start() - 40):m.end() + 20])
+        self.assertGreaterEqual(gefunden, 3, "control: the walk finds the three sentences")
 
     def test_an_explicit_keyid_is_kept_and_an_empty_one_writes_none(self):
         env = dsse.sign_envelope(b"{}", _signer(), payload_type="t", keyid="mine")
@@ -254,7 +270,10 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
         self.assertEqual([p for p in ohne if not p.startswith(self._ARCHIV)], [])
         text = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
         eintrag = text[text.index("names its signing key") - 80:text.index("cosign's image-digest match")]
-        self.assertIn("Every DSSE envelope this package signs names its signing key", eintrag)
+        self.assertIn("By default, every DSSE envelope this package signs names its signing key", eintrag)
+        # Codex thread 4219199107: keyid="" is the public opt-out, so the headline is about the default path, and
+        # the entry names the opt-out beside it.
+        self.assertIn('`keyid=""` writes none', eintrag)
         for archiv in self._ARCHIV:
             self.assertIn(archiv.rstrip("/"), eintrag)
 

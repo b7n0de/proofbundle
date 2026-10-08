@@ -10,7 +10,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ### Changed
 
-- **Every DSSE envelope this package signs names its signing key** (`dsse.sign_envelope`, and through it every in-toto
+- **By default, every DSSE envelope this package signs names its signing key** (`dsse.sign_envelope`, and through it every in-toto
   export and every DSSE-signed statement of this package; the trust pack signs its own envelopes and
   already names its keys). The in-toto envelope layer says a keyid SHOULD
   be included for each signing key, and none was. Measured with the 6.1.0 export (Z225,
