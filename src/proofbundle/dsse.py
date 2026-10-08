@@ -79,13 +79,16 @@ def openssh_sha256_keyid(public_key_raw: bytes) -> str:
 
 
 def _default_keyid(signer) -> Optional[str]:
-    """The keyid of an Ed25519 signer, or None for a signer that exposes no Ed25519 public key."""
+    """The keyid of an Ed25519 signer, or None for a signer that exposes no Ed25519 public key. A probe, after the
+    signature is made: the signing contract asks only for `sign`, so whatever the signer's `public_key` raises means
+    no key is exposed, and the envelope is written without a keyid (Codex thread 4220244927 on pull request 287:
+    `NotImplementedError` escaped, and a sign-only adapter that signed got no envelope)."""
     try:
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
         raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    except (AttributeError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - a probe of the caller's signer: any failure is "no key exposed"
         return None
-    return openssh_sha256_keyid(raw) if isinstance(raw, bytes) and len(raw) == 32 else None
+    return openssh_sha256_keyid(raw) if type(raw) is bytes and len(raw) == 32 else None
 
 
 @_ein_stand(aussen={"signer": "signierer"})

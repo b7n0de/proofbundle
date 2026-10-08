@@ -132,6 +132,35 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
         self.assertEqual(_keyids(dsse.sign_envelope(b"{}", NurSignieren(), payload_type="t")), [None])
         self.assertEqual(_keyids(dsse.sign_envelope(b"{}", NurSignieren(), payload_type="t", keyid="mine")), ["mine"])
 
+    def test_whatever_the_public_key_probe_raises_means_no_key_exposed(self):
+        """Codex thread 4220244927: the probe caught three exception types, and a sign-only adapter whose public_key
+        raises NotImplementedError signed and then got no envelope. Any exception of the probe writes none; a key
+        that is not plain bytes of 32 does not name one either."""
+        echt = _signer()
+        for fehler in (NotImplementedError, RuntimeError, KeyError, LookupError, OSError):
+            class Wirft:
+                def sign(self, data, echt=echt):
+                    return echt.sign(data)
+
+                def public_key(self, fehler=fehler):
+                    raise fehler("this adapter exposes no key")
+            with self.subTest(raises=fehler.__name__):
+                self.assertEqual(_keyids(dsse.sign_envelope(b"{}", Wirft(), payload_type="t")), [None])
+
+        class Unterbytes(bytes):
+            pass
+
+        class FremdeBytes:
+            def sign(self, data):
+                return echt.sign(data)
+
+            def public_key(self):
+                class Schluessel:
+                    def public_bytes(self, *_):
+                        return Unterbytes(b"\x01" * 32)
+                return Schluessel()
+        self.assertEqual(_keyids(dsse.sign_envelope(b"{}", FremdeBytes(), payload_type="t")), [None])
+
     def test_no_text_claims_that_no_verdict_of_the_package_reads_the_keyid(self):
         """Codex thread 4219685122: the trust pack selects each of its keys by keyid, so a claim that no verdict of
         the package changes with the keyid is false; the texts name the single-key verifiers and the trust pack."""
