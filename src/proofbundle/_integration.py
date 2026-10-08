@@ -20,6 +20,14 @@ Configuration (all optional, all env):
                          non-negative score yielded passed=true — a vacuous verdict that reads like
                          a result (measured live 2026-08-22: a run scoring mean 0.0 produced
                          passed=true). Who wants pure binding without a verdict sets it explicitly.
+
+SCITT (EXPERIMENTAL, 6.4.0; the inspect_ai hook only):
+  PROOFBUNDLE_SCITT          "1" to also sign a SCITT Signed Statement over the receipt, with the key that
+                             signed the receipt, next to it as ``<receipt>.scitt.cose``. Offline.
+  PROOFBUNDLE_SCITT_ISSUER   CWT iss of the statement (required with PROOFBUNDLE_SCITT).
+  PROOFBUNDLE_SCITT_SUBJECT  CWT sub of the statement (required with PROOFBUNDLE_SCITT).
+  PROOFBUNDLE_SCITT_SERVICE  a Transparency Service URL for registration. Registration is not built in this
+                             version: the statement is not submitted, and no connection is opened.
 """
 from __future__ import annotations
 
@@ -74,10 +82,11 @@ def _output_path(default_name: str) -> Path:
     return p
 
 
-def emit_claim_receipt(claim: dict, default_name: str) -> Optional[str]:
+def emit_claim_receipt(claim: dict, default_name: str, *, scitt: bool = False) -> Optional[str]:
     """Sign ``claim`` into an eval receipt and write it to the resolved output path. Returns the path, or
     None on any failure (an integration must never raise into the host run). Assumes emission is enabled
-    (the caller checks ``emit_enabled`` first)."""
+    (the caller checks ``emit_enabled`` first). With ``scitt`` a SCITT Signed Statement over the receipt
+    is written next to it (``_emit_scitt_statement``); its failure never costs the receipt."""
     try:
         from .evalclaim import emit_eval_receipt  # noqa: PLC0415 — lazy
         import json  # noqa: PLC0415
@@ -91,7 +100,39 @@ def emit_claim_receipt(claim: dict, default_name: str) -> Optional[str]:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
         print(f"[proofbundle] wrote signed eval receipt → {out}")
+        # only the exact True, as emit_enabled reads its flag: "false" or 1 writes no signed statement
+        if scitt is True:
+            _emit_scitt_statement(bundle, signer, out)
         return str(out)
     except Exception as e:  # noqa: BLE001 — never let emission break the host run
         print(f"[proofbundle] receipt emission skipped ({type(e).__name__}: {e})")
+        return None
+
+
+def _emit_scitt_statement(bundle: dict, signer, receipt_path: Path) -> Optional[str]:
+    """Step 1 of the SCITT flag: a Signed Statement over the receipt, signed with the receipt's own key,
+    written next to it. Step 2 (registration) would only follow a configured service URL; it is not built
+    in this version, so nothing is submitted and no connection is opened either way. Never raises."""
+    try:
+        issuer = os.environ.get("PROOFBUNDLE_SCITT_ISSUER")
+        subject = os.environ.get("PROOFBUNDLE_SCITT_SUBJECT")
+        if not issuer or not subject:
+            missing = [name for name, value in (("PROOFBUNDLE_SCITT_ISSUER", issuer),
+                                                ("PROOFBUNDLE_SCITT_SUBJECT", subject)) if not value]
+            print(f"[proofbundle] PROOFBUNDLE_SCITT=1 needs {' and '.join(missing)} — SCITT statement "
+                  "skipped (the receipt is written)")
+            return None
+        from .scitt_statement import sign_statement  # noqa: PLC0415 — lazy
+        data = sign_statement(bundle, signer, issuer=issuer, subject=subject)
+        name = receipt_path.name[:-len(".json")] if receipt_path.name.endswith(".json") else receipt_path.name
+        path = receipt_path.with_name(name + ".scitt.cose")
+        path.write_bytes(data)
+        print(f"[proofbundle] wrote SCITT signed statement → {path} (not registered)")
+        service = os.environ.get("PROOFBUNDLE_SCITT_SERVICE")
+        if service:
+            print(f"[proofbundle] PROOFBUNDLE_SCITT_SERVICE is {service!r}, but registration is not built in "
+                  "this version: the statement was not submitted")
+        return str(path)
+    except Exception as e:  # noqa: BLE001 — never let the statement break the host run or the receipt
+        print(f"[proofbundle] SCITT statement skipped ({type(e).__name__}: {e})")
         return None

@@ -352,8 +352,9 @@ def canonical_es256_signature(signature):
     identity. The bytes themselves are never rewritten: a signature made by someone else is passed
     on and returned as it came, because another signature can cover it (a Key Binding JWT's
     ``sd_hash`` covers the issuer JWT). Only a signature proofbundle makes itself carries the low
-    ``s``; today proofbundle makes no ES256 signature. Its own signatures on these paths are
-    Ed25519; it also signs with ML-DSA elsewhere (``pqsig.sign_mldsa``), and whether an ML-DSA
+    ``s``. The one ES256 signature proofbundle makes is the SCITT statement of
+    ``scitt_statement.sign_statement`` on its ES256 path (6.4.0, owner decision B), and it is formed
+    through this function. Its own signatures on these paths are Ed25519; it also signs with ML-DSA elsewhere (``pqsig.sign_mldsa``), and whether an ML-DSA
     signature has a second spelling was not measured.
 
     Anything that is not a 64-byte ``R || S`` with ``0 < S < n`` is returned unchanged: no such value

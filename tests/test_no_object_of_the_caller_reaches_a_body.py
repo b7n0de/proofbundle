@@ -168,6 +168,7 @@ _VERTRAG: "dict[tuple[str, str], str]" = {
     ("pqsig.sign_mldsa", "private_key"): _SIGNIERER,
     ("relation_statement.emit_relation_statement", "signer"): _SIGNIERER,
     ("run_ledger.emit_run_ledger", "signer"): _SIGNIERER,
+    ("scitt_statement.sign_statement", "signer"): _SIGNIERER,
     ("sdjwt_issue.issue_sd_jwt", "signer"): _SIGNIERER,
     ("sdjwt_issue.issuer_matches", "signer"): _SIGNIERER,
     ("sdjwt_issue.present_with_key_binding", "holder_signer"): _SIGNIERER,

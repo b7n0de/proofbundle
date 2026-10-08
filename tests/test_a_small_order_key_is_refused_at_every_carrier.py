@@ -2173,6 +2173,8 @@ _LENGTH_32 = {
     ("scitt_ccf.py", "_statement_profile"): (1, "the SHA-256 hash-envelope payload, a digest, no key"),
     ("scitt_ccf.py", "_verify_consistency"): (1, "the older root, no key"),
     ("scitt_ccf.py", "_verify_transparent_statement"): (2, "the canonical root and the payload digest, no key"),
+    ("scitt_statement.py", "_check"): (2, "the payload digest and the canonical root, SHA-256 values, no key"),
+    ("scitt_statement.py", "_header_rules"): (1, "the SHA-256 hash-envelope payload, a digest, no key"),
     ("sdjwt_issue.py", "issue_sd_jwt"): (1, "the holder key; followed by the rule since this fix"),
     ("signature.py", "ed25519_trust_anchor_weakness"): (1, "the rule itself"),
     ("signature.py", "verify_ed25519"): (1, "the SPEC 4a verify profile"),

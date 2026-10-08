@@ -1,0 +1,299 @@
+{
+ "tool": "tools/scitt_ccf_external/producer_crosscheck.py",
+ "started": "2026-09-27T20:16:28+00:00",
+ "producer": {
+  "repository": "https://github.com/b7n0de/proofbundle",
+  "commit": "7451bd8c6ca9cd8e057f4aa9af28dd9ffd78b89a",
+  "tree_clean": true,
+  "python": "3.11.15"
+ },
+ "foreign_tool": {
+  "name": "microsoft/scitt-verifier",
+  "repository": "https://github.com/microsoft/scitt-verifier",
+  "commit": "bd6fb8ba79dbb521257b7f09682c03c6681dc3d0",
+  "build": "cargo build --release --locked -p scitt-verifier",
+  "mode": "offline: local key set, never --online"
+ },
+ "ledger": {
+  "cohort": "round 3, rebuilt 2026-09-27",
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:b6f6aaf03d1ccbc753fd7831a12167691829e66214a466bf233fd40406014364",
+   "image_tag": "scitt:r3-00101f76",
+   "image_created": "2026-09-24T17:03:44Z (SOURCE_DATE_EPOCH 1790269424)",
+   "build": "docker/Dockerfile of the commit; one change: the base stage trusts the build sandbox's proxy CA",
+   "build_patch_sha256": "c2667a6837d1a081160c41189e24ccff8c720c7b08a020f3b86545038c062cdd",
+   "build_args": {
+    "SOURCE_DATE_EPOCH": "1790269424",
+    "SCITT_VERSION_OVERRIDE": "00101f7"
+   },
+   "image_build_inputs": {
+    "ccf_version": "7.0.17",
+    "ccf_reproduce_sha256": "6c568e8baa6f5426bbc5fd5ecabc76dd7399658b8b223e7e3581d881b2ab078f",
+    "ccf_rpm_sha256": "789d00bed342b08e468a7397f103881df5b6a75c09f3ccc507e2b78a4735fc2e",
+    "tdnf_snapshottime": "1790165199"
+   },
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, docker/run-dev.sh, opened with scitt governance local_development (pyscitt of the commit, Python 3.12.3, ccf 7.0.17 from PyPI)",
+   "started": "2026-09-27T20:03:53Z",
+   "scitt_keys_sha256": "f53baa3f9163ee0106d432b167814a75abe4c952b795dc007c6b95e8d0e28f88",
+   "service_cert_sha256": "fd6938711e21d83ee5311998d334718637e8cea30f8857ca3ff6e47a4641f551"
+  }
+ },
+ "service_keyset_hex": "81a5010202584032303466366233626161626530383263613561643736386132646330306231316264313862663838396264333632623134613431666434376130333761643862200221583019c3900eed47ef4ca8726da3acbe10e4eec1ce6b8911de15f19d168bf73f8721f8d11e78b470dcf385ef06a561bb0e3922583052c63c3dcad0b3e05e8b5d89fbb96a1bb414423d3c7d0e7e169b53a58a7149f39896916b0298ff4ec03eab8a26e95bb1",
+ "service_keyset_sha256": "f53baa3f9163ee0106d432b167814a75abe4c952b795dc007c6b95e8d0e28f88",
+ "target": {
+  "bundle": "examples/example_bundle.json",
+  "receipt_canonical_root": "df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac9"
+ },
+ "statements": {
+  "es256": {
+   "sign": {
+    "argv": [
+     "proofbundle",
+     "scitt",
+     "sign",
+     "example_bundle.json",
+     "--out",
+     "es256.cose",
+     "--issuer",
+     "did:x509:0:sha256:Nv_L6E7eQ77_k0kEPTEbcUYEhDI4TGEupjM2FxFlKwM::subject:CN:proofbundle-scitt-probe",
+     "--subject",
+     "proofbundle 6.4.0 producer cross-check",
+     "--ec-key",
+     "leaf.key.pem",
+     "--x5chain",
+     "chain.pem",
+     "--public-key-out",
+     "leaf.pub.pem"
+    ],
+    "exit_code": 0,
+    "stdout": [
+     "wrote SCITT signed statement /tmp/tmp9lsd7fqm/es256.cose (1149 bytes, ES256, protected x5chain)",
+     "wrote the statement's public key /tmp/tmp9lsd7fqm/leaf.pub.pem"
+    ],
+    "stderr": ""
+   },
+   "statement_hex": "d284590413a501260fa20178616469643a783530393a303a7368613235363a4e765f4c364537655137375f6b306b4550544562635559456844493454474575706a4d324678466c4b774d3a3a7375626a6563743a434e3a70726f6f6662756e646c652d73636974742d70726f626502782670726f6f6662756e646c6520362e342e302070726f64756365722063726f73732d636865636b1821825901ad308201a93082014fa00302010202141f9a1cc7a19f6cd2aca112925538a374983e5840300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f6265204341301e170d3236303932373230313132385a170d3236303932383230313632385a30223120301e06035504030c1770726f6f6662756e646c652d73636974742d70726f62653059301306072a8648ce3d020106082a8648ce3d030107034200047deeeece667fa67ea2d9501c57d2f29d6b880531051ef74e772566019935b9514a5cd0b8e453e0cf5fff56232373b0c485e5f37027471b8981b8608749a5e3d1a360305e300c0603551d130101ff04023000300e0603551d0f0101ff040403020780301d0603551d0e04160414383c0fc9b9a311403eaa30401592ccc66f437ab7301f0603551d230418301680140cfda91e924d57be247d8ea933f48766673089ef300a06082a8648ce3d0403020348003045022100c2bdae951d22140240e2eadd5da407c0723d87224a40492e9653de0febface8802207e0a5d2459a4a967f4aa76cf5bd07155d8e4c1d8c019ae5e6a3ea748f160003b5901b3308201af30820155a003020102021426bbbecdd7ae55614925b04c37d8ab7637499a4a300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f6265204341301e170d3236303932373230313132385a170d3236303932383230313632385a30253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f62652043413059301306072a8648ce3d020106082a8648ce3d03010703420004ecda5333965e619e0db717103ebe6d0060c9a151823f6450fb9de0825085a530460e2f01c291637d0d08cdb85741be0a88bf7e7984c3e90124476a513cd639d0a3633061300f0603551d130101ff040530030101ff300e0603551d0f0101ff040403020106301d0603551d0e041604140cfda91e924d57be247d8ea933f48766673089ef301f0603551d230418301680140cfda91e924d57be247d8ea933f48766673089ef300a06082a8648ce3d0403020348003045022064a20a027848d85aa9947a9043551a0279ce72ef8eff718b0968b0eb85a7946a022100ca731c00d94de8ef3ba51a48150f12300ec3614cb77500297d6af817e11410321901022f190103706170706c69636174696f6e2f6a736f6ea05820df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac95840105ef6aba162da84b1d07cc79e54ddc0699b91824ccfc48caa18c5fed2af3b9275170dbe3f7069cfd38224e888bb7ae766b4f2a1eccef261d3302e9e0d636cf3",
+   "statement_sha256": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb",
+   "statement_key_spki_hex": "3059301306072a8648ce3d020106082a8648ce3d030107034200047deeeece667fa67ea2d9501c57d2f29d6b880531051ef74e772566019935b9514a5cd0b8e453e0cf5fff56232373b0c485e5f37027471b8981b8608749a5e3d1",
+   "offline": {
+    "check_signed_statement": {
+     "status": "confirmed",
+     "signature_valid": true,
+     "registration": "not_registered",
+     "detail": ""
+    },
+    "v1_reader_statement_signature": [
+     "confirmed",
+     true
+    ],
+    "proofbundle_verify": {
+     "argv": [
+      "proofbundle",
+      "verify",
+      "example_bundle.json",
+      "--scitt-statement",
+      "es256.cose",
+      "--scitt-statement-key",
+      "leaf.pub.pem"
+     ],
+     "exit_code": 0,
+     "stdout": [
+      "ASSURANCE: n/a (not an eval receipt)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present",
+      "SCITT-STATEMENT: CONFIRMED",
+      "SCITT-REGISTRATION: NOT_REGISTERED (no receipt under label 394)"
+     ],
+     "stderr": ""
+    },
+    "scitt_verifier_on_the_signed_statement": {
+     "exit_code": 3,
+     "verdict": "cannot-evaluate",
+     "signed_statement": {
+      "algorithm": "ES256",
+      "signatureValid": true,
+      "claimDigest": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb"
+     },
+     "receipts": [],
+     "errors": [
+      {
+       "code": "NoReceipt",
+       "message": "the statement carries no receipt, so it is signed but not transparent"
+      },
+      {
+       "code": "PolicyAssertionUnevaluable",
+       "message": "policy assertion 'issuer' could not be evaluated: no fully verified receipt declares an issuer"
+      }
+     ]
+    }
+   },
+   "ledger": {
+    "post_status": 202,
+    "accepted": true,
+    "txid": "2.41",
+    "error": null,
+    "receipt_hex": "d284588da5013822045840323034663662336261616265303832636135616437363861326463303062313162643138626638383962643336326231346134316664343761303337616438620fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6ab9799c19018b02666363662e7631a1647478696464322e3432a119018ca1208158ffa20183582096aae0822b191c7bf5be71e61ce2d91cf10b9c024dcb806e740cdd7f437aac35784863653a322e34313a32363932663262636633633434616139623333643563303135333438383263613137363930376634383139323365383262623562656132303131333862353663582001838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb028382f558204bac4b95170278059513b462e51a27d5d1aa71d0f1c59ee1e900a5a95aea630982f558200ab600cdf5220064644a3bba17d451a80a4856ac14a071b2e40912e27682704482f558204008e865b758c9e89574d986feefc9644211cda51eec409a7bf5d8c9711511a3f6586032cdddfa3407c5150fd022740ea10b47f3aab947ae85154554bfee3ece9e24e487bda1611a2e414be629cade716bf14c17d8adab5820f67fdd337b5b930d901d84113bfbe5852a9cf5f9ffd0e0190aa39650e7fb75af700647c57ca5b89dddfe",
+    "returned_statement_hex": "d284590413a501260fa20178616469643a783530393a303a7368613235363a4e765f4c364537655137375f6b306b4550544562635559456844493454474575706a4d324678466c4b774d3a3a7375626a6563743a434e3a70726f6f6662756e646c652d73636974742d70726f626502782670726f6f6662756e646c6520362e342e302070726f64756365722063726f73732d636865636b1821825901ad308201a93082014fa00302010202141f9a1cc7a19f6cd2aca112925538a374983e5840300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f6265204341301e170d3236303932373230313132385a170d3236303932383230313632385a30223120301e06035504030c1770726f6f6662756e646c652d73636974742d70726f62653059301306072a8648ce3d020106082a8648ce3d030107034200047deeeece667fa67ea2d9501c57d2f29d6b880531051ef74e772566019935b9514a5cd0b8e453e0cf5fff56232373b0c485e5f37027471b8981b8608749a5e3d1a360305e300c0603551d130101ff04023000300e0603551d0f0101ff040403020780301d0603551d0e04160414383c0fc9b9a311403eaa30401592ccc66f437ab7301f0603551d230418301680140cfda91e924d57be247d8ea933f48766673089ef300a06082a8648ce3d0403020348003045022100c2bdae951d22140240e2eadd5da407c0723d87224a40492e9653de0febface8802207e0a5d2459a4a967f4aa76cf5bd07155d8e4c1d8c019ae5e6a3ea748f160003b5901b3308201af30820155a003020102021426bbbecdd7ae55614925b04c37d8ab7637499a4a300a06082a8648ce3d04030230253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f6265204341301e170d3236303932373230313132385a170d3236303932383230313632385a30253123302106035504030c1a70726f6f6662756e646c652d73636974742d70726f62652043413059301306072a8648ce3d020106082a8648ce3d03010703420004ecda5333965e619e0db717103ebe6d0060c9a151823f6450fb9de0825085a530460e2f01c291637d0d08cdb85741be0a88bf7e7984c3e90124476a513cd639d0a3633061300f0603551d130101ff040530030101ff300e0603551d0f0101ff040403020106301d0603551d0e041604140cfda91e924d57be247d8ea933f48766673089ef301f0603551d230418301680140cfda91e924d57be247d8ea933f48766673089ef300a06082a8648ce3d0403020348003045022064a20a027848d85aa9947a9043551a0279ce72ef8eff718b0968b0eb85a7946a022100ca731c00d94de8ef3ba51a48150f12300ec3614cb77500297d6af817e11410321901022f190103706170706c69636174696f6e2f6a736f6ea119018a815901fcd284588da5013822045840323034663662336261616265303832636135616437363861326463303062313162643138626638383962643336326231346134316664343761303337616438620fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6ab9799c19018b02666363662e7631a1647478696464322e3432a119018ca1208158ffa20183582096aae0822b191c7bf5be71e61ce2d91cf10b9c024dcb806e740cdd7f437aac35784863653a322e34313a32363932663262636633633434616139623333643563303135333438383263613137363930376634383139323365383262623562656132303131333862353663582001838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb028382f558204bac4b95170278059513b462e51a27d5d1aa71d0f1c59ee1e900a5a95aea630982f558200ab600cdf5220064644a3bba17d451a80a4856ac14a071b2e40912e27682704482f558204008e865b758c9e89574d986feefc9644211cda51eec409a7bf5d8c9711511a3f6586032cdddfa3407c5150fd022740ea10b47f3aab947ae85154554bfee3ece9e24e487bda1611a2e414be629cade716bf14c17d8adab5820f67fdd337b5b930d901d84113bfbe5852a9cf5f9ffd0e0190aa39650e7fb75af700647c57ca5b89dddfe5820df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac95840105ef6aba162da84b1d07cc79e54ddc0699b91824ccfc48caa18c5fed2af3b9275170dbe3f7069cfd38224e888bb7ae766b4f2a1eccef261d3302e9e0d636cf3",
+    "returned_statement_sha256": "893914ebe29507c85734557606fd41005125d9c32f64961d531a42ca2c825e85",
+    "service_issuer": "127.0.0.1:8000"
+   },
+   "returned": {
+    "v1_reader": {
+     "status": "confirmed",
+     "readable": true,
+     "signature_valid": true,
+     "profile_satisfied": true,
+     "statement_status": "confirmed",
+     "detail": ""
+    },
+    "proofbundle_verify": {
+     "argv": [
+      "proofbundle",
+      "verify",
+      "example_bundle.json",
+      "--scitt-statement",
+      "es256.transparent.cose",
+      "--scitt-statement-key",
+      "leaf.pub.pem",
+      "--scitt-service-keys",
+      "scitt-keys.cbor",
+      "--scitt-service-issuer",
+      "127.0.0.1:8000"
+     ],
+     "exit_code": 0,
+     "stdout": [
+      "ASSURANCE: n/a (not an eval receipt)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present",
+      "SCITT-STATEMENT: CONFIRMED",
+      "SCITT-REGISTRATION: CONFIRMED (confirmed)"
+     ],
+     "stderr": ""
+    },
+    "scitt_verifier": {
+     "exit_code": 0,
+     "verdict": "statement-transparent",
+     "signed_statement": {
+      "algorithm": "ES256",
+      "signatureValid": true,
+      "claimDigest": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb"
+     },
+     "receipts": [
+      {
+       "root_signature_valid": true,
+       "bound": true,
+       "kid_bound": true,
+       "leaf_data_hash": "01838c1645605559c46fecfde0ce996a8e7cd3d5274764062b290a1bdf3a7fcb"
+      }
+     ],
+     "errors": []
+    }
+   }
+  },
+  "eddsa": {
+   "sign": {
+    "argv": [
+     "proofbundle",
+     "scitt",
+     "sign",
+     "example_bundle.json",
+     "--out",
+     "eddsa.cose",
+     "--issuer",
+     "did:x509:0:sha256:Nv_L6E7eQ77_k0kEPTEbcUYEhDI4TGEupjM2FxFlKwM::subject:CN:proofbundle-scitt-probe",
+     "--subject",
+     "proofbundle 6.4.0 producer cross-check",
+     "--key",
+     "seed.key",
+     "--public-key-out",
+     "ed.pub.pem"
+    ],
+    "exit_code": 0,
+    "stdout": [
+     "wrote SCITT signed statement /tmp/tmp9lsd7fqm/eddsa.cose (342 bytes, EdDSA)",
+     "kid f69dbc0d8b1c61075e5de037eb3a1b114e5534646ae0084fb7ab158ca857c03d",
+     "wrote the statement's public key /tmp/tmp9lsd7fqm/ed.pub.pem"
+    ],
+    "stderr": ""
+   },
+   "statement_hex": "d28458eda50127045840663639646263306438623163363130373565356465303337656233613162313134653535333436343661653030383466623761623135386361383537633033640fa20178616469643a783530393a303a7368613235363a4e765f4c364537655137375f6b306b4550544562635559456844493454474575706a4d324678466c4b774d3a3a7375626a6563743a434e3a70726f6f6662756e646c652d73636974742d70726f626502782670726f6f6662756e646c6520362e342e302070726f64756365722063726f73732d636865636b1901022f190103706170706c69636174696f6e2f6a736f6ea05820df6557c0af226ef3e18e2694c7d6b153343495bc9b6f459f6858e7276ea0fac95840a11ef5312f5aa32a2130710f595486bb634e47577175a4d03540890c6ebdbf3215b7b7e13881d72351f23ec4d2604b771c8a95e6b5e0ba75c3c900479cbae403",
+   "statement_sha256": "344d67076434a4b692ee37d6115c9e86a880ec4ecc5439bb4e3f284dc83c3ec4",
+   "statement_key_spki_hex": "302a300506032b65700321009a015d135a34b02a0124c4b09e1dad18680bb8076448c7fc7325aad8356e43c4",
+   "offline": {
+    "check_signed_statement": {
+     "status": "confirmed",
+     "signature_valid": true,
+     "registration": "not_registered",
+     "detail": ""
+    },
+    "v1_reader_statement_signature": [
+     "outside_profile",
+     null
+    ],
+    "proofbundle_verify": {
+     "argv": [
+      "proofbundle",
+      "verify",
+      "example_bundle.json",
+      "--scitt-statement",
+      "eddsa.cose",
+      "--scitt-statement-key",
+      "ed.pub.pem"
+     ],
+     "exit_code": 0,
+     "stdout": [
+      "ASSURANCE: n/a (not an eval receipt)",
+      "LIMITATIONS: NOT that the result is true, the eval well designed, the model safe/fair, or that the score generalizes (see NON_CLAIMS.md); and NOT when it happened, unless an external time anchor is present",
+      "SCITT-STATEMENT: CONFIRMED",
+      "SCITT-REGISTRATION: NOT_REGISTERED (no receipt under label 394)"
+     ],
+     "stderr": ""
+    },
+    "scitt_verifier_on_the_signed_statement": {
+     "exit_code": 3,
+     "verdict": "cannot-evaluate",
+     "signed_statement": {
+      "algorithm": "EdDSA",
+      "signatureValid": null,
+      "claimDigest": "344d67076434a4b692ee37d6115c9e86a880ec4ecc5439bb4e3f284dc83c3ec4"
+     },
+     "receipts": [],
+     "errors": [
+      {
+       "code": "StatementSignatureNotEvaluated",
+       "message": "the statement signature could not be evaluated"
+      },
+      {
+       "code": "NoReceipt",
+       "message": "the statement carries no receipt, so it is signed but not transparent"
+      },
+      {
+       "code": "PolicyAssertionUnevaluable",
+       "message": "policy assertion 'issuer' could not be evaluated: no fully verified receipt declares an issuer"
+      }
+     ]
+    }
+   },
+   "ledger": {
+    "post_status": 400,
+    "accepted": false,
+    "txid": null,
+    "error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signed statement protected header must contain an x5chain\"}"
+   }
+  }
+ }
+}
