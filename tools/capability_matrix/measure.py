@@ -134,8 +134,19 @@ def _src(module: str) -> str:
 
 
 def _subcommands(cli_source: str) -> set:
-    """Console subcommands the parser registers at the top level (sub.add_parser("name", ...))."""
-    return set(re.findall(r"\bsub\.add_parser\(\s*\"([a-z0-9-]+)\"", cli_source))
+    """Console subcommands the parser registers at the top level, `sub.add_parser("name", ...)`, read as calls in the
+    parsed source: a commented-out or quoted registration is no call (Codex thread 4220770815 on pull request 304, a
+    pattern over the text found `# sub.add_parser("decision")`). A source that does not parse stops the measurement."""
+    import ast  # noqa: PLC0415
+    try:
+        baum = ast.parse(cli_source)
+    except SyntaxError as exc:
+        raise SystemExit(f"cli.py does not parse ({exc.msg}); its subcommands are not measured") from exc
+    return {k.args[0].value for k in ast.walk(baum)
+            if isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "add_parser"
+            and isinstance(k.func.value, ast.Name) and k.func.value.id == "sub" and k.args
+            and isinstance(k.args[0], ast.Constant) and isinstance(k.args[0].value, str)
+            and re.fullmatch(r"[a-z0-9-]+", k.args[0].value)}
 
 
 def _registry_counts(ref: str, pfad: str):
@@ -258,7 +269,7 @@ def _tag_ref(tag: str):
     return lauf.stdout.strip() if lauf.returncode == 0 and lauf.stdout.strip() else None
 
 
-def _tag_carries(tag: str, cap: dict) -> None:
+def _tag_carries(tag: str, cap: dict) -> str:
     """A SystemExit unless the documented ref is a tag of this repository and carries every repository path of the
     capability there: a channel names how a user gets it, and a tag without the action gives the user nothing (Codex
     thread 4219207478 on pull request 304: the tag was read from the docs and never looked up). The paths are read
@@ -272,6 +283,7 @@ def _tag_carries(tag: str, cap: dict) -> None:
     if fehlt:
         raise SystemExit(f"{cap['id']}: the documented tag {tag} does not carry {', '.join(fehlt)}; the channel is "
                          "not measured")
+    return commit
 
 
 def _names_provider(ref: str, cap: dict) -> bool:
@@ -286,6 +298,11 @@ def _present_at(ref: str, module: list, cli: list, eps: list, repo: list) -> boo
     points = _entry_points_in_pyproject((_git_bytes(ref, "pyproject.toml") or b"").decode("utf-8")) if eps else set()
     return (all(_git_bytes(ref, _src(m)) is not None for m in module) and all(c in commands for c in cli)
             and all(e in points for e in eps) and all(_git_bytes(ref, p) is not None for p in repo))
+
+
+#: "experimental" right after a negation, as a graduation note writes it.
+_VERNEINT_EXPERIMENTAL = re.compile(
+    r"\b(?:no\s+longer|no\s+more|not|never|non|out\s+of|graduated\s+from)[\s\-]*[(\[`'\"]*experimental", re.IGNORECASE)
 
 
 class LabelMissing(Exception):
@@ -313,7 +330,13 @@ def status(present: bool, label, *, main_only: bool = False, elsewhere: bool = F
         raise LabelMissing("present, but the project's label for it was not found")
     if main_only:
         return "main only"
-    return "experimental" if label and "experimental" in label.lower() else "published"
+    # Experimental when the label says so; a label that negates it ("no longer experimental") is published, and one
+    # that both says and negates it stops (Codex thread 4220770827 on pull request 304: the keyword alone was read).
+    genannt = len(re.findall(r"experimental", label, re.IGNORECASE))
+    verneint = len(_VERNEINT_EXPERIMENTAL.findall(label))
+    if verneint and verneint < genannt:
+        raise LabelMissing("the label both says experimental and negates it; the rule does not decide it")
+    return "experimental" if genannt and not verneint else "published"
 
 
 def download(ziel: Path) -> dict:
@@ -409,10 +432,12 @@ def measure_rows(artefakte: dict, main: str) -> list:
             # is read from the passage the label cites, at the release and at main.
             mess_rel["documented_tag"] = _documented_tag(TAG, cap)
             mess_main["documented_tag_at_main"] = _documented_tag(main, cap)
-            for tag in sorted({mess_rel["documented_tag"], mess_main["documented_tag_at_main"]}):
-                _tag_carries(tag, cap)
+            commits = {tag: _tag_carries(tag, cap)
+                       for tag in sorted({mess_rel["documented_tag"], mess_main["documented_tag_at_main"]})}
+            # The diff takes the commit the tag resolved to, never the name read from the docs: a tag named
+            # --output=x is an exact tag and would be an option of git diff (Codex thread 4220770798 on pull request 304).
             mess_rel["changed_between_documented_tag_and_release"] = _git(
-                "diff", "--shortstat", mess_rel["documented_tag"], TAG, "--", *repo).strip() or "no change"
+                "diff", "--shortstat", commits[mess_rel["documented_tag"]], TAG, "--", *repo).strip() or "no change"
         if cap.get("elsewhere"):
             # From elsewhere needs the docs to point there: the passage the label cites names the provider at both refs.
             for ref, wo in ((TAG, mess_rel), (main, mess_main)):
@@ -653,7 +678,9 @@ def main(argv=None) -> int:
         verzeichnis = a.artifacts
         pypi = json.loads((verzeichnis / f"pypi_{VERSION}.json").read_text(encoding="utf-8"))
     artefakte = measure_artifacts(verzeichnis, pypi)
-    main_commit = _git("rev-parse", a.main).strip()
+    # --end-of-options: the main ref is a value of the command line, never an option of rev-parse (the sibling of
+    # Codex thread 4220770798); its commit is what every later call reads.
+    main_commit = _git("rev-parse", "--verify", "--end-of-options", f"{a.main}^{{commit}}").strip()
     daten = {"format": "capability-matrix/1", "measured_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
              "tag": TAG, "tag_commit": _git("rev-parse", f"{TAG}^{{commit}}").strip(), "main_ref": a.main,
              "main_commit": main_commit, "statuses": list(STATUSES), "release": artefakte,

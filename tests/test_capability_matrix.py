@@ -402,6 +402,63 @@ class ATagIsATagAsWritten(unittest.TestCase):
                     self.assertIsNone(modul._tag_ref(ausdruck))
 
 
+class WhatIsReadIsReadByItsMeaning(unittest.TestCase):
+    """Round seven of Codex on pull request 304: a value read from the docs or the source was used by its spelling."""
+
+    def test_the_diff_takes_the_resolved_commit_never_the_documented_name(self) -> None:
+        """Thread 4220770798: an exact tag named --output=clobbered passed every check and became an option of git diff,
+        which wrote a file and gave an empty shortstat. The diff takes the commit the tag resolved to."""
+        modul = _load()
+        name = "--output=clobbered"
+        texte = {modul.TAG: f"the x capability, stable\n```\nuses: x@{name}\n```\n",
+                 _MAIN: f"the x capability, stable\n```\nuses: x@{name}\n```\n"}
+        aufrufe = []
+
+        def git_bytes(ref, pfad):
+            if pfad == "NOTES.md":
+                return texte[ref].encode() if ref in texte else None
+            return b"" if pfad == "action/action.yml" else None
+
+        def git(*args):
+            aufrufe.append(args)
+            return " 1 file changed"
+        modul._git_bytes, modul._git = git_bytes, git
+        modul._tag_ref = lambda tag: f"commit of {tag}"
+        modul.CAPABILITIES = [{"id": "x", "name": "x", "repo_paths": ["action/action.yml"],
+                               "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}]
+        artefakte = {"wheel_files": {}, "wheel_subcommands": [], "wheel_entry_points": [], "sdist_files": []}
+        modul.measure_rows(artefakte, _MAIN)
+        diffs = [a for a in aufrufe if a and a[0] == "diff"]
+        self.assertTrue([a for a in diffs if f"commit of {name}" in a], aufrufe)
+        self.assertFalse([x for a in aufrufe for x in a if x.startswith("--output")], aufrufe)
+
+    def test_a_subcommand_is_a_registration_call_not_its_text(self) -> None:
+        """Thread 4220770815: a pattern over the text found a commented-out registration."""
+        modul = _load()
+        quelle = ('# sub.add_parser("decision") was removed\n'
+                  'hinweis = \'sub.add_parser("outcome")\'\n'
+                  'sub.add_parser("verify", help="x")\n'
+                  'other.add_parser("nested")\n')
+        self.assertEqual(modul._subcommands(quelle), {"verify"})
+        self.assertEqual(modul._subcommands(""), set(), "control: no cli.py gives no subcommand")
+        with self.assertRaisesRegex(SystemExit, "does not parse"):
+            modul._subcommands("sub.add_parser(\"verify\"\n")
+
+    def test_a_label_that_negates_experimental_is_not_experimental(self) -> None:
+        """Thread 4220770827: the keyword alone was read, so a graduation note reversed the status."""
+        modul = _load()
+        for label, erwartet in (("EXPERIMENTAL (3.2.0)", "experimental"),
+                                ("The Rust cross verifier is experimental and advisory.", "experimental"),
+                                ("**the `[experimental]` extra** — the TEE-attestation bridge", "experimental"),
+                                ("Published; no longer experimental", "published"),
+                                ("stable, not experimental", "published"), ("non-experimental", "published"),
+                                ("Published", "published")):
+            with self.subTest(label=label):
+                self.assertEqual(modul.status(True, label), erwartet)
+        with self.assertRaises(modul.LabelMissing):
+            modul.status(True, "experimental in 6.0, no longer experimental in 6.1")
+
+
 class FromElsewhereSaysWhatWasMeasured(unittest.TestCase):
     """Codex thread 4219678096: the status said another project provides the capability, and what is measured is that
     the cited docs name the provider. The vocabulary and the README say so and claim no availability."""
