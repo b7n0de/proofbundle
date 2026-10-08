@@ -30,7 +30,8 @@ condition attached: an answer that needs a condition is not `accepted`.
 |---|---|---|---|
 | byte identity | `proposedAction.parametersDigest.sha256` = SHA-256 of the approved bytes | `requestedActionDigest.sha256` = the same; `effectDigest.sha256` = SHA-256 of the bytes GitHub stores | requested equals approved, and effect equals approved |
 | subject | the Statement subject, derived from the predicate (`require_derived_subject`) | `decisionRef.sha256` = the decision's content root | the outcome is bound to this decision (`decision_bound`) |
-| issuer role | signed by the pinned gate key; `decisionMaker.id` is the gate's id | signed by the pinned observer key; `executor.id` is the account GitHub reports as author | both keys pinned by the relying party; the agent holds neither |
+| issuer role | signed by the pinned gate key; `decisionMaker.id` is the gate's id | signed by the pinned observer key; `executor.id` is the account GitHub reports as author | both keys pinned by the relying party; the agent holds neither; `executor.id` is observed data and is not compared with the gate's id |
+| audience | `validity.audience` names the observer | `validity.audience` names the observer | both are addressed to the observer the relying party pins; another audience is `not accepted` |
 | policy digest | `policyBoundary.policyDigest` (required in strict mode) | none | recorded, not interpreted |
 | action id, attempt | `decisionId` = `<action id>#<attempt>`; `validity.nonce` names the attempt | `validity.nonce` = the decision's nonce | an outcome answers one attempt |
 | freshness | `decidedAt`, `validity.expiresAt` | `performedAt` = the time GitHub states for the effect; `recordedAt` = the observer's reading | `decidedAt` ≤ `performedAt` ≤ `expiresAt`, inclusive at both ends, compared as instants with their fractions of a second, any number of digits for `decidedAt` and `performedAt`; the decision itself is verified one second before its `decidedAt`, not at the reader's clock, so that this window, not the verifier's expiry rule, decides; `expiresAt` is read first by that verifier, which reads at most six fraction digits, so an expiry with more does not verify and is `not accepted` |
@@ -89,6 +90,7 @@ compares them as the instants they name, and a clock difference between the two 
 | the observer signed status partial | not accepted | a partial effect is not the approved one |
 | approved and arrived, the time with ten fraction digits | accepted | the outcome takes any number of fraction digits, and so does the profile |
 | approved and arrived at the second the approval was made and expires | accepted | the window is inclusive at both ends |
+| approved and arrived, GitHub reporting the gate's id as the author | accepted | `executor.id` is observed data, not a role the profile separates |
 | approved and arrived, the expiry with seven fraction digits | not accepted | the decision's verifier reads at most six fraction digits of `expiresAt` |
 | approved and arrived, the expiry with six fraction digits | accepted | the control: six digits are read |
 | tampered decision payload | not accepted | one byte changed after signing |

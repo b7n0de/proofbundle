@@ -40,7 +40,7 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 36)
+        self.assertEqual(len(ergebnisse), 37)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)
@@ -54,6 +54,7 @@ class TheVectors(unittest.TestCase):
                                       "approved and arrived a fraction of a second after the approval",
                                       "approved and arrived, the time with ten fraction digits",
                                       "approved and arrived at the second the approval was made and expires",
+                                      "approved and arrived, GitHub reporting the gate's id as the author",
                                       "approved and arrived, the expiry with six fraction digits"])
 
     def test_the_profile_promises_no_more_than_the_verifier_it_reuses_reads(self) -> None:
@@ -135,6 +136,38 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
                        "\u0662\u0660\u0662\u0666-09-27T00:45:00Z", None, 5):
             with self.subTest(value=repr(falsch)):
                 self.assertIsNone(i(falsch))
+
+    def test_an_observed_scope_of_another_type_is_an_answer_and_never_raises(self) -> None:
+        """Codex thread 4219220651: the digest of the observed scope was taken before its shape was checked, and the
+        canonicalizer's refusal of a value that is no JSON escaped reconcile. The shape comes first now, and any
+        exception of a reader is an answer at the boundary."""
+        fall = next(f for f in self.daten["cases"] if f["case"] == "approved and arrived as approved")
+
+        class Text(str):
+            pass
+        for wert in (object(), Text("issuecomment-1"), 5, None, float("nan")):
+            scope = dict(fall["observed_scope"], objectId=wert)
+            with self.subTest(objectId=repr(wert)[:30]):
+                antwort = self._reconcile(fall["decision"], fall["outcome"], scope)
+                self.assertEqual(antwort["verdict"], self.g.NOT_ACCEPTED, antwort["reasons"])
+                self.assertIn("objectId", antwort["reasons"][0])
+
+    def test_any_exception_of_a_reader_is_an_answer(self) -> None:
+        fall = next(f for f in self.daten["cases"] if f["case"] == "approved and arrived as approved")
+
+        class Fremd(Exception):
+            pass
+
+        def wirft(*args, **kwargs):
+            raise Fremd("a reader's own refusal")
+        alt = self.g._reconcile
+        self.g._reconcile = wirft
+        try:
+            antwort = self._reconcile(fall["decision"], fall["outcome"], fall["observed_scope"])
+        finally:
+            self.g._reconcile = alt
+        self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
+        self.assertIn("Fremd", antwort["reasons"][0])
 
     def test_malformed_input_is_unknown_and_never_raises(self) -> None:
         kaputt = {"payload": base64.b64encode(b'{"predicate": {}}').decode(), "payloadType": "x", "signatures": []}

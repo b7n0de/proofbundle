@@ -92,7 +92,7 @@ def scope_problem(descriptor) -> str:
         return f"the observed scope is not an object ({type(descriptor).__name__})"
     if sorted(descriptor) != sorted(SCOPE_KEYS):
         return f"the observed scope has the keys {sorted(descriptor)}, not exactly {sorted(SCOPE_KEYS)}"
-    leer = [k for k in SCOPE_KEYS if not (isinstance(descriptor[k], str) and descriptor[k])]
+    leer = [k for k in SCOPE_KEYS if not (type(descriptor[k]) is str and descriptor[k])]
     return f"the observed scope's {', '.join(leer)} is not a non-empty string" if leer else ""
 
 
@@ -187,9 +187,10 @@ def reconcile(decision_env: dict, outcome_env: dict | None, observed_scope: dict
     try:
         return _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, observer_key,
                           observer_id, checks)
-    # RecursionError and OverflowError too (Codex thread 4121766439 on pull request 303: a payload of 10,000 nested
-    # arrays raised RecursionError out of `_statement`).
-    except (KeyError, TypeError, ValueError, AttributeError, RecursionError, OverflowError) as exc:
+    # Any exception of a reader is an answer here, not only the ones named so far. The list grew one type per
+    # finding (RecursionError in thread 4121766439), and the canonicalizer's own refusal, which is no ValueError,
+    # still escaped (thread 4219220651 on pull request 303). A tuple of types is the class this boundary had.
+    except Exception as exc:  # noqa: BLE001 - the never-raise boundary of the profile
         return _answer(UNKNOWN, [f"the input is not in the profile's shape ({type(exc).__name__})"], checks)
 
 
@@ -249,7 +250,7 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
             return _answer(UNKNOWN, ["approved, and no effect was observed"], checks)
         return _answer(NOT_ACCEPTED, [f"the gate's verdict is {verdict}, and no effect was observed"], checks)
     o = verify_outcome_receipt(outcome_env, observer_key, strict=True, expected_decision_ref=content_root(decision_env),
-                               decision_maker_id=gate_id, expected_audience=observer_id,
+                               expected_audience=observer_id,
                                expected_nonce=pred["validity"]["nonce"], require_derived_subject=True)
     checks["outcome_signed_by_observer_key"] = o["crypto_ok"]
     if not o["crypto_ok"]:
@@ -285,14 +286,17 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     if observed_scope is None or "actualActionDigest" not in opred:
         fehlt.append("no observed scope")
     else:
-        checks["scope_matches_signed_digest"] = scope_digest(observed_scope) == opred["actualActionDigest"]["sha256"]
+        # The shape first, then the digest: a value the profile's descriptor does not allow never reaches the
+        # canonicalizer (Codex thread 4219220651 on pull request 303: an objectId of another type raised there).
         problem = scope_problem(observed_scope)
         checks["scope_is_the_profiles_descriptor"] = not problem
-        if not checks["scope_matches_signed_digest"]:
-            gruende.append("the observed scope descriptor is not the one the observer signed")
-        elif problem:
+        if problem:
             gruende.append(problem)
+        elif scope_digest(observed_scope) != opred["actualActionDigest"]["sha256"]:
+            checks["scope_matches_signed_digest"] = False
+            gruende.append("the observed scope descriptor is not the one the observer signed")
         else:
+            checks["scope_matches_signed_digest"] = True
             checks["surface_is_approved"] = observed_scope["surface"] == pred["proposedAction"]["actionType"]
             checks["target_is_approved"] = observed_scope["target"] == pred["proposedAction"]["target"]["uri"]
             if not checks["surface_is_approved"]:
@@ -454,6 +458,9 @@ def build_vectors() -> dict:
     o_sieben, s_sieben = outcome(d_sieben)
     fall("approved and arrived, the expiry with seven fraction digits", NOT_ACCEPTED, d_sieben, o_sieben, s_sieben,
          "thread 4218663063: the decision's verifier reads expiresAt with at most six fraction digits")
+    o_gate, s_gate = outcome(d0, executor_id=GATE_ID)
+    fall("approved and arrived, GitHub reporting the gate's id as the author", ACCEPTED, d0, o_gate, s_gate,
+         "thread 4219220640: executor.id is observed data, not compared with the gate's id")
     d_sechs = decision(expires_at="2026-09-27T00:45:00.000001Z")
     o_sechs, s_sechs = outcome(d_sechs)
     fall("approved and arrived, the expiry with six fraction digits", ACCEPTED, d_sechs, o_sechs, s_sechs,
