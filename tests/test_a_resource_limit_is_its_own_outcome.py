@@ -36,15 +36,16 @@ PUB = KEY.public_key().public_bytes_raw()
 B1_TEXT = DRAFT1["payloads"]["B1"]["text"].encode("utf-8")
 P1 = next(x for x in DRAFT1["vectors"] if x["id"] == "P1")["receipt_text"].encode("utf-8").replace(
     b"@B1@", base64.b64encode(B1_TEXT))
+#: The receipt's schema member as P1 writes it.
+SCHEMA_MEMBER = b'"schema":"' + ser.RECEIPT_TYPE.encode("ascii") + b'"'
 needs_cbor2 = pytest.mark.skipif(importlib.util.find_spec("cbor2") is None,
                                  reason="the [scitt] extra (cbor2) is not installed")
 
 
 def _deep_schema(depth: int) -> bytes:
     """P1 with its schema member replaced by an array nested DEPTH deep."""
-    old = b'"schema":"application/eval-receipt+json"'
-    assert P1.count(old) == 1
-    return P1.replace(old, b'"schema":' + b"[" * depth + b"]" * depth)
+    assert P1.count(SCHEMA_MEMBER) == 1
+    return P1.replace(SCHEMA_MEMBER, b'"schema":' + b"[" * depth + b"]" * depth)
 
 
 def _signed(b: bytes) -> bytes:
@@ -173,10 +174,8 @@ def test_the_dispatch_controls_keep_their_exit_codes(tmp_path, capsys):
     from proofbundle.budget import DEFAULT_BUDGET
     assert _show_eval(tmp_path, _deep_member(900), capsys)[0] == 1
     other = b'"schema":"application/other+json"'
-    assert _show_eval(tmp_path, _deep_member(2000).replace(b'"schema":"application/eval-receipt+json"',
-                                                           other), capsys)[0] == 2
-    large_other = _large_member(DEFAULT_BUDGET.input_bytes).replace(b'"schema":"application/eval-receipt+json"',
-                                                                    other)
+    assert _show_eval(tmp_path, _deep_member(2000).replace(SCHEMA_MEMBER, other), capsys)[0] == 2
+    large_other = _large_member(DEFAULT_BUDGET.input_bytes).replace(SCHEMA_MEMBER, other)
     assert ser.names_receipt_type(large_other) is False
     cut = DEFAULT_BUDGET.input_bytes
     assert ser._names_receipt_type_before_cut(_large_member(cut)[:cut]) is True
@@ -193,7 +192,7 @@ def test_names_receipt_type_answers_for_deep_and_cut_texts_without_raising():
     and a schema inside a nested object is no top-level schema."""
     assert ser.names_receipt_type(_deep_member(200000)) is True
     assert ser.names_receipt_type(b'{"a":' + b"[" * 200000 + b"]" * 200000 + b',"schema":"x"}') is False
-    nested = b'{"a":{"schema":"application/eval-receipt+json"},"b":' + b"[" * 5000 + b"]" * 5000 + b"}"
+    nested = b'{"a":{' + SCHEMA_MEMBER + b'},"b":' + b"[" * 5000 + b"]" * 5000 + b"}"
     assert ser.names_receipt_type(nested) is False
     assert ser.names_receipt_type(b"[" * 200000) is False
     assert ser.names_receipt_type(b'{"x":' + b"[" * 200000) is False
