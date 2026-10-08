@@ -57,10 +57,11 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 #: subcommands, `entry_points` "group:name", `repo_paths` repository paths that are no package member.
 #: `label` lists (file, pattern) pairs that state the project's own status for the capability; the first pattern that
 #: matches the rendered text of a block of its file at a ref (`_bloecke`) gives the label text there, and
-#: "experimental" in it makes the cell experimental. A label in a table is named as ("row", pattern, column): the first
-#: row whose first cell the pattern matches from its start gives the text of that column's cell, read as a cell and
-#: never out of a row joined again (Codex thread 4224150092 on pull request 304: a pipe a cell renders was taken for
-#: the next cell).
+#: "experimental" in it makes the cell experimental. A label in a table is named as ("row", pattern, column): the row
+#: whose whole first cell the pattern matches gives the text of that column's cell, read as a cell and never out of a
+#: row joined again (Codex thread 4224150092 on pull request 304: a pipe a cell renders was taken for the next cell).
+#: A pattern that finds a label in more than one block of its file stops the measurement, so an earlier row or heading
+#: of a similar name never stands in for the capability's own (thread 4224371692).
 #: A capability present at a ref with no label found there stops the measurement (fail closed). `branch` names a
 #: branch for a capability that is on neither the tag nor main; `elsewhere` names the outside provider, and
 #: `provider` the name the docs must carry at both refs for it. `git_tag_from` is the pattern for the tag of this
@@ -70,10 +71,10 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 CAPABILITIES = [
     {"id": "decision", "name": "Decision receipt (decision-receipt/v0.1)",
      "modules": ["proofbundle/decision.py"], "cli": ["decision"],
-     "label": [("docs/predicates/README.md", ("row", r"decision-receipt/v0\.1\Z", 1))]},
+     "label": [("docs/predicates/README.md", ("row", r"decision-receipt/v0\.1", 1))]},
     {"id": "outcome", "name": "Action outcome (action-outcome/v0.1)",
      "modules": ["proofbundle/outcome.py"], "cli": ["outcome"],
-     "label": [("docs/predicates/README.md", ("row", r"action-outcome/v0\.1\Z", 1))]},
+     "label": [("docs/predicates/README.md", ("row", r"action-outcome/v0\.1", 1))]},
     {"id": "hf-export", "name": "Hugging Face Community Evals export (verifyToken, .eval_results entry)",
      "modules": ["proofbundle/hf_evals.py"], "cli": ["hf-token"],
      "label": [("INTEGRATIONS.md", r"^(## Hugging Face Community Evals[^\n]*)")]},
@@ -83,7 +84,7 @@ CAPABILITIES = [
     {"id": "rust-verifier", "name": "Rust second verifier (pb_verify_rs)",
      "repo_paths": ["tools/pb_verify_rs/src/main.rs", "tools/pb_verify_rs/Cargo.toml"],
      "registry": "scripts/rust_parity_registry.json",
-     "label": [("README.md", ("row", r"Independent Rust cross-verifier", 2)),
+     "label": [("README.md", ("row", r"Independent Rust cross-verifier \(tools/pb_verify_rs\)", 2)),
                ("README.md", r"(The Rust cross verifier is [^.]*\.)")]},
     {"id": "inspect-hook", "name": "Inspect lifecycle hook (inspect_ai entry point)",
      "modules": ["proofbundle/inspect_hook.py", "proofbundle/_inspect_registry.py"],
@@ -409,18 +410,26 @@ def _ohne_element(text, datei: str, ref: str):
 def _treffer(ref: str, paare: list):
     """(label text, block index, blocks, file) of the first (file, pattern) that finds its label at `ref`, the blocks
     in the order they render, else four None. A pattern is matched against the text of a block that is no table row,
-    a ("row", pattern, column) against the first cell of each table row."""
+    a ("row", pattern, column) against the whole first cell of each table row. A pattern that finds a label in more
+    than one block stops the measurement: which of them names the capability is not decided here (Codex thread
+    4224371692 on pull request 304: a prefix took an earlier row of a similar name, and the first match won)."""
     for datei, muster in paare:
         bloecke = _bloecke(ref, datei)
+        gefunden = []
         for i, (art, _ebene, text, zellen) in enumerate(bloecke):
             if isinstance(muster, tuple):
                 _row, erste, spalte = muster
-                if art == "row" and len(zellen) > spalte and re.match(erste, zellen[0]):
-                    return zellen[spalte], i, bloecke, datei
+                if art == "row" and len(zellen) > spalte and re.fullmatch(erste, zellen[0]):
+                    gefunden.append((zellen[spalte], i))
             elif art != "row":
                 treffer = re.search(muster, text)
                 if treffer:
-                    return treffer.group(1), i, bloecke, datei
+                    gefunden.append((treffer.group(1), i))
+        if len(gefunden) > 1:
+            raise SystemExit(f"{datei} at {ref[:12]} holds {len(gefunden)} blocks the pattern {muster!r} finds a label "
+                             "in; which one names the capability is not decided here, and the docs are not measured")
+        if gefunden:
+            return gefunden[0][0], gefunden[0][1], bloecke, datei
     return None, None, None, None
 
 

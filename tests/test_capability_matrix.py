@@ -687,7 +687,7 @@ class TheDocsAreReadAsTheyRender(unittest.TestCase):
                      "promptfoo (adapter)\n---\n", "## [promptfoo](https://example.org) (adapter)\n"):
             with self.subTest(text=text):
                 self.assertEqual(self._modul(text)._label_at("r", heading), ("## promptfoo (adapter)", "NOTES.md"))
-        zeile = [("NOTES.md", ("row", r"x/v1\Z", 1))]
+        zeile = [("NOTES.md", ("row", r"x/v1", 1))]
         for text in ("| name | status |\n|---|---|\n| `x/v1` | **EXPERIMENTAL** (3.2) |\n",
                      "| name | status |\n|---|---|\n| x/v1 | EXPERIMENTAL (3.2) |\n"):
             with self.subTest(table=text):
@@ -697,7 +697,7 @@ class TheDocsAreReadAsTheyRender(unittest.TestCase):
         """Thread 4224150092: the cells were joined into a row again with an escaped pipe, and a pattern over that row
         found no label in `stable \\| EXPERIMENTAL`. A table label is a cell, named by its row's first cell and its
         column, so a pipe the cell renders is the cell's text."""
-        zeile = [("NOTES.md", ("row", r"x/v1\Z", 1))]
+        zeile = [("NOTES.md", ("row", r"x/v1", 1))]
         modul = self._modul("| name | status |\n|---|---|\n| x/v1 | stable \\| EXPERIMENTAL |\n")
         label, _ = modul._label_at("r", zeile)
         self.assertEqual(label, "stable | EXPERIMENTAL")
@@ -706,6 +706,21 @@ class TheDocsAreReadAsTheyRender(unittest.TestCase):
                      "x/v1 | stable\n"):
             with self.subTest(no_label=text):
                 self.assertEqual(self._modul(text)._label_at("r", zeile), (None, None))
+
+    def test_a_label_is_found_once_by_its_whole_name_or_not_at_all(self) -> None:
+        """Thread 4224371692: the row key matched a prefix, so an earlier `... legacy` row gave its cell, and the first
+        match won. A row key matches the whole first cell, and a pattern that finds a label in two blocks stops."""
+        zeile = [("NOTES.md", ("row", r"x/v1", 1))]
+        tabelle = "| name | status |\n|---|---|\n| x/v1 legacy | stable |\n| x/v1 | EXPERIMENTAL |\n"
+        self.assertEqual(self._modul(tabelle)._label_at("r", zeile)[0], "EXPERIMENTAL")
+        doppelt = "| name | status |\n|---|---|\n| x/v1 | stable |\n| x/v1 | EXPERIMENTAL |\n"
+        with self.assertRaisesRegex(SystemExit, "not decided here"):
+            self._modul(doppelt)._label_at("r", zeile)
+        ueberschrift = [("NOTES.md", r"^(## promptfoo[^\n]*)")]
+        with self.assertRaisesRegex(SystemExit, "not decided here"):
+            self._modul("## promptfoo legacy\n\nold\n\n## promptfoo (adapter)\n")._label_at("r", ueberschrift)
+        self.assertEqual(self._modul("## promptfoo (adapter)\n\n## lm-eval\n")._label_at("r", ueberschrift)[0],
+                         "## promptfoo (adapter)", "control: one heading of the name is read")
 
     def test_the_status_reads_the_word_that_renders(self) -> None:
         cap = [("NOTES.md", r"^(the x capability[^\n]*)")]
