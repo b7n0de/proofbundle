@@ -23,10 +23,6 @@ from proofbundle.errors import BundleFormatError
 
 ROOT = Path(__file__).resolve().parents[1]
 RUST_MANIFEST = ROOT / "tools" / "pb_verify_rs" / "Cargo.toml"
-# BEIDE Profile, wie `tests/test_relation_statement_rust_parity.py` es schon tut. Release zuerst,
-# weil CI dieses Profil baut.
-RUST_BIN_RELEASE = ROOT / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
-RUST_BIN_DEBUG = ROOT / "tools" / "pb_verify_rs" / "target" / "debug" / "pb_verify_rs"
 
 
 def test_input_bytes_uses_encoded_bytes_not_codepoints():

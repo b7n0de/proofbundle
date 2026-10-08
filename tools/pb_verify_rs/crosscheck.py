@@ -43,7 +43,11 @@ SRC = ROOT / "src"
 #: Ausschussmenge; das gilt auch, wenn der Filter nur zwei Kandidaten hat.
 _KANDIDATEN = [ROOT / "tools" / "pb_verify_rs" / "target" / t / "pb_verify_rs"
                for t in ("debug", "release")]
-BIN = next((b for b in _KANDIDATEN if b.exists()), _KANDIDATEN[0])
+#: The binary tests/_pb_verify_rs.py pins, when set: a test that asked the seam passes it here, so the run
+#: measures the bytes the seam validated and not a stale target/debug file beside them (Codex thread
+#: 4217981884 on pull request 309). Without the pin, the lookup above stands.
+PIN = __import__("os").environ.get("PROOFBUNDLE_PB_VERIFY_RS", "").strip()
+BIN = pathlib.Path(PIN) if PIN else next((b for b in _KANDIDATEN if b.exists()), _KANDIDATEN[0])
 
 
 def _binaer_herkunft() -> str:
@@ -56,7 +60,7 @@ def _binaer_herkunft() -> str:
         except OSError:
             return "?"
     andere = [b for b in _KANDIDATEN if b != BIN and b.exists()]
-    zeile = f"BINARY UNDER TEST: {BIN} (mtime {_zeit(BIN)})"
+    zeile = f"BINARY UNDER TEST: {BIN} (mtime {_zeit(BIN)}{', pinned by PROOFBUNDLE_PB_VERIFY_RS' if PIN else ''})"
     if andere:
         zeile += ("; NOT used, though present: "
                   + ", ".join(f"{b} (mtime {_zeit(b)})" for b in andere))

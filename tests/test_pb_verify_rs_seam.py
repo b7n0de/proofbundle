@@ -162,6 +162,30 @@ _FILE_LOOKUP = re.compile(r"\b(?:RUST_)?BIN\w*\.(?:exists|is_file)\(\)")
 #: A skip for a binary that is not built, raised by the test itself instead of the seam. A skip for
 #: absent Rust SOURCES (an unpacked sdist has no src/main.rs) is a different question and stays.
 _OWN_SKIP = re.compile(r"""(?:pytest\.skip|skipTest|SkipTest)\(\s*f?["'][^"']*(?:cargo|built|gebaut)""")
+#: A name bound to a path under `target/debug` or `target/release`. `_FILE_LOOKUP` caught a lookup only through a
+#: name with BIN in it; `for b in (RUST, RUST_DEBUG): if b.exists()` passed unseen (pull request 309, after Codex
+#: thread 4217981884). `_looks_up_a_bound_path` reads the syntax tree for both forms.
+_TARGET_PATH = re.compile(r"""["']target["']\s*/\s*["'](?:debug|release)["']""")
+
+
+def _looks_up_a_bound_path(text: str) -> bool:
+    """Whether the module calls `.exists()` or `.is_file()` on a name bound to a target path, directly or as the
+    variable of a loop over a tuple or list that holds such a name."""
+    import ast  # noqa: PLC0415
+    try:
+        baum = ast.parse(text)
+    except SyntaxError:
+        return False
+    namen = {z.id for k in ast.walk(baum) if isinstance(k, ast.Assign) and _TARGET_PATH.search(ast.unparse(k.value))
+             for z in k.targets if isinstance(z, ast.Name)}
+    if not namen:
+        return False
+    schleifen = {k.target.id for k in ast.walk(baum)
+                 if isinstance(k, ast.For) and isinstance(k.target, ast.Name) and isinstance(k.iter, (ast.Tuple, ast.List))
+                 and any(isinstance(e, ast.Name) and e.id in namen for e in k.iter.elts)}
+    return any(isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr in ("exists", "is_file")
+               and isinstance(k.func.value, ast.Name) and k.func.value.id in namen | schleifen
+               for k in ast.walk(baum))
 _SEAM_AND_ITS_TEST = {"_pb_verify_rs.py", "test_pb_verify_rs_seam.py"}
 
 
@@ -178,6 +202,8 @@ def offenders(sources: dict) -> list:
             found.append(f"{name}: looks for the binary's file itself")
         if _OWN_SKIP.search(text):
             found.append(f"{name}: skips for a missing binary itself")
+        if _looks_up_a_bound_path(text) and not _FILE_LOOKUP.search(text):
+            found.append(f"{name}: looks for the binary's file itself")
     return found
 
 
@@ -201,3 +227,24 @@ def test_catch_proof_the_sweep_finds_both_forms_it_replaced():
         "test_checker.py: decides a Rust skip at collection",
         "test_checker.py: looks for the binary's file itself"}
     assert set(offenders({"test_unit.py": unit})) == {"test_unit.py: decides a Rust skip at collection"}
+    schleife = ('RUST = REPO / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"\n'
+                'RUST_DEBUG = REPO / "tools" / "pb_verify_rs" / "target" / "debug" / "pb_verify_rs"\n'
+                'def _rust_bin():\n    for b in (RUST, RUST_DEBUG):\n        if b.exists():\n            return b\n')
+    assert set(offenders({"test_loop.py": schleife})) == {"test_loop.py: looks for the binary's file itself"}
+    nur_genannt = ('# tools/pb_verify_rs/target/release/pb_verify_rs is a build artefact\n'
+                   'RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"\n'
+                   'def binary():\n    return seam.binary_or_skip()\n')
+    assert offenders({"test_named.py": nur_genannt}) == []
+
+
+def test_crosscheck_measures_the_binary_the_seam_pins(monkeypatch, tmp_path):
+    """Codex thread 4217981884: a test validated the seam's binary and then ran crosscheck.py, which chose
+    target/debug first and ignored the pin. With the pin set, crosscheck's binary is the pinned one."""
+    import importlib.util
+    pinned = tmp_path / "built" / "pb_verify_rs"
+    monkeypatch.setenv(seam.PINNED_ENV, str(pinned))
+    spec = importlib.util.spec_from_file_location("_crosscheck_pin", seam.RUST_DIR / "crosscheck.py")
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    assert modul.BIN == pinned
+    assert "pinned by PROOFBUNDLE_PB_VERIFY_RS" in modul._binaer_herkunft()

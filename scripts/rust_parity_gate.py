@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -183,7 +184,10 @@ def rust_coverage_report(rust_bin: Optional[Path] = None) -> Optional[dict]:
     """Run the built binary's self-declared `coverage-report`. Returns None (never a fabricated empty
     dict) when no binary is available — an honest DATA_BLOCKED for that one cross-check layer, not a
     silent pass and not a failure (cargo is not assumed to be installed everywhere this gate runs)."""
-    candidates = [c for c in (rust_bin, RUST_BIN_DEBUG, RUST_BIN_RELEASE) if c is not None]
+    # The binary tests/_pb_verify_rs.py pins comes before the target lookup, as in crosscheck.py.
+    gepinnt = os.environ.get("PROOFBUNDLE_PB_VERIFY_RS", "").strip()
+    candidates = [c for c in (rust_bin, Path(gepinnt) if gepinnt else None, RUST_BIN_DEBUG, RUST_BIN_RELEASE)
+                  if c is not None]
     for candidate in candidates:
         if not candidate.exists():
             continue
