@@ -16,7 +16,20 @@ except ImportError:         # gate HONESTLY reports the population incomplete, s
     _HAS_OTS = False
 
 
-def _verdicts_in_a_fresh_interpreter(fn_names):
+def _private_tree(tmp_path):
+    """A copy of scripts/ beside a link to the src/ of this checkout, for the strip loops to mutate. Codex thread
+    4221653623 on pull request 309: the loops rewrote scripts/type_confusion_gate.py and scripts/pre_tag_receipt_lib.py
+    in the shared checkout, and under `--dist=worksteal` a test on another worker could read a stripped file. The
+    harness and the gate find their root by their own path, so they run against the copy unchanged; measured on this
+    branch, all 20 harness classes are green in the copy as in the checkout."""
+    import shutil
+    repo = Path(__file__).resolve().parents[1]
+    shutil.copytree(repo / "scripts", tmp_path / "scripts")
+    (tmp_path / "src").symlink_to(repo / "src", target_is_directory=True)
+    return tmp_path
+
+
+def _verdicts_in_a_fresh_interpreter(fn_names, wurzel=None):
     """Run harness classes in a new interpreter against the tree as it is on disk NOW and return each
     class's verdict: "True", "False", or "raised <Type>" (``run()`` counts a class that raises as not
     detected).
@@ -32,7 +45,7 @@ def _verdicts_in_a_fresh_interpreter(fn_names):
     import json
     import subprocess
     import tempfile
-    repo = Path(__file__).resolve().parents[1]
+    repo = wurzel if wurzel is not None else Path(__file__).resolve().parents[1]
     code = ("import json, gate_qualification_harness as h\n"
             "out = {}\n"
             f"for n in {list(fn_names)!r}:\n"
@@ -53,7 +66,7 @@ def _verdicts_in_a_fresh_interpreter(fn_names):
     return json.loads(zeilen[-1])
 
 
-def _assert_each_run_compiles_what_is_on_disk(path, orig, anker, strip, neutral, fn_name):
+def _assert_each_run_compiles_what_is_on_disk(path, orig, anker, strip, neutral, fn_name, wurzel):
     """The strip loops' control for the run itself. Every strip is supposed to turn its class red, so a
     run that reused an earlier strip's bytecode would stay unnoticed. Here a strip is run first, then an
     edit that changes nothing, of the strip's size and stamped with the strip's mtime: bytecode cached
@@ -65,10 +78,10 @@ def _assert_each_run_compiles_what_is_on_disk(path, orig, anker, strip, neutral,
     path.write_text(orig.replace(anker, strip, 1), encoding="utf-8")
     stempel = path.stat().st_mtime_ns
     try:
-        rot = _verdicts_in_a_fresh_interpreter([fn_name])[fn_name]
+        rot = _verdicts_in_a_fresh_interpreter([fn_name], wurzel)[fn_name]
         path.write_text(orig.replace(anker, neutral, 1), encoding="utf-8")
         os.utime(path, ns=(stempel, stempel))
-        gruen = _verdicts_in_a_fresh_interpreter([fn_name])[fn_name]
+        gruen = _verdicts_in_a_fresh_interpreter([fn_name], wurzel)[fn_name]
     finally:
         path.write_text(orig, encoding="utf-8")
     assert rot != "True" and gruen == "True", (
@@ -78,6 +91,26 @@ def _assert_each_run_compiles_what_is_on_disk(path, orig, anker, strip, neutral,
 
 @pytest.mark.skipif(not _HAS_OTS, reason="needs proofbundle[anchors] (opentimestamps): the gate's "
                     "full surface population includes anchor OTS surfaces that only import with it")
+def test_the_strip_loops_leave_the_checkout_untouched(tmp_path, monkeypatch):
+    """Codex thread 4221653623, the property itself: while the strip loops run, no file of scripts/ in this checkout
+    changes. Every write the loops make is recorded and must land under the private tree."""
+    repo = Path(__file__).resolve().parents[1]
+    vorher = {p: p.read_bytes() for p in (repo / "scripts").glob("*.py")}
+    geschrieben = []
+    echt = Path.write_text
+
+    def write_text(self, *args, **kwargs):
+        geschrieben.append(self.resolve())
+        return echt(self, *args, **kwargs)
+    monkeypatch.setattr(Path, "write_text", write_text)
+    (tmp_path / "pretag").mkdir()
+    test_pretag_binding_check_strips_redden_cc32(tmp_path / "pretag")
+    assert geschrieben, "control: the loop wrote at all"
+    privat = tmp_path.resolve()
+    assert all(privat in p.parents for p in geschrieben), [str(p) for p in geschrieben if privat not in p.parents]
+    assert {p: p.read_bytes() for p in (repo / "scripts").glob("*.py")} == vorher
+
+
 def test_15_of_15_counterproofs_detected_with_green_positive_controls():
     r = h.run()
     missed = [x["class"] for x in r["results"] if not x["detected"]]
@@ -86,17 +119,16 @@ def test_15_of_15_counterproofs_detected_with_green_positive_controls():
     assert r["classes_total"] >= 15   # 16 since the Gates re-gate added the never_raise_ok-integration class
 
 
-def test_all_release_deciding_wirings_are_bound_and_isolated():
+def test_all_release_deciding_wirings_are_bound_and_isolated(tmp_path):
     """Gates re-gate round 3: cc16-cc20 must each BIND a distinct release-deciding detection wiring of
     type_confusion_gate.evaluate() to its headline verdict. Proven by mutation: strip one wiring and EXACTLY
     the matching class must go red (a present-but-vacuous class — the cc01/cc02 failure mode — would stay
     green). This is the anti-rot guarantee: a stripped detection capability cannot pass as 20/20 green."""
     import shutil
     import tempfile
-    from pathlib import Path
 
-    repo = Path(__file__).resolve().parents[1]
-    gate = repo / "scripts" / "type_confusion_gate.py"
+    wurzel = _private_tree(tmp_path)
+    gate = wurzel / "scripts" / "type_confusion_gate.py"
     orig = gate.read_text(encoding="utf-8")
     muts = {
         "17_wholearg_wiring": (
@@ -175,11 +207,11 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
                  "32_field_extraction_subscript": "cc31_field_extraction_subscript_real"}
 
     def target_still_detects(fn_name):
-        return _verdicts_in_a_fresh_interpreter([fn_name])[fn_name] == "True"
+        return _verdicts_in_a_fresh_interpreter([fn_name], wurzel)[fn_name] == "True"
 
     # BASELINE: every target is green on the unmutated tree, in the same kind of run. Without it, a target
     # that is red for another reason would read as a strip turning it red.
-    basis = _verdicts_in_a_fresh_interpreter(sorted(set(target_fn.values())))
+    basis = _verdicts_in_a_fresh_interpreter(sorted(set(target_fn.values())), wurzel)
     assert all(v == "True" for v in basis.values()), f"a target is not green before any strip: {basis}"
 
     bak = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False)
@@ -196,7 +228,7 @@ def test_all_release_deciding_wirings_are_bound_and_isolated():
             assert not detects, f"stripping {target} must make {target_fn[target]} go red (binding vacuous?)"
         o, n = muts["32_field_extraction_subscript"]
         _assert_each_run_compiles_what_is_on_disk(gate, orig, o, n, o + "  # xxxxxx",
-                                                  "cc31_field_extraction_subscript_real")
+                                                  "cc31_field_extraction_subscript_real", wurzel)
     finally:
         gate.write_text(orig, encoding="utf-8")            # belt-and-suspenders restore
         shutil.os.unlink(bak.name)
@@ -387,7 +419,7 @@ def _pretag_rejection_conditions(src):
             and isinstance(n.body[0].value.elts[0], ast.Constant) and n.body[0].value.elts[0].value is False]
 
 
-def test_pretag_binding_check_strips_redden_cc32():
+def test_pretag_binding_check_strips_redden_cc32(tmp_path):
     """Each verify_receipt rejection, switched off, must turn the class that binds it red -> genuinely
     bound, not vacuous. Mutation on pre_tag_receipt_lib.py; the schema strip is the round-10 P3-1.
 
@@ -397,14 +429,14 @@ def test_pretag_binding_check_strips_redden_cc32():
     and `weakness is not None`. A later layer refuses the same receipt under another reason, so cc10 and
     cc32 now check the reason for those three. The condition is switched off in parentheses: `if False
     and A or B:` still refuses on B, measured on the digest-form check."""
-    from pathlib import Path
-    lib = Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt_lib.py"
+    wurzel = _private_tree(tmp_path)
+    lib = wurzel / "scripts" / "pre_tag_receipt_lib.py"
     orig = lib.read_text(encoding="utf-8")
     found = _pretag_rejection_conditions(orig)
     assert sorted(found) == sorted(_PRETAG_STRIPS), (
         f"verify_receipt refuses under {sorted(set(found) - set(_PRETAG_STRIPS))} with no strip here, and "
         f"the table lists {sorted(set(_PRETAG_STRIPS) - set(found))} that it no longer has")
-    basis = _verdicts_in_a_fresh_interpreter(sorted(set(_PRETAG_STRIPS.values())))
+    basis = _verdicts_in_a_fresh_interpreter(sorted(set(_PRETAG_STRIPS.values())), wurzel)
     assert all(v == "True" for v in basis.values()), f"a class is not green before any strip: {basis}"
 
     try:
@@ -413,11 +445,11 @@ def test_pretag_binding_check_strips_redden_cc32():
             assert orig.count(anker) == 1, f"pretag check anchor not unique: {anker!r}"
             lib.write_text(orig.replace(anker, f"if False and ({cond}):", 1), encoding="utf-8")
             try:
-                verdict = _verdicts_in_a_fresh_interpreter([fn_name])[fn_name]
+                verdict = _verdicts_in_a_fresh_interpreter([fn_name], wurzel)[fn_name]
             finally:
                 lib.write_text(orig, encoding="utf-8")
             assert verdict != "True", f"stripping {anker!r} must make {fn_name} go red (binding vacuous?)"
         _assert_each_run_compiles_what_is_on_disk(lib, orig, "if not ok:", "if False and (not ok):",
-                                                  "if not ok:  # xxxxxxxx", "cc32_pretag_check_coverage")
+                                                  "if not ok:  # xxxxxxxx", "cc32_pretag_check_coverage", wurzel)
     finally:
         lib.write_text(orig, encoding="utf-8")
