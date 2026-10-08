@@ -2264,7 +2264,8 @@ def _absent_in_working_tree(repo: str) -> bool:
 
 def _rules_at(repo: str, commit: str, deadline: float) -> tuple:
     """The evidence rules at a commit: whether a declaration exists, its items without their per-release
-    subject (kind, path, policy, public_key), and the blob of each declared policy. Evidence files and any
+    subject (kind, path, policy, public_key), the blob of each declared policy, and the done check (owner choice
+    N2C-1 B, 2026-10-08): the whole done section and the blob of its done policy. Evidence files, receipts and any
     other file under .proofbundle/ are not rules."""
     try:
         raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES)
@@ -2274,14 +2275,31 @@ def _rules_at(repo: str, commit: str, deadline: float) -> tuple:
         return ("absent",)
     try:
         items = parse_declaration(raw)
+        done = parse_done(raw)
     except GateError:
         return ("malformed", hashlib.sha256(raw).hexdigest())
     rules = tuple(sorted((i["kind"], i["path"], i.get("policy", ""), i.get("public_key", "")) for i in items))
     policies = []
     for path in sorted({i["policy"] for i in items if "policy" in i}):
-        blob = _git(repo, "rev-parse", "--verify", "--quiet", f"{commit}:{path}", deadline=deadline)
-        policies.append((path, blob.stdout.decode().strip() if blob.returncode == 0 else ""))
-    return ("declared", rules, tuple(policies))
+        policies.append((path, _blob_id(repo, commit, path, deadline)))
+    return ("declared", rules, tuple(policies), _done_rule(repo, commit, done, deadline))
+
+
+def _blob_id(repo: str, commit: str, path: str, deadline: float) -> str:
+    blob = _git(repo, "rev-parse", "--verify", "--quiet", f"{commit}:{path}", deadline=deadline)
+    return blob.stdout.decode().strip() if blob.returncode == 0 else ""
+
+
+def _done_rule(repo: str, commit: str, done: dict | None, deadline: float) -> tuple:
+    """The done check as an evidence rule (owner choice N2C-1 B, D20): the done section in one canonical form (its
+    policy, each check's id, arguments and receipt, the paths and max_blocks) and the blob of the done policy at the
+    commit; () when the declaration declares no done check. Who may change the policy or the order decides what a
+    done check proves, so a push that changes either needs a review like a change to an evidence policy."""
+    if done is None:
+        return ()
+    checks = tuple((c["id"], None if c["args"] is None else tuple(c["args"]), c["receipt"]) for c in done["checks"])
+    section = (done["policy"], checks, None if done["paths"] is None else tuple(done["paths"]), done["max_blocks"])
+    return (section, _blob_id(repo, commit, done["policy"], deadline))
 
 
 def _rules_difference(base: tuple, head: tuple) -> str:
@@ -2297,6 +2315,13 @@ def _rules_difference(base: tuple, head: tuple) -> str:
     before, after = dict(base[2]), dict(head[2])
     parts += [f"the policy {path} changes" for path in sorted(set(before) | set(after))
               if before.get(path) != after.get(path)]
+    if base[3] != head[3]:
+        if not base[3] or not head[3]:
+            parts.append("the push adds a done check" if head[3] else "the push removes the done check")
+        elif base[3][0] != head[3][0]:
+            parts.append("the done check changes (its policy, checks, receipts, paths or max_blocks)")
+        else:
+            parts.append(f"the done policy {head[3][0][0]} changes")
     return "; ".join(parts)
 
 
@@ -2644,7 +2669,8 @@ _RULES_NEXT = ("have a person review the change to the evidence rules, then push
 def _rules_verdict(repo: str, commit: str, what: str, digests: tuple = ()) -> Verdict:
     return Verdict("ask", f"proofbundle gate: the push changes the evidence rules under {EVIDENCE_DIR} at "
                           f"{commit[:12]}: {what}. Changes to the evidence rules need a review.",
-                   "rules_changed", evidence=f"the evidence rules under {EVIDENCE_DIR} ({DECLARATION} and its policies)",
+                   "rules_changed", evidence=f"the evidence rules under {EVIDENCE_DIR} ({DECLARATION}, its policies "
+                                             "and its done check)",
                    failed=what, next_step=_RULES_NEXT, digests=digests, repo=repo, head=commit)
 
 

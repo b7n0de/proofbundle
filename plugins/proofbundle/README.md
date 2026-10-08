@@ -156,7 +156,7 @@ measured.
 | An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
 | No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. |
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
-| The evidence verifies, but the push changes the evidence rules against what the remote is known to hold (the declaration's items, a policy, a key) | The call asks, with the change named: changes to the evidence rules need a review (D20). |
+| The evidence verifies, but the push changes the evidence rules against what the remote is known to hold (the declaration's items, a policy, a key, the done check or the done policy) | The call asks, with the change named: changes to the evidence rules need a review (D20). |
 | The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks. `git fetch` makes the remote's state known (D20). |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.

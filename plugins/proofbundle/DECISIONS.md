@@ -891,8 +891,10 @@ Chosen (smallest variant that fails closed, 2026-09-30; the range tightened afte
 on 2026-10-01):
 - The evidence rules are the declaration's items without their per-release `subject` (`kind`, `path`,
   `policy`, `public_key`), whether a declaration exists at all, and the bytes of every declared policy.
-  An evidence file, the declared subject and any other file under `.proofbundle/` are not rules, so a
-  release that brings new evidence for a new tree is no rules change. No rule is a path to a key: a
+  Since owner choice N2C-1 B (2026-10-08) the done check is a rule too: the whole `done` section (its policy,
+  each check's id, arguments and receipt, `paths` and `max_blocks`) and the bytes of the done policy (D30).
+  An evidence file, a receipt, the declared subject and any other file under `.proofbundle/` are not rules, so
+  a release that brings new evidence for a new tree is no rules change. No rule is a path to a key: a
   decision item's `public_key` is the key itself in base64, and a bundle pins its signer inside its
   policy, whose bytes are compared at both commits. Outside these rules stand the plugin's hook
   configuration, the settings of the host and of the user (a setting that turns hooks off, for example),
@@ -1422,10 +1424,24 @@ red tests (`not_done`) deny at Level 1 and make the pre-push hook exit 1; a vali
 itself, with the hook in a throwaway repository's local `core.hooksPath`, a missing or stale receipt keeps the
 remote ref where it was and a valid one moves it.
 
-Not covered, owner card N2C-1: the done section and the done policy are not evidence rules of the push
-comparison (D20). A push whose own commit swaps the done policy to a new key, with a receipt signed by that key,
-passes Level 1 and Level 2 (measured on 2026-10-08). The local test key is readable by the agent anyway (D26); the
-boundary is the CI check with its own key and the review of `.proofbundle/`.
+THE DONE CHECK IS AN EVIDENCE RULE (owner choice N2C-1 B, 2026-10-08)
+- Measured at 31031eb6 (2026-10-08): a push whose own commit swapped the done policy to a new key, with a receipt
+  signed by that key, passed Level 1 (`pass`, reason `done`) and the pre-push hook exited 0, because the done
+  section and the done policy were not rules of the push comparison (D20).
+- Chosen: both are rules (D20). A push whose sent commits change the `done` section or the bytes of the done
+  policy against the target's known state asks under Claude Code (`rules_changed`, with "the done policy ...
+  changes", "the done check changes", "the push adds a done check" or "the push removes the done check"), and
+  Level 2 blocks it (exit 1). Under Codex the plain push still only warns at Level 1 (D12), so Level 2 carries it.
+- Order: a failed done check at the pushed commit still denies first; the rules are compared after it, as after a
+  failed evidence check (D20).
+- Price: a new order is a rules change. Declaring or changing an order and pushing it asks once, as a new evidence
+  policy does; a person reviews it, and once the target's remote-tracking ref holds it, later pushes are plain.
+- Measured (tests/test_plugin_gate_n2c1_b.py; probe_done_policy_swap): the swap to a new key, a rewritten policy
+  with the same key, each part of the section, an added and a removed done check ask at Level 1 and exit 1 at Level
+  2; an unchanged done check with a valid receipt passes; a receipt and a note under `.proofbundle/` are no rule.
+  Red at 31031eb6: 13 of 14 (the one green is that control).
+- Still the boundary: the local test key is readable by the agent anyway (D26); the required CI check with its
+  own key and the review of `.proofbundle/` decide.
 
 Options:
 - A. Unchanged: a push runs only the evidence check (D20).
