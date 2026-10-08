@@ -812,6 +812,54 @@ def main() -> int:
                         f"{out[:80]}/exit{code}, both must be malformed, exit 3")
     (tmp / "scitt_ts_over_budget.cbor").unlink()
 
+    # (6d) scitt-ccf/v1 consistency receipts (draft-ietf-scitt-receipts-ccf-profile-05, section 4): every
+    # shared vector through BOTH verifiers. tests/fixtures/scitt_consistency_receipt/vectors.json carries
+    # the verdict each vector is built to produce (for the local ledger's states, the roots the fixture
+    # recorded from the ledger). Python and Rust must both give it, the Rust exit class included (0
+    # confirmed, 1 a check over the evidence failed, 3 no verdict), and each other's result on every field
+    # but the prose. The file is read by the generator's own functions, as the parity test reads it.
+    import consistency_receipt_vectors as crv  # noqa: PLC0415
+    from proofbundle.scitt_ccf import verify_consistency_receipt  # noqa: PLC0415
+    cr_doc = json.loads((ROOT / "tests" / "fixtures" / "scitt_consistency_receipt" / "vectors.json")
+                        .read_text(encoding="utf-8"))
+    cr_failed = {"consistency_newer_roots_differ", "consistency_anchor_not_canonical",
+                 "consistency_older_root_mismatch", "consistency_issuer_mismatch", "signature_invalid"}
+    cr_n = 0
+    for v in cr_doc["vectors"]:
+        cr_trust = crv.trust_of(cr_doc, v)
+        (tmp / "scitt_cr.cbor").write_bytes(crv.assemble(v["receipt"], cr_doc["refs"]))
+        cr_argv = [str(tmp / "scitt_cr.cbor"), crv.assemble(v["older_root"], cr_doc["refs"]).hex(),
+                   v["older_issuer"]]
+        if cr_trust is not None:
+            (tmp / "scitt_cr_trust.json").write_text(json.dumps(cr_trust), encoding="utf-8")
+            cr_argv.append(str(tmp / "scitt_cr_trust.json"))
+        code, out = _run("verify-scitt-consistency-receipt", *cr_argv)
+        py = crv.python_result(cr_doc, v)
+        try:
+            rs = json.loads(out)
+        except ValueError:
+            rs = None
+        want = v["want"]["status"]
+        want_code = 0 if want == "confirmed" else 1 if want in cr_failed else 3
+        if rs != py or crv.mismatch(v["want"], py) or code != want_code:
+            failures.append(f"scitt consistency receipt {v['id']}: built for {v['want']}, Python "
+                            f"{crv.observed(py)}, Rust {crv.observed(rs) if rs else out}/exit{code}")
+        cr_n += 1
+    # The input budget, as in (6b): the confirmed control receipt one byte past it is malformed, exit 3.
+    cr_s01 = next(v for v in cr_doc["vectors"] if v["id"] == "s01-control")
+    cr_older = crv.assemble(cr_s01["older_root"], cr_doc["refs"])
+    with (tmp / "scitt_cr_over_budget.cbor").open("wb") as f:
+        f.write(crv.assemble(cr_s01["receipt"], cr_doc["refs"]))
+        f.truncate(scitt_budget + 1)
+    code, out = _run("verify-scitt-consistency-receipt", str(tmp / "scitt_cr_over_budget.cbor"), cr_older.hex(),
+                     cr_s01["older_issuer"])
+    py_status = verify_consistency_receipt((tmp / "scitt_cr_over_budget.cbor").read_bytes(), older_root=cr_older,
+                                           older_issuer=cr_s01["older_issuer"]).status
+    if py_status != "malformed" or '"status":"malformed"' not in out or code != 3:
+        failures.append(f"scitt consistency receipt over the input budget: Python {py_status}, Rust "
+                        f"{out[:80]}/exit{code}, both must be malformed, exit 3")
+    (tmp / "scitt_cr_over_budget.cbor").unlink()
+
     # (7) reproduce the actual conformance corpus (§7 "Zweitverifier reproduziert den Conformance-Corpus")
     corpus = ROOT / "conformance"
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -1013,6 +1061,9 @@ def main() -> int:
           f"scitt-ccf/v1 transparent statement: {ts_n} shared vector(s), Python == Rust on every field but "
           "the prose, both == the built verdict, the Rust exit class included, and a file over the input "
           "budget malformed in both; "
+          f"scitt-ccf/v1 consistency receipt: {cr_n} shared vector(s), Python == Rust on every field but the "
+          "prose, both == the built verdict, the Rust exit class included, and a file over the input budget "
+          "malformed in both; "
           f"{reproduced}/{total} conformance-corpus case(s) reproduced independently"
           f" (incl. {rel_n} relation vector(s) differentially, Python==Rust on exit-class + lineage, "
           f"and the declared error marker found in both outputs on {marker_beide} of the "
