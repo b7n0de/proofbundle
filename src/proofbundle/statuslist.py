@@ -29,8 +29,10 @@ from typing import Optional
 
 from ._strict_json import loads_strict
 from .budget import int_magnitude_ok, render_safe
+from .canonical import (_EINGEBAUTE_SKALARE, _bytes_von, _ein_stand, _ganzzahl_von, _pruefkopie,
+                        _type_name, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
-from .signature import verify_ed25519_pinned
+from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64url
 
@@ -62,13 +64,22 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
+@_ein_stand
 def status_claim(uri: str, idx: int) -> dict:
-    """The `status` claim a Referenced Token (receipt SD-JWT) carries to point into a list."""
-    if not uri or not isinstance(uri, str):
+    """The `status` claim a Referenced Token (receipt SD-JWT) carries to point into a list.
+
+    Both values are read once (lens run 8, the sweep of finding B): the uri as the text it holds, the
+    index as an exact `int`. The index check asked the caller's `__lt__` and the claim wrote the stored
+    number; a subclass of `int` is refused, like every number a producer checks and writes."""
+    from ._plain_value import plain_int  # noqa: PLC0415
+    from .signature import plain_text  # noqa: PLC0415
+    uri_text = plain_text(uri)
+    if not uri_text:
         raise BundleFormatError("status list uri must be a non-empty string")
-    if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+    index = plain_int(idx)
+    if index is None or index < 0:
         raise BundleFormatError("status list index must be a non-negative integer")
-    return {"status_list": {"idx": idx, "uri": uri}}
+    return {"status_list": {"idx": index, "uri": uri_text}}
 
 
 def _status_at(bit_array: bytes, bits: int, idx: int) -> int:
@@ -80,6 +91,7 @@ def _status_at(bit_array: bytes, bits: int, idx: int) -> int:
     return (bit_array[byte_i] >> (slot * bits)) & ((1 << bits) - 1)
 
 
+@_ein_stand
 def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: int,
                            issuer_pubkey: bytes, now: Optional[int] = None,
                            receipt_issuer_pubkey: Optional[bytes] = None) -> dict:
@@ -109,6 +121,14 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     result: dict[str, str | bool | int | None] = {
         "ok": False, "status": None, "status_label": None, "fresh": None,
         "self_issued": None, "iat": None, "exp": None, "ttl": None, "detail": ""}
+    # THE ISSUER KEY IS READ ONCE, here, before anything else (deep gate run 5 at d388ed3d, the sweep of
+    # L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). `self_issued` compared one reading of a
+    # `bytearray` key and the signature check read it again after the token was parsed, so a key the caller
+    # changed in between reported the list as self-issued while its signature was checked under another key.
+    # A key that is no bytes-like value is handed on unchanged, and the signature check refuses it as before.
+    _schluessel = _bytes_von(issuer_pubkey)
+    if _schluessel is not None:
+        issuer_pubkey = _schluessel
     if receipt_issuer_pubkey is not None:
         # hmac.compare_digest for a constant-time compare of the two public keys (defensive; the
         # values are public, but consistent with the codebase's compare discipline).
@@ -116,22 +136,40 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         # SYMMETRISCHER Typ-Guard: beide MUESSEN bytes/bytearray sein, sonst crasht bytes(str) mit TypeError
         # statt fail-closed (verify_status_snapshot deklariert 'never crashes'). Non-bytes receipt_issuer_pubkey
         # (str/int/list) → self_issued bleibt False (kein Crash, kein Fake-True).
-        result["self_issued"] = (isinstance(issuer_pubkey, (bytes, bytearray))
-                                 and isinstance(receipt_issuer_pubkey, (bytes, bytearray))
-                                 and len(issuer_pubkey) == len(receipt_issuer_pubkey)
-                                 and _hmac.compare_digest(bytes(issuer_pubkey),
-                                                          bytes(receipt_issuer_pubkey)))
+        # Both keys by the bytes they store (round 12): `len()` and `bytes()` of a subclass are its own.
+        _a, _b = _bytes_von(issuer_pubkey), _bytes_von(receipt_issuer_pubkey)
+        result["self_issued"] = (_a is not None and _b is not None and len(_a) == len(_b)
+                                 and _hmac.compare_digest(_a, _b))
     # deep gate 2026-09-05 (L3-600-04, RT-05 keyword_rp_expectation_arg_int_str_cap_dos): `now` is the relying
     # party's clock and was compared raw once the token carried exp/ttl — a str/list/bytes/float/huge-int `now`
     # raised a raw TypeError (or tripped the shift/render caps) out of a surface that declares 'never crashes'.
     # The floor sits at ENTRY, before any signature work: a malformed clock is a caller error, and the safe
     # direction is a fail-closed verdict that names it, never a silently unjudged freshness (fresh=None would
     # read as 'no bound to judge against', which is a different, honest state reserved for exp/ttl absence).
-    if now is not None and (isinstance(now, bool) or not isinstance(now, int) or not int_magnitude_ok(now)):
+    # The clock as an exact int, asked by its own type before it is judged (round 12): the magnitude
+    # check below called its own `bit_length` and `isinstance` its `__class__` at cd5d39f4. A subclass
+    # of int is refused here (the one rule for a number, PR 293; round 12 read the integer it stores).
+    if now is not None and (_ganzzahl_von(now) is None or not int_magnitude_ok(_ganzzahl_von(now))):
+        # The refusal renders what the clock holds, never through its own methods (round 12): an exact
+        # built-in as it is, a JSON value as its plain copy, anything else by its type name.
+        gezeigt: object = now
+        if type(now) not in _EINGEBAUTE_SKALARE:
+            try:
+                gezeigt = _pruefkopie(now)
+            except ValueError:
+                gezeigt = f"<{_type_name(type(now))}>"
         result["detail"] = ("status list now (relying-party clock) must be a POSIX-seconds integer within the "
-                            f"magnitude budget, got {render_safe(now)} (fail-closed)")
+                            f"magnitude budget, got {render_safe(gezeigt)} (fail-closed)")
         return result
-    if not isinstance(status_list_token, str):
+    # One reading of each caller value, by what it holds (round 12): the clock and the index as exact
+    # ints (an `int` subclass answered `iat <= now` and chose the slot through its own methods at
+    # cd5d39f4, and it is refused now, PR 293's rule), the token as its characters, the expected uri as
+    # its characters.
+    if now is not None:
+        now = _ganzzahl_von(now)
+    if _zeichen_von(status_list_token) is not None:
+        status_list_token = _zeichen_von(status_list_token)
+    if type(status_list_token) is not str:   # `type()`: a `__class__` claim is no str (round 12)
         # RE-TCE-06 (RE-GATE never-raise): a non-str token (int / None / list) must be a fail-closed verdict,
         # not a raw AttributeError from `.count(...)`. A garbage STRING already returns ok=False (lone
         # surrogate / bad shape), so a wrong-TYPE token must too — this surface declares "never crashes".
@@ -157,6 +195,13 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
     if not isinstance(header, dict) or not isinstance(payload, dict):
         result["detail"] = "malformed status list token"
         return result
+    # Nachtrag 50 (Z309, sibling of K5-01/K5-02): RFC 7515 §4.1.11 — an un-understood critical header
+    # makes the JWS invalid. Checked right after reading the header and BEFORE typ/alg, so a Status List
+    # Token whose protected header carries `crit` fails closed (ok stays False) instead of reaching ok=True.
+    _crit_reason = _reject_jws_crit(header)
+    if _crit_reason is not None:
+        result["detail"] = _crit_reason
+        return result
     if header.get("typ") != TYP:
         result["detail"] = f"status list token typ must be '{TYP}'"
         return result
@@ -175,7 +220,10 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = "status list token signature invalid"
         return result
 
-    if payload.get("sub") != expected_uri:
+    # The expected uri by its characters (round 12, O1's class). A supplied uri that is no string never
+    # matches, even a token without `sub` (comparing None with None would); None is compared as before.
+    _uri = _zeichen_von(expected_uri)
+    if (expected_uri is not None and _uri is None) or payload.get("sub") != _uri:
         result["detail"] = "status list token sub does not match the referenced uri"
         return result
     iat, exp, ttl = payload.get("iat"), payload.get("exp"), payload.get("ttl")
@@ -219,7 +267,8 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         # folgt dem Vertrag des Dekoders, nicht der Fehlerquelle von damals.
         result["detail"] = "status_list lst is not valid base64url(zlib(...))"
         return result
-    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+    index = _ganzzahl_von(index)
+    if index is None or index < 0:
         result["detail"] = "status index must be a non-negative integer"
         return result
     try:
@@ -228,13 +277,12 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
         result["detail"] = str(exc)
         return result
 
-    result["ok"] = True
-    result["status"] = status
-    result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
+    # Nachtrag 49 K4-03 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): judge freshness BEFORE the positive
+    # verdict. A snapshot expired or stale at the evaluation time is never a positive, VALID reading (the status
+    # byte and `status_label` were set and `ok` was True before the freshness check, which left `fresh=False`
+    # only as a report). v1.6: a token with NEITHER exp NOR ttl is unbounded — freshness CANNOT be judged, so
+    # `fresh` stays None and the relying party imposes its own max age; `now` absent leaves `fresh` None too.
     if now is not None:
-        # v1.6 (external review): a token with NEITHER exp NOR ttl is unbounded — "fresh
-        # forever" was misleading (stale-snapshot replay). Without a bound, freshness CANNOT
-        # be judged: fresh stays None and the relying party must impose its own max age.
         if exp is None and ttl is None:
             result["fresh"] = None
         else:
@@ -244,23 +292,60 @@ def verify_status_snapshot(status_list_token: str, *, expected_uri: str, index: 
             if ttl is not None:
                 fresh = fresh and now <= iat + ttl
             result["fresh"] = fresh
+            if fresh is False:
+                result["detail"] = "status list snapshot is not fresh (expired or stale) at the evaluation time"
+                return result
+    result["ok"] = True
+    result["status"] = status
+    result["status_label"] = STATUS_LABELS.get(status, f"0x{status:02x}")
     result["detail"] = f"status {result['status_label']} at index {index}"
     return result
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits: int = 1,
                             exp: Optional[int] = None, ttl: Optional[int] = None) -> str:
     """Issue a Status List Token (emit side, for tests/self-hosted lists). ``statuses`` is a list
     of small ints (< 2**bits); ``signer`` an Ed25519 private key; ``iat`` explicit POSIX seconds
-    (the library never samples wall clocks for signatures). zlib level 9 per the spec's example."""
-    if bits not in _ALLOWED_BITS:
+    (the library never samples wall clocks for signatures). zlib level 9 per the spec's example.
+
+    `bits`, `iat` and `statuses` are read once (lens run 8, the sweep of finding B): `bits` was checked
+    through the caller's `__eq__` (tuple membership) and written as the stored number, and the status
+    list was sized through `__len__` and walked through `__iter__`. Each number is an exact `int`."""
+    # Each input by what it holds (round 12): the widths, the times, the uri and every status value
+    # that are checked are the ones written and signed. At cd5d39f4 `len(statuses)` and the loop were
+    # two readings of a list subclass, and an `int` subclass answered the range checks.
+    from ._plain_value import plain_int, plain_list  # noqa: PLC0415
+    bits_in = plain_int(bits)
+    if bits_in is None or bits_in not in _ALLOWED_BITS:
         raise BundleFormatError(f"bits must be one of {_ALLOWED_BITS}")
-    if isinstance(iat, bool) or not isinstance(iat, int):
+    bits = bits_in
+    if plain_int(iat) is None:
         raise BundleFormatError("iat must be a POSIX timestamp integer")
+    # the stored items, without the list budget of `plain_json`: a status list is long by design. A
+    # list or tuple is read from its storage, a `bytes` or `bytearray` (one status per byte) from its
+    # storage too, and any other iterable once through its iterator, as before this change.
+    from .signature import plain_bytes  # noqa: PLC0415
+    stored = plain_list(statuses)
+    if stored is None:
+        raw = plain_bytes(statuses)
+        if raw is not None:
+            stored = list(raw)
+        else:
+            try:
+                stored = list(statuses)
+            except TypeError:
+                raise BundleFormatError("statuses must be a sequence of small integers") from None
+    statuses = stored
+    uri = _zeichen_von(uri) if _zeichen_von(uri) is not None else uri
+    if exp is not None:
+        exp = _ganzzahl_von(exp) if _ganzzahl_von(exp) is not None else exp
+    if ttl is not None:
+        ttl = _ganzzahl_von(ttl) if _ganzzahl_von(ttl) is not None else ttl
     per_byte = 8 // bits
     arr = bytearray((len(statuses) + per_byte - 1) // per_byte)
     for i, s in enumerate(statuses):
-        if isinstance(s, bool) or not isinstance(s, int) or not 0 <= s < (1 << bits):
+        if plain_int(s) is None or not 0 <= s < (1 << bits):
             raise BundleFormatError(f"status value {s!r} does not fit in {bits} bit(s)")
         byte_i, slot = divmod(i, per_byte)
         arr[byte_i] |= s << (slot * bits)

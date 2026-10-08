@@ -275,6 +275,31 @@ def _cli(argv) -> "tuple[int, str]":
     return rc, out.getvalue()
 
 
+def _es256_pin(pub_b64: str) -> str:
+    """The relying-party issuer pin for an ES256 SD-JWT issuer (Nachtrag 38, Z309 / PR 311 P1): the
+    algorithm-bound fingerprint the trust gate compares against, written from the spec here (``"es256:"``
+    plus the standard-base64 public key the bundle carries), not from the module, so the test stays its
+    own oracle."""
+    return "es256:" + pub_b64
+
+
+def _fail_closed_without_pin(case, bundle, *, aud: str = "rp", nonce: str = "n1") -> None:
+    """Nachtrag 38 counter-probe (owner condition 2): the SAME self-signed KB presentation, with no
+    issuer pin and no policy, MUST be fail-closed at ``verify --json`` — ``ok`` is false,
+    ``audience_ok`` / ``nonce_ok`` / ``key_binding_ok`` are not true, and the exit code is not 0. A
+    self-signed SD-JWT supplies its own verifying key, so a positive holder-binding/audience/nonce
+    verdict under it is attacker-chosen (Z309)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "counter.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(bundle, handle)
+        rc, out = _cli(["verify", "--json", path, "--aud", aud, "--nonce", nonce])
+    fields = json.loads(out)
+    case.assertNotEqual(rc, 0, "exit 0 for a self-signed presentation without a pin")
+    for feld in ("ok", "audience_ok", "nonce_ok", "key_binding_ok"):
+        case.assertIsNot(fields.get(feld), True, f"{feld} is true without a pin")
+
+
 class TheVerdictAcceptsBothSpellings(unittest.TestCase):
     """Owner decision, point 1. GREEN on 126ed1dc and on f536af50: it pins that neither fix turned
     acceptance into refusal."""
@@ -316,7 +341,10 @@ class AForeignIssuersBytesAreNeverRewritten(unittest.TestCase):
             self.assertEqual(sd["compact"], compact, f"{label}: the caller's dict is not modified")
             if carries_kb:
                 self.assertTrue(_rfc9901_sd_hash_holds(emitted["sd_jwt_vc"]["compact"]), label)
-                self.assertTrue(verify_bundle(emitted, expected_aud="rp", expected_nonce="n1").ok, label)
+                # Nachtrag 38: the genuine presentation still verifies, now under the issuer pin.
+                self.assertTrue(verify_bundle(emitted, expected_aud="rp", expected_nonce="n1",
+                                              sd_jwt_issuer_key_pin=_es256_pin(self.pub_b64)).ok, label)
+                _fail_closed_without_pin(self, emitted)
 
     def test_emit_eval_receipt_emits_the_presented_compact(self):
         from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt  # noqa: PLC0415
@@ -339,17 +367,22 @@ class AForeignIssuersBytesAreNeverRewritten(unittest.TestCase):
                 self.assertTrue(_rfc9901_sd_hash_holds(_compact_in_token(token)), label)
 
     def test_verify_receipt_token_returns_the_presented_compact(self):
+        pin = _es256_pin(self.pub_b64)
         for label, compact, carries_kb in self._presentations():
             bundle = _bundle_with(compact, self.pub_b64)
             for token in (receipt_token(bundle), _token_as_other_producers_pack_it(bundle)):
-                result, unpacked = verify_receipt_token(token)
+                result, unpacked = verify_receipt_token(token, sd_jwt_issuer_key_pin=pin)
                 # the verdict on the token is the verdict on the bundle as it came; without a KB-JWT a
-                # cnf-bound issuer JWT fails by design (bearer downgrade), with one it verifies
-                self.assertEqual(result.ok, verify_bundle(bundle).ok, label)
+                # cnf-bound issuer JWT fails by design (bearer downgrade), with one it verifies — now under
+                # the issuer pin (Nachtrag 38)
+                self.assertEqual(result.ok, verify_bundle(bundle, sd_jwt_issuer_key_pin=pin).ok, label)
                 self.assertEqual(unpacked, bundle, label)
                 if carries_kb:
                     self.assertTrue(result.ok, f"{label}: {result.as_dict()}")
                     self.assertTrue(_rfc9901_sd_hash_holds(unpacked["sd_jwt_vc"]["compact"]), label)
+                    # Nachtrag 38 counter-probe: the same token without a pin is fail-closed
+                    self.assertFalse(verify_receipt_token(token)[0].ok, f"{label}: fail-closed without a pin")
+                    _fail_closed_without_pin(self, unpacked)
 
     def test_present_with_key_binding_presents_the_handed_bytes(self):
         for high in (True, False):
@@ -418,12 +451,18 @@ class TwinsHaveOneIdentity(unittest.TestCase):
 
     def test_a_token_and_its_twin_are_two_strings_with_one_identity(self):
         from proofbundle.hf_evals import receipt_token_identity  # noqa: PLC0415 - red on f536af50
+        pin = _es256_pin(self.pub_b64)
         for label, bundle, twin, verifies in self._pairs():
             token, twin_token = receipt_token(bundle), receipt_token(twin)
             self.assertNotEqual(token, twin_token, f"{label}: the cost, stated in the CHANGELOG")
             self.assertEqual(receipt_token_identity(token), receipt_token_identity(twin_token), label)
-            self.assertEqual(verify_receipt_token(token)[0].ok, verifies, label)
-            self.assertEqual(verify_receipt_token(twin_token)[0].ok, verifies, label)
+            # Nachtrag 38: a verifying KB presentation verifies under the issuer pin; identity holds regardless
+            self.assertEqual(verify_receipt_token(token, sd_jwt_issuer_key_pin=pin)[0].ok, verifies, label)
+            self.assertEqual(verify_receipt_token(twin_token, sd_jwt_issuer_key_pin=pin)[0].ok, verifies, label)
+            if verifies and "KB-JWT" in label:
+                # counter-probe: the EdDSA-KB presentation no longer verifies without the pin
+                self.assertFalse(verify_receipt_token(token)[0].ok, f"{label}: fail-closed without a pin")
+                _fail_closed_without_pin(self, bundle)
 
     def test_the_identity_of_a_token_is_the_receipt_root_the_docs_define(self):
         """F4: docs/ANCHORS.md read literally. RED on f536af50, where ``receipt_token_identity`` did
@@ -552,33 +591,51 @@ class TwinsHaveOneIdentity(unittest.TestCase):
         """GREEN on f536af50: no field of ``verify --json`` carries signature bytes, and this is a guard
         that none starts to. RED on 126ed1dc, where the twin of a presentation with an EdDSA KB-JWT
         failed the sd_hash check and so got another verdict."""
+        policy = {"schema": "proofbundle/trust-policy/v0.1", "policy_id": "d1-es256",
+                  "sd_jwt": {"issuer_key_pin": _es256_pin(self.pub_b64)}}
         for label, bundle, twin, verifies in self._pairs():
             with tempfile.TemporaryDirectory() as tmp:
+                pol_path = os.path.join(tmp, "policy.json")
+                with open(pol_path, "w", encoding="utf-8") as handle:
+                    json.dump(policy, handle)
                 outputs = []
                 for name, spelling in (("b.json", bundle), ("t.json", twin)):
                     path = os.path.join(tmp, name)
                     with open(path, "w", encoding="utf-8") as handle:
                         json.dump(spelling, handle)
-                    rc, out = _cli(["verify", "--json", path])
+                    # Nachtrag 38: a verifying presentation is trusted under the policy's issuer pin
+                    argv = ["verify", "--json", path] + (["--policy", pol_path] if verifies else [])
+                    rc, out = _cli(argv)
                     self.assertEqual(rc, 0 if verifies else 1, label)
                     outputs.append(json.loads(out))
             self.assertEqual(outputs[0], outputs[1], label)
+            if verifies and "KB-JWT" in label:
+                _fail_closed_without_pin(self, bundle)
 
     def test_an_eval_results_entry_and_its_verdict_have_one_identity(self):
         from proofbundle.hf_evals import (  # noqa: PLC0415
             eval_results_yaml, receipt_token_identity, to_eval_results_entry, verify_eval_results_entry)
+        pin = _es256_pin(self.pub_b64)
         for label, bundle, twin, verifies in self._pairs():
+            # Nachtrag 38: the verifying KB case builds and re-verifies under the issuer pin
             entries = [to_eval_results_entry(spelling, dataset_id="d", task_id="t", value=1,
-                                             require_verified=verifies) for spelling in (bundle, twin)]
+                                             require_verified=verifies, sd_jwt_issuer_key_pin=pin)
+                       for spelling in (bundle, twin)]
             tokens = [entry.pop("verifyToken") for entry in entries]
             self.assertEqual(entries[0], entries[1], f"{label}: the entries differ in verifyToken only")
             self.assertEqual(receipt_token_identity(tokens[0]), receipt_token_identity(tokens[1]), label)
             for entry, token in zip(entries, tokens):
                 entry["verifyToken"] = token
             self.assertNotEqual(eval_results_yaml(entries[:1]), eval_results_yaml(entries[1:]), label)
-            self.assertEqual(verify_eval_results_entry(entries[0]), verify_eval_results_entry(entries[1]),
-                             label)
-            self.assertEqual(verify_eval_results_entry(entries[0])["crypto_ok"], verifies, label)
+            self.assertEqual(verify_eval_results_entry(entries[0], sd_jwt_issuer_key_pin=pin),
+                             verify_eval_results_entry(entries[1], sd_jwt_issuer_key_pin=pin), label)
+            self.assertEqual(verify_eval_results_entry(entries[0], sd_jwt_issuer_key_pin=pin)["crypto_ok"],
+                             verifies, label)
+            if verifies and "KB-JWT" in label:
+                # counter-probe: the eval-results path is fail-closed without the pin
+                self.assertFalse(verify_eval_results_entry(entries[0])["crypto_ok"],
+                                 f"{label}: eval-results crypto_ok without a pin")
+                _fail_closed_without_pin(self, bundle)
 
     def test_the_identity_form_folds_both_slots_and_nothing_else(self):
         """RED on f536af50 in the KB-JWT slot; the issuer slot was folded there already."""
@@ -597,6 +654,89 @@ class TwinsHaveOneIdentity(unittest.TestCase):
             self.assertEqual(mine.split(".")[:2], theirs.split(".")[:2])
         low = canonical_sd_jwt_compact(compact)
         self.assertIs(canonical_sd_jwt_compact(low), low, "a form already low comes back as it is")
+
+
+# The ECDSA inventory. A path that SIGNS with ECDSA is seen by three marks that do not depend on each
+# other: a curve name, a name that makes an EC private key or signs with python-ecdsa, and the signing
+# call itself. The curve names are every short-Weierstrass curve the installed libraries ship, read at
+# import, plus a floor: the 19 curves cryptography 42.0.8 ships (the oldest release the package allows;
+# 49.0.0 ships 9, without the binary SECT curves) and the Weierstrass curves of python-ecdsa 0.19.2,
+# so an older or a trimmed release does not shrink the list.
+_CURVE_FLOOR = frozenset({
+    "SECP192R1", "SECP224R1", "SECP256R1", "SECP384R1", "SECP521R1", "SECP256K1",
+    "BrainpoolP256R1", "BrainpoolP384R1", "BrainpoolP512R1",
+    "SECT163K1", "SECT163R2", "SECT233K1", "SECT233R1", "SECT283K1", "SECT283R1",
+    "SECT409K1", "SECT409R1", "SECT571K1", "SECT571R1",
+    "NIST192p", "NIST224p", "NIST256p", "NIST384p", "NIST521p", "SECP256k1",
+    "SECP112r1", "SECP112r2", "SECP128r1", "SECP160r1",
+    "BRAINPOOLP160r1", "BRAINPOOLP160t1", "BRAINPOOLP192r1", "BRAINPOOLP192t1",
+    "BRAINPOOLP224r1", "BRAINPOOLP224t1", "BRAINPOOLP256r1", "BRAINPOOLP256t1",
+    "BRAINPOOLP320r1", "BRAINPOOLP320t1", "BRAINPOOLP384r1", "BRAINPOOLP384t1",
+    "BRAINPOOLP512r1", "BRAINPOOLP512t1",
+})
+# A call ``<key>.sign(data, algorithm)``. The signatures proofbundle makes (Ed25519, ML-DSA) take the
+# data alone; ECDSA takes a second argument, whatever name it was bound to, and names no curve.
+_SIGNS_WITH_AN_ALGORITHM = "<key>.sign(data, algorithm)"
+
+
+def _installed_curves() -> "frozenset[str]":
+    """Every short-Weierstrass curve the installed libraries ship, by the name code imports it as."""
+    names = {k for k, v in vars(ec).items()
+             if isinstance(v, type) and issubclass(v, ec.EllipticCurve) and v is not ec.EllipticCurve}
+    try:
+        from ecdsa import curves as ecdsa_curves  # noqa: PLC0415
+        from ecdsa.ellipticcurve import CurveFp  # noqa: PLC0415
+    except ImportError:   # the rootcommit extra is optional; the floor still holds its names
+        pass
+    else:
+        names |= {c.name for c in ecdsa_curves.curves if isinstance(c.curve, CurveFp)}
+    return frozenset(names)
+
+
+_ECDSA_WATCHED = _CURVE_FLOOR | _installed_curves() | {
+    "ECDSA", "SigningKey", "sign_digest", "sign_deterministic", "sign_digest_deterministic",
+    "generate_private_key", "derive_private_key", "EllipticCurvePrivateKey",
+    "EllipticCurvePrivateNumbers", "get_curve_for_oid", "_CURVE_TYPES"}
+_ECDSA_ALLOWED = frozenset({("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
+                            ("anchors_rootcommit.py", "SECP256k1"),
+                            ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1"),
+                            ("scitt_ccf.py", "SECP384R1"),
+                            # 6.4.0, owner decision B: the ES256 path of the SCITT producer SIGNS, with the
+                            # low s, and joins test_every_signature_proofbundle_makes_has_one_spelling.
+                            ("scitt_statement.py", "ECDSA"), ("scitt_statement.py", "SECP256R1"),
+                            # the same path, named by the marks main added: _es256 signs with
+                            # `signer.sign(tbs, ec.ECDSA(hashes.SHA256()))`, sign_statement picks it by
+                            # `isinstance(signer, ec.EllipticCurvePrivateKey)`, and `scitt sign` refuses a
+                            # loaded key that is not one on secp256r1. No other curve is allowed in either.
+                            ("scitt_statement.py", _SIGNS_WITH_AN_ALGORITHM),
+                            ("scitt_statement.py", "EllipticCurvePrivateKey"),
+                            ("cli.py", "EllipticCurvePrivateKey")})
+
+
+def _ecdsa_inventory(root: pathlib.Path) -> "set[tuple[str, str]]":
+    """(file, mark) for every watched name, attribute, imported name or string constant under ``root``
+    (a string constant is how ``getattr(ec, "SECP384R1")`` names a curve), and for every call
+    ``<x>.sign(...)`` with more than one argument, which no pair allows."""
+    found = set()
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Attribute):
+                name = node.attr
+            elif isinstance(node, ast.Name):
+                name = node.id
+            elif isinstance(node, ast.alias):
+                name = node.name
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                name = node.value
+            else:
+                name = None
+            if name in _ECDSA_WATCHED:
+                found.add((rel, name))
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "sign" and len(node.args) + len(node.keywords) > 1):
+                found.add((rel, _SIGNS_WITH_AN_ALGORITHM))
+    return found
 
 
 class OwnSignaturesHaveOneSpelling(unittest.TestCase):
@@ -685,30 +825,58 @@ class OwnSignaturesHaveOneSpelling(unittest.TestCase):
     def test_no_other_ecdsa_signing_path_exists_in_src(self):
         """An inventory, GREEN on 126ed1dc as well. The only ECDSA machinery in the package is the
         ES256 verifier and the secp256k1 recovery in rootcommit. A new path that SIGNS with ECDSA must
-        emit the low s and join the property above; this case fails until someone looks.
+        emit the low s and join the property above; this case fails until someone looks. Up to
+        31816e08 it knew two curves, so a P-384 signing path in signature.py, where ECDSA is allowed
+        for the verifier, passed it; the case below plants one.
 
-        Looked at when main (#288) met the scitt-ccf/v1 branch: scitt_ccf.py names ECDSA only in
-        `key.verify(der, tbs, ec.ECDSA(h))` and SECP256R1 only in its curve tables, which build public
-        keys from a SubjectPublicKeyInfo or a COSE_KeySet. It verifies statements and receipts under
-        keys of others and signs nothing, so it joins the verifiers here."""
-        allowed = {("signature.py", "ECDSA"), ("signature.py", "SECP256R1"),
-                   ("anchors_rootcommit.py", "SECP256k1"),
-                   ("scitt_ccf.py", "ECDSA"), ("scitt_ccf.py", "SECP256R1"),
-                   # 6.4.0, owner decision B: the ES256 path of the SCITT producer SIGNS, with the low s,
-                   # and joins test_every_signature_proofbundle_makes_has_one_spelling above.
-                   ("scitt_statement.py", "ECDSA"), ("scitt_statement.py", "SECP256R1")}
-        watched = {"ECDSA", "SECP256R1", "SECP256K1", "SECP256k1", "SigningKey", "sign_digest",
-                   "sign_deterministic", "sign_digest_deterministic"}
-        found = set()
-        for path in sorted(SRC.rglob("*.py")):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                name = node.attr if isinstance(node, ast.Attribute) else (
-                    node.id if isinstance(node, ast.Name) else (
-                        node.name if isinstance(node, ast.alias) else None))
-                if name in watched:
-                    found.add((path.relative_to(SRC).as_posix(), name))
-        self.assertEqual(found - allowed, set(), "an ECDSA path outside the verifiers")
-        self.assertTrue(allowed & found, "the inventory walked nothing")
+        Looked at when main met the scitt-ccf/v1 branch: scitt_ccf.py names ECDSA only in
+        `key.verify(der, tbs, ec.ECDSA(h))`, and SECP256R1 and SECP384R1 only in its curve tables, which
+        build public keys from a SubjectPublicKeyInfo or a COSE_KeySet. It verifies statements and
+        receipts under keys of others and signs nothing, so it joins the verifiers in _ECDSA_ALLOWED."""
+        found = _ecdsa_inventory(SRC)
+        self.assertEqual(found - _ECDSA_ALLOWED, set(), "an ECDSA path outside the verifiers")
+        self.assertTrue(_ECDSA_ALLOWED & found, "the inventory walked nothing")
+
+    def test_a_signing_path_planted_on_any_curve_is_found(self):
+        """The inventory's own catch proof. A copy of signature.py, where ECDSA is allowed, gets a
+        signing path planted on each curve in turn, and the inventory must refuse the copy. RED on
+        31816e08, measured by running its inventory over these plants (cryptography 49.0.0,
+        python-ecdsa 0.19.2): it knew SECP256R1 and SECP256K1 only, and ECDSA is allowed in
+        signature.py, so it missed 19 of the 44 plants that sign (every cryptography curve but
+        SECP256K1, and the path handed its key) and 103 of all 130."""
+        installed = _installed_curves()
+        self.assertTrue({"SECP256R1", "SECP256K1", "SECP384R1", "SECP521R1", "BrainpoolP256R1",
+                         "BrainpoolP384R1", "BrainpoolP512R1"} <= installed, installed)
+        source = (SRC / "signature.py").read_text(encoding="utf-8")
+        # per curve: a path that signs on it, its name alone and its name as a string; the first plant
+        # names no curve and no key maker, so only the signing call can give it away
+        plants = {"handed its key, no curve named":
+                  "def _planted(key, message):\n"
+                  "    return key.sign(message, ec.ECDSA(hashes.SHA384()))\n"}
+        for curve in sorted(_CURVE_FLOOR | installed):
+            if curve in vars(ec) or curve.startswith("SECT"):
+                plants[f"{curve} signs"] = (
+                    f"def _planted(message):\n"
+                    f"    key = ec.generate_private_key(ec.{curve}())\n"
+                    f"    return key.sign(message, ec.ECDSA(hashes.SHA384()))\n")
+                plants[f"{curve} named"] = f"_planted = ec.{curve}\n"
+            else:
+                plants[f"{curve} signs"] = (
+                    f"def _planted(message):\n"
+                    f"    from ecdsa import SigningKey, {curve}\n"
+                    f"    return SigningKey.generate(curve={curve}).sign(message)\n")
+                plants[f"{curve} named"] = f"from ecdsa import {curve} as _planted  # noqa: F401\n"
+            plants[f"{curve} by string"] = f"_planted = getattr(ec, {curve!r})\n"
+        missed = []
+        with tempfile.TemporaryDirectory() as tmp:
+            copy_of = pathlib.Path(tmp) / "signature.py"
+            for what, plant in plants.items():
+                copy_of.write_text(source + "\n\n" + plant, encoding="utf-8")
+                if not _ecdsa_inventory(pathlib.Path(tmp)) - _ECDSA_ALLOWED:
+                    missed.append(what)
+        # SECP256R1 is the verifier's own curve in signature.py, so its name alone is allowed there;
+        # a path that SIGNS on it is found by the key maker and by the signing call
+        self.assertEqual(sorted(missed), ["SECP256R1 by string", "SECP256R1 named"])
 
 
 class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):
@@ -722,6 +890,7 @@ class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):
         self.payload = {"vct": VCT, "cnf": cnf}
 
     def test_a_holder_that_hashed_either_spelling_verifies_in_both(self):
+        pin = _es256_pin(self.pub_b64)
         for high in (False, True):
             presentation = _eddsa_key_binding(_issuer_jwt(self.payload, self.key, high=high) + "~",
                                               self.holder)
@@ -729,7 +898,10 @@ class TheKeyBindingBindsThePresentationNotTheSpelling(unittest.TestCase):
                 res = verify_key_binding(spelling, expected_aud="rp", expected_nonce="n1")
                 self.assertTrue(res["ok"], res["detail"])
                 bundle = _bundle_with(spelling, self.pub_b64)
-                self.assertTrue(verify_bundle(bundle, expected_aud="rp", expected_nonce="n1").ok)
+                # Nachtrag 38: still verifies, now under the issuer pin; fail-closed without it
+                self.assertTrue(verify_bundle(bundle, expected_aud="rp", expected_nonce="n1",
+                                              sd_jwt_issuer_key_pin=pin).ok)
+                _fail_closed_without_pin(self, bundle)
 
     def test_the_other_spelling_widens_nothing_else(self):
         """GREEN on 126ed1dc as well: a dropped disclosure, a foreign KB-JWT or a wrong nonce still

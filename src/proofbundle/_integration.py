@@ -39,8 +39,15 @@ DEFAULT_COMPARATOR = ">="
 
 
 def emit_enabled(flag: bool = False) -> bool:
-    """The master opt-in gate. True only if PROOFBUNDLE_EMIT == "1" OR an explicit framework flag is set."""
-    return flag or os.environ.get("PROOFBUNDLE_EMIT") == "1"
+    """The master opt-in gate. True only if PROOFBUNDLE_EMIT == "1" OR an explicit framework flag is set.
+
+    The flag opts in only as the exact ``True``. ``flag or ...`` read it by its truth, so ``"false"``,
+    ``"no"``, ``1`` or ``[0]`` turned emission on and the value itself was returned. This gate does not
+    raise for a flag that is not a bool, unlike the switches that route through
+    ``_membership.require_switch``: the pytest plugin calls it outside its own ``try``, and an integration
+    must never fail the host run (module docstring). A value that is not a bool leaves the gate to the
+    environment variable, as leaving the flag out does."""
+    return flag is True or os.environ.get("PROOFBUNDLE_EMIT") == "1"
 
 
 def emit_config() -> dict:

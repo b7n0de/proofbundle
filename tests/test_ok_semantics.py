@@ -53,8 +53,9 @@ def _sd_jwt_bundle_file(*, with_issuer_key: bool = True, aud: str = "verifier.ex
     plain = emit_eval_receipt(ev_claim, issuer)
     root = plain["merkle"]["root_b64"]
     issuer_field = json.loads(base64.b64decode(plain["payload_b64"]))["issuer"]
-    claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "demo-suite",
-             "issuer": issuer_field}
+    # The SD-JWT is a view of this signed claim; `issue_sd_jwt` refuses a partial one (6.2.0).
+    claim = json.loads(base64.b64decode(plain["payload_b64"]))
+    assert claim["issuer"] == issuer_field
     compact = issue_sd_jwt(claim, issuer, root_b64=root, exact_score="0.92",
                            holder_public_key=_raw_pub(holder))
     presented = present_with_key_binding(compact, holder, aud=aud, nonce=nonce, iat=_IAT)

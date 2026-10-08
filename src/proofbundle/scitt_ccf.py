@@ -52,6 +52,7 @@ from typing import Any, Optional
 
 from ._cbor_prescan import CborRefused, Tag, encode_head, scan
 from ._membership import is_member
+from .canonical import _abbild_stand, _ein_stand
 from .errors import BundleFormatError, UnsupportedError
 
 PROFILE = "scitt-ccf/v1"
@@ -225,6 +226,7 @@ class CoseSign1:
         return self.raw[a:b]
 
 
+@_ein_stand
 def decode_cose_sign1(data: bytes, *, role: str = "statement") -> CoseSign1:
     """Read a COSE_Sign1 (RFC 9052 section 4.2) under the profile's reader rules.
 
@@ -277,6 +279,7 @@ def _data_hash(st: CoseSign1) -> bytes:
                           + st.element(3)).digest()
 
 
+@_ein_stand
 def recompute_data_hash(data: bytes) -> bytes:
     """Value 3 of a Transparent Statement, recomputed from its bytes. Raises ``ScittFormatError``
     for bytes outside the profile's reader, including an untagged statement, whose data-hash rule
@@ -478,6 +481,7 @@ def _verify(alg: Any, spki: bytes, tbs: bytes, signature: bytes) -> bool:
     return False
 
 
+@_ein_stand
 def load_cose_keyset(data: bytes) -> list:
     """A COSE_KeySet (as served by ``/.well-known/scitt-keys``) -> ``[{"spki": bytes, "kid": bytes}]``.
 
@@ -625,6 +629,14 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
         return f"label {_PAYLOAD_LOCATION} is not tstr (RFC 9995)"
     if _CTY in ph or _CTY in uh:
         return "label 3 (content type) present in a hash envelope"
+    # RFC 9943 section 6: the protected header of a Signed Statement carries CWT Claims with iss and sub.
+    # Round 3 of the policy-boundary matrix measured the service refusing M-u15 (CWT Claims moved to the
+    # unprotected header) while this profile confirmed it: a required protected label it did not check.
+    if _CWT in uh:
+        return "label 15 (CWT Claims) in the unprotected header (RFC 9597 section 2, RFC 9943 section 6)"
+    cwt = ph.get(_CWT)
+    if not isinstance(cwt, dict) or any(not isinstance(cwt.get(c), str) or not cwt.get(c) for c in (1, 2)):
+        return "no CWT Claims with a text iss and sub in the protected header (RFC 9943 section 6)"
     why = _crit_ok(ph, _STATEMENT_CRIT_PROCESSED)
     if why:
         return why
@@ -639,6 +651,7 @@ def _statement_profile(st: CoseSign1) -> Optional[str]:
     return None
 
 
+@_ein_stand
 def verify_statement_signature(data: bytes, *, statement_keys=None) -> tuple:
     """ToBeSigned of a statement and its signature under relying-party statement keys.
 
@@ -914,7 +927,9 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
             newer_roots = [_consistency_roots(p)[1] for p in consistency or []]
         except _ProofRefused as exc:
             return out("malformed", detail=str(exc))
-        base.update(readable=bool(parsed))
+        # A COSE_Sign1 of the profile is a tag 18 array (ADR 0009, the structure row): an untagged receipt's
+        # proofs parse, but the receipt is not one that parses under the -05 CDDL (Codex, PR 278, thread 4121760552).
+        base.update(readable=bool(parsed) and rc.tagged)
     why = _receipt_outside(rc, kid, iss)
     if why is None and rc.payload is not None:
         why = "the receipt payload is attached; -05 requires it detached"
@@ -961,6 +976,7 @@ def _receipt(index: int, raw: Any, data_hash: bytes, services: Any) -> ReceiptCh
 # ------------------------------------------------------------------------------------------------
 # The whole Transparent Statement
 # ------------------------------------------------------------------------------------------------
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_transparent_statement(proof: bytes, *, canonical_root: bytes,
                                  rp_trust: Optional[dict] = None) -> TransparentStatementCheck:
     """Verify a Transparent Statement under ``scitt-ccf/v1`` against a target's canonical root.
@@ -1030,8 +1046,10 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
     receipt_statuses = [c.status for c in checks]
     best = CONFIRMED if CONFIRMED in receipt_statuses else _first(receipt_statuses)
     status = best if statement_status == CONFIRMED else _first([statement_status, best])
+    # readable needs the statement itself to be a tagged COSE_Sign1 too (ADR 0009, Decision 10; Codex, PR 278,
+    # thread 4121760552): an untagged statement whose receipts parse is outside the profile and not readable.
     return verdict(status,
-                   readable=any(c.readable for c in checks),
+                   readable=st.tagged and any(c.readable for c in checks),
                    signature_valid=any(c.signature_valid is True for c in checks),
                    statement_status=statement_status,
                    statement_signature_valid=stmt_valid,
@@ -1045,6 +1063,7 @@ def _verify_transparent_statement(proof, canonical_root, rp_trust) -> Transparen
 # ------------------------------------------------------------------------------------------------
 # Consistency receipts (draft-ietf-scitt-receipts-ccf-profile-05, section 4)
 # ------------------------------------------------------------------------------------------------
+@_ein_stand(rp_trust=_abbild_stand)
 def verify_consistency_receipt(consistency_receipt: bytes, *, older_root: bytes, older_issuer: str,
                                rp_trust: Optional[dict] = None) -> ConsistencyCheck:
     """Verify a CCF consistency receipt against an older root the caller has already verified.
@@ -1126,7 +1145,7 @@ def _verify_consistency(receipt, older_root, older_issuer, rp_trust) -> Consiste
             inclusion_roots = [_inclusion_root(p)[0] for p in inclusion or []]
         except _ProofRefused as exc:
             return out("malformed", detail=str(exc))
-        base.update(proofs=len(computed), readable=bool(computed))
+        base.update(proofs=len(computed), readable=bool(computed) and rc.tagged)
     why = _receipt_outside(rc, kid, iss) or _receipt_crit(rc)
     if why:
         return out("outside_profile", detail=why)

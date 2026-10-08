@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofbundle"
-version = "6.1.0"
+version = "6.2.0"
 description = "Emit and verify portable cryptographic evidence bundles, offline: Ed25519 + RFC 6962 Merkle + optional SD-JWT."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -182,13 +182,15 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.266']
 #   establisher that replaced two private copies), and mypy **2.3.0** was re-run over the 72 and
 #   exits 0. On 2026-09-26 it became 73 (`src/proofbundle/_inflate.py`, the one zlib decoder that
 #   requires a complete stream and nothing after it), and mypy **2.3.0** was re-run over the 73 and
-#   exits 0. With the scitt-ccf/v1 reader of ADR 0009 (`src/proofbundle/_cbor_prescan.py` and
-#   `src/proofbundle/scitt_ccf.py`, merged with main on 2026-09-27) it became 75, and mypy **2.3.0**
-#   was re-run over the 75 and exits 0. With the 6.4.0 SCITT producer
-#   (`src/proofbundle/scitt_statement.py`, 2026-09-27) it became 76, and mypy **2.3.0** was re-run
-#   over the 76 and exits 0. The other seven versions were NOT re-run for any of the six new files;
-#   that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01,
-#   and it is stated here rather than absorbed into the sentence above.
+#   exits 0. On 2026-09-28 it became 74 (`src/proofbundle/_plain_value.py`, the one reader that copies
+#   a caller's value from its storage into exact built-in types), and mypy **2.3.0** was re-run over
+#   the 74 and exits 0. With the scitt-ccf/v1 reader of ADR 0009 beside it
+#   (`src/proofbundle/_cbor_prescan.py` and `src/proofbundle/scitt_ccf.py`) it became 76, and
+#   mypy **2.3.0** was re-run over the 76 and exits 0. With the 6.4.0 SCITT producer
+#   (`src/proofbundle/scitt_statement.py`) it became 77, and mypy **2.3.0** was re-run over the 77 and
+#   exits 0. The other seven versions were NOT re-run for any of the seven new files; that is the
+#   same boundary RESTRISIKO_610.md carries as
+#   SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01, and it is stated here rather than absorbed into the sentence above.
 #
 #   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on
 #   `--local-partial-types` and `--strict-bytes` (PEP 688: `bytearray`/`memoryview` no longer
