@@ -152,12 +152,11 @@ def _private_root(ort: pathlib.Path, ersetzt: dict) -> pathlib.Path:
 
 
 def test_FANG_eine_HALBE_herkunftsangabe_wird_gemeldet(tmp_path):
-    """[ZAEHLT] Gegenrichtung: vorhanden aber unvollstaendig ist NICHT dasselbe wie abwesend.
-
-    The half statement is written into a private root, never into the checkout. With the suite distributed by
-    worksteal, the rewrite of the real file raced its readers on other workers: under it
-    tests/test_ausgangsdigest_wird_verglichen.py went from 2 passed to 1 failed (Codex thread 4222137675 on pull
-    request 309). The unchanged file in a root built the same way reads without error, so the root is faithful."""
+    """[ZAEHLT] Gegenrichtung: vorhanden aber unvollstaendig ist NICHT dasselbe wie abwesend."""
+    # The half statement is written into a private root, never into the checkout. With the suite distributed by
+    # worksteal, the rewrite of the real file raced its readers on other workers: under it
+    # tests/test_ausgangsdigest_wird_verglichen.py went from 2 passed to 1 failed (Codex thread 4222137675 on pull
+    # request 309). The unchanged file in a root built the same way reads without error, so the root is faithful.
     g, doc = _gen(), _doc()
     k = REPO / "RESTRISIKO_600_OBJEKTKLASSEN.json"
     sicher = k.read_bytes()
