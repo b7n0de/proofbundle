@@ -571,6 +571,31 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             "mehr Speicher zu, als er verspricht (Faktor Wirklichkeit/Tabelle):\n  "
             + "\n  ".join(zu_niedrig))
 
+    def test_die_tabelle_traegt_auch_ungeteilte_instanz_dicts(self):
+        """Gemessen 08.10.2026 an PR 309: unter `--dist=worksteal` lag der Test in einem Worker, in dem vorher
+        eine Instanz von ArchiveTimeStamp die geteilten Schluessel der Instanz-dicts gebrochen hatte, und jede
+        weitere Instanz kostete 572,8 B statt 356,6 B. Das ist Speicher, den die Suite wirklich belegt; die Tabelle
+        muss ihn tragen. Gemessen im FRISCHEN Prozess, weil der Bruch den Klassenzustand fuer den Rest des
+        Prozesses aendert und hier nichts anderes beruehren darf."""
+        import subprocess  # noqa: PLC0415
+        programm = (
+            "import importlib.util, sys\n"
+            f"sys.path[:0] = [{str(TESTS)!r}, {str(TESTS.parent / 'src')!r}]\n"
+            f"s = importlib.util.spec_from_file_location('t', {str(Path(__file__))!r})\n"
+            "t = importlib.util.module_from_spec(s); s.loader.exec_module(t)\n"
+            "from proofbundle.renewal import ArchiveTimeStamp\n"
+            "x = ArchiveTimeStamp('sha256', 'a' * 64, 0)\n"
+            "geteilt = t.gemessene_bytes_je_element('renewal_ats_chain')\n"
+            "object.__delattr__(x, 'time')\n"
+            "print(geteilt, t.gemessene_bytes_je_element('renewal_ats_chain'))\n")
+        lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
+        self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
+        geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
+        self.assertGreater(ungeteilt, geteilt, "Kontrolle: der Bruch der geteilten Schluessel kostet Speicher")
+        sys.path.insert(0, str(TESTS))
+        from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
+        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], ungeteilt)
+
     def test_jede_lastachse_hat_eine_messform(self):
         """Eine Achse, aus der der Baum eine Last baut, aber die niemand misst, hat in der Tabelle
         wieder nur eine Behauptung."""

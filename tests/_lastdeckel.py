@@ -53,7 +53,10 @@ KOSTEN_JE_ELEMENT = {
     "json_depth": 2,  # eine Klammer je Ebene
     "json_nodes": 40,  # list(range(n)): 36,0 B/Element gemessen (PyLong + Zeiger)
     "merkle_path": 128,  # [bytes(32)]: 73,5 B gemessen; Hex-Form wie data_digests 121,9 B
-    "renewal_ats_chain": 384,  # [[ArchiveTimeStamp]] wie in der Kostenkurve: 356,7 B gemessen (nackt 292,8)
+    # [[ArchiveTimeStamp]] wie in der Kostenkurve: 356,6 B mit geteilten Schluesseln der Instanz-dicts, 572,6 B,
+    # sobald im Prozess EINE Instanz der Klasse sie bricht (CPython 3.10.12, 08.10.2026; CI 3.10 unter
+    # worksteal gemessen 572,8 B). Die Tabelle traegt den ungeteilten Fall, weil die Suite ihn erzeugen kann.
+    "renewal_ats_chain": 640,
     "signatures": 320,  # [{"sig": "AA=="} ...] je ein frisches dict: 240,1 B gemessen
     "string_len": 1,  # ein Zeichen
     "witnesses": 2048,  # Witness-vkey: ML-DSA-44 = 1313 B Schluesselmaterial, base64 ~1800 B

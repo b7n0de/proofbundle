@@ -241,9 +241,14 @@ def test_crosscheck_measures_the_binary_the_seam_pins(monkeypatch, tmp_path):
     """Codex thread 4217981884: a test validated the seam's binary and then ran crosscheck.py, which chose
     target/debug first and ignored the pin. With the pin set, crosscheck's binary is the pinned one."""
     import importlib.util
+    skript = seam.RUST_DIR / "crosscheck.py"
+    if not skript.is_file():
+        # repo-context: MANIFEST.in prunes tools, so the sdist carries no crosscheck.py to measure. The binary
+        # itself is not looked up here; that stays the seam's (hermetic-cleanroom, 08.10.2026 on pull request 309).
+        pytest.skip("repo-context: tools/ is pruned from the sdist, crosscheck.py is not shipped")
     pinned = tmp_path / "built" / "pb_verify_rs"
     monkeypatch.setenv(seam.PINNED_ENV, str(pinned))
-    spec = importlib.util.spec_from_file_location("_crosscheck_pin", seam.RUST_DIR / "crosscheck.py")
+    spec = importlib.util.spec_from_file_location("_crosscheck_pin", skript)
     modul = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modul)
     assert modul.BIN == pinned
