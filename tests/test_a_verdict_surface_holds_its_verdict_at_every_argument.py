@@ -503,7 +503,7 @@ _MLDSA_GRUNDFAELLE = ("checkpoint.cosign_checkpoint_mldsa", "checkpoint.cosign_k
 #: cbor2 can name them.
 _SCITT_GRUNDFAELLE = ("scitt_ccf.decode_cose_sign1", "scitt_ccf.recompute_data_hash", "scitt_ccf.load_cose_keyset",
                       "scitt_ccf.verify_statement_signature", "scitt_ccf.verify_transparent_statement",
-                      "scitt_ccf.verify_consistency_receipt")
+                      "scitt_ccf.verify_consistency_receipt", "scitt_statement.check_signed_statement")
 
 #: Every verdict surface whose LEGITIMATE input needs an optional backend, by backend. A surface is built only where its
 #: backend is present (`_backend_da`), and `_grundfaelle` names every group whose backend is missing open, never held.
@@ -610,6 +610,18 @@ def _flaechen_vier_scitt() -> list:
     # tests/test_scitt_ccf_consistency.py), taken from the recorded bytes so that building the case verifies nothing.
     aelter = bytes.fromhex(kette["states"]["older"]["root_hex"])
     konsistenz = decode_b64(kette["consistency_receipt_b64"])
+    # The producer's check (6.4.0): a statement it signed with a fixed key over a receipt, the receipt's root.
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from proofbundle import emit_bundle
+    from proofbundle.anchors import receipt_canonical_root
+    from proofbundle.scitt_statement import check_signed_statement, sign_statement
+    schluessel = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+    quittung = emit_bundle(b'{"x": 1}', schluessel)
+    aussage = sign_statement(quittung, schluessel, issuer="https://issuer.example", subject="pkg:x")
+    quittung_wurzel = receipt_canonical_root({k: v for k, v in quittung.items() if k != "anchors"})
+    aussage_schluessel = schluessel.public_key().public_bytes(serialization.Encoding.DER,
+                                                               serialization.PublicFormat.SubjectPublicKeyInfo)
     f = [
         ("scitt_ccf.decode_cose_sign1", lambda w: scitt.decode_cose_sign1(w(ts))),
         ("scitt_ccf.recompute_data_hash", lambda w: scitt.recompute_data_hash(w(ts))),
@@ -620,6 +632,8 @@ def _flaechen_vier_scitt() -> list:
             w(ts), canonical_root=w(wurzel), rp_trust=w(rp))),
         ("scitt_ccf.verify_consistency_receipt", lambda w: scitt.verify_consistency_receipt(
             w(konsistenz), older_root=w(aelter), older_issuer=w(kette["issuer"]), rp_trust=w(kette_rp))),
+        ("scitt_statement.check_signed_statement", lambda w: check_signed_statement(
+            w(aussage), canonical_root=w(quittung_wurzel), statement_keys=w([aussage_schluessel]))),
     ]
     assert tuple(name for name, _ in f) == _SCITT_GRUNDFAELLE, "_SCITT_GRUNDFAELLE names what is built here"
     return f

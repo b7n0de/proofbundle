@@ -600,6 +600,12 @@ def _cases() -> "list[tuple[str, Callable, dict, tuple, Callable]]":
          {"result_digests": ("a" * 64,)}, ("result_digests",), _json),
         ("evalclaim.canonicalize", ec.canonicalize, {"claim": f.claim_in}, ("claim",), ident),
     ]
+    if importlib.util.find_spec("cbor2") is not None and importlib.util.find_spec("rfc8785") is not None:
+        from proofbundle.scitt_statement import sign_statement  # the [scitt] extra; EdDSA signs deterministically
+        c.append(("scitt_statement.sign_statement", sign_statement,
+                  {"bundle": f.bundle, "signer": f.sk, "issuer": "https://issuer.example", "subject": "pkg:x",
+                   "kid": b"issuer-key-1", "location": "https://example.org/r.json"},
+                  ("bundle", "issuer", "subject", "kid", "location"), ident))
     if eee_path.is_file():
         c.append(("adapters.eee.from_eee_dataset", eee.from_eee_dataset,
                   {"source": json.loads(eee_path.read_text(encoding="utf-8")), "comparator": ">=",
@@ -1106,6 +1112,8 @@ _SWEEP = {
     ("src/proofbundle/tlogproof.py", "tlog_proof_for_bundle"): _c("tlogproof.tlog_proof_for_bundle"),
     ("src/proofbundle/trust_pack.py", "build_trust_pack_statement"): _c("trust_pack.build_trust_pack_statement"),
     ("src/proofbundle/trust_pack.py", "sign_trust_pack"): _c("trust_pack.sign_trust_pack"),
+    ("src/proofbundle/scitt_statement.py", "sign_statement"): "read once at its call (canonical._ein_stand); the "
+        "section 1 case scitt_statement.sign_statement runs where the [scitt] extra is installed",
     ("src/proofbundle/verification_summary.py", "build_summary_statement"): _c("verification_summary.build_summary_statement"),
     ("src/proofbundle/verification_summary.py", "emit_verification_summary"): _c("verification_summary.emit_verification_summary"),
     ("src/proofbundle/verifier_block.py", "build_verifier_block"): _c("verifier_block.build_verifier_block"),

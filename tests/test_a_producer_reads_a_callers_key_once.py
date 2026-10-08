@@ -710,6 +710,8 @@ _RULE_SITES = {
     ("src/proofbundle/policy.py", "evaluate_decision_policy"): (1, "verifier: the same"),
     ("src/proofbundle/policy_profiles.py", "instantiate_template"): (1, "PRODUCER, ProducersOfKeyText"),
     ("src/proofbundle/sdjwt_issue.py", "issue_sd_jwt"): (1, "PRODUCER, ProducersOfRawKeys"),
+    ("src/proofbundle/scitt_statement.py", "_ed25519_keys"): (1, "verifier: bytes it copied itself from the "
+                                                                 "reading of check_signed_statement"),
     ("src/proofbundle/signature.py", "verify_ed25519_pinned"): (1, "the verify primitive"),
     ("src/proofbundle/trust_pack.py", "validate_trust_pack_predicate"): (
         1, "the validator; its producers read the predicate once first, ProducersOfKeyText"),
