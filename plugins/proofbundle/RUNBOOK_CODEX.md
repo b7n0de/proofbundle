@@ -54,7 +54,10 @@ Owner choice (02.10.2026, R5-2, choice A): under `--host codex` EVERY push Ebene
 is NOT MEASURED, because the hook receives the session directory and the command text, not the execution
 `workdir` or a remote environment, so it could judge a different repository than the push acts on (review
 Runde 5, R5-2; Codex source `exec_command.rs`/`hook_runtime.rs` at 14a477ea). Owner choice Karte 5 A with D
-(2026-10-08): such a push keeps that reason and only warns; it is not denied. The boundary is the done check at
+(2026-10-08): such a push keeps that reason and only warns; it is not denied. Since owner choice K5-1 C
+(2026-10-08) that holds only for the plain form the message above uses, `git push origin main` on its own; a
+prefix assignment, chain, wrapper, global option or other git path is denied (`codex_push_not_plain`, D12). The
+boundary is the done check at
 the end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in
 its own repository where it is installed; the scaffold installs none, and how it is installed is still open
 (D24B). So the answer does not depend on the repository's evidence state here; every case 1 to 5 warns with the

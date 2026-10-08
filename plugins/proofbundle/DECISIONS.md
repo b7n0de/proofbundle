@@ -598,7 +598,7 @@ Options:
 
 Chosen: under Codex, the gate runs with `--host codex` and answers every NOT MEASURED case with deny.
 The reason still starts with `NOT MEASURED:`. One case warns instead since owner choice Karte 5 A
-(2026-10-08): a `git push`, below.
+(2026-10-08): a `git push` in its plain form (owner choice K5-1 C, 2026-10-08), below.
 
 Measured in the Codex source (openai/codex at c248f6d4):
 - `codex-rs/hooks/src/engine/output_parser.rs` rejects `permissionDecision: "ask"` as unsupported;
@@ -620,10 +620,12 @@ EVERY PUSH IS NOT MEASURED UNDER CODEX (owner choice A, 02.10.2026, R5-2)
 - Under Claude Code nothing changes.
 - MCP tools are a separate path: a gated MCP write is NOT MEASURED on both hosts and denied under Codex
   (Runde 6, R6-1; D8).
-- Since owner choice Karte 5 A (2026-10-08) such a `git push` warns instead of being denied; the next block.
+- Since owner choice Karte 5 A (2026-10-08) such a `git push` warns instead of being denied, and since owner
+  choice K5-1 C (2026-10-08) only in its plain form; the next two blocks.
 
 A GIT PUSH UNDER CODEX WARNS (owner choice Karte 5 A, with D, 2026-10-08)
-- Chosen: under `--host codex` a `git push` keeps the NOT MEASURED reason above, field by field, and its reason
+- Chosen: under `--host codex` a plain `git push` (next block) keeps the NOT MEASURED reason above, field by
+  field, and its reason
   id `codex_context_unbound`. The answer carries no permission decision: the reason goes out as the message and
   as context for the model, followed by one warning sentence (`CODEX_PUSH_WARNING` in the gate). The gate log
   records the verdict `warn` and the decision `none`.
@@ -640,8 +642,24 @@ A GIT PUSH UNDER CODEX WARNS (owner choice Karte 5 A, with D, 2026-10-08)
   push under Codex. How that hook is installed is the open owner card D24B; this choice installs nothing.
 - Known way around, the D27 class: an environment setting that turns hooks off without a word Level 1 reads (for
   example `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git push`) keeps git
-  from starting the Level-2 hook. Claude Code asks for such a push (`directory_unresolved`); under Codex it now
-  warns like any other push (measured on 2026-10-08). The boundary for it is the required CI check.
+  from starting the Level-2 hook. Claude Code asks for such a push (`directory_unresolved`); under Codex it warned
+  like any other push at 31031eb6 (measured on 2026-10-08). Owner choice K5-1 C closes it under Codex, next block.
+  The boundary stays the required CI check.
+
+UNDER CODEX ONLY THE PLAIN GIT PUSH WARNS (owner choice K5-1 C, 2026-10-08)
+- Chosen: the plain form is one command headed by a bare `git` with `push` right after it: no prefix assignment of
+  any kind (a neutral one like `LANG=C` included), no chain, pipeline, background, subshell or group, no wrapper
+  (`env`, `command`, `exec`, `nice`, `time`, `bash -c`, `sh -c`, `eval`), no global option before `push` (`-c`,
+  `-C`, `--git-dir`, `--exec-path`), no other git path or program (`/usr/bin/git`, `./git`, `git-push`, a quoted
+  `'git'`) and no expansion. Options and arguments after `push` and a redirection keep the form plain.
+- Only that form warns (`_codex_plain_push` in the gate). Every other push form gets the reason id
+  `codex_push_not_plain` and is denied under Codex, with the next step to run the plain form on its own or to have
+  a person push. A form that turns hooks off on the command line keeps its earlier `hooks_disabled` deny.
+- Why: the warning rests on git starting the Level-2 hook in the repository the push acts on. A prefix assignment
+  can switch that hook off without a word Level 1 reads, and a chain, wrapper, global option or other git program
+  can push from elsewhere or step around the hook; the hook input cannot tell (R5-2). The plain form is the one
+  form whose text leaves git's own hook path in place.
+- Unchanged: Claude Code. Each of these forms gets there what it got before (tests/test_plugin_gate_k5_1_c.py).
 
 THE CODEX EXECUTION MODEL IS AN ASSUMPTION, NOT A MEASURED FACT
 - Codex is often described as running a command through a login shell (`bash -lc …`), but that is not

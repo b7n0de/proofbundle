@@ -357,13 +357,20 @@ def test_under_codex_every_not_measured_push_warns_while_claude_asks(shim, tmp_p
         {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
     _git(empty, "add", "-A")
     _git(empty, "commit", "-q", "-m", "empty declaration")
-    cases = [(plain, "git push"), (fresh, "git push"), (empty, "git push"),
-             (_repo(tmp_path / "unresolved", declare=False), "cd $SOMEWHERE && git push")]
+    cases = [(plain, "git push"), (fresh, "git push"), (empty, "git push")]
     for where, command in cases:
         codex = _run(shim, where, "--host", "codex", command=command)
         _codex_warns(codex)
         claude = _run(shim, where, command=command)
         assert claude["hookSpecificOutput"]["permissionDecision"] == "ask", (where, command)
+    # Owner choice K5-1 C: a push that is not the plain form (here a chain) is denied under Codex, still asks under
+    # Claude Code.
+    unresolved = _repo(tmp_path / "unresolved", declare=False)
+    codex = _run(shim, unresolved, "--host", "codex", command="cd $SOMEWHERE && git push")
+    assert _codex_valid(codex) == "deny" and "plain form" in codex["systemMessage"], codex
+    assert not codex["systemMessage"].endswith(gate.CODEX_PUSH_WARNING)
+    claude = _run(shim, unresolved, command="cd $SOMEWHERE && git push")
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")

@@ -133,7 +133,8 @@ MAX_NESTING = 4
 #: codex-rs/hooks/src/engine/output_parser.rs and events/pre_tool_use.rs), so for Codex the gate turns
 #: every NOT MEASURED ask into a deny. The one NOT MEASURED case that is no ask, a repository the gate
 #: measured to declare nothing, carries no decision under either host (D5, D12). A `git push` under Codex is the
-#: other: since owner choice Karte 5 A (2026-10-08) it keeps its NOT MEASURED reason and only warns (D12).
+#: other: since owner choice Karte 5 A (2026-10-08) it keeps its NOT MEASURED reason and only warns, and since owner
+#: choice K5-1 C (2026-10-08) only in its plain form; every other push form is denied (D12).
 HOSTS = ("claude", "codex")
 #: The sentence a Codex push warning ends with (owner choice Karte 5 A, together with D, DECISIONS.md D12).
 CODEX_PUSH_WARNING = ("Under Codex the gate warns about a git push and does not deny it (owner choice Karte 5 A, "
@@ -3451,6 +3452,23 @@ class Outcome:
         return iter((self.decision, self.text))
 
 
+def _codex_plain_push(command: str) -> bool:
+    """True when the whole command is the plain push form owner choice K5-1 C lets warn under Codex: one simple
+    command, no chain, pipeline, background job, subshell, group, here-document or expansion anywhere, no prefix
+    assignment of any kind, the command word exactly `git` as written (no path, no quotes, no wrapper) and `push`
+    right after it (no global option such as -c or -C). Trailing redirections with a literal target keep the form
+    plain: they change no program and git still starts the pre-push hook. Every other push form can step around
+    that hook or the repository it runs in, so under Codex it is denied (DECISIONS.md D12)."""
+    toks = _lex(_drop_comments(command))
+    if toks is None or any(t[0] == "op" for t in toks) or _expansion_present(command):
+        return False
+    words = [t[1:] for t in toks if t[0] == "word"]
+    if len(words) < 2 or _ASSIGNMENT.match(words[0][0]):
+        return False
+    (head, head_subst, head_raw), (sub_word, sub_subst, sub_raw) = words[0], words[1]
+    return head == head_raw == "git" and sub_word == sub_raw == "push" and not (head_subst or sub_subst)
+
+
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
            environ: dict | None = None) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
@@ -3478,9 +3496,10 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     decision, which asks. The model can neither set the mode nor write a rule."""
     environ = os.environ if environ is None else environ
     calls = gated_calls(command)
+    plain = host == "codex" and _codex_plain_push(command)
     net_call = ("git or gh (a form the gate does not model)", UNKNOWN, [_NET])
     if _BARE_VERSION.fullmatch(command):
-        return _judge(calls, cwd, deadline, host) if calls else None
+        return _judge(calls, cwd, deadline, host, plain_push=plain) if calls else None
     if host != "codex" and _read_mode(environ) == "with-approvals":
         applied = _match_rule(command, cwd, deadline, environ)
         if applied is not None and applied[0] == "free":
@@ -3488,10 +3507,10 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     nw = _net_words(command)
     unresolved = _net_unresolved(command)
     if not calls:
-        return _judge([net_call], cwd, deadline, host) if (nw >= 1 or unresolved) else None
+        return _judge([net_call], cwd, deadline, host, plain_push=plain) if (nw >= 1 or unresolved) else None
     if nw > len(calls) or unresolved:
-        return _judge(list(calls) + [net_call], cwd, deadline, host)
-    return _judge(calls, cwd, deadline, host)
+        return _judge(list(calls) + [net_call], cwd, deadline, host, plain_push=plain)
+    return _judge(calls, cwd, deadline, host, plain_push=plain)
 
 
 def mcp_gated(tool: str) -> bool:
@@ -3783,7 +3802,7 @@ def _state_free_verdict(name: str, directory: str | None, deadline: float, host:
 
 
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
-           host: str = "claude", extra: list | None = None) -> Outcome:
+           host: str = "claude", extra: list | None = None, plain_push: bool = False) -> Outcome:
     verdicts = list(extra or [])
     seen = set()
     for name, directory, detail in calls:
@@ -3804,14 +3823,28 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             # execution workdir or a remote environment, so a push Ebene 1 would otherwise resolve could be
             # judged against a different repository. Owner choice (02.10): such pushes are NOT MEASURED.
             # Owner choice Karte 5 A with D (08.10): a `git push` keeps this reason and warns instead, because git
-            # starts the pre-push hook (Level 2) in the push's own repository. A gh call starts no pre-push hook,
-            # so it stays an ask, denied under Codex; a hook-disabling push was denied above, under both hosts.
-            verdicts.append(Verdict(
-                "warn" if name == "git push" else "ask",
-                f"NOT MEASURED: under Codex the gate cannot bind {name} to the directory and "
+            # starts the pre-push hook (Level 2) in the push's own repository. Owner choice K5-1 C: only the plain
+            # form warns (_codex_plain_push); any other push form may step around that hook, so it is denied. A gh
+            # call starts no pre-push hook, so it stays an ask, denied under Codex; a hook-disabling push was
+            # denied above, under both hosts.
+            unbound = (f"NOT MEASURED: under Codex the gate cannot bind {name} to the directory and "
                        "environment it runs in. The hook receives the session directory and the command "
                        "text, not the execution workdir or a remote environment, so it could judge a "
-                       "different repository than the push acts on.",
+                       "different repository than the push acts on.")
+            if name == "git push" and not plain_push:
+                verdicts.append(Verdict(
+                    "ask", unbound + " Under Codex only the plain form `git push …` warns: one command headed by a "
+                                     "bare `git`, with no prefix assignment, chain, wrapper, global option, other "
+                                     "git path or expansion (owner choice K5-1 C, DECISIONS.md D12). This form is "
+                                     "not that form, so it may step around the pre-push hook.",
+                    "codex_push_not_plain", evidence=f"the repository and target {name} acts on",
+                    failed="the push is not the plain form `git push …` headed by a bare `git` with no prefix "
+                           "assignment, chain, wrapper, global option, other git path or expansion",
+                    next_step="run the push as the plain `git push <remote> <refspec>` on its own, or have a person "
+                              "push"))
+                continue
+            verdicts.append(Verdict(
+                "warn" if name == "git push" else "ask", unbound,
                 "codex_context_unbound", evidence=f"the repository and target {name} acts on",
                 failed="the Codex hook does not carry the command's working directory (workdir) or a "
                        "remote environment",

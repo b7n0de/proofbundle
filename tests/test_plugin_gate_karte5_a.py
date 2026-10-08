@@ -84,8 +84,7 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
     return json.loads(proc.stdout), entry
 
 
-@pytest.mark.parametrize("command", ["git push", "git push origin main", "git push -u origin main",
-                                     "git -C . push origin main", "cd $SOMEWHERE && git push"])
+@pytest.mark.parametrize("command", ["git push", "git push origin main", "git push -u origin main"])
 def test_a_codex_push_keeps_its_reason_and_warns(tmp_path, command):
     repo = _repo(tmp_path)
     outcome = gate.decide(command, str(repo), _deadline(), host="codex")
@@ -139,10 +138,12 @@ def test_a_gated_mcp_publish_stays_denied_under_codex(tmp_path):
     assert outcome is not None and outcome.decision == "deny"
 
 
-def test_two_pushes_warn_once_each_and_a_deny_beside_a_push_wins(tmp_path):
+def test_two_chained_pushes_are_not_the_plain_form_and_a_deny_beside_a_push_wins(tmp_path):
     repo = _repo(tmp_path)
     both = gate.decide("git push origin main && git push origin HEAD:main", str(repo), _deadline(), host="codex")
-    assert both is not None and both.decision == "warn" and {v.decision for v in both.verdicts} == {"warn"}
+    assert both is not None and "warn" not in {v.decision for v in both.verdicts}, both.verdicts
+    assert "codex_push_not_plain" in {v.reason_id for v in both.verdicts}
+    assert gate.answer(both.decision, both.text, host="codex")["hookSpecificOutput"]["permissionDecision"] == "deny"
     mixed = gate.decide("git push origin main; gh pr create --fill", str(repo), _deadline(), host="codex")
     assert mixed is not None and gate.answer(mixed.decision, mixed.text, host="codex")[
         "hookSpecificOutput"]["permissionDecision"] == "deny"

@@ -101,7 +101,7 @@ after a check of the repository's state finds no filter, hook, fsmonitor, signat
 and every configuration key, hook and `GIT_*` setting it reads is one it knows to start no program for that form
 (D3). The separate push path remains. Under Claude Code it may return `pass` or
 `inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound, and
-it warns rather than being denied (owner choice Karte 5 A, D12).
+the plain `git push` warns rather than being denied (owner choices Karte 5 A and K5-1 C, D12).
 git starts programs through options, configuration values, attribute-selected drivers, hooks and automatic
 maintenance, and a list of what frees a form did not close that class, so the free list, its option tables
 and its read of the repository state are removed. `git --version` is free only as exactly that text,
@@ -125,8 +125,9 @@ leaves NOT MEASURED is not one it has checked: a NOT MEASURED answer asks (and o
 `--host codex` every push Level 1 would otherwise resolve is NOT MEASURED, because the hook
 receives the session directory and the command text, not the execution `workdir` or a remote environment,
 so it could judge a different repository than the push acts on (Runde 5, R5-2; owner choice 02.10.2026). Since
-owner choice Karte 5 A (2026-10-08) such a `git push` warns with that reason and is not denied; the push check
-under Codex is the pre-push hook below, where it is installed, and the boundary is the done check and CI (D12).
+owner choice Karte 5 A (2026-10-08) such a `git push` warns with that reason and is not denied, since owner
+choice K5-1 C (2026-10-08) only in its plain form; the push check under Codex is the pre-push hook below, where it
+is installed, and the boundary is the done check and CI (D12).
 
 **Level 2 (prototype, D24) is the pre-push hook.** A git `pre-push` hook reaches a verdict from git's own
 ref lines, so it sees the exact commits and the remote's own state — but only for a push git actually
@@ -449,8 +450,11 @@ The gate behaves differently under Codex in two ways:
   decision under Codex either, marked NOT MEASURED (D5). Beyond that, under `--host codex` every push the
   gate would otherwise resolve is NOT MEASURED (owner choice A, 02.10.2026, R5-2): the hook
   receives the session directory and the command text, not the execution `workdir` or a remote environment,
-  so it could judge a different repository than the push acts on. **A `git push` under Codex warns with that
-  reason and is not denied** (owner choice Karte 5 A with D, 2026-10-08): the boundary is the done check at the
+  so it could judge a different repository than the push acts on. **A plain `git push` under Codex warns with
+  that reason and is not denied** (owner choice Karte 5 A with D, 2026-10-08). Plain means one command headed by
+  a bare `git` with `push` right after it, with no prefix assignment, chain, wrapper, global option, other git
+  path or expansion; every other push form is denied (`codex_push_not_plain`, owner choice K5-1 C, 2026-10-08),
+  because it may step around the hook. The boundary is the done check at the
   end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in its
   own repository where it is installed, the evidence and the done check at the pushed commit (D30); how it is
   installed is still open (D24B), and without it nothing local stops the push. A push with `--no-verify` or a `core.hooksPath` override is still denied, and so are
