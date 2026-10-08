@@ -220,7 +220,8 @@ def _aufgeloest(ziel: str) -> str:
             # host: http:/session_123 names the host session_123 (Codex thread 4221642871). The base's own scheme
             # without two slashes is a relative reference, and file has rules of its own.
             rest = "//" + rest.lstrip("/")
-        elif rest.startswith("//"):
+        elif schema != "file" and rest.startswith("//"):
+            # file keeps its slash runs as path: file:///session_123 has the path /session_123 (Codex thread 4222119964)
             rest = "//" + rest.lstrip("/")
         ziel = (schema + ":" if schema else "") + rest
     return urllib.parse.urljoin(_BASIS, ziel)

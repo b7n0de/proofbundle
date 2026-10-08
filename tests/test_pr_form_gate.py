@@ -233,6 +233,9 @@ _BEFORE_THE_FOOTER = {
     "session-link-encoded-fullwidth": "[run](https://tool.example/%EF%BC%B3ession_0000)",
     "session-link-encoded-format-character": "[run](https://tool.example/ses%E2%80%8Bsion_0000)",
     "session-link-same-scheme-one-slash": "[run](https:/session_0000)",
+    # Codex thread 4222119964: a file URL keeps its slash runs as path
+    "session-link-file-three-slashes": '<a href="file:///session_0000">run</a>',
+    "session-link-file-four-slashes": "[run](file:////sessions/0000)",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
