@@ -193,14 +193,39 @@ def _has_attribution(laeufe: list[list[tuple[str, str]]]) -> bool:
     return False
 
 
+#: The address a link target of a pull request description is resolved against, as a browser resolves it there.
+_BASIS = "https://github.com/b7n0de/proofbundle/pull/1"
+
+
+def _aufgeloest(ziel: str) -> str:
+    """A link target resolved the way a browser resolves it on a pull request page (WHATWG URL, a special scheme):
+    a backslash is a slash, a run of two or more leading slashes starts the host, and dot segments are removed.
+    Codex thread 4219686001 on pull request 308: `///session_123` names the host session_123, not the path, and
+    `session_123/..` resolves away the segment, while a backslash path was read as no path at all. The parser
+    writes a backslash of a Markdown link as `%5C`; it is read as a slash too, which can only make the rule
+    stricter."""
+    ziel = ziel.strip()
+    schema = urllib.parse.urlsplit(ziel).scheme.casefold()
+    if schema in ("", "http", "https"):
+        ziel = re.sub(r"(?i)%5c", "/", ziel).replace("\\", "/")
+        rest = ziel[len(schema) + 1:] if schema else ziel
+        if rest.startswith("//"):
+            rest = "//" + rest.lstrip("/")
+        ziel = (schema + ":" if schema else "") + rest
+    return urllib.parse.urljoin(_BASIS, ziel)
+
+
 def _session_path(adresse: str, *, aus_text: bool) -> bool:
-    """Whether the path of an address has a session segment. A link target the parser yields is a URL reference
-    as written, so `session_123` is a relative path; only an address found in the text without a scheme is read
-    as a host first (`tool.example/code/...`). Codex thread 4219210671 on pull request 308: the host reading was
-    applied to every target, and a rootless relative target became a host with an empty path."""
+    """Whether the path of an address has a session segment. A link target the parser yields is a URL reference,
+    resolved as a browser resolves it on the pull request page (`_aufgeloest`), so `session_123` is a relative path;
+    only an address found in the text without a scheme is read as a host first (`tool.example/code/...`). Codex
+    thread 4219210671 on pull request 308: the host reading was applied to every target, and a rootless relative
+    target became a host with an empty path."""
     adresse = adresse.casefold()
     if aus_text and "://" not in adresse:
         adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
+    elif not aus_text:
+        adresse = _aufgeloest(adresse)
     segmente = urllib.parse.unquote(urllib.parse.urlsplit(adresse).path).split("/")
     return any(_SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segmente))
                for i, s in enumerate(segmente))
