@@ -40,7 +40,7 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 37)
+        self.assertEqual(len(ergebnisse), 40)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)
@@ -77,7 +77,7 @@ class TheVectors(unittest.TestCase):
                     expires_at="2026-09-27T00:45:00Z", surface="github.conversationComment", target=g._TARGET,
                     approved=g._TEXT, verdict="ALLOW", reasons=["rules.satisfied"], gate_id=g.GATE_ID,
                     agent_id="agent:session-a", principal_id="operator",
-                    policy_digest=g.sha256_hex(b"outbound gate rules, revision 1"), nonce="attempt-0001-1",
+                    policy_digest=g.sha256_hex(b"outbound gate rules, revision 1"), nonce="action-0001#1",
                     audience=g.OBSERVER_ID)
         scope = g.scope_descriptor("github.conversationComment", g._TARGET, "issuecomment-5851339484")
 
@@ -87,7 +87,7 @@ class TheVectors(unittest.TestCase):
             out = g.sign_outcome(g.outcome_predicate(
                 outcome_id="observation-0001", decision_root=g.content_root(dec), executor_id="github:b7n0de",
                 approved=g._TEXT, performed_at="2026-09-27T00:40:09Z", recorded_at="2026-09-27T00:41:00Z",
-                stored=g._TEXT, scope=scope, nonce="attempt-0001-1", audience=g.OBSERVER_ID), observer)
+                stored=g._TEXT, scope=scope, nonce="action-0001#1", audience=g.OBSERVER_ID), observer)
             return g.reconcile(dec, out, scope, gate_key=g._pub(gate), gate_id=g.GATE_ID,
                                observer_key=g._pub(observer), observer_id=g.OBSERVER_ID)
         self.assertEqual(lies(g.decision_predicate(**args))["verdict"], g.ACCEPTED, "control: the full decision")
@@ -176,9 +176,12 @@ class EveryArgumentOfTheReusedVerifiersIsAProfileRule(unittest.TestCase):
                   if z.startswith("| ") and not z.startswith("| aspect")]
         spalte = {"verify_decision_receipt": 2, "verify_outcome_receipt": 3}
         for name, liste in aufrufe.items():
+            # A call with no keyword narrows nothing (the crypto-only check of thread 4220771559); every keyword of
+            # every call is mapped, and the mapped ones are all passed somewhere.
             for schluessel in liste:
                 with self.subTest(call=name):
-                    self.assertEqual(sorted(schluessel), sorted(self._GESAGT[name]))
+                    self.assertLessEqual(set(schluessel), set(self._GESAGT[name]))
+            self.assertEqual(set().union(*map(set, liste)), set(self._GESAGT[name]))
             text = " ".join(z.split("|")[spalte[name]] for z in zeilen if z.count("|") >= 5)
             alles = " ".join(zeilen)
             for schluessel, worte in self._GESAGT[name].items():
@@ -204,13 +207,19 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
         self.assertFalse(antwort["checks"]["version_signal"])
 
-    def test_a_deeply_nested_payload_is_unknown_and_never_raises(self) -> None:
-        """Codex thread 4121766439: JSON of 10,000 nested arrays raised RecursionError out of `_statement`."""
-        tief = base64.b64encode(b"[" * 10000 + b"]" * 10000).decode()
-        for eingabe in ({"payload": tief, "payloadType": "x", "signatures": []},):
-            antwort = self._reconcile(eingabe)
-            self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
-            self.assertIn("RecursionError", antwort["reasons"][0])
+    def test_a_deeply_nested_payload_is_an_answer_and_never_raises(self) -> None:
+        """Codex thread 4121766439: JSON of 10,000 nested arrays raised RecursionError out of `_statement`. Signed by
+        the gate key it reaches the reader and is unknown; unsigned it is not accepted, since the pinned key is checked
+        first (thread 4220771559)."""
+        from proofbundle import dsse
+        roh = b"[" * 10000 + b"]" * 10000
+        signiert = dsse.sign_envelope(roh, self.g.test_key("gate"), payload_type="application/vnd.in-toto+json")
+        antwort = self._reconcile(signiert)
+        self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
+        self.assertIn("RecursionError", antwort["reasons"][0])
+        antwort = self._reconcile({"payload": base64.b64encode(roh).decode(), "payloadType": "x", "signatures": []})
+        self.assertEqual(antwort["verdict"], self.g.NOT_ACCEPTED)
+        self.assertIn("not signed by the pinned gate key", antwort["reasons"][0])
 
     def test_instants_are_compared_as_numbers(self) -> None:
         """Codex thread 4121766408: '.' sorts before 'Z', so the strings ordered 00:45:00.9Z before 00:45:00Z."""
@@ -261,11 +270,17 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
         self.assertIn("Fremd", antwort["reasons"][0])
 
-    def test_malformed_input_is_unknown_and_never_raises(self) -> None:
-        kaputt = {"payload": base64.b64encode(b'{"predicate": {}}').decode(), "payloadType": "x", "signatures": []}
-        for eingabe in (kaputt, {"payload": "!!"}, {}):
+    def test_malformed_input_is_an_answer_and_never_raises(self) -> None:
+        """Input with nothing to check is unknown; a predicate the gate key did not sign is not accepted, since the
+        pinned key is checked first (Codex thread 4220771559), and the same predicate signed by it is unknown."""
+        from proofbundle import dsse
+        roh = b'{"predicate": {}}'
+        kaputt = {"payload": base64.b64encode(roh).decode(), "payloadType": "x", "signatures": []}
+        signiert = dsse.sign_envelope(roh, self.g.test_key("gate"), payload_type="application/vnd.in-toto+json")
+        for eingabe, erwartet in ((signiert, self.g.UNKNOWN), ({"payload": "!!"}, self.g.UNKNOWN), ({}, self.g.UNKNOWN),
+                                  (kaputt, self.g.NOT_ACCEPTED)):
             with self.subTest(decision=str(eingabe)[:40]):
-                self.assertEqual(self._reconcile(eingabe)["verdict"], self.g.UNKNOWN)
+                self.assertEqual(self._reconcile(eingabe)["verdict"], erwartet)
 
 
 class TheProposalsNeedANewVersion(unittest.TestCase):

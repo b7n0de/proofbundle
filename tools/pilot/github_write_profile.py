@@ -16,7 +16,7 @@ Where each aspect lives (docs/pilot/pilot_profile.md has the full table):
   issuer role     the decision is signed by the pinned gate key and names the gate as decisionMaker; the
                   outcome is signed by the pinned observer key; executor.id is the account GitHub reports
   policy digest   policyBoundary.policyDigest (required in strict mode)
-  action id,      decisionId = "<action id>#<attempt>"; the attempt nonce is validity.nonce of both
+  action id,      decisionId = "<action id>#<attempt>"; validity.nonce of both receipts is that decisionId
   attempt         receipts
   kind            decisionType = preActionAuthorization and proposedAction.method = write; any other kind or
                   method is no approved write
@@ -196,6 +196,15 @@ def reconcile(decision_env: dict, outcome_env: dict | None, observed_scope: dict
 
 def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, observer_key, observer_id,
                checks) -> dict:
+    # The pinned gate key first, before anything the decision says is read: a check that can be made is made before a
+    # gap is reported, so a decision another key signed is not accepted, never unknown (Codex thread 4220771559 on
+    # pull request 303: an unreadable decidedAt returned unknown before the signature was looked at).
+    # crypto_ok is False when a signature was checked and failed, None when the envelope gave nothing to check; the
+    # second is input not in the profile's shape and stays a gap below.
+    vorab = verify_decision_receipt(decision_env, gate_key)
+    checks["decision_signed_by_gate_key"] = vorab["crypto_ok"]
+    if vorab["crypto_ok"] is False:
+        return _answer(NOT_ACCEPTED, ["the decision is not signed by the pinned gate key"], checks)
     stmt = _statement(decision_env)
     pred = stmt["predicate"]
     boundary = pred.get("policyBoundary") or {}
@@ -241,6 +250,11 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["attempt"] = int(kennung.group("attempt")) if kennung else None
     if not kennung:
         return _answer(UNKNOWN, ["decisionId is not <action id>#<attempt>"], checks)
+    # The nonce is the decisionId, so it names this attempt; the verifiers only compare the receipts' nonces with each
+    # other (Codex thread 4220771548 on pull request 303: a nonce of another attempt was accepted).
+    checks["nonce_names_the_attempt"] = pred["validity"].get("nonce") == pred["decisionId"]
+    if not checks["nonce_names_the_attempt"]:
+        return _answer(NOT_ACCEPTED, ["validity.nonce is not the decisionId, so it does not name this attempt"], checks)
     if pred["proposedAction"]["actionType"] not in SURFACES:
         return _answer(UNKNOWN, ["the approved surface is not one this profile knows"], checks)
     expires = pred["validity"].get("expiresAt")
@@ -354,9 +368,10 @@ def build_vectors() -> dict:
                     expires_at="2026-09-27T00:45:00Z", surface="github.conversationComment", target=_TARGET,
                     approved=_TEXT, verdict="ALLOW", reasons=["rules.satisfied"], gate_id=GATE_ID,
                     agent_id="agent:session-a", principal_id="operator", policy_digest=policy,
-                    nonce="attempt-0001-1", audience=OBSERVER_ID)
+                    audience=OBSERVER_ID)
         key = over.pop("key", gate)
         args.update(over)
+        args.setdefault("nonce", f"{args['action_id']}#{args['attempt']}")
         return sign_decision(decision_predicate(**args), key)
 
     def outcome(dec, *, key=observer, stored=_TEXT, scope=None, performed_at="2026-09-27T00:40:09Z", **over):
@@ -364,7 +379,7 @@ def build_vectors() -> dict:
                                                                   "issuecomment-5851339484")
         args = dict(outcome_id="observation-0001", decision_root=content_root(dec), executor_id="github:b7n0de",
                     approved=_TEXT, performed_at=performed_at, recorded_at="2026-09-27T00:41:00Z", stored=stored,
-                    scope=scope, nonce="attempt-0001-1", audience=OBSERVER_ID)
+                    scope=scope, nonce="action-0001#1", audience=OBSERVER_ID)
         args.update(over)
         return sign_outcome(outcome_predicate(**args), key), scope
 
@@ -383,7 +398,7 @@ def build_vectors() -> dict:
          None, None, "signed by the gate key, but naming another decision maker")
     o_fremd, s_fremd = outcome(d0, key=other)
     fall("wrong issuer: outcome signed by another key", NOT_ACCEPTED, d0, o_fremd, s_fremd)
-    d_anders = decision(action_id="action-0002", nonce="attempt-0001-1")
+    d_anders = decision(action_id="action-0002", nonce="action-0001#1")
     o_anders, s_anders = outcome(d_anders)
     fall("wrong subject: outcome bound to another decision", NOT_ACCEPTED, d0, o_anders, s_anders)
     o_ziel, s_ziel = outcome(d0, scope=scope_descriptor("github.conversationComment",
@@ -471,6 +486,23 @@ def build_vectors() -> dict:
     roh[roh.index(b"ALLOW")] = ord("B")
     manipuliert["payload"] = base64.b64encode(bytes(roh)).decode("ascii")
     fall("tampered decision payload", NOT_ACCEPTED, manipuliert, o0, s0)
+    d_versuch = decision(attempt=2, nonce="action-0001#1")
+    o_versuch, s_versuch = outcome(d_versuch)
+    fall("the nonce names another attempt", NOT_ACCEPTED, d_versuch, o_versuch, s_versuch,
+         "thread 4220771548: decisionId names attempt 2 and both nonces name attempt 1")
+
+    def gebrochen(dec, alt, neu):
+        kopie = dict(dec)
+        roh = decode_b64_either(dec["payload"])
+        assert roh.count(alt) == 1
+        kopie["payload"] = base64.b64encode(roh.replace(alt, neu)).decode("ascii")
+        return kopie
+    fall("unreadable decidedAt under a broken signature", NOT_ACCEPTED,
+         gebrochen(d0, b'"decidedAt":"2026-09-27T00:40:00Z"', b'"decidedAt":"yesterday"'), o0, s0,
+         "thread 4220771559: the signature is checked before decidedAt is read")
+    fall("no version signal under a broken signature", NOT_ACCEPTED,
+         gebrochen(d_alt, b'"policyEngine":"opa"', b'"policyEngine":"opb"'), *outcome(d_alt),
+         "thread 4220771559: the signature is checked before the version signal is read")
     return {"profile": f"{PROFILE_ENGINE}/{PROFILE_REVISION}", "gate_id": GATE_ID, "observer_id": OBSERVER_ID,
             "gate_public_key": _pub(gate).hex(), "observer_public_key": _pub(observer).hex(),
             "keys": "derived from public labels by test_key(); vectors only, never keys of the pilot",

@@ -34,7 +34,7 @@ condition attached: an answer that needs a condition is not `accepted`.
 | audience | `validity.audience` names the observer | `validity.audience` names the observer | both are addressed to the observer the relying party pins; another audience is `not accepted` |
 | policy digest | `policyBoundary.policyDigest` (required in strict mode) | none | recorded, not interpreted |
 | strict mode | the decision is verified in strict mode: `notChecked`, `decisionChangeConditions` and `privacy` are present, `privacy.rawInputsIncluded` is a boolean, `policyBoundary.policyDigest` carries a sha256, and `validity` carries `audience` and `nonce` | the outcome is verified in strict mode too, which adds no required field to `action-outcome/v0.1` today | a decision without one of them does not verify: `not accepted` |
-| action id, attempt | `decisionId` = `<action id>#<attempt>`; `validity.nonce` names the attempt | `validity.nonce` = the decision's nonce | an outcome answers one attempt |
+| action id, attempt | `decisionId` = `<action id>#<attempt>`; `validity.nonce` = the `decisionId`, so it names the attempt | `validity.nonce` = the decision's nonce | an outcome answers one attempt |
 | freshness | `decidedAt`, `validity.expiresAt` | `performedAt` = the time GitHub states for the effect; `recordedAt` = the observer's reading | `decidedAt` ≤ `performedAt` ≤ `expiresAt`, inclusive at both ends, compared as instants with their fractions of a second, any number of digits for `decidedAt` and `performedAt`; the decision itself is verified one second before its `decidedAt`, not at the reader's clock, so that this window, not the verifier's expiry rule, decides; `expiresAt` is read first by that verifier, which reads at most six fraction digits, so an expiry with more does not verify and is `not accepted` |
 | outcome scope | `proposedAction.actionType` = the surface, `proposedAction.target.uri` = the target | `actualActionDigest.sha256` = SHA-256 of the RFC 8785 form of `{surface, target, objectId}`, a descriptor that travels beside the outcome | the descriptor matches the signed digest, has exactly these three keys, each a non-empty string, and its surface and target are the approved ones |
 | kind | `decisionType` = `preActionAuthorization`, `proposedAction.method` = `write` | none | another kind or method is no approved write: `not accepted` |
@@ -48,7 +48,9 @@ The other values the builder writes into the decision (`policyBoundary.policyId`
 `inputSnapshot`, `notChecked`, `decisionChangeConditions` and `privacy`) are recorded, not read: no rule of the
 profile depends on what they hold. Strict mode requires `notChecked`, `decisionChangeConditions` and `privacy`
 to be present, as the table states, so a decision without one of them is `not accepted`. The same holds for the outcome's `outcomeId`, `recordedAt` and `limitations`. Every check that can be made is made before a gap is reported, so a check known to
-fail gives `not accepted` even where another record is missing.
+fail gives `not accepted` even where another record is missing. The pinned gate key is checked first, before the
+version signal or `decidedAt` is read, so a decision another key signed is `not accepted`, never `unknown`, and a
+`validity.nonce` that is not the `decisionId` is `not accepted`.
 
 Two readings are stated rather than hidden. The outcome's signer is the observer, and `executor.id` names the
 account GitHub reports, which the profile treats as observed data, not as a trusted identity. And
@@ -96,6 +98,9 @@ compares them as the instants they name, and a clock difference between the two 
 | approved and arrived, the expiry with seven fraction digits | not accepted | the decision's verifier reads at most six fraction digits of `expiresAt` |
 | approved and arrived, the expiry with six fraction digits | accepted | the control: six digits are read |
 | tampered decision payload | not accepted | one byte changed after signing |
+| the nonce names another attempt | not accepted | `decisionId` names attempt 2 and both nonces name attempt 1 |
+| unreadable decidedAt under a broken signature | not accepted | the signature is checked before `decidedAt` is read |
+| no version signal under a broken signature | not accepted | the signature is checked before the version signal is read |
 
 ## New fields: proposals only
 
