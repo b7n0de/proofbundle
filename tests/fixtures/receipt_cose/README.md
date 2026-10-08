@@ -48,7 +48,7 @@ its next revision).
 - Keys: the receipt key and the relying party's statement key are the Draft 1 issuer test key; the
   foreign key's seed is SHA-256 over the label in `foreign_seed`; `low_order` is the all-zero
   encoding, a point of small order; `p256` is an uncompressed P-256 point whose private scalar is
-  given by `p256_seed`; `mixed_order` is the key of Draft 1 vector P11, the issuer's public point
+  given by `p256_seed`; `mixed_order` is the key of Draft 1 vector N61, the issuer's public point
   plus a point of order 8, with no seed of its own; `off_curve` is y = 2, which names no curve point.
   PURE TEST KEYS. They MUST NOT be used for anything real.
 

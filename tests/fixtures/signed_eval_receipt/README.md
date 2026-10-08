@@ -3,19 +3,21 @@
 The test vectors of draft-gruszka-signed-evaluation-receipts-00 (Signed Evaluation Receipts),
 Appendix A, as conformance tests for `proofbundle.signed_eval_receipt`.
 
-- 66 vectors: 10 that verify (P1, P2, P4, P6 to P10, P12, P13) and 56 that do not (P11, and N1 to
-  N60 without N8, N27 to N29 and N47), each with the expected verdict and the first failing step of
+- 66 vectors: 10 that verify (P1, P2, P4, P6 to P10, P12, P13) and 56 that do not (N1 to N61
+  without N8, N27 to N29 and N47), each with the expected verdict and the first failing step of
   the draft's Section 5. Only insignificant whitespace may stand before or after the JSON text (owner
   choices of 2026-10-07 and 2026-10-08): P12, the receipt of P1 followed by one line feed, verifies;
   P13, one line feed followed by the receipt of P1, verifies; N60, the B of P1 followed by one line
   feed and signed anew, fails at step 5, because B is not its own RFC 8785 form. Rule 2 of the draft's Section 4.4 requires A and R to have order L (owner choice
-  of 2026-10-07): P11, a receipt under the mixed-order test key (the issuer test key's public point
+  of 2026-10-07): N61, a receipt under the mixed-order test key (the issuer test key's public point
   plus a point of order 8, no seed, a pure test key) whose signature meets the cofactorless
   equation, fails at step 11 for rule 2 of the key; N59, under the issuer key with an R of mixed
   order, fails at step 11 for rule 2 of R, where the cofactored equation holds. No other vector
   changed its verdict or first failing step. The receipt has no inclusion member since 2026-10-03; the seven vectors that only
   exercised the inclusion proof (P3, P5, N8, N27, N28, N29, N47) are gone and their identifiers
-  are not reused. Since 2026-10-08 the receipt type is
+  are not reused. Since 2026-10-08 an identifier is a label for the expected verdict: a P vector
+  expects PASS, an N vector FAIL. The vector under the mixed-order test key, P11 before that day, is
+  N61; its bytes, verdict and first failing step are unchanged, and P11 is not reused. Since 2026-10-08 the receipt type is
   `application/vnd.signed-evidence.eval-receipt+json` and the payload schema
   `https://signed-evidence.org/eval-receipt/v1`, names under the project domain signed-evidence.org
   (owner choice of 2026-10-08); both enter B or the signature, so every B, signature and receipt digest

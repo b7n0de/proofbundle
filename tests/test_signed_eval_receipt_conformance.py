@@ -61,6 +61,12 @@ class TheFixtureIsTheDraftsVectors(unittest.TestCase):
             with self.subTest(vector=v["id"]):
                 self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
 
+    def test_an_identifier_is_a_label_for_the_expected_verdict(self):
+        """The draft's Appendix A: a P vector expects PASS and an N vector FAIL (owner choice of 2026-10-08)."""
+        self.assertEqual({(v["id"][0], v["expected"]) for v in VECTORS}, {("P", "PASS"), ("N", "FAIL")})
+        self.assertEqual(sum(v["id"][0] == "P" for v in VECTORS), 10)
+        self.assertEqual(sum(v["id"][0] == "N" for v in VECTORS), 56)
+
 
 class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
     def test_verdict_and_first_failing_step(self):
