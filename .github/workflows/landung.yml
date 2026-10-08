@@ -52,7 +52,8 @@ permissions:
 jobs:
   ci-prerequisites:
     # The `needs: [test, coverage]` of ci.yml's mutation job, across the two workflows: it waits for
-    # those jobs in the latest ci.yml run of this head and fails unless all of them succeeded
+    # those jobs and for the collector `all-checks-passed`, which judges the full matrix, in the
+    # latest ci.yml run of this head, and fails unless all of them succeeded
     # (scripts/landung_waits_for_ci.py says how, and why each outcome is what it is). It carries the
     # layer's predicate, so it runs exactly when the layer would, and holds one runner, not 36.
     if: >-

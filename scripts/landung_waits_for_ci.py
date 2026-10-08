@@ -11,9 +11,16 @@ fail kept them running. This script is the `needs` across the two workflows: the
 `ci-prerequisites` runs it, and `mutation` needs that job.
 
 WHAT IT WAITS FOR. The jobs that the mutation job of ci.yml needs (`CI_NEEDS`, held equal to ci.yml
-by a contract), in the latest ci.yml run of event `pull_request` for the head of the event. A job
-counts by its name: the job itself, or a matrix leg `<job> (<value>)`. Only the latest attempt of
-each job counts, so a re-run that turned green is green.
+by a contract), and the collector `all-checks-passed` (`COLLECTOR`), whose needs are the same jobs
+and which judges the matrix as a whole, in the latest ci.yml run of event `pull_request` for the
+head of the event. A job counts by its name: the job itself, or a matrix leg `<job> (<value>)`.
+Only the latest attempt of each job counts, so a re-run that turned green is green.
+
+WHY THE COLLECTOR TOO (Codex on pull request 310, round three, P1). `needs.test.result` is success
+whether the matrix ran five versions or one. A fork pull request without `landung` runs the 3.12 leg
+only, and setting the label afterwards starts no run of ci.yml; with test and coverage green the
+layer would have started on one leg. `all-checks-passed` holds the full-matrix condition and is red
+there, so the layer waits for the fork's next push, which runs the full matrix under the label.
 
 THREE OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
 succeeded. `red` as soon as one needed job finished with anything but success (skipped and cancelled
@@ -38,6 +45,10 @@ API = "https://api.github.com"
 CI_WORKFLOW = "ci.yml"
 #: The `needs` of the mutation job in ci.yml. tests/test_ein_label_startet_keine_ci.py holds the two equal.
 CI_NEEDS = ("test", "coverage")
+#: The collector of ci.yml: its needs are CI_NEEDS, and it is red when the full matrix did not run.
+COLLECTOR = "all-checks-passed"
+#: Everything the layer waits for.
+WAITED = CI_NEEDS + (COLLECTOR,)
 POLL_S = 30
 #: How long the ci.yml run of the head may take to appear. Both workflows start on the same event.
 APPEAR_S = 15 * 60
@@ -71,12 +82,12 @@ def _is(name: str, need: str) -> bool:
 
 def judge(jobs: list[dict], run_status: str) -> tuple[str, str]:
     """`green`, `red` or `wait`, with the reason, for the jobs of one ci.yml run."""
-    wanted = [j for j in jobs if any(_is(str(j.get("name", "")), n) for n in CI_NEEDS)]
+    wanted = [j for j in jobs if any(_is(str(j.get("name", "")), n) for n in WAITED)]
     red = sorted(f"{j['name']}={j.get('conclusion')}" for j in wanted
                  if j.get("status") == "completed" and j.get("conclusion") != "success")
     if red:
         return "red", f"a job the mutation layer needs did not succeed on this head: {', '.join(red)}"
-    missing = [n for n in CI_NEEDS if not any(_is(str(j.get("name", "")), n) for j in wanted)]
+    missing = [n for n in WAITED if not any(_is(str(j.get("name", "")), n) for j in wanted)]
     if missing:
         if run_status == "completed":
             return "red", f"the ci.yml run finished without {', '.join(missing)}"

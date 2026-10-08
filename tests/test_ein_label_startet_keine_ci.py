@@ -20,7 +20,9 @@ WHAT THIS HOLDS, each with a counter-example it fails on:
   6. The layer waits for test and coverage of the same head, as it does in ci.yml (Codex on pull
      request 310, round two, P1): `mutation` needs `ci-prerequisites`, which runs
      scripts/landung_waits_for_ci.py with the layer's own predicate, and the jobs that script waits
-     for are the `needs` of ci.yml's mutation job. The script's verdict is measured as a program.
+     for are the `needs` of ci.yml's mutation job and the collector `all-checks-passed`, which judges
+     the full matrix (round three, P1: a fork's one-leg run is not the release matrix). The script's
+     verdict is measured as a program.
 """
 from __future__ import annotations
 
@@ -204,8 +206,12 @@ def test_die_schicht_wartet_auf_test_und_coverage_desselben_kopfes():
     CI. In ci.yml the layer needs test and coverage; the script waits for exactly those jobs."""
     assert _wartet_nicht(_lade("landung.yml")) == []
     s = _skript()
-    assert s.CI_NEEDS == tuple(_lade("ci.yml")["jobs"]["mutation"]["needs"]), (
+    ci = _lade("ci.yml")["jobs"]
+    assert s.CI_NEEDS == tuple(ci["mutation"]["needs"]), (
         "the script waits for other jobs than the ones ci.yml's mutation job needs")
+    assert ci[s.COLLECTOR]["needs"] == list(s.CI_NEEDS), (
+        "the collector the script waits for does not judge the same jobs")
+    assert s.WAITED == s.CI_NEEDS + (s.COLLECTOR,)
     assert (WF / s.CI_WORKFLOW).is_file()
 
 
@@ -216,8 +222,8 @@ def _job(name: str, status: str = "completed", conclusion: "str | None" = "succe
     return {"name": name, "status": status, "conclusion": conclusion}
 
 
-GRUEN = [_job("test (3.10)"), _job("test (3.14)"), _job("coverage"), _job("guard"),
-         _job("mutation", conclusion="skipped")]
+GRUEN = [_job("test (3.10)"), _job("test (3.14)"), _job("coverage"), _job("all-checks-passed"),
+         _job("guard"), _job("mutation", conclusion="skipped")]
 
 
 @pytest.mark.parametrize("jobs,lauf,erwartet", [
@@ -233,8 +239,16 @@ GRUEN = [_job("test (3.10)"), _job("test (3.14)"), _job("coverage"), _job("guard
     ([_job("test (3.10)")], "completed", "red"),
     ([_job("coverage")], "completed", "red"),
     # another job's red is not the layer's business, and a name that only starts like `test` is not a leg
-    ([_job("test (3.10)"), _job("coverage"), _job("anchors", conclusion="failure")], "completed", "green"),
-    ([_job("tests-extra", conclusion="failure"), _job("test (3.10)"), _job("coverage")], "completed", "green"),
+    ([_job("test (3.10)"), _job("coverage"), _job("all-checks-passed"), _job("anchors", conclusion="failure")],
+     "completed", "green"),
+    ([_job("tests-extra", conclusion="failure"), _job("test (3.10)"), _job("coverage"), _job("all-checks-passed")],
+     "completed", "green"),
+    # Codex on pull request 310, round three (P1): a fork's one-leg run has test and coverage green and the
+    # collector red, because one leg is not the full matrix; the layer must not start on it
+    ([_job("test (3.12)"), _job("coverage"), _job("all-checks-passed", conclusion="failure")], "completed", "red"),
+    # the collector is created only after test and coverage finished
+    ([_job("test (3.10)"), _job("coverage")], "in_progress", "wait"),
+    ([_job("test (3.10)"), _job("coverage")], "completed", "red"),
 ])
 def test_das_urteil_des_skripts(jobs, lauf, erwartet):
     assert _skript().judge(jobs, lauf)[0] == erwartet
