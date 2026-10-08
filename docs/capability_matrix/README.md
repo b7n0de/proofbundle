@@ -24,9 +24,12 @@ are rendered from that file by the same script; a test holds them to it.
   subcommands are those of the parser the console script `proofbundle` builds when it runs: the wheel's, once its
   digests and files have passed the checks above, and the tree's at a ref, each run in a fresh interpreter and
   stopped at its first parse. `pyproject.toml` is read by a TOML parser, the wheel's `entry_points.txt` by
-  `importlib.metadata`, and the docs by a CommonMark parser, so text that renders into nothing (an HTML comment, an
-  HTML block, a link reference definition) is not read, and a label or a cited passage that holds an HTML element
-  stops the measurement. What one of these readers refuses stops it too.
+  `importlib.metadata`, and the docs by a CommonMark parser with GitHub's tables and strikethrough. Every reader of
+  the docs reads the text a block renders, never its Markdown: an entity is its character, emphasis, link and code
+  marks are gone, and a soft line break is a space, so a label runs to the end of its rendered paragraph. Text that
+  renders into nothing (an HTML comment, an HTML block, a link reference definition) is not read, and a label or a
+  cited passage that holds an HTML element, struck-through text or an image stops the measurement. What one of these
+  readers refuses stops it too.
 - **Label.** The project's own words for the capability are read at the tag and at main, from the file the
   row names (the predicate inventory, COMPATIBILITY.md, README.md, INTEGRATIONS.md, CHANGELOG.md or an ADR). A
   present capability whose label is not found stops the measurement; its status is then not measured. The same
@@ -63,18 +66,18 @@ repository (`git ls-files` finds none, measured at `0ace3039`).
 |---|---|---|---|---|
 | Decision receipt (decision-receipt/v0.1) | PyPI wheel | published — shipped (2.1.0) | published | 1 file changed, 8 insertions(+), 4 deletions(-) |
 | Action outcome (action-outcome/v0.1) | PyPI wheel | experimental — EXPERIMENTAL (3.2.0) | experimental | 1 file changed, 7 insertions(+), 3 deletions(-) |
-| Hugging Face Community Evals export (verifyToken, .eval_results entry) | PyPI wheel | published — Hugging Face Community Evals (`.eval_results/*.yaml`, v1.4) | published | 1 file changed, 69 insertions(+), 18 deletions(-) |
-| EAT bridge (TEE Attestation Result, verify-enclave) | PyPI wheel | experimental — the `[experimental]` extra — the TEE-attestation bridge, see | experimental | 1 file changed, 2 insertions(+), 2 deletions(-) |
+| Hugging Face Community Evals export (verifyToken, .eval_results entry) | PyPI wheel | published — Hugging Face Community Evals (.eval\_results/\*.yaml, v1.4) | published | 1 file changed, 69 insertions(+), 18 deletions(-) |
+| EAT bridge (TEE Attestation Result, verify-enclave) | PyPI wheel | experimental — the \[experimental\] extra — the TEE-attestation bridge, see docs/EXPERIMENTAL\_ENCLAVE.md | experimental | 1 file changed, 2 insertions(+), 2 deletions(-) |
 | Rust second verifier (pb_verify_rs) | repository only (built from source) | experimental — Experimental in 6.0.0 and advisory only: agreement on recorded vectors, no conformance promise; own milestone 6.1; parity registry: 5 COVERED, 2 PARTIAL, 61 PENDING of 68 surfaces | experimental — The Rust cross verifier is experimental and advisory.; parity registry: 5 COVERED, 3 PARTIAL, 63 PENDING of 71 surfaces | 1 file changed, 1463 insertions(+), 173 deletions(-) |
-| Inspect lifecycle hook (inspect_ai entry point) | PyPI wheel | published — inspect_ai (end-of-task hook) | published | no change |
+| Inspect lifecycle hook (inspect_ai entry point) | PyPI wheel | published — inspect\_ai (end-of-task hook) | published | no change |
 | pytest plugin (pytest11 entry point) | PyPI wheel | published — pytest (pytest11 plugin) | published | no change |
-| GitHub Action (action/action.yml) | git tag v1.0.0 (the docs pin it; the release's file differs from it: 1 file changed, 42 insertions(+), 2 deletions(-)) | published — A composite action is prepared under `action/action.yml` (SHA-pinned). Usage: | published | no change |
-| SLSA build provenance over a receipt | another project | from elsewhere — Optional, complementary — a GitHub-anchored SLSA provenance *over* the receipt (the receipt attests the | from elsewhere | — |
+| GitHub Action (action/action.yml) | git tag v1.0.0 (the docs pin it; the release's file differs from it: 1 file changed, 42 insertions(+), 2 deletions(-)) | published — A composite action is prepared under action/action.yml (SHA-pinned). Usage: | published | no change |
+| SLSA build provenance over a receipt | another project | from elsewhere — Optional, complementary — a GitHub-anchored SLSA provenance over the receipt (the receipt attests the run, attest-build-provenance attests the build). Add to the caller job: | from elsewhere | — |
 | promptfoo adapter (results.json) | PyPI wheel | published — promptfoo (results.json adapter, v1.4) | published | no change |
-| lm-evaluation-harness adapter (results_*.json) | PyPI wheel | published — lm-evaluation-harness (results_*.json adapter, v0.6; sample-count provenance since v3.7.0) | published | no change |
-| Inspect log adapter (read_eval_log) | PyPI wheel | published — inspect_ai (end-of-task hook) | published | no change |
-| Every Eval Ever converter (from_eee_dataset) | PyPI wheel | published — Every Eval Ever converter (`proofbundle.adapters.from_eee_dataset`): reads an EEE v0.2.2 aggregate | published | no change |
-| AGT MCP tool-call receipt verifier (adapters.agt_receipt) | main tree only, not in v6.1.0 | absent | main only — (`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT | — |
+| lm-evaluation-harness adapter (results_*.json) | PyPI wheel | published — lm-evaluation-harness (results\_\*.json adapter, v0.6; sample-count provenance since v3.7.0) | published | no change |
+| Inspect log adapter (read_eval_log) | PyPI wheel | published — inspect\_ai (end-of-task hook) | published | no change |
+| Every Eval Ever converter (from_eee_dataset) | PyPI wheel | published — Every Eval Ever converter (proofbundle.adapters.from\_eee\_dataset): reads an EEE v0.2.2 aggregate JSON into a signed receipt, validated against the vendored EEE schema, with NO runtime import of every\_eval\_ever (it needs Python 3.12; proofbundle stays 3.9+). The EEE evaluation\_id (which embeds the model id) is deliberately NOT copied into provenance — the receipt keeps the model a salted commitment. | published | no change |
+| AGT MCP tool-call receipt verifier (adapters.agt_receipt) | main tree only, not in v6.1.0 | absent | main only — (src/proofbundle/adapters/agt\_receipt.py). Verifies an AGT MCP tool-call receipt without AGT installed and without network access: Ed25519 over the canonical payload, the optional external-authorizer signature, the parent\_receipt\_hash chain link, and the house exit-code contract (0 verified, 1 crypto or structural failure, 2 malformed input, 3 relying-party requirement unmet). No AGT code is copied; the wire format was read from the published tree at commit a917ad4ac04aff11a5e9e21f6a26b91642b750cd and re-derived. AGT is MIT, Copyright (c) Microsoft Corporation. | — |
 | SCITT receipts (scitt-ccf/v1 reader) | branch feat/640-scitt-anker, not in v6.1.0 or on main | absent | planned (branch `feat/640-scitt-anker` at `531e2564`) | — |
 
 <!-- end of matrix -->

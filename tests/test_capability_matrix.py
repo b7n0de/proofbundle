@@ -300,7 +300,7 @@ class TheDocsAreReadForProviderAndTag(unittest.TestCase):
 
     _AKTION = {"id": "ga", "label": [("INTEGRATIONS.md", r"(A composite action is prepared[^\n]*)")],
                "git_tag_from": r"uses: b7n0de/proofbundle/action@(\S+)"}
-    _SLSA = {"id": "slsa", "label": [("INTEGRATIONS.md", r"(\*\*Optional, complementary\*\* [^\n]*)")],
+    _SLSA = {"id": "slsa", "label": [("INTEGRATIONS.md", r"^(Optional, complementary [^\n]*)")],
              "provider": "actions/attest-build-provenance"}
     _BEISPIEL = ("## GitHub Action\n\nA composite action is prepared. Usage:\n\n```yaml\n"
                  "- uses: b7n0de/proofbundle/action@v2.0.0\n```\n\n**Optional, complementary** - a provenance over\n"
@@ -669,6 +669,82 @@ class EveryFormatIsReadByTheReaderItsConsumerUses(unittest.TestCase):
                          ._names_provider("r", self._CAP), "control: the HTML block is not read")
 
 
+class TheDocsAreReadAsTheyRender(unittest.TestCase):
+    """Round eleven of Codex on pull request 304, thread 4222919983: CommonMark chose the lines and a pattern still read
+    their Markdown, so `## **promptfoo**` lost its label and `exper&#105;mental` read as published. Every reader of the
+    docs reads the text a block renders: entities decoded, emphasis, link and code marks gone, a soft line break a
+    space, a table row its cells, and what a reader cannot decide in it stops the measurement."""
+
+    def _modul(self, text: str):
+        modul = _load()
+        modul._git_bytes = lambda ref, pfad: text.encode() if pfad == "NOTES.md" else None
+        return modul
+
+    def test_a_label_is_its_rendered_text(self) -> None:
+        heading = [("NOTES.md", r"^(## promptfoo[^\n]*)")]
+        for text in ("## promptfoo (adapter)\n", "## **promptfoo** (adapter)\n", "## *promptfoo* (adapter)\n",
+                     "## `promptfoo` (adapter)\n", "## pro&#109;ptfoo (adapter)\n", "## promptfoo \\(adapter\\)\n",
+                     "promptfoo (adapter)\n---\n", "## [promptfoo](https://example.org) (adapter)\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self._modul(text)._label_at("r", heading), ("## promptfoo (adapter)", "NOTES.md"))
+        zeile = [("NOTES.md", r"^\| x/v1 \| ([^|]+) \|")]
+        for text in ("| name | status |\n|---|---|\n| `x/v1` | **EXPERIMENTAL** (3.2) |\n",
+                     "| name | status |\n|---|---|\n| x/v1 | EXPERIMENTAL (3.2) |\n"):
+            with self.subTest(table=text):
+                self.assertEqual(self._modul(text)._label_at("r", zeile)[0], "EXPERIMENTAL (3.2)")
+
+    def test_the_status_reads_the_word_that_renders(self) -> None:
+        cap = [("NOTES.md", r"^(the x capability[^\n]*)")]
+        for text, erwartet in (("the x capability, exper&#105;mental\n", "experimental"),
+                               ("the x capability, *experi*mental\n", "experimental"),
+                               ("the x capability, no longer\nexperimental\n", "published"),
+                               ("the x capability, stable\n", "published")):
+            with self.subTest(text=text):
+                label, _ = self._modul(text)._label_at("r", cap)
+                self.assertEqual(_load().status(True, label), erwartet)
+
+    def test_a_pin_and_a_provider_are_read_as_they_render(self) -> None:
+        cap = {"id": "x", "provider": "actions/attest", "git_tag_from": r"uses: x@(\S+)",
+               "label": [("NOTES.md", r"^(the x capability[^\n]*)")]}
+        self.assertEqual(self._modul("the x capability, uses: x@v1&#46;2\n")._documented_tag("r", cap), "v1.2")
+        self.assertEqual(self._modul("the x capability\n\n```\n- uses: x@v1&#46;2\n```\n")._documented_tag("r", cap),
+                         "v1&#46;2", "control: a code block renders its content as written")
+        self.assertTrue(self._modul("the x capability, from actions&#47;attest.\n")._names_provider("r", cap))
+        self.assertTrue(self._modul("the x capability, from **actions/attest**.\n")._names_provider("r", cap))
+        self.assertTrue(self._modul("the x capability, from `actions/attest`.\n")._names_provider("r", cap))
+
+    def test_what_a_reader_cannot_decide_in_the_rendered_text_stops(self) -> None:
+        cap = [("NOTES.md", r"^(the x capability[^\n]*)")]
+        for text in ("the x capability, ~~experimental~~ stable\n", "the x capability ![experimental](badge.svg)\n",
+                     "the x capability <b>stable</b>\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(SystemExit, "not decided here"):
+                self._modul(text)._label_at("r", cap)
+
+    def test_an_html_block_ends_a_passage_and_a_comment_does_not(self) -> None:
+        cap = {"id": "x", "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"^(the x capability[^\n]*)")]}
+        self.assertEqual(self._modul("the x capability\n\n<!-- note -->\n\n```\n- uses: x@v1\n```\n")
+                         ._documented_tag("r", cap), "v1")
+        with self.assertRaisesRegex(SystemExit, "pins no tag"):
+            self._modul("the x capability\n\n<div>\nother\n</div>\n\n```\n- uses: x@v1\n```\n")._documented_tag("r", cap)
+
+    def test_every_recorded_label_is_what_the_reader_reads_at_the_recorded_refs(self) -> None:
+        """The labels in matrix.json are re-read here at the commits the file names, so a reader change that alters a
+        label cannot leave the recorded data behind. Needs those commits in the checkout."""
+        import subprocess
+        d = json.loads(_MATRIX.read_text(encoding="utf-8"))
+        koepfe = [d["tag_commit"], d["main_commit"]] + [z["main"]["branch"]["head"] for z in d["rows"]
+                                                        if z["main"].get("branch")]
+        if any(subprocess.run(["git", "-C", str(REPO), "cat-file", "-e", f"{k}^{{commit}}"]).returncode for k in koepfe):
+            self.skipTest("the commits matrix.json names are not in this checkout")
+        modul = _load()
+        caps = {c["id"]: c for c in modul.CAPABILITIES}
+        for z in d["rows"]:
+            kopf = z["main"]["branch"]["head"] if z["main"].get("branch") else d["main_commit"]
+            with self.subTest(row=z["id"]):
+                self.assertEqual(modul._label_at(d["tag_commit"], caps[z["id"]]["label"])[0], z["release"]["label"])
+                self.assertEqual(modul._label_at(kopf, caps[z["id"]]["label"])[0], z["main"]["label"])
+
+
 class FromElsewhereSaysWhatWasMeasured(unittest.TestCase):
     """Codex thread 4219678096: the status said another project provides the capability, and what is measured is that
     the cited docs name the provider. The vocabulary and the README say so and claim no availability."""
@@ -737,7 +813,41 @@ class AFailedProvenanceCheckStopsTheMeasurement(unittest.TestCase):
                     modul.measure_artifacts(Path(tmp), pypi)
 
 
+def _registry_suffix(z: dict) -> str:
+    zahlen = z["release"]["measured"].get("parity_registry_at_tag")
+    return _load()._registry_text(zahlen) if zahlen else ""
+
+
 class TheReadmeTablesAreTheData(unittest.TestCase):
+    def test_every_label_cell_renders_the_label_it_was_read_as(self) -> None:
+        """A label is rendered text (thread 4222919983), and written back into the Markdown table it must render as
+        that text again: a `*`, `_`, `[` or `<` in it would otherwise start Markdown in the cell. The table is parsed
+        by the reader the docs are read with, and each release cell is its status and the label, as recorded."""
+        modul = _load()
+        d = json.loads(_MATRIX.read_text(encoding="utf-8"))
+        zeilen = {}
+        for z in d["rows"]:
+            z = json.loads(json.dumps(z))
+            z["release"]["label"] = (z["release"]["label"] or "x") + " *a* _b_ [c] <d> &amp; `e` ~~f~~ | g \\ h"
+            zeilen[z["name"]] = z
+        tabelle = modul.render_table(dict(d, rows=list(zeilen.values())))
+        modul._git_bytes = lambda ref, pfad: tabelle.encode()
+        gelesen = [t for art, _e, t in modul._bloecke("r", "README.md") if art == "row"][1:]
+        self.assertEqual(len(gelesen), len(zeilen))
+        gezeigt = 0
+        for zeile in gelesen:
+            name, _kanal, zelle = zeile.split(" | ")[:3]
+            z = zeilen[name[2:]]
+            if z["release"]["status"] == "absent":
+                continue                                    # an absent cell shows no label
+            erwartet = z["release"]["status"] + " — " + re.sub(r"^#+ ", "", z["release"]["label"])
+            with self.subTest(row=z["id"]):
+                # the cell is the status and the label, then at most the parity registry's counts
+                self.assertTrue(zelle.startswith(erwartet.replace("|", "\\|")), zelle)
+                self.assertIn(zelle[len(erwartet.replace("|", "\\|")):], ("", _registry_suffix(z)))
+                gezeigt += 1
+        self.assertGreaterEqual(gezeigt, 10, "control: most release cells show a label")
+
     def test_both_rendered_blocks_equal_the_recorded_data(self) -> None:
         modul = _load()
         d = json.loads(_MATRIX.read_text(encoding="utf-8"))

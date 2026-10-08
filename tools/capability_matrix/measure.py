@@ -55,8 +55,9 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 
 #: One entry per capability. `modules` are paths inside the package (proofbundle/...), `cli` console
 #: subcommands, `entry_points` "group:name", `repo_paths` repository paths that are no package member.
-#: `label` lists (file, pattern) pairs that state the project's own status for the capability; the first
-#: that matches at a ref gives the label text there, and "experimental" in it makes the cell experimental.
+#: `label` lists (file, pattern) pairs that state the project's own status for the capability; the first pattern that
+#: matches the rendered text of a block of its file at a ref (`_bloecke`) gives the label text there, and
+#: "experimental" in it makes the cell experimental.
 #: A capability present at a ref with no label found there stops the measurement (fail closed). `branch` names a
 #: branch for a capability that is on neither the tag nor main; `elsewhere` names the outside provider, and
 #: `provider` the name the docs must carry at both refs for it. `git_tag_from` is the pattern for the tag of this
@@ -66,55 +67,55 @@ STATUSES = ("published", "experimental", "main only", "planned", "from elsewhere
 CAPABILITIES = [
     {"id": "decision", "name": "Decision receipt (decision-receipt/v0.1)",
      "modules": ["proofbundle/decision.py"], "cli": ["decision"],
-     "label": [("docs/predicates/README.md", r"\| `decision-receipt/v0\.1` \| ([^|]+) \|")]},
+     "label": [("docs/predicates/README.md", r"^\| decision-receipt/v0\.1 \| ([^|]+) \|")]},
     {"id": "outcome", "name": "Action outcome (action-outcome/v0.1)",
      "modules": ["proofbundle/outcome.py"], "cli": ["outcome"],
-     "label": [("docs/predicates/README.md", r"\| `action-outcome/v0\.1` \| ([^|]+) \|")]},
+     "label": [("docs/predicates/README.md", r"^\| action-outcome/v0\.1 \| ([^|]+) \|")]},
     {"id": "hf-export", "name": "Hugging Face Community Evals export (verifyToken, .eval_results entry)",
      "modules": ["proofbundle/hf_evals.py"], "cli": ["hf-token"],
-     "label": [("INTEGRATIONS.md", r"(## Hugging Face Community Evals[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(## Hugging Face Community Evals[^\n]*)")]},
     {"id": "eat-bridge", "name": "EAT bridge (TEE Attestation Result, verify-enclave)",
      "modules": ["proofbundle/experimental/enclave.py"], "cli": ["verify-enclave"],
-     "label": [("COMPATIBILITY.md", r"(\*\*the `\[experimental\]` extra\*\*[^\n]*)")]},
+     "label": [("COMPATIBILITY.md", r"^(the \[experimental\] extra[^\n]*)")]},
     {"id": "rust-verifier", "name": "Rust second verifier (pb_verify_rs)",
      "repo_paths": ["tools/pb_verify_rs/src/main.rs", "tools/pb_verify_rs/Cargo.toml"],
      "registry": "scripts/rust_parity_registry.json",
-     "label": [("README.md", r"\| Independent Rust cross-verifier[^|]*\|[^|]*\| ([^|]+) \|"),
+     "label": [("README.md", r"^\| Independent Rust cross-verifier[^|]*\|[^|]*\| ([^|]+) \|"),
                ("README.md", r"(The Rust cross verifier is [^.]*\.)")]},
     {"id": "inspect-hook", "name": "Inspect lifecycle hook (inspect_ai entry point)",
      "modules": ["proofbundle/inspect_hook.py", "proofbundle/_inspect_registry.py"],
      "entry_points": ["inspect_ai:proofbundle"],
-     "label": [("INTEGRATIONS.md", r"(## inspect_ai \(end-of-task hook\)[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(## inspect_ai \(end-of-task hook\)[^\n]*)")]},
     {"id": "pytest-plugin", "name": "pytest plugin (pytest11 entry point)",
      "modules": ["proofbundle/pytest_plugin.py"], "entry_points": ["pytest11:proofbundle"],
-     "label": [("INTEGRATIONS.md", r"(## pytest \(pytest11 plugin\)[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(## pytest \(pytest11 plugin\)[^\n]*)")]},
     {"id": "github-action", "name": "GitHub Action (action/action.yml)",
      "repo_paths": ["action/action.yml"],
      "git_tag_from": r"uses: b7n0de/proofbundle/action@(\S+)",
-     "label": [("INTEGRATIONS.md", r"(A composite action is prepared[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(A composite action is prepared[^\n]*)")]},
     {"id": "slsa-provenance", "name": "SLSA build provenance over a receipt",
      "elsewhere": "actions/attest-build-provenance (GitHub), referenced in INTEGRATIONS.md; no code here",
      "provider": "actions/attest-build-provenance",
-     "label": [("INTEGRATIONS.md", r"(\*\*Optional, complementary\*\* [^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(Optional, complementary [^\n]*)")]},
     {"id": "promptfoo", "name": "promptfoo adapter (results.json)",
      "modules": ["proofbundle/adapters/promptfoo.py"],
-     "label": [("INTEGRATIONS.md", r"(## promptfoo[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(## promptfoo[^\n]*)")]},
     {"id": "lm-eval", "name": "lm-evaluation-harness adapter (results_*.json)",
      "modules": ["proofbundle/adapters/lm_eval.py"],
-     "label": [("INTEGRATIONS.md", r"(## lm-evaluation-harness[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(## lm-evaluation-harness[^\n]*)")]},
     {"id": "inspect-log", "name": "Inspect log adapter (read_eval_log)",
      "modules": ["proofbundle/adapters/inspect_ai.py"],
-     "label": [("INTEGRATIONS.md", r"(## inspect_ai \(end-of-task hook\)[^\n]*)")]},
+     "label": [("INTEGRATIONS.md", r"^(## inspect_ai \(end-of-task hook\)[^\n]*)")]},
     {"id": "eee", "name": "Every Eval Ever converter (from_eee_dataset)",
      "modules": ["proofbundle/adapters/eee.py", "proofbundle/eee_eval_schema.json"],
-     "label": [("CHANGELOG.md", r"(- \*\*Every Eval Ever converter\*\*[^\n]*)")]},
+     "label": [("CHANGELOG.md", r"^(Every Eval Ever converter[^\n]*)")]},
     {"id": "agt-receipt", "name": "AGT MCP tool-call receipt verifier (adapters.agt_receipt)",
      "modules": ["proofbundle/adapters/agt_receipt.py"],
-     "label": [("CHANGELOG.md", r"(\(`src/proofbundle/adapters/agt_receipt\.py`\)[^\n]*)")]},
+     "label": [("CHANGELOG.md", r"(\(src/proofbundle/adapters/agt_receipt\.py\)[^\n]*)")]},
     {"id": "scitt", "name": "SCITT receipts (scitt-ccf/v1 reader)",
      "modules": ["proofbundle/scitt_ccf.py"], "branch": "feat/640-scitt-anker",
      "label": [("CHANGELOG.md", r"(scitt-ccf/v1[^\n]*)"),
-               ("docs/adr/0009-scitt-anchor-cose-profile.md", r"(\*\*Status:\*\* [^\n]*)")]},
+               ("docs/adr/0009-scitt-anchor-cose-profile.md", r"^(Status: [^\n]*)")]},
 ]
 
 
@@ -140,7 +141,9 @@ def _src(module: str) -> str:
 # further spelling each time a hand reader stood in for a parser (Codex threads 4222126486, 4222126493, 4222126499
 # and 4222126509 on pull request 304, after the ones before them): the console subcommands are those of the parser
 # the console script builds when it runs; pyproject.toml is read by a TOML parser, entry_points.txt by
-# importlib.metadata, and the docs by a CommonMark parser. What such a reader refuses stops the measurement.
+# importlib.metadata, and the docs by a CommonMark parser with GitHub's tables and strikethrough, whose rendered text
+# every reader of the docs reads, never the Markdown it parsed (thread 4222919983). What such a reader refuses stops
+# the measurement.
 
 #: What the console script's function builds, stopped at its first parse: run in a fresh interpreter over a tree of
 #: the package, with that tree first on the import path. Prints the top-level subcommand names as JSON, or an error.
@@ -325,118 +328,130 @@ def _entry_points_in_pyproject(text: str) -> set:
 
 
 def _markdown():
-    """A CommonMark parser (markdown-it-py, which the dev extra brings in through inspect_ai and rich); without one
-    the docs are not measured."""
+    """A CommonMark parser (markdown-it-py, which the dev extra brings in through inspect_ai and rich), with the two
+    extensions of GitHub's renderer that change what a reader sees, tables and strikethrough; without one the docs are
+    not measured."""
     try:
         from markdown_it import MarkdownIt  # noqa: PLC0415
     except ModuleNotFoundError as exc:
         raise SystemExit("no CommonMark parser here (markdown-it-py); the docs are not measured") from exc
-    return MarkdownIt("commonmark")
+    return MarkdownIt("commonmark").enable(["table", "strikethrough"])
 
 
-#: The leaf blocks that render text: a paragraph or heading (their inline content), a code block, a fence, a rule.
-_SICHTBARE_BLOECKE = ("inline", "fence", "code_block", "hr")
-
-
-def _sichtbarer_text(ref: str, datei: str) -> str:
-    """The text of `datei` at `ref` as a reader of the rendered docs sees it, line for line: a line that renders into
-    no text is blanked, which is a link reference definition and an HTML block, a comment among them, and an HTML
-    comment inside a line is removed. Read by a CommonMark parser, so a reference definition is one exactly where
-    CommonMark takes it for one: before a paragraph, not after a line of it, where it is paragraph text (Codex threads
-    4221639836 and 4222126509 on pull request 304). Every reader of the docs reads through this."""
-    roh = _git_bytes(ref, datei)
-    if roh is None:
-        return ""
-    text = roh.decode("utf-8")
-    zeilen = text.splitlines(keepends=True)
-    sichtbar = [False] * len(zeilen)
-    elemente = {}
-    for block in _markdown().parse(text):
-        if block.type in _SICHTBARE_BLOECKE and block.map:
-            for i in range(*block.map):
-                sichtbar[i] = True
-            for kind in block.children or ():
-                if kind.type == "html_inline" and not kind.content.startswith("<!--"):
-                    elemente.setdefault(range(*block.map), set()).add(kind.content)
-    # An HTML element inside a line is marked: what its attributes hide is not decided here, so a label or a cited
-    # passage that holds one stops the measurement (`_ohne_element`).
-    for bereich, tags in elemente.items():
-        for i in bereich:
-            for tag in tags:
-                zeilen[i] = zeilen[i].replace(tag, _ELEMENT)
-    behalten = "".join(z if sichtbar[i] else ("\n" if z.endswith(("\n", "\r")) else "") for i, z in enumerate(zeilen))
-    return re.sub(r"<!--.*?-->", "", behalten, flags=re.S)
-
-
-#: Stands where an HTML element was in a line of the docs (`_sichtbarer_text`).
+#: Stands where the rendered text holds an HTML element, struck-through text or an image: what an element's attributes
+#: hide, what a struck word means and what an image shows are not decided here (`_ohne_element`).
 _ELEMENT = "\x00"
 
 
+def _inline_text(token) -> str:
+    """The text an inline token renders: entities and escapes decoded, emphasis and link marks gone, a code span's
+    content as written, a soft line break a space and a hard one a line break. An HTML comment renders nothing."""
+    teile = []
+    for kind in token.children or ():
+        if kind.type in ("text", "text_special", "code_inline"):
+            teile.append(kind.content)
+        elif kind.type == "softbreak":
+            teile.append(" ")
+        elif kind.type == "hardbreak":
+            teile.append("\n")
+        elif kind.type == "html_inline":
+            if not kind.content.startswith("<!--"):
+                teile.append(_ELEMENT)
+        elif kind.type in ("s_open", "s_close", "image"):
+            teile.append(_ELEMENT)
+    return "".join(teile)
+
+
+def _bloecke(ref: str, datei: str) -> list:
+    """The blocks of `datei` at `ref` as a reader of the rendered docs sees them, in order, each (kind, level, text):
+    a heading as its level in `#` and its text, a paragraph as its text, a table row as its cells between `|`, a code
+    block as its content, and an HTML block as a block with no text that is read. A link reference definition and a
+    block of HTML comments render nothing and are no block. Every reader of the docs reads through this, so a pattern
+    is matched against what renders and never against the Markdown that renders it (Codex thread 4222919983 on pull
+    request 304: `## **promptfoo**` lost its label and `exper&#105;mental` its status, after threads 4221639836 and
+    4222126509 on what renders at all)."""
+    roh = _git_bytes(ref, datei)
+    if roh is None:
+        return []
+    tokens = _markdown().parse(roh.decode("utf-8"))
+    bloecke = []
+    for i, tok in enumerate(tokens):
+        if tok.type == "inline" and i and tokens[i - 1].type in ("heading_open", "paragraph_open"):
+            offen = tokens[i - 1]
+            kopf = "#" * int(offen.tag[1:]) + " " if offen.type == "heading_open" else ""
+            bloecke.append(("heading" if kopf else "paragraph", offen.level, kopf + _inline_text(tok)))
+        elif tok.type in ("fence", "code_block"):
+            bloecke.append(("code", tok.level, tok.content))
+        elif tok.type == "tr_open":
+            zellen, j = [], i + 1
+            while tokens[j].type != "tr_close":
+                if tokens[j].type == "inline":
+                    zellen.append(_inline_text(tokens[j]).replace("|", "\\|"))
+                j += 1
+            bloecke.append(("row", tok.level, "| " + " | ".join(zellen) + " |"))
+        elif tok.type == "html_block" and not re.fullmatch(r"\s*(?:<!--.*?-->\s*)+", tok.content, re.S):
+            bloecke.append(("html", tok.level, ""))
+    return bloecke
+
+
 def _ohne_element(text, datei: str, ref: str):
-    """`text`, unless it holds an HTML element of the docs, which stops the measurement."""
+    """`text`, unless it holds an HTML element, struck-through text or an image of the docs, which stops the
+    measurement."""
     if text is not None and _ELEMENT in text:
-        raise SystemExit(f"the text cited in {datei} at {ref[:12]} holds an HTML element, and what its attributes hide "
-                         "is not decided here; the docs are not measured")
+        raise SystemExit(f"the text cited in {datei} at {ref[:12]} holds an HTML element, struck-through text or an "
+                         "image, and what it hides or means is not decided here; the docs are not measured")
     return text
+
+
+def _treffer(ref: str, paare: list):
+    """(match, block index, blocks, file) of the first (file, pattern) whose pattern matches the rendered text of a
+    block at `ref`, the blocks in the order they render, else four None."""
+    for datei, muster in paare:
+        bloecke = _bloecke(ref, datei)
+        for i, (_art, _ebene, text) in enumerate(bloecke):
+            treffer = re.search(muster, text)
+            if treffer:
+                return treffer, i, bloecke, datei
+    return None, None, None, None
 
 
 def _label_at(ref: str, paare: list):
     """(label text, file) of the first (file, pattern) that matches at `ref`, else (None, None)."""
-    for datei, muster in paare:
-        treffer = re.search(muster, _sichtbarer_text(ref, datei))
-        if treffer:
-            return _ohne_element(" ".join(treffer.group(1).split()), datei, ref), datei
-    return None, None
-
-
-def _passage(text: str, stelle: int) -> str:
-    """The passage around position `stelle`: the block that holds it, a paragraph or a heading, and the code blocks
-    that follow it directly at its level, up to the next block of another kind. That is the text a label cites, its
-    example included. The blocks are the CommonMark parser's, so a fence of tildes or of more backticks, an indented
-    block and a fence that closes later than a line of three backticks are what they render as."""
-    zeile = text.count("\n", 0, stelle)
-    zeilen = text.splitlines(keepends=True)
-    bloecke = [b for b in _markdown().parse(text) if b.map and b.nesting >= 0 and b.type != "inline"]
-    for i, block in enumerate(bloecke):
-        if not block.map[0] <= zeile < block.map[1] or block.type.endswith("_close"):
-            continue
-        # the innermost block that holds the line: no later block of a deeper level holds it too
-        if any(b.level > block.level and b.map[0] <= zeile < b.map[1] for b in bloecke[i + 1:]):
-            continue
-        anfang, ende = block.map
-        for folgend in bloecke[i + 1:]:
-            if folgend.map[0] < ende:
-                continue
-            if folgend.level != block.level or folgend.type not in ("fence", "code_block"):
-                break
-            ende = folgend.map[1]
-        return "".join(zeilen[anfang:ende])
-    return ""
+    treffer, _i, _bloecke_dort, datei = _treffer(ref, paare)
+    if treffer is None:
+        return None, None
+    return _ohne_element(" ".join(treffer.group(1).split()), datei, ref), datei
 
 
 def _cited_passage(ref: str, paare: list):
-    """(passage, file) the first (file, pattern) of a label cites at `ref`, the match's passage, else (None, None).
+    """(passage, file): the blocks the first (file, pattern) of a label cites at `ref`, else (None, None). The passage
+    is the block that holds the match and the code blocks that follow it directly at its level, up to the next block
+    of another kind; that is the text a label cites, its example included.
 
     Codex thread 4218719393 on pull request 304: the provider was searched in the whole file, so a docs page that
     dropped it from the cited example and named it in an unrelated paragraph kept the cell. The tag the docs pin is
     the same class and is read here too."""
-    for datei, muster in paare:
-        text = _sichtbarer_text(ref, datei)
-        treffer = re.search(muster, text)
-        if treffer:
-            return _ohne_element(_passage(text, treffer.start()), datei, ref), datei
-    return None, None
+    treffer, i, bloecke, datei = _treffer(ref, paare)
+    if treffer is None:
+        return None, None
+    passage = [bloecke[i]]
+    for folgend in bloecke[i + 1:]:
+        if folgend[0] != "code" or folgend[1] != bloecke[i][1]:
+            break
+        passage.append(folgend)
+    _ohne_element("\n".join(text for _art, _ebene, text in passage), datei, ref)
+    return passage, datei
 
 
 def _documented_tag(ref: str, cap: dict):
     """The one tag the passage the row's label cites at `ref` pins with `uses:`, or a SystemExit when it pins none
     or more than one, or when there is no such passage."""
     passage, datei = _cited_passage(ref, cap["label"])
-    if passage is not None:
-        # A commented-out line, in the example or as an HTML comment, is no instruction (Codex thread 4221179850).
-        passage = "\n".join(z for z in re.sub(r"<!--.*?-->", "", passage, flags=re.S).splitlines()
-                             if not z.lstrip().startswith("#"))
-    tags = sorted(set(re.findall(cap["git_tag_from"], passage))) if passage is not None else []
+    # A commented-out line of an example is no instruction (Codex thread 4221179850); an HTML comment renders nothing
+    # and is not in the passage.
+    zeilen = [z for art, _ebene, text in passage or () for z in text.splitlines()
+              if not (art == "code" and z.lstrip().startswith("#"))]
+    tags = sorted(set(re.findall(cap["git_tag_from"], "\n".join(zeilen)))) if passage is not None else []
     if len(tags) != 1:
         raise SystemExit(f"{cap['id']}: the passage its label cites in {datei or 'no file'} at {ref[:12]} pins "
                          f"{tags or 'no tag'} with `uses:`; the channel is not measured")
@@ -487,9 +502,10 @@ def _names_provider(ref: str, cap: dict) -> bool:
     together with a negation stops the measurement, as the reading cannot tell a provider from a warning against it
     (Codex thread 4221179864: "Do not use actions/attest-build-provenance" counted as naming it)."""
     passage, _datei = _cited_passage(ref, cap["label"])
-    if passage is None or cap["provider"] not in passage:
+    text = "\n".join(t for _art, _ebene, t in passage or ())
+    if passage is None or cap["provider"] not in text:
         return False
-    for satz in re.split(r"(?<=[.;!?])\s+|\n", passage):
+    for satz in re.split(r"(?<=[.;!?])\s+|\n", text):
         if cap["provider"] in satz and _VERNEINT_ANBIETER.search(satz):
             raise SystemExit(f"{cap['id']}: the passage its label cites at {ref[:12]} names {cap['provider']} in a "
                              "negated sentence; from elsewhere is not measured")
@@ -797,11 +813,12 @@ def build_main_wheel(main: str, ziel: Path, python: str) -> Path:
 
 
 def _kurz(label):
-    """A label as it reads, without the Markdown around it."""
+    """A label as a cell of the Markdown table writes it: its text is the rendered text already (`_bloecke`), so the
+    marks of a heading's level go, and every character that would start Markdown inside the cell is escaped, so the
+    cell renders the label and nothing else. A pipe is escaped by `_md`."""
     if not label:
         return label
-    ohne_links = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", label)   # a relative link would not resolve here
-    return re.sub(r"^[#*\-\s]+", "", ohne_links.replace("**", "")).strip()
+    return re.sub(r"([\\`*_\[\]<&~])", r"\\\1", re.sub(r"^#+ ", "", label))
 
 
 def _registry_text(zahlen) -> str:

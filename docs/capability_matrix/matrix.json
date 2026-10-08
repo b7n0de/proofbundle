@@ -1,9 +1,9 @@
 {
  "format": "capability-matrix/1",
- "measured_at": "2026-09-27T22:20:02Z",
+ "measured_at": "2026-10-08T20:50:38Z",
  "tag": "v6.1.0",
  "tag_commit": "dcac5aeec92e850443cf34d9c07ab5cd277fabe1",
- "main_ref": "origin/main",
+ "main_ref": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a",
  "main_commit": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a",
  "statuses": [
   "published",
@@ -127,6 +127,11 @@
    "inspect_ai:proofbundle",
    "pytest11:proofbundle"
   ],
+  "wheel_against_tag": {
+   "identical": 78,
+   "different": [],
+   "absent_at_tag": []
+  },
   "wheel_subcommands": [
    "anchor",
    "audit-challenge",
@@ -148,11 +153,6 @@
    "verify-opening",
    "verify-proof"
   ],
-  "wheel_against_tag": {
-   "identical": 78,
-   "different": [],
-   "absent_at_tag": []
-  },
   "sdist_file_count": 1150,
   "sdist_file_list_sha256": "56d802719681e412544c2230b9fabb483dec6f3543537a9d68db1581a03a5206"
  },
@@ -299,7 +299,7 @@
     "version": "6.1.0",
     "tag": "v6.1.0",
     "status": "published",
-    "label": "## Hugging Face Community Evals (`.eval_results/*.yaml`, v1.4)",
+    "label": "## Hugging Face Community Evals (.eval_results/*.yaml, v1.4)",
     "label_source": "INTEGRATIONS.md",
     "measured": {
      "modules_in_wheel": {
@@ -321,7 +321,7 @@
    },
    "main": {
     "status": "published",
-    "label": "## Hugging Face Community Evals (`.eval_results/*.yaml`, v1.4)",
+    "label": "## Hugging Face Community Evals (.eval_results/*.yaml, v1.4)",
     "label_source": "INTEGRATIONS.md",
     "measured": {
      "modules_at_main": {
@@ -359,7 +359,7 @@
     "version": "6.1.0",
     "tag": "v6.1.0",
     "status": "experimental",
-    "label": "**the `[experimental]` extra** — the TEE-attestation bridge, see",
+    "label": "the [experimental] extra — the TEE-attestation bridge, see docs/EXPERIMENTAL_ENCLAVE.md",
     "label_source": "COMPATIBILITY.md",
     "measured": {
      "modules_in_wheel": {
@@ -381,7 +381,7 @@
    },
    "main": {
     "status": "experimental",
-    "label": "**the `[experimental]` extra** — the TEE-attestation bridge, see",
+    "label": "the [experimental] extra — the TEE-attestation bridge, see docs/EXPERIMENTAL_ENCLAVE.md",
     "label_source": "COMPATIBILITY.md",
     "measured": {
      "modules_at_main": {
@@ -606,7 +606,7 @@
     "version": "6.1.0",
     "tag": "v6.1.0",
     "status": "published",
-    "label": "A composite action is prepared under [`action/action.yml`](action/action.yml) (SHA-pinned). Usage:",
+    "label": "A composite action is prepared under action/action.yml (SHA-pinned). Usage:",
     "label_source": "INTEGRATIONS.md",
     "measured": {
      "modules_in_wheel": {},
@@ -626,7 +626,7 @@
    },
    "main": {
     "status": "published",
-    "label": "A composite action is prepared under [`action/action.yml`](action/action.yml) (SHA-pinned). Usage:",
+    "label": "A composite action is prepared under action/action.yml (SHA-pinned). Usage:",
     "label_source": "INTEGRATIONS.md",
     "measured": {
      "modules_at_main": {},
@@ -659,7 +659,7 @@
     "version": "6.1.0",
     "tag": "v6.1.0",
     "status": "from elsewhere",
-    "label": "**Optional, complementary** — a GitHub-anchored SLSA provenance *over* the receipt (the receipt attests the",
+    "label": "Optional, complementary — a GitHub-anchored SLSA provenance over the receipt (the receipt attests the run, attest-build-provenance attests the build). Add to the caller job:",
     "label_source": "INTEGRATIONS.md",
     "measured": {
      "modules_in_wheel": {},
@@ -674,7 +674,7 @@
    },
    "main": {
     "status": "from elsewhere",
-    "label": "**Optional, complementary** — a GitHub-anchored SLSA provenance *over* the receipt (the receipt attests the",
+    "label": "Optional, complementary — a GitHub-anchored SLSA provenance over the receipt (the receipt attests the run, attest-build-provenance attests the build). Add to the caller job:",
     "label_source": "INTEGRATIONS.md",
     "measured": {
      "modules_at_main": {},
@@ -864,7 +864,7 @@
     "version": "6.1.0",
     "tag": "v6.1.0",
     "status": "published",
-    "label": "- **Every Eval Ever converter** (`proofbundle.adapters.from_eee_dataset`): reads an EEE v0.2.2 aggregate",
+    "label": "Every Eval Ever converter (proofbundle.adapters.from_eee_dataset): reads an EEE v0.2.2 aggregate JSON into a signed receipt, validated against the vendored EEE schema, with NO runtime import of every_eval_ever (it needs Python 3.12; proofbundle stays 3.9+). The EEE evaluation_id (which embeds the model id) is deliberately NOT copied into provenance — the receipt keeps the model a salted commitment.",
     "label_source": "CHANGELOG.md",
     "measured": {
      "modules_in_wheel": {
@@ -884,7 +884,7 @@
    },
    "main": {
     "status": "published",
-    "label": "- **Every Eval Ever converter** (`proofbundle.adapters.from_eee_dataset`): reads an EEE v0.2.2 aggregate",
+    "label": "Every Eval Ever converter (proofbundle.adapters.from_eee_dataset): reads an EEE v0.2.2 aggregate JSON into a signed receipt, validated against the vendored EEE schema, with NO runtime import of every_eval_ever (it needs Python 3.12; proofbundle stays 3.9+). The EEE evaluation_id (which embeds the model id) is deliberately NOT copied into provenance — the receipt keeps the model a salted commitment.",
     "label_source": "CHANGELOG.md",
     "measured": {
      "modules_at_main": {
@@ -937,7 +937,7 @@
    },
    "main": {
     "status": "main only",
-    "label": "(`src/proofbundle/adapters/agt_receipt.py`). Verifies an AGT MCP tool-call receipt without AGT",
+    "label": "(src/proofbundle/adapters/agt_receipt.py). Verifies an AGT MCP tool-call receipt without AGT installed and without network access: Ed25519 over the canonical payload, the optional external-authorizer signature, the parent_receipt_hash chain link, and the house exit-code contract (0 verified, 1 crypto or structural failure, 2 malformed input, 3 relying-party requirement unmet). No AGT code is copied; the wire format was read from the published tree at commit a917ad4ac04aff11a5e9e21f6a26b91642b750cd and re-derived. AGT is MIT, Copyright (c) Microsoft Corporation.",
     "label_source": "CHANGELOG.md",
     "measured": {
      "modules_at_main": {
@@ -990,7 +990,7 @@
    },
    "main": {
     "status": "planned",
-    "label": "**Status:** proposed. Fixes the profile, the four values, the trust interface, the error states",
+    "label": "Status: proposed. Fixes the profile, the four values, the trust interface, the error states and the test classes for the 6.4.0 anchor type scitt-ccf/v1. The owner answered Q1 to Q8 and N1 to N7, S1 and S2 on 2026-09-25 and 2026-09-26 (section \"Owner answers\"); the reader, the statement signature and the receipt verification are built under src/ as proofbundle.scitt_ccf behind the [scitt] extra (work packages AP2 to AP4). It is not registered as an anchor type and no verify path reaches it; that is AP5, after 6.3.0. No question is left open.",
     "label_source": "docs/adr/0009-scitt-anchor-cose-profile.md",
     "measured": {
      "modules_at_main": {
@@ -1017,10 +1017,10 @@
    "pip_install_exit": 0,
    "installed": [
     "cffi==2.1.1",
-    "cryptography==50.0.1",
+    "cryptography==50.0.2",
     "pip==24.0",
     "proofbundle==6.1.0",
-    "pycparser==3.0",
+    "pycparser==3.1",
     "rfc8785==0.1.4",
     "setuptools==79.0.1"
    ],
@@ -1092,16 +1092,16 @@
   },
   "main_wheel": {
    "wheel": "proofbundle-6.1.0-py3-none-any.whl",
-   "wheel_sha256": "775c0a2104f781df23324043edd469c67504dea157f3b7637d26268b1e76b9c0",
+   "wheel_sha256": "646cebea69c5b751f3702112b840d5547a9290b6eb2892e708ccc8c3b3e7fba4",
    "python": "3.11.15",
    "extra": "eval",
    "pip_install_exit": 0,
    "installed": [
     "cffi==2.1.1",
-    "cryptography==50.0.1",
+    "cryptography==50.0.2",
     "pip==24.0",
     "proofbundle==6.1.0",
-    "pycparser==3.0",
+    "pycparser==3.1",
     "rfc8785==0.1.4",
     "setuptools==79.0.1"
    ],
@@ -1175,32 +1175,5 @@
     "proofbundle/adapters/agt_receipt.py"
    ]
   }
- },
- "relabelled": [
-  {
-   "row": "scitt",
-   "cell": "main",
-   "branch_head": "531e256423b317839f8927dae8b4fb9ab45f9e48",
-   "by": "tools/capability_matrix/measure.py (_label_at at the branch head, status)",
-   "why": "Codex thread 4217201386 on pull request 304: a planned cell needs the project's label, read at the branch head; the CHANGELOG pattern finds none there, ADR 0009 does",
-   "utc": "2026-10-08T10:17:51Z"
-  }
- ],
- "rederived": [
-  {
-   "rows": [
-    "github-action",
-    "slsa-provenance",
-    "agt-receipt",
-    "scitt"
-   ],
-   "at": {
-    "tag": "v6.1.0",
-    "main": "0ace3039d19e5985b1f19149d0a19ecfb2be0d2a"
-   },
-   "by": "tools/capability_matrix/measure.py (_documented_tag, _names_provider, the channel rule)",
-   "why": "Codex threads 4217983161, 4217983172 and 4217983178 on pull request 304: the provider and the action tag are read from the docs at both refs, and the channel names only what was inspected",
-   "utc": "2026-10-08T10:57:18Z"
-  }
- ]
+ }
 }
