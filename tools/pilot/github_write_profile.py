@@ -18,16 +18,21 @@ Where each aspect lives (docs/pilot/pilot_profile.md has the full table):
   policy digest   policyBoundary.policyDigest (required in strict mode)
   action id,      decisionId = "<action id>#<attempt>"; the attempt nonce is validity.nonce of both
   attempt         receipts
+  kind            decisionType = preActionAuthorization and proposedAction.method = write; any other kind or
+                  method is no approved write
   freshness       validity.expiresAt of the decision; the effect's performedAt (GitHub's time) must lie in
-                  [decidedAt, expiresAt]
+                  [decidedAt, expiresAt], each read as an instant (fractions of a second included), and the
+                  decision is verified at its own decidedAt, not at the reader's clock
   outcome scope   actualActionDigest = SHA-256 of the RFC 8785 form of the observed scope descriptor
-                  {surface, target, objectId}, which travels beside the outcome and must match it
+                  {surface, target, objectId}, exactly these three keys, each a non-empty string; it travels
+                  beside the outcome and must match it
   version signal  policyBoundary.policyEngine = PROFILE_ENGINE and bundleRevision = PROFILE_REVISION; a
                   receipt without them is not read under this profile
 
 The answer is one of three: `accepted` (approved, arrived with the approved bytes, on the approved
 surface and target, in time), `not accepted` (a check failed, or the gate refused), `unknown`
-(something the answer needs is missing). Missing and unknown never become `accepted`.
+(something the answer needs is missing). Missing and unknown never become `accepted`, and a check that is
+known to fail is never hidden behind something missing: `not accepted` wins over `unknown`.
 """
 from __future__ import annotations
 
@@ -36,6 +41,8 @@ import hashlib
 import json
 import re
 import sys
+from datetime import datetime, timezone
+from fractions import Fraction
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -51,6 +58,38 @@ SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pu
             "github.merge")
 ACCEPTED, NOT_ACCEPTED, UNKNOWN = "accepted", "not accepted", "unknown"
 _DECISION_ID = re.compile(r"^(?P<action>[A-Za-z0-9:._-]+)#(?P<attempt>[1-9][0-9]*)$")
+#: An RFC 3339 instant in UTC as the receipts write it, ASCII digits only, fraction optional.
+_INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z\Z", re.ASCII)
+DECISION_TYPE, METHOD = "preActionAuthorization", "write"
+SCOPE_KEYS = ("surface", "target", "objectId")
+
+
+def instant(text) -> "tuple[int, Fraction] | None":
+    """The instant `text` names, as (POSIX seconds, fraction of a second), or None for anything else.
+
+    Codex thread 4121766408 on pull request 303: the window compared the strings, and "." sorts before "Z", so
+    an effect at 00:45:00.9Z read as before an expiry at 00:45:00Z. Instants are compared as numbers now, the
+    fraction exactly."""
+    m = _INSTANT.match(text) if isinstance(text, str) else None
+    if m is None:
+        return None
+    try:
+        sekunden = int(datetime(*(int(m.group(i)) for i in range(1, 7)), tzinfo=timezone.utc).timestamp())
+    except (ValueError, OverflowError):
+        return None
+    bruch = m.group(7) or "0"
+    return sekunden, Fraction(int(bruch), 10 ** len(bruch))
+
+
+def scope_problem(descriptor) -> str:
+    """'' for a scope descriptor of exactly {surface, target, objectId}, each a non-empty string, else what is
+    wrong (Codex thread 4121766415 on pull request 303: a descriptor without objectId was accepted)."""
+    if not isinstance(descriptor, dict):
+        return f"the observed scope is not an object ({type(descriptor).__name__})"
+    if sorted(descriptor) != sorted(SCOPE_KEYS):
+        return f"the observed scope has the keys {sorted(descriptor)}, not exactly {sorted(SCOPE_KEYS)}"
+    leer = [k for k in SCOPE_KEYS if not (isinstance(descriptor[k], str) and descriptor[k])]
+    return f"the observed scope's {', '.join(leer)} is not a non-empty string" if leer else ""
 
 
 def sha256_hex(data: bytes) -> str:
@@ -80,15 +119,16 @@ def _statement(envelope: dict) -> dict:
 def decision_predicate(*, action_id: str, attempt: int, decided_at: str, expires_at: str | None, surface: str,
                        target: str, approved: bytes, verdict: str, reasons: list, gate_id: str, agent_id: str,
                        principal_id: str, policy_digest: str, nonce: str, audience: str,
-                       engine: str = PROFILE_ENGINE, revision: str = PROFILE_REVISION) -> dict:
+                       engine: str = PROFILE_ENGINE, revision: str = PROFILE_REVISION,
+                       decision_type: str = DECISION_TYPE, method: str = METHOD) -> dict:
     validity = {"audience": [audience], "nonce": nonce}
     if expires_at is not None:
         validity["expiresAt"] = expires_at
     return {
-        "schemaVersion": "0.1.0", "decisionId": f"{action_id}#{attempt}", "decisionType": "preActionAuthorization",
+        "schemaVersion": "0.1.0", "decisionId": f"{action_id}#{attempt}", "decisionType": decision_type,
         "decidedAt": decided_at, "decisionMaker": {"id": gate_id}, "agent": {"id": agent_id},
         "principal": {"id": principal_id},
-        "proposedAction": {"actionType": surface, "target": {"name": target, "uri": target}, "method": "write",
+        "proposedAction": {"actionType": surface, "target": {"name": target, "uri": target}, "method": method,
                            "parametersDigest": {"sha256": sha256_hex(approved)}},
         "inputSnapshot": [{"name": "approved bytes", "digest": {"sha256": sha256_hex(approved)},
                            "mediaType": "text/markdown"}],
@@ -143,7 +183,9 @@ def reconcile(decision_env: dict, outcome_env: dict | None, observed_scope: dict
     try:
         return _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, observer_key,
                           observer_id, checks)
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+    # RecursionError and OverflowError too (Codex thread 4121766439 on pull request 303: a payload of 10,000 nested
+    # arrays raised RecursionError out of `_statement`).
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError, OverflowError) as exc:
         return _answer(UNKNOWN, [f"the input is not in the profile's shape ({type(exc).__name__})"], checks)
 
 
@@ -157,9 +199,15 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     if not checks["version_signal"]:
         return _answer(UNKNOWN, ["the decision carries no version signal of github-write/1; it is not read "
                                  "under this profile"], checks)
+    entschieden = instant(pred.get("decidedAt"))
+    checks["decided_at_readable"] = entschieden is not None
+    if entschieden is None:
+        return _answer(UNKNOWN, ["decidedAt is not an RFC 3339 instant in UTC"], checks)
+    # Verified at its own time: the profile judges the window against GitHub's performedAt below, so the
+    # reader's clock would turn every past approval into an expired one (main since 6.2.0 fails expiry closed).
     d = verify_decision_receipt(decision_env, gate_key, strict=True, expected_audience=observer_id,
                                 expected_nonce=(pred.get("validity") or {}).get("nonce"),
-                                require_derived_subject=True)
+                                require_derived_subject=True, now=entschieden[0])
     checks["decision_signed_by_gate_key"] = d["crypto_ok"]
     if not d["crypto_ok"]:
         return _answer(NOT_ACCEPTED, ["the decision is not signed by the pinned gate key"], checks)
@@ -169,6 +217,14 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["decision_maker_is_gate"] = pred["decisionMaker"]["id"] == gate_id
     if not checks["decision_maker_is_gate"]:
         return _answer(NOT_ACCEPTED, ["the decision names another decision maker than the pinned gate"], checks)
+    # The kind the profile fixes: an approval before a write. Codex thread 4121766394 on pull request 303: a
+    # post-hoc review or a read decision with the signal was read as an approved write.
+    checks["pre_action_write"] = (pred.get("decisionType"), pred["proposedAction"].get("method")) == (
+        DECISION_TYPE, METHOD)
+    if not checks["pre_action_write"]:
+        return _answer(NOT_ACCEPTED, [f"the decision is a {pred.get('decisionType')!r} of method "
+                                      f"{pred['proposedAction'].get('method')!r}, not an approval before a write"],
+                       checks)
     kennung = _DECISION_ID.match(pred["decisionId"])
     checks["action_id"] = kennung.group("action") if kennung else None
     checks["attempt"] = int(kennung.group("attempt")) if kennung else None
@@ -202,29 +258,54 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["requested_is_approved"] = opred["requestedActionDigest"]["sha256"] == approved
     if not checks["requested_is_approved"]:
         return _answer(NOT_ACCEPTED, ["the outcome names other requested bytes than the approved ones"], checks)
+    # Every check that can be made is made, and only then is a gap reported. Codex thread 4121766426 on pull
+    # request 303: stored bytes known to differ were reported as unknown when the scope was absent.
+    gruende, fehlt = [], []
     checks["execution_proven"] = o["execution_proven"]
     if o["execution_proven"] is not True or "effectDigest" not in opred:
-        return _answer(UNKNOWN, ["the outcome carries no digest of the stored bytes"], checks)
-    checks["bytes_identical"] = opred["effectDigest"]["sha256"] == approved
+        fehlt.append("the outcome carries no digest of the stored bytes")
+    else:
+        checks["bytes_identical"] = opred["effectDigest"]["sha256"] == approved
+        if not checks["bytes_identical"]:
+            gruende.append("the stored bytes are not the approved bytes")
     if observed_scope is None or "actualActionDigest" not in opred:
-        return _answer(UNKNOWN, ["no observed scope"], checks)
-    checks["scope_matches_signed_digest"] = scope_digest(observed_scope) == opred["actualActionDigest"]["sha256"]
-    if not checks["scope_matches_signed_digest"]:
-        return _answer(NOT_ACCEPTED, ["the observed scope descriptor is not the one the observer signed"], checks)
-    checks["surface_is_approved"] = observed_scope["surface"] == pred["proposedAction"]["actionType"]
-    checks["target_is_approved"] = observed_scope["target"] == pred["proposedAction"]["target"]["uri"]
-    if expires is None:
-        return _answer(UNKNOWN, ["the approval states no expiry"], checks)
-    checks["effect_after_approval"] = opred["performedAt"] >= pred["decidedAt"]
-    checks["effect_before_expiry"] = opred["performedAt"] <= expires
-    gruende = [text for ok, text in (
-        (checks["bytes_identical"], "the stored bytes are not the approved bytes"),
-        (checks["surface_is_approved"], "the effect arrived on another surface"),
-        (checks["target_is_approved"], "the effect arrived on another target"),
-        (checks["effect_after_approval"], "the effect precedes the approval"),
-        (checks["effect_before_expiry"], "the approval had expired when the effect happened")) if not ok]
+        fehlt.append("no observed scope")
+    else:
+        checks["scope_matches_signed_digest"] = scope_digest(observed_scope) == opred["actualActionDigest"]["sha256"]
+        problem = scope_problem(observed_scope)
+        checks["scope_is_the_profiles_descriptor"] = not problem
+        if not checks["scope_matches_signed_digest"]:
+            gruende.append("the observed scope descriptor is not the one the observer signed")
+        elif problem:
+            gruende.append(problem)
+        else:
+            checks["surface_is_approved"] = observed_scope["surface"] == pred["proposedAction"]["actionType"]
+            checks["target_is_approved"] = observed_scope["target"] == pred["proposedAction"]["target"]["uri"]
+            if not checks["surface_is_approved"]:
+                gruende.append("the effect arrived on another surface")
+            if not checks["target_is_approved"]:
+                gruende.append("the effect arrived on another target")
+    bewirkt = instant(opred.get("performedAt"))
+    if bewirkt is None:
+        fehlt.append("performedAt is not an RFC 3339 instant in UTC")
+    else:
+        checks["effect_after_approval"] = bewirkt >= entschieden
+        if not checks["effect_after_approval"]:
+            gruende.append("the effect precedes the approval")
+        if expires is None:
+            fehlt.append("the approval states no expiry")
+        else:
+            ablauf = instant(expires)
+            if ablauf is None:
+                fehlt.append("validity.expiresAt is not an RFC 3339 instant in UTC")
+            else:
+                checks["effect_before_expiry"] = bewirkt <= ablauf
+                if not checks["effect_before_expiry"]:
+                    gruende.append("the approval had expired when the effect happened")
     if gruende:
         return _answer(NOT_ACCEPTED, gruende, checks)
+    if fehlt:
+        return _answer(UNKNOWN, fehlt, checks)
     return _answer(ACCEPTED, [], checks)
 
 
@@ -318,6 +399,31 @@ def build_vectors() -> dict:
          why="the old format is not read under this profile")
     d_rev = decision(revision="2")
     fall("another revision of the profile", UNKNOWN, d_rev, *outcome(d_rev))
+    # Codex round of 2026-09-28 on pull request 303, one vector per finding:
+    d_spaeter = decision(decision_type="postHocReview")
+    fall("a post-hoc review, not an approval before the write", NOT_ACCEPTED, d_spaeter, *outcome(d_spaeter),
+         why="thread 4121766394: the kind of decision is fixed by the profile")
+    d_lesen = decision(method="read")
+    fall("an approved read, not a write", NOT_ACCEPTED, d_lesen, *outcome(d_lesen), why="thread 4121766394")
+    o_bruch, s_bruch = outcome(d0, performed_at="2026-09-27T00:45:00.9Z")
+    fall("expired approval, by a fraction of a second", NOT_ACCEPTED, d0, o_bruch, s_bruch,
+         "thread 4121766408: 00:45:00.9Z is after 00:45:00Z, though '.' sorts before 'Z'")
+    o_knapp, s_knapp = outcome(d0, performed_at="2026-09-27T00:40:00.9Z")
+    fall("approved and arrived a fraction of a second after the approval", ACCEPTED, d0, o_knapp, s_knapp,
+         "thread 4121766408, the lower bound: 00:40:00.9Z is after 00:40:00Z")
+    ohne_id = {"surface": "github.conversationComment", "target": _TARGET}
+    o_ohne_id, _ = outcome(d0, scope=ohne_id)
+    fall("scope descriptor without objectId, signed so", NOT_ACCEPTED, d0, o_ohne_id, ohne_id,
+         "thread 4121766415: the descriptor is exactly {surface, target, objectId}")
+    mit_mehr = dict(scope_descriptor("github.conversationComment", _TARGET, "issuecomment-5851339484"), extra="x")
+    o_mehr, _ = outcome(d0, scope=mit_mehr)
+    fall("scope descriptor with a key more, signed so", NOT_ACCEPTED, d0, o_mehr, mit_mehr, "thread 4121766415")
+    fall("stored bytes differ, and no scope observed", NOT_ACCEPTED, d0, o_bytes, None,
+         "thread 4121766426: a known failure is not hidden behind a missing record")
+    d_ohne_ablauf = decision(expires_at=None)
+    o_ohne_ablauf, s_ohne_ablauf = outcome(d_ohne_ablauf, stored=_TEXT + b"x")
+    fall("stored bytes differ, and no expiry stated", NOT_ACCEPTED, d_ohne_ablauf, o_ohne_ablauf, s_ohne_ablauf,
+         "thread 4121766426, the sibling at the expiry")
     manipuliert = dict(d0)
     roh = bytearray(decode_b64_either(d0["payload"]))
     roh[roh.index(b"ALLOW")] = ord("B")

@@ -40,14 +40,16 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 21)
+        self.assertEqual(len(ergebnisse), 29)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)
 
-    def test_exactly_one_vector_is_accepted(self) -> None:
+    def test_the_accepted_vectors_are_the_two_named(self) -> None:
+        """The positive case, and its twin a fraction of a second after the approval (Codex thread 4121766408)."""
         angenommen = [f["case"] for f in self.daten["cases"] if f["expected"] == self.g.ACCEPTED]
-        self.assertEqual(angenommen, ["approved and arrived as approved"])
+        self.assertEqual(angenommen, ["approved and arrived as approved",
+                                      "approved and arrived a fraction of a second after the approval"])
 
     def test_the_named_classes_never_read_as_accepted(self) -> None:
         klassen = ("wrong issuer", "wrong subject", "expired approval", "missing effect")
@@ -84,6 +86,25 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         antwort = self._reconcile(umschlag)
         self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
         self.assertFalse(antwort["checks"]["version_signal"])
+
+    def test_a_deeply_nested_payload_is_unknown_and_never_raises(self) -> None:
+        """Codex thread 4121766439: JSON of 10,000 nested arrays raised RecursionError out of `_statement`."""
+        tief = base64.b64encode(b"[" * 10000 + b"]" * 10000).decode()
+        for eingabe in ({"payload": tief, "payloadType": "x", "signatures": []},):
+            antwort = self._reconcile(eingabe)
+            self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
+            self.assertIn("RecursionError", antwort["reasons"][0])
+
+    def test_instants_are_compared_as_numbers(self) -> None:
+        """Codex thread 4121766408: '.' sorts before 'Z', so the strings ordered 00:45:00.9Z before 00:45:00Z."""
+        i = self.g.instant
+        self.assertLess(i("2026-09-27T00:45:00Z"), i("2026-09-27T00:45:00.9Z"))
+        self.assertLess(i("2026-09-27T00:45:00.09Z"), i("2026-09-27T00:45:00.1Z"))
+        self.assertEqual(i("2026-09-27T00:45:00.50Z"), i("2026-09-27T00:45:00.5Z"))
+        for falsch in ("2026-09-27T00:45:00", "2026-13-01T00:00:00Z", "2026-09-27T00:45:00+00:00",
+                       "\u0662\u0660\u0662\u0666-09-27T00:45:00Z", None, 5):
+            with self.subTest(value=repr(falsch)):
+                self.assertIsNone(i(falsch))
 
     def test_malformed_input_is_unknown_and_never_raises(self) -> None:
         kaputt = {"payload": base64.b64encode(b'{"predicate": {}}').decode(), "payloadType": "x", "signatures": []}

@@ -33,23 +33,29 @@ condition attached: an answer that needs a condition is not `accepted`.
 | issuer role | signed by the pinned gate key; `decisionMaker.id` is the gate's id | signed by the pinned observer key; `executor.id` is the account GitHub reports as author | both keys pinned by the relying party; the agent holds neither |
 | policy digest | `policyBoundary.policyDigest` (required in strict mode) | none | recorded, not interpreted |
 | action id, attempt | `decisionId` = `<action id>#<attempt>`; `validity.nonce` names the attempt | `validity.nonce` = the decision's nonce | an outcome answers one attempt |
-| freshness | `decidedAt`, `validity.expiresAt` | `performedAt` = the time GitHub states for the effect; `recordedAt` = the observer's reading | `decidedAt` ≤ `performedAt` ≤ `expiresAt` |
-| outcome scope | `proposedAction.actionType` = the surface, `proposedAction.target.uri` = the target | `actualActionDigest.sha256` = SHA-256 of the RFC 8785 form of `{surface, target, objectId}`, a descriptor that travels beside the outcome | the descriptor matches the signed digest, and its surface and target are the approved ones |
+| freshness | `decidedAt`, `validity.expiresAt` | `performedAt` = the time GitHub states for the effect; `recordedAt` = the observer's reading | `decidedAt` ≤ `performedAt` ≤ `expiresAt`, compared as instants with their fractions of a second; the decision itself is verified at its `decidedAt`, not at the reader's clock |
+| outcome scope | `proposedAction.actionType` = the surface, `proposedAction.target.uri` = the target | `actualActionDigest.sha256` = SHA-256 of the RFC 8785 form of `{surface, target, objectId}`, a descriptor that travels beside the outcome | the descriptor matches the signed digest, has exactly these three keys, each a non-empty string, and its surface and target are the approved ones |
+| kind | `decisionType` = `preActionAuthorization`, `proposedAction.method` = `write` | none | another kind or method is no approved write: `not accepted` |
 | version signal | `policyBoundary.policyEngine` = `proofbundle-pilot/github-write`, `policyBoundary.bundleRevision` = `1` | none of its own; it is read only through a decision that carries the signal | without the signal a receipt is not read under this profile: `unknown` |
 
 Surfaces the profile knows: `github.conversationComment`, `github.reviewThreadReply`,
 `github.pullRequestBody`, `git.push`, `github.merge`. Any other `actionType` is `unknown`.
 
+The other values the builder writes into the decision (`policyBoundary.policyId` and `decisionPath`, the
+`inputSnapshot`, `notChecked`, `decisionChangeConditions` and `privacy`) are recorded, not read: no rule of the
+profile depends on them. Every check that can be made is made before a gap is reported, so a check known to
+fail gives `not accepted` even where another record is missing.
+
 Two readings are stated rather than hidden. The outcome's signer is the observer, and `executor.id` names the
 account GitHub reports, which the profile treats as observed data, not as a trusted identity. And
 `performedAt` comes from GitHub's clock while `decidedAt` and `expiresAt` come from the gate's; the profile
-compares them as written, and a clock difference between the two is not corrected.
+compares them as the instants they name, and a clock difference between the two is not corrected.
 
 ## The vectors and what each shows
 
 | vector | answer | what it shows |
 |---|---|---|
-| approved and arrived as approved | accepted | the one positive case |
+| approved and arrived as approved | accepted | the positive case |
 | wrong issuer: decision signed by another key | not accepted | a valid signature is not enough; the key is pinned |
 | wrong issuer: another decision maker named | not accepted | the gate key signing for another maker's id |
 | wrong issuer: outcome signed by another key | not accepted | the observer key is pinned too |
@@ -69,6 +75,14 @@ compares them as written, and a clock difference between the two is not correcte
 | scope descriptor other than the signed one | not accepted | the descriptor beside the outcome is checked against its digest |
 | no version signal: a decision receipt of another use | unknown | the old format is not reinterpreted |
 | another revision of the profile | unknown | revision 2 is not read as revision 1 |
+| a post-hoc review, not an approval before the write | not accepted | the kind of decision is fixed |
+| an approved read, not a write | not accepted | the method is fixed |
+| expired approval, by a fraction of a second | not accepted | 00:45:00.9Z is after 00:45:00Z, though "." sorts before "Z" |
+| approved and arrived a fraction of a second after the approval | accepted | the lower bound read the same way |
+| scope descriptor without objectId, signed so | not accepted | the descriptor is exactly three keys |
+| scope descriptor with a key more, signed so | not accepted | the same rule from the other side |
+| stored bytes differ, and no scope observed | not accepted | a known failure is not hidden behind a missing record |
+| stored bytes differ, and no expiry stated | not accepted | the same at the expiry |
 | tampered decision payload | not accepted | one byte changed after signing |
 
 ## New fields: proposals only
