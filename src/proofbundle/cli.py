@@ -530,8 +530,12 @@ def _cmd_scitt_sign(args: argparse.Namespace) -> int:
         return 2
     from .scitt_ccf import decode_cose_sign1  # noqa: PLC0415
     written = decode_cose_sign1(data).protected
-    with open(args.out, "wb") as handle:
-        handle.write(data)
+    try:
+        with open(args.out, "wb") as handle:
+            handle.write(data)
+    except OSError as exc:   # an --out that cannot be written is unusable input: exit 2, not a traceback
+        _err(exc)
+        return 2
     print(f"wrote SCITT signed statement {args.out} ({len(data)} bytes, "
           f"{'ES256, protected x5chain' if x5chain is not None else 'EdDSA'})")
     if 4 in written:
@@ -540,8 +544,12 @@ def _cmd_scitt_sign(args: argparse.Namespace) -> int:
         from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
         pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
                                                serialization.PublicFormat.SubjectPublicKeyInfo)
-        with open(args.public_key_out, "wb") as handle:
-            handle.write(pem)
+        try:
+            with open(args.public_key_out, "wb") as handle:
+                handle.write(pem)
+        except OSError as exc:
+            _err(f"{exc}; the statement {args.out} was written, its public key was not")
+            return 2
         print(f"wrote the statement's public key {args.public_key_out}")
     return 0
 

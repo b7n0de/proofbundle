@@ -215,6 +215,25 @@ class TestTheSignCommand:
         assert rc == 1, err
         assert not (tmp_path / "s.cose").exists()
 
+    @pytest.mark.parametrize("where", ["--key", "--new-key", "--out", "--public-key-out"])
+    def test_a_path_that_cannot_be_read_or_written_is_refused_with_exit_2(self, tmp_path, where):
+        """Codex on PR 299 (head 60ad9595): a missing --key, and a --new-key, --out or --public-key-out in a
+        directory that does not exist, each left the command as a raw FileNotFoundError, which is exit 1,
+        the code of a receipt that does not verify. Unusable input is exit 2, with a one-line error."""
+        gone = tmp_path / "no-such-dir"
+        paths = {"--key": str(self._seed(tmp_path)), "--out": str(tmp_path / "s.cose"),
+                 "--public-key-out": str(tmp_path / "s.pub.pem")}
+        if where == "--new-key":
+            del paths["--key"]
+        paths[where] = str(gone / "x")
+        argv = ["scitt", "sign", str(BUNDLE), "--issuer", ISSUER, "--subject", SUBJECT]
+        for flag, value in paths.items():
+            argv += [flag, value]
+        rc, _o, err = _cli(argv)
+        assert rc == 2, err
+        assert err.startswith("ERROR: ") and "Traceback" not in err
+        assert not gone.exists()
+
     def test_an_empty_issuer_is_refused_with_exit_2(self, tmp_path):
         rc, _o, err = _cli(["scitt", "sign", str(BUNDLE), "--out", str(tmp_path / "s.cose"), "--issuer", "",
                             "--subject", SUBJECT, "--key", str(self._seed(tmp_path))])
