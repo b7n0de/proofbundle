@@ -28,9 +28,11 @@ PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 pytest     # or: PROOFBUNDLE_THRESH
 ```
 
 Installed via the `pytest11` entry-point; `pytest_terminal_summary` emits a receipt of the run (metric
-`pass_rate`, with the per-outcome counts and exit status in provenance) from `terminalreporter.stats`. The
-same variables apply, and `PROOFBUNDLE_THRESHOLD` is required here too: without it the plugin skips the
-receipt and prints why.
+`pass_rate`, with the per-outcome counts and exit status in provenance) from `terminalreporter.stats`.
+`PROOFBUNDLE_KEY`, `PROOFBUNDLE_OUT` and `PROOFBUNDLE_COMPARATOR` apply as above, and `PROOFBUNDLE_THRESHOLD` is
+required here too: without it the plugin skips the receipt and prints why. The metric is always `pass_rate`:
+`PROOFBUNDLE_METRIC` set to any other value skips the receipt and prints why, so no receipt names a metric the
+plugin did not compute.
 
 ## GitHub Action
 
