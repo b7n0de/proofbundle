@@ -91,6 +91,17 @@ class ThePilotContract(unittest.TestCase):
                       "observer key", klausel)
         self.assertIn("A receipt that does not verify", klausel)
 
+    def test_the_witness_of_a_surface_is_an_approved_action(self) -> None:
+        """Codex thread 4220257554: criterion 1 asked for an action per writable surface without its verdict, so a
+        refused action that arrived, with verifying receipts and M1 to M4 measured, could be the only witness of
+        every surface, and the pilot ended without having observed any approved action arrive."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        eins = kriterien[kriterien.index("1. "):kriterien.index("2. M5 and M6")]
+        self.assertIn("has at least one action the gate approved, whose decision and outcome receipts verify", eins)
+        self.assertIn("a refused action does not count here even when it arrived", eins)
+        self.assertIn("a refused action that arrived is a mismatch under M6", eins)
+
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
         self.assertIn("The agent never holds the gate's or the observer's key.", text)

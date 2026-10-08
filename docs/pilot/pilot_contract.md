@@ -89,9 +89,11 @@ says nothing about writes the API does not list.
 The pilot ends, with a written result, when all of these hold:
 
 1. every surface in scope that the repository's rules let an agent session write has at least one action
-   whose decision and outcome receipts verify offline with the operator's two public keys, and whose
-   reconciliation is recorded with M1, M2, M3 and M4 each measured: an action with `not measured` or
-   `unknown` in any of them does not count here, because it does not answer in which form it arrived; a
+   the gate approved, whose decision and outcome receipts verify offline with the operator's two public keys, and
+   whose reconciliation is recorded with M1, M2, M3 and M4 each measured: an action with `not measured` or
+   `unknown` in any of them does not count here, because it does not answer in which form it arrived, and a
+   refused action does not count here even when it arrived, because the named question asks which approved
+   action arrived, and a refused action that arrived is a mismatch under M6; a
    surface the rules forbid to agents (AGENTS.md forbids opening, marking ready,
    approving and merging a pull request) needs no approved action and is covered by M5 and M6, where any agent
    write found on it is a mismatch;
