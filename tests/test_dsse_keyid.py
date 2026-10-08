@@ -1,4 +1,4 @@
-"""Z239 F3: by default, every DSSE envelope this package signs names its key by the keyid foreign tools look up.
+"""Z239 F3: by default, a DSSE envelope this package signs names its key by the keyid foreign tools look up.
 
 The in-toto envelope layer says a keyid SHOULD be included for each signing key (in-toto/attestation
 v1.2.0, spec/v1/envelope.md). Measured on claude/intoto-external at 13d8faa (Z225, finding F3): the
@@ -15,8 +15,9 @@ Oracles:
   (tools/intoto_external/results/results.json, ``cross_checks.keyid``, at 13d8faa).
 - FOREIGN, live: the ``cryptography`` library's OpenSSH public-key encoding, hashed here.
 
-A keyid is an unauthenticated hint that selects no key: among well-formed envelopes no verdict of this
-package changes with its value, held below. It is JSON text like any other field, so a lone surrogate in
+A keyid is an unauthenticated hint. The single-key verifiers select no key by it, so among well-formed
+envelopes their verdict does not change with its value, held below; the trust pack selects each of its
+several keys by keyid, by design. It is JSON text like any other field, so a lone surrogate in
 it makes the envelope malformed, and that boundary is held below too.
 """
 from __future__ import annotations
@@ -108,16 +109,42 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
         all signed envelopes is false. The class is a universal claim that leaves out the public opt-out. Every such
         sentence in the changelog, the profile and this module's docstring says it is the default."""
         import re  # noqa: PLC0415
+        # Codex thread 4219685109: a signer that exposes no public key gets no keyid either, so no sentence claims
+        # every signed envelope at all, and the texts name both exceptions.
         satz = re.compile(r"every (?:dsse )?envelope (?:this|the) package signs", re.IGNORECASE)
-        gefunden = 0
-        for pfad in ("CHANGELOG.md", "docs/IN_TOTO_PROFILE.md", "tests/test_dsse_keyid.py"):
-            text = " ".join((REPO / pfad).read_text(encoding="utf-8").split())
-            for m in satz.finditer(text):
-                gefunden += 1
-                with self.subTest(file=pfad, at=m.start()):
-                    self.assertIn("by default", text[max(0, m.start() - 14):m.start()].lower(),
-                                  text[max(0, m.start() - 40):m.end() + 20])
-        self.assertGreaterEqual(gefunden, 3, "control: the walk finds the three sentences")
+        for pfad in ("CHANGELOG.md", "docs/IN_TOTO_PROFILE.md", "src/proofbundle/dsse.py", "tests/test_dsse_keyid.py"):
+            with self.subTest(file=pfad):
+                self.assertIsNone(satz.search(_prosa(pfad)), pfad)
+        for pfad, worte in (("CHANGELOG.md", "exposes no Ed25519 public key"),
+                            ("src/proofbundle/dsse.py", "exposes no Ed25519 public key"),
+                            ("docs/IN_TOTO_PROFILE.md", "when the signer exposes its Ed25519 public key")):
+            with self.subTest(names=pfad):
+                self.assertIn(worte, " ".join((REPO / pfad).read_text(encoding="utf-8").split()))
+
+    def test_a_sign_only_signer_gets_a_keyid_only_when_one_is_passed(self):
+        """The exception the texts name, measured: a signer with `sign` and no `public_key` writes no keyid by default
+        and the given one when passed."""
+        echt = _signer()
+
+        class NurSignieren:
+            def sign(self, data):
+                return echt.sign(data)
+        self.assertEqual(_keyids(dsse.sign_envelope(b"{}", NurSignieren(), payload_type="t")), [None])
+        self.assertEqual(_keyids(dsse.sign_envelope(b"{}", NurSignieren(), payload_type="t", keyid="mine")), ["mine"])
+
+    def test_no_text_claims_that_no_verdict_of_the_package_reads_the_keyid(self):
+        """Codex thread 4219685122: the trust pack selects each of its keys by keyid, so a claim that no verdict of
+        the package changes with the keyid is false; the texts name the single-key verifiers and the trust pack."""
+        import re  # noqa: PLC0415
+        for pfad in ("CHANGELOG.md", "docs/IN_TOTO_PROFILE.md", "src/proofbundle/dsse.py", "tests/test_dsse_keyid.py",
+                     "tests/test_never_raise_surface_family_property.py"):
+            text = _prosa(pfad)
+            with self.subTest(file=pfad):
+                self.assertIsNone(re.search(r"no verdict (?:of this package changes|reads it)", text), pfad)
+                self.assertNotIn("selects no key:", text)
+        for pfad in ("CHANGELOG.md", "docs/IN_TOTO_PROFILE.md", "src/proofbundle/dsse.py"):
+            with self.subTest(trust_pack=pfad):
+                self.assertRegex(" ".join((REPO / pfad).read_text(encoding="utf-8").split()), r"trust.?pack")
 
     def test_an_explicit_keyid_is_kept_and_an_empty_one_writes_none(self):
         env = dsse.sign_envelope(b"{}", _signer(), payload_type="t", keyid="mine")
@@ -154,6 +181,15 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
             for name in ("intoto.json", "svr.json"):
                 env = json.loads((d / name).read_text(encoding="utf-8"))
                 self.assertEqual(_keyids(env), [Z225_KEYID_GO_SECURESYSTEMSLIB], name)
+
+
+def _prosa(pfad: str) -> str:
+    """The prose of a file, whitespace folded: this test module contributes only its own docstring, since its cases
+    carry the searched sentences as literals."""
+    text = (REPO / pfad).read_text(encoding="utf-8")
+    if pfad.endswith("test_dsse_keyid.py"):
+        text = text.split('"""', 2)[1]
+    return " ".join(text.split())
 
 
 class TheVerdictIgnoresIt(unittest.TestCase):
@@ -269,8 +305,8 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
         self.assertTrue(ohne, "control: the archived receipts are found by this walk")
         self.assertEqual([p for p in ohne if not p.startswith(self._ARCHIV)], [])
         text = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
-        eintrag = text[text.index("names its signing key") - 80:text.index("cosign's image-digest match")]
-        self.assertIn("By default, every DSSE envelope this package signs names its signing key", eintrag)
+        eintrag = text[text.index("name their signing key by default") - 80:text.index("cosign's image-digest match")]
+        self.assertIn("DSSE envelopes name their signing key by default", eintrag)
         # Codex thread 4219199107: keyid="" is the public opt-out, so the headline is about the default path, and
         # the entry names the opt-out beside it.
         self.assertIn('`keyid=""` writes none', eintrag)

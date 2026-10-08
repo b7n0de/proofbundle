@@ -110,11 +110,12 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
 
 - **F3, the DSSE keyid (fixed).** The envelope layer says a `keyid` SHOULD be included for each
   signing key; the export wrote none, so securesystemslib raised `KeyError: 'keyid'` and GUAC could not
-  find a key. By default every envelope the package signs now carries the signer's OpenSSH SHA256 fingerprint
+  find a key. By default an envelope the package signs now carries the signer's OpenSSH SHA256 fingerprint
   (`dsse.openssh_sha256_keyid`), the form go-securesystemslib's `dsse.SHA256KeyID` derives and
-  sigstore's key providers compare. Pass `keyid=` to write another, or `keyid=""` to write none. The
-  keyid is not signed and selects no key: among well-formed envelopes no verdict of this package changes
-  with its value. A keyid that is not well-formed JSON text, a lone surrogate, makes the envelope
+  sigstore's key providers compare, when the signer exposes its Ed25519 public key. Pass `keyid=` to write
+  another, or `keyid=""` to write none. The keyid is not signed, and the single-key verifiers of the export
+  select no key by it, so among well-formed envelopes their verdict does not change with its value; the trust
+  pack selects each of its several keys by keyid, by design. A keyid that is not well-formed JSON text, a lone surrogate, makes the envelope
   malformed, as any other field would.
 - **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
   algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension

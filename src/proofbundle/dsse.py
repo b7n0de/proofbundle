@@ -100,8 +100,10 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
     The in-toto envelope layer says a keyid SHOULD be included for each signing key (in-toto/attestation
     v1.2.0, spec/v1/envelope.md), and securesystemslib and GUAC refuse an envelope without one (Z225, F3).
     So `keyid=None` writes the signer's OpenSSH SHA256 fingerprint (`openssh_sha256_keyid`), a given
-    string is written as it is, and `keyid=""` writes none. The keyid is not signed and selects no key:
-    among well-formed envelopes no verdict of this package changes with its value. It is part of the
+    string is written as it is, and `keyid=""` writes none; a signer that exposes no Ed25519 public key gets
+    none unless one is passed. The keyid is not signed. `verify_envelope` and the single-key verifiers built on
+    it select no key by it, so among well-formed envelopes their verdict does not change with its value;
+    `trust_pack.verify_trust_pack` selects each of its several keys by keyid, by design. It is part of the
     envelope's JSON all the same, so a keyid that is not well-formed text (a lone surrogate) makes the
     envelope malformed, as any other field would."""
     typ_text, body = _zeichen_von(payload_type), _puffer_von(body)

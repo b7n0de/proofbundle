@@ -395,7 +395,8 @@ _OUT_OF_SCOPE = frozenset({
     # 2026-09-27, Z239 F3, `proofbundle.dsse.openssh_sha256_keyid`: a producer's helper. It takes the
     #       signer's OWN public key, inside `sign_envelope`, and names it by the keyid foreign tools look
     #       up. It refuses a key that is not 32 bytes with a ValueError instead of writing a keyid for
-    #       a key that is none. No verifier calls it: the keyid is unsigned and no verdict reads it.
+    #       a key that is none. No verifier calls it: the keyid is unsigned, the single-key verifiers
+    #       select no key by it, and the trust pack reads the keyid it finds in the envelope, not this helper.
     "openssh_sha256_keyid",
 })
 
