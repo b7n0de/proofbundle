@@ -40,7 +40,7 @@ class TheVectors(unittest.TestCase):
 
     def test_every_vector_reads_as_its_expected_answer(self) -> None:
         ergebnisse = self.g.check_vectors(self.daten)
-        self.assertEqual(len(ergebnisse), 43)
+        self.assertEqual(len(ergebnisse), 54)
         for name, erwartet, bekommen, gruende in ergebnisse:
             with self.subTest(case=name):
                 self.assertEqual(bekommen, erwartet, gruende)
@@ -150,11 +150,12 @@ class TheVectors(unittest.TestCase):
 @unittest.skipUnless(_RFC8785, "the profile emits RFC 8785 canonical statements (the [eval] extra)")
 class EveryArgumentOfTheReusedVerifiersIsAProfileRule(unittest.TestCase):
     """Codex threads 4219676762 and 4220243730: an argument the profile passes to a reused verifier, beyond its
-    default, narrows what verifies, and twice the profile did not say so. Every keyword of both calls is mapped to the
+    default, narrows what verifies, and twice the profile did not say so. Every keyword of the calls is mapped to the
     words the profile states it with, in the column of its receipt; a keyword added later fails here until the profile
-    names it."""
+    names it. The decision's validator, called before the profile reads a field (thread 4222120435), is one of them."""
 
     _GESAGT = {
+        "validate_decision_predicate": {"strict": "verified in strict mode"},
         "verify_decision_receipt": {"strict": "verified in strict mode", "expected_audience": "`validity.audience`",
                                     "expected_nonce": "`validity.nonce`",
                                     "require_derived_subject": "`require_derived_subject`",
@@ -174,7 +175,7 @@ class EveryArgumentOfTheReusedVerifiersIsAProfileRule(unittest.TestCase):
         self.assertEqual(sorted(aufrufe), sorted(self._GESAGT), "control: both calls are found")
         zeilen = [z for z in (REPO / "docs/pilot/pilot_profile.md").read_text(encoding="utf-8").splitlines()
                   if z.startswith("| ") and not z.startswith("| aspect")]
-        spalte = {"verify_decision_receipt": 2, "verify_outcome_receipt": 3}
+        spalte = {"validate_decision_predicate": 2, "verify_decision_receipt": 2, "verify_outcome_receipt": 3}
         for name, liste in aufrufe.items():
             # A call with no keyword narrows nothing (the crypto-only check of thread 4220771559); every keyword of
             # every call is mapped, and the mapped ones are all passed somewhere.
@@ -187,6 +188,144 @@ class EveryArgumentOfTheReusedVerifiersIsAProfileRule(unittest.TestCase):
             for schluessel, worte in self._GESAGT[name].items():
                 with self.subTest(call=name, keyword=schluessel):
                     self.assertIn(worte, alles if schluessel == "now" else text)
+
+
+@unittest.skipUnless(_RFC8785, "the profile emits RFC 8785 canonical statements (the [eval] extra)")
+class EveryCheckThatCanBeMadeIsMade(unittest.TestCase):
+    """Codex thread 4222120426: a missing scope digest stopped the comparison of surface and target, so a scope known
+    to be on another surface read as unknown. The class is a missing datum that stops a check which does not need it.
+    Every gap the reader knows is crossed with every failure it knows. Where the failure does not need what the gap
+    removes, the answer is not accepted; where it does, unknown. Each gap alone is unknown, each failure alone not
+    accepted, and the positive case accepted."""
+
+    #: each gap, and the failures that need what it removes
+    LUECKEN = {
+        "no effect digest": {"bytes"},
+        "no scope digest": {"digest"},
+        "no observed scope": {"surface", "target", "digest", "shape"},
+        "no expiry": {"expired"},
+        "a surface the profile does not know": set(),
+        "a decisionId of another form": set(),
+        "an unreadable decidedAt": {"before"},
+        "no target uri": {"target"},
+        "the parameters by reference": {"bytes", "requested"},
+        "no outcome": {"status", "bytes", "digest", "expired", "before", "requested"},
+    }
+    FEHLER = ("status", "bytes", "requested", "surface", "target", "digest", "shape", "expired", "before")
+
+    def setUp(self) -> None:
+        self.g = _load()
+
+    def _antwort(self, luecke=None, fehler=None) -> dict:
+        g = self.g
+        gate, observer = g.test_key("gate"), g.test_key("observer")
+        flaeche = ("github.issueTitle" if luecke == "a surface the profile does not know"
+                   else "github.conversationComment")
+        args = dict(action_id="action-0001", attempt=1, decided_at="2026-09-27T00:40:00Z",
+                    expires_at="2026-09-27T00:45:00Z", surface=flaeche, target=g._TARGET, approved=g._TEXT,
+                    verdict="ALLOW", reasons=["rules.satisfied"], gate_id=g.GATE_ID, agent_id="agent:session-a",
+                    principal_id="operator", policy_digest=g.sha256_hex(b"rules"), audience=g.OBSERVER_ID)
+        if luecke == "a decisionId of another form":
+            args["action_id"] = "action 0001"
+        if luecke == "an unreadable decidedAt":
+            args["decided_at"] = "2026-09-27T00:40:60Z"   # a leap second: v0.1 takes it, the profile reads no instant
+        if luecke == "no expiry":
+            args["expires_at"] = None
+        args["nonce"] = f"{args['action_id']}#1"
+        praedikat = g.decision_predicate(**args)
+        if luecke == "no target uri":
+            praedikat["proposedAction"]["target"] = {"name": g._TARGET}
+        if luecke == "the parameters by reference":
+            del praedikat["proposedAction"]["parametersDigest"]
+            praedikat["proposedAction"]["parametersRef"] = {"uri": "https://example.invalid/approved-bytes"}
+        dec = g.sign_decision(praedikat, gate)
+        signiert = g.scope_descriptor("github.reviewThreadReply" if fehler == "surface" else flaeche,
+                                      "https://github.com/b7n0de/proofbundle/pull/278" if fehler == "target"
+                                      else g._TARGET, "issuecomment-1")
+        beobachtet = dict(signiert)
+        if fehler == "digest":
+            beobachtet["objectId"] = "issuecomment-2"
+        if fehler == "shape":
+            del beobachtet["objectId"]
+        ausgang = None
+        if luecke != "no outcome":
+            ausgang = g.sign_outcome(g.outcome_predicate(
+                outcome_id="observation-0001", decision_root=g.content_root(dec), executor_id="github:b7n0de",
+                approved=g._TEXT + b"x" if fehler == "requested" else g._TEXT,
+                performed_at={"expired": "2026-09-27T00:50:00Z", "before": "2026-09-27T00:39:00Z"}.get(
+                    fehler, "2026-09-27T00:40:09Z"),
+                recorded_at="2026-09-27T00:41:00Z",
+                stored=None if luecke == "no effect digest" else g._TEXT + (b"x" if fehler == "bytes" else b""),
+                scope=None if luecke == "no scope digest" else signiert, nonce=args["nonce"], audience=g.OBSERVER_ID,
+                status="failed" if fehler == "status" else "executed"), observer)
+        return g.reconcile(dec, ausgang, None if luecke == "no observed scope" else beobachtet,
+                           gate_key=g._pub(gate), gate_id=g.GATE_ID, observer_key=g._pub(observer),
+                           observer_id=g.OBSERVER_ID)
+
+    def test_the_controls(self) -> None:
+        self.assertEqual(self._antwort()["verdict"], self.g.ACCEPTED, "control: the positive case")
+        for luecke in self.LUECKEN:
+            with self.subTest(gap=luecke):
+                self.assertEqual(self._antwort(luecke=luecke)["verdict"], self.g.UNKNOWN)
+        for fehler in self.FEHLER:
+            with self.subTest(failure=fehler):
+                self.assertEqual(self._antwort(fehler=fehler)["verdict"], self.g.NOT_ACCEPTED)
+
+    def test_no_gap_stops_a_failure_that_does_not_need_what_it_removes(self) -> None:
+        for luecke, braucht in self.LUECKEN.items():
+            for fehler in self.FEHLER:
+                with self.subTest(gap=luecke, failure=fehler):
+                    antwort = self._antwort(luecke=luecke, fehler=fehler)
+                    erwartet = self.g.UNKNOWN if fehler in braucht else self.g.NOT_ACCEPTED
+                    self.assertEqual(antwort["verdict"], erwartet, antwort["reasons"])
+
+
+@unittest.skipUnless(_RFC8785, "the profile emits RFC 8785 canonical statements (the [eval] extra)")
+class NoFieldIsReadBeforeItsShapeIsKnown(unittest.TestCase):
+    """Codex thread 4222120435: a decisionMaker that is a list raised at the profile's own read, and the boundary made
+    that unknown, while decision-receipt/v0.1 refuses the decision. The class is a field read before its shape is
+    known. Every field the reader reads, at every depth, is given a value of each JSON kind and signed by the gate key
+    as it stands: no answer is the boundary's exception, and where the v0.1 validator refuses the shape the answer is
+    not accepted, or unknown where the shape removes the version signal."""
+
+    PFADE = (("decisionMaker",), ("decisionMaker", "id"), ("proposedAction",), ("proposedAction", "actionType"),
+             ("proposedAction", "method"), ("proposedAction", "target"), ("proposedAction", "target", "uri"),
+             ("proposedAction", "parametersDigest"), ("proposedAction", "parametersDigest", "sha256"),
+             ("decision",), ("decision", "verdict"), ("validity",), ("validity", "nonce"), ("validity", "audience"),
+             ("validity", "expiresAt"), ("decidedAt",), ("decisionId",), ("decisionType",), ("policyBoundary",),
+             ("policyBoundary", "bundleRevision"))
+    WERTE = (None, True, 0, 1.5, "", "x", [], ["x"], {}, {"x": 1})
+
+    def test_each_kind_at_each_read(self) -> None:
+        import copy
+        from proofbundle.decision import validate_decision_predicate
+        g = _load()
+        daten = json.loads(_VECTORS.read_text(encoding="utf-8"))
+        positiv = next(f for f in daten["cases"] if f["case"] == "approved and arrived as approved")
+        gate, observer = g.test_key("gate"), g.test_key("observer")
+        basis = g._statement(positiv["decision"])["predicate"]
+        aus = g._statement(positiv["outcome"])["predicate"]
+        geprueft = 0
+        for pfad in self.PFADE:
+            for wert in self.WERTE:
+                praedikat = copy.deepcopy(basis)
+                ziel = praedikat
+                for schluessel in pfad[:-1]:
+                    ziel = ziel[schluessel]
+                ziel[pfad[-1]] = wert
+                dec = g._gate_signed_as_is(praedikat, gate)
+                out = g.sign_outcome(dict(aus, decisionRef={"sha256": g.content_root(dec)}), observer)
+                antwort = g.reconcile(dec, out, positiv["observed_scope"], gate_key=g._pub(gate), gate_id=g.GATE_ID,
+                                      observer_key=g._pub(observer), observer_id=g.OBSERVER_ID)
+                geprueft += 1
+                with self.subTest(path=".".join(pfad), value=repr(wert)):
+                    self.assertFalse(any(r.startswith("the input is not in the profile's shape")
+                                         for r in antwort["reasons"]), antwort["reasons"])
+                    if not antwort["checks"].get("version_signal"):
+                        self.assertEqual(antwort["verdict"], g.UNKNOWN)
+                    elif validate_decision_predicate(praedikat, strict=True):
+                        self.assertEqual(antwort["verdict"], g.NOT_ACCEPTED, antwort["reasons"])
+        self.assertEqual(geprueft, len(self.PFADE) * len(self.WERTE), "control: every read and every kind ran")
 
 
 class TheOldFormatIsNotReinterpreted(unittest.TestCase):

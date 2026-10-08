@@ -50,12 +50,20 @@ profile depends on what they hold. Strict mode requires `notChecked`, `decisionC
 to be present, as the table states, so a decision without one of them is `not accepted`. The same holds for the outcome's `outcomeId`, `recordedAt` and `limitations`. Every check that can be made is made before a gap is reported, so a check known to
 fail gives `not accepted` even where another record is missing. The pinned gate key is checked first, before the
 version signal or `decidedAt` is read, so a decision another key signed is `not accepted`, never `unknown`, and a
-`validity.nonce` that is not the `decisionId` is `not accepted`. The decision maker, the kind, the gate's verdict and
-the nonce are checked before any gap of the decision is reported (an unreadable `decidedAt`, a `decisionId` of
-another form, a surface the profile does not know), so a refusal is `not accepted` wherever it stands. The audience is
-checked there too, and the strict verification runs before the gaps of the `decisionId` and the surface are reported;
-only an unreadable `decidedAt` stops before it, since the verification is made at the decision's own time. A supplied
-scope descriptor is judged by its shape even when the outcome signs no scope digest.
+`validity.nonce` that is not the `decisionId` is `not accepted`. Right after the version signal the decision's shape is
+checked as `decision-receipt/v0.1` requires it in strict mode, before the profile reads any field of it, so a
+`decisionMaker`, `proposedAction`, `decision` or `validity` of another kind is `not accepted`, never `unknown`. The
+decision maker, the kind, the gate's verdict, the nonce and the audience are checked before any gap of the decision is
+reported, so a refusal is `not accepted` wherever it stands. No gap ends the reading: the gaps of the decision (an
+unreadable `decidedAt`, a `decisionId` of another form, a surface the profile does not know, a target without
+`target.uri`, parameters named by a `parametersRef` instead of a `parametersDigest`) are collected, the strict
+verification runs, and the outcome and the scope are read in full before any of them is reported. Without a readable
+`decidedAt` the decision is verified at the earliest instant its verifier takes, before any `decidedAt` it could name,
+so each check of that verification is still made, and only the order of the approval and the effect is left open. A
+supplied scope descriptor is judged by its shape even when the outcome signs no scope digest or no outcome is given,
+and its surface and target are compared with the approved ones then too; a missing digest is a gap beside that
+comparison, never in its place. A descriptor whose digest is signed and differs is `not accepted` as it stands, and its
+surface and target are not read, since it is not the one the observer saw.
 
 Two readings are stated rather than hidden. The outcome's signer is the observer, and `executor.id` names the
 account GitHub reports, which the profile treats as observed data, not as a trusted identity. And
@@ -109,6 +117,17 @@ compares them as the instants they name, and a clock difference between the two 
 | addressed to another audience, on a surface the profile does not know | not accepted | the audience is checked before the unknown surface is reported |
 | a scope of another shape, and no signed scope digest | not accepted | a supplied scope is judged by its shape even without a signed digest |
 | no version signal under a broken signature | not accepted | the signature is checked before the version signal is read |
+| arrived on another surface, and no signed scope digest | not accepted | surface and target are compared even where the outcome signs no scope digest |
+| arrived on another target, and no signed scope digest | not accepted | the same at the target |
+| a decisionMaker that is no object, signed by the gate | not accepted | the shape `decision-receipt/v0.1` requires is checked before the profile reads a field |
+| a proposedAction that is no object, signed by the gate | not accepted | the same for `proposedAction` |
+| a decision that is no object, signed by the gate | not accepted | the same for `decision` |
+| a validity that is no object, signed by the gate | not accepted | the same for `validity` |
+| a decisionId of another form, and the observer signed status failed | not accepted | a gap of the decision does not stop the reading of the outcome |
+| a leap second as decidedAt, and the effect after the expiry | not accepted | the expiry needs no `decidedAt`, and the decision is still verified |
+| a leap second as decidedAt, and the effect in time | unknown | the control: the order of the approval and the effect cannot be read |
+| a target without uri | unknown | `decision-receipt/v0.1` lets the target carry no `uri`, and the profile reads the approved target there |
+| the parameters named by a reference instead of a digest | unknown | a `parametersRef` in place of the digest names no approved bytes the profile can compare |
 
 ## New fields: proposals only
 
