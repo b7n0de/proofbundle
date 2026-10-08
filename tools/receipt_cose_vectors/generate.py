@@ -226,17 +226,15 @@ def main() -> None:
         return sign1(raw, payload, key.sign(tbs(raw, payload if payload is not None else b"")), **kw)
 
     backward = []
-    s8 = signed(protected(k1=-8))   # alg -8, read and never written: B2, B10 and B36
+    s8 = signed(protected(k1=-8))   # alg -8, read and never written: B2 and B36
     p256_pub = ec.derive_private_key(int.from_bytes(hashlib.sha256(P256_SEED_LABEL.encode()).digest(), "big"),
                                      ec.SECP256R1()).public_key().public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
 
-    def bwd(vid, statement, rid, status, what, statement_keys=((ISSUER, "issuer"),), algs=None):
-        item = {"id": vid, "statement_hex": statement.hex(), "receipt": rid,
-                "statement_keys": [[iss, key] for iss, key in statement_keys], "expect_status": status, "what": what}
-        if algs is not None:
-            item["algs"] = list(algs)
-        backward.append(item)
+    def bwd(vid, statement, rid, status, what, statement_keys=((ISSUER, "issuer"),)):
+        backward.append({"id": vid, "statement_hex": statement.hex(), "receipt": rid,
+                         "statement_keys": [[iss, key] for iss, key in statement_keys], "expect_status": status,
+                         "what": what})
 
     bwd("B1", f1, "P1", "accepted", "F1 (alg -19) with the receipt it was made from")
     bwd("B2", s8, "P1", "accepted", "alg -8 under the Ed25519 issuer key, with the receipt it cites: read")
@@ -250,7 +248,9 @@ def main() -> None:
     bwd("B8", signed(protected(k15={1: ISSUER, 2: p1_b["dataset_id_commit"]})), "P1", "subject_mismatch",
         "sub names a commitment of the right form that is not the receipt's model commitment")
     bwd("B9", signed(protected(k1=-7)), "P1", "outside_profile", "alg -7 (ES256)")
-    bwd("B10", s8, "P1", "outside_profile", "alg -8 where the relying party accepts -19 only", algs=(-19,))
+    # B10 (alg -8 for a relying party that reads -19 only) is gone since 2026-10-08: every Receiver accepts -8
+    # under an Ed25519 key (Section 5.2.1 of the mappings draft), so no relying party narrows alg. The id is
+    # not reused.
     bwd("B11", signed(protected(), unprotected={4: kid_issuer}), "P1", "outside_profile",
         "the unprotected header is not empty")
     bwd("B12", signed(protected(), tag=None), "P1", "outside_profile", "the COSE_Sign1 is not tagged 18")

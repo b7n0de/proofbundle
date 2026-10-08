@@ -12,12 +12,14 @@ its next revision).
   F1 is vector M2 of the mappings draft byte for byte (SHA-256
   `64e78be4636b8d1e90cb7a1ebe06c4cfba2848603d6f64958d7c2080a901c575`). The receipt type and the payload schema are the
   names under signed-evidence.org of 2026-10-08, so every digest and signature differs from the vectors before that day.
-- `backward`: 50 statements, each with the receipt it is presented with, the relying party's
+- `backward`: 49 statements, each with the receipt it is presented with, the relying party's
   statement keys and the one status `check_statement` must return. The relying party configures each
   statement key as a pair with the issuer URI it trusts the key for, written `[issuer URI, key name]`;
   the received `iss` selects a pair and never makes a key trusted for another issuer. Three are
   `accepted`, among them B2 with alg -8, which is read and never written (byte for byte the statement
-  the forward direction wrote for -8 before 2026-10-04); B36 is B2 under a P-256 key alone. B37 to
+  the forward direction wrote for -8 before 2026-10-04); B36 is B2 under a P-256 key alone. B10, B2
+  for a relying party that read -19 only, is gone since 2026-10-08: every Receiver accepts -8 under
+  an Ed25519 key (Section 5.2.1 of the mappings draft), and the id is not reused. B37 to
   B42 were added on 2026-10-07: B37 is B1 with
   `iss` `https://other-issuer.example/eval`, signed with the issuer test seed (SHA-256
   `823b72998028ce9c638c4447102cf7475dc0f41f2f2aa27448dc8d341694a04a`), refused as `untrusted_key`; B38
