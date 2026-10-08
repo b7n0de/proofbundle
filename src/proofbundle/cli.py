@@ -540,7 +540,7 @@ def _cmd_scitt_sign(args: argparse.Namespace) -> int:
           f"{'ES256, protected x5chain' if x5chain is not None else 'EdDSA'})")
     if 4 in written:
         print(f"kid {_safe_line(written[4].decode('utf-8', 'replace'))}")
-    if args.public_key_out:
+    if args.public_key_out is not None:
         from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
         pem = signer.public_key().public_bytes(serialization.Encoding.PEM,
                                                serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -780,15 +780,17 @@ def _load_scitt_inputs(args: argparse.Namespace):
     A trust flag without a statement is a usage error (exit 2): the question would silently not be asked."""
     path = getattr(args, "scitt_statement", None)
     if path is None:
-        if any(getattr(args, name, None) for name in _SCITT_FLAGS):
+        if any(getattr(args, name, None) is not None for name in _SCITT_FLAGS):
             raise ValueError("--scitt-statement-key, --scitt-statement-kid, --scitt-service-keys and "
                              "--scitt-service-issuer only apply together with --scitt-statement")
         return None
     service_keys = getattr(args, "scitt_service_keys", None)
     service_issuer = getattr(args, "scitt_service_issuer", None)
-    if bool(service_keys) != bool(service_issuer):
+    if (service_keys is None) != (service_issuer is None):
         raise ValueError("--scitt-service-keys and --scitt-service-issuer belong together (the key set "
                          "and the issuer it is trusted for)")
+    if service_issuer is not None and not service_issuer:
+        raise ValueError("--scitt-service-issuer must not be empty")
     with _open_input(path, binary=True) as handle:
         data = _read_capped_bytes(handle)
     kid = getattr(args, "scitt_statement_kid", None)
@@ -797,12 +799,22 @@ def _load_scitt_inputs(args: argparse.Namespace):
             raise ValueError("--scitt-statement-kid must not be empty")
         kid = kid.encode("utf-8")
     keys: list = []
+    from cryptography.exceptions import UnsupportedAlgorithm  # noqa: PLC0415
+    from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
     for key_path in getattr(args, "scitt_statement_key", None) or []:
         with _open_input(key_path, binary=True) as handle:
             der = _pem_or_der(_read_capped_bytes(handle), f"--scitt-statement-key {key_path!r}")
+        # A file that holds no SubjectPublicKeyInfo at all ended like no --scitt-statement-key (needs_rp_trust,
+        # exit 3); it is unusable input. A key of a type the check does not take stays absent trust there.
+        try:
+            serialization.load_der_public_key(der)
+        except UnsupportedAlgorithm:
+            pass
+        except ValueError as exc:
+            raise ValueError(f"--scitt-statement-key {key_path!r}: not a public key (SubjectPublicKeyInfo)") from exc
         keys.append({"spki": der, "kid": kid} if kid is not None else der)
     rp_trust = None
-    if service_keys:
+    if service_keys is not None:
         from .scitt_ccf import ScittFormatError, load_cose_keyset  # noqa: PLC0415
         with _open_input(service_keys, binary=True) as handle:
             keyset = _read_capped_bytes(handle)

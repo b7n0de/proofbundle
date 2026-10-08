@@ -611,6 +611,10 @@ class ARelationsSectionIsHeldOnlyWhenTheCommandAppliesARuleOfIt(unittest.TestCas
 #: (exit 2), and so is every content of `_DATEI_INHALTE`.
 _OHNE_ABWESENHEIT = "no absent state: without it the command is refused (exit 2), and so is every content"
 _PFLICHT = "required: argparse refuses a call without it, so there is no absent state a content could reach"
+#: The statement's file options of `verify` have their case in tests/test_scitt_statement_producer.py
+#: (TestAStatementFileWhoseContentReadsAsAbsentIsRefused), where the [scitt] extra the check needs is present.
+_SCITT_FALL = ("a case in tests/test_scitt_statement_producer.py, where the [scitt] extra is present: no "
+               "content of _DATEI_INHALTE ends like no option")
 _DATEI_OPTIONEN_OHNE_FALL = {
     ("emit", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
     ("emit-eval", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key)",
@@ -634,6 +638,10 @@ _DATEI_OPTIONEN_OHNE_FALL = {
     ("verify-enclave", "--receipt"): _PFLICHT,
     ("anchor upgrade", "--proof"): _PFLICHT,
     ("policy instantiate", "--issuer-key"): _PFLICHT,
+    ("scitt sign", "--key"): _OHNE_ABWESENHEIT + " (provide --key or --new-key, or --ec-key with --x5chain)",
+    ("verify", "--scitt-statement"): _SCITT_FALL,
+    ("verify", "--scitt-statement-key"): _SCITT_FALL,
+    ("verify", "--scitt-service-keys"): _SCITT_FALL,
 }
 
 #: The functions that read a file named by their first argument. `open` counts only in a read mode.
@@ -736,6 +744,10 @@ _ERLAUBTE_WAHRHEITSLESUNGEN = {
     ("_cmd_policy_instantiate", "output"): "an empty --output writes the policy to stdout, the documented default",
     ("_cmd_svr", "policy_uri"): "emit side: content the producer writes, no restriction a verifier relies on",
     ("_cmd_svr", "policy_sha256"): "emit side: content the producer writes, no restriction a verifier relies on",
+    ("_load_scitt_inputs", "scitt_statement_kid"): "an empty --scitt-statement-kid is refused with exit 2 before "
+                                                   "the statement is checked",
+    ("_load_scitt_inputs", "scitt_service_issuer"): "an empty --scitt-service-issuer is refused with exit 2 before "
+                                                    "anything is read",
 }
 
 

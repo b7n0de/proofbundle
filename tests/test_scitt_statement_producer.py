@@ -234,6 +234,12 @@ class TestTheSignCommand:
         assert err.startswith("ERROR: ") and "Traceback" not in err
         assert not gone.exists()
 
+    def test_an_empty_public_key_out_is_refused_with_exit_2(self, tmp_path):
+        """The base's truth-read sweep: `--public-key-out ''` was read as no option, exit 0 and no key written."""
+        rc, _o, err = _cli(["scitt", "sign", str(BUNDLE), "--out", str(tmp_path / "s.cose"), "--issuer", ISSUER,
+                            "--subject", SUBJECT, "--key", str(self._seed(tmp_path)), "--public-key-out", ""])
+        assert rc == 2 and err.startswith("ERROR: ") and "its public key was not" in err
+
     def test_an_empty_issuer_is_refused_with_exit_2(self, tmp_path):
         rc, _o, err = _cli(["scitt", "sign", str(BUNDLE), "--out", str(tmp_path / "s.cose"), "--issuer", "",
                             "--subject", SUBJECT, "--key", str(self._seed(tmp_path))])
@@ -524,6 +530,26 @@ class TestVerifyWithAStatement:
         rc, _out, err = _cli(argv)
         assert rc == 2 and "only apply together with --scitt-statement" in err
 
+    @pytest.mark.parametrize("flag", ["--scitt-service-issuer", "--scitt-statement-kid"])
+    def test_an_empty_trust_flag_without_a_statement_is_refused(self, flag):
+        """The base's sweep of one-value options read by their truth (main c335c6ee): an empty value of a trust
+        flag was dropped, so a call without --scitt-statement exited 0 although such a flag is a usage error."""
+        rc, _out, err = _cli(["verify", str(BUNDLE), flag, ""])
+        assert rc == 2 and "only apply together with --scitt-statement" in err
+
+    def test_an_empty_service_key_set_and_issuer_are_refused(self, tmp_path):
+        """Same sweep: both empty were read as no service trust at all and exited 0."""
+        rc, _out, err = _cli(self._files(tmp_path) + ["--scitt-service-keys", "", "--scitt-service-issuer", ""])
+        assert rc == 2 and "--scitt-service-issuer must not be empty" in err
+
+    def test_a_statement_key_file_that_holds_no_public_key_is_exit_2(self, tmp_path):
+        """A file that holds no SubjectPublicKeyInfo ended like no --scitt-statement-key (exit 3)."""
+        argv = self._files(tmp_path, key=False)
+        empty = tmp_path / "empty.pem"
+        empty.write_bytes(b"")
+        rc, _out, err = _cli(argv + ["--scitt-statement-key", str(empty)])
+        assert rc == 2 and "not a public key" in err
+
     def test_an_unreadable_statement_file_is_exit_2(self, tmp_path):
         argv = self._files(tmp_path)
         argv[argv.index("--scitt-statement") + 1] = str(tmp_path / "missing.cose")
@@ -688,3 +714,33 @@ class TestTheEs256Path:
                             "--subject", SUBJECT, "--key", "k", "--ec-key", "e", "--x5chain", "c"])
         assert rc == 2 and "not both" in err and "unrecognized" not in err
         assert not (tmp_path / "s.cose").exists()
+
+
+# ------------------------------------------------------------------------------------------------
+# The base's file-option sweep (tests/test_an_option_given_an_empty_value_is_not_dropped.py) names the
+# statement's file options of `verify` and points here, where the [scitt] extra is present
+# ------------------------------------------------------------------------------------------------
+class TestAStatementFileWhoseContentReadsAsAbsentIsRefused:
+    """No content of the sweep's `_DATEI_INHALTE` ends like the option's absence: exit code and stdout differ."""
+
+    def _cases(self, tmp_path) -> dict:
+        base = TestVerifyWithAStatement()._files(tmp_path)
+        statement = base[:4]                                    # verify BUNDLE --scitt-statement FILE
+        keyset = ["--scitt-service-issuer", "svc.example"]
+        return {"--scitt-statement": (["verify", str(BUNDLE)], []),
+                "--scitt-statement-key": (statement, []),
+                "--scitt-service-keys": (base, keyset)}
+
+    @pytest.mark.parametrize("option", ["--scitt-statement", "--scitt-statement-key", "--scitt-service-keys"])
+    def test_no_content_ends_like_no_option(self, tmp_path, option):
+        import test_an_option_given_an_empty_value_is_not_dropped as sweep  # noqa: PLC0415
+        basis, beside = self._cases(tmp_path)[option]
+        absent = _cli(basis)[:2]
+        same = []
+        for i, content in enumerate(sweep._DATEI_INHALTE):
+            f = tmp_path / f"content_{i}.txt"
+            f.write_text(content, encoding="utf-8")
+            if _cli(basis + [option, str(f)] + beside)[:2] == absent:
+                same.append(content)
+        assert same == [], f"{option}: these contents ended like no {option}"
+        assert _cli(basis + [option, ""] + beside)[:2] != absent
