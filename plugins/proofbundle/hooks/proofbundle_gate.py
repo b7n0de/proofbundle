@@ -1497,9 +1497,18 @@ def _unique_pairs(pairs: list[tuple[str, object]]) -> dict:
     return dict(pairs)
 
 
+def _no_constant(name: str) -> object:
+    """The parse_constant of every JSON read of the gate: NaN, Infinity and -Infinity are not JSON (RFC 8259),
+    and a reader that took them read a number nobody can write in JSON (review Runde 15, F15-4: a progress
+    notification with progress NaN let a green verifier reply through)."""
+    raise ValueError(f"the non-JSON constant {name}")
+
+
 def strict_json(data: str | bytes) -> object:
-    """json.loads that refuses a repeated key in every object, at any depth (AmbiguousJSON, a ValueError)."""
-    return json.loads(data.decode("utf-8") if isinstance(data, bytes) else data, object_pairs_hook=_unique_pairs)
+    """json.loads that refuses a repeated key in every object, at any depth (AmbiguousJSON, a ValueError), and
+    the non-JSON constants NaN, Infinity and -Infinity (a ValueError, review Runde 15, F15-4)."""
+    return json.loads(data.decode("utf-8") if isinstance(data, bytes) else data, object_pairs_hook=_unique_pairs,
+                      parse_constant=_no_constant)
 
 
 def signed_payload_ambiguity(kind: str, content: bytes) -> str | None:
@@ -1587,7 +1596,7 @@ def _subject(value: object, where: str) -> dict:
 def parse_declaration(raw: bytes) -> list[dict]:
     """The declared items. Raises GateError for anything but the exact form DECISIONS.md describes."""
     try:
-        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates, parse_constant=_no_constant)
     except (UnicodeDecodeError, ValueError) as exc:
         raise GateError(f"{DECLARATION} is not JSON: {exc}") from exc
     if not isinstance(doc, dict) or set(doc) != {"schema", "evidence"}:
@@ -1685,6 +1694,11 @@ def _mcp_init_result_ok(result: object) -> str | None:
     return None
 
 
+#: The logging levels of MCP 2025-06-18, the RFC 5424 severities; a message with any other level is one the gate
+#: does not model, and the run is refused (review Runde 15, F15-4).
+_MCP_LOG_LEVELS = frozenset({"debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"})
+
+
 def _mcp_notification_contract(method: str, params: object) -> str | None:
     """Why a server notification breaks the contract of the notifications the gate permits (Nachtrag 37, R14-4),
     or None when it is well formed and may be set aside. The gate's pinned server sends no notification during a
@@ -1704,8 +1718,9 @@ def _mcp_notification_contract(method: str, params: object) -> str | None:
             return "a progress notification whose progress is not a number"
         return None
     if method == "notifications/message":
-        if not isinstance(params, dict) or not isinstance(params.get("level"), str):
-            return "a logging notification without a string level"
+        level = params.get("level") if isinstance(params, dict) else None
+        if not (isinstance(level, str) and level in _MCP_LOG_LEVELS):
+            return "a logging notification whose level is not one of the eight MCP logging levels"
         return None
     return f"a notification the gate does not model (method {method!r})"
 

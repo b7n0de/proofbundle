@@ -112,6 +112,12 @@ def _log_path() -> tuple[str | None, str]:
                   "cannot tell where the gate writes its log")
 
 
+def _no_constant(name: str) -> object:
+    """NaN, Infinity and -Infinity are not JSON (RFC 8259); no read of the server takes them (review Runde 15,
+    F15-4)."""
+    raise ValueError(f"the non-JSON constant {name}")
+
+
 def _read_log(path: str) -> list[dict]:
     entries = []
     for name in (path + ".1", path):
@@ -119,7 +125,7 @@ def _read_log(path: str) -> list[dict]:
             with open(name, encoding="utf-8") as handle:
                 for line in handle:
                     try:
-                        entry = json.loads(line)
+                        entry = json.loads(line, parse_constant=_no_constant)
                     except ValueError:
                         continue
                     if isinstance(entry, dict):
@@ -196,7 +202,7 @@ def _run_cli(argv: list[str]) -> dict:
     result: dict = {"proofbundle_version": _package_version(), "plugin_version": SERVER_VERSION,
                     "command": ["proofbundle", *argv], "exit_code": proc.returncode}
     try:
-        result["output"] = json.loads(proc.stdout)
+        result["output"] = json.loads(proc.stdout, parse_constant=_no_constant)
     except ValueError:
         result["output"] = proc.stdout
     if proc.stderr:
@@ -600,7 +606,7 @@ def main() -> int:
         if not line.strip():
             continue
         try:
-            message = json.loads(line)
+            message = json.loads(line, parse_constant=_no_constant)
         except ValueError:
             reply = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
