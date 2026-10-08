@@ -213,10 +213,45 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     if not checks["version_signal"]:
         return _answer(UNKNOWN, ["the decision carries no version signal of github-write/1; it is not read "
                                  "under this profile"], checks)
+    # What the decision settles without reading a time comes first, so a known failure is never reported as a gap
+    # (Codex thread 4221181583 on pull request 303: a refusal on a surface the profile does not know was unknown).
+    # Read with .get: a field that is missing is a failed check here, never an exception.
+    vorschlag = pred.get("proposedAction") or {}
+    verdict = (pred.get("decision") or {}).get("verdict")
+    checks["gate_verdict"] = verdict
+    checks["decision_maker_is_gate"] = (pred.get("decisionMaker") or {}).get("id") == gate_id
+    if not checks["decision_maker_is_gate"]:
+        return _answer(NOT_ACCEPTED, ["the decision names another decision maker than the pinned gate"], checks)
+    # The kind the profile fixes: an approval before a write. Codex thread 4121766394 on pull request 303: a
+    # post-hoc review or a read decision with the signal was read as an approved write.
+    checks["pre_action_write"] = (pred.get("decisionType"), vorschlag.get("method")) == (DECISION_TYPE, METHOD)
+    if not checks["pre_action_write"]:
+        return _answer(NOT_ACCEPTED, [f"the decision is a {pred.get('decisionType')!r} of method "
+                                      f"{vorschlag.get('method')!r}, not an approval before a write"], checks)
+    if verdict != "ALLOW":
+        return _answer(NOT_ACCEPTED, [f"the gate's verdict is {verdict}, and "
+                                      + ("no effect was observed" if outcome_env is None else "an outcome was given")],
+                       checks)
+    # The nonce is the decisionId, so it names this attempt; the verifiers only compare the receipts' nonces with each
+    # other (Codex thread 4220771548 on pull request 303: a nonce of another attempt was accepted).
+    checks["nonce_names_the_attempt"] = (pred.get("validity") or {}).get("nonce") == pred.get("decisionId")
+    if not checks["nonce_names_the_attempt"]:
+        return _answer(NOT_ACCEPTED, ["validity.nonce is not the decisionId, so it does not name this attempt"], checks)
+    # Then the gaps of the decision, all of them at once.
+    luecken = []
     entschieden = instant(pred.get("decidedAt"))
     checks["decided_at_readable"] = entschieden is not None
     if entschieden is None:
-        return _answer(UNKNOWN, ["decidedAt is not an RFC 3339 instant in UTC"], checks)
+        luecken.append("decidedAt is not an RFC 3339 instant in UTC")
+    kennung = _DECISION_ID.match(pred["decisionId"]) if isinstance(pred.get("decisionId"), str) else None
+    checks["action_id"] = kennung.group("action") if kennung else None
+    checks["attempt"] = int(kennung.group("attempt")) if kennung else None
+    if not kennung:
+        luecken.append("decisionId is not <action id>#<attempt>")
+    if vorschlag.get("actionType") not in SURFACES:
+        luecken.append("the approved surface is not one this profile knows")
+    if luecken:
+        return _answer(UNKNOWN, luecken, checks)
     # Verified one second before its own decidedAt: the profile judges the window against GitHub's performedAt
     # below, so the reader's clock would turn every past approval into an expired one (main since 6.2.0 fails
     # expiry closed), and the verifier's own rule, expired AT expiresAt, would refuse the inclusive boundary the
@@ -234,36 +269,9 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["decision_ok"] = d["ok"]
     if not d["ok"]:
         return _answer(NOT_ACCEPTED, ["the decision does not verify: " + "; ".join(d["errors"])], checks)
-    checks["decision_maker_is_gate"] = pred["decisionMaker"]["id"] == gate_id
-    if not checks["decision_maker_is_gate"]:
-        return _answer(NOT_ACCEPTED, ["the decision names another decision maker than the pinned gate"], checks)
-    # The kind the profile fixes: an approval before a write. Codex thread 4121766394 on pull request 303: a
-    # post-hoc review or a read decision with the signal was read as an approved write.
-    checks["pre_action_write"] = (pred.get("decisionType"), pred["proposedAction"].get("method")) == (
-        DECISION_TYPE, METHOD)
-    if not checks["pre_action_write"]:
-        return _answer(NOT_ACCEPTED, [f"the decision is a {pred.get('decisionType')!r} of method "
-                                      f"{pred['proposedAction'].get('method')!r}, not an approval before a write"],
-                       checks)
-    kennung = _DECISION_ID.match(pred["decisionId"])
-    checks["action_id"] = kennung.group("action") if kennung else None
-    checks["attempt"] = int(kennung.group("attempt")) if kennung else None
-    if not kennung:
-        return _answer(UNKNOWN, ["decisionId is not <action id>#<attempt>"], checks)
-    # The nonce is the decisionId, so it names this attempt; the verifiers only compare the receipts' nonces with each
-    # other (Codex thread 4220771548 on pull request 303: a nonce of another attempt was accepted).
-    checks["nonce_names_the_attempt"] = pred["validity"].get("nonce") == pred["decisionId"]
-    if not checks["nonce_names_the_attempt"]:
-        return _answer(NOT_ACCEPTED, ["validity.nonce is not the decisionId, so it does not name this attempt"], checks)
-    if pred["proposedAction"]["actionType"] not in SURFACES:
-        return _answer(UNKNOWN, ["the approved surface is not one this profile knows"], checks)
     expires = pred["validity"].get("expiresAt")
-    verdict = pred["decision"]["verdict"]
-    checks["gate_verdict"] = verdict
     if outcome_env is None:
-        if verdict == "ALLOW":
-            return _answer(UNKNOWN, ["approved, and no effect was observed"], checks)
-        return _answer(NOT_ACCEPTED, [f"the gate's verdict is {verdict}, and no effect was observed"], checks)
+        return _answer(UNKNOWN, ["approved, and no effect was observed"], checks)
     o = verify_outcome_receipt(outcome_env, observer_key, strict=True, expected_decision_ref=content_root(decision_env),
                                expected_audience=observer_id,
                                expected_nonce=pred["validity"]["nonce"], require_derived_subject=True)
@@ -276,8 +284,6 @@ def _reconcile(decision_env, outcome_env, observed_scope, gate_key, gate_id, obs
     checks["outcome_ok"] = o["ok"]
     if not o["ok"]:
         return _answer(NOT_ACCEPTED, ["the outcome does not verify: " + "; ".join(o["errors"])], checks)
-    if verdict != "ALLOW":
-        return _answer(NOT_ACCEPTED, [f"the gate's verdict is {verdict}, and an effect arrived"], checks)
     opred = _statement(outcome_env)["predicate"]
     approved = pred["proposedAction"]["parametersDigest"]["sha256"]
     checks["requested_is_approved"] = opred["requestedActionDigest"]["sha256"] == approved
@@ -500,6 +506,9 @@ def build_vectors() -> dict:
     fall("unreadable decidedAt under a broken signature", NOT_ACCEPTED,
          gebrochen(d0, b'"decidedAt":"2026-09-27T00:40:00Z"', b'"decidedAt":"yesterday"'), o0, s0,
          "thread 4220771559: the signature is checked before decidedAt is read")
+    fall("refused, on a surface the profile does not know", NOT_ACCEPTED,
+         decision(verdict="REFUSE", reasons=["rules.violated"], surface="github.issueTitle"), None, None,
+         "thread 4221181583: a refusal is a known failure, and the unknown surface is only a gap")
     fall("no version signal under a broken signature", NOT_ACCEPTED,
          gebrochen(d_alt, b'"policyEngine":"opa"', b'"policyEngine":"opb"'), *outcome(d_alt),
          "thread 4220771559: the signature is checked before the version signal is read")

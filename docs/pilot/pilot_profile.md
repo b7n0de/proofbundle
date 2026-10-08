@@ -50,7 +50,9 @@ profile depends on what they hold. Strict mode requires `notChecked`, `decisionC
 to be present, as the table states, so a decision without one of them is `not accepted`. The same holds for the outcome's `outcomeId`, `recordedAt` and `limitations`. Every check that can be made is made before a gap is reported, so a check known to
 fail gives `not accepted` even where another record is missing. The pinned gate key is checked first, before the
 version signal or `decidedAt` is read, so a decision another key signed is `not accepted`, never `unknown`, and a
-`validity.nonce` that is not the `decisionId` is `not accepted`.
+`validity.nonce` that is not the `decisionId` is `not accepted`. The decision maker, the kind, the gate's verdict and
+the nonce are checked before any gap of the decision is reported (an unreadable `decidedAt`, a `decisionId` of
+another form, a surface the profile does not know), so a refusal is `not accepted` wherever it stands.
 
 Two readings are stated rather than hidden. The outcome's signer is the observer, and `executor.id` names the
 account GitHub reports, which the profile treats as observed data, not as a trusted identity. And
@@ -100,6 +102,7 @@ compares them as the instants they name, and a clock difference between the two 
 | tampered decision payload | not accepted | one byte changed after signing |
 | the nonce names another attempt | not accepted | `decisionId` names attempt 2 and both nonces name attempt 1 |
 | unreadable decidedAt under a broken signature | not accepted | the signature is checked before `decidedAt` is read |
+| refused, on a surface the profile does not know | not accepted | the refusal is checked before the unknown surface is reported |
 | no version signal under a broken signature | not accepted | the signature is checked before the version signal is read |
 
 ## New fields: proposals only
