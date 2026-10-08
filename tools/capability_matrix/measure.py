@@ -22,7 +22,9 @@ Action), the repository only (the Rust verifier, built from source), or another 
 Inputs: the two v6.1.0 files as PyPI serves them and PyPI's JSON for that release (for the digests),
 the tag v6.1.0 and a main commit of this repository. `--fresh-venv` additionally installs the wheel in a
 new virtual environment and runs a user's first steps there. Network: only to download the two files
-and the JSON (`--download`) and for pip inside the fresh environment.
+and the JSON (`--download`) and for pip inside the fresh environment. Code runs without --fresh-venv too: the
+console subcommands are read by running the console script of the wheel, after its digests and files are checked,
+and of the tree at each ref, in a fresh interpreter stopped at its first parse (EVERY FORMAT IS READ below).
 
 Usage:
   python tools/capability_matrix/measure.py --download DIR --main origin/main --fresh-venv \
@@ -33,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import hashlib
+import io
 import json
 import os
 import re
@@ -133,44 +136,104 @@ def _src(module: str) -> str:
     return "src/" + module
 
 
-def _subcommands(cli_source: str) -> set:
-    """Console subcommands the parser registers at the top level, `sub.add_parser("name", ...)`, read as calls in the
-    parsed source: a commented-out or quoted registration is no call (Codex thread 4220770815 on pull request 304, a
-    pattern over the text found `# sub.add_parser("decision")`). A source that does not parse stops the measurement."""
-    import ast  # noqa: PLC0415
+# EVERY FORMAT IS READ BY THE READER ITS CONSUMER USES, never by a pattern of its own. Ten review rounds found a
+# further spelling each time a hand reader stood in for a parser (Codex threads 4222126486, 4222126493, 4222126499
+# and 4222126509 on pull request 304, after the ones before them): the console subcommands are those of the parser
+# the console script builds when it runs; pyproject.toml is read by a TOML parser, entry_points.txt by
+# importlib.metadata, and the docs by a CommonMark parser. What such a reader refuses stops the measurement.
+
+#: What the console script's function builds, stopped at its first parse: run in a fresh interpreter over a tree of
+#: the package, with that tree first on the import path. Prints the top-level subcommand names as JSON, or an error.
+_PROBE = r'''
+import argparse, json, os, sys
+wurzel, modul, attribut = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, wurzel)
+class _Halt(BaseException):
+    pass
+gefangen = []
+def _fange(self, *args, **kwargs):
+    gefangen.append(self)
+    raise _Halt
+argparse.ArgumentParser.parse_args = _fange
+argparse.ArgumentParser.parse_known_args = _fange
+import importlib
+m = importlib.import_module(modul)
+datei = os.path.realpath(getattr(m, "__file__", None) or "")
+if not datei.startswith(os.path.realpath(wurzel) + os.sep):
+    print(json.dumps({"error": "the module was imported from outside the tree measured: " + datei}))
+    sys.exit(0)
+ziel = m
+for teil in attribut.split("."):
+    ziel = getattr(ziel, teil)
+try:
+    ziel()
+except _Halt:
+    pass
+if not gefangen:
+    print(json.dumps({"error": "the console script's function parsed no arguments"}))
+    sys.exit(0)
+aktionen = [a for a in gefangen[0]._actions if isinstance(a, argparse._SubParsersAction)]
+print(json.dumps({"subcommands": sorted(n for a in aktionen for n in a.choices)}))
+'''
+
+
+def _subcommands_in_tree(wurzel: Path, ziel: str) -> set:
+    """The console subcommands of the parser the console script `ziel` ("module:function") builds, run from the
+    package tree under `wurzel`. The function is called as the console script calls it, with no argument, and stopped
+    at its first parse; what it registers is read from that parser. So a registration in dead source, under a branch
+    not taken, in a function nobody calls or in a definition a later one replaces does not count, and one with a
+    computed name does (Codex thread 4222126486 on pull request 304, after 4221179837 and 4221639819 on the static
+    reading). A tree that does not import or a function that parses nothing stops the measurement."""
+    modul, _, attribut = ziel.partition(":")
+    attribut = attribut.split("[", 1)[0].strip()
+    if not modul or not attribut:
+        raise SystemExit(f"the console script names {ziel!r}, no module:function; its subcommands are not measured")
+    with tempfile.TemporaryDirectory() as heim:
+        umgebung = {"PATH": "/usr/bin:/bin", "HOME": heim, "LANG": "C.UTF-8"}
+        lauf = subprocess.run([sys.executable, "-I", "-c", _PROBE, str(wurzel), modul.strip(), attribut],
+                              cwd=heim, env=umgebung, capture_output=True, text=True, timeout=300)
     try:
-        baum = ast.parse(cli_source)
-    except SyntaxError as exc:
-        raise SystemExit(f"cli.py does not parse ({exc.msg}); its subcommands are not measured") from exc
-    # Read statically, so what a static reading cannot decide stops the measurement instead of guessing (Codex thread
-    # 4221179837): a registration with a computed name, or one under a condition that is a constant, such as
-    # `if False:`, whose branch the reading cannot tell taken from dead.
-    namen, eltern = set(), {}
-    for knoten in ast.walk(baum):
-        for kind in ast.iter_child_nodes(knoten):
-            eltern[kind] = knoten
-    for k in ast.walk(baum):
-        if not (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "add_parser"
-                and isinstance(k.func.value, ast.Name) and k.func.value.id == "sub"):
-            continue
-        if not (k.args and isinstance(k.args[0], ast.Constant) and isinstance(k.args[0].value, str)):
-            raise SystemExit("cli.py registers a subcommand with a computed name; its subcommands are not measured")
-        # Only a registration that build_parser makes unconditionally is read: a statement of its body, under no
-        # branch, loop, try or with, in no other function (Codex thread 4221639819: `if enabled:` counted, and a
-        # condition that is not a constant cannot be decided statically). Anything else stops the measurement. At
-        # v6.1.0, 0ace3039 and the head of this branch all 19 registrations have that form.
-        oben, kontrolle = eltern.get(k), False
-        while oben is not None and not isinstance(oben, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            kontrolle = kontrolle or isinstance(oben, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.Try, ast.With,
-                                                       ast.AsyncWith, ast.IfExp, ast.Lambda, ast.comprehension,
-                                                       ast.Match))
-            oben = eltern.get(oben)
-        if kontrolle or oben is None or oben.name != "build_parser":
-            raise SystemExit("cli.py registers a subcommand outside the unconditional body of build_parser; its "
-                             "subcommands are not measured")
-        if re.fullmatch(r"[a-z0-9-]+", k.args[0].value):
-            namen.add(k.args[0].value)
-    return namen
+        antwort = json.loads(lauf.stdout.strip().splitlines()[-1])
+    except (IndexError, ValueError):
+        antwort = {"error": (lauf.stderr.strip().splitlines() or ["no output"])[-1]}
+    if lauf.returncode != 0 or "error" in antwort:
+        raise SystemExit(f"the console script {ziel} does not run here ({antwort.get('error', lauf.returncode)}); its "
+                         "subcommands are not measured")
+    return set(antwort["subcommands"])
+
+
+_SUBCOMMANDS_AT: dict = {}
+
+
+def _subcommands_at(ref: str) -> set:
+    """The console subcommands at `ref`: its src/ and pyproject.toml taken out of git, the console script proofbundle
+    read from that pyproject.toml, and run (`_subcommands_in_tree`). No such console script, no subcommand."""
+    if ref not in _SUBCOMMANDS_AT:
+        punkte = _console_scripts(_pyproject_project((_git_bytes(ref, "pyproject.toml") or b"").decode("utf-8")))
+        if "proofbundle" not in punkte:
+            _SUBCOMMANDS_AT[ref] = set()
+        else:
+            archiv = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", ref, "--", "src"],
+                                    capture_output=True, check=True).stdout
+            with tempfile.TemporaryDirectory() as tmp:
+                with tarfile.open(fileobj=io.BytesIO(archiv)) as tar:
+                    tar.extractall(tmp)  # noqa: S202 - this repository's own tree at a ref
+                _SUBCOMMANDS_AT[ref] = _subcommands_in_tree(Path(tmp) / "src", punkte["proofbundle"])
+    return _SUBCOMMANDS_AT[ref]
+
+
+def _subcommands_in_wheel(rad: Path) -> set:
+    """The console subcommands of the wheel: its files taken out, the console script proofbundle read from its
+    entry_points.txt, and run (`_subcommands_in_tree`)."""
+    with zipfile.ZipFile(rad) as z, tempfile.TemporaryDirectory() as tmp:
+        namen = z.namelist()
+        ep = next((n for n in namen if n.endswith(".dist-info/entry_points.txt")), None)
+        ziele = {e.name: e.value for e in _entry_point_objects(z.read(ep).decode("utf-8") if ep else "")
+                 if e.group == "console_scripts"}
+        if "proofbundle" not in ziele:
+            return set()
+        z.extractall(tmp)  # noqa: S202 - the published wheel, whose digest was checked against PyPI's first
+        return _subcommands_in_tree(Path(tmp), ziele["proofbundle"])
 
 
 def _registry_counts(ref: str, pfad: str):
@@ -186,76 +249,135 @@ def _registry_counts(ref: str, pfad: str):
     return {"entries": len(eintraege), **dict(sorted(zaehlung.items()))}
 
 
+def _entry_point_objects(text: str):
+    """The entry points an entry_points.txt declares, as importlib.metadata reads them: the reader pytest and
+    inspect_ai find their plugins with, so what it reads is what they load."""
+    import importlib.metadata as metadata  # noqa: PLC0415
+
+    class _NurDieseDatei(metadata.Distribution):
+        def read_text(self, filename):
+            return text if filename == "entry_points.txt" else None
+
+        def locate_file(self, path):
+            raise FileNotFoundError(path)
+    return list(_NurDieseDatei().entry_points)
+
+
 def _entry_points(text: str) -> set:
-    gruppe, gefunden = None, set()
-    for zeile in text.splitlines():
-        zeile = zeile.strip()
-        if zeile.startswith("[") and zeile.endswith("]"):
-            gruppe = zeile[1:-1]
-        elif "=" in zeile and gruppe:
-            gefunden.add(f"{gruppe}:{zeile.split('=', 1)[0].strip()}")
+    """The entry points of an entry_points.txt as "group:name"."""
+    return {f"{e.group}:{e.name}" for e in _entry_point_objects(text)}
+
+
+def _pyproject_project(text: str) -> dict:
+    """The [project] table of a pyproject.toml, read by a TOML parser: tomllib, or tomli before Python 3.11, which
+    pytest itself needs there. A document the parser refuses stops the measurement, as the build would refuse it
+    (Codex thread 4222126493 on pull request 304: a declaration without a value was read as one). No parser here stops
+    it too. An empty document is no project."""
+    try:
+        import tomllib  # noqa: PLC0415
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # noqa: PLC0415
+        except ModuleNotFoundError as exc:
+            raise SystemExit("no TOML parser here (tomllib from Python 3.11, or tomli); entry points are not "
+                             "measured") from exc
+    try:
+        daten = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"pyproject.toml is no valid TOML ({exc}); entry points are not measured") from exc
+    projekt = daten.get("project", {})
+    if not isinstance(projekt, dict):
+        raise SystemExit("pyproject.toml's project is no table; entry points are not measured")
+    return projekt
+
+
+def _console_scripts(projekt: dict) -> dict:
+    """name -> "module:function" of [project.scripts]."""
+    return {n.split(":", 1)[1]: ziel for n, ziel in _declared_entry_points(projekt).items()
+            if n.startswith("console_scripts:")}
+
+
+def _declared_entry_points(projekt: dict) -> dict:
+    """"group:name" -> target, for every entry point a [project] table declares: scripts, gui-scripts and each group
+    of entry-points, in any TOML form, as the parser gives them. Entry points declared dynamic, a target that is no
+    string, and console_scripts or gui_scripts under entry-points, which the build refuses, stop the measurement."""
+    if any(f in (projekt.get("dynamic") or []) for f in ("scripts", "gui-scripts", "entry-points")):
+        raise SystemExit("pyproject.toml declares its entry points dynamic; they are not measured")
+    gruppen = {"console_scripts": projekt.get("scripts", {}), "gui_scripts": projekt.get("gui-scripts", {})}
+    weitere = projekt.get("entry-points", {})
+    if not isinstance(weitere, dict) or set(weitere) & {"console_scripts", "gui_scripts"}:
+        raise SystemExit("pyproject.toml's entry-points is no table of groups the build takes; entry points are not "
+                         "measured")
+    gruppen.update(weitere)
+    gefunden = {}
+    for gruppe, tabelle in gruppen.items():
+        if not isinstance(tabelle, dict) or not all(isinstance(z, str) for z in tabelle.values()):
+            raise SystemExit(f"pyproject.toml declares {gruppe} as no table of strings; entry points are not measured")
+        gefunden.update({f"{gruppe}:{name}": ziel for name, ziel in tabelle.items()})
     return gefunden
-
-
-#: A TOML key as written: bare, a basic string in double quotes, or a literal string in single quotes.
-_TOML_SCHLUESSEL = r"""(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')"""
-
-
-def _toml_schluessel(roh: str) -> str:
-    """The key a TOML key spells: a basic string's escapes decoded, a literal string as written."""
-    if roh.startswith('"'):
-        return json.loads(roh)
-    if roh.startswith("'"):
-        return roh[1:-1]
-    return roh
 
 
 def _entry_points_in_pyproject(text: str) -> set:
-    """Entry points declared in pyproject.toml ([project.scripts] and [project.entry-points.<g>]). Read by hand, as
-    tomllib is not in Python 3.10, with every TOML spelling of a key: bare, double-quoted and single-quoted (Codex
-    thread 4221179857: a single-quoted key was recorded with its quotes). A declaration in another form, a dotted key
-    or an inline table under [project] or [project.entry-points], stops the measurement instead of being missed."""
-    gefunden, gruppe, abschnitt = set(), None, None
-    kopf_muster = re.compile(r"\[\s*project\s*\.\s*(?:(scripts)|entry-points\s*\.\s*(" + _TOML_SCHLUESSEL + r"))\s*\]")
-    eintrag_muster = re.compile(r"(" + _TOML_SCHLUESSEL + r")\s*=")
-    for zeile in text.splitlines():
-        rein = zeile.strip()
-        if not rein or rein.startswith("#"):
-            continue
-        if rein.startswith("[") and "]" in rein:
-            # a comment after a table header is TOML (Codex thread 4221639830: the header with `# active` was skipped)
-            rest = rein[rein.rindex("]") + 1:].strip()
-            if not rest or rest.startswith("#"):
-                rein = rein[:rein.rindex("]") + 1]
-        kopf = kopf_muster.fullmatch(rein)
-        if kopf:
-            gruppe = "console_scripts" if kopf.group(1) else _toml_schluessel(kopf.group(2))
-            abschnitt = None
-            continue
-        if rein.startswith("["):
-            gruppe = None
-            abschnitt = re.sub(r"\s+", "", rein)
-            continue
-        if gruppe:
-            eintrag = eintrag_muster.match(rein)
-            if not eintrag:
-                raise SystemExit(f"pyproject.toml declares an entry point of {gruppe} in a form this reader does not "
-                                 "read; entry points are not measured")
-            gefunden.add(f"{gruppe}:{_toml_schluessel(eintrag.group(1))}")
-        elif (abschnitt == "[project.entry-points]"
-              or (abschnitt == "[project]" and re.match(r"""["']?(?:scripts|gui-scripts|entry-points)["']?\s*[.=]""", rein))
-              or (abschnitt is None and re.match(r"""["']?project["']?\s*\.""", rein))):
-            raise SystemExit("pyproject.toml declares entry points as a dotted key or an inline table; entry "
-                             "points are not measured")
-    return gefunden
+    """Entry points declared in pyproject.toml, as "group:name", read by the TOML parser (`_pyproject_project`): every
+    TOML form of a key, a table or a comment is read as the build reads it (Codex threads 4221179857, 4221639830 and
+    4222126499 on pull request 304 found three spellings a hand reader missed)."""
+    return set(_declared_entry_points(_pyproject_project(text)))
+
+
+def _markdown():
+    """A CommonMark parser (markdown-it-py, which the dev extra brings in through inspect_ai and rich); without one
+    the docs are not measured."""
+    try:
+        from markdown_it import MarkdownIt  # noqa: PLC0415
+    except ModuleNotFoundError as exc:
+        raise SystemExit("no CommonMark parser here (markdown-it-py); the docs are not measured") from exc
+    return MarkdownIt("commonmark")
+
+
+#: The leaf blocks that render text: a paragraph or heading (their inline content), a code block, a fence, a rule.
+_SICHTBARE_BLOECKE = ("inline", "fence", "code_block", "hr")
 
 
 def _sichtbarer_text(ref: str, datei: str) -> str:
-    """The text of `datei` at `ref` as a reader of the rendered docs sees it: HTML comments removed. Codex thread
-    4221639836 on pull request 304: a provider named only inside a comment counted, and a label inside one could be
-    found as well; every reader of the docs reads through this."""
+    """The text of `datei` at `ref` as a reader of the rendered docs sees it, line for line: a line that renders into
+    no text is blanked, which is a link reference definition and an HTML block, a comment among them, and an HTML
+    comment inside a line is removed. Read by a CommonMark parser, so a reference definition is one exactly where
+    CommonMark takes it for one: before a paragraph, not after a line of it, where it is paragraph text (Codex threads
+    4221639836 and 4222126509 on pull request 304). Every reader of the docs reads through this."""
     roh = _git_bytes(ref, datei)
-    return re.sub(r"<!--.*?-->", "", roh.decode("utf-8"), flags=re.S) if roh is not None else ""
+    if roh is None:
+        return ""
+    text = roh.decode("utf-8")
+    zeilen = text.splitlines(keepends=True)
+    sichtbar = [False] * len(zeilen)
+    elemente = {}
+    for block in _markdown().parse(text):
+        if block.type in _SICHTBARE_BLOECKE and block.map:
+            for i in range(*block.map):
+                sichtbar[i] = True
+            for kind in block.children or ():
+                if kind.type == "html_inline" and not kind.content.startswith("<!--"):
+                    elemente.setdefault(range(*block.map), set()).add(kind.content)
+    # An HTML element inside a line is marked: what its attributes hide is not decided here, so a label or a cited
+    # passage that holds one stops the measurement (`_ohne_element`).
+    for bereich, tags in elemente.items():
+        for i in bereich:
+            for tag in tags:
+                zeilen[i] = zeilen[i].replace(tag, _ELEMENT)
+    behalten = "".join(z if sichtbar[i] else ("\n" if z.endswith(("\n", "\r")) else "") for i, z in enumerate(zeilen))
+    return re.sub(r"<!--.*?-->", "", behalten, flags=re.S)
+
+
+#: Stands where an HTML element was in a line of the docs (`_sichtbarer_text`).
+_ELEMENT = "\x00"
+
+
+def _ohne_element(text, datei: str, ref: str):
+    """`text`, unless it holds an HTML element of the docs, which stops the measurement."""
+    if text is not None and _ELEMENT in text:
+        raise SystemExit(f"the text cited in {datei} at {ref[:12]} holds an HTML element, and what its attributes hide "
+                         "is not decided here; the docs are not measured")
+    return text
 
 
 def _label_at(ref: str, paare: list):
@@ -263,36 +385,33 @@ def _label_at(ref: str, paare: list):
     for datei, muster in paare:
         treffer = re.search(muster, _sichtbarer_text(ref, datei))
         if treffer:
-            return " ".join(treffer.group(1).split()), datei
+            return _ohne_element(" ".join(treffer.group(1).split()), datei, ref), datei
     return None, None
 
 
 def _passage(text: str, stelle: int) -> str:
-    """The passage around position `stelle`: its paragraph and the fenced code blocks that follow it directly,
-    up to the next paragraph of prose or heading. That is the text a label cites, its example included."""
+    """The passage around position `stelle`: the block that holds it, a paragraph or a heading, and the code blocks
+    that follow it directly at its level, up to the next block of another kind. That is the text a label cites, its
+    example included. The blocks are the CommonMark parser's, so a fence of tildes or of more backticks, an indented
+    block and a fence that closes later than a line of three backticks are what they render as."""
+    zeile = text.count("\n", 0, stelle)
     zeilen = text.splitlines(keepends=True)
-    anfang, n = 0, 0
-    for i, zeile in enumerate(zeilen):
-        if n + len(zeile) > stelle:
-            anfang = i
-            break
-        n += len(zeile)
-    while anfang > 0 and zeilen[anfang - 1].strip() and not zeilen[anfang - 1].lstrip().startswith(("#", "```")):
-        anfang -= 1
-    ende = anfang
-    while ende < len(zeilen) and zeilen[ende].strip():
-        ende += 1
-    while True:
-        weiter = ende
-        while weiter < len(zeilen) and not zeilen[weiter].strip():
-            weiter += 1
-        if weiter >= len(zeilen) or not zeilen[weiter].lstrip().startswith("```"):
-            break
-        weiter += 1
-        while weiter < len(zeilen) and not zeilen[weiter].lstrip().startswith("```"):
-            weiter += 1
-        ende = min(weiter + 1, len(zeilen))
-    return "".join(zeilen[anfang:ende])
+    bloecke = [b for b in _markdown().parse(text) if b.map and b.nesting >= 0 and b.type != "inline"]
+    for i, block in enumerate(bloecke):
+        if not block.map[0] <= zeile < block.map[1] or block.type.endswith("_close"):
+            continue
+        # the innermost block that holds the line: no later block of a deeper level holds it too
+        if any(b.level > block.level and b.map[0] <= zeile < b.map[1] for b in bloecke[i + 1:]):
+            continue
+        anfang, ende = block.map
+        for folgend in bloecke[i + 1:]:
+            if folgend.map[0] < ende:
+                continue
+            if folgend.level != block.level or folgend.type not in ("fence", "code_block"):
+                break
+            ende = folgend.map[1]
+        return "".join(zeilen[anfang:ende])
+    return ""
 
 
 def _cited_passage(ref: str, paare: list):
@@ -305,7 +424,7 @@ def _cited_passage(ref: str, paare: list):
         text = _sichtbarer_text(ref, datei)
         treffer = re.search(muster, text)
         if treffer:
-            return _passage(text, treffer.start()), datei
+            return _ohne_element(_passage(text, treffer.start()), datei, ref), datei
     return None, None
 
 
@@ -379,7 +498,7 @@ def _names_provider(ref: str, cap: dict) -> bool:
 
 def _present_at(ref: str, module: list, cli: list, eps: list, repo: list) -> bool:
     """Every module, console subcommand, entry point and repository path of a capability is found at `ref`."""
-    commands = _subcommands((_git_bytes(ref, "src/proofbundle/cli.py") or b"").decode("utf-8")) if cli else set()
+    commands = _subcommands_at(ref) if cli else set()
     points = _entry_points_in_pyproject((_git_bytes(ref, "pyproject.toml") or b"").decode("utf-8")) if eps else set()
     return (all(_git_bytes(ref, _src(m)) is not None for m in module) and all(c in commands for c in cli)
             and all(e in points for e in eps) and all(_git_bytes(ref, p) is not None for p in repo))
@@ -448,7 +567,6 @@ def measure_artifacts(verzeichnis: Path, pypi: dict) -> dict:
     ergebnis["wheel_files"] = {n: _sha256(rad.read(n)) for n in namen}
     ep = next(n for n in namen if n.endswith(".dist-info/entry_points.txt"))
     ergebnis["wheel_entry_points"] = sorted(_entry_points(rad.read(ep).decode("utf-8")))
-    ergebnis["wheel_subcommands"] = sorted(_subcommands(rad.read("proofbundle/cli.py").decode("utf-8")))
     # Is the wheel the tag? Every package file against the tag's src/ bytes.
     gleich, anders, fehlt = 0, [], []
     for n, digest in ergebnis["wheel_files"].items():
@@ -468,6 +586,9 @@ def measure_artifacts(verzeichnis: Path, pypi: dict) -> dict:
     problems = provenance_problems(ergebnis)
     if problems:
         raise SystemExit("the v6.1.0 artifacts are not the published ones: " + "; ".join(problems))
+    # The wheel's console script runs only now, once its bytes are PyPI's and its package files the tag's.
+    rad_pfad = verzeichnis / ergebnis["files"]["bdist_wheel"]["filename"]
+    ergebnis["wheel_subcommands"] = sorted(_subcommands_in_wheel(rad_pfad))
     with tarfile.open(verzeichnis / ergebnis["files"]["sdist"]["filename"]) as tar:
         sdist = sorted(m.name.split("/", 1)[1] for m in tar.getmembers() if m.isfile() and "/" in m.name)
     ergebnis["sdist_file_count"] = len(sdist)
@@ -491,8 +612,8 @@ def provenance_problems(ergebnis: dict) -> list:
 def measure_rows(artefakte: dict, main: str) -> list:
     wheel = artefakte["wheel_files"]
     sdist = set(artefakte["sdist_files"])
-    main_cli = _subcommands((_git_bytes(main, "src/proofbundle/cli.py") or b"").decode("utf-8"))
-    tag_cli = _subcommands((_git_bytes(TAG, "src/proofbundle/cli.py") or b"").decode("utf-8"))
+    main_cli = _subcommands_at(main)
+    tag_cli = _subcommands_at(TAG)
     main_ep = _entry_points_in_pyproject((_git_bytes(main, "pyproject.toml") or b"").decode("utf-8"))
     zeilen = []
     for cap in CAPABILITIES:

@@ -20,6 +20,13 @@ are rendered from that file by the same script; a test holds them to it.
   points are all found: in the wheel for the release column, at the main commit for the main column. A
   capability that lives only in the repository (the Rust verifier, the GitHub Action) is looked up at the
   tag and at main.
+- **Reading.** Each format is read by the reader its consumer uses, never by a pattern of its own. The console
+  subcommands are those of the parser the console script `proofbundle` builds when it runs: the wheel's, once its
+  digests and files have passed the checks above, and the tree's at a ref, each run in a fresh interpreter and
+  stopped at its first parse. `pyproject.toml` is read by a TOML parser, the wheel's `entry_points.txt` by
+  `importlib.metadata`, and the docs by a CommonMark parser, so text that renders into nothing (an HTML comment, an
+  HTML block, a link reference definition) is not read, and a label or a cited passage that holds an HTML element
+  stops the measurement. What one of these readers refuses stops it too.
 - **Label.** The project's own words for the capability are read at the tag and at main, from the file the
   row names (the predicate inventory, COMPATIBILITY.md, README.md, INTEGRATIONS.md, CHANGELOG.md or an ADR). A
   present capability whose label is not found stops the measurement; its status is then not measured. The same

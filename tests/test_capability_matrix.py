@@ -145,7 +145,8 @@ def _measure(cap: dict, *, wheel=(), sdist=(), tag=(), main=(), branch=()) -> di
     """The script's row for one capability, measured over refs held in memory instead of git.
 
     Each argument is what that place carries: repository paths (src/proofbundle/...), and "cli:<name>"
-    for a console subcommand. The wheel is given as package paths (proofbundle/...) and the sdist as
+    for a console subcommand (what `_subcommands_at` would find there by running the console
+    script). The wheel is given as package paths (proofbundle/...) and the sdist as
     repository paths, the way the script reads them. `branch` is the tree at the named branch's head.
     """
     modul = _load()
@@ -154,9 +155,6 @@ def _measure(cap: dict, *, wheel=(), sdist=(), tag=(), main=(), branch=()) -> di
     def git_bytes(ref: str, pfad: str):
         if pfad == "NOTES.md":
             return b"the x capability, stable\n"
-        if pfad == "src/proofbundle/cli.py":
-            return ("def build_parser():\n    pass\n" + "".join(
-                f'    sub.add_parser("{e[4:]}")\n' for e in sorted(orte[ref]) if e.startswith("cli:"))).encode()
         return b"" if pfad in orte[ref] else None
 
     def git(*args: str) -> str:
@@ -167,11 +165,32 @@ def _measure(cap: dict, *, wheel=(), sdist=(), tag=(), main=(), branch=()) -> di
         raise AssertionError(f"a git call the fixture does not serve: {args}")
 
     modul._git_bytes, modul._git = git_bytes, git
+    # the console subcommands a run of the console script finds there, held in memory as the rest
+    modul._subcommands_at = lambda ref: {e[4:] for e in orte[ref] if e.startswith("cli:")}
     modul.CAPABILITIES = [dict(cap, label=[("NOTES.md", r"(the x capability[^\n]*)")])]
     artefakte = {"wheel_files": {p: "0" * 64 for p in wheel if not p.startswith("cli:")},
                  "wheel_subcommands": sorted(p[4:] for p in wheel if p.startswith("cli:")),
                  "wheel_entry_points": [], "sdist_files": sorted(sdist)}
     return modul.measure_rows(artefakte, _MAIN)[0]
+
+
+def _cli(rumpf: str, *, kopf: str = "", fuss: str = "") -> str:
+    """A cli.py whose build_parser registers on `sub` what `rumpf` does, and whose main parses with the parser
+    build_parser gives when main runs. `kopf` stands before build_parser, `fuss` after it."""
+    return ("import argparse\n" + kopf + "\n\ndef build_parser():\n"
+            "    p = argparse.ArgumentParser(prog='proofbundle')\n"
+            "    sub = p.add_subparsers(dest='command')\n" + rumpf + "    return p\n" + fuss
+            + "\n\ndef main(argv=None):\n    return build_parser().parse_args(argv)\n")
+
+
+def _unterbefehle(modul, quelle: str, ziel: str = "proofbundle.cli:main") -> set:
+    """What `modul` measures by running the console script `ziel` of a package tree whose cli.py is `quelle`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        paket = Path(tmp) / "proofbundle"
+        paket.mkdir()
+        (paket / "__init__.py").write_text("", encoding="utf-8")
+        (paket / "cli.py").write_text(quelle, encoding="utf-8")
+        return modul._subcommands_in_tree(Path(tmp), ziel)
 
 
 class MainOnlyIsAbsentFromEveryReleaseArtifact(unittest.TestCase):
@@ -433,18 +452,20 @@ class WhatIsReadIsReadByItsMeaning(unittest.TestCase):
         self.assertTrue([a for a in diffs if f"commit of {name}" in a], aufrufe)
         self.assertFalse([x for a in aufrufe for x in a if x.startswith("--output")], aufrufe)
 
-    def test_a_subcommand_is_a_registration_call_not_its_text(self) -> None:
-        """Thread 4220770815: a pattern over the text found a commented-out registration."""
+    def test_a_subcommand_is_one_the_console_script_registers_not_its_text(self) -> None:
+        """Thread 4220770815: a pattern over the text found a commented-out registration. The subcommands are those of
+        the parser the console script builds when it runs (thread 4222126486), so a comment, a string and a nested
+        parser's registration are none, and a source that does not even parse stops the measurement."""
         modul = _load()
-        quelle = ('def build_parser():\n'
-                  '    # sub.add_parser("decision") was removed\n'
-                  '    hinweis = \'sub.add_parser("outcome")\'\n'
-                  '    sub.add_parser("verify", help="x")\n'
-                  '    other.add_parser("nested")\n')
-        self.assertEqual(modul._subcommands(quelle), {"verify"})
-        self.assertEqual(modul._subcommands(""), set(), "control: no cli.py gives no subcommand")
-        with self.assertRaisesRegex(SystemExit, "does not parse"):
-            modul._subcommands("sub.add_parser(\"verify\"\n")
+        quelle = _cli('    # sub.add_parser("decision") was removed\n'
+                      '    hinweis = \'sub.add_parser("outcome")\'\n'
+                      '    sub.add_parser("verify", help="x")\n'
+                      '    sub.add_parser("policy").add_subparsers().add_parser("nested")\n')
+        self.assertEqual(_unterbefehle(modul, quelle), {"verify", "policy"})
+        with self.assertRaisesRegex(SystemExit, "does not run here"):
+            _unterbefehle(modul, 'sub.add_parser("verify"\n')
+        modul._git_bytes = lambda ref, pfad: b'[project]\nname = "x"\n' if pfad == "pyproject.toml" else None
+        self.assertEqual(modul._subcommands_at("r"), set(), "control: no console script gives no subcommand")
 
     def test_a_label_that_negates_experimental_is_not_experimental(self) -> None:
         """Thread 4220770827: the keyword alone was read, so a graduation note reversed the status."""
@@ -464,43 +485,36 @@ class WhatIsReadIsReadByItsMeaning(unittest.TestCase):
 class WhatAStaticReadingCannotDecideStops(unittest.TestCase):
     """Round eight of Codex on pull request 304: each reader read a spelling, and what it cannot read now stops."""
 
-    def test_a_computed_or_guarded_registration_stops_the_measurement(self) -> None:
-        """Thread 4221179837: `if False:` above a registration counted it, and a computed name was dropped."""
+    def test_a_computed_or_guarded_registration_is_read_as_it_runs(self) -> None:
+        """Thread 4221179837: `if False:` above a registration counted it, and a computed name was dropped. Read by
+        running the console script (thread 4222126486), a branch not taken registers nothing and a computed name is
+        the name it computes."""
         modul = _load()
-        for quelle in ('if False:\n    sub.add_parser("decision")\n',
-                       'name = "decision"\nsub.add_parser(name)\n',
-                       'x = sub.add_parser("decision") if 0 else None\n',
-                       'while False:\n    sub.add_parser("decision")\n'):
-            with self.subTest(source=quelle), self.assertRaisesRegex(SystemExit, "not measured"):
-                modul._subcommands(quelle)
-        self.assertEqual(modul._subcommands('def build_parser():\n    if args.x:\n        pass\n'
-                                            '    sub.add_parser("verify")\n'), {"verify"},
-                         "control: a registration after a branch, not under it, is read")
+        for rumpf, erwartet in (('    if False:\n        sub.add_parser("decision")\n', set()),
+                                ('    name = "decision"\n    sub.add_parser(name)\n', {"decision"}),
+                                ('    x = sub.add_parser("decision") if 0 else None\n', set()),
+                                ('    while False:\n        sub.add_parser("decision")\n', set()),
+                                ('    if True:\n        sub.add_parser("decision")\n', {"decision"})):
+            with self.subTest(source=rumpf):
+                self.assertEqual(_unterbefehle(modul, _cli(rumpf)), erwartet)
 
-    def test_only_an_unconditional_registration_of_build_parser_counts(self) -> None:
-        """Thread 4221639819: `if enabled:` above a registration counted, since only a constant condition stopped it,
-        and a registration in a function nobody calls counted too. Only a statement of build_parser's own body, under
-        no branch, loop, try or with, is read; anything else stops the measurement."""
+    def test_only_what_the_parser_registers_when_main_runs_counts(self) -> None:
+        """Thread 4221639819: `if enabled:` above a registration counted whatever enabled was, and a registration in a
+        function nobody calls counted too. Run, a branch counts when it is taken, a loop for what it loops over, and a
+        function nobody calls registers nothing; a source that fails when it runs stops the measurement."""
         modul = _load()
-        for quelle in ('def build_parser():\n    if enabled:\n        sub.add_parser("decision")\n',
-                       'def build_parser():\n    for n in names:\n        sub.add_parser("decision")\n',
-                       'def build_parser():\n    try:\n        sub.add_parser("decision")\n    except E:\n        pass\n',
-                       'def other():\n    sub.add_parser("decision")\n',
-                       'sub.add_parser("decision")\n'):
-            with self.subTest(source=quelle), self.assertRaisesRegex(SystemExit, "not measured"):
-                modul._subcommands(quelle)
-
-    def test_toml_forms_with_comments_and_dotted_keys_are_read_or_stop(self) -> None:
-        """Thread 4221639830: a table header with a trailing comment was skipped, so its entry points read as absent;
-        a dotted key at the root and a quoted scripts key were skipped as well."""
-        modul = _load()
-        self.assertEqual(modul._entry_points_in_pyproject(
-            '[project.entry-points.inspect_ai] # active\nproofbundle = "x"\n'), {"inspect_ai:proofbundle"})
-        for form in ('project.entry-points.inspect_ai.proofbundle = "x"\n',
-                     '[project]\n"scripts".proofbundle = "x"\n',
-                     "[project]\n'entry-points'.inspect_ai.proofbundle = 'x'\n"):
-            with self.subTest(form=form), self.assertRaisesRegex(SystemExit, "not measured"):
-                modul._entry_points_in_pyproject(form)
+        for kopf, rumpf, fuss, erwartet in (
+                ("ENABLED = False", '    if ENABLED:\n        sub.add_parser("decision")\n', "", set()),
+                ("ENABLED = True", '    if ENABLED:\n        sub.add_parser("decision")\n', "", {"decision"}),
+                ('NAMES = ["decision", "outcome"]', '    for n in NAMES:\n        sub.add_parser(n)\n', "",
+                 {"decision", "outcome"}),
+                ("", '    try:\n        sub.add_parser("decision")\n    except ValueError:\n        pass\n', "",
+                 {"decision"}),
+                ("", "", '\n\ndef other(sub):\n    sub.add_parser("decision")\n', set())):
+            with self.subTest(kopf=kopf, rumpf=rumpf, fuss=fuss):
+                self.assertEqual(_unterbefehle(modul, _cli(rumpf, kopf=kopf, fuss=fuss)), erwartet)
+        with self.assertRaisesRegex(SystemExit, "does not run here"):
+            _unterbefehle(modul, _cli('    sub.add_parser(UNDEFINED)\n'))
 
     def test_a_provider_or_label_inside_an_html_comment_is_not_read(self) -> None:
         """Thread 4221639836: a provider named only inside an HTML comment counted; the label reader read comments
@@ -528,24 +542,6 @@ class WhatAStaticReadingCannotDecideStops(unittest.TestCase):
         modul._git_bytes = lambda ref, pfad: b"the x capability\n```yaml\n- uses: x@v1\n```\n" if pfad == "NOTES.md" else None
         self.assertEqual(modul._documented_tag("v6.1.0", cap), "v1", "control: an active pin is read")
 
-    def test_entry_points_are_read_with_every_toml_key_spelling(self) -> None:
-        """Thread 4221179857: a single-quoted key was recorded with its quotes, and the release-present hook read as
-        absent from main. Every spelling of a key is read, and a form the reader does not read stops it."""
-        modul = _load()
-        for text in ("[project.entry-points.inspect_ai]\nproofbundle = 'proofbundle.inspect_hook'\n",
-                     "[project.entry-points.inspect_ai]\n'proofbundle' = 'proofbundle.inspect_hook'\n",
-                     '[project.entry-points."inspect_ai"]\n"proofbundle" = "proofbundle.inspect_hook"\n',
-                     "[ project . entry-points . 'inspect_ai' ]\nproofbundle = 'x'\n"):
-            with self.subTest(text=text):
-                self.assertEqual(modul._entry_points_in_pyproject(text), {"inspect_ai:proofbundle"})
-        self.assertEqual(modul._entry_points_in_pyproject('[project.scripts]\nproofbundle = "proofbundle.cli:main"\n'),
-                         {"console_scripts:proofbundle"})
-        for unlesbar in ('[project]\nentry-points.inspect_ai.proofbundle = "x"\n',
-                         '[project]\nscripts = {proofbundle = "x"}\n',
-                         '[project.entry-points]\ninspect_ai = {proofbundle = "x"}\n'):
-            with self.subTest(form=unlesbar), self.assertRaisesRegex(SystemExit, "not measured"):
-                modul._entry_points_in_pyproject(unlesbar)
-
     def test_a_provider_named_in_a_negated_sentence_stops_the_measurement(self) -> None:
         """Thread 4221179864: "Do not use actions/attest-build-provenance" counted as naming it as the provider."""
         modul = _load()
@@ -557,6 +553,120 @@ class WhatAStaticReadingCannotDecideStops(unittest.TestCase):
                 modul._names_provider("v6.1.0", cap)
         modul._git_bytes = lambda ref, pfad: b"the x capability\nProvenance comes from actions/attest.\n" if pfad == "NOTES.md" else None
         self.assertTrue(modul._names_provider("v6.1.0", cap), "control: a plain naming counts")
+
+
+class EveryFormatIsReadByTheReaderItsConsumerUses(unittest.TestCase):
+    """Round ten of Codex on pull request 304: four more spellings a hand reader took for what its format says. The
+    console subcommands are read by running the console script, pyproject.toml by a TOML parser, entry_points.txt by
+    importlib.metadata and the docs by a CommonMark parser, and what such a reader refuses stops the measurement."""
+
+    def test_the_build_parser_main_calls_is_the_one_measured(self) -> None:
+        """Thread 4222126486: a registration in a build_parser under `if False:` counted, although main calls a later
+        one that registers nothing; a second definition and a later assignment are its siblings. A main that parses
+        nothing, and a console script whose module is not the tree's, stop the measurement."""
+        modul = _load()
+        tot = ('\nif False:\n    def build_parser():\n        p = argparse.ArgumentParser()\n'
+               '        p.add_subparsers().add_parser("decision")\n        return p\n')
+        frueher = ('\ndef build_parser():\n    p = argparse.ArgumentParser()\n'
+                   '    p.add_subparsers().add_parser("decision")\n    return p\n')
+        spaeter = ('\n\ndef _andere():\n    p = argparse.ArgumentParser()\n'
+                   '    p.add_subparsers().add_parser("outcome")\n    return p\n\n\nbuild_parser = _andere\n')
+        for fall, quelle, erwartet in (("a definition under if False", _cli('    sub.add_parser("verify")\n', kopf=tot),
+                                        {"verify"}),
+                                       ("an earlier definition", _cli('    sub.add_parser("verify")\n', kopf=frueher),
+                                        {"verify"}),
+                                       ("a later assignment", _cli('    sub.add_parser("verify")\n', fuss=spaeter),
+                                        {"outcome"})):
+            with self.subTest(fall):
+                self.assertEqual(_unterbefehle(modul, quelle), erwartet)
+        with self.assertRaisesRegex(SystemExit, "parsed no arguments"):
+            _unterbefehle(modul, "def main():\n    return 0\n")
+        with self.assertRaisesRegex(SystemExit, "outside the tree"):
+            _unterbefehle(modul, _cli(""), ziel="json:dumps")
+
+    def test_pyproject_toml_is_read_by_a_toml_parser(self) -> None:
+        """Threads 4221179857 and 4221639830 found spellings a hand reader missed, and round ten two more: a comment
+        holding a bracket after a table header (4222126499) and a key with no value (4222126493). Every form the build
+        reads is read, and a document or a declaration the build refuses stops the measurement."""
+        modul = _load()
+        ins, kon = {"inspect_ai:proofbundle"}, {"console_scripts:proofbundle"}
+        for text, erwartet in (('[project.entry-points.inspect_ai] # active\nproofbundle = "x"\n', ins),
+                               ('[project.entry-points.inspect_ai] # [active]\nproofbundle = "x"\n', ins),
+                               ("[project.entry-points.inspect_ai]\n'proofbundle' = 'x'\n", ins),
+                               ('[project.entry-points."inspect_ai"]\n"proofbundle" = "x"\n', ins),
+                               ("[ project . entry-points . 'inspect_ai' ]\nproofbundle = 'x'\n", ins),
+                               ('project.entry-points.inspect_ai.proofbundle = "x"\n', ins),
+                               ("[project]\n'entry-points'.inspect_ai.proofbundle = 'x'\n", ins),
+                               ('[project.entry-points]\ninspect_ai = {proofbundle = "x"}\n', ins),
+                               ('[project]\n"scripts".proofbundle = "x"\n', kon),
+                               ('[project]\nscripts = {proofbundle = "x"}\n', kon),
+                               ('[project.scripts] # [x]\nproofbundle = "proofbundle.cli:main"\n', kon),
+                               ('[project.gui-scripts]\npb = "x:y"\n', {"gui_scripts:pb"}),
+                               ("", set())):
+            with self.subTest(text=text):
+                self.assertEqual(modul._entry_points_in_pyproject(text), erwartet)
+        for text in ("[project.entry-points.inspect_ai]\nproofbundle = # removed\n",
+                     '[project.entry-points.inspect_ai]\nproofbundle = "x"\nproofbundle = "y"\n',
+                     "[project.entry-points.inspect_ai]\nproofbundle = 1\n",
+                     '[project]\ndynamic = ["entry-points"]\n',
+                     '[project.entry-points.console_scripts]\nproofbundle = "x"\n',
+                     "project = 1\n"):
+            with self.subTest(refused=text), self.assertRaisesRegex(SystemExit, "not measured"):
+                modul._entry_points_in_pyproject(text)
+
+    def test_an_entry_points_file_is_read_as_importlib_metadata_reads_it(self) -> None:
+        """The wheel's entry_points.txt was read by a hand reader too, the sibling of the TOML reader; it is read as
+        the plugin loaders read it."""
+        modul = _load()
+        text = ("[console_scripts]\nproofbundle = proofbundle.cli:main\n\n# commented = out\n"
+                "[pytest11]\n  proofbundle = proofbundle.pytest_plugin\n")
+        self.assertEqual(modul._entry_points(text), {"console_scripts:proofbundle", "pytest11:proofbundle"})
+
+    _CAP = {"id": "x", "provider": "actions/attest", "git_tag_from": r"uses: x@(\S+)",
+            "label": [("NOTES.md", r"(the x capability[^\n]*)")]}
+
+    def _modul(self, text: str):
+        modul = _load()
+        modul._git_bytes = lambda ref, pfad: text.encode() if pfad == "NOTES.md" else None
+        return modul
+
+    def test_a_reference_definition_is_hidden_where_commonmark_takes_it_for_one(self) -> None:
+        """Thread 4222126509: a link reference definition renders into nothing, and a provider named only there
+        counted. CommonMark takes a definition before a paragraph for one; after a line of a paragraph it cannot
+        interrupt it and is paragraph text, which renders. A label or a pin only in a definition is none either."""
+        self.assertFalse(self._modul("[unused]: https://github.com/actions/attest\nthe x capability\n")
+                         ._names_provider("r", self._CAP))
+        self.assertTrue(self._modul("the x capability\n[unused]: https://github.com/actions/attest\n")
+                        ._names_provider("r", self._CAP), "control: the same line inside the paragraph renders")
+        self.assertEqual(self._modul("[the x capability, stable]: https://example.org\n")._label_at(
+            "r", self._CAP["label"]), (None, None))
+        with self.assertRaisesRegex(SystemExit, "pins no tag"):
+            self._modul("[uses: x@v1]: https://example.org\nthe x capability\n")._documented_tag("r", self._CAP)
+
+    def test_the_cited_passage_is_the_blocks_commonmark_renders(self) -> None:
+        """The passage was found by lines of three backticks, the sibling reader of the same class: a fence of tildes,
+        a fence of four backticks that holds a line of three and an indented code block are code blocks of the passage
+        as they render; a paragraph after them ends it."""
+        for text, erwartet in (("the x capability\n\n~~~yaml\n- uses: x@v1\n~~~\n", "v1"),
+                               ("the x capability\n\n````md\n```\nnot the end\n```\n- uses: x@v2\n````\n", "v2"),
+                               ("the x capability\n\n    - uses: x@v3\n", "v3"),
+                               ("the x capability\n\n```\n- uses: x@v4\n```\n\nThen - uses: x@v9\n", "v4")):
+            with self.subTest(text=text):
+                self.assertEqual(self._modul(text)._documented_tag("r", self._CAP), erwartet)
+
+    def test_an_html_element_in_the_cited_text_stops_the_measurement(self) -> None:
+        """What an element's attributes hide is not decided here: a label or a cited passage that holds an HTML element
+        stops the measurement. An HTML block elsewhere renders no text that is read and stops nothing."""
+        for text in ("the x capability\n<span hidden>Provenance from actions/attest.</span>\n",
+                     "the x capability <b>stable</b>\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(SystemExit, "HTML element"):
+                modul = self._modul(text)
+                modul._label_at("r", self._CAP["label"])
+                modul._names_provider("r", self._CAP)
+        anderswo = '<div align="center">\nactions/attest\n</div>\n\nthe x capability\nProvenance from actions/attest.\n'
+        self.assertTrue(self._modul(anderswo)._names_provider("r", self._CAP))
+        self.assertFalse(self._modul('<div align="center">\nactions/attest\n</div>\n\nthe x capability\n')
+                         ._names_provider("r", self._CAP), "control: the HTML block is not read")
 
 
 class FromElsewhereSaysWhatWasMeasured(unittest.TestCase):
@@ -578,13 +688,16 @@ class AFailedProvenanceCheckStopsTheMeasurement(unittest.TestCase):
     """Codex thread 4218719417: a SHA-256 that is not PyPI's, and wheel files that differ from the tag or are absent
     there, were recorded and the release column was derived from the local bytes all the same."""
 
-    def _artefakte(self, d: Path, *, pypi_digest=None, am_tag=b"print('cli')\n"):
+    _CLI = _cli('    sub.add_parser("verify")\n').encode()
+
+    def _artefakte(self, d: Path, *, pypi_digest=None, am_tag=_CLI):
         modul = _load()
-        cli = b"print('cli')\n"
         rad = d / "proofbundle-6.1.0-py3-none-any.whl"
         with zipfile.ZipFile(rad, "w") as z:
-            z.writestr("proofbundle/cli.py", cli)
-            z.writestr("proofbundle-6.1.0.dist-info/entry_points.txt", "[console_scripts]\nproofbundle = x\n")
+            z.writestr("proofbundle/__init__.py", b"")
+            z.writestr("proofbundle/cli.py", self._CLI)
+            z.writestr("proofbundle-6.1.0.dist-info/entry_points.txt",
+                       "[console_scripts]\nproofbundle = proofbundle.cli:main\n")
         sdist = d / "proofbundle-6.1.0.tar.gz"
         with tarfile.open(sdist, "w:gz") as t:
             info = tarfile.TarInfo("proofbundle-6.1.0/README.md")
@@ -596,7 +709,8 @@ class AFailedProvenanceCheckStopsTheMeasurement(unittest.TestCase):
             urls.append({"filename": datei.name, "packagetype": art, "url": "https://example.invalid/" + datei.name,
                          "upload_time_iso_8601": "2026-09-27T00:00:00Z",
                          "digests": {"sha256": (pypi_digest or {}).get(art, digest)}})
-        modul._git_bytes = lambda ref, pfad: am_tag if pfad == "src/proofbundle/cli.py" else None
+        am_tag_dateien = {"src/proofbundle/cli.py": am_tag, "src/proofbundle/__init__.py": b""}
+        modul._git_bytes = lambda ref, pfad: am_tag_dateien.get(pfad)
         return modul, {"urls": urls}
 
     def test_consistent_artifacts_are_measured(self) -> None:
@@ -604,7 +718,10 @@ class AFailedProvenanceCheckStopsTheMeasurement(unittest.TestCase):
             modul, pypi = self._artefakte(Path(tmp))
             ergebnis = modul.measure_artifacts(Path(tmp), pypi)
             self.assertEqual(modul.provenance_problems(ergebnis), [])
-            self.assertEqual(ergebnis["wheel_against_tag"], {"identical": 1, "different": [], "absent_at_tag": []})
+            self.assertEqual(ergebnis["wheel_against_tag"], {"identical": 2, "different": [], "absent_at_tag": []})
+            # the wheel's console script was run, after its provenance held, and its parser read
+            self.assertEqual(ergebnis["wheel_subcommands"], ["verify"])
+            self.assertEqual(ergebnis["wheel_entry_points"], ["console_scripts:proofbundle"])
 
     def test_each_failed_check_stops_it(self) -> None:
         for fall, kwargs, wort in (("a wheel digest that is not PyPI's", {"pypi_digest": {"bdist_wheel": "0" * 64}},
