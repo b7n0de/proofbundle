@@ -361,12 +361,28 @@ def test_ein_lauf_in_der_sekunde_der_landung_zaehlt_nicht():
     assert s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
 
 
-def test_die_grenze_ist_streng_an_der_landung_und_offen_am_eigenen_lauf():
+def test_die_grenze_ist_streng_an_der_landung_und_am_eigenen_lauf():
+    """Codex thread 4220239573 on pull request 310: a run created exactly SKEW_S before this landung run, by the
+    second marks, may be up to one second older and was counted. Both floors are strict."""
     s = _skript()
     t = s._instant("2026-01-02T00:00:00Z")
     eine = s.dt.timedelta(seconds=1)
     assert not s.counts(t, t, None) and s.counts(t + eine, t, None)
-    assert s.counts(t + eine, t, t + eine) and not s.counts(t + eine, t, t + 2 * eine)
+    assert not s.counts(t + eine, t, t + eine) and s.counts(t + 2 * eine, t, t + eine)
+
+
+def test_ein_lauf_genau_skew_s_vor_dem_eigenen_zaehlt_nicht():
+    """The same boundary through main, on reopened: the previous run created exactly SKEW_S before this run is not
+    read; one created a second later is."""
+    s = _skript()
+    for sekunden, erwartet, schlaf in ((s.SKEW_S, 1, None), (s.SKEW_S - 1, 0, 0)):
+        alt = dict(LAUF, created_at=(s._instant("2026-01-03T00:00:00Z") - s.dt.timedelta(seconds=sekunden))
+                   .strftime("%Y-%m-%dT%H:%M:%SZ"))
+        api = _FalscheApi([[alt]] * 100, GRUEN, eigener="2026-01-03T00:00:00Z")
+        rc = s.main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=dict(ENV, EVENT_ACTION="reopened"))
+        assert rc == erwartet, (sekunden, rc)
+        if schlaf is not None:
+            assert api.schlaf == schlaf
 
 
 @pytest.mark.parametrize("aktivitaet", [[], [{"ref": "refs/heads/main", "after": "d" * 40, "timestamp": "2026-02-01T00:00:00Z"}],

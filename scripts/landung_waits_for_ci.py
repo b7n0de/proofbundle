@@ -37,7 +37,10 @@ a commit's own time (Codex on pull request 310, round five, P1): a merge commit 
 it, in the merge queue in particular, and a run between the two tested the old base. A landing that is not among
 the last `ACTIVITY_PAGE` entries of the activity is red: which run counts cannot be decided. Both times have one
 second of resolution, so a run created in the second the base landed is not known to have started after it and
-does not count: the run must be created in a LATER second (Codex on pull request 310, round six, P1).
+does not count: the run must be created in a LATER second (Codex on pull request 310, round six, P1). The same
+holds at the other floor: a run created exactly `SKEW_S` before this one, by the second marks, may be up to one
+second older than that and does not count; the run must be created in a later second than the floor (Codex
+thread 4220239573 on pull request 310). Not counting is the safe side: it waits for the new run.
 
 THREE OUTCOMES, AND ONLY ONE OF THEM STARTS THE LAYER. `green` when every needed job exists and
 succeeded. `red` as soon as one needed job finished with anything but success (skipped and cancelled
@@ -153,8 +156,9 @@ def landed_at(fetch, repo: str, base_ref: str, base: str, token) -> dt.datetime:
 
 def counts(created: dt.datetime, landed: dt.datetime, own_floor: "dt.datetime | None") -> bool:
     """Whether a ci.yml run created at `created` counts: strictly after the second the base landed, and, on a new
-    head, not before this landung run started, less SKEW_S."""
-    return created > landed and (own_floor is None or created >= own_floor)
+    head, strictly after the second this landung run started, less SKEW_S. Both bounds are strict because both
+    times have one second of resolution."""
+    return created > landed and (own_floor is None or created > own_floor)
 
 
 def floors(fetch, repo: str, base_ref: str, base: str, action: str, run_id: str, token):
