@@ -87,8 +87,11 @@ means none found in what the API returned then, and says nothing about writes th
 
 The pilot ends, with a written result, when all of these hold:
 
-1. every surface in scope has at least one action whose decision and outcome receipts verify offline with
-   the operator's two public keys, and whose reconciliation is recorded;
+1. every surface in scope that the repository's rules let an agent session write has at least one action
+   whose decision and outcome receipts verify offline with the operator's two public keys, and whose
+   reconciliation is recorded; a surface the rules forbid to agents (AGENTS.md forbids opening, marking ready,
+   approving and merging a pull request) needs no approved action and is covered by M5 and M6, where any agent
+   write found on it is a mismatch;
 2. every mismatch observed has a named class and a decision by the maintainer (change the gate, change the
    agent, change the rule, or accept);
 3. a person who was not part of the sessions reruns the reconciliation from the stored receipts and the
@@ -150,6 +153,7 @@ observation, or the named question cannot be answered.
 
 - How the gate exposes its verdict, and in which format: not known to this contract; the operator names it.
 - Whether writes made through an API client, rather than the command-line client, pass the same gate: not
-  known; if not, they are out of scope until they do, and the pilot says so in its result.
+  known. They stay in scope either way: a write that does not pass the gate has no decision receipt, so the
+  observer reports it under M5 as an unapproved effect, and the result says how many there were.
 - The observation window and how often the observer reads the API: the operator's choice, recorded with each
   run.

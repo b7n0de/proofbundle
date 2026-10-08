@@ -84,6 +84,26 @@ class ThePilotContract(unittest.TestCase):
         self.assertIn("For every proposed action the pilot keeps a signed decision receipt and, once GitHub shows "
                       "an effect of it, a signed outcome receipt, and joins them:", records)
 
+    def test_no_exit_criterion_needs_an_action_the_rules_forbid_to_agents(self) -> None:
+        """Codex thread 4122523782: criterion 1 asked for an approved action on every surface in scope, and merges are
+        in scope while AGENTS.md forbids agents to merge, so the pilot could never end. The criterion now counts only
+        the surfaces an agent may write and covers the forbidden ones through M5 and M6."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        self.assertIn("every surface in scope that the repository's rules let an agent session write", kriterien)
+        self.assertIn("needs no approved action and is covered by M5 and M6", kriterien)
+        self.assertNotIn("1. every surface in scope has at least one action", kriterien)
+
+    def test_no_write_leaves_the_scope_by_the_client_it_used(self) -> None:
+        """Codex thread 4122523796: section 10 put writes through an API client that skip the gate out of scope,
+        although section 2 names every write through the GitHub API. Such a write stays in scope and counts under
+        M5 as an unapproved effect."""
+        text = " ".join(_text().split())
+        offen = text[text.index("## 10. Open before the pilot starts"):]
+        self.assertNotIn("out of scope until they do", offen)
+        self.assertIn("They stay in scope either way", offen)
+        self.assertIn("reports it under M5 as an unapproved effect", offen)
+
     def test_the_first_example_keeps_what_was_not_measured_apart(self) -> None:
         text = _text()
         beispiel = text[text.index("## 9. First reconciliation example"):text.index("## 10.")]
