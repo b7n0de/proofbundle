@@ -44,8 +44,8 @@ import hashlib
 from typing import Callable, Optional
 
 from .budget import render_keys_safe, render_safe
-from .canonical import (_abbild_von, _bytes_von, _feld_von, _folge_von, _plain_for_jcs, _puffer_von,
-                        _zeichen_von)
+from .canonical import (_abbild_stand, _abbild_von, _bytes_von, _draussen, _ein_stand, _feld_von, _folge_von,
+                        _plain_for_jcs, _puffer_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from ._membership import is_member, require_switch, stored_str_items
 from ._membership import type_name as _type_name  # the parameter of register_anchor_type is type_name
@@ -161,6 +161,7 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
+@_ein_stand(aussen={"verifier": "rueckruf"})
 def register_anchor_type(type_name: str, verifier: Callable) -> None:
     """Register a verifier for an anchor ``type``. A third party ships its own type this way (see
     docs/ANCHORS.md). The verifier MUST be fail-closed: return ``{"ok": False, ...}`` on any doubt,
@@ -181,6 +182,7 @@ def register_anchor_type(type_name: str, verifier: Callable) -> None:
     _VERIFIERS[type_name] = verifier
 
 
+@_ein_stand
 def registered_anchor_types() -> tuple:
     _ensure_builtin_types()
     return tuple(sorted(_VERIFIERS))
@@ -222,6 +224,7 @@ def _b64d(value, field: str) -> bytes:
         raise BundleFormatError(f"anchor {field} is not valid base64") from exc
 
 
+@_ein_stand
 @_refuse_unreadable_input
 def receipt_canonical_root(bundle: dict) -> bytes:
     """The RFC 8785 (JCS) sha256 of the receipt bundle — the canonical root a ``receipt`` anchor stamps.
@@ -259,6 +262,7 @@ def receipt_canonical_root(bundle: dict) -> bytes:
             f"receipt is not RFC 8785 canonicalizable (fail-closed): {exc}") from exc
 
 
+@_ein_stand
 def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
     """The canonical root a ``preRegistration`` anchor stamps: the sha256 (raw bytes) of the eval
     protocol file, i.e. the receipt's ``prereg_sha256``."""
@@ -275,6 +279,7 @@ def prereg_canonical_root(prereg_sha256_hex: str) -> bytes:
         raise BundleFormatError("prereg_sha256 is not valid hex") from exc
 
 
+@_ein_stand
 def statement_content_root(payload_bytes: bytes) -> bytes:
     """The content root a ``statement`` anchor stamps: SHA-256 over the EXACT DSSE payload bytes of an
     in-toto Statement (for a decision receipt, the RFC 8785 canonical statement bytes as signed).
@@ -311,9 +316,11 @@ def _call_verifier(fn: Callable, proof: bytes, canonical_root: bytes, *,
             kw["rp_trust"] = rp_trust
     except (ValueError, TypeError):   # a builtin/C callable with no introspectable signature
         pass
-    return fn(proof, canonical_root, **kw)
+    with _draussen():   # the verifier is the caller's code (`canonical._draussen`)
+        return fn(proof, canonical_root, **kw)
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 @_refuse_unreadable_input
 def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None,
                   rp_trust: Optional[dict] = None) -> dict:
@@ -339,7 +346,10 @@ def _wurzeln_lesen(target_roots) -> dict:
     gate at 7409b123, L1-620v2-T3-01). ``_feld_von`` reads what the dict stores and ``_puffer_von`` copies the bytes
     a root holds, so a verifier run for one anchor cannot move the root the next anchor is compared with. A target
     that is absent is absent here; a root that is no bytes-like value is `_KEIN_PUFFER`, which matches nothing, as
-    the comparison with ``None`` did before."""
+    the comparison with ``None`` did before. The three targets come from the one reading of the call
+    (`canonical._stand`), so a gc callback of the caller cannot pair the root of one target from before a change with
+    the root of another from after it (the class of L4-620v5-T5-SECOND-READING-01), up to a change made and undone
+    between the two reads of that reading (the ABA case, R620-ABA-1 in RESTRISIKO_620.md)."""
     wurzeln: dict = {}
     for ziel in ANCHOR_TARGETS:
         wert = _feld_von(target_roots, ziel)
@@ -428,9 +438,13 @@ def _eintrag_pruefen(anchor: dict, *, wurzeln: dict, now: Optional[int], rp_trus
     _frozen = anchor.get("frozen")
     if not isinstance(_frozen, dict):
         _frozen = {}
+    # A registered verifier is the caller's code: it gets its own copy of `frozen` and `rp_trust`, so what it does to
+    # them reaches no other reading of this call, and its result is read where it returns by the one reading
+    # (`canonical._stand`, up to the limit it names), so what it does to that result after it returned reaches nothing
+    # either (verify lane V2 on 6d674973: a value a caller's callable returns is a caller's value too).
     try:
-        res = _call_verifier(pruefer[atype], proof, canonical_root,
-                             frozen=_frozen, now=now, rp_trust=rp_trust)
+        res = _stand(_call_verifier(pruefer[atype], proof, canonical_root,
+                                    frozen=_stand(_frozen), now=now, rp_trust=_stand(rp_trust)))
     except Exception as exc:   # a verifier must be fail-closed; if it raises, treat as FAIL, never pass
         out["detail"] = f"anchor verifier error (fail-closed): {exc}"
         return out
@@ -474,6 +488,7 @@ def _eintrag_pruefen(anchor: dict, *, wurzeln: dict, now: Optional[int], rp_trus
     return out
 
 
+@_ein_stand(rp_trust=_abbild_stand)
 @_refuse_unreadable_input
 def verify_anchors(anchors, *, target_roots: dict, require: Optional[str] = None,
                    require_target: Optional[str] = None,
@@ -552,7 +567,16 @@ def _anker_lesen(anchors, rp_trust) -> tuple:
     THE REGISTRY IS READ HERE TOO (verify lens on the cross-check fix at bc3d275f, 2026-09-29): it was copied in
     `_anker_urteil`, which the decision verifier runs after the evidence resolver, so a resolver that called
     `register_anchor_type` for the anchor's type turned a failing anchor into a verifying one and ``ok`` and
-    ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran."""
+    ``safeForAutomation`` True. The registry a verdict uses is the one that stood before any caller code ran.
+
+    ALL OF IT IS ONE READING (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the entries
+    were copied one after another, and a gc callback of the caller that rewrote two of them while the copy was
+    between them gave a list the caller never held. Both callers read their arguments in one reading at their call
+    (`canonical._stand`), and this reads that copy. The closed type boundary keeps unsupported values from being
+    handed on as objects of the caller. It does not yet prove a joint state of mutable inputs. That needs a separate
+    proof, in particular for ABA between two reads: measured on 2026-10-01, a gc callback that changed two entries at
+    the reads of the two collects gave `verify_anchors` PASS over a list that never held two good entries
+    (R620-ABA-1 in RESTRISIKO_620.md)."""
     if anchors is None:
         return [], None, None
     if not issubclass(type(anchors), list):
@@ -562,8 +586,9 @@ def _anker_lesen(anchors, rp_trust) -> tuple:
     if eintraege and rp_trust is not None:
         rp_kopie = _abbild_von(rp_trust)
         if rp_kopie is None:
-            raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type {_type_name(rp_trust)} "
-                                    "or one holding a value that is no JSON value (fail-closed)")
+            raise BundleFormatError(f"rp_trust must be a JSON object, got a value of type "
+                                    f"{_type_name(rp_trust)} or one holding a value that is no JSON value "
+                                    "(fail-closed)")
     pruefer = None
     if eintraege:
         _ensure_builtin_types()

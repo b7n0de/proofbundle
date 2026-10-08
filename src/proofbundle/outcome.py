@@ -23,8 +23,8 @@ from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict
 from .assurance import _is_key_material
-from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _plain_for_jcs, _pruefkopie,
-                        _richtlinie_von, _zeichen_von)
+from .canonical import (_FEHLT, _abschnitt_von, _bytes_von, _draussen, _ein_stand, _eine_kopie, _plain_for_jcs,
+                        _pruefkopie, _richtlinie_von, _stand, _zeichen_von)
 from .errors import BundleFormatError, ProofBundleError
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch
@@ -89,6 +89,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return a list of fail-closed errors for an ``action-outcome/v0.1`` predicate (empty = valid).
 
@@ -221,6 +222,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
     return errors
 
 
+@_ein_stand
 def require_valid_outcome_predicate(predicate: Any, *, strict: bool = False) -> None:
     """Raise :class:`OutcomeReceiptError` if the predicate is invalid; return ``None`` if valid."""
     errs = validate_outcome_predicate(predicate, strict=strict)
@@ -228,6 +230,7 @@ def require_valid_outcome_predicate(predicate: Any, *, strict: bool = False) -> 
         raise OutcomeReceiptError("invalid action-outcome predicate: " + "; ".join(errs))
 
 
+@_ein_stand
 def outcome_execution_proven(predicate: Any) -> bool | None:
     """Whether ``status == executed`` is backed by a digest of what was actually done/effected.
 
@@ -245,6 +248,7 @@ def outcome_execution_proven(predicate: Any) -> bool | None:
 _OUTCOME_EXECUTOR_ROLE = "outcomeExecutors"
 
 
+@_ein_stand
 def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool:
     """True iff ``trust_pack.keys[key_id].publicKey`` decodes to exactly ``public_key`` — the 32 raw
     Ed25519 bytes the receipt was VERIFIED under. Deep gate 2026-09-05, finding L1-600-02 (P2, fail-open):
@@ -311,6 +315,7 @@ def _widerrufen(trust_pack: dict, key_id: str) -> bool:
     return key_id in revoked
 
 
+@_ein_stand
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
     """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
     revoked and — when ``public_key`` (the 32 raw Ed25519 bytes the receipt was verified under) is
@@ -322,6 +327,12 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
     check only (a label check); ``verify_outcome_receipt`` always passes the signing key, so the role
     verdict it reports is bound to the key that signed, never to a self-declared keyId (deep gate
     2026-09-05, L1-600-02).
+
+    N43 (security-fix 6.2.0): this function reports ROLE MEMBERSHIP, which is NOT trust. A genesis pack
+    self-authenticates with no relying-party input, so membership alone must never read as trusted.
+    ``verify_outcome_receipt`` reports ``executor_role_trusted`` True only when, in addition to this
+    membership + key-binding, the pack is bound to a relying-party ANCHOR (``trust_pack.trust_pack_is_pinned``
+    is True). A caller using this helper directly must apply the same gate.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``executor.keyId``, a revoked key, or a
     keyId whose pack key material is absent or differs from the signing key are all False — never a
@@ -352,14 +363,17 @@ def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any
 # receipt cannot close from inside proofbundle alone is producing an independent receiver signature —
 # whether a downstream/receiving system is willing to sign an acknowledgement is ecosystem adoption outside
 # this repo's control (SOTA motivation: Notarized Agents arXiv:2606.04193, Proof of Execution
-# arXiv:2607.05397). What IS self-fixable and built here: the CAPABILITY to carry + verify such a receiver's
+# arXiv:2607.05397). What IS self-fixable and built here: the CAPABILITY to CARRY such a receiver's
 # corroboration once it exists — a `receiverRefs[]` field (digest-bound exactly like decision.py's
 # `evidenceRefs[]`), an `outcomeReceivers` Trust Pack role (mirrors `outcomeExecutors`) analogous to
-# `executor_trusted_by_role`, and wiring into `assurance.classify_receiver_corroboration` so a genuinely
-# independent, cryptographically verified corroboration reaches `EvidenceLevel.INDEPENDENTLY_ATTESTED` — see
-# `verify_outcome_receipt`'s `receiver_attestation_resolver` parameter. `EvidenceLevel.EFFECT_OBSERVED`
-# stays honestly unreachable (see `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver
-# receipt is a RECEIPT about the effect, never a live observation of the real-world effect itself.
+# `executor_trusted_by_role`, and wiring into `assurance.classify_receiver_corroboration`. VERIFYING the
+# referenced receiver statement is NOT built in 6.2.0: a resolver answer does not reach
+# `EvidenceLevel.INDEPENDENTLY_ATTESTED` (N47 — see `assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED`), which
+# stays honestly unreachable here, and `verify_outcome_receipt` never reports `receiver_role_trusted` True
+# from a resolver answer; the verified path (statement + digest + signature) comes after the tag.
+# `EvidenceLevel.EFFECT_OBSERVED` stays honestly unreachable too (see
+# `assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED`) — even a signed receiver receipt is a RECEIPT about the
+# effect, never a live observation of the real-world effect itself.
 _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
 
 #: The expected receiver key for a pack entry that holds no usable key: plain bytes no 32-byte signer key equals,
@@ -367,12 +381,18 @@ _OUTCOME_RECEIVER_ROLE = "outcomeReceivers"
 _KEIN_NUTZBARER_SCHLUESSEL = b""
 
 
+@_ein_stand
 def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     """True iff ``receiver_key_id`` (a ``receiverRefs[]`` entry's ``receiverKeyId``) is a non-revoked member
     of ``trust_pack``'s ``outcomeReceivers`` role (Finding 16, mirrors :func:`executor_trusted_by_role`
     exactly). ``trust_pack`` MUST be the PREDICATE of an ALREADY-authenticated Trust Pack — same caller
     contract as ``executor_trusted_by_role``: this function checks ROLE MEMBERSHIP only, it never re-derives
-    trust in the pack itself.
+    trust in the pack itself. This function returns role MEMBERSHIP (True/False) only; it is NOT the
+    ``receiver_role_trusted`` verdict of :func:`verify_outcome_receipt`. N43 (security-fix 6.2.0): membership is
+    not trust — a positive verdict would also require the pack to be bound to a relying-party anchor
+    (``trust_pack.trust_pack_is_pinned`` is True). N47 (6.2.0): and even then ``verify_outcome_receipt`` never
+    reports ``receiver_role_trusted`` True from a resolver answer — it is at most ``None``/``False`` until the
+    verified receiver path (statement + digest + signature) lands after the tag.
 
     Fail-closed: a missing/malformed role, a missing/malformed ``receiver_key_id``, or a revoked key are all
     False — never a silent pass. Never raises on malformed input. The key id must be a plain ``str``
@@ -391,6 +411,7 @@ def receiver_trusted_by_role(receiver_key_id: Any, trust_pack: dict) -> bool:
     return True
 
 
+@_ein_stand
 def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
                          artifact_bytes: bytes | None = None) -> dict:
     """Offline check of one ``receiverRefs[]`` entry against resolved evidence (no network) — Finding 16,
@@ -429,6 +450,7 @@ def resolve_receiver_ref(ref: dict, *, receiver_payload: bytes | None = None,
     return out
 
 
+@_ein_stand
 def detect_outcome_sequence_gaps(predicates) -> dict:
     """Best-effort gap detection across a set of outcome predicates that share an executor + ``sequence.runId``
     (Finding 16, additive) — a way to spot a SUPPRESSED outcome: an executor who silently omits emitting a
@@ -508,6 +530,7 @@ def _predicate_once(predicate):
                       error=lambda m: OutcomeReceiptError(f"invalid action-outcome predicate: {m}"))
 
 
+@_ein_stand
 def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
                             subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Outcome Receipt. The subject is by DEFAULT
@@ -528,6 +551,7 @@ def build_outcome_statement(predicate: dict, *, subject_name: str | None = None,
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_outcome_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                          subject_sha256: str | None = None, keyid: str | None = None,
                          strict: bool = True) -> dict:
@@ -588,6 +612,56 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+def _trust_pack_predicate_digest(predicate: Any) -> "str | None":
+    """N45 (security-fix 6.2.0, nachbesserung to N43): the content root ``sha256(JCS(predicate))`` of the
+    trust-pack PREDICATE passed to ``verify_outcome_receipt`` — the exact value ``trust_pack_is_pinned``'s
+    genesis anchor compares and ``build_trust_pack_statement`` writes as the subject digest. None when it cannot
+    be canonicalised (no RFC-8785), so a binding comparison fails closed rather than guessing."""
+    from .trust_pack import _rfc8785_bytes  # noqa: PLC0415
+    try:
+        return hashlib.sha256(_rfc8785_bytes(predicate)).hexdigest()
+    except Exception:  # noqa: BLE001 — cannot canonicalise ⇒ no digest to bind against (fail-closed)
+        return None
+
+
+def _trust_pack_digest_eq(forwarded: Any, pred_digest: "str | None") -> bool:
+    """N45: exact equality of a forwarded content digest with this predicate's digest, fail-closed. Both must be
+    non-empty ``str`` (a forwarded digest of any other type, or a missing predicate digest, never matches). The
+    values are PUBLIC content roots, so plain equality is the correct test; the type guards make a non-str
+    forwarded value a non-match instead of a raise."""
+    return (type(forwarded) is str and type(pred_digest) is str
+            and forwarded != "" and forwarded == pred_digest)
+
+
+def _trust_pack_envelope_binds_predicate(envelope: Any, pred_digest: "str | None", *,
+                                         expected_root_keys: Any, now=None) -> bool:
+    """N45 (Vertrag 3): True iff ``envelope`` is a trust-pack DSSE envelope whose threshold signature verified
+    UNDER the relying-party-pinned root keys AND whose VERIFIED predicate content is exactly this predicate.
+    outcome holds only the predicate and checks no signature, so the root-key anchor counts here only together
+    with the envelope verified by ``verify_trust_pack``. Two independent verifies isolate the two anchors through
+    ``pinned`` (each with a SINGLE anchor supplied), so a match on one anchor can never stand in for the other:
+
+      (1) ``expected_root_keys`` only  → ``ok`` (a threshold of the pack's declared root validly signed its
+          content) AND ``pinned`` (declared root ⊆ the pinned set) ⇒ a threshold of the PINNED root keys signed;
+      (2) ``expected_genesis_digest=pred_digest`` only → ``ok`` AND ``pinned`` ⇒ the envelope's verified
+          predicate content digest equals this predicate's (content binding to exactly what outcome uses).
+
+    Fail-closed: a missing predicate digest, a non-dict envelope, a missing root-key pin, any non-True verdict,
+    or a raise is a non-binding (False) — never a positive and never an exception out of the never-raise caller."""
+    if pred_digest is None or not isinstance(envelope, dict) or expected_root_keys is None:
+        return False
+    try:
+        from .trust_pack import verify_trust_pack  # noqa: PLC0415
+        vr_identity = verify_trust_pack(envelope, expected_root_keys=expected_root_keys, now=now)
+        if vr_identity.get("ok") is not True or vr_identity.get("pinned") is not True:
+            return False
+        vr_content = verify_trust_pack(envelope, expected_genesis_digest=pred_digest, now=now)
+        return vr_content.get("ok") is True and vr_content.get("pinned") is True
+    except Exception:  # noqa: BLE001 — an unverifiable envelope is simply not a binding anchor
+        return False
+
+
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                     expected_decision_ref: str | None = None,
                                     decision_maker_id: str | None = None,
@@ -595,6 +669,11 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
                                     expected_nonce: str | None = None,
                                     require_derived_subject: bool = False,
                                     trust_pack: dict | None = None,
+                                    trust_pack_expected_genesis_digest: str | None = None,
+                                    trust_pack_expected_root_keys: dict | None = None,
+                                    trust_pack_pinned: bool | None = None,
+                                    trust_pack_envelope: dict | None = None,
+                                    trust_pack_pinned_digest: str | None = None,
                                     evidence_resolver: Callable[[dict], bool] | None = None,
                                     receiver_attestation_resolver: Callable[[dict], bool] | None = None,
                                     related: dict | None = None, policy: dict | None = None) -> dict:
@@ -606,15 +685,24 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         envelope, public_key, strict=strict, expected_decision_ref=expected_decision_ref,
         decision_maker_id=decision_maker_id, expected_audience=expected_audience,
         expected_nonce=expected_nonce, require_derived_subject=require_derived_subject,
-        trust_pack=trust_pack, evidence_resolver=evidence_resolver,
+        trust_pack=trust_pack, trust_pack_expected_genesis_digest=trust_pack_expected_genesis_digest,
+        trust_pack_expected_root_keys=trust_pack_expected_root_keys, trust_pack_pinned=trust_pack_pinned,
+        trust_pack_envelope=trust_pack_envelope, trust_pack_pinned_digest=trust_pack_pinned_digest,
+        evidence_resolver=evidence_resolver,
         receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
         _raise_on_malformed=True)
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf", "receiver_attestation_resolver": "rueckruf"})
 def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                            expected_decision_ref: str | None = None, decision_maker_id: str | None = None,
                            expected_audience: str | None = None, expected_nonce: str | None = None,
                            require_derived_subject: bool = False, trust_pack: dict | None = None,
+                           trust_pack_expected_genesis_digest: str | None = None,
+                           trust_pack_expected_root_keys: dict | None = None,
+                           trust_pack_pinned: bool | None = None,
+                           trust_pack_envelope: dict | None = None,
+                           trust_pack_pinned_digest: str | None = None,
                            evidence_resolver: Callable[[dict], bool] | None = None,
                            receiver_attestation_resolver: Callable[[dict], bool] | None = None,
                            related: dict | None = None, policy: dict | None = None,
@@ -629,12 +717,25 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       An executor witnessing their own decision fails (False + error).
     - ``execution_proven`` — status=executed with a real effect/action digest is True; self-asserted executed
       is False + a No-Overclaim warning (not a hard aggregate fail — it is an honest limit, not tampering).
-    - ``executor_role_trusted`` (Finding 01, additive) — when ``trust_pack`` is supplied (the PREDICATE of an
-      ALREADY-authenticated Trust Pack, verified separately by the caller via
+    - ``executor_role_trusted`` (Finding 01, additive; N43 hardened) — when ``trust_pack`` is supplied (the
+      PREDICATE of an ALREADY-authenticated Trust Pack, verified separately by the caller via
       ``trust_pack.verify_trust_pack``), the executor's ``keyId`` MUST be a non-revoked member of the pack's
-      ``outcomeExecutors`` role (``outcome.executor_trusted_by_role``) — the "independent attestation of
-      executor.id" gap docs/predicates/action-outcome.md §7 lists as open. Fail-closed when supplied; stays
-      None (not evaluated) when ``trust_pack`` is omitted — fully backward compatible.
+      ``outcomeExecutors`` role (``outcome.executor_trusted_by_role``), bound to the signing key AND the pack
+      MUST be bound to a RELYING-PARTY ANCHOR that binds the CONTENT of EXACTLY this predicate. Role membership
+      is a fact about the pack; it becomes TRUST only under such an anchor — a genesis pack self-authenticates
+      with no caller input, so membership alone must not read as trusted (N43, security-fix 6.2.0). N45
+      (nachbesserung to N43): the anchor MUST bind this predicate's content, because outcome verifies no
+      signature over the predicate. Supply ONE of:
+      ``trust_pack_expected_genesis_digest`` (the content-root ``sha256(JCS(predicate))`` — content-bound);
+      ``trust_pack_envelope`` together with ``trust_pack_expected_root_keys`` (the pack's DSSE envelope, verified
+      here by ``verify_trust_pack`` so a threshold of the PINNED root keys signed it AND its content is exactly
+      this predicate — a root-key set that only matches the declared root identity, with no verified envelope, is
+      NOT accepted); or ``trust_pack_pinned=True`` together with ``trust_pack_pinned_digest`` equal to
+      ``sha256(JCS(predicate))`` (a rotation needs the old root, not recomputable here, so its verdict is
+      forwarded — but bound to this predicate's content; a bare ``trust_pack_pinned=True`` is NOT accepted). Fail-
+      closed when a pack is supplied without a matching content-bound anchor (``executor_role_trusted`` False,
+      ``TRUST_PACK_NOT_ANCHORED``); stays None (not evaluated) when ``trust_pack`` is omitted — the no-trust_pack
+      path is fully backward compatible.
 
     Read ``ok`` (or ``crypto_ok``) — never an individual ``*_ok`` alone. On a forged envelope every trust-
     derived field stays None and an error is recorded, so a consumer cannot read a claim about unsigned bytes.
@@ -652,24 +753,33 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     - ``receiver_bound`` — mirrors ``evidence_bound``: True iff every present ``receiverRefs[]`` entry is
       digest-shaped, ``None`` when ``receiverRefs`` is absent/empty (nothing to bind is not "bound").
     - ``evidence_levels["receiverRefs"]`` — the STRONGEST applicable entry (OR semantics: one corroborating
-      receiver suffices), classified via ``assurance.classify_receiver_corroboration``. ``evidence_resolver``
-      (reused, same param) lets an entry reach ``CONTENT_RESOLVED``; the NEW ``receiver_attestation_resolver``
-      (an optional callable ``f(digest_obj) -> bool`` confirming the referenced content is itself a validly-
-      signed statement from a party DISTINCT from the executor) lets it reach
-      ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` only when it answers the exact ``True`` or the
-      32-byte signer key in a plain ``bytes`` or ``bytearray`` object; any other answer, a truthy one or an
-      object that only claims to be ``bytes`` included, does not promote, none of its methods runs, and
-      nothing it does escapes this function (see ``assurance.classify_receiver_corroboration``; the same
-      rule decides ``receiver_role_trusted`` and ``receiver_key_bound`` below) — this is the built,
-      self-fixable half of Finding 16;
-      ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable (see
+      receiver suffices), classified via ``assurance.classify_receiver_corroboration``, which is CAPPED at
+      ``CONTENT_RESOLVED``. ``evidence_resolver`` (reused, same param) lets an entry reach ``CONTENT_RESOLVED``;
+      the ``receiver_attestation_resolver`` (an optional callable ``f(digest_obj) -> bool``) does NOT promote
+      beyond it in 6.2.0: ``assurance.EvidenceLevel.INDEPENDENTLY_ATTESTED`` is NOT reachable from a resolver
+      answer (N47), because the library does not itself verify the referenced receiver statement (it neither
+      fetches the statement for the digest nor checks a signature under the resolver-returned key). Its answer is
+      still read in one fixed way (the exact ``True`` or the 32-byte signer key in a plain ``bytes`` or
+      ``bytearray`` object; any other answer, a truthy one or an object that only claims to be ``bytes``
+      included, runs none of its methods and nothing it does escapes this function — the same rule decides
+      ``receiver_role_trusted`` and ``receiver_key_bound`` below), but even an answer that passes every gate
+      confers no attestation and no trust. See ``assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED``; the verified
+      path (statement + digest + signature) comes after the tag.
+      ``EvidenceLevel.EFFECT_OBSERVED`` stays honestly unreachable too (see
       ``assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED``, the INHERENT half proofbundle cannot itself close).
-    - ``receiver_role_trusted`` (Finding 16, additive) — when ``trust_pack`` is supplied AND ``receiverRefs``
-      is non-empty, True iff AT LEAST ONE entry's ``receiverKeyId`` is a non-revoked member of the pack's
-      ``outcomeReceivers`` role (``outcome.receiver_trusted_by_role``); ``None`` when there is nothing to
-      evaluate. Deliberately NOT wired into the aggregate ``ok`` (unlike ``executor_role_trusted``):
-      ``receiverRefs`` is OPTIONAL supplementary evidence, so an untrusted-labeled receiver must not break an
-      otherwise-valid outcome's own core verdict — it only affects the STRENGTH classification above.
+    - ``receiver_role_trusted`` (Finding 16, additive; N45B hardened; N47 capped) — in 6.2.0 it is at most
+      ``None`` or ``False``, NEVER ``True`` from a resolver answer, because the library does not itself verify
+      the referenced receiver statement. ``False`` when a resolved key does NOT bind to the pack key for its
+      ``receiverKeyId`` (``receiver_key_bound`` False), or when ``receiverRefs`` name no role member at all.
+      ``None`` (N45B) when a member is present by LABEL only — no signer key was resolved to bind it —
+      because a label is not a positive trust statement without the key that carries it (``RECEIVER_ROLE_NOT_BOUND``,
+      with the by-LABEL-only warning). ``None`` also when there is nothing to evaluate (no ``trust_pack``); and
+      (N47) when a resolved key WOULD bind — role membership plus a bound signer key — BOTH ``receiver_role_trusted``
+      and ``receiver_key_bound`` are still ``None`` with ``RECEIVER_STATEMENT_NOT_VERIFIED``, never ``True``: the
+      positive receiver verdict (statement + digest + signature verified) comes after the tag. Deliberately NOT
+      wired into the aggregate ``ok`` (unlike ``executor_role_trusted``): ``receiverRefs`` is OPTIONAL
+      supplementary evidence, so neither an untrusted-labeled nor a label-only receiver breaks an otherwise-valid
+      outcome's own core verdict — it only affects the STRENGTH classification above.
 
     None of the receiverRefs/sequence additions change any field documented above them, or the aggregate
     ``ok`` — fully backward compatible with every existing caller.
@@ -686,6 +796,43 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         trust_pack = _plain_pack(trust_pack)
         if trust_pack is None:
             trust_pack = {}
+    # N43 (security-fix 6.2.0): a Trust Pack confers TRUST on a role only when the relying party has PINNED it to
+    # an anchor — membership + key-binding is a fact about the pack, trust is the relying party's act.
+    # N45 (security-fix 6.2.0, nachbesserung to N43): at outcome the anchor must bind to the CONTENT of EXACTLY
+    # this trust-pack predicate. outcome holds only the predicate and verifies NO signature over it, so two N43
+    # paths were not content binding and are removed here:
+    #   - the root-key anchor of trust_pack_is_pinned is only a DECLARED-identity match (declared root ⊆ pinned)
+    #     — a naked predicate copying the public pinned root keys matched it; so expected_root_keys is NOT passed
+    #     to the bare call below. It now counts only via a verified ENVELOPE (anchor B).
+    #   - a bare forwarded trust_pack_pinned=True was bound to no predicate; it now counts only with the digest
+    #     of the verified predicate (anchor C).
+    # Three content-bound anchors, any ONE suffices:
+    #   A) pinned genesis/content digest: sha256(JCS(predicate)) == trust_pack_expected_genesis_digest.
+    #   B) a verified pack ENVELOPE whose threshold signature verified UNDER the pinned root keys AND whose
+    #      verified content is exactly this predicate (trust_pack_envelope + trust_pack_expected_root_keys).
+    #   C) a forwarded rotation verdict trust_pack_pinned=True carrying trust_pack_pinned_digest ==
+    #      sha256(JCS(this predicate)) (a rotation needs the old root, not recomputable here, so it is forwarded —
+    #      but bound to this predicate's content).
+    # None (no anchor supplied) and False (an anchor was supplied but none matched) both leave every derived role
+    # statement NOT positive (fail-closed). An empty/malformed pack is never pinned.
+    _tp_pinned: bool | None = None
+    if trust_pack:
+        from .trust_pack import trust_pack_is_pinned  # noqa: PLC0415
+        _pred_digest = _trust_pack_predicate_digest(trust_pack)
+        # Anchor A — pinned genesis/content digest (content-bound). expected_root_keys intentionally omitted.
+        _tp_pinned = trust_pack_is_pinned(
+            trust_pack, expected_genesis_digest=trust_pack_expected_genesis_digest)
+        # Anchor B — a verified envelope under the pinned root keys, content == this predicate.
+        if (_tp_pinned is not True and trust_pack_envelope is not None
+                and trust_pack_expected_root_keys is not None
+                and _trust_pack_envelope_binds_predicate(
+                    trust_pack_envelope, _pred_digest,
+                    expected_root_keys=trust_pack_expected_root_keys, now=None)):
+            _tp_pinned = True
+        # Anchor C — a forwarded rotation verdict bound to this predicate's content digest.
+        if (_tp_pinned is not True and trust_pack_pinned is True
+                and _trust_pack_digest_eq(trust_pack_pinned_digest, _pred_digest)):
+            _tp_pinned = True
     # ONE READING OF THE KEY AND THE POLICY (deep gate 6.2.0 at 2348f0a7, L1-620-T3-01 and L4-620-01), as in
     # decision.verify_decision_receipt: the key the signature was checked under was read again for the
     # executor key binding and the relation-signer pin, after the caller's resolvers ran, and the policy
@@ -789,20 +936,24 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
         # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
-        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, as on the
-        # decision path (`_carries_attached_entries`).
-        from .relation import _carries_attached_entries  # noqa: PLC0415
-        if "relationships" in predicate or _carries_attached_entries(related):
+        # Read from what the map stores, never through the caller's own `__bool__` or `__len__`, and read ONCE
+        # (`relation._related_lesen`), as on the decision path: whether there are targets, the edges and
+        # `supersededByAttached` are all judged over that one reading (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of
+        # three jurors P1). `verify_relationship_edges` and `successor_warning` read the map twice, and a gc
+        # callback of the caller that emptied it between the two hid an attached retraction while the edge to the
+        # parent stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one.
+        from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
+        _related_gelesen = _related_lesen(related)
+        _sw = None  # Nachtrag 46c: single reading of supersededByAttached, reused by the relation origin stamp below.
+        if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
-            r["lineage"] = verify_relationship_edges(
-                predicate.get("relationships"), related, subject_hex=_subject_hex)
-            _sw = successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex)
-            r["lineage"]["supersededByAttached"] = _sw
+            r["lineage"] = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
+            # Set by the engine over the one reading of the map, and only read here (and passed to the origin stamp).
+            _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
@@ -829,7 +980,10 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # can tell "wrong signer for this keyId" from "keyId not in the role".
             _bound = _member and pack_key_binds_signer(
                 _ex.get("keyId") if isinstance(_ex, dict) else None, trust_pack, schluessel)
-            r["executor_role_trusted"] = bool(_member and _bound)
+            # N43: membership + key-binding is a FACT about the pack; it becomes TRUST only when the relying
+            # party has pinned the pack to an anchor (_tp_pinned). Unpinned → not positive (fail-closed).
+            _anchored = _tp_pinned is True
+            r["executor_role_trusted"] = bool(_member and _bound and _anchored)
             if not _member:
                 r["errors"].append(
                     "executor.keyId is not a non-revoked member of the trust pack's outcomeExecutors role "
@@ -842,6 +996,17 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "self-declared keyId is a label, not a signer (fail-closed)")
             else:
                 r["executor_key_bound"] = True
+                if not _anchored:
+                    r["errors"].append(
+                        "TRUST_PACK_NOT_ANCHORED: executor.keyId is a bound member of outcomeExecutors, but the "
+                        "trust pack is not bound to a relying-party anchor that binds THIS predicate's content "
+                        "(N45) — role membership is not trust. Pass trust_pack_expected_genesis_digest "
+                        "(sha256(JCS(predicate))); or trust_pack_envelope together with trust_pack_expected_root_keys "
+                        "(a pack envelope whose threshold signature verifies under the pinned root keys and whose "
+                        "content is this predicate); or trust_pack_pinned=True together with trust_pack_pinned_digest "
+                        "equal to sha256(JCS(predicate)) from a rotation-authorized verify_trust_pack. A bare "
+                        "trust_pack_pinned=True or a root-key set that only matches the declared root identity is "
+                        "not accepted here (fail-closed)")
 
         # Finding 03 (additive): classify the same execution-proof digest(s) onto the EvidenceLevel ladder.
         # OR semantics (mirrors outcome_execution_proven: either digest satisfies the claim) — the STRONGER
@@ -862,16 +1027,17 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # corroboration, digest-bound exactly like decision.py's evidenceRefs[]. receiver_bound mirrors
         # evidence_bound (shape-only, None when there is nothing to bind — mirrors the vacuous-None
         # convention decision.py already documents). evidence_levels["receiverRefs"] uses OR semantics (one
-        # corroborating receiver suffices) over classify_receiver_corroboration, which can reach
-        # INDEPENDENTLY_ATTESTED via the new receiver_attestation_resolver — never EFFECT_OBSERVED (the
-        # honestly-documented inherent limit, assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED).
+        # corroborating receiver suffices) over classify_receiver_corroboration. N47: that classifier is capped
+        # at CONTENT_RESOLVED — INDEPENDENTLY_ATTESTED is NOT reachable from a resolver answer (the library does
+        # not verify the referenced receiver statement), honestly unreachable like EFFECT_OBSERVED
+        # (assurance.INDEPENDENTLY_ATTESTED_NOT_VERIFIED, assurance.EFFECT_OBSERVED_NOT_IMPLEMENTED).
         _recv = predicate.get("receiverRefs")
         if isinstance(_recv, list) and _recv:
             r["receiver_bound"] = all(isinstance(x, dict) and _is_digest(x.get("digest")) for x in _recv)
             # Structural independence (crypto-review, 2026-07-15): pass the executor's own key id so
             # classify_receiver_corroboration can REFUSE to promote a receiver that is the executor itself
-            # (self-corroboration). A receiverRefs entry only reaches INDEPENDENTLY_ATTESTED when its
-            # receiverKeyId is present AND distinct from the executor — never on a resolver-says-signed alone.
+            # (self-corroboration). Distinctness is one gate inside that classifier; N47 then caps the result at
+            # CONTENT_RESOLVED regardless — INDEPENDENTLY_ATTESTED is not reachable from a resolver answer at all.
             _executor = predicate.get("executor")
             _executor_key_id = _executor.get("keyId") if isinstance(_executor, dict) else None
             # L1-600-02 (receiver half): when a trust pack names key material for a receiverKeyId, the
@@ -890,7 +1056,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     return None
 
                 def _f(d):
-                    res = receiver_attestation_resolver(d)
+                    with _draussen():   # the resolver is the caller's code (`canonical._draussen`)
+                        res = receiver_attestation_resolver(d)
+                    res = _stand(res)   # the answer as one state (verify lane V2)
                     if type(res) is bytearray:
                         res = bytes(res)
                     _recv_answers[idx] = res
@@ -943,9 +1111,31 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # verdict, see the verify docstring). L1-600-02: membership of a LABEL is reported as trusted
             # only if no signer key contradicts it; when the resolver returned the signer key it must be the
             # pack's key for that receiverKeyId, and a bound entry is recorded in receiver_key_bound.
-            if trust_pack is not None:
-                _trusted = False
-                _rbound: bool | None = None
+            if trust_pack is not None and _tp_pinned is not True:
+                # N43: a supplied pack that the relying party has NOT pinned confers no receiver trust — the
+                # role membership below is a fact, not a trust statement (fail-closed, mirrors the executor gate).
+                r["receiver_role_trusted"] = False
+                r["errors"].append(
+                    "TRUST_PACK_NOT_ANCHORED: receiverRefs name an outcomeReceivers role, but the trust pack is "
+                    "not bound to a relying-party anchor that binds THIS predicate's content (N45) — role "
+                    "membership is not trust. Pass trust_pack_expected_genesis_digest (sha256(JCS(predicate))); or "
+                    "trust_pack_envelope with trust_pack_expected_root_keys (a pack envelope whose threshold "
+                    "signature verifies under the pinned root keys and whose content is this predicate); or "
+                    "trust_pack_pinned=True with trust_pack_pinned_digest == sha256(JCS(predicate)). A bare "
+                    "trust_pack_pinned=True or a declared-root-identity-only match is not accepted here "
+                    "(fail-closed — receiverRefs never gates ok)")
+            elif trust_pack is not None:
+                # N45B (KRAXO-CLOUD-N45B, Z309) required a RESOLVED and BINDING signer key for receiver-role trust.
+                # N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309) narrows this further: a
+                # resolver answer never makes receiver_role_trusted/receiver_key_bound True, because the library
+                # does not itself verify the referenced receiver statement (no statement bytes, digest match or
+                # signature check) — a byte-match of a resolver-returned key is not verification. So in 6.2.0 these
+                # fields are at most None: a member whose resolved key byte-matches the pack key is None (reason:
+                # statement not verified), and a member seen by LABEL only is None (reason: not bound). A resolved
+                # key that does NOT bind stays False; a non-member stays False. receiverRefs never gate ok (point 3).
+                _bound = False        # a member entry whose resolved signer key BINDS to the pack key
+                _nonbind = False      # a member entry whose resolved signer key does NOT bind
+                _label_only = False   # a member entry with NO resolved signer key (label only)
                 for i, x in enumerate(_recv):
                     _kid = x.get("receiverKeyId") if isinstance(x, dict) else None
                     if not receiver_trusted_by_role(_kid, trust_pack):
@@ -956,23 +1146,52 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     # raised a raw TypeError out of this never-raise function) and it binds nothing.
                     if _is_key_material(_ans):
                         if pack_key_binds_signer(_kid, trust_pack, bytes(_ans)):
-                            _trusted = True
-                            _rbound = True
+                            _bound = True
                         else:
-                            _rbound = False if _rbound is None else _rbound
+                            _nonbind = True
                             r["errors"].append(
                                 "KEY_ID_NOT_BOUND_TO_SIGNER: receiverRefs[%d].receiverKeyId is a member of "
                                 "outcomeReceivers, but the referenced statement is signed by a different key than "
                                 "the trust pack holds for it (advisory: receiverRefs never gates ok)" % i)
                     else:
-                        _trusted = True
-                        if _rbound is None:
-                            r["warnings"].append(
-                                "receiverRefs[%d].receiverKeyId is a role member by LABEL only — no signer key "
-                                "was resolved to bind it (return the 32-byte signer key from "
-                                "receiver_attestation_resolver to bind the label)" % i)
-                r["receiver_role_trusted"] = _trusted
-                r["receiver_key_bound"] = _rbound
+                        _label_only = True
+                        r["warnings"].append(
+                            "receiverRefs[%d].receiverKeyId is a role member by LABEL only — no signer key "
+                            "was resolved to bind it (return the 32-byte signer key from "
+                            "receiver_attestation_resolver to bind the label)" % i)
+                # N47 (`KRAXO-CLOUD-N47-EMPFAENGER-NICHT-AUS-RESOLVER-ANTWORT-01`, Z309): a resolver answer never
+                # makes receiver_role_trusted/receiver_key_bound True. The attestation resolver is handed only the
+                # receiverRef digest; a key it returns that byte-equals the pack key for the receiverKeyId is NOT a
+                # verified statement — the library never fetched the referenced receiver statement, checked that its
+                # bytes hash to the digest, or verified a signature under the returned key. So a "bound" entry is
+                # None, not True (receiver_key_bound None), with a named reason. A resolved key that does NOT bind
+                # stays False; a member seen by LABEL only stays None; receiverRefs that name no role member stay
+                # False (the non-member case, unchanged). receiverRefs never gate ok (point 3). The verified path
+                # (statement bytes + digest + signature) comes with the unified anchor check after the tag.
+                if _bound:
+                    r["receiver_role_trusted"] = None
+                    r["receiver_key_bound"] = None
+                    r["errors"].append(
+                        "RECEIVER_STATEMENT_NOT_VERIFIED: receiverRefs name an outcomeReceivers role member and "
+                        "the attestation resolver returned a key that matches the trust pack key for it, but the "
+                        "library does not verify the referenced receiver statement (it neither fetches the "
+                        "statement for the digest nor checks a signature under the returned key), so "
+                        "receiver_role_trusted is None, not positive (N47) — a resolver answer cannot confer "
+                        "receiver trust (advisory: receiverRefs never gates ok)")
+                elif _nonbind:
+                    r["receiver_role_trusted"] = False
+                    r["receiver_key_bound"] = False
+                elif _label_only:
+                    r["receiver_role_trusted"] = None
+                    r["receiver_key_bound"] = None
+                    r["errors"].append(
+                        "RECEIVER_ROLE_NOT_BOUND: receiverRefs name an outcomeReceivers role member, but no signer "
+                        "key of the receiver statement was resolved to bind the label — receiver_role_trusted is "
+                        "None, not positive (N45B). Return the 32-byte signer key from receiver_attestation_resolver "
+                        "to bind it (advisory: receiverRefs never gates ok)")
+                else:
+                    r["receiver_role_trusted"] = False
+                    r["receiver_key_bound"] = None
         else:
             r["evidence_levels"]["receiverRefs"] = None
 
@@ -1083,10 +1302,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         # at 2a2d59b2). Only an absent section is no relations rule.
         if _rel is not _FEHLT and r["crypto_ok"]:
             import base64 as _b64_rel  # noqa: PLC0415
-            from .relation import _abschnitt_urteil  # noqa: PLC0415
+            from .relation import _abschnitt_urteil, _stamp_lineage_origin  # noqa: PLC0415
+            # Nachtrag 48/48b (Z309, F2): bind relation_signer to the verified successor receipt by stamping the
+            # lineage result with the key this receipt verified under (only on a passing signature, as required here).
+            _successor_b64 = _b64_rel.b64encode(schluessel).decode()
+            _stamp_lineage_origin(r.get("lineage"), _successor_b64, _sw)
             _viol = _abschnitt_urteil(
                 _rel, _as_dict(r.get("lineage")),
-                successor_key_b64=_b64_rel.b64encode(schluessel).decode())
+                successor_key_b64=_successor_b64)
             r["policy_ok"] = not _viol
             if _viol:
                 r["relations_policy_failed"] = True
@@ -1106,12 +1329,21 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # verifier judges only the relations section, so a top-level typo such as "relationz" read as no
             # relations rule and an attached retraction passed, where load_policy and the decision verifier
             # refuse the policy. A policy the loader refuses is refused here with its message.
-            from .policy import _abgelehnt_vom_loader  # noqa: PLC0415
+            from .policy import _abgelehnt_vom_loader, _gemeinsame_fehler, _regelfehler  # noqa: PLC0415
             _grund = _abgelehnt_vom_loader(richtlinie)
             if _grund is not None:
                 r["policy_ok"] = False
                 r["errors"].append("trust policy rejected before evaluation (fail-closed, the same rule "
                                    f"load_policy applies): {_grund}")
+            elif r["crypto_ok"]:
+                # Every rule the policy sets is one this verifier applies (T16, `policy._regelfehler`), and the
+                # shared fields apply here as on every receipt path (owner point 6): an expired policy, one not yet
+                # valid, one for another path and a raw template fail it. Measured at fda55f98: each passed here.
+                _regel = _regelfehler(richtlinie, "outcome")
+                _fehler = ([_regel] if _regel is not None else []) + _gemeinsame_fehler(richtlinie, "outcome")
+                if _fehler:
+                    r["policy_ok"] = False
+                    r["errors"].extend(_fehler)
 
     r["ok"] = bool(
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
@@ -1147,6 +1379,14 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _blk_kid = r["automation"].setdefault("automationBlockers", [])
         if "KEY_ID_NOT_BOUND_TO_SIGNER" not in _blk_kid:
             _blk_kid.append("KEY_ID_NOT_BOUND_TO_SIGNER")
+        r["automation"]["safeForAutomation"] = False
+    # N43: the executor was a bound role member, but the pack was never anchored by the relying party — the
+    # policy dimension already blocks (executor_role_trusted is False); name WHY it is not trust, not just POLICY.
+    if (isinstance(r.get("automation"), dict) and trust_pack is not None and _tp_pinned is not True
+            and r.get("executor_role_trusted") is False and r.get("executor_key_bound") is True):
+        _blk_anchor = r["automation"].setdefault("automationBlockers", [])
+        if "TRUST_PACK_NOT_ANCHORED" not in _blk_anchor:
+            _blk_anchor.append("TRUST_PACK_NOT_ANCHORED")
         r["automation"]["safeForAutomation"] = False
     if isinstance(r.get("automation"), dict) and (r.get("relations_policy_failed") or r.get("policy_ok") is False):
         _blk = r["automation"].setdefault("automationBlockers", [])

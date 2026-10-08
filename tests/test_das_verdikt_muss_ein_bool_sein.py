@@ -318,7 +318,10 @@ class TestDieGegenrichtungEinEchterBoolGehtWeiterDURCH(unittest.TestCase):
                 stmt = to_test_result_statement(c, subject_digest={"sha256": "0" * 64})
                 self.assertEqual(stmt["predicate"]["result"], "PASSED" if wert else "FAILED")
                 self.assertEqual(to_eval_result_predicate(c)["claims"][0]["passed"], wert)
-                props = svr_properties(_Ergebnis(), c)
+                # Nachtrag 48/48b (F3): svr_properties binds the result to exactly this claim; use a result bound
+                # to `c`, as a passing verify produces one.
+                from _svr_binding import svr_result_for  # type: ignore  # noqa: PLC0415
+                props = svr_properties(svr_result_for(c), c)
                 self.assertEqual("PROOFBUNDLE_THRESHOLD_MET" in props, wert)
 
     def test_die_verify_schwelle_nimmt_beide_booleans_an(self):

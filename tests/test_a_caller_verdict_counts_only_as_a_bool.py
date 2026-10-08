@@ -100,6 +100,11 @@ from proofbundle.verifier_block import (
     sign_test_result_statement,
 )
 
+# Nachtrag 48/48b: the decision policy and the relations policy now bind their result/lineage to the verified
+# statement/successor receipt; a test exercising them in isolation stamps that binding as a passing verify does.
+from _decision_result_binding import bound_decision_result  # type: ignore  # noqa: E402
+from _lineage_binding import bound_lineage  # type: ignore  # noqa: E402
+
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 _V01 = "proofbundle/trust-policy/v0.1"
 _V02 = "proofbundle/trust-policy/v0.2"
@@ -177,11 +182,33 @@ def _sd_jwt_bundle(vct: str) -> dict:
 
 
 def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult:
-    """The same checks, with the one named ``name`` carrying ``ok`` (appended when absent)."""
+    """The same checks, with the one named ``name`` carrying ``ok`` (appended when absent).
+
+    Nachtrag 46: this rebuilds the result from ``result`` (a real verify_bundle result of the paired bundle)
+    only to probe how a check's ``ok`` is read, so it carries the result's recorded verified signer and payload
+    digest through unchanged — the rebuilt result still represents the verification of that same bundle, which
+    evaluate_policy now requires (F2: a result must be bound to the bundle it judges).
+
+    Nachtrag 46b: it also carries the verified Merkle root through (the authenticated-root rule now adopts a
+    positive root-authenticity only for the root the result verified) and stamps the origin token verify_bundle
+    stamps over these fields (evaluate_policy refuses a result that carries none).
+
+    Addendum R6a: it carries through the two further origin-covered bindings a real verify_bundle records —
+    ``verified_inclusion_root`` (the Merkle root the inclusion check passed under, R6a-2) and
+    ``verified_sd_jwt_vc_compact`` (the exact sd_jwt_vc.compact the result verified, R6a-1) — so the rebuilt
+    stand-in still represents the verification of that same bundle, which the authenticated-root and sd_jwt
+    binding gates now require."""
     checks = [Check(c.name, ok if c.name == name else c.ok, c.detail) for c in result.checks]
     if not any(c.name == name for c in result.checks):
         checks.append(Check(name, ok))
-    return VerificationResult(checks)
+    out = VerificationResult(checks)
+    out.verified_signer_pub = result.verified_signer_pub
+    out.verified_payload_digest = result.verified_payload_digest
+    out.verified_merkle_root = result.verified_merkle_root
+    out.verified_inclusion_root = result.verified_inclusion_root
+    out.verified_sd_jwt_vc_compact = result.verified_sd_jwt_vc_compact
+    out.stamp_origin()
+    return out
 
 
 # ── verifier_block ────────────────────────────────────────────────────────────────────────────────
@@ -230,7 +257,10 @@ class TestACallerBuiltCheckPassesTheCryptoGateOnlyAsTrue(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bundle = _eval_bundle()
-        cls.real = verify_bundle(cls.bundle)
+        # Nachtrag 46b: the root-authenticity site needs a result that actually verified THIS bundle's stated
+        # root — the authenticated-root rule now adopts a positive verdict only for the root the result recorded.
+        # Verifying with the bundle's own stated root makes root-authenticity pass and records verified_merkle_root.
+        cls.real = verify_bundle(cls.bundle, expected_root_b64=cls.bundle["merkle"]["root_b64"])
         cls.vct = "https://example.test/vct/mine"
         cls.sd_bundle = _sd_jwt_bundle(cls.vct)
         cls.sd_real = verify_bundle(cls.sd_bundle)
@@ -966,22 +996,26 @@ class TestAStrVerdictIsReadOnlyAsAPlainStr(unittest.TestCase):
         env = emit_decision_receipt(copy.deepcopy(json.loads(
             (EXAMPLES / "decision_receipt_deny.json").read_text(encoding="utf-8"))), signer, strict=True)
         statement = json.loads(dsse.load_payload(env))
-        pol = {"decision_receipt": {"trusted_decision_makers": [{"public_key_b64": base64.b64encode(pub).decode()}],
+        pub_b64 = base64.b64encode(pub).decode()
+        pol = {"decision_receipt": {"trusted_decision_makers": [{"public_key_b64": pub_b64}],
                                     "require_external_anchor": True, "allow_pending": True}}
+        # Nachtrag 48/48b (F1): evaluate_decision_policy binds the result to the statement + signer; pass a result
+        # bound to exactly this statement and signer so the anchor_status rule under test is still reached.
+        bound = bound_decision_result(statement, pub_b64)
         calls: list = []
         for label, status in (("__class__ says str, equals 'PASS'", _ClaimsStr(calls, "PASS")),
                               ("__class__ says str, equals 'WARN'", _ClaimsStr(calls, "WARN"))):
             with self.subTest(anchor_status=label):
                 calls.clear()
-                r = evaluate_decision_policy(statement, {}, copy.deepcopy(pol),
-                                             signer_public_key_b64=base64.b64encode(pub).decode(),
+                r = evaluate_decision_policy(statement, bound, copy.deepcopy(pol),
+                                             signer_public_key_b64=pub_b64,
                                              anchor_status=status)
                 self.assertIs(r["policy_ok"], False)
                 self.assertEqual(calls, [], "the value's own methods ran")
         for status, want in (("PASS", True), ("WARN", True), ("FAIL", False), (None, False)):
             with self.subTest(control=status):
-                r = evaluate_decision_policy(statement, {}, copy.deepcopy(pol),
-                                             signer_public_key_b64=base64.b64encode(pub).decode(),
+                r = evaluate_decision_policy(statement, bound, copy.deepcopy(pol),
+                                             signer_public_key_b64=pub_b64,
                                              anchor_status=status)
                 self.assertIs(r["policy_ok"], want, r["errors"])
 
@@ -1058,8 +1092,10 @@ class TestTheRelationsEvaluatorReadsALineageResultOnlyAsPlainValues(unittest.Tes
         unresolved = dict(verified, resolution="DECLARED_UNRESOLVED")
         self.assertEqual([x["code"] for x in self._viol({"require_relation_resolution": ["supersedes"]},
                                                         {"edges": [unresolved]})], ["LINEAGE_REQUIREMENT_FAILED"])
+        # Nachtrag 48/48b (F2): a VERIFIED same-key edge is satisfied only for a lineage bound to the verified
+        # successor receipt; stamp it for _KEY, as a passing verify does. A declared-only edge needs no binding.
         self.assertEqual(self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}},
-                                    {"edges": [verified]}), [])
+                                    bound_lineage({"edges": [verified]}, _KEY)), [])
         self.assertEqual(self._viol({"relation_signer": {"supersedes": {"mode": "same-key"}}},
                                     {"edges": [unresolved]}), [])
         self.assertEqual(self._viol({"require_relation_target": {"supersedes": "b" * 64}}, {"edges": [verified]}),
@@ -1272,12 +1308,21 @@ class TestTheCryptoVerdictComesFromOneReadOfEachCheck(unittest.TestCase):
         self.assertIn("CRYPTO_FAILED", r["automationBlockers"])
 
     def test_control_a_check_that_always_answers_true_still_passes(self):
+        """The rule of `_checks_passed` reads a steady answer as it is. Through the public summary a check of the
+        caller's own class reaches the body as a stand-in since deep gate run 6 (`canonical._fremdkoerper`), which
+        holds no `ok`, so it blocks automation; the same checks as this package's `Check` pass."""
         from proofbundle.bundle import _checks_passed  # noqa: PLC0415
         steady = _FlippingCheck("merkle-inclusion", [True, True, True, True])
         result = VerificationResult([Check("ed25519-signature", True), steady,
                                      Check("root-authenticity", True)])
         self.assertEqual(_checks_passed(result), (True, []))
-        self.assertIs(_summary(list(result.checks))["safeForAutomation"], True)
+        vorher = steady.reads
+        r = _summary(list(result.checks))
+        self.assertIs(r["safeForAutomation"], False)
+        self.assertIn("CRYPTO_FAILED", r["automationBlockers"])
+        self.assertEqual(steady.reads, vorher, "the public summary read the caller's check")
+        self.assertIs(_summary([Check("ed25519-signature", True), Check("merkle-inclusion", True),
+                                Check("root-authenticity", True)])["safeForAutomation"], True)
 
 
 #: Why a switch is left as it is, by class. Every bool keyword of every public function must stand in
@@ -1333,6 +1378,13 @@ _SWITCHES = {
         "public_transparency_ok", "replay_ok", "requires_identity_overlay", "signer_trusted",
         "tree_context_authenticated")},
     ("proofbundle.public_transparency", "evaluate_public_transparency", "consistency_confirmed"): _VERDICT_INPUT,
+    # N43 (security-fix 6.2.0): the relying-party trust-pack pin, reported as a verdict and counted only as the
+    # exact bool. `trust_pack_pinned` is the pin verdict the caller forwards from a rotation-authorized
+    # verify_trust_pack; `rotation_authorized` is the rotation-vouch verdict trust_pack_is_pinned reads (None =
+    # no rotation anchor, True = vouched, False = supplied-but-unmatched). All default None.
+    ("proofbundle.outcome", "verify_outcome_receipt", "trust_pack_pinned"): _VERDICT_INPUT,
+    ("proofbundle.outcome", "verify_outcome_receipt_or_raise", "trust_pack_pinned"): _VERDICT_INPUT,
+    ("proofbundle.trust_pack", "trust_pack_is_pinned", "rotation_authorized"): _VERDICT_INPUT,
     # presentation
     ("proofbundle.budget", "render_safe", "quote"): _PRESENTATION,
     ("proofbundle.demo", "run_demo", "as_json"): _PRESENTATION,

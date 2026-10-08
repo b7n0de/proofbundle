@@ -46,16 +46,21 @@ relying party brings to it, and those two are different answers.
 """
 from __future__ import annotations
 
+import array
 import hashlib
 import json
 import re
 import struct
+from collections import deque
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional, Sequence, cast
 
 from .._membership import is_member
 from ..budget import DEFAULT_BUDGET
 from ..errors import VerificationResult
 from ..signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
+from ..canonical import (_ABBILDSICHT, _PAARSICHT, _SCHLUESSELSICHT, _WERTESICHT, _ein_stand,
+                         _methoden_von)
 
 __all__ = [
     "AGT_AUTHORIZATION_TYPE",
@@ -269,6 +274,7 @@ def _kanonisch(daten: Dict[str, Any], was: str) -> bytes:
                           f"deeper, on every interpreter")
 
 
+@_ein_stand
 def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     """The bytes AGT signs. `sort_keys` JSON with compact separators and raw UTF-8.
 
@@ -289,11 +295,13 @@ def canonical_payload(receipt: Dict[str, Any]) -> bytes:
     return _kanonisch(daten, "receipt payload")
 
 
+@_ein_stand
 def payload_hash(receipt: Dict[str, Any]) -> str:
     """SHA-256 over :func:`canonical_payload`. This is what `parent_receipt_hash` points at."""
     return hashlib.sha256(canonical_payload(receipt)).hexdigest()
 
 
+@_ein_stand
 def canonical_authorization_payload(receipt: Dict[str, Any]) -> bytes:
     """The bytes an external authorizer signs. Binds the receipt payload hash and the nonce. Read from
     one copy of the receipt's fields (`_feldkopie`, round 12), so the metadata checked and the payload
@@ -528,7 +536,8 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     iterable: a `deque`, a `UserList`, a `dict` or a `dict.keys()` view carrying the identity point
     next to the real authorizer key gave exit 0 with the weak key never judged. Both now read ONE
     tuple built here, so a one-shot iterator is not consumed by the refusal before the comparison
-    sees it, and the two can never again disagree about what the list holds.
+    sees it, and the two can never again disagree about what the list holds. (Since deep gate run 6 a caller's
+    iterator never reaches this function: the reading at the call refuses it, `_liste_stand`.)
 
     An entry that names no key (text that is no 32-byte hex, bytes of another length, a nested list,
     a number, None) is left standing and matches nothing, as `"x"` has since 3c9c98c3: a list whose
@@ -669,6 +678,70 @@ def _vertrauensliste(schluessel) -> "tuple[tuple | None, str | None]":
     return eintraege, ("; ".join(gruende) or None)
 
 
+@dataclass(frozen=True)
+class _GeleseneListe:
+    """The relying party's `trusted_authorizer_keys` as the reading at the call read it (`_liste_stand`): the
+    entries `_vertrauensliste` materialised (plain `str`, plain `bytes` or None each) and its refusal or None."""
+    eintraege: "tuple | None"
+    ablehnung: "str | None"
+
+
+def _liste_stand(wert: Any) -> Any:
+    """The named reader of `trusted_authorizer_keys` at the call (`canonical._ein_stand`).
+
+    THE LIST IS READ WHERE THE OTHER ARGUMENTS ARE READ (deep gate run 6 at fda55f98 and owner choice 2 of
+    2026-10-01: the check and the copy use the same captured representation). The list may be a buffer of the
+    caller's (a numpy array, a ctypes array, an mmap), which the reading at the call cannot copy as a container,
+    and the rule of `_vertrauensliste` reads it by its buffer format. Handed on, the body would read it after the
+    receipt was copied, and a change of the caller's between the two would judge one receipt against another
+    state's keys; as a stand-in, a list this module promises to read would no longer be read. So this reader runs
+    `_vertrauensliste` before the first collect and after the second, and the reading counts only when both
+    answers are the same value (`canonical._derselbe`); the body judges that answer and never the caller's object.
+
+    AN ITERATOR OR A GENERATOR IS REFUSED, unread (verify lane V10 on d58be0b8, F1, closed in 6.2.0 by owner
+    choice 1 of 2026-10-01). It can be read only once, so the second reading could not compare it, and the
+    refusal is the one of a list that cannot be read: `trusted-authorizer-keys`, exit 2, never an exception.
+    Every other value goes to `_vertrauensliste`, a `_GeleseneListe` the caller built among them, so no answer
+    of this reader is taken without that rule.
+
+    A CONTAINER IS WALKED BY ITS BASE TYPE, ITS ENTRIES AS THEY ARE. A list, a tuple, a set, a frozenset, a dict
+    or a deque, a subclass of any of them included, is walked through the base type's own iterator, so no method
+    of the container runs (a first form of this reader called `iter()` on it, and a list subclass's own `__iter__`
+    and `__class__` ran: the positive control of tests/test_a_verdict_surface_holds_its_verdict_at_every_argument.py),
+    and the list rule then reads each entry as its contract says, by its buffer where it exports one. Left to the
+    reading at the call, a ctypes record or pointer inside the list became a stand-in, and the rule read it as an
+    entry that names no key. What the reading copies or refuses as a whole value is left to it: an exact scalar
+    (one key, which the list rule refuses as such), a bytearray, an array, a memoryview and a view of a dict."""
+    if wert is None:
+        return None
+    typ = type(wert)
+    if (typ is str or typ is bytes or typ is int or typ is float or typ is bool or typ is memoryview
+            or typ is _SCHLUESSELSICHT or typ is _WERTESICHT or typ is _PAARSICHT or typ is _ABBILDSICHT
+            or issubclass(typ, bytearray) or issubclass(typ, array.array)):
+        return wert   # the reading copies it, or refuses it as a view or buffer it cannot copy
+    for basis in (list, tuple, set, frozenset, dict, deque):
+        if issubclass(typ, basis):
+            eintraege, ablehnung = _vertrauensliste(tuple(basis.__iter__(wert)))
+            return _GeleseneListe(eintraege, ablehnung)
+    if "__next__" in _methoden_von(typ):
+        return _GeleseneListe(None, (f"trusted_authorizer_keys is {_typname(wert)}, an iterator or a generator: it "
+                                     f"can be read only once, so no reading at the call can hold it as one state "
+                                     f"— pass the keys in a list or a tuple"))
+    eintraege, ablehnung = _vertrauensliste(wert)
+    return _GeleseneListe(eintraege, ablehnung)
+
+
+def _liste_gelesen(wert: Any) -> "tuple[tuple | None, str | None] | None":
+    """What the verifiers judge: the answer of `_liste_stand` where the reading at the call ran it, or the list
+    read here by `_vertrauensliste` where this package's own code called the verifier (a call from inside reads
+    nothing again, `canonical._ein_stand`). None when no list was given."""
+    if wert is None:
+        return None
+    if type(wert) is _GeleseneListe:
+        return wert.eintraege, wert.ablehnung
+    return _vertrauensliste(wert)
+
+
 def _derselbe_schluessel(a_hex: str, b_hex: str) -> bool:
     """Whether two hex spellings name the same key BYTES. Hex is case-insensitive, so `ab…` and `AB…`
     are one key; comparing the strings counted them as two, and `authorizer-key-distinct` passed for a
@@ -729,6 +802,7 @@ def _gelesen(receipt: Any) -> "tuple[Dict[str, Any] | None, bytes | None, str]":
         return felder, None, f"the receipt cannot be read: reading it raised {_typname(fehler)}"
 
 
+@_ein_stand(trusted_authorizer_keys=_liste_stand)
 def verify_agt_receipt(
     receipt: Dict[str, Any],
     *,
@@ -766,9 +840,10 @@ def verify_agt_receipt(
     key and each key on `trusted_authorizer_keys`. A low-order or non-canonical key is refused before
     any signature arithmetic, and the check says which key and why. A weak key on the relying
     party's list refuses the list before the receipt is read (`trusted-authorizer-keys`, exit 2, the
-    malformed-input code, as a weak pin in a trust policy is). The list may be any iterable; it is
-    read once, and a list that cannot be read whole, or a single key passed instead of a list, is
-    refused the same way (see `_vertrauensliste`).
+    malformed-input code, as a weak pin in a trust policy is). The list may be any iterable that is no
+    iterator; it is read at the call, where the receipt is read (`_liste_stand`), and a list that cannot be
+    read whole, a single key passed instead of a list, or an iterator or a generator is refused the same way
+    (see `_vertrauensliste`).
 
     WHAT AN ENTRY CAN DO. Every entry that names a 32-byte key is JUDGED by the rule: hex text, and
     anything whose buffer holds bytes or numbers (bytes, bytearray, memoryview, array, a numpy array
@@ -780,8 +855,13 @@ def verify_agt_receipt(
     AUTHORISE: the authorizer key is compared with the entries as text, so a key given as raw bytes is
     refused when it is weak and otherwise matches nothing, not even the authorizer's own key (exit 3,
     a named limit in the CHANGELOG). Raw bytes are judged, and never trusted.
+
+    ONE REFUSAL COMES BEFORE THIS BODY (deep gate run 6 at fda55f98): a receipt that is a dict holding a key whose
+    hash would be the caller's code, or keys that meet as one, cannot be copied by the reading at the call
+    (`canonical._ein_stand`), and the call is refused with `canonical._StandUnkopierbar`, a `ProofBundleError`,
+    instead of a verdict; JSON cannot build such a receipt.
     """
-    gelesen = None if trusted_authorizer_keys is None else _vertrauensliste(trusted_authorizer_keys)
+    gelesen = _liste_gelesen(trusted_authorizer_keys)
     return _pruefe_mit_gelesener_liste(
         receipt, gelesen, None, require_external_authorization=require_external_authorization, now=now)
 
@@ -965,8 +1045,11 @@ def _pruefe_mit_gelesener_liste(
     return ergebnis
 
 
+@_ein_stand(trusted_authorizer_keys=_liste_stand)
 def verify_agt_receipt_chain(
     receipts: Sequence[Dict[str, Any]],
+    *,
+    trusted_authorizer_keys: Optional[Iterable[Any]] = None,
     **kwargs: Any,
 ) -> VerificationResult:
     """Verify a receipt chain: every receipt, plus every `parent_receipt_hash` link.
@@ -1003,9 +1086,9 @@ def verify_agt_receipt_chain(
     # part-way), every receipt reports that same refusal, and the caller's object is NOT read again.
     # Lens run 2 at 8cf49247 (K2-1-A): the chain caught the TypeError of a list that yields a weak key,
     # raises once and then yields the real one, and passed the HALF-READ iterator on; the first
-    # receipt then found only the real key, exit 0, where the single call gave exit 2.
-    liste = kwargs.pop("trusted_authorizer_keys", None)
-    gelesen = None if liste is None else _vertrauensliste(liste)
+    # receipt then found only the real key, exit 0, where the single call gave exit 2. Since deep gate run 6
+    # the list is read at the call (`_liste_stand`), named as a keyword of its own so the reading can find it.
+    gelesen = _liste_gelesen(trusted_authorizer_keys)
 
     # EACH RECEIPT IS READ AND SERIALISED ONCE, and the link check takes the digest of the previous
     # receipt from the same bytes its own signature was checked over (lens run 5 at c8c61651, F2): the
@@ -1073,6 +1156,7 @@ def _blanker_name(name: str) -> str:
     return _KETTENPRAEFIX.sub("", name, count=1)
 
 
+@_ein_stand
 def exit_code(ergebnis: VerificationResult) -> int:
     """Map a verdict onto the house exit-code contract.
 

@@ -49,14 +49,14 @@ from __future__ import annotations
 from collections import Counter
 
 import hashlib
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 from ._membership import is_member
-from .canonical import _pruefkopie
-from .errors import ProofBundleError
+from ._strict_json import loads_reject_duplicate_keys
+from .canonical import _ein_stand, _pruefkopie
+from .errors import BundleFormatError, ProofBundleError
 
 TEST_RESULT_PREDICATE_TYPE = "https://in-toto.io/attestation/test-result/v0.1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -204,6 +204,7 @@ def _source_tree_rows(package_dir: Path) -> list[str]:
     return rows
 
 
+@_ein_stand(aussen={"package_dir": "pfad"})
 def measure_build(package_dir: "Path | None" = None) -> dict:
     """The identity of the running build, measured, with its ``source`` stated.
 
@@ -224,6 +225,7 @@ def measure_build(package_dir: "Path | None" = None) -> dict:
 
 
 # ── measuring the vector set ──────────────────────────────────────────────────────────────────
+@_ein_stand(aussen={"conformance_dir": "pfad"})
 def measure_vector_set(conformance_dir: "Path | str") -> dict:
     """The conformance corpus as bytes: manifest AND every file of every case directory it names.
 
@@ -233,8 +235,11 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
     root = Path(conformance_dir)
     manifest_path = root / "manifest.json"
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        # Nachtrag 51 (K6-01): a duplicate JSON key in the manifest is rejected fail-closed before the
+        # vector set is counted/attested (last-wins `cases` would attest a set a first-wins reader never
+        # sees). No new size cap — a dup-free manifest reads exactly as before.
+        manifest = loads_reject_duplicate_keys(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, BundleFormatError) as exc:
         raise VerifierBlockError(f"conformance manifest not readable: {manifest_path}: {exc}") from exc
     cases = manifest.get("cases") if isinstance(manifest, dict) else None
     if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
@@ -282,6 +287,7 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
 
 
 # ── the block ─────────────────────────────────────────────────────────────────────────────────
+@_ein_stand
 def validate_verifier_block(block: Any) -> list[str]:
     """Fail-closed errors for a verifier block (empty = valid). Closed key sets throughout: an
     unknown key is an error, never ignored, because a field nobody validates is a field a producer
@@ -375,6 +381,7 @@ def validate_verifier_block(block: Any) -> list[str]:
     return errs
 
 
+@_ein_stand
 def require_valid_verifier_block(block: Any) -> None:
     errs = validate_verifier_block(block)
     if errs:
@@ -389,6 +396,7 @@ def _block_once(value: Any, what: str) -> Any:
     return plain_json(value, what=what, error=VerifierBlockError)
 
 
+@_ein_stand
 def build_verifier_block(*, build: dict, version: str, vector_set: "dict | None" = None,
                          test_result: "dict | None" = None,
                          implementation: str = IMPLEMENTATION) -> dict:
@@ -409,6 +417,7 @@ def build_verifier_block(*, build: dict, version: str, vector_set: "dict | None"
     return block
 
 
+@_ein_stand(aussen={"conformance_dir": "pfad", "package_dir": "pfad"})
 def measure_verifier_block(*, conformance_dir: "Path | str | None" = None,
                            test_result_statement: "dict | None" = None,
                            package_dir: "Path | None" = None) -> dict:
@@ -454,12 +463,14 @@ def _rfc8785_bytes(obj: Any) -> bytes:
             "rfc8785 (core dependency)") from exc
 
 
+@_ein_stand
 def statement_digest(statement: dict) -> str:
     """sha256 hex over the RFC 8785 canonical bytes of the statement -- the value a receipt cites.
     The digest of the OBJECT, not of a file: a file can be re-indented without the object changing."""
     return hashlib.sha256(_rfc8785_bytes(statement)).hexdigest()
 
 
+@_ein_stand
 def build_test_result_statement(*, build: dict, vector_set: dict, results: list, version: str,
                                 implementation: str = IMPLEMENTATION,
                                 url: "str | None" = None) -> dict:
@@ -540,6 +551,7 @@ def build_test_result_statement(*, build: dict, vector_set: dict, results: list,
     }
 
 
+@_ein_stand
 def validate_test_result_statement(statement: Any) -> list[str]:
     try:
         statement = _pruefkopie(statement)   # one reading, by what it stores (round 12)
@@ -605,6 +617,7 @@ def validate_test_result_statement(statement: Any) -> list[str]:
     return errs
 
 
+@_ein_stand
 def test_result_ref(statement: dict) -> dict:
     """The three fields a receipt carries about the separate statement. The statement is read once
     (lens run 8, the sweep of finding B): what is validated is what is digested and cited."""
@@ -617,6 +630,7 @@ def test_result_ref(statement: dict) -> dict:
             "statementDigest": {"sha256": statement_digest(statement)}}
 
 
+@_ein_stand
 def join_test_result(block: dict, statement: dict) -> dict:
     """Does the statement belong to this block? Four equalities, each reported on its own, and
     ``ok`` only when all four hold. A relying party needs no issuer for this join: it recomputes
@@ -625,11 +639,29 @@ def join_test_result(block: dict, statement: dict) -> dict:
     r: dict[str, Any] = {"subject_matches_build": False, "digest_matches": False,
                          "result_matches": False, "vector_set_matches": False,
                          "ok": False, "errors": fehler}
+    # THE BLOCK AND THE STATEMENT ARE READ ONCE, here, and the copies are what is validated, digested and
+    # compared (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller
+    # value). Each validator read a copy of its own, and the four equalities then read the caller's objects
+    # again, through their own `__contains__` and `__getitem__`: a statement changed between the readings was
+    # validated in one state and digested and compared in another, and the join reported ok for a statement
+    # that is not valid. A value with no plain copy is refused here with the validator's own message.
+    # The block is judged before the statement is copied, as before this reading (verify lane V3 on 6d674973): a
+    # block that is no valid block is reported as that, whatever the statement holds.
+    try:
+        block = _pruefkopie(block)
+    except ValueError:
+        fehler.append("the block is not a valid verifier block")
+        return r
     if validate_verifier_block(block):
         fehler.append("the block is not a valid verifier block")
         return r
     if "testResult" not in block:
         fehler.append("the block cites no test result -- nothing to join")
+        return r
+    try:
+        statement = _pruefkopie(statement)
+    except ValueError as exc:
+        fehler.append(f"statement is not a JSON value: {exc}")
         return r
     errs = validate_test_result_statement(statement)
     if errs:
@@ -669,6 +701,7 @@ def join_test_result(block: dict, statement: dict) -> dict:
     return r
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def sign_test_result_statement(statement: dict, signer, *, keyid: "str | None" = None) -> dict:
     """Wrap the statement in a DSSE envelope -- the same primitive every receipt of this package
     uses, no new crypto. The statement is validated first; an invalid one is not signed. It is read
@@ -686,6 +719,7 @@ def sign_test_result_statement(statement: dict, signer, *, keyid: "str | None" =
 
 
 # ── what a verify result says about the block ─────────────────────────────────────────────────
+@_ein_stand
 def report(predicate: Any) -> dict:
     """The verifier's view of the block: present or not, what it names, and whether the build
     running THIS verification is the build the block names.
@@ -706,6 +740,15 @@ def report(predicate: Any) -> dict:
         return r
     block = producer["verifier"]
     r["present"] = True
+    # Read once (deep gate run 5 at d388ed3d, the sweep of L4-620v5-T5-SECOND-READING-01): the validator read a copy and the fields
+    # below were read from the caller's block again, so a block changed in between was reported valid and
+    # named by another state. A block with no plain copy is refused here with the validator's own message.
+    try:
+        block = _pruefkopie(block)
+    except ValueError as exc:
+        r["valid"] = False
+        r["errors"].append(f"producer.verifier: block is not a JSON value: {exc}")
+        return r
     errs = validate_verifier_block(block)
     r["valid"] = not errs
     r["errors"].extend(f"producer.verifier: {e}" for e in errs)

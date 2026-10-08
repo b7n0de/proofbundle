@@ -1108,6 +1108,11 @@ class EachObjectReadIsTheObjectItsIdNames(_Base):
         self.assertEqual(checker._baum(repo, commit),
                          {os.fsdecode(p): (t, o) for _m, t, o, p in entries},
                          "the checker's walk is not the library's")
+        # The modes too: the checker holds the checkout to them (external review of 65d8f8cd, F4), and this tree
+        # carries a link, an executable and directories, so a misread mode shows here.
+        self.assertEqual(checker._baum_eintraege(repo, commit),
+                         {os.fsdecode(p): (t, o, m) for m, t, o, p in entries},
+                         "the checker's modes are not the library's")
         text = _git_bytes(repo, "-c", "core.quotePath=true", "ls-tree", "--full-tree", "-r", "HEAD")
         self.assertIn(b'"', text, "precondition: git quotes some of these names")
         self.assertEqual(lib.subject_tree_digest(repo),

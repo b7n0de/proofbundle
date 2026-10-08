@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from .errors import BundleFormatError
+from .canonical import _abbild_stand, _ein_stand
 
 __all__ = ["automation_summary", "AUTOMATION_BLOCKER_REASONS"]
 
@@ -67,6 +68,7 @@ def _tri(result: Mapping[str, Any], key: Optional[str], not_bool: list) -> Optio
     return value
 
 
+@_ein_stand(required_checks=_abbild_stand, result=_abbild_stand)
 def automation_summary(result: Mapping[str, Any], *, required_checks: Mapping[str, Any]) -> dict:
     """Build a uniform automation-safety verdict from a ``verify_*`` result dict.
 

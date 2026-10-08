@@ -31,7 +31,7 @@ from ._membership import require_switch, type_name
 from ._strict_json import loads_strict
 from .bundle import verify_bundle
 from .budget import render_keys_safe
-from .canonical import _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
+from .canonical import _ein_stand, _feld_von, _plain_for_jcs, _zahl_von, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, VerificationResult
 from ._inflate import InflateCapExceeded, inflate_whole_stream
 from ._wire_b64 import decode_b64, decode_b64url
@@ -52,6 +52,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def receipt_token(bundle: dict) -> str:
     """Pack a receipt bundle into a compact, self-contained token: ``pb1.`` +
     base64url(zlib(canonical bundle JSON)). The token IS the receipt — verifying it is verifying
@@ -85,6 +86,7 @@ def receipt_token(bundle: dict) -> str:
     return TOKEN_PREFIX + _b64url(zlib.compress(canonical, 9))
 
 
+@_ein_stand
 def receipt_token_identity(token: str) -> bytes:
     """The identity of a ``pb1.`` token: the receipt root of the bundle it carries, i.e.
     :func:`proofbundle.anchors.receipt_canonical_root` over that bundle without its ``anchors``, the
@@ -102,9 +104,16 @@ def receipt_token_identity(token: str) -> bytes:
     return receipt_canonical_root({k: v for k, v in bundle.items() if k != "anchors"})
 
 
-def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]]:
+@_ein_stand
+def verify_receipt_token(token: str, *, sd_jwt_issuer_key_pin: Optional[str] = None
+                         ) -> Tuple[VerificationResult, Optional[dict]]:
     """Unpack and verify a ``pb1.`` receipt token. Returns (VerificationResult, bundle_dict).
     Malformed tokens raise BundleFormatError — never a crash, never a silent pass.
+
+    ``sd_jwt_issuer_key_pin`` (Nachtrag 38, Z309 / PR 311 P1): forwarded verbatim to
+    :func:`~proofbundle.bundle.verify_bundle`. A KB-JWT verdict carried by the token (holder binding,
+    audience, nonce) is reported positive only under a trusted SD-JWT issuer — the SD-JWT bound to the
+    signed payload, or its issuer key matching this pin — otherwise ``sd-jwt-issuer-trust`` fails closed.
 
     The returned bundle is the one the token carries, byte for byte in every field: a foreign
     issuer's ES256 signature keeps the spelling the token held (finding D1). Two tokens of one
@@ -119,7 +128,7 @@ def verify_receipt_token(token: str) -> Tuple[VerificationResult, Optional[dict]
     # Normalize an unsupported schema/alg to BundleFormatError so the documented contract holds — a malformed
     # token never escapes as a different exception type (release-review fix).
     try:
-        return verify_bundle(bundle), bundle
+        return verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin), bundle
     except ProofBundleError as exc:
         # adversarial re-audit round 3: normalize the BASE ProofBundleError (UnsupportedError AND any sibling such
         # as BudgetExceeded) to the documented BundleFormatError, completing the token contract "malformed
@@ -167,7 +176,8 @@ def _unpack_receipt_token(token) -> dict:
     return bundle
 
 
-def verify_eval_results_entry(entry: dict) -> dict:
+@_ein_stand
+def verify_eval_results_entry(entry: dict, *, sd_jwt_issuer_key_pin: Optional[str] = None) -> dict:
     """VERIFIER-side check of one ``.eval_results`` entry (WP-I2): the builder's value↔verdict
     consistency was emit-side only, so an entry whose ``value`` was edited AFTER the token was
     minted verified fine (``verify_receipt_token`` checks only the bundle inside the token, and a
@@ -203,7 +213,14 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # `canonical._feld_von`): never the entry's own `get`, and each value by its own type (`_zeichen_von`,
     # `_zahl_von`). The rest of the entry is not read, so an entry parsed from YAML with a date object
     # in `date` keeps verifying as before.
+    # BOTH FIELDS ARE READ FROM ONE READING, the one of the call (`canonical._stand`), before the token is verified
+    # (a verify lens of the fix of the gate at d388ed3d, the class of L4-620v5-T5-SECOND-READING-01). The value was
+    # read after the receipt inside the token had been verified, a second reading of the caller's entry: a gc
+    # callback of the caller that changed both fields in between paired the token of one state with the value of
+    # the other, and the entry verified although neither state of it is consistent (measured: `ok` True at 22 of
+    # 112 collection starts).
     token = _feld_von(entry, "verifyToken")
+    _val = _feld_von(entry, "value")
     token = _zeichen_von(token) if _zeichen_von(token) is not None else token
     if type(token) is not str or not token:   # `type()`: a `__class__` claim is no str (round 12)
         out["detail"] = "entry carries no verifyToken — nothing to verify (token is optional in the HF schema)"
@@ -213,7 +230,7 @@ def verify_eval_results_entry(entry: dict) -> dict:
     # missing pb1. prefix or bad base64/zlib; a batch verifier over an untrusted third-party .eval_results list
     # must map that to a fail-closed verdict, not crash. Catch the BASE ProofBundleError so no sibling escapes.
     try:
-        result, bundle = verify_receipt_token(token)
+        result, bundle = verify_receipt_token(token, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)
     except ProofBundleError as exc:
         out["detail"] = f"malformed verifyToken — not verifiable, fail-closed ({exc})"
         return out
@@ -221,7 +238,6 @@ def verify_eval_results_entry(entry: dict) -> dict:
     if not result.ok:
         out["detail"] = "embedded receipt does not verify"
         return out
-    _val = _feld_von(entry, "value")
     _typ = type(_val)
     if _typ is not bool and _typ is not int and _typ is not float and (issubclass(_typ, int)
                                                                       or issubclass(_typ, float)):
@@ -267,11 +283,12 @@ def verify_eval_results_entry(entry: dict) -> dict:
     return out
 
 
+@_ein_stand
 def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
                           date: Optional[str] = None, source_url: Optional[str] = None,
                           source_name: Optional[str] = None, source_user: Optional[str] = None,
                           notes: Optional[str] = None, include_token: bool = True,
-                          require_verified: bool = True,
+                          require_verified: bool = True, sd_jwt_issuer_key_pin: Optional[str] = None,
                           allow_value_mismatch: bool = False) -> dict:
     """Build one HF `.eval_results/*.yaml` entry for a receipt.
 
@@ -338,7 +355,7 @@ def to_eval_results_entry(bundle: dict, *, dataset_id: str, task_id: str, value,
     from .evalclaim import _eine_lesung  # noqa: PLC0415
     bundle = _eine_lesung(bundle)
     if require_verified:
-        result = verify_bundle(bundle)
+        result = verify_bundle(bundle, sd_jwt_issuer_key_pin=sd_jwt_issuer_key_pin)
         if not result.ok:
             raise BundleFormatError(
                 "refusing to build an eval_results entry from a bundle that does not verify: "
@@ -433,6 +450,7 @@ def _yaml_scalar(value) -> str:
     return json.dumps(str(value))
 
 
+@_ein_stand
 def eval_results_yaml(entries) -> str:
     """Render entries as a `.eval_results/*.yaml` document (block style, deterministic key
     order per the HF spec example). Only the known, shallow schema is emitted — this is a

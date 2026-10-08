@@ -12,17 +12,22 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Callable
+import time
+from datetime import datetime, timezone
+from typing import Any, Callable, cast
 
 from ._statement_payload import load_statement_strict
 from .budget import render_keys_safe, render_safe
-from .canonical import _FEHLT, _abschnitt_von, _bytes_von, _eine_kopie, _pruefkopie, _richtlinie_von, _zeichen_von
-from .errors import BundleFormatError, ProofBundleError
+from .canonical import (_FEHLT, _abbild_stand, _abschnitt_von, _bytes_von, _ein_stand, _eine_kopie,
+                        _pruefkopie, _richtlinie_von, _zeichen_von)
+from .errors import BundleFormatError, ProofBundleError, _origin_token
 from .subject_binding import nested_closure_violations
 from ._membership import is_member, require_switch, type_name
 
 DECISION_RECEIPT_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"
 DECISION_SCHEMA_VERSION = "0.1.0"
+# Nachtrag 48/48b (Z309): domain tag for the decision-receipt verified-snapshot origin token (errors._origin_token).
+_DECISION_ORIGIN_DOMAIN = b"decision-receipt-v1"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
 
@@ -32,6 +37,21 @@ _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")  # \A..\Z (not ^..$): $ matches be
 _SEMVER_0_1_X = re.compile(r"\A0\.1\.\d+\Z")  # \A..\Z (not ^..$): $ matches before a trailing newline
 
 _DECISION_TYPES = {"preActionAuthorization", "postHocReview", "humanEscalation", "policySimulation"}
+
+
+def _expiresat_posix(value: Any) -> "float | None":
+    """POSIX seconds for a strict RFC3339-`Z` timestamp, or None when ``value`` is not such a string.
+
+    Nachtrag 49 K4-01 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): the single strict reader for
+    ``validity.expiresAt`` in the verify verdict. Anything that is not an RFC3339-`Z` string (the only
+    time form this module accepts) returns None, which the caller treats as fail-closed."""
+    if not (isinstance(value, str) and _RFC3339_Z.match(value)):
+        return None
+    fmt = "%Y-%m-%dT%H:%M:%S.%fZ" if "." in value else "%Y-%m-%dT%H:%M:%SZ"
+    try:
+        return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc).timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
 _VERDICTS = {"ALLOW", "DENY", "REFUSE", "ESCALATE", "DEFER", "OBSERVE"}
 _OUTCOME_STATUS = {"notAttempted", "blocked", "refused", "attempted", "executed", "failed", "unknown"}
 
@@ -137,6 +157,7 @@ def _is_digest(obj: Any) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("sha256"), str) and bool(_SHA256_HEX.match(obj["sha256"]))
 
 
+@_ein_stand
 def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list[str]:
     """Return a list of human-readable errors; **empty list == valid**. Fail-closed.
 
@@ -325,6 +346,7 @@ def validate_decision_predicate(predicate: Any, *, strict: bool = False) -> list
     return errors
 
 
+@_ein_stand
 def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) -> None:
     """Raise ``DecisionReceiptError`` if the predicate is invalid; return ``None`` if valid.
 
@@ -341,6 +363,7 @@ def require_valid_decision_predicate(predicate: Any, *, strict: bool = False) ->
         )
 
 
+@_ein_stand
 def action_outcome_proven(predicate: Any) -> bool | None:
     """DEPRECATED (PB-2026-0717-08) — a digest-PRESENCE boolean whose name OVERSTATES. It reads True on a
     mere well-formed sha256 outcomeRef (evidence_levels REFERENCE_WELL_FORMED, attacker-choosable content),
@@ -357,6 +380,7 @@ def action_outcome_proven(predicate: Any) -> bool | None:
     return isinstance(ref, dict) and _is_digest(ref.get("digest"))
 
 
+@_ein_stand
 def resolve_evidence_ref(ref: dict, *, evidence_payload: bytes | None = None,
                          artifact_bytes: bytes | None = None) -> dict:
     """Offline check of one ``evidenceRefs[]`` entry against resolved evidence (no network).
@@ -403,11 +427,11 @@ def _rfc8785_bytes(obj: Any) -> bytes:
     root* is defined over the RFC-8785 (JCS) canonical form (Fix 3 / proofbundle#7 consensus), so both emit
     and the hash_binding check use a REAL JCS canonicalizer rather than the bundle path's
     ``json.dumps(sort_keys=True)`` — which is not full JCS (it does not normalize number formatting or string
-    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``, the ``[eval]`` extra)
-    is imported lazily inside the shared primitive, so the base install and the plain no-anchor verify path
-    stay dependency-free; a missing extra surfaces there as ``CanonicalizerUnavailable`` which we re-raise as
-    the predicate-local ``DecisionReceiptError`` with the SAME message (never a raw ImportError — no
-    behaviour change)."""
+    escaping) and so cannot carry a stable content root. The canonicalizer (``rfc8785``) is a dependency of the
+    core install since 3.6.1 and is imported lazily inside the shared primitive; an install that lacks it surfaces
+    there as ``CanonicalizerUnavailable``, which we re-raise as the predicate-local ``DecisionReceiptError`` with
+    the SAME message (never a raw ImportError). Until deep gate run 6 at fda55f98 this said the base install
+    stays dependency-free."""
     from . import canonical  # noqa: PLC0415 — lazy: only the canonical/emit path pulls the JCS dependency
     try:
         return canonical.canonicalize_statement(obj)
@@ -437,6 +461,7 @@ def _predicate_once(predicate):
                       error=lambda m: DecisionReceiptError(f"invalid decision predicate: {m}"))
 
 
+@_ein_stand
 def build_decision_statement(predicate: dict, *, subject_name: str | None = None,
                              subject_sha256: str | None = None) -> dict:
     """Build a STANDARD in-toto Statement v1 whose predicate is the Decision Receipt. The subject is a
@@ -463,6 +488,7 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     }
 
 
+@_ein_stand(aussen={"signer": "signierer"})
 def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None = None,
                           subject_sha256: str | None = None, keyid: str | None = None,
                           strict: bool = True) -> dict:
@@ -503,6 +529,13 @@ def _empty_result() -> dict:
         # relations policy is evaluated; the stable violation codes (LINEAGE_REQUIREMENT_FAILED /
         # RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH) drive the automation blockers + F5.
         "relations_policy_failed": None, "relations_policy_codes": None,
+        # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): what this verification
+        # actually verified, captured ONLY on a passing DSSE signature (crypto_ok True). verified_signer_pub_b64
+        # is the base64 key the signature verified under; verified_payload_digest is sha256 of the EXACT signed
+        # statement bytes (hex). verified_origin is the per-process origin token over these. evaluate_decision_policy
+        # binds the result it is handed to the statement + signer it judges with these, so a result that was not
+        # produced by this process's verifier for exactly this statement confers no positive verdict. None until set.
+        "verified_signer_pub_b64": None, "verified_payload_digest": None, "verified_origin": None,
         "warnings": [], "errors": [],
     }
 
@@ -521,13 +554,14 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
 def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, strict: bool = False,
                                      expected_audience: str | None = None,
                                      expected_nonce: str | None = None, policy: dict | None = None,
                                      anchors: list | None = None, rp_trust: dict | None = None,
                                      require_derived_subject: bool = False,
                                      evidence_resolver: Callable[[dict], bool] | None = None,
-                                     related: dict | None = None) -> dict:
+                                     related: dict | None = None, now: int | None = None) -> dict:
     """Explicit-exception variant of :func:`verify_decision_receipt`: raises :class:`BundleFormatError`
     when the payload is not a well-formed in-toto Statement (malformed JSON, duplicate key, bad UTF-8),
     instead of returning a fail-closed verdict. Use :func:`verify_decision_receipt` (never-raise) for
@@ -537,15 +571,17 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         envelope, public_key, strict=strict, expected_audience=expected_audience,
         expected_nonce=expected_nonce, policy=policy, anchors=anchors, rp_trust=rp_trust,
         require_derived_subject=require_derived_subject, evidence_resolver=evidence_resolver,
-        related=related, _raise_on_malformed=True)
+        related=related, now=now, _raise_on_malformed=True)
 
 
+@_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
 def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool = False,
                             expected_audience: str | None = None, expected_nonce: str | None = None,
                             policy: dict | None = None, anchors: list | None = None,
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
                             evidence_resolver: Callable[[dict], bool] | None = None,
-                            related: dict | None = None, _raise_on_malformed: bool = False) -> dict:
+                            related: dict | None = None, now: int | None = None,
+                            _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
 
@@ -559,7 +595,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     signed. The CLI gates its exit code on `crypto_ok` first (and reports `ok`).
 
     hash_binding (§7.1): the received payload MUST equal its own RFC-8785 canonicalization; a deviation is a
-    fail-closed error (only checked when rfc8785 is importable, so plain verify stays dependency-free).
+    fail-closed error. ``rfc8785`` is a dependency of the core install since 3.6.1, and an install that lacks it
+    refuses every receipt (``canonical.CanonicalizerUnavailable``); until deep gate run 6 at fda55f98 this said the
+    check runs only when rfc8785 is importable.
 
     Subject binding (Finding 05, mirrors outcome.py): `build_decision_statement` allows a caller to
     OVERRIDE `subject_sha256`, self-attested and NOT cross-checked there. This verify path now classifies
@@ -660,6 +698,18 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # (tests/test_budget_aufrufpunkte_sind_vollstaendig_erfasst.py), which cannot see inside it.
         DEFAULT_BUDGET.check("input_bytes", len(body))
         statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
+        # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309): capture what this verification
+        # verified — the signer key and the digest of the EXACT signed statement bytes — and stamp the origin
+        # token, ONLY on a passing DSSE signature. evaluate_decision_policy binds the result it is handed to the
+        # statement + signer it judges through these; a result not produced by this process's verifier for exactly
+        # this statement (a hand-built dict, or one of another receipt) then confers no positive verdict.
+        if r["crypto_ok"]:
+            import base64 as _b64_cap  # noqa: PLC0415
+            _signer_b64 = _b64_cap.b64encode(bytes(schluessel)).decode("ascii")
+            _payload_digest = hashlib.sha256(body).hexdigest()
+            r["verified_signer_pub_b64"] = _signer_b64
+            r["verified_payload_digest"] = _payload_digest
+            r["verified_origin"] = _origin_token(_DECISION_ORIGIN_DOMAIN, (_signer_b64, _payload_digest))
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
         # PB-2026-0717-07 / -0718-11 never-raise: untrusted unparseable/oversized/over-wide input yields a
         # STABLE fail-closed verdict (structure_ok=False, ok=False, safeForAutomation=False), never a raw
@@ -708,19 +758,22 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # `related` IS READ BEFORE ANY CALLER CODE RUNS (verify lane on pull request 312): the lineage below
         # read the caller's map after the evidence resolver had run, and a resolver that cleared the map
-        # hid an attached retraction, so ok went from False to True. Each attached entry is read here, once
-        # (`relation._read_attached_entries` inside the two calls), and the result is recorded further down.
-        from .relation import _carries_attached_entries  # noqa: PLC0415
+        # hid an attached retraction, so ok went from False to True. The map is read here ONCE
+        # (`relation._related_lesen`), and whether there are targets, the edges and `supersededByAttached` are all
+        # judged over that one reading (deep gate run 5 at d388ed3d, L4-620v5-T5-SECOND-READING-01, two of three jurors P1): the
+        # question, `verify_relationship_edges` and `successor_warning` were three readings, and a gc callback of
+        # the caller that emptied its map between the last two hid the retraction while the edge to the parent
+        # stayed VERIFIED, so ok came out True under a policy that refuses the full map and the empty one alike.
+        from .relation import _kanten_urteil, _related_lesen, _related_traegt_eintraege  # noqa: PLC0415
         _linie = None
-        if "relationships" in predicate or _carries_attached_entries(related):
+        _related_gelesen = _related_lesen(related)
+        if "relationships" in predicate or _related_traegt_eintraege(_related_gelesen):
             from . import anchors as _anchors_for_rel  # noqa: PLC0415
-            from .relation import successor_warning, verify_relationship_edges  # noqa: PLC0415
             try:
                 _subject_hex = _anchors_for_rel.statement_content_root(body).hex()
             except Exception:
                 _subject_hex = None
-            _linie = (verify_relationship_edges(predicate.get("relationships"), related, subject_hex=_subject_hex),
-                      successor_warning(predicate.get("relationships"), related, subject_hex=_subject_hex))
+            _linie = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
         r["action_outcome_proven"] = action_outcome_proven(predicate)
         if r["action_outcome_proven"] is False:
             r["warnings"].append("actionOutcome.status=executed is self-asserted (no signed outcomeRef)")
@@ -774,14 +827,16 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # authenticated bytes (this block), NEVER feeds `ok`/crypto (lattice monotonicity); a lineage
         # FAIL surfaces via errors[] and the policy layer, not by flipping the crypto verdict.
         # Whether targets are attached is read from what the map stores, never through the caller's own
-        # `__bool__` or `__len__` (`_carries_attached_entries`): a map that said it was empty skipped this
+        # `__bool__` or `__len__` (`_related_traegt_eintraege` of the one reading): a map that said it was empty skipped this
         # block and hid an attached retraction from `reject_superseded`, and `ok` came out True.
         # The lineage was computed above, before the evidence resolver ran (`_linie`); it is recorded here,
         # where it always stood, so the order of the warnings is unchanged.
+        _sw = None  # Nachtrag 46c: the single reading of supersededByAttached, reused by the relation origin stamp below.
         if _linie is not None:
-            r["lineage"], _sw = _linie
-            # Advisory by default; the policy's reject_superseded turns it into a blocker below.
-            r["lineage"]["supersededByAttached"] = _sw
+            r["lineage"] = _linie
+            # Advisory by default; the policy's reject_superseded turns it into a blocker below. Set by the engine
+            # over the one reading of the map, and only read here (and passed to the origin stamp, not re-read).
+            _sw = r["lineage"].get("supersededByAttached")
             if _sw:
                 r["warnings"].append(f"lineage: {_sw}")
             if r["lineage"]["lineage"] == "FAIL":
@@ -824,6 +879,60 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
+        # Nachtrag 49 K4-01 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a declared validity.expiresAt is
+        # part of the verdict, judged against ONE evaluation time — the `now` POSIX-seconds parameter when the
+        # relying party supplies it, else the wall clock read once here (never an artifact time). An expired or
+        # unreadable expiry fails closed via `freshness_ok`; an ABSENT expiresAt leaves freshness_ok None (not
+        # applicable). Judged only here, over authenticated bytes.
+        # Nachtrag 49b CX-01 (`KRAXO-CLOUD-N49B-ZEIT-AN-JEDEM-RAND-01`, Z309): the gate is KEY presence, not VALUE
+        # presence. A declared expiresAt whose value is unreadable — a JSON null included — is a present-but-
+        # unreadable expiry and fails closed (via `_expiresat_posix(None) -> None` below), never silently
+        # not-applicable. Only a MISSING key is not-applicable. (At N49 a null value read as a missing key.)
+        # Addendum R6a-5 / R6a-6 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, Z309): establish the ONE
+        # evaluation instant for this verify at a single edge, so the receipt freshness and the policy
+        # lifecycle (judged below) are read at exactly the same time. An explicit `now` is validated ONCE here
+        # (the one rule for a caller's number, _plain_value.plain_int — an int subclass runs no method): a value
+        # that is not an exact POSIX-seconds int, or one outside datetime's range (e.g. year 10000), is a
+        # malformed relying-party clock and fails the verdict closed REGARDLESS of whether validity.expiresAt is
+        # present (R6a-5) — never silently re-read from the wall clock. When `now` is omitted the wall clock is
+        # read EXACTLY ONCE here (R6a-6); the SAME instant threads the freshness check below and the policy
+        # clock, so two independent readings can never straddle a validity boundary.
+        from ._plain_value import plain_int  # noqa: PLC0415
+        _now_invalid = False
+        _eval_now_posix: "int | float | None"
+        if now is None:
+            _eval_now_posix = time.time()   # the single wall-clock reading for this whole verify
+        else:
+            _np0 = plain_int(now)
+            if _np0 is None:
+                _now_invalid, _eval_now_posix = True, None
+            else:
+                try:
+                    datetime.fromtimestamp(_np0, tz=timezone.utc)   # reject an out-of-range instant (year 10000)
+                except (OverflowError, OSError, ValueError):
+                    _now_invalid, _eval_now_posix = True, None
+                else:
+                    _eval_now_posix = _np0
+        if _now_invalid:
+            # R6a-5: a malformed explicit evaluation time fails every time-dependent axis closed, with NO
+            # wall-clock fallback — whether or not the receipt declares an expiresAt.
+            r["freshness_ok"] = False
+            r["errors"].append("decision receipt now (evaluation time) must be a POSIX-seconds integer in "
+                               "range (fail-closed; a malformed evaluation time is never re-read from the "
+                               "wall clock)")
+        elif "expiresAt" in _validity:
+            _exp = _validity.get("expiresAt")
+            _exp_posix = _expiresat_posix(_exp)
+            _en = cast("int | float", _eval_now_posix)   # not None in this branch (not _now_invalid)
+            if _exp_posix is None:
+                r["freshness_ok"] = False
+                r["errors"].append("validity.expiresAt is not a readable RFC3339 'Z' timestamp (fail-closed)")
+            elif _en >= _exp_posix:
+                r["freshness_ok"] = False
+                r["errors"].append("decision receipt is expired: validity.expiresAt is at or before the "
+                                   "evaluation time (fail-closed)")
+            else:
+                r["freshness_ok"] = True
 
     # Subject binding (Finding 05, release-review #4 parity with outcome.py): classify whether the subject
     # genuinely commits to the predicate so a consumer never gets ZERO signal on a subject-rehang override.
@@ -955,11 +1064,32 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             r["warnings"].append("crypto verification did not pass — trust policy not evaluated")
         else:
             import base64  # noqa: PLC0415
-            from .policy import evaluate_decision_policy  # noqa: PLC0415
-            # The plain copy when there is one; otherwise the refusal taken at entry (`_ablehnung`).
-            pe = _ablehnung if _ablehnung is not None else evaluate_decision_policy(
-                statement, r, richtlinie, signer_public_key_b64=base64.b64encode(schluessel).decode(),
-                anchor_status=anchor_status)
+            from .policy import _regelfehler, evaluate_decision_policy  # noqa: PLC0415
+            # Every rule the policy sets is one this verifier applies (T16, `policy._regelfehler`): the decision
+            # section, the relations rules (the gate below) and the shared fields. Any other rule, an eval, anchors or
+            # `reject_retracted` rule, refuses the policy. The decision section and the shared fields are judged by
+            # `evaluate_decision_policy`, which gets the policy without the relations section judged below.
+            _regel = _regelfehler(richtlinie, "verify_decision_receipt") if richtlinie is not None else None
+            if _ablehnung is not None:   # the plain copy is missing: the refusal taken at entry
+                pe = _ablehnung
+            elif _regel is not None:
+                pe = {"policy_ok": False, "signer_trusted": None, "errors": [_regel]}
+            else:
+                # Nachtrag 49b CX-03 / Addendum R6a-6: the policy lifecycle is judged at the SAME single
+                # instant established at the edge above — the receipt's POSIX `now`, or, when `now` was omitted,
+                # the ONE wall-clock reading taken there (never a fresh, second wall-clock read, which could
+                # straddle a validity boundary). A malformed explicit `now` already failed the verdict closed
+                # above (R6a-5); here it refuses the policy rather than silently falling back to the wall clock.
+                if _now_invalid:
+                    pe = {"policy_ok": False, "signer_trusted": None,
+                          "errors": ["policy not evaluated: the evaluation time (now) is malformed "
+                                     "(fail-closed)"]}
+                else:
+                    _pol_now = datetime.fromtimestamp(int(cast("int | float", _eval_now_posix)), tz=timezone.utc)
+                    pe = evaluate_decision_policy(
+                        statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
+                        signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status,
+                        now=_pol_now)
             r["policy_ok"] = pe["policy_ok"]
             r["signer_trusted"] = pe["signer_trusted"]
             r["errors"].extend(pe["errors"])
@@ -991,10 +1121,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     # section is no relations rule.
     if _rel is not _FEHLT and r["crypto_ok"]:
         import base64 as _b64_rel  # noqa: PLC0415
-        from .relation import _abschnitt_urteil  # noqa: PLC0415
+        from .relation import _abschnitt_urteil, _stamp_lineage_origin  # noqa: PLC0415
+        # Nachtrag 48/48b (Z309, F2): stamp the lineage result with the key this receipt verified under, so
+        # relation_signer is bound to the verified successor receipt (only on a passing signature, which this
+        # branch already requires). A relation_signer rule confers trust only on a lineage result so stamped.
+        _successor_b64 = _b64_rel.b64encode(schluessel).decode()
+        _stamp_lineage_origin(r.get("lineage"), _successor_b64, _sw)
         _viol = _abschnitt_urteil(
             _rel, _as_dict(r.get("lineage")),
-            successor_key_b64=_b64_rel.b64encode(schluessel).decode())
+            successor_key_b64=_successor_b64)
         if _viol:
             r["policy_ok"] = False
             # WP-A3 / F5 driver: any relations violation means a REQUESTED relation surface did not
@@ -1013,6 +1148,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         r["crypto_ok"] and r["structure_ok"] and r["predicate_type_ok"]
         and r["policy_ok"] is not False and r["signer_trusted"] is not False
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
+        and r["freshness_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
         and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False)
 
@@ -1051,4 +1187,44 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         # referencesResolved=true. Only touched on a real relations violation (bidirectional: a
         # non-lineage receipt / a satisfied policy leaves the field exactly as automation_summary set it).
         r["automation"]["referencesResolved"] = False
+    # Addendum R6a-4 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`, SPEC 403-410): safeForAutomation is a
+    # PRESENT-tense verdict. Its policy-lifecycle AND receipt-freshness inputs are evaluated at the REAL
+    # current time, NOT the (possibly historical) `now` that drove policy_ok, freshness_ok and the CLI exit
+    # code — so a policy that is expired OR not-yet-valid TODAY keeps safeForAutomation False even when an
+    # explicit historical evaluation time made the POLICY verdict pass (POLICY_EXPIRED / POLICY_NOT_YET_VALID,
+    # mirroring the eval path). This fires only in historical mode (an explicit `now`): in present mode the
+    # policy_ok evaluation already used today, so an expired policy already blocks via POLICY_FAILED. It only
+    # ever ADDS a blocker and sets safeForAutomation False — never lifts it.
+    if (now is not None and richtlinie is not None and r.get("crypto_ok")
+            and isinstance(r.get("automation"), dict)):
+        from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+        _present = datetime.now(timezone.utc)   # the single present-time reading for the automation gate
+        _today_expired = _pexp(richtlinie, now=_present) is True
+        _today_nyv = _pnyv(richtlinie, now=_present) is True
+        if _today_expired or _today_nyv:
+            _lifeblk = r["automation"].setdefault("automationBlockers", [])
+            if _today_expired and "POLICY_EXPIRED" not in _lifeblk:
+                _lifeblk.append("POLICY_EXPIRED")
+            if _today_nyv and "POLICY_NOT_YET_VALID" not in _lifeblk:
+                _lifeblk.append("POLICY_NOT_YET_VALID")
+            r["automation"]["safeForAutomation"] = False
+        # Addendum R6b-6 (`KRAXO-CLOUD-621-KERN-R6B-UND-ZT-01`, = F4 group 3): the receipt's OWN freshness is a
+        # present-tense automation input too — the remaining neighbour path of R6a-4. `freshness_ok` above was
+        # judged at the (possibly historical) evaluation instant and may stay historically True (the receipt
+        # WAS fresh THEN — kept, that is the honest historical reading, and the exit code / POLICY status are
+        # untouched). But a receipt whose validity.expiresAt is at or before the REAL present time is not fresh
+        # TODAY, so it must not earn a present automation release even under a policy valid today. Judged at the
+        # SAME present instant as the policy lifecycle just above. Fail-closed: an expired (or, defensively, a
+        # present-but-unreadable) expiry blocks with RECEIPT_EXPIRED; an ABSENT expiresAt is not-applicable and
+        # never blocks. In present mode the SAME expiry already fails freshness_ok -> ok -> RECEIPT_NOT_OK, so
+        # this changes nothing there; it only ADDS a blocker and sets safeForAutomation False — never lifts it.
+        _val_present = predicate.get("validity") if isinstance(predicate, dict) else None
+        _val_present = _val_present if isinstance(_val_present, dict) else {}
+        if "expiresAt" in _val_present:
+            _exp_present = _expiresat_posix(_val_present.get("expiresAt"))
+            if _exp_present is None or _present.timestamp() >= _exp_present:
+                _freshblk = r["automation"].setdefault("automationBlockers", [])
+                if "RECEIPT_EXPIRED" not in _freshblk:
+                    _freshblk.append("RECEIPT_EXPIRED")
+                r["automation"]["safeForAutomation"] = False
     return r

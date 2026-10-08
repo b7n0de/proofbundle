@@ -198,9 +198,9 @@ class EverySingleSignerVerifier(unittest.TestCase):
         stmt = _statement(_decision(sk))
         pred = stmt["predicate"]
         pub_b64 = base64.b64encode(_pub(sk)).decode()
+        # Only rules `decision verify` applies: since deep gate run 6 a policy that also sets rules of the eval
+        # bundle path (`allowed_schema_versions`, `signature`), which this command never applied, is refused.
         policy = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
-                  "allowed_schema_versions": ["proofbundle/v0.1"],
-                  "signature": {"allowed_algs": ["ed25519"], "require_expected_signer": True},
                   "decision_receipt": {"accepted_predicate_types": [stmt["predicateType"]],
                                        "trusted_decision_makers": [{"id": pred["decisionMaker"]["id"],
                                                                     "public_key_b64": pub_b64}],

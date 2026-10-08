@@ -13,6 +13,7 @@ exists (deferred, see the roadmap).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from collections import Counter
 from typing import Any, Optional
@@ -21,9 +22,9 @@ from ._membership import require_switch, type_name
 from ._verdict import require_bool_verdict, require_eval_claim
 from ._strict_json import loads_strict
 from .budget import render_safe
-from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _plain_for_jcs, _type_name,
-                        _zeichen_von, canonicalize_statement)
-from .errors import BundleFormatError, ProofBundleError
+from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _ein_stand, _plain_for_jcs,
+                        _type_name, _zeichen_von, canonicalize_statement)
+from .errors import BundleFormatError, ProofBundleError, SwitchTypeError
 
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://b7n0de.com/proofbundle/eval-receipt/v0.1"
@@ -178,6 +179,7 @@ def _alg_once(content_root_alg: Any) -> str:
     return _text_once(content_root_alg, f"unknown contentRootAlg of type {type_name(content_root_alg)} "
                                         "(ADR 0002 §1; no silent default)")
 
+@_ein_stand(fehler=BundleFormatError)
 def to_intoto_statement(claim: dict, *, root_b64: Optional[str] = None,
                         harness: Optional[dict] = None) -> dict:
     """Build an in-toto Statement v1 whose predicate is the eval receipt.
@@ -346,6 +348,7 @@ def _content_root_binding(statement: Any, body: bytes) -> tuple[bool, Optional[s
     return True, alg, ""
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, url: Optional[str] = None,
                              content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
@@ -434,6 +437,7 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     }, content_root_alg)
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=BundleFormatError)
 def export_intoto_dsse(claim: dict, signer, *, root_b64: Optional[str] = None,
                        harness: Optional[dict] = None, url: Optional[str] = None,
                        keyid: Optional[str] = None,
@@ -808,6 +812,7 @@ def _judge_claim_fields(res: dict, eigener_typ: str, felder_von) -> dict:
     return res
 
 
+@_ein_stand(fehler=BundleFormatError)
 def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
                        expected_predicate_type: str = TEST_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed in-toto test-result attestation from ``export_intoto_dsse``. Returns
@@ -932,6 +937,7 @@ def _require_export_fields(claim: dict) -> bool:
     return require_bool_verdict(claim, wo="refusing to export")
 
 
+@_ein_stand(fehler=BundleFormatError)
 def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None,
                     subject_name: Optional[str] = None, subject_sha256: Optional[str] = None) -> list:
     """Build the Statement `subject` for a subject profile. Every subject carries a real `digest` (in-toto
@@ -983,6 +989,7 @@ def resolve_subject(profile: str, claim: dict, *, root_b64: Optional[str] = None
         f"unknown subject profile {render_safe(profile)} (one of {', '.join(SUBJECT_PROFILES)})")
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
                              subject_profile: str = "receipt") -> dict:
@@ -1047,6 +1054,7 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     return predicate
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[str] = None,
                              harness: Optional[dict] = None, anchors: Optional[list] = None,
                              subject_profile: str = "receipt",
@@ -1066,6 +1074,7 @@ def to_eval_result_statement(claim: dict, *, subject: list, root_b64: Optional[s
     }, content_root_alg)
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=BundleFormatError)
 def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "receipt",
                             subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
                             root_b64: Optional[str] = None, harness: Optional[dict] = None,
@@ -1113,6 +1122,7 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+@_ein_stand(fehler=BundleFormatError)
 def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: str = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
@@ -1167,6 +1177,7 @@ def _now_rfc3339z() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+@_ein_stand(fehler=(BundleFormatError, SwitchTypeError))
 def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
                    anchor_verified: bool = False) -> list:
     """Map a real VerificationResult + claim to the SVR property strings — ONLY the checks that genuinely
@@ -1201,6 +1212,14 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # (measured at ee489403 and on main 20e91c8e), R-B4 at the flags. A NumPy boolean, an int 0 or 1
     # and a string are refused.
     claim = _eigen(claim, "svr_properties")
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F3): the digest of the claim exactly
+    # as passed, under the same fixed JCS encoding verify_bundle recorded over the signed payload bytes. Used by
+    # the result<->claim binding below; captured before require_eval_claim normalises, from the plain copy.
+    from .decision import _rfc8785_available as _jcs_ok, _rfc8785_bytes as _jcs  # noqa: PLC0415
+    try:
+        _claim_digest = hashlib.sha256(_jcs(claim)).hexdigest() if _jcs_ok() else None
+    except Exception:   # noqa: BLE001 - a non-canonicalizable claim is simply not bound (fail-closed below)
+        _claim_digest = None
     prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
     anchor_verified = _eigene_flagge(anchor_verified, "anchor_verified")
     require_bool_verdict(claim, wo="svr_properties")
@@ -1222,15 +1241,35 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     # turn a result that records a check once per signer or per anchor into an error on a surface
     # whose output lists passing properties only, where withholding is already the fail-closed
     # answer. A name is compared by its characters (`canonical._zeichen_von`).
+    # The checks read without attribute access that can raise: since deep gate run 6 a result of the caller's
+    # own class reaches this body as a stand-in that holds nothing (`canonical._fremdkoerper`), and
+    # `result.checks` raised AttributeError for it; such a result earns no property.
     verdikte: dict = {}
-    for check in result.checks:
-        name = _zeichen_von(check.name)
+    roh: Any = getattr(result, "checks", None)
+    gelistet = (list(list.__iter__(roh)) if issubclass(type(roh), list)
+                else list(tuple.__iter__(roh)) if issubclass(type(roh), tuple) else [])
+    for check in gelistet:
+        name = _zeichen_von(getattr(check, "name", None))
         if name is not None:
-            verdikte.setdefault(name, []).append(check.ok)
+            verdikte.setdefault(name, []).append(getattr(check, "ok", None))
 
     def _verdient(name: str) -> bool:
         oks = verdikte.get(name, [])
         return bool(oks) and all(ok is True for ok in oks)
+
+    # Nachtrag 48/48b (`KRAXO-CLOUD-N46B-N48B-BINDUNG-NACH-REVIEW-01`, Z309, F3): no property derived from the
+    # result and the claim without binding to EXACTLY this verified claim. The result must be one this process's
+    # verify_bundle produced — an authentic origin token, not a hand-built result with matching checks (the
+    # svr_properties reproducer the review names) — AND its recorded payload digest must equal this claim's digest
+    # under the fixed JCS encoding. Merkle-root equality alone is not enough; a result of another claim, or a
+    # mutated claim with a reused result, is refused with no property. export_svr_dsse passes the result and the
+    # claim of the same verified bundle, so it keeps its internally-bound positive path.
+    _vpd = getattr(result, "verified_payload_digest", None)
+    _origin_ok = callable(getattr(result, "origin_authentic", None)) and result.origin_authentic()
+    _claim_bound = (_origin_ok and isinstance(_vpd, str) and isinstance(_claim_digest, str)
+                    and hmac.compare_digest(_vpd, _claim_digest))
+    if not _claim_bound:
+        return []
 
     props = []
     if _verdient("ed25519-signature"):
@@ -1248,6 +1287,7 @@ def svr_properties(result, claim: dict, *, prereg_verified: bool = False,
     return props
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=(BundleFormatError, SwitchTypeError))
 def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
                     policy: Optional[dict] = None, prereg_verified: bool = False,
                     anchor_verified: bool = False, keyid: Optional[str] = None,
@@ -1349,6 +1389,7 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+@_ein_stand
 def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     """Structural check of an SVR Statement's predicate — the shape every consumer dereferences.
 
@@ -1389,6 +1430,7 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     return True, ""
 
 
+@_ein_stand(fehler=BundleFormatError)
 def verify_svr_dsse(envelope: dict, public_key: bytes, *,
                     expected_predicate_type: str = SVR_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed SVR attestation. Returns {ok, statement, predicate_type, predicate_type_ok,

@@ -142,12 +142,30 @@ class TestAllReceiptTypesEmitAutomation(unittest.TestCase):
             "keys": keys, "nonClaims": ["x"],
         }
         env = sign_trust_pack(pred, {"root-0": sk})
-        r = verify_trust_pack(env, strict=True)
+        # N43 (security-fix 6.2.0): the trust_pack "policy" dimension is now `pinned` (the relying-party anchor).
+        # OLD: policyAuthorized None, safeForAutomation True for an unpinned pack. NEW: safeForAutomation is True
+        # only under an anchor — here the declared root is pinned. Reason: a genesis pack self-authenticates with
+        # no caller input, so it must not be automation-safe unless the relying party pinned it (the K1 class).
+        r = verify_trust_pack(env, strict=True, expected_root_keys=keys)
         self._assert_automation_shape(r)
         self.assertTrue(r["ok"])
-        # trust_pack has NO policy dimension at all -> policyAuthorized None, never blocks
-        self.assertIsNone(r["automation"]["policyAuthorized"])
+        self.assertIs(r["pinned"], True)
+        self.assertIs(r["automation"]["policyAuthorized"], True)
         self.assertTrue(r["automation"]["safeForAutomation"])
+
+    def test_trust_pack_without_anchor_is_not_automation_safe(self):
+        # N43 COUNTER-PROBE: the SAME pack, no anchor -> not safe for automation (ok unchanged). Fail-closed.
+        from proofbundle.trust_pack import sign_trust_pack, verify_trust_pack
+        sk = generate_signer()
+        keys = {"root-0": {"publicKey": base64.b64encode(sk.public_key().public_bytes_raw()).decode()}}
+        pred = {"schemaVersion": "0.1.0", "trustPackId": "tp-x", "version": 1,
+                "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
+                "roles": {"root": {"keyIds": ["root-0"], "threshold": 1}}, "keys": keys, "nonClaims": ["x"]}
+        r = verify_trust_pack(sign_trust_pack(pred, {"root-0": sk}), strict=True)
+        self.assertTrue(r["ok"])                        # self-authentication unchanged
+        self.assertIsNone(r["pinned"])
+        self.assertIs(r["automation"]["safeForAutomation"], False)
+        self.assertIn("POLICY_NOT_EVALUATED", r["automation"]["automationBlockers"])
 
     def test_verification_summary_emits_automation(self):
         from proofbundle.verification_summary import emit_verification_summary, verify_verification_summary

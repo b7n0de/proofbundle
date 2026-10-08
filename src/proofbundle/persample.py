@@ -48,7 +48,7 @@ from typing import List, Optional, Sequence
 
 from . import merkle
 from ._strict_json import loads_strict
-from .canonical import _ganzzahl_von, _plain_for_jcs
+from .canonical import _ein_stand, _ganzzahl_von, _plain_for_jcs
 from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -77,6 +77,7 @@ def _b64url_decode(s: str) -> bytes:
     return decode_b64url(raw)
 
 
+@_ein_stand
 def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
     """Per-leaf salt = HMAC-SHA-256(tree_secret, domain ‖ id ‖ 0x00 ‖ epoch)[:16].
 
@@ -97,6 +98,7 @@ def derive_leaf_salt(tree_secret: bytes, sample_id, epoch: int = 1) -> bytes:
     return hmac.new(tree_secret, msg, hashlib.sha256).digest()[:_SALT_BYTES]
 
 
+@_ein_stand
 def make_disclosure(record: dict, salt: bytes) -> str:
     """Encode one sample record as a disclosure: base64url(JSON [salt_b64, record]).
 
@@ -129,6 +131,7 @@ def _leaf_hash_of(disclosure_b64: str) -> bytes:
     return merkle.leaf_hash(disclosure_b64.encode("ascii"))
 
 
+@_ein_stand
 def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
     """Commit a full eval run's samples. Returns ``{root, root_b64, n, leaf_alg, disclosures}``.
 
@@ -183,6 +186,7 @@ def build_sample_tree(records: Sequence[dict], tree_secret: bytes) -> dict:
             "n": len(leaves), "leaf_alg": LEAF_ALG, "disclosures": disclosures}
 
 
+@_ein_stand
 def sample_opening(disclosures: Sequence[str], index: int) -> dict:
     """Produce the opening for one committed sample: disclosure + RFC 6962 inclusion proof.
 
@@ -209,6 +213,7 @@ def sample_opening(disclosures: Sequence[str], index: int) -> dict:
             "proof_b64": [base64.b64encode(p).decode("ascii") for p in proof]}
 
 
+@_ein_stand
 def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     """Verify one opening against the receipt's committed samples root — offline, fail-closed.
 
@@ -336,6 +341,7 @@ def verify_sample_opening(opening: dict, root_b64: str, n: int) -> dict:
     return result
 
 
+@_ein_stand
 def audit_challenge(root, n: int, k: int, nonce: bytes = b"") -> List[int]:
     """Derive k distinct audit indices in [0, n) from the committed root — deterministic,
     re-verifiable by anyone with the same inputs.
@@ -407,6 +413,7 @@ def _map_draw(v: int, n: int) -> Optional[int]:
     return v % n
 
 
+@_ein_stand
 def catch_probability(m_fraction: float, k: int) -> float:
     """PoR bound: probability that k challenges catch an m-fraction of bad samples,
     1 − (1 − m)^k — independent of n. (k=300 → ~0.95 at m=0.01; k=459 → ~0.99.)"""
