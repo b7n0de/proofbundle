@@ -130,10 +130,10 @@ def test_the_test_seed_and_its_scalar_are_the_issuer_key():
     assert _enc(_mul(_scalar(), _BASE)) == ISSUER_PUB
 
 
-def test_p11_under_the_mixed_order_key_fails_rule_2_for_the_key():
-    """P11's key is the issuer's point plus a point of order 8: canonical, not of small order, not of order L.
+def test_n61_under_the_mixed_order_key_fails_rule_2_for_the_key():
+    """N61's key is the issuer's point plus a point of order 8: canonical, not of small order, not of order L.
     Its signature satisfies the cofactorless equation, which is why only rule 2 can refuse it."""
-    receipt, key = _receipt("P11")
+    receipt, key = _receipt("N61")
     assert _enc(_mul(_L, _point(key))) != _enc(_IDENTITY)
     got = ser.verify_signed_eval_receipt(receipt, key)
     assert (got.ok, got.step_label) == (False, "11 (profile 2, key)"), got.reason
@@ -182,7 +182,7 @@ def _cose_vector(vid: str) -> dict:
 
 @needs_cbor2
 def test_a_statement_key_of_mixed_order_does_not_count():
-    """B41 is signed under P11's mixed-order key and meets the cofactorless equation. Rules 1 and 2 decide which
+    """B41 is signed under N61's mixed-order key and meets the cofactorless equation. Rules 1 and 2 decide which
     configured key counts; the mixed-order key fails rule 2, so no pair counts and the status is untrusted_key."""
     from proofbundle import receipt_cose as rc
     keys = {name: bytes.fromhex(h) for name, h in COSE["keys_hex"].items()}

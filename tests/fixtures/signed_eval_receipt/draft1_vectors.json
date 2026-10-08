@@ -1,6 +1,6 @@
 {
  "source": "draft-gruszka-signed-evaluation-receipts-00, Appendix A",
- "source_vectors_json_sha256": "17b5b804d4a7740f81cfdcb917b9a631e475d6fed392bd8e693b90b24d7bf7da",
+ "source_vectors_json_sha256": "ea2ee8361f33f69a4dcaedac963b87d6956d068f07091cbc112bb40ad3f45b5f",
  "notice": "PURE TEST KEYS AND SALTS. They MUST NOT be used for any real receipt.",
  "issuer_seed_hex": "2365520410748de8778b544410b15792fcf174e0fba4806a8c1afbdbb0946b07",
  "issuer_public_b64": "x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=",
@@ -610,7 +610,7 @@
    "receipt_text": "{\"payload_b64\":\"@B34@\",\"schema\":\"application/vnd.signed-evidence.eval-receipt+json\",\"signature\":{\"alg\":\"ed25519\",\"key\":\"x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=\",\"sig\":\"IdsEVtYmSjhpRK8sF/JWGent5XZ26AfahDYHWwSnJrCPW49Dw/oluUkjnow9zf/vYhSiF9CmblxvwqyMgI1DBQ==\"}}"
   },
   {
-   "id": "P11",
+   "id": "N61",
    "expected": "FAIL",
    "step": "11 (profile 2, key)",
    "key_b64": "JBz17qgxoLE067Bf5k3hKZ6Pfmfx/iD8IEaped1NGoM=",

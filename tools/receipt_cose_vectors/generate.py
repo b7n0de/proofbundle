@@ -11,7 +11,7 @@ is in the Draft 1 fixture), as in vector M2 of draft-gruszka-evaluation-receipt-
 party configures each statement key as a pair with the issuer URI it trusts the key for; a vector names
 its pairs as [issuer URI, key name]. The foreign key's seed is SHA-256 over FOREIGN_SEED_LABEL, and the
 P-256 key's private scalar is SHA-256 over P256_SEED_LABEL read as a big-endian integer. The mixed-order
-key is the key of Draft 1 vector P11, the issuer's public point plus a point of order 8; ``off_curve`` is
+key is the key of Draft 1 vector N61, the issuer's public point plus a point of order 8; ``off_curve`` is
 the first y from 2 on that names no curve point. PURE TEST KEYS. They MUST NOT be used for anything real.
 
 Alg (owner choice B, 2026-10-04): the forward direction writes -19 only, so F2 (-8) is a refusal; the
@@ -326,8 +326,8 @@ def main() -> None:
         "iss carries a fragment, so it is no absolute URI (RFC 3986 section 4.3), even where a pair names "
         "that string", statement_keys=((fragment, "issuer"),))
     mixed = compress(add(mul(a_issuer, BASE), order8_point()))
-    p11 = next(x for x in doc["vectors"] if x["id"] == "P11")
-    assert decode_b64(p11["key_b64"]) == mixed
+    n61 = next(x for x in doc["vectors"] if x["id"] == "N61")
+    assert decode_b64(n61["key_b64"]) == mixed
     raw41 = enc(protected(k4=rc.cose_key_thumbprint(mixed)))
     i = 0
     while True:
@@ -339,7 +339,7 @@ def main() -> None:
         i += 1
     sig41 = r_enc + ((r + k41 * a_issuer) % L).to_bytes(32, "little")
     bwd("B41", sign1(raw41, digest, sig41), "P1", "untrusted_key",
-        "a statement under the mixed-order key of Draft 1 vector P11 (the issuer's point plus a point of order "
+        "a statement under the mixed-order key of Draft 1 vector N61 (the issuer's point plus a point of order "
         "8), with a signature that meets the cofactorless equation: the key is not of order L, so rule 2 of "
         "Section 4.4 refuses it as a statement key and no pair counts", statement_keys=((ISSUER, "mixed_order"),))
     # ---- added 2026-10-07, rule 2 is order L: an R of mixed order under the issuer key -----------------------

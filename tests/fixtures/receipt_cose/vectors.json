@@ -609,7 +609,7 @@
     ]
    ],
    "expect_status": "untrusted_key",
-   "what": "a statement under the mixed-order key of Draft 1 vector P11 (the issuer's point plus a point of order 8), with a signature that meets the cofactorless equation: the key is not of order L, so rule 2 of Section 4.4 refuses it as a statement key and no pair counts"
+   "what": "a statement under the mixed-order key of Draft 1 vector N61 (the issuer's point plus a point of order 8), with a signature that meets the cofactorless equation: the key is not of order L, so rule 2 of Section 4.4 refuses it as a statement key and no pair counts"
   },
   {
    "id": "B42",
