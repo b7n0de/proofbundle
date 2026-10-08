@@ -75,6 +75,22 @@ class ThePilotContract(unittest.TestCase):
         self.assertIn("`unknown` or `not yet observed` in M1, or `not measured` where one of the others is required, "
                       "keeps the pilot open", klausel)
 
+    def test_every_receipt_of_every_action_must_verify(self) -> None:
+        """Codex thread 4219683451: criterion 1 verified the receipts of one witness per surface, so a second action
+        whose receipts failed under the operator's keys could be accepted as a mismatch and the pilot ended without
+        establishing who approved or observed it. The records section 4 defines per action are quantified like the
+        measures: a decision receipt for every proposed action and an outcome receipt for every effect, each
+        verifying, or the pilot stays open."""
+        text = " ".join(_text().split())
+        records = text[text.index("## 4. Records"):text.index("## 5. Measures")]
+        self.assertIn("For every proposed action the pilot keeps a signed decision receipt", records)
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        klausel = kriterien[kriterien.index("every proposed action carries"):kriterien.index("3. ")]
+        self.assertIn("a decision receipt that verifies offline with the operator's gate key", klausel)
+        self.assertIn("for every effect GitHub shows of it, an outcome receipt that verifies with the operator's "
+                      "observer key", klausel)
+        self.assertIn("A receipt that does not verify", klausel)
+
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
         self.assertIn("The agent never holds the gate's or the observer's key.", text)
