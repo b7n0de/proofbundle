@@ -3917,8 +3917,8 @@ def _done_line(verdict: Verdict) -> str:
 def stop_command(argv: list[str]) -> int:
     """The Stop hook (D26). Prints a block with one line, a message for a pass, nothing where no done check is
     declared; exits 0. Any failure inside the check blocks: the session does not end on a check that reached no
-    verdict. Claude Code lets the session end after eight blocks in a row without a tool call, which is why the
-    hard boundary is the CI check (README)."""
+    verdict. Claude Code lets the session end after nine blocks in a row without a tool call (measured, Claude Code
+    2.1.294), which is why the hard boundary is the CI check (README)."""
     deadline = time.monotonic() + DEADLINE_SECONDS
     host, event = "claude", None
     try:

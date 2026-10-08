@@ -1134,8 +1134,10 @@ Chosen:
   sets the check up: a local test key with the package's key path in the gate directory, a policy that pins it,
   the done section and an ignore rule for the receipt, staged.
 
-Limits: Claude Code ends the turn after eight blocks in a row without a tool call (the hooks guide, read
-2026-10-07, not measured here), so the hook is an early warning; the boundary is the required CI check. The agent
+Limits: Claude Code ends the turn after nine blocks in a row without a tool call (measured with Claude Code
+2.1.294 in the eval done-receipt-other-tree-blocks on 2026-10-08: "A hook blocked the turn from ending 9
+consecutive times — overriding and ending turn"; `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises the limit), so the hook
+is an early warning; the boundary is the required CI check. The agent
 that runs the tests can read the test key, and repository code under pytest can write the receipt. Codex is not
 wired: NOT MEASURED there.
 

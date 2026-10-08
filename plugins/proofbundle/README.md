@@ -306,9 +306,9 @@ PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT=.proofbundle/proofbun
 
 Limits, in plain words:
 
-- **Claude Code ends the turn anyway after eight blocks in a row without a tool call** (the hooks guide names
-  `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`; read by the owner's assistant on 2026-10-07, not measured here). The hook is
-  an early warning, not a boundary. The hard boundary is the required CI check (`done-check`, D26 and `ci/`).
+- **Claude Code ends the turn anyway after nine blocks in a row without a tool call** (measured with Claude Code
+  2.1.294 in the eval `done-receipt-other-tree-blocks`; `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises the limit). The
+  hook is an early warning, not a boundary. The hard boundary is the required CI check (`done-check`, D26 and `ci/`).
 - The agent that runs the tests can read the test key, so a receipt proves what that key signed on this machine,
   not that a person checked the run. Code of the repository runs under pytest and can write the receipt itself.
 - A receipt that is committed changes the tree it would have to name; keep it untracked, as `done-init` does.
