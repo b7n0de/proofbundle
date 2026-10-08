@@ -138,7 +138,7 @@ def _check_text(s: str, what: str, step: int) -> None:
 def _ijson(raw: bytes, what: str, step: int) -> Any:
     """One I-JSON text: UTF-8 without a byte order mark, no duplicate member names after unescaping
     (RFC 8259 Section 8.3), no surrogate or noncharacter code point, no NaN or Infinity, and nothing
-    after the text but insignificant whitespace (RFC 8259 Section 2)."""
+    before or after the text but insignificant whitespace (RFC 8259 Section 2)."""
     if raw.startswith(b"\xef\xbb\xbf"):
         raise _Fail(step, f"{what} begins with a byte order mark")
     try:
