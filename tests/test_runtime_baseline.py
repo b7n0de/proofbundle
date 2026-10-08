@@ -220,6 +220,84 @@ class TheMeasuredCommitCheck(unittest.TestCase):
         self.assertIn("NOT MEASURABLE", outcome[1])
 
 
+def _run_module():
+    spec = importlib.util.spec_from_file_location("_runtime_baseline_run", _RUN)
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul
+
+
+class TheCounterCountsWhatTheTreeHashes(unittest.TestCase):
+    """Codex thread 4217194025: the recorded counts are checked above, and a rerun of the harness was not. The
+    counter wrapped the public `leaf_hash` and main routed the tree through `_leaf_hash`, so a rerun counted 0 leaf
+    hashes at every size while the recorded runs still read 4n. These cases run the counter on live emits."""
+
+    def setUp(self) -> None:
+        try:
+            self.rb = _run_module()
+        except ImportError as fehlt:
+            self.skipTest(f"NOT MEASURABLE: the harness needs {fehlt.name}")
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from proofbundle.emit import emit_bundle
+        self.emit = emit_bundle
+        self.signer = Ed25519PrivateKey.from_private_bytes(b"\x05" * 32)
+
+    def _count(self, zaehler_klasse, n: int):
+        with zaehler_klasse() as zaehler:
+            self.emit(b"payload", self.signer, prior_leaves=[f"leaf {i}".encode() for i in range(n)])
+        return zaehler
+
+    def test_a_live_emit_makes_four_hash_calls_per_prior_leaf_at_the_sizes_the_harness_measures(self) -> None:
+        """The README's reading holds at the sizes `history_sizes` gives, 0 and the powers of two; between them the
+        tree is unbalanced and the count is not 4n (11 calls at n = 3, measured on this head)."""
+        for n in self.rb.history_sizes(64):
+            with self.subTest(n=n):
+                zaehler = self._count(self.rb.HashCounter, n)
+                self.assertEqual(zaehler.total(), 4 * n if n else 1)
+                self.assertEqual(zaehler.sha256, zaehler.total())
+
+    def test_control_a_counter_on_a_name_the_tree_does_not_call_raises(self) -> None:
+        merkle = self.rb.merkle
+
+        class AufDemOeffentlichenNamen(self.rb.HashCounter):
+            def __enter__(self):
+                super().__enter__()
+                merkle._leaf_hash = self._leaf          # the old form: the leaf calls are not wrapped
+                return self
+        with self.assertRaises(RuntimeError):
+            self._count(AufDemOeffentlichenNamen, 1)
+        self.assertIs(merkle.hashlib.sha256, __import__("hashlib").sha256, "the module's hashlib is restored")
+
+
+class TheDurableWriteReachesTheDirectory(unittest.TestCase):
+    """Codex thread 4122623623: the stage fsynced the file and renamed it, and never fsynced the directory, so the
+    rename was not yet durable when the stage was timed. The order is file fsync, rename, directory fsync."""
+
+    def test_the_directory_is_fsynced_after_the_rename(self) -> None:
+        try:
+            rb = _run_module()
+        except ImportError as fehlt:
+            self.skipTest(f"NOT MEASURABLE: the harness needs {fehlt.name}")
+        import os
+        import stat
+        import tempfile
+        folge = []
+        echt_fsync, echt_replace = os.fsync, os.replace
+
+        def fsync(fd):
+            folge.append("fsync dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "fsync file")
+            echt_fsync(fd)
+
+        def replace(a, b):
+            folge.append("rename")
+            echt_replace(a, b)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(rb.os, "fsync", fsync), \
+                mock.patch.object(rb.os, "replace", replace):
+            rb.durable_write({"a": 1}, Path(d))
+            self.assertEqual(json.loads((Path(d) / "receipt.json").read_text(encoding="utf-8")), {"a": 1})
+        self.assertEqual(folge, ["fsync file", "rename", "fsync dir"])
+
+
 class TheReadme(unittest.TestCase):
     def test_its_tables_are_rendered_from_the_runs(self) -> None:
         render = _render_module()

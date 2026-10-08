@@ -22,7 +22,7 @@ case. Percentiles are nearest rank: the p-th percentile is the ceil(p/100 · N)-
 | hash_leaf | the RFC 6962 leaf hash of the payload |
 | sign | Ed25519 over the payload |
 | emit_empty_history | `emit_bundle` with no history: signature, root and inclusion path of a one-leaf tree |
-| durable_write | the bundle as JSON to a file: write, flush, fsync, rename |
+| durable_write | the bundle as JSON to a file: write, flush, fsync, rename, fsync of the directory |
 | policy | `evaluate_policy` over a verified bundle, with a policy that passes |
 | verify | `verify_bundle`, the full offline check: signature, leaf, inclusion path, root |
 

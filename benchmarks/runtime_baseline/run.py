@@ -8,7 +8,8 @@ Stages, each timed on its own with `time.perf_counter_ns` around one call, after
   hash           SHA-256 of the payload, and the RFC 6962 leaf hash of it
   sign           Ed25519 over the payload
   emit           emit_bundle with no history (sign, root and inclusion path of a one-leaf tree)
-  durable write  the bundle as JSON to a file in the output directory: write, flush, fsync, rename
+  durable write  the bundle as JSON to a file in the output directory: write, flush, fsync, rename, fsync of the
+                 directory
   policy         evaluate_policy over an already verified bundle, with a policy that passes
   verify         verify_bundle, the full offline check (signature, leaf, inclusion path, root)
 
@@ -151,13 +152,51 @@ def summary(werte: list) -> dict:
             "p99": percentile(werte, 99), "max": max(werte), "min": min(werte)}
 
 
+def durable_write(bundle: dict, ort: Path) -> None:
+    """The bundle as JSON to `ort/receipt.json`, durably: write a temporary file, flush and fsync it, rename it over
+    the target, and fsync the directory, since the rename is durable only once the directory entry is. Codex thread
+    4122623623 on pull request 306: the stage stopped after the rename and was reported as a durable write."""
+    ziel, zwischen = ort / "receipt.json", ort / "receipt.json.tmp"
+    with open(zwischen, "w", encoding="utf-8") as fh:
+        json.dump(bundle, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(zwischen, ziel)
+    verzeichnis = os.open(ort, os.O_RDONLY)
+    try:
+        os.fsync(verzeichnis)
+    finally:
+        os.close(verzeichnis)
+
+
+class _CountingHashlib:
+    """The merkle module's `hashlib` for the duration of a count: every `sha256` call it makes is counted, every other
+    name is the real module's."""
+
+    def __init__(self, echt, zaehler) -> None:
+        self._echt, self._zaehler = echt, zaehler
+
+    def sha256(self, *args, **kwargs):
+        self._zaehler.sha256 += 1
+        return self._echt.sha256(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._echt, name)
+
+
 class HashCounter:
-    """Counts the RFC 6962 hash calls made through the merkle module (leaf and interior node), by wrapping
-    the two module functions for the duration of a `with` block. Counting, not timing."""
+    """Counts the RFC 6962 hash calls made through the merkle module (leaf and interior node), by wrapping the two
+    functions every path of the module goes through, `_leaf_hash` and `_node_hash`, for the duration of a `with`
+    block. Counting, not timing.
+
+    The count is checked against an oracle that does not depend on those names: every `sha256` call the module makes
+    in the block. Codex thread 4217194025 on pull request 306: the counter wrapped the public `leaf_hash`, main
+    routed the tree through `_leaf_hash`, and a rerun at the head of the merge counted 0 leaf hashes for every size.
+    A block whose two counts disagree raises instead of returning a count of a path the tree no longer takes."""
 
     def __enter__(self):
-        self.leaf = self.node = 0
-        self._leaf, self._node = merkle.leaf_hash, merkle._node_hash
+        self.leaf = self.node = self.sha256 = 0
+        self._leaf, self._node, self._hashlib = merkle._leaf_hash, merkle._node_hash, merkle.hashlib
 
         def leaf(data):
             self.leaf += 1
@@ -166,11 +205,15 @@ class HashCounter:
         def node(left, right):
             self.node += 1
             return self._node(left, right)
-        merkle.leaf_hash, merkle._node_hash = leaf, node
+        merkle._leaf_hash, merkle._node_hash = leaf, node
+        merkle.hashlib = _CountingHashlib(self._hashlib, self)
         return self
 
-    def __exit__(self, *exc):
-        merkle.leaf_hash, merkle._node_hash = self._leaf, self._node
+    def __exit__(self, exc_type, *exc):
+        merkle._leaf_hash, merkle._node_hash, merkle.hashlib = self._leaf, self._node, self._hashlib
+        if exc_type is None and self.sha256 != self.total():
+            raise RuntimeError(f"the hash count missed the path: {self.total()} leaf and node calls counted, "
+                               f"{self.sha256} SHA-256 calls made by the merkle module")
         return False
 
     def total(self) -> int:
@@ -219,15 +262,6 @@ def run(out: Path, warmup: int, count: int, max_history: int) -> dict:
     assert policy_ergebnis["policy_ok"] is True, policy_ergebnis
     schreibort = Path(tempfile.mkdtemp(prefix="durable-write-", dir=out))
 
-    def durable_write():
-        ziel = schreibort / "receipt.json"
-        zwischen = schreibort / "receipt.json.tmp"
-        with open(zwischen, "w", encoding="utf-8") as fh:
-            json.dump(bundle, fh)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(zwischen, ziel)
-
     roh: dict = {}
     stufen = {
         "capture": lambda: build_eval_claim(**fixed),
@@ -236,7 +270,7 @@ def run(out: Path, warmup: int, count: int, max_history: int) -> dict:
         "hash_leaf": lambda: merkle.leaf_hash(payload),
         "sign": lambda: signer.sign(payload),
         "emit_empty_history": lambda: emit_bundle(payload, signer),
-        "durable_write": durable_write,
+        "durable_write": lambda: durable_write(bundle, schreibort),
         "policy": lambda: evaluate_policy(bundle, ergebnis, policy),
         "verify": lambda: verify_bundle(bundle),
     }
