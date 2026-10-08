@@ -877,7 +877,10 @@ def test_securesystemslib_verifies_the_envelope_and_in_toto_attestation_reads_th
                                 "gitTree": _git(ordered, "rev-parse", "HEAD^{tree}")}]
     assert seen["predicate_type"] == "https://slsa.dev/verification_summary/v1" and seen["result"] == "PASSED"
     assert len(seen["inputs"]) == 2 and seen["levels"] == ["SLSA_SOURCE_LEVEL_UNEVALUATED"]
-    assert seen["vsa_binding"]["strict"].startswith("refused: Failed to parse verifier field")
+    # protobuf reads a Struct's keys in no fixed order, so the strict refusal names whichever of the two fields the
+    # binding lacks it meets first (both measured); with unknown fields ignored only the array type is left
+    assert seen["vsa_binding"]["strict"].startswith(("refused: Failed to parse verifier field",
+                                                     "refused: Failed to parse verifiedLevels field"))
     assert seen["vsa_binding"]["ignore_unknown_fields"].startswith("refused: Failed to parse verifiedLevels field")
     assert seen["versions"]["securesystemslib"] == "1.5.1"
     assert read(out, generate_signer().public_key().public_bytes_raw().hex())["verified"].startswith("refused")
