@@ -367,6 +367,11 @@ _MAYBE_PUSH = "\x00maybe-push"
 #: Detail marker for a git form that acts on a repository and is not a push the gate resolves: it is never free
 #: (owner choice B of 2026-10-03, review Runde 9). It asks under Claude Code and is denied under Codex.
 _NOT_FREE = "\x00not-free"
+#: Detail marker for exactly `git add` and `git commit -m` in the plain forms _plain_add_commit accepts, as the whole
+#: command (owner choice K-NW-2 B of 2026-10-08). The judge frees such a call only after the state check of its
+#: repository (_add_commit_state_problem) finds nothing that starts a program for it; otherwise it asks under Claude
+#: Code and is denied under Codex, with the source it found (DECISIONS.md D3, "two forms after a state check").
+_STATE_FREE = "\x00state-free"
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -396,7 +401,8 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: per-entry profiles, the key and environment families and the repository-state check are removed, not patched.
 #: The former free list for local git commands has been removed. Those forms ask under Claude Code and are denied
 #: under Codex; a literal `-C` does not change that decision. Only the exact bare command text `git --version` is
-#: exempt. The separate push path remains: under Claude Code it may return `pass` or `inactive` after its checks;
+#: exempt, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms after a state check of their repository
+#: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem). The separate push path remains: under Claude Code it may return `pass` or `inactive` after its checks;
 #: under Codex every push is denied because its execution context is unbound (review Runde 11, R11-5). The two
 #: readers below remain for the write gate.
 
@@ -461,6 +467,218 @@ def _expansion_present(command: str) -> bool:
 def _hooks_off(key: str) -> bool:
     """Whether a git config key is `core.hooksPath` (any case), which would redirect or disable the hook."""
     return key.strip().lower() == "core.hookspath"
+
+
+#: The options of the two forms K-NW-2 B frees (DECISIONS.md D3). `git add` takes pathspecs and -A/--all/-u/--update;
+#: `git commit` takes at least one message (-m, --message, a -m inside a cluster of a and q), -a/--all, -q/--quiet and
+#: pathspecs. Every other option of either form (-p, -i, -e, -S, -v, --amend, -F, -C, --trailer, --no-verify, …)
+#: leaves the form as it is today, not free: an editor, a signing program, a diff or a trailer command can start.
+_ADD_OPTIONS = frozenset({"-A", "--all", "-u", "--update"})
+_COMMIT_FLAGS = frozenset({"-a", "--all", "-q", "--quiet"})
+
+
+def _plain_add_commit(sub: str, args: list[str]) -> bool:
+    """Whether `git <sub> <args>` is one of the two plain forms K-NW-2 B frees after the state check: `git add` with
+    pathspecs and only the options of _ADD_OPTIONS, or `git commit` with at least one message and only -a, -q and
+    pathspecs. A `--` ends the options; a lone `-` is no pathspec here."""
+    after_dashdash = False
+    if sub == "add":
+        for word in args:
+            if after_dashdash:
+                continue
+            if word == "--":
+                after_dashdash = True
+            elif word.startswith("-") and word not in _ADD_OPTIONS:
+                return False
+        return True
+    if sub != "commit":
+        return False
+    message, i = False, 0
+    while i < len(args):
+        word = args[i]
+        if after_dashdash:
+            i += 1
+            continue
+        if word == "--":
+            after_dashdash = True
+        elif word in ("-m", "--message"):
+            if i + 1 >= len(args):
+                return False
+            message, i = True, i + 1
+        elif word.startswith("--message="):
+            message = True
+        elif word in _COMMIT_FLAGS:
+            pass
+        elif word.startswith("-") and not word.startswith("--") and len(word) > 1:
+            for n, letter in enumerate(word[1:]):
+                if letter in "aq":
+                    continue
+                if letter != "m":
+                    return False
+                if not word[n + 2:]:          # -am: the message is the next word
+                    if i + 1 >= len(args):
+                        return False
+                    i += 1
+                message = True                # -mMSG or -aqmMSG: the rest of the word is the message
+                break
+        elif word.startswith("-"):
+            return False
+        i += 1
+    return message
+
+
+def _redirection_present(command: str) -> bool:
+    """Whether the command carries a redirection or a here-document outside quotes (`<`, `>`). The two forms K-NW-2 B
+    frees are free only as the whole command without one, so a free call never writes a file the gate did not see."""
+    i, n, quote = 0, len(command), None
+    while i < n:
+        c = command[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif quote == '"':
+            if c == '"':
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c in "<>":
+            return True
+        i += 1
+    return False
+
+
+#: The configuration keys the state check positively understands as starting no program for `git add` and for
+#: `git commit -m` (DECISIONS.md D3, K-NW-2 B). Any other key leaves the form not free, so the list frees only what it
+#: names, in the spirit of Nachtrag 37. Each group is inert for these two forms: the repository format and the stat and
+#: line-ending options git applies itself; the identity; the editor and pager, which neither form starts (no -e, no
+#: pager for add or commit); signing settings that act only when signing is on, which commit.gpgSign and -S decide;
+#: the settings of other commands (remotes, branches, push, pull, init, colours, advice, aliases, which git never
+#: applies to a built-in); and the transport settings (http, credential, url rewrites, the ssh command and askpass),
+#: inert because neither form talks to a remote: a partial clone's lazy fetch is excluded, since its promisor keys are
+#: not on the list, and so is prefetch, since maintenance.* is refused; git's own default maintenance after a commit
+#: runs only its gc task (git-maintenance(1)). include.path and includeIf.*.path are read through: git reads the
+#: included files into the same list the check reads, and every entry they add is judged like any other.
+_STATE_INERT_KEYS = frozenset({
+    "core.repositoryformatversion", "core.filemode", "core.bare", "core.logallrefupdates", "core.ignorecase",
+    "core.precomposeunicode", "core.symlinks", "core.autocrlf", "core.eol", "core.safecrlf", "core.checkstat",
+    "core.trustctime", "core.quotepath", "core.excludesfile", "core.editor", "core.pager", "core.hookspath",
+    "extensions.objectformat", "user.name", "user.email", "user.signingkey", "author.name", "author.email",
+    "committer.name", "committer.email", "init.defaultbranch", "safe.directory", "gpg.format", "tag.gpgsign",
+    "commit.gpgsign", "core.fsmonitor", "include.path", "core.sshcommand", "core.askpass",
+})
+_STATE_INERT_PATTERN = re.compile(r"(remote\.[^\n]*\.(url|pushurl|fetch)|branch\.[^\n]*\.(remote|merge)"
+                                  r"|includeif\.[^\n]*\.path|push\.[a-z0-9]+|pull\.[a-z0-9]+|http\.[^\n]+"
+                                  r"|color\.[^\n]+|advice\.[a-z0-9]+|alias\.[^\n]+|credential\.[^\n]+"
+                                  r"|url\.[^\n]*\.(insteadof|pushinsteadof))")
+#: The spellings of false that git reads as false and the state check accepts for commit.gpgSign and core.fsmonitor.
+#: Every other value, a number included (review Runde 9: `2`, `1k`, `0x1` are true), counts as on.
+_FALSE_WORDS = frozenset({"false", "no", "off", "0"})
+#: Hook names githooks(5) of git 2.43 documents and neither `git add` nor `git commit -m` runs: the hooks of push,
+#: receive, rebase, checkout, merge, am, send-email and p4, and fsmonitor-watchman, which only core.fsmonitor selects.
+#: A hook of any other name, an unknown one included, leaves the form not free (pre-commit, prepare-commit-msg,
+#: commit-msg, post-commit, post-index-change, reference-transaction and pre-auto-gc run on these forms).
+_HOOKS_NOT_RUN_BY_ADD_COMMIT = frozenset({
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-merge-commit", "pre-rebase", "post-checkout",
+    "post-merge", "pre-push", "pre-receive", "update", "proc-receive", "post-receive", "post-update",
+    "push-to-checkout", "post-rewrite", "sendemail-validate", "p4-changelist", "p4-prepare-changelist",
+    "p4-post-changelist", "p4-pre-submit", "fsmonitor-watchman",
+})
+#: GIT_* names in the hook's environment the state check accepts: the configuration files and entries git itself reads
+#: into the list the check reads, the identity, the editor, sequence editor and pager neither form starts, and the
+#: transport settings neither form uses (as above). Any other GIT_* name (GIT_EXEC_PATH, GIT_DIR, GIT_INDEX_FILE,
+#: GIT_TRACE, …) leaves the form not free.
+_STATE_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|COUNT|KEY_[0-9]+|VALUE_[0-9]+)"
+                              r"|(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|TERMINAL_PROMPT|EDITOR|SEQUENCE_EDITOR|PAGER"
+                              r"|ASKPASS|SSH|SSH_COMMAND|SSH_VARIANT|SSL_[A-Z_]+|HTTP_[A-Z_]+)")
+
+
+def _program_source(key: str, value: str | None) -> str | None:
+    """The program source a lower-cased configuration key names for `git add` or `git commit -m`, or None: a filter
+    driver (any filter.* key, an empty driver name included), a hook (config hooks and gc.recentObjectsHook, which
+    automatic maintenance runs after a commit), fsmonitor, a signature program (gpg.program, gpg.<format>.program,
+    gpg.ssh.defaultKeyCommand, commit.gpgSign on), or automatic maintenance beyond git's own default (maintenance.*,
+    gc.*)."""
+    if key.startswith("filter."):
+        return "filter"
+    if key.startswith("hook.") or key == "gc.recentobjectshook":
+        return "hook"
+    if key == "core.fsmonitor" and not (value is not None and value.strip().lower() in _FALSE_WORDS):
+        return "fsmonitor"
+    if key == "gpg.program" or (key.startswith("gpg.") and key.endswith(".program")) \
+            or key == "gpg.ssh.defaultkeycommand":
+        return "signature program"
+    if key == "commit.gpgsign" and not (value is not None and value.strip().lower() in _FALSE_WORDS):
+        return "signature program"
+    if key.startswith("maintenance.") or key.startswith("gc."):
+        return "automatic maintenance"
+    return None
+
+
+def _standard_config_files(directory: str, deadline: float, paths: dict) -> set[str]:
+    """The files git reads configuration from without an include: system, global, the repository's config and
+    config.worktree, as git var and rev-parse name them. A file outside this set came in through an include."""
+    files = set()
+    for name in ("GIT_CONFIG_SYSTEM", "GIT_CONFIG_GLOBAL"):
+        out = _git(directory, "var", name, deadline=deadline)
+        if out.returncode == 0:
+            files.update(os.path.realpath(line) for line in out.stdout.decode("utf-8", "replace").splitlines() if line)
+    for base, leaf in ((paths["common"], "config"), (paths["gitdir"], "config.worktree")):
+        if base:
+            files.add(os.path.realpath(os.path.join(base, leaf)))
+    return files
+
+
+def _add_commit_state_problem(directory: str, deadline: float, environ: dict | None = None) -> str | None:
+    """None when the repository at directory holds nothing that starts a program for `git add` or `git commit -m`,
+    else what it found (K-NW-2 B, DECISIONS.md D3). Read: the effective configuration with every include (git config
+    --list in the hook's environment, so the same files the call reads), the effective hook directory (core.hooksPath
+    resolved by git), and the hook's GIT_* environment. A source the owner named (filter, hook, fsmonitor, signature
+    program, an include onto one) is named as such; any configuration key, hook or GIT_* name the check does not
+    positively understand is named too, and either keeps the form not free. Not read: the program PATH selects (the
+    D27 class, F15-3), and gitattributes, which select a driver only a filter.* or diff.* key defines."""
+    environ = os.environ if environ is None else environ
+    paths, why = _repo_paths(directory, deadline)
+    if paths is None:
+        return f"the gate cannot read the repository's layout ({why})"
+    if paths["gitdir"] is None or paths["toplevel"] is None:
+        return "the directory is not inside a git work tree"
+    entries, why = _config_entries(directory, deadline)
+    if entries is None:
+        return f"the gate cannot read the effective configuration ({why})"
+
+    def origin_of(scope: str, origin: str) -> str:
+        # git names a file relative to the directory it ran in (`git -C directory`), e.g. file:.git/config
+        where = origin.removeprefix("file:")
+        if origin.startswith("file:") and os.path.realpath(os.path.join(directory, where)) not in \
+                _standard_config_files(directory, deadline, paths):
+            return f"through an include, in {where}"
+        return f"in the {scope} configuration {where}"
+
+    for scope, origin, key, value in entries:
+        source = _program_source(key.lower(), value)
+        if source is not None:
+            return f"a {source}: {key} {origin_of(scope, origin)}"
+    for scope, origin, key, value in entries:
+        lowered = key.lower()
+        if lowered not in _STATE_INERT_KEYS and not _STATE_INERT_PATTERN.fullmatch(lowered):
+            return f"a configuration key the check does not know to start no program: {key} {origin_of(scope, origin)}"
+    hooks = paths["hooks"]
+    if hooks and os.path.lexists(hooks):
+        if not os.path.isdir(hooks):
+            return f"a hook: the hook directory {hooks} is not a directory"
+        try:
+            names = sorted(os.listdir(hooks))
+        except OSError as exc:
+            return f"a hook: the hook directory {hooks} cannot be read ({exc})"
+        for name in names:
+            if not name.endswith(".sample") and name not in _HOOKS_NOT_RUN_BY_ADD_COMMIT:
+                return f"a hook: {os.path.join(hooks, name)}"
+    for name in sorted(environ):
+        if name.startswith("GIT_") and not _STATE_INERT_ENV.fullmatch(name):
+            return f"an environment setting the check does not know to start no program: {name}"
+    return None
 
 
 #: The default of _strict_git's free_base: the call is the whole command, headed by a bare `git` (from
@@ -535,6 +753,11 @@ def _strict_git(words: list[str], directory: str | None,
         if words == ["--version"] and free_base is _FROM_DIRECTORY and start is not UNKNOWN:
             return None
         return ("git --version" if words == ["--version"] else "git"), UNKNOWN, [_NOT_FREE]
+    if sub in ("add", "commit") and i == 0 and free_base is _FROM_DIRECTORY and start is not UNKNOWN \
+            and _plain_add_commit(sub, args):
+        # K-NW-2 B (2026-10-08): the whole command is a plain `git add` or `git commit -m` with no global option;
+        # the judge frees it only after the state check of its repository.
+        return f"git {sub}", directory, [_STATE_FREE]
     if sub in _GIT_LOCAL_SUBCOMMANDS:
         # No free form (review Runde 9, owner choice B): options, configuration, configured values, hooks and
         # indirect paths can make git start a program the gate does not see.
@@ -675,6 +898,8 @@ def _resolve_single(words: list[tuple], directory: str | None,
     name, cdir, detail = call
     if detail in ([_HOOKS_DISABLE], [_NOT_FREE]):
         return [call]  # a hook-disabling form denies and a repository form asks, whatever the context
+    if detail == [_STATE_FREE] and not neutral_only:
+        return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
     if not (bare and neutral_only):
         return [(name, UNKNOWN, None)]
     return [call]
@@ -1288,6 +1513,8 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
     head_gated = h < len(words) and os.path.basename(words[h][0]) in ("git", "git-push", "gh")
     if single and head_gated:
         calls = _resolve_single(words, directory, inherited_env)
+        if _redirection_present(text):  # the two free forms are free only without a redirection (K-NW-2 B)
+            calls = [(n, UNKNOWN, [_NOT_FREE]) if d == [_STATE_FREE] else (n, c, d) for n, c, d in calls]
         if not calls and os.path.basename(words[h][0]) == "git" and not _BARE_VERSION.fullmatch(command):
             return [("git --version", UNKNOWN, [_NOT_FREE])]  # free only as its exact text (review Runde 9)
         return calls
@@ -3063,7 +3290,7 @@ def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] 
     if len(calls) != 1 or _net_words(command) > 1 or _net_unresolved(command):
         return None
     name, _directory, detail = calls[0]
-    if detail != [_NOT_FREE] or not name.startswith("git ") or name in ("git", "git --version"):
+    if detail not in ([_NOT_FREE], [_STATE_FREE]) or not name.startswith("git ") or name in ("git", "git --version"):
         return None
     toks = _lex(_drop_comments(command))
     if toks is None or any(t[0] == "op" for t in toks) or _expansion_present(command):
@@ -3466,6 +3693,33 @@ def _evaluate_call(name: str, directory: str, detail: list[str] | None, deadline
     return evaluate_repository(directory, deadline)
 
 
+def _state_free_verdict(name: str, directory: str | None, deadline: float, host: str) -> Verdict:
+    """The verdict for one of the two forms K-NW-2 B frees: pass when the state check of its repository finds nothing
+    that starts a program for it, else the not-free answer of D3 with the source it found. Under Codex the hook names
+    the session directory, not the directory the command runs in (measured with Codex 0.161.0: a workdir the model
+    sets reaches the command and not the hook), so the pass says which directory was checked."""
+    try:
+        problem = (_add_commit_state_problem(directory, deadline) if directory is not UNKNOWN
+                   else "the gate cannot tell which repository the call acts on")
+    except GateError as exc:
+        problem = f"the state check reached no result ({exc})"
+    if problem is None:
+        where = (f"the session directory {directory}, which Codex names; Codex does not tell the gate where a command "
+                 "runs (a workdir the model sets reaches the command, not the hook)" if host == "codex"
+                 else f"the repository at {directory}")
+        return Verdict("pass", f"proofbundle gate: {name} is free. The state check of {where} found no filter, hook, "
+                               "fsmonitor, signature program or include onto one, and every configuration key, hook "
+                               "and GIT_* setting it read is one it knows to start no program for this form (owner "
+                               "choice K-NW-2 B; DECISIONS.md D3).", "free_after_state_check", repo=directory)
+    return Verdict(
+        "ask", f"NOT MEASURED: the gate gives no free answer for {name}: the state check found {problem}. Such a "
+               "setting selects a program git may start for this form, which the gate does not see (owner choice "
+               "K-NW-2 B; DECISIONS.md D3).",
+        "git_form_not_free", evidence=f"the repository state {name} runs with",
+        failed=f"{name} may start a program: {problem}",
+        next_step="have a person review the call, or run it yourself outside the agent", repo=directory)
+
+
 def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, deadline: float,
            host: str = "claude", extra: list | None = None) -> Outcome:
     verdicts = list(extra or [])
@@ -3512,6 +3766,9 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "quote present in the text",
                 next_step="run the call in a plain form the gate resolves (a single `git`/`gh` command, no "
                           "unusual quoting, substitution or letter case), or have a person review it"))
+            continue
+        if detail == [_STATE_FREE]:
+            verdicts.append(_state_free_verdict(name, resolved, deadline, host))
             continue
         if detail == [_NOT_FREE]:
             verdicts.append(Verdict(

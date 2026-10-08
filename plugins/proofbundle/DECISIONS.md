@@ -118,9 +118,12 @@ MEASURED. The remote itself is not read.
     - **The former free list for local git commands has been removed** (review Runde 9, owner choice B,
       2026-10-03, the subsection below; wording of review Runde 10, R10-3). Those forms are NOT MEASURED,
       asked under Claude Code and denied under Codex. Only the exact bare command text `git --version` is
-      exempt from judgment as a git form. The separate push path remains. Under Claude Code it may return
+      exempt from judgment as a git form, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms
+      after a state check of their repository (`git add` and `git commit -m`, the subsection "two forms after
+      a state check" below). The separate push path remains. Under Claude Code it may return
       `pass` or `inactive` after its checks; under Codex every push is denied because its execution context
-      is unbound. The free list of Nachtrag 19b, its per-entry option tables and its read of the
+      is unbound. The free
+      list of Nachtrag 19b, its per-entry option tables and its read of the
       repository state are removed. The subcommand list in the gate (`_GIT_LOCAL_SUBCOMMANDS`) now only picks
       the reason: a listed local subcommand asks as a repository form (`git_form_not_free`), any other
       subcommand — `send-pack`, an unknown word, every form of `rebase`, `bisect` and `submodule` — asks as a
@@ -247,6 +250,66 @@ runs automatic maintenance is read from the git documentation, not measured.
 
 What a person can do: answer the question, or run the call outside the agent. The answer of the host is not
 read back by the gate; nothing is remembered between calls.
+
+### D3, two forms after a state check (owner choice K-NW-2 B, 2026-10-08)
+
+Chosen (owner, 2026-10-08, card K-NW-2): option B. `git add` and `git commit` are free when the check of the
+repository's state finds no configuration that starts a program for them: no filter, no hook, no fsmonitor, no
+signature program, and no include onto one of them.
+
+What is free. Exactly two forms, each as the whole command headed by a bare `git` with no global option, no
+redirection, no chain and no unvetted prefix assignment (the conditions of the bare `git --version` above):
+- `git add` with pathspecs and only `-A`, `--all`, `-u`, `--update` and `--`;
+- `git commit` with at least one message (`-m`, `--message`, a cluster of `a`, `q` and `m` such as `-am`), and only
+  `-a`, `--all`, `-q`, `--quiet`, `--` and pathspecs.
+Any other option (`-p`, `-i`, `-e`, `--renormalize`, `-S`, `-v`, `--amend`, `-F`, `-C`, `-c`, `--trailer`,
+`--no-verify`, …) keeps the form as before, because an editor, a signer, a diff or a trailer command can start. The
+answer is a `pass`: a message, no permission decision, so the host's own permission flow applies. Reason id
+`free_after_state_check`.
+
+The state check (`_add_commit_state_problem`), in the hook's environment, so git reads the same files the call reads:
+- the effective configuration with every include, read by `git config --list --show-origin --show-scope`. A key of
+  a program source is named as such: `filter.*` (an empty driver name included), `hook.*` and
+  `gc.recentObjectsHook` (a hook), `core.fsmonitor` unless false, `gpg.program`, `gpg.<format>.program`,
+  `gpg.ssh.defaultKeyCommand` and `commit.gpgSign` unless false (a signature program; a number is true, review
+  Runde 9), `maintenance.*` and `gc.*` (automatic maintenance). An entry that came in through an include is named
+  with the included file. Every other key must be on the positive list `_STATE_INERT_KEYS` /
+  `_STATE_INERT_PATTERN` (repository format, stat and line-ending options, identity, editor and pager, signing
+  settings that act only when signing is on, the settings of other commands, the transport settings), or the form
+  is not free;
+- the effective hook directory, `core.hooksPath` resolved by git: only `*.sample` files and the hooks githooks(5)
+  of git 2.43 documents and neither form runs (push, receive, rebase, checkout, merge, am, send-email, p4 and
+  `fsmonitor-watchman`) may be there. A pre-push hook of Level 2 (D24) therefore keeps both forms free;
+- the hook's `GIT_*` environment: only the configuration files and entries git reads into the same list, the
+  identity, the editor, sequence editor and pager neither form starts, and the transport settings neither form uses.
+
+Not free is answered as before (asks under Claude Code, denied under Codex, reason id `git_form_not_free`), with the
+source the check found. A human rule of D25 frees the plain form as before, also where the state check refuses it.
+
+Measured with git 2.43.0 (tests/test_plugin_gate_k_nw_2_b.py): plain git starts the marker for a clean filter and an
+empty-named filter on `git add`, for the hooks pre-commit, reference-transaction and post-index-change, for a hook in
+the `core.hooksPath` directory, for fsmonitor on both forms, for `commit.gpgSign` of `true`, `2`, `1k`, `0x1`, `yes`
+and `on`, for `gpg.ssh.program` with signing on, for an include onto a filter and for an includeIf onto a signature
+program and onto a hook directory; the gate refuses each and names the source. Not started under 2.43.0, refused
+anyway: `gc.recentObjectsHook` (started under git 2.51.1, review Runde 9), and a signing program while signing is
+off. A pre-push hook was not started by either form.
+
+Codex. The Codex hook names the session directory, not the directory a command runs in (measured with Codex 0.161.0
+on 2026-10-08: a `workdir` the model set reached the command, `pwd` printed it, while the event carried the session
+directory as `cwd` and only `{"command": ...}` as tool input). The check reads the session directory, and the pass
+under Codex says so. This is the class of R5-2 and of D27: Level 1 is an early warning; the boundary is CI.
+
+Delimitation from Nachtrag 37. Nachtrag 37 frees only what the gate positively understands, for the command text:
+the net and the lexer must account for every git word, and a form the net reports NOT MEASURED is never free, here
+as for a rule. K-NW-2 B applies the same principle to the repository state: the check frees only a state whose every
+key, hook and environment name is on a positive list, and does not try to enumerate the ways git starts a program.
+It is not the free list of Nachtrag 19b back: that list freed many forms and read a profile of keys per form, and
+review Runde 9 showed values and side paths it did not know. Here two forms are free, every key outside the list
+keeps them not free, and the cases of review Runde 9 for these forms stand as tests.
+
+Not read: the program `PATH` selects (`git` itself, the interpreter of a hook) is the D27 class (F15-3); a shell can
+build a form the gate does not see (D27). gitattributes are not read, because they select a driver only a `filter.*`
+or `diff.*` key defines, and those keys are refused.
 
 ## D4. What a pass does
 
@@ -610,7 +673,9 @@ DECISION AFTER REVIEW RUNDE 6 (Nachtrag 19; the reviewer's decision, recorded he
 
 GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7; review Runde 9)
 - Since review Runde 9 (owner choice B, D3) the former free list for local git commands has been removed.
-  Those forms ask under Claude Code and are denied under Codex, with the same reason id `git_form_not_free`;
+  Since owner choice K-NW-2 B (2026-10-08, D3) `git add` and `git commit -m` are free after a state check, under
+  Codex of the session directory the hook names. Those forms ask under Claude Code and are denied under Codex, with
+  the same reason id `git_form_not_free`;
   a literal `-C` on such a local form does not change that decision (it never frees it). Only the exact bare
   command text `git --version` is exempt (review Runde 7, question 5: "every git form" was too broad; wording
   of review Runde 11, R11-5). The separate push path remains: under Claude Code it may return `pass` or

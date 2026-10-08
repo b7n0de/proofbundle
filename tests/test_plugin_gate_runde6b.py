@@ -153,10 +153,19 @@ def test_s1_form_with_a_program_selecting_key_or_hook_is_not_measured(tmp_path, 
     assert "selects a program" in text or "hook" in text, text
 
 
-@pytest.mark.parametrize("command", [c for c, _ in S1_FORMS if c != "git fetch origin"])   # fetch left (R7-2)
+@pytest.mark.parametrize("command", [c for c, _ in S1_FORMS if c not in ("git fetch origin", "git add a.txt")])
 def test_s1_form_in_a_repository_without_such_keys_or_hooks_is_not_free_either(tmp_path, command):
+    """fetch left the list (R7-2); `git add a.txt` is free in such a repository since owner choice K-NW-2 B
+    (2026-10-08), after the state check, and its clean filter above keeps it not free."""
     repo = _repo(tmp_path)
     assert _not_free(command, repo), command
+
+
+def test_git_add_without_such_keys_or_hooks_is_free_after_the_state_check(tmp_path):
+    """Owner choice K-NW-2 B (2026-10-08): the plain `git add a.txt` of S1, in a repository without the clean filter."""
+    outcome = gate.decide("git add a.txt", str(_repo(tmp_path)), _deadline())
+    assert outcome is not None and outcome.decision == "pass"
+    assert {v.reason_id for v in outcome.verdicts} == {"free_after_state_check"}
 
 
 def test_a_pre_commit_hook_and_git_status_both_ask(tmp_path):

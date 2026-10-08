@@ -236,16 +236,29 @@ def test_git_version_in_any_other_spelling_is_not_free(tmp_path, command):
     assert _not_free(command, _repo(tmp_path)), command
 
 
-_EVERYDAY = ["git status", "git add a.txt", "git diff", "git log --oneline -n 3", "git show HEAD", "git commit",
-             "git commit -m msg", "git checkout side", "git switch -c topic", "git fetch origin", "git branch -a",
+#: The 19 everyday forms of the Nachtrag 19b measurement less `git add a.txt` and `git commit -m msg`, which owner
+#: choice K-NW-2 B (2026-10-08) frees after the state check of a clean repository (the test after this one).
+_EVERYDAY = ["git status", "git diff", "git log --oneline -n 3", "git show HEAD", "git commit",
+             "git checkout side", "git switch -c topic", "git fetch origin", "git branch -a",
              "git stash list", "git blame a.txt", "git restore a.txt", "git tag -l", "git rev-parse HEAD",
              "cd . && git status", "git status && git log --oneline -n 1", "git add -A && git commit -m msg"]
 
 
+@pytest.mark.parametrize("command", ["git add a.txt", "git commit -m msg"])
+def test_the_two_forms_k_nw_2_b_frees_are_free_in_a_clean_repository(tmp_path, command):
+    """Owner choice K-NW-2 B: the plain `git add` and `git commit -m` are free under both hosts when the state check
+    of a clean repository finds nothing that starts a program for them."""
+    repo = _repo(tmp_path)
+    for host in ("claude", "codex"):
+        outcome = gate.decide(command, str(repo), _deadline(), host=host)
+        assert outcome is not None and outcome.decision == "pass", (host, command)
+        assert {v.reason_id for v in outcome.verdicts} == {"free_after_state_check"}, (host, command)
+
+
 @pytest.mark.parametrize("command", _EVERYDAY)
 def test_no_everyday_form_of_the_runde_7_measurement_is_free(tmp_path, command):
-    """The 19 everyday forms of the Nachtrag 19b measurement, the state review Runde 7 read: each asks under
-    Claude Code and is denied under Codex, in a clean repository."""
+    """The everyday forms of the Nachtrag 19b measurement, the state review Runde 7 read, other than the two K-NW-2 B
+    frees: each asks under Claude Code and is denied under Codex, in a clean repository."""
     repo = _repo(tmp_path)
     claude = gate.decide(command, str(repo), _deadline())
     codex = gate.decide(command, str(repo), _deadline(), host="codex")

@@ -96,7 +96,10 @@ here-document, a non-neutral assignment (`PATH`, `GIT_DIR`, `GIT_CONFIG_*`, `HOM
 run by a path. **The former free list for local git commands has been removed** (review Runde 9, owner
 choice B, 2026-10-03; D3; wording of review Runde 10, R10-3). Those forms are NOT MEASURED, asked under
 Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
-judgment as a git form. The separate push path remains. Under Claude Code it may return `pass` or
+judgment as a git form, and, since owner choice K-NW-2 B (2026-10-08), the plain `git add` and `git commit -m`
+after a check of the repository's state finds no filter, hook, fsmonitor, signature program or include onto one,
+and every configuration key, hook and `GIT_*` setting it reads is one it knows to start no program for that form
+(D3). The separate push path remains. Under Claude Code it may return `pass` or
 `inactive` after its checks; under Codex every push is denied because its execution context is unbound.
 git starts programs through options, configuration values, attribute-selected drivers, hooks and automatic
 maintenance, and a list of what frees a form did not close that class, so the free list, its option tables
@@ -159,7 +162,8 @@ value is true (D2).
 
 ### Two modes: strict, or with human approvals
 
-Since the free list was removed, every repository-dependent git form asks. Two modes, set only by a human,
+Since the free list was removed, every repository-dependent git form asks, except the two forms a state check
+frees (D3). Two modes, set only by a human,
 can spare a repeated question without the model ever freeing anything (D25):
 
 - `strict` (the default): every such form asks; no rule and no click act.
@@ -390,9 +394,11 @@ trusts. It states what the done check verified, not that the tests test anything
 - **A check binds the pytest arguments, not every way to leave a test out.** Plugins and conftest code that skip,
   select or rewrite tests are not seen. The one-check form binds no selection at all (measured with `-k` on
   2026-10-08).
-- The `PreToolUse` gate asks before `git add` and `git commit` (Claude Code) or denies them (Codex). In a run without
-  a person, the agent cannot commit, and the done check can then only pass on an uncommitted state (measured in the
-  host runs of 2026-10-08).
+- The `PreToolUse` gate frees only the plain `git add` and `git commit -m` after its state check (D3, owner choice
+  K-NW-2 B). In a repository with a filter, a hook the form runs, fsmonitor, a signature program, or a key, hook or
+  `GIT_*` name the check does not know, it asks (Claude Code) or denies (Codex), and in a run without a person the
+  agent cannot commit there; the done check can then only pass on an uncommitted state. Under Codex the check reads
+  the session directory, because the hook is not told where a command runs.
 - The `TaskCompleted` hook keeps every task open in a repository whose order is not done, whatever the task.
 
 `proofbundle_gate.py done-check --repo DIR [--receipt FILE | --receipt-dir DIR]` makes the same check in CI and exits
