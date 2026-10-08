@@ -200,6 +200,10 @@ def _has_attribution(laeufe: list[list[tuple[str, str]]]) -> bool:
 
 #: The address a link target of a pull request description is resolved against, as a browser resolves it there.
 _BASIS = "https://github.com/b7n0de/proofbundle/pull/1"
+#: What the WHATWG URL parser trims from both ends of an input: the C0 controls and the space, and nothing else.
+_C0_UND_LEERZEICHEN = "".join(map(chr, range(0x21)))
+#: A scheme as the WHATWG URL parser reads one: an ASCII letter, then letters, digits, `+`, `-` or `.`, then a colon.
+_SCHEMA = re.compile(r"\A([a-z][a-z0-9+.-]*):", re.IGNORECASE)
 
 
 def _aufgeloest(ziel: str) -> str:
@@ -208,9 +212,19 @@ def _aufgeloest(ziel: str) -> str:
     Codex thread 4219686001 on pull request 308: `///session_123` names the host session_123, not the path, and
     `session_123/..` resolves away the segment, while a backslash path was read as no path at all. Only a raw
     backslash is a slash; `%5C` is data in its segment, as the browser keeps it (thread 4220777711), and the parser
-    hands the target over as written (`_rendered`)."""
-    ziel = ziel.strip()
-    schema = urllib.parse.urlsplit(ziel).scheme.casefold()
+    hands the target over as written (`_rendered`).
+
+    The steps before the parse are the WHATWG parser's own, in its order, and no others. The ends are trimmed of C0
+    controls and spaces only: a no-break space or an em space stays part of the address, so `\u00a0session_123` is a
+    segment that does not begin with `session` (Codex thread 4222922558). Every tab and line break is removed. The
+    scheme is read by the parser's rule, not by urlsplit, which refused `http://\\[::1]/ok` before its backslash was a
+    slash (Codex thread 4222922549). The authority, the part between `//` and the path, is replaced by one fixed
+    host before urljoin: the path never depends on it, and urlsplit refuses what a browser accepts there, such as a
+    backslash before an IPv6 literal or a `[` in the user name. A host a browser refuses is still read for its path,
+    which is stricter than the browser and never looser."""
+    ziel = re.sub(r"[\t\n\r]", "", ziel.strip(_C0_UND_LEERZEICHEN))
+    treffer = _SCHEMA.match(ziel)
+    schema = treffer.group(1).casefold() if treffer else ""
     # every special scheme reads a backslash as a slash, not only http and https (Codex thread 4221178333)
     if schema == "" or schema in _SPECIAL:
         ziel = ziel.replace("\\", "/")
@@ -224,7 +238,14 @@ def _aufgeloest(ziel: str) -> str:
             # file keeps its slash runs as path: file:///session_123 has the path /session_123 (Codex thread 4222119964)
             rest = "//" + rest.lstrip("/")
         ziel = (schema + ":" if schema else "") + rest
-    return urllib.parse.urljoin(_BASIS, ziel)
+    rest = ziel[len(schema) + 1:] if schema else ziel
+    if rest.startswith("//"):
+        ende = min((i for i in (rest.find(z, 2) for z in "/?#") if i >= 0), default=len(rest))
+        ziel = (schema + ":" if schema else "") + "//host.invalid" + rest[ende:]
+    try:
+        return urllib.parse.urljoin(_BASIS, ziel)
+    except ValueError as exc:  # a form urlsplit refuses and this function does not yet know: unread, never green
+        raise NotMeasurable(f"a link target cannot be resolved ({type(exc).__name__})") from exc
 
 
 #: The special schemes of the WHATWG URL standard; every other scheme without a slash after its colon has an opaque path.
@@ -259,7 +280,7 @@ def _session_path(adresse: str, *, aus_text: bool) -> bool:
     adresse = adresse.casefold()
     if aus_text and "://" not in adresse:
         adresse = "//" + adresse          # a host with no scheme, as the text scan finds one
-    teile = urllib.parse.urlsplit(_aufgeloest(adresse))
+    teile = urllib.parse.urlsplit(_aufgeloest(adresse))   # _aufgeloest returns an address urlsplit has read once
     # An opaque path, a scheme that is not special with no slash after its colon (`mailto:`, `data:`), keeps its dot
     # segments: a browser removes them only from a hierarchical path (Codex thread 4220777693 on pull request 308).
     undurchsichtig = teile.scheme not in _SPECIAL and not teile.path.startswith("/")

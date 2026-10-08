@@ -15,10 +15,14 @@ The tool and address names in the cases are placeholders. The rules are written 
 of an attribution and of a session link, not against a list of names.
 """
 import importlib.util
+import itertools
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
+import unicodedata
+import urllib.parse
 
 import pytest
 
@@ -95,6 +99,12 @@ def _rules(out: str) -> set:
     # Codex thread 4221642871: a special scheme other than the base's reads any slash run as the start of the host
     TEXT + "\n\nSee [the host](http:/session_123) for it.\n\n" + FOOTER,
     TEXT + "\n\nSee [the host](ftp:session_123) for it.\n\n" + FOOTER,
+    # Codex thread 4222922549: a backslash before an IPv6 host is a slash, and the host does not decide the path
+    TEXT + '\n\nSee <a href="http://\\[::1]/ok">run</a> for it.\n\n' + FOOTER,
+    TEXT + '\n\nSee <a href="https://u[s:p@tool.example/ok">run</a> for it.\n\n' + FOOTER,
+    # Codex thread 4222922558: only C0 controls and the space are trimmed, so the segment begins with the other space
+    TEXT + '\n\nSee <a href="&nbsp;session_123">run</a> for it.\n\n' + FOOTER,
+    TEXT + '\n\nSee <a href="&#x2003;session_123">run</a> for it.\n\n' + FOOTER,
 ], ids=["body", "footer-only", "trailing-lf", "trailing-crlf", "crlf", "prose-generated-with",
         "prose-sessions-page", "prose-session-id", "prose-generated-by-then-a-link",
         "undefined-shortcut-reference", "undefined-full-reference", "undefined-collapsed-reference",
@@ -102,7 +112,8 @@ def _rules(out: str) -> set:
         "label-with-backtick", "label-with-tilde", "triple-slash-is-a-host", "dot-segment-resolved-away",
         "absolute-dot-segment", "absolute-encoded-dot-segment", "text-dot-segment", "text-triple-slash-is-a-host",
         "encoded-backslash-is-data", "encoded-backslash-before-sessions", "http-one-slash-is-a-host",
-        "ftp-no-slash-is-a-host"])
+        "ftp-no-slash-is-a-host", "backslash-before-an-ipv6-host", "bracket-in-the-user-name",
+        "leading-no-break-space", "leading-em-space"])
 def test_green_a_milestone_and_the_footer_as_the_last_text(tmp_path, capsys, body):
     code, out = _judge(tmp_path, capsys, body=body)
     assert code == 0, out
@@ -236,6 +247,13 @@ _BEFORE_THE_FOOTER = {
     # Codex thread 4222119964: a file URL keeps its slash runs as path
     "session-link-file-three-slashes": '<a href="file:///session_0000">run</a>',
     "session-link-file-four-slashes": "[run](file:////sessions/0000)",
+    # Codex threads 4222922549 and 4222922558, the controls: the same forms with a session segment, a space a browser
+    # keeps at the end, and a tab it removes
+    "session-link-backslash-before-an-ipv6-host": '<a href="http://\\[::1]/session_0000">run</a>',
+    "session-link-scheme-relative-ipv6": '<a href="\\\\[::1]\\sessions\\0000">run</a>',
+    "session-link-bracket-in-the-user-name": '<a href="https://u[s:p@tool.example/session_0000">run</a>',
+    "session-link-trailing-no-break-space": '<a href="session_0000&nbsp;">run</a>',
+    "session-link-tab-inside": '<a href="ses&#9;sion_0000">run</a>',
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
@@ -262,6 +280,70 @@ def test_red_c_without_the_parser_is_not_measurable(tmp_path, capsys, monkeypatc
     code, out = _judge(tmp_path, capsys)
     assert code == 1
     assert _rules(out) == {"(c)"} and "NOT MEASURABLE" in out, out
+
+
+def test_red_c_a_link_target_urllib_cannot_resolve_is_not_measurable(tmp_path, capsys, monkeypatch):
+    """A form urlsplit refuses and the resolver does not yet know is rule (c) unread, red with its reason, never an
+    uncaught exception (Codex thread 4222922549: exit 1 without a reason)."""
+    def refuses(*_args, **_kwargs):
+        raise ValueError("Invalid IPv6 URL")
+    monkeypatch.setattr(GATE.urllib.parse, "urljoin", refuses)
+    code, out = _judge(tmp_path, capsys, body=TEXT + "\n\nSee [the guide](https://docs.example.org/).\n\n" + FOOTER)
+    assert code == 1
+    assert _rules(out) == {"(c)"} and "NOT MEASURABLE" in out, out
+
+
+#: A browser's own URL parser, the WHATWG one in Node, as the oracle for how a link target resolves on the page.
+_ORACLE = """
+const base = "https://github.com/b7n0de/proofbundle/pull/1";
+const targets = JSON.parse(require("fs").readFileSync(0, "utf8"));
+process.stdout.write(JSON.stringify(targets.map(t => { try { return new URL(t, base).pathname; } catch (e) {
+  return null; } })));
+"""
+
+
+def _generated_targets() -> list:
+    """Every combination of the parts the review rounds of pull request 308 varied, each with the edges a browser
+    trims or keeps: a scheme, the slashes and backslashes after it, an authority, a path, and a character at each end."""
+    schemes = ["", "http:", "https:", "ftp:", "ws:", "wss:", "file:", "tool:", "mailto:", "HTTP:"]
+    slashes = ["", "/", "//", "///", "\\", "\\\\", "/\\", "\\/"]
+    authorities = ["", "h.example", "[::1]", "\\[::1]", "u[s:p@h.example", "[::1", "h.example:80", "a@b@h.example"]
+    paths = ["/session_1", "\\session_1", "/sessions/0", "/a/../session_1", "/session_1/..", "/session_1/%2e%2E",
+             "session_1", "/%5Csession_1", "/ok", "?x=/session_1", "#/session_1", "/a/%2e./session_1"]
+    edges = [("", ""), ("\u00a0", ""), ("\u2003", ""), (" ", ""), ("\t", ""), ("\x01", "\x1f"), ("", "\u00a0"),
+             ("\n", " ")]
+    return sorted({left + s + sl + a + p + right for s, sl, a, p, (left, right)
+                   in itertools.product(schemes, slashes, authorities, paths, edges)})
+
+
+def _oracle_has_session_segment(pathname: str) -> bool:
+    """The session rule over the path the oracle resolved, its segments folded as the gate folds them."""
+    segments = ["".join(c for c in unicodedata.normalize("NFKC", urllib.parse.unquote(s))
+                        if unicodedata.category(c) != "Cf").casefold() for s in pathname.split("/")]
+    return any(GATE._SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segments))
+               for i, s in enumerate(segments))
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="the oracle is the WHATWG URL parser of Node, not installed")
+def test_every_generated_target_resolves_as_a_browser_resolves_it():
+    """Codex threads 4222922549 and 4222922558 found two steps before the parse that a browser does not take. The
+    class is any such step, so the resolver is held to a browser's parser over the generated combinations instead of
+    one case per finding. Where the browser resolves the target, the gate reads the same session segment or none;
+    where the browser refuses it, the gate may read the path for a session segment, stricter and never looser, and it
+    never raises."""
+    targets = _generated_targets()
+    done = subprocess.run(["node", "-e", _ORACLE], input=json.dumps(targets), capture_output=True, text=True,
+                          timeout=300, check=True)
+    pathnames = json.loads(done.stdout)
+    assert len(pathnames) == len(targets) > 50000, "control: the oracle answered every generated target"
+    resolved = [(t, p) for t, p in zip(targets, pathnames) if p is not None]
+    assert len(resolved) > 40000, "control: the browser resolves most of the generated targets"
+    differ = [(t, p) for t, p in resolved
+              if GATE._session_path(t, aus_text=False) is not _oracle_has_session_segment(p)]
+    assert not differ, differ[:10]
+    for t, p in zip(targets, pathnames):
+        if p is None:
+            GATE._session_path(t, aus_text=False)       # a target the browser refuses is read, never an exception
 
 
 def test_red_b_and_c_the_form_a_tool_appends_after_the_footer(tmp_path, capsys):
