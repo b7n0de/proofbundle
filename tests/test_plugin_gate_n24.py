@@ -166,7 +166,14 @@ def test_l3_a_rule_naming_push_or_gh_never_frees_it(tmp_path):
         d_claude, entry = _hook(env, repo, "claude", command)
         assert "applied_rule" not in entry, (command, entry.get("applied_rule"))
         assert "approved_by_rule" not in entry["reason_ids"], command
-        assert _hook(env, repo, "codex", command)[0] == "deny", command
+        d_codex, codex_entry = _hook(env, repo, "codex", command)
+        assert "applied_rule" not in codex_entry, command
+        if command.startswith("git push"):
+            # Karte 5 A: a git push under Codex warns with its unbound-context reason, never through a rule
+            assert (d_codex, codex_entry["verdict"], codex_entry["reason_ids"]) == (
+                None, "warn", ["codex_context_unbound"]), (command, codex_entry)
+        else:
+            assert d_codex == "deny", command
 
 
 # --- L4/L6: a write to the gate directory denies on both hosts (red at 096b7191) -----------------------------------

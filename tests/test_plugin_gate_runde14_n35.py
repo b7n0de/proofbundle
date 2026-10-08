@@ -78,9 +78,11 @@ def _hook(repo, logs, host, command):
 
 def _gated(repo, logs_root, command, reason="net_unmodeled_git"):
     d_claude, ids = _hook(repo, logs_root / "claude", "claude", command)
-    d_codex, _ = _hook(repo, logs_root / "codex", "codex", command)
+    d_codex, codex_ids = _hook(repo, logs_root / "codex", "codex", command)
     assert d_claude == "ask", (command, d_claude, ids)
-    assert d_codex == "deny", (command, d_codex)
+    # Owner choice Karte 5 A (2026-10-08): under Codex a git push keeps its unbound-context reason and only warns,
+    # so its answer carries no decision; every other call the gate gates is still denied.
+    assert d_codex == "deny" or (d_codex is None and codex_ids == ["codex_context_unbound"]), (command, d_codex)
     if reason is not None:
         assert reason in ids, (command, ids)
 

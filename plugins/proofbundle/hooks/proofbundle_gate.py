@@ -132,8 +132,14 @@ MAX_NESTING = 4
 #: parser marks an "ask" answer as a failed hook and lets the call run (openai/codex
 #: codex-rs/hooks/src/engine/output_parser.rs and events/pre_tool_use.rs), so for Codex the gate turns
 #: every NOT MEASURED ask into a deny. The one NOT MEASURED case that is no ask, a repository the gate
-#: measured to declare nothing, carries no decision under either host (D5, D12).
+#: measured to declare nothing, carries no decision under either host (D5, D12). A `git push` under Codex is the
+#: other: since owner choice Karte 5 A (2026-10-08) it keeps its NOT MEASURED reason and only warns (D12).
 HOSTS = ("claude", "codex")
+#: The sentence a Codex push warning ends with (owner choice Karte 5 A, together with D, DECISIONS.md D12).
+CODEX_PUSH_WARNING = ("Under Codex the gate warns about a git push and does not deny it (owner choice Karte 5 A, "
+                      "DECISIONS.md D12): the boundary is the done check at the end of the session and the required "
+                      "CI check, and git's pre-push hook (Level 2, D24), which git starts in the repository the push "
+                      "acts on, checks the push only where it is installed.")
 
 SERVER = pathlib.Path(__file__).resolve().parent.parent / "server" / "proofbundle_mcp.py"
 #: The plugin's version, the one of every manifest; a test holds them equal.
@@ -402,8 +408,9 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: The former free list for local git commands has been removed. Those forms ask under Claude Code and are denied
 #: under Codex; a literal `-C` does not change that decision. Only the exact bare command text `git --version` is
 #: exempt, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms after a state check of their repository
-#: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem). The separate push path remains: under Claude Code it may return `pass` or `inactive` after its checks;
-#: under Codex every push is denied because its execution context is unbound (review Runde 11, R11-5). The two
+#: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem). The separate push path remains:
+#: under Claude Code it may return `pass` or `inactive` after its checks; under Codex every push is NOT MEASURED
+#: because its execution context is unbound (review Runde 11, R11-5), and a `git push` warns since Karte 5 A. The two
 #: readers below remain for the write gate.
 
 
@@ -3404,8 +3411,8 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
     judgment as a git form. The separate push path remains. Under Claude Code it may return `pass` or
-    `inactive` after its checks; under Codex every push is denied because its execution context is unbound
-    (review Runde 9, owner choice B; wording of review Runde 10, R10-3).
+    `inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound
+    (review Runde 9, owner choice B; wording of review Runde 10, R10-3), and a `git push` warns (Karte 5 A, D12).
 
     After the structured scan, a safety net always runs (review Runde 12, R12-1 and R12-2): it builds a normal
     form of the whole command text — comments and substitutions included, quotes and backslashes removed, every
@@ -3741,8 +3748,12 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             # R5-2: under Codex the hook receives the session directory and the command text, not the
             # execution workdir or a remote environment, so a push Ebene 1 would otherwise resolve could be
             # judged against a different repository. Owner choice (02.10): such pushes are NOT MEASURED.
+            # Owner choice Karte 5 A with D (08.10): a `git push` keeps this reason and warns instead, because git
+            # starts the pre-push hook (Level 2) in the push's own repository. A gh call starts no pre-push hook,
+            # so it stays an ask, denied under Codex; a hook-disabling push was denied above, under both hosts.
             verdicts.append(Verdict(
-                "ask", f"NOT MEASURED: under Codex the gate cannot bind {name} to the directory and "
+                "warn" if name == "git push" else "ask",
+                f"NOT MEASURED: under Codex the gate cannot bind {name} to the directory and "
                        "environment it runs in. The hook receives the session directory and the command "
                        "text, not the execution workdir or a remote environment, so it could judge a "
                        "different repository than the push acts on.",
@@ -3808,7 +3819,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                     failed=str(exc),
                                     next_step="fix the cause named here; the gate denies until it reaches a verdict",
                                     repo=resolved))
-    for decision in ("deny", "ask"):
+    for decision in ("deny", "ask", "warn"):
         chosen = [v for v in verdicts if v.decision == decision]
         if chosen:
             return Outcome(decision, " ".join(v.text() for v in chosen), verdicts)
@@ -3836,12 +3847,15 @@ def answer(decision: str, reason: str, host: str = "claude") -> dict:
     The reason goes to the user (systemMessage) and to the model (additionalContext) as well as into
     permissionDecisionReason, because a host shows the reason of an "ask" to the user only. Every field
     used here is one both hosts accept; Codex rejects an answer with any other field, and a
-    permissionDecisionReason without a permissionDecision.
+    permissionDecisionReason without a permissionDecision. A "warn" (a git push under Codex, Karte 5 A) carries no
+    permission decision either: the reason, with the warning sentence, goes out as the message only.
     """
     if decision == "ask" and host == "codex":
         decision, reason = "deny", reason + " Codex cannot ask, so the gate denies the call."
+    if decision == "warn":
+        reason = f"{reason} {CODEX_PUSH_WARNING}"
     specific = {"hookEventName": "PreToolUse", "additionalContext": reason}
-    if decision not in ("pass", "inactive"):
+    if decision not in ("pass", "inactive", "warn"):
         specific.update(permissionDecision=decision, permissionDecisionReason=reason)
     return {"systemMessage": reason, "hookSpecificOutput": specific}
 
@@ -3920,7 +3934,7 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
     session = event.get("session_id") if isinstance(event, dict) else None
     tool = event.get("tool_name") if isinstance(event, dict) else None
     verdict = outcome.decision if outcome is not None else "not_gated"
-    sent = "none" if verdict in ("pass", "inactive", "not_gated") else ("deny" if host == "codex" else verdict)
+    sent = "none" if verdict in ("pass", "inactive", "warn", "not_gated") else ("deny" if host == "codex" else verdict)
     repos = [] if outcome is None else [
         {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests)}
         for v in outcome.verdicts]

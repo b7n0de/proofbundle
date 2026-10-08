@@ -67,12 +67,14 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
 
 
 def _both_gate(repo, logs_root, command):
-    """Assert the command is gated on both host paths (ask under Claude, deny under Codex), and return the
-    Claude reason ids."""
+    """Assert the command is gated on both host paths (ask under Claude; under Codex deny, or the push warning of
+    Karte 5 A when the only call is a git push), and return the Claude reason ids."""
     claude, cids = _hook(repo, logs_root / "c", "claude", command)
-    codex, _ = _hook(repo, logs_root / "x", "codex", command)
+    codex, xids = _hook(repo, logs_root / "x", "codex", command)
     assert claude == "ask", (command, claude)
-    assert codex == "deny", (command, codex)
+    # Owner choice Karte 5 A (2026-10-08): under Codex a git push keeps its unbound-context reason and only warns,
+    # so its answer carries no decision; every other call the gate gates is still denied.
+    assert codex == "deny" or (codex is None and xids == ["codex_context_unbound"]), (command, codex, xids)
     return cids
 
 

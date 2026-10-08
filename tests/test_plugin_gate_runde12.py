@@ -87,12 +87,15 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str) -> tu
 
 
 def _gated(repo, logs_root, command, reason=None):
-    """Assert the command is gated at the exit on both hosts: ask under Claude, deny under Codex. When `reason`
-    is given, it is among the Claude log's reason ids."""
+    """Assert the command is gated at the exit on both hosts: ask under Claude; under Codex deny, or the push
+    warning of Karte 5 A when the only call is a git push. When `reason` is given, it is among the Claude log's
+    reason ids."""
     d_claude, ids = _hook(repo, logs_root / "claude", "claude", command)
-    d_codex, _ = _hook(repo, logs_root / "codex", "codex", command)
+    d_codex, codex_ids = _hook(repo, logs_root / "codex", "codex", command)
     assert d_claude == "ask", (command, d_claude, ids)
-    assert d_codex == "deny", (command, d_codex)
+    # Owner choice Karte 5 A (2026-10-08): under Codex a git push keeps its unbound-context reason and only warns,
+    # so its answer carries no decision; every other call the gate gates is still denied.
+    assert d_codex == "deny" or (d_codex is None and codex_ids == ["codex_context_unbound"]), (command, d_codex)
     if reason is not None:
         assert reason in ids, (command, ids)
     return ids
@@ -131,13 +134,14 @@ def test_r12_2_a_hidden_second_call_in_a_comment_is_not_measured(tmp_path):
 
 def test_r12_2_the_clean_push_control_is_still_inactive_under_claude(tmp_path):
     """Control: the same push without the hidden second call is one command word and one resolved call, so the
-    gate still returns inactive under Claude (no permission decision) and denies under Codex (push unbound)."""
+    gate still returns inactive under Claude (no permission decision) and, under Codex, warns with the unbound
+    push context and no decision (Karte 5 A)."""
     repo = _repo_tracking(tmp_path)
     d_claude, ids = _hook(repo, tmp_path / "logs" / "claude", "claude", "git push origin main")
-    d_codex, _ = _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main")
+    d_codex, codex_ids = _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main")
     assert d_claude is None, (d_claude, ids)          # inactive: nothing declared, no decision
     assert "net_unmodeled_git" not in ids, ids
-    assert d_codex == "deny", d_codex
+    assert (d_codex, codex_ids) == (None, ["codex_context_unbound"]), (d_codex, codex_ids)
 
 
 def test_r12_2_the_control_without_the_hash_asks(tmp_path):

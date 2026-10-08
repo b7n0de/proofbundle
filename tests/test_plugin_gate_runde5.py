@@ -266,15 +266,16 @@ def test_a_blank_pre_push_stdin_is_inactive_and_exits_zero(tmp_path):
 
 # --- the Codex case (Punkt 10) -----------------------------------------------------------------------
 
-def test_codex_a_good_repo_push_is_denied(tmp_path):
+def test_codex_a_good_repo_push_is_not_measured_and_warns(tmp_path):
+    """Punkt 10 kept its NOT MEASURED reason; since Karte 5 A (2026-10-08) the answer is a warning, not a deny."""
     repo, _ = _make_repo(tmp_path, "r", declare="valid")
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": "git push origin main"}})
     out = _run_gate(repo, event, "--host", "codex")
     answer = json.loads(out.stdout)
-    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert answer["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
-    assert "workdir" in answer["systemMessage"]
+    assert "permissionDecision" not in answer["hookSpecificOutput"]
+    assert answer["systemMessage"].startswith("NOT MEASURED:")
+    assert "workdir" in answer["systemMessage"] and gate.CODEX_PUSH_WARNING in answer["systemMessage"]
 
 
 # --- subprocess helpers ------------------------------------------------------------------------------

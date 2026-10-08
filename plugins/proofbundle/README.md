@@ -14,7 +14,7 @@ for Codex, over the same skills, MCP server and gate.
 A passing verification proves that the holder of the given key signed exactly these bytes and that
 they have not changed since. It does not prove that any recorded value is true.
 
-**Status** · Claude Code: Experimental · Codex: Experimental, hook run not yet measured
+**Status** · Claude Code: Experimental · Codex: Experimental, a push only warns, hook run with a real model not yet measured
 
 ## What it adds
 
@@ -100,7 +100,8 @@ judgment as a git form, and, since owner choice K-NW-2 B (2026-10-08), the plain
 after a check of the repository's state finds no filter, hook, fsmonitor, signature program or include onto one,
 and every configuration key, hook and `GIT_*` setting it reads is one it knows to start no program for that form
 (D3). The separate push path remains. Under Claude Code it may return `pass` or
-`inactive` after its checks; under Codex every push is denied because its execution context is unbound.
+`inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound, and
+it warns rather than being denied (owner choice Karte 5 A, D12).
 git starts programs through options, configuration values, attribute-selected drivers, hooks and automatic
 maintenance, and a list of what frees a form did not close that class, so the free list, its option tables
 and its read of the repository state are removed. `git --version` is free only as exactly that text,
@@ -121,9 +122,11 @@ that would turn off the real-push check — `git push --no-verify`, a command-le
 or a `git config core.hooksPath` — is denied. Because Level 1 cannot see through the shell, a push it
 leaves NOT MEASURED is not one it has checked: a NOT MEASURED answer asks (and on Codex, or under
 `claude -p`, denies), so it blocks rather than passes, but it is not proof the push is sound. Under
-`--host codex` every push Level 1 would otherwise resolve is NOT MEASURED and denied, because the hook
+`--host codex` every push Level 1 would otherwise resolve is NOT MEASURED, because the hook
 receives the session directory and the command text, not the execution `workdir` or a remote environment,
-so it could judge a different repository than the push acts on (Runde 5, R5-2; owner choice 02.10.2026).
+so it could judge a different repository than the push acts on (Runde 5, R5-2; owner choice 02.10.2026). Since
+owner choice Karte 5 A (2026-10-08) such a `git push` warns with that reason and is not denied; the push check
+under Codex is the pre-push hook below, where it is installed, and the boundary is the done check and CI (D12).
 
 **Level 2 (prototype, D24) is the pre-push hook.** A git `pre-push` hook reaches a verdict from git's own
 ref lines, so it sees the exact commits and the remote's own state — but only for a push git actually
@@ -437,12 +440,18 @@ The gate behaves differently under Codex in two ways:
 - Codex has no ask decision. Under Codex, a NOT MEASURED call that would ask is denied instead (D12 in
   DECISIONS.md). A repository that declares nothing, neither at HEAD nor in the working tree, gets no
   decision under Codex either, marked NOT MEASURED (D5). Beyond that, under `--host codex` every push the
-  gate would otherwise resolve is NOT MEASURED and denied (owner choice A, 02.10.2026, R5-2): the hook
+  gate would otherwise resolve is NOT MEASURED (owner choice A, 02.10.2026, R5-2): the hook
   receives the session directory and the command text, not the execution `workdir` or a remote environment,
-  so it could judge a different repository than the push acts on; `gh pr create` and the other gated shell
-  calls are denied the same way; a gated MCP write is NOT MEASURED and denied as well (R6-1). No transcript
+  so it could judge a different repository than the push acts on. **A `git push` under Codex warns with that
+  reason and is not denied** (owner choice Karte 5 A with D, 2026-10-08): the boundary is the done check at the
+  end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in its
+  own repository where it is installed; how it is installed is still open (D24B), and without it nothing local
+  stops the push. A push with `--no-verify` or a `core.hooksPath` override is still denied, and so are
+  `gh pr create` and the other gated gh calls, which start no pre-push hook; a gated MCP write is NOT MEASURED
+  and denied as well (R6-1). No transcript
   path is built: until Codex binds the effective execution directory and environment of the same call to
-  the hook, and that binding is checked, gated shell calls stay NOT MEASURED and denied (D12). `write_stdin` fed to a
+  the hook, and that binding is checked, gated shell calls stay NOT MEASURED and denied, a `git push` warned
+  about (D12). `write_stdin` fed to a
   running command after the hook has no hook of its own, so the gate does not check input fed in later.
 - Codex runs a plugin's hooks only after you trust them, at the start-up review or in `/hooks`. Until
   then the gate does not run, and a push is not gated (D13). Under Codex every result of

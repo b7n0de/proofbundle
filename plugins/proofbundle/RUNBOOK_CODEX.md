@@ -51,22 +51,26 @@ test -e remote.git/refs/heads/main && echo pushed || echo "not pushed"
 ```
 
 Owner choice (02.10.2026, R5-2, choice A): under `--host codex` EVERY push Ebene 1 would otherwise resolve
-is NOT MEASURED and therefore denied, because the hook receives the session directory and the command text,
-not the execution `workdir` or a remote environment, so it could judge a different repository than the push
-acts on (review Runde 5, R5-2; Codex source `exec_command.rs`/`hook_runtime.rs` at 14a477ea). So the answer
-does not depend on the repository's evidence state here; every case 1 to 5 denies with the same NOT MEASURED
-reason. What each scaffold mode would verify with a bound context is a Claude-Code / Ebene-2 property, not a
-Codex Ebene-1 one, until the execution context is reliably bound (Messauftrag, D12).
+is NOT MEASURED, because the hook receives the session directory and the command text, not the execution
+`workdir` or a remote environment, so it could judge a different repository than the push acts on (review
+Runde 5, R5-2; Codex source `exec_command.rs`/`hook_runtime.rs` at 14a477ea). Owner choice Karte 5 A with D
+(2026-10-08): such a push keeps that reason and only warns; it is not denied. The boundary is the done check at
+the end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in
+its own repository where it is installed; the scaffold installs none, and how it is installed is still open
+(D24B). So the answer does not depend on the repository's evidence state here; every case 1 to 5 warns with the
+same NOT MEASURED reason, and the push reaches the remote. What each scaffold mode would verify with a bound
+context is a Claude-Code / Ebene-2 property, not a Codex Ebene-1 one, until the execution context is reliably
+bound (Messauftrag, D12).
 
 | # | Mode | Hooks | Expected answer of the gate | Pass criterion |
 |---|---|---|---|---|
-| 1 | `repo-nodecl` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
-| 1a | `repo-worktree-only` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
-| 1b | `repo-rules-changed` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
-| 2 | `repo-tampered` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
-| 3 | `repo-missing` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
-| 4 | `repo-stale` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
-| 5 | `repo-valid` | trusted | deny, NOT MEASURED (Codex context unbound) | Codex shows a block whose reason starts with `NOT MEASURED:` and names `workdir`; not pushed. |
+| 1 | `repo-nodecl` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
+| 1a | `repo-worktree-only` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
+| 1b | `repo-rules-changed` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
+| 2 | `repo-tampered` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
+| 3 | `repo-missing` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
+| 4 | `repo-stale` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
+| 5 | `repo-valid` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
 | 6 | `repo-valid` | not trusted | none: the gate did not run | No gate message at all; after approval, pushed. This is D13, measured. |
 
 For case 6, open `/hooks` first and withdraw the trust from both `proofbundle` hooks, or start Codex with
@@ -74,9 +78,9 @@ a fresh `CODEX_HOME` in which the plugin is installed and the hooks were never t
 afterwards.
 
 Expected values measured without Codex, from the gate run directly with `--host codex` on each scaffold
-mode (tests/test_codex_plugin.py measures the hook schema): the cases 1 to 5 all deny NOT MEASURED, because
-of the owner choice above. What this runbook adds is Codex itself: that it starts the hook, passes the
-event, and honours the deny.
+mode (tests/test_codex_plugin.py measures the hook schema): the cases 1 to 5 all warn NOT MEASURED, because
+of the owner choices above. What this runbook adds is Codex itself: that it starts the hook, passes the
+event, and shows the warning without blocking the push.
 
 ## The note of the verify skill
 

@@ -121,8 +121,9 @@ MEASURED. The remote itself is not read.
       exempt from judgment as a git form, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms
       after a state check of their repository (`git add` and `git commit -m`, the subsection "two forms after
       a state check" below). The separate push path remains. Under Claude Code it may return
-      `pass` or `inactive` after its checks; under Codex every push is denied because its execution context
-      is unbound. The free
+      `pass` or `inactive` after its checks; under Codex every push is NOT MEASURED because its execution
+      context is unbound, and since owner choice Karte 5 A of 2026-10-08 it warns instead of being denied (D12).
+      The free
       list of Nachtrag 19b, its per-entry option tables and its read of the
       repository state are removed. The subcommand list in the gate (`_GIT_LOCAL_SUBCOMMANDS`) now only picks
       the reason: a listed local subcommand asks as a repository form (`git_form_not_free`), any other
@@ -198,7 +199,8 @@ MEASURED. The remote itself is not read.
   turned off, so the gate judges the objects and ancestors the push transfers, not a local rewrite of them
   (review R3-8).
 - A `gh pr create` or `gh release create` is judged as a push of the current branch to its upstream.
-- An unresolved push is asked under Claude Code and denied under Codex (D12). The D5 inactive shortcut
+- An unresolved push is asked under Claude Code; under Codex every push is NOT MEASURED and, since Karte 5 A,
+  warned about rather than denied (D12). The D5 inactive shortcut
   applies only when the push resolves and every sent commit and the target's state declare nothing; an
   unresolved push never switches the gate off (N2).
 
@@ -214,7 +216,8 @@ Chosen (owner, 2026-10-03): option B, remove the free list. The former free list
 been removed. Those forms are NOT MEASURED, asked under Claude Code and denied under Codex (D12). Only the
 exact bare command text `git --version` is exempt from judgment as a git form. The separate push path remains.
 Under Claude Code it may return `pass` or `inactive` after its checks; under Codex every push is denied because
-its execution context is unbound (wording of review Runde 10, R10-3). The one free form, the bare
+its execution context is unbound (wording of review Runde 10, R10-3; since owner choice Karte 5 A of 2026-10-08 a
+`git push` under Codex warns instead, D12). The one free form, the bare
 `git --version`, is exactly that command text: no program path, no wrapper,
 no chain, pipeline, background job or here-document, no substitution, no prefix assignment, no redirection
 and no predecessor in the same command. Every other spelling of it asks (reason id `git_form_not_free`).
@@ -594,7 +597,8 @@ Options:
 ## D12. Codex has no ask
 
 Chosen: under Codex, the gate runs with `--host codex` and answers every NOT MEASURED case with deny.
-The reason still starts with `NOT MEASURED:`.
+The reason still starts with `NOT MEASURED:`. One case warns instead since owner choice Karte 5 A
+(2026-10-08): a `git push`, below.
 
 Measured in the Codex source (openai/codex at c248f6d4):
 - `codex-rs/hooks/src/engine/output_parser.rs` rejects `permissionDecision: "ask"` as unsupported;
@@ -616,6 +620,28 @@ EVERY PUSH IS NOT MEASURED UNDER CODEX (owner choice A, 02.10.2026, R5-2)
 - Under Claude Code nothing changes.
 - MCP tools are a separate path: a gated MCP write is NOT MEASURED on both hosts and denied under Codex
   (Runde 6, R6-1; D8).
+- Since owner choice Karte 5 A (2026-10-08) such a `git push` warns instead of being denied; the next block.
+
+A GIT PUSH UNDER CODEX WARNS (owner choice Karte 5 A, with D, 2026-10-08)
+- Chosen: under `--host codex` a `git push` keeps the NOT MEASURED reason above, field by field, and its reason
+  id `codex_context_unbound`. The answer carries no permission decision: the reason goes out as the message and
+  as context for the model, followed by one warning sentence (`CODEX_PUSH_WARNING` in the gate). The gate log
+  records the verdict `warn` and the decision `none`.
+- Why: the boundary is the done check at the end of the session (D26) and the required CI check (D22, D27). Under
+  Codex the push check is carried by git's own `pre-push` hook (Level 2, D24, option D of the card), because git
+  starts it in the repository the push acts on, with git's ref lines.
+- Unchanged: Claude Code. A push that turns the push check off (`--no-verify`, a command-level `core.hooksPath`,
+  `git config core.hooksPath`) is denied under both hosts, because it switches off the Level-2 check this choice
+  relies on. `gh pr create`, `gh release create` and the other gated gh calls stay denied, because gh starts no
+  pre-push hook. `git send-pack`, a per-command `-c alias.*` and every other form Level 1 leaves as a possible
+  transfer stay denied, because they are not a `git push`. A gated MCP write stays denied (R6-1). A command that
+  holds a push and any denied call is denied; deny ranks above ask, ask above warn.
+- What the warning does not do: it checks nothing. Without an installed `pre-push` hook nothing local stops a
+  push under Codex. How that hook is installed is the open owner card D24B; this choice installs nothing.
+- Known way around, the D27 class: an environment setting that turns hooks off without a word Level 1 reads (for
+  example `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git push`) keeps git
+  from starting the Level-2 hook. Claude Code asks for such a push (`directory_unresolved`); under Codex it now
+  warns like any other push (measured on 2026-10-08). The boundary for it is the required CI check.
 
 THE CODEX EXECUTION MODEL IS AN ASSUMPTION, NOT A MEASURED FACT
 - Codex is often described as running a command through a login shell (`bash -lc …`), but that is not
@@ -652,7 +678,7 @@ DECISION TEMPLATE (do NOT implement anything):
 - IF that ordering holds, a future change could have the gate read `transcript_path`, find the `tool_use_id`
   entry and recover the real workdir to resolve the repository.
 - UNTIL it is measured at a real host start (owner machine, not a cloud session), owner choice A stands:
-  every Codex push is NOT MEASURED → deny.
+  every Codex push is NOT MEASURED → deny (since owner choice Karte 5 A of 2026-10-08: → a warning, D12).
 - EVEN THEN the transcript workdir is model-influenced content, so the gate may trust it only if Codex
   guarantees it equals the execution workdir.
 
@@ -669,7 +695,7 @@ DECISION AFTER REVIEW RUNDE 6 (Nachtrag 19; the reviewer's decision, recorded he
   the effective environment; `tool_use_id` together with a file path does not establish that binding.
 - Until Codex reliably binds the effective execution directory and the execution environment for the same
   call to the hook, and that binding has been checked, gated shell calls under Codex stay NOT MEASURED and
-  denied.
+  denied (a `git push` warns since Karte 5 A, above).
 
 GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7; review Runde 9)
 - Since review Runde 9 (owner choice B, D3) the former free list for local git commands has been removed.
@@ -679,8 +705,8 @@ GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7; review Runde 9)
   a literal `-C` on such a local form does not change that decision (it never frees it). Only the exact bare
   command text `git --version` is exempt (review Runde 7, question 5: "every git form" was too broad; wording
   of review Runde 11, R11-5). The separate push path remains: under Claude Code it may return `pass` or
-  `inactive` after its checks; under Codex every push is denied because its execution context is unbound — the
-  `-C` sentence above is about the freed local forms, not that push path. A bare `git` without a subcommand is
+  `inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound,
+  and warns since Karte 5 A (above) — the `-C` sentence above is about the freed local forms, not that push path. A bare `git` without a subcommand is
   no longer free.
 - MEASURED in the Codex source at 14a477ea89712071944244022e8a10142845456e (read, not run): the dispatcher
   asks every tool for a PreToolUse payload (`codex-rs/core/src/tools/registry.rs` line 602); a function
@@ -707,6 +733,8 @@ Options:
 - A. Deny under Codex (chosen for every NOT MEASURED ask).
 - B. Let the call run under Codex when nothing is declared, and report NOT MEASURED in a message (holds
   since D5, C, for the one case where the gate measured that nothing is declared).
+- C. Warn on a `git push` under Codex, with the boundary at the done check and CI and the push check in the
+  pre-push hook (owner choice Karte 5 A with D, 2026-10-08; above).
 
 ## D13. Codex runs plugin hooks only after the user trusts them
 

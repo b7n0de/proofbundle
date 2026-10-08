@@ -304,24 +304,33 @@ def _codex_valid(answer: dict) -> str:
 INACTIVE = "The gate is not active in this repository, because nothing is declared."
 
 
+def _codex_warns(answer: dict) -> None:
+    """Owner choice Karte 5 A (2026-10-08): under Codex a git push keeps its NOT MEASURED reason (the hook does not
+    bind the workdir) and only warns: an answer Codex accepts, with no decision, the reason and the warning."""
+    assert _codex_valid(answer) == "pass", answer
+    assert answer["systemMessage"].startswith("NOT MEASURED:") and "workdir" in answer["systemMessage"]
+    assert answer["systemMessage"].endswith(gate.CODEX_PUSH_WARNING)
+    assert answer["hookSpecificOutput"]["additionalContext"] == answer["systemMessage"]
+    assert "Codex cannot ask" not in answer["systemMessage"]
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_a_nothing_declared_push_is_inactive_under_claude_but_not_measured_under_codex(shim, tmp_path):
     # Owner choice A (R5-2): under Claude a resolved nothing-declared push stays inactive with no decision
-    # (D5, C); under Codex it is NOT MEASURED and denied, because the hook cannot bind the execution workdir.
+    # (D5, C); under Codex it is NOT MEASURED, because the hook cannot bind the execution workdir, and since
+    # Karte 5 A it warns with that reason instead of denying.
     repo = _repo(tmp_path, declare=False)
     claude = _run(shim, repo)
     assert _codex_valid(claude) == "pass", "Claude: no decision on a measured nothing-declared repository"
     assert "permissionDecision" not in claude["hookSpecificOutput"]
     assert claude["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in claude["systemMessage"]
     codex = _run(shim, repo, "--host", "codex")
-    assert _codex_valid(codex) == "deny", "Codex: every push is NOT MEASURED, so denied"
-    assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
-    assert "workdir" in codex["systemMessage"] and "Codex cannot ask" in codex["systemMessage"]
+    _codex_warns(codex)
     assert INACTIVE not in codex["systemMessage"]  # the gate never reached the repository's state
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_under_codex_a_declaration_only_in_the_working_tree_is_denied_as_not_measured(shim, tmp_path):
+def test_under_codex_a_declaration_only_in_the_working_tree_is_not_measured_and_warns(shim, tmp_path):
     repo = _repo(tmp_path, declare=False)
     (repo / ".proofbundle").mkdir()
     (repo / ".proofbundle" / "evidence.json").write_text(json.dumps(
@@ -330,15 +339,13 @@ def test_under_codex_a_declaration_only_in_the_working_tree_is_denied_as_not_mea
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
     assert "not committed" in claude["systemMessage"]  # Claude still reaches the uncommitted-declaration case
     codex = _run(shim, repo, "--host", "codex")
-    assert _codex_valid(codex) == "deny"
-    assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
     # Under Codex the push is NOT MEASURED before the repository is read, so the reason is the unbound context.
-    assert "workdir" in codex["systemMessage"]
-    assert "Codex cannot ask" in codex["systemMessage"]
+    _codex_warns(codex)
+    assert "not committed" not in codex["systemMessage"]
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_under_codex_every_other_not_measured_case_is_still_denied(shim, tmp_path):
+def test_under_codex_every_not_measured_push_warns_while_claude_asks(shim, tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()
     fresh = tmp_path / "fresh"
@@ -354,8 +361,7 @@ def test_under_codex_every_other_not_measured_case_is_still_denied(shim, tmp_pat
              (_repo(tmp_path / "unresolved", declare=False), "cd $SOMEWHERE && git push")]
     for where, command in cases:
         codex = _run(shim, where, "--host", "codex", command=command)
-        assert _codex_valid(codex) == "deny", (where, command)
-        assert codex["hookSpecificOutput"]["permissionDecisionReason"].startswith("NOT MEASURED:")
+        _codex_warns(codex)
         claude = _run(shim, where, command=command)
         assert claude["hookSpecificOutput"]["permissionDecision"] == "ask", (where, command)
 
@@ -363,14 +369,14 @@ def test_under_codex_every_other_not_measured_case_is_still_denied(shim, tmp_pat
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_under_codex_every_push_is_not_measured_whatever_the_evidence(shim, tmp_path):
     # Owner choice A (R5-2): under Codex a push is NOT MEASURED before the repository is read, so a tampered
-    # bundle and a verified one deny with the SAME context-unbound reason, not with an evidence verdict. The
-    # per-state verdicts are the Claude-host / Ebene-2 property (test_claude_code_plugin_gate.py).
+    # bundle and a verified one get the SAME context-unbound reason, not an evidence verdict; since Karte 5 A both
+    # warn with it. The per-state verdicts are the Claude-host / Ebene-2 property (test_claude_code_plugin_gate.py).
     tampered = _run(shim, _repo(tmp_path / "a", declare=True, tamper=True), "--host", "codex")
-    assert _codex_valid(tampered) == "deny"
-    assert "workdir" in tampered["systemMessage"] and "verification failed" not in tampered["systemMessage"]
+    _codex_warns(tampered)
+    assert "verification failed" not in tampered["systemMessage"]
     verified = _run(shim, _repo(tmp_path / "b", declare=True), "--host", "codex")
-    assert _codex_valid(verified) == "deny"
-    assert "workdir" in verified["systemMessage"] and "declared items verified" not in verified["systemMessage"]
+    _codex_warns(verified)
+    assert "declared items verified" not in verified["systemMessage"]
 
 
 def test_under_codex_a_call_the_gate_does_not_know_gets_no_answer(shim, tmp_path):
@@ -471,8 +477,8 @@ def test_the_mac_runbook_names_every_case_with_its_expected_answer():
         assert mode in scaffold, mode
     expected = [row.split("|")[4].strip() for row in rows]
     # Owner choice A (R5-2): under --host codex every push Ebene 1 would resolve is NOT MEASURED, so cases
-    # 1 to 5 all deny NOT MEASURED, independent of the repository's evidence state.
-    assert expected[:7] == ["deny, NOT MEASURED (Codex context unbound)"] * 7, expected
+    # 1 to 5 all answer NOT MEASURED, independent of the repository's evidence state; since Karte 5 A they warn.
+    assert expected[:7] == ["warn, NOT MEASURED (Codex context unbound)"] * 7, expected
     assert expected[7].startswith("none")  # case 6: the gate did not run (hooks not trusted)
     assert "NOT MEASURED" in text and "gate did not run" in text
     assert f"`{gate.MCP_MATCHER}`" in text, "the runbook names the matcher the manifests carry"
@@ -499,6 +505,8 @@ def test_every_runbook_case_gets_from_the_gate_the_answer_its_row_expects(shim, 
     answer = _run(shim, work, "--host", "codex")
     got = _codex_valid(answer)
     assert got == ("deny" if expected.startswith("deny") else "pass"), (case, answer)
+    if expected.startswith("warn"):
+        _codex_warns(answer)
     for text in quoted:
         if text not in ("NOT MEASURED:",):
             assert text in answer["systemMessage"], (case, text)
@@ -608,10 +616,10 @@ def test_under_codex_a_rules_change_push_is_not_measured_while_claude_asks(shim,
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "widen the policy")
     codex = _run(shim, repo, "--host", "codex")
-    assert _codex_valid(codex) == "deny"
-    # Owner choice A (R5-2): under Codex the deny is the context-unbound NOT MEASURED, not the rules-change
-    # verdict; Claude still reaches the rules-change ask.
-    assert "workdir" in codex["systemMessage"] and "Codex cannot ask" in codex["systemMessage"]
+    # Owner choice A (R5-2): under Codex the answer is the context-unbound NOT MEASURED, not the rules-change
+    # verdict, and since Karte 5 A it warns; Claude still reaches the rules-change ask.
+    _codex_warns(codex)
+    assert "evidence rules" not in codex["systemMessage"]
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
     assert "evidence rules" in claude["systemMessage"]

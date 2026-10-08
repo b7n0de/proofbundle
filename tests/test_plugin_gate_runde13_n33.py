@@ -84,11 +84,14 @@ def _hook(repo: pathlib.Path, logs: pathlib.Path, host: str, command: str,
 
 
 def _gated(repo, logs_root, command, reason=None):
-    """ask under Claude, deny under Codex at the gate exit; when reason is given it is in the Claude log."""
+    """ask under Claude; under Codex deny, or the push warning of Karte 5 A when the only call is a git push; when
+    reason is given it is in the Claude log."""
     d_claude, ids = _hook(repo, logs_root / "claude", "claude", command)
-    d_codex, _ = _hook(repo, logs_root / "codex", "codex", command)
+    d_codex, codex_ids = _hook(repo, logs_root / "codex", "codex", command)
     assert d_claude == "ask", (command, d_claude, ids)
-    assert d_codex == "deny", (command, d_codex)
+    # Owner choice Karte 5 A (2026-10-08): under Codex a git push keeps its unbound-context reason and only warns,
+    # so its answer carries no decision; every other call the gate gates is still denied.
+    assert d_codex == "deny" or (d_codex is None and codex_ids == ["codex_context_unbound"]), (command, d_codex)
     if reason is not None:
         assert reason in ids, (command, ids)
     return ids
@@ -339,10 +342,11 @@ def test_k2_the_valid_stream_on_the_claude_push_path_passes(tmp_path):
     assert decision is None, (decision, ids)
 
 
-def test_k2_the_codex_push_path_denies_before_the_verifier(tmp_path):
-    """Control: under Codex the push is denied before the verifier runs (codex_cwd_unbound), so a Codex pass from
-    this stream is NOT MEASURED by construction. The crafted and the valid streams both deny."""
+def test_k2_the_codex_push_path_stops_before_the_verifier(tmp_path):
+    """Control: under Codex the push is NOT MEASURED before the verifier runs (codex_context_unbound), so a Codex
+    pass from this stream is NOT MEASURED by construction. Since Karte 5 A the push warns with that reason and no
+    decision, whatever the stream."""
     repo = _declared_repo(tmp_path, remote=True)
     env = _uv_stream_env(tmp_path, [_init_reply(), _reply([_VALID, 7])])
-    decision, _ = _push_hook(repo, tmp_path / "logs" / "codex", "codex", env)
-    assert decision == "deny"
+    decision, ids = _push_hook(repo, tmp_path / "logs" / "codex", "codex", env)
+    assert (decision, ids) == (None, ["codex_context_unbound"])
