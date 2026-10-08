@@ -22,8 +22,10 @@ landed on one driver while its siblings kept the old shape".
 WHAT IS PINNED HERE. The rule itself (`signature.ed25519_trust_anchor_weakness`), then each surface
 with a real forgery made by nobody next to a positive control made by a real key, so a refusal
 cannot come from a fixture that fails for any reason at all. The last class is the sweep: every
-Ed25519 verification in the package goes through the rule, except the two in-band keys named with
-their reason. A new verification in any spelling the sweep models (a call, an import alias, a
+Ed25519 verification in the package goes through the rule, except the bundle's own in-band key,
+named with its reason (the AGT receipt's signer key was the second exception until 6.2.0, see
+tests/test_a_small_order_key_is_refused_at_every_carrier.py). A new verification in any spelling
+the sweep models (a call, an import alias, a
 `getattr` string, the `cryptography` key class) turns this file red; `_sweep_source` names the
 spellings it cannot see. The same sweep runs over the Rust verifier's key constructions.
 
@@ -334,8 +336,29 @@ class TheRule(unittest.TestCase):
         self.assertIn("_ =>", body, "the default arm moved; this reading of the source needs looking at")
 
 
+def _foreign_vkey(name: str, key: bytes) -> str:
+    """A log vkey as a producer without the trust-anchor rule writes it: `cp.vkey` of a4e2fa5c and of
+    the tags v6.0.0 and v6.1.0, and any other tool. Since `cp.vkey` refuses a weak key itself, the
+    parser's refusal is measured on this spelling (a control below pins it to `cp.vkey`'s form)."""
+    kid = cp.key_id(name, key)
+    return f"{name}+{int.from_bytes(kid, 'big'):08x}+{_b64(bytes([0x01]) + key)}"
+
+
+def _foreign_cosign_vkey(name: str, key: bytes) -> str:
+    """A witness vkey as a producer without the trust-anchor rule writes it (see `_foreign_vkey`)."""
+    kid = cp.cosign_key_id(name, key)
+    return f"{name}+{int.from_bytes(kid, 'big'):08x}+{_b64(bytes([0x04]) + key)}"
+
+
 class Checkpoints(unittest.TestCase):
-    """L1-Z195-02: the witness quorum, the cosignature and the log key."""
+    """L1-Z195-02: the witness quorum, the cosignature and the log key. The verifiers are measured on
+    vkeys a foreign producer wrote, since `cp.vkey` and `cp.cosign_vkey` refuse a weak key before
+    they write one (tests/test_a_small_order_key_is_refused_at_every_carrier.py)."""
+
+    def test_precondition_the_foreign_spelling_is_the_producers_spelling(self):
+        real = _raw(generate_signer())
+        self.assertEqual(_foreign_vkey("log", real), cp.vkey("log", real))
+        self.assertEqual(_foreign_cosign_vkey("w", real), cp.cosign_vkey("w", real))
 
     ORIGIN = "example.com/log"
 
@@ -362,7 +385,7 @@ class Checkpoints(unittest.TestCase):
 
     def test_two_encodings_of_the_identity_no_longer_meet_a_quorum(self):
         forged = self._forged()
-        roster = [cp.cosign_vkey("w1", I1), cp.cosign_vkey("w2", I2)]
+        roster = [_foreign_cosign_vkey("w1", I1), _foreign_cosign_vkey("w2", I2)]
         with self.assertRaises(BundleFormatError) as ctx:
             cp.verify_witnessed_checkpoint(forged, self.log_vkey, roster, threshold=2)
         self.assertIn("low-order", str(ctx.exception))
@@ -370,21 +393,21 @@ class Checkpoints(unittest.TestCase):
     def test_a_single_weak_witness_is_refused_by_verify_cosignature(self):
         for name, key in (("w1", I1), ("w2", I2)):
             with self.subTest(witness=name), self.assertRaises(BundleFormatError):
-                cp.verify_cosignature(self._forged(), cp.cosign_vkey(name, key))
+                cp.verify_cosignature(self._forged(), _foreign_cosign_vkey(name, key))
 
     def test_a_weak_log_key_is_refused(self):
         forged = cp.sign_checkpoint(self.ORIGIN, 5, b"\x11" * 32, _Nobody(), "log")
         with self.assertRaises(BundleFormatError) as ctx:
-            cp.verify_checkpoint(forged, cp.vkey("log", I1))
+            cp.verify_checkpoint(forged, _foreign_vkey("log", I1))
         self.assertIn("low-order", str(ctx.exception))
 
     def test_every_weak_encoding_is_refused_as_a_witness_and_as_a_log_key(self):
         for key, _reason in WEAK:
             with self.subTest(key=key.hex()):
                 with self.assertRaises(BundleFormatError):
-                    cp._parse_witness_vkey(cp.cosign_vkey("w", key))
+                    cp._parse_witness_vkey(_foreign_cosign_vkey("w", key))
                 with self.assertRaises(BundleFormatError):
-                    cp._parse_vkey(cp.vkey("log", key))
+                    cp._parse_vkey(_foreign_vkey("log", key))
 
 
 _L = (1 << 252) + 27742317777372353535851937790883648493    # the prime order of the base point
@@ -684,8 +707,8 @@ class SdJwtAndKeyBinding(unittest.TestCase):
                                  assurance_level="reproduced")
         plain = emit_eval_receipt(ev, issuer)
         pc = json.loads(base64.b64decode(plain["payload_b64"]))
-        claim = {"passed": True, "threshold": "0.80", "comparator": ">=", "suite": "s",
-                 "issuer": pc["issuer"]}
+        # The SD-JWT is a view of this signed claim; `issue_sd_jwt` refuses a partial one (6.2.0).
+        claim = pc
         compact = issue_sd_jwt(claim, issuer, root_b64=plain["merkle"]["root_b64"],
                                holder_public_key=holder_pub)
         return compact, issuer
@@ -699,14 +722,28 @@ class SdJwtAndKeyBinding(unittest.TestCase):
         forged = f"{h}.{p}.{_b64url(UNIV)}~{rest}"
         self.assertIs(verify_sd_jwt(forged, I1)["sig_ok"], False)
 
-    def test_a_weak_holder_key_proves_no_possession(self):
+    def test_a_weak_holder_key_is_not_bound_and_proves_no_possession(self):
+        """Turned around: this case bound the identity point as the holder key with `issue_sd_jwt` and
+        measured only that the Key Binding JWT then fails. The issuer refuses to bind such a key now
+        (every weak encoding: tests/test_a_small_order_key_is_refused_at_every_carrier.py), and the
+        verifier is measured on a `cnf.jwk` a foreign issuer wrote, which it still refuses."""
         from proofbundle.kbjwt import verify_key_binding
         from proofbundle.sdjwt_issue import present_with_key_binding
         holder = generate_signer()
-        compact, _ = self._issued(_raw(holder))
+        compact, issuer = self._issued(_raw(holder))
         good = present_with_key_binding(compact, holder, aud="v", nonce="n", iat=1_780_000_000)
         self.assertIs(verify_key_binding(good)["ok"], True)
-        compact_w, _ = self._issued(I1)                        # the issuer bound a key nobody holds
+        with self.assertRaises(ValueError) as ctx:
+            self._issued(I1)                                   # the issuer would bind a key nobody holds
+        self.assertIn("refused as a trusted key", str(ctx.exception))
+        jwt, rest = compact.split("~", 1)                      # a foreign issuer binds it anyway
+        h, p, _s = jwt.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        payload["cnf"]["jwk"]["x"] = _b64url(I1)
+        signing_input = f"{h}.{_b64url(json.dumps(payload).encode('utf-8'))}"
+        compact_w = f"{signing_input}.{_b64url(issuer.sign(signing_input.encode('ascii')))}~{rest}"
+        from proofbundle.sdjwt import verify_sd_jwt
+        self.assertIs(verify_sd_jwt(compact_w, _raw(issuer))["sig_ok"], True, "precondition: a valid issuer JWT")
         forged = present_with_key_binding(compact_w, _Nobody(), aud="v", nonce="n", iat=1_780_000_000)
         r = verify_key_binding(forged)
         self.assertIs(r["ok"], False)
@@ -725,14 +762,19 @@ class AgtAdapter(unittest.TestCase):
         self.assertIs(verify_agt_receipt(r, trusted_authorizer_keys=[r["authorizer_public_key"]]).ok, True)
 
     def test_a_weak_authorizer_key_authorizes_nothing(self):
+        """Since 6.2.0 a weak key on the relying party's list refuses the list before the receipt is
+        read, so the receipt's own authorizer key is measured without the list, where the rule on the
+        authorization signature is the only thing that stands between it and an authorization."""
         from proofbundle.adapters.agt_receipt import verify_agt_receipt
         r = self._vector()
         r["authorizer_public_key"] = I1.hex()
         r["authorization_signature"] = UNIV.hex()
-        e = verify_agt_receipt(r, trusted_authorizer_keys=[I1.hex()])
+        e = verify_agt_receipt(r)
         self.assertIs(e.ok, False)
         sig = [c for c in e.checks if c.name == "external-authorization-signature"]
         self.assertEqual([c.ok for c in sig], [False])
+        listed = verify_agt_receipt(r, trusted_authorizer_keys=[I1.hex()])
+        self.assertEqual([(c.name, c.ok) for c in listed.checks], [("trusted-authorizer-keys", False)])
 
     def test_the_signer_in_capitals_is_not_a_second_party(self):
         from proofbundle.adapters.agt_receipt import (canonical_authorization_payload,
@@ -976,13 +1018,12 @@ class ThePinnedReleaseKeys(unittest.TestCase):
         self.assertGreater(seen, 0, "no pinned key read; this case would measure nothing")
 
 
-# The two keys that stay on the bare SPEC section 4a profile, with their reason. Nothing else may.
+# The one key that stays on the bare SPEC section 4a profile, with its reason. Nothing else may.
+# The AGT receipt's signer key stood here until 6.2.0 "like a bundle's key"; it is not one, because
+# nothing pins it, and it goes through the rule now (owner decision D3, SPEC section 4b unchanged).
 IN_BAND = {
     "bundle.py": "the bundle's own signature.public_key_b64 arrives in the bundle; SPEC section 4a pins "
                  "its verification profile, and trust in it comes from a policy pin, which has the rule",
-    "adapters/agt_receipt.py": "the AGT receipt's signer_public_key arrives in the receipt, like a "
-                               "bundle's key; the authorizer key, the one a relying party trusts, "
-                               "goes through verify_ed25519_pinned",
 }
 
 
@@ -1013,9 +1054,10 @@ def _sweep_source(rel: str, text: str) -> list:
     (`m.verify_ed25519`) is seen, as an attribute (gate iteration 2, lens C, C2-03: an earlier version
     of this sentence listed `importlib` as unseen outright). Its walk here is the package,
     src/proofbundle; tests/test_release_tooling_refuses_weak_pinned_keys.py walks scripts/ and tools/
-    with it. Inside the two IN_BAND
-    files it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
-    `anker=True` in the AGT adapter left it green); AgtAdapter holds that behaviourally."""
+    with it. Inside an IN_BAND
+    file it cannot tell a relied-on call from an in-band one (gate run 2, lens B, R2B-04: flipping
+    `anker=True` in the AGT adapter, then IN_BAND, left it green). The adapter left IN_BAND in 6.2.0
+    and no longer imports the bare primitive, so the sweep sees any return of it."""
     tree = ast.parse(text)
     names = set(_WATCHED)
     for node in ast.walk(tree):

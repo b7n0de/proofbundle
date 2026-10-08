@@ -33,6 +33,8 @@ import hashlib
 import json
 from typing import Optional
 
+from .._membership import require_switch
+
 _CONFIG_DOMAIN = b"proofbundle/v1.8/config-hash\x00"
 
 
@@ -156,7 +158,13 @@ def bind_reported_version(provenance: dict, field: str, value, *, reason: str,
     ``reason`` is REQUIRED whenever the status can be non-``reported``. An empty reason raises:
     a status that says "not reported" without saying why moves the ambiguity rather than closing
     it, and this helper exists precisely to stop that.
+
+    ``bound`` must be a bool; anything else raises :class:`~proofbundle.errors.SwitchTypeError` (a
+    ``TypeError``) before the block is touched. It was read by its truth, so ``bound="false"``,
+    ``"no"``, ``1`` or ``[0]`` wrote the version with status ``reported`` into a block that is signed
+    into the receipt, where ``bound=False`` writes ``not_bound`` with its reason (measured at 3a8074fc).
     """
+    require_switch(bound, "bound")
     if field not in REPORTED_VERSION_FIELDS:
         raise ValueError(
             f"{field!r} is not a reported-version field {list(REPORTED_VERSION_FIELDS)} — a status "

@@ -1,9 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-hase-logo-dark.png">
-  <img alt="b7n0de, Verified AI Work, pink rabbit mascot over the B7N0DE wordmark" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/b7n0de-hase-logo.png" width="200">
-</picture>
+<img alt="proofbundle, flat rabbit head with a pink ear tip" src="https://raw.githubusercontent.com/b7n0de/proofbundle/main/assets/proofbundle-hase-flach-512.png" width="180">
 
 <h1>proofbundle</h1>
 
@@ -24,20 +21,26 @@
 
 ## Current release
 
-**[v6.1.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.1.0) · Beta · Closing audit not run**
+**[v6.2.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.0) · Beta · Closing audit record named in the release notes**
 
-[Known limitations](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/docs/release_scope/6.1.0.md) · [Audit evidence](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md)
+[Known limitations](https://github.com/b7n0de/proofbundle/blob/v6.2.0/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.2.0/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.2.0/docs/release_scope/6.2.0.md)
 
 <details>
 <summary>What was checked, and what remains open</summary>
 
-The [release audit record](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/README.md#the-pre-tag-receipt-and-the-closing-round-of-610) states that the closing round was not run because the required model family floor was not met. The audit readiness criteria C6.2, C6.3 and C8.2 remain red. The full 24 hour soak on the candidate was not included at tag time.
+6.2.0 closes five findings in the released 6.0.0 and 6.1.0 at the verify boundary, and one class of eight more: a related map that says it is empty no longer hides a retraction, an edge's `declaredAt` takes ASCII digits only as the Rust verifier does, a low-order Ed25519 key is refused both as a trusted key and as the holder key of a key binding, a caller's resolver promotes a verdict only on the exact `True`, and a public verify surface reads each argument of its caller once, by what it stores, so the caller's own methods no longer decide a verdict.
+
+It closes six more findings in four classes, five of them in the released 6.0.0 and 6.1.0: every evaluator applies the rule of `load_policy`, so a policy field of another type is refused instead of read as no constraint; no value a check judges is read after caller code could change it, the anchors, the relying party's trust material and the answers of a resolver included; a restricting `warn` of a registered anchor verifier marks the anchor pending; and a container of the wrong type is refused instead of read as empty. The sixth, the `warn` reading, is a regression of this release cycle and not in the released versions.
+
+A later gate round found two more, both in the released 6.0.0 and 6.1.0: an attached target's subject state is read against the four words its resolver writes, so a state it never writes no longer binds a declared subject pin to the first subject of an ambiguous target; and a restricting command-line option given an empty value, such as `--policy ''`, is refused or applied instead of being read as absent. The gate round at d388ed3d found two more, also in the released 6.0.0 and 6.1.0: the decision and outcome verifiers read a caller's `related` map once, so a callback of the caller can no longer hide an attached retraction between two readings, and every public function now reads all of its arguments in one reading at its call, before its body reads any of them; and `decision verify --anchors` refuses a file holding `null` or an empty list instead of reading it as no option, as the receipt verify commands refuse a policy with nothing in it they evaluate.
+
+The gate round at fda55f98 found one more in the released 6.0.0 and 6.1.0, and closed what that reading still handed on. Every rule a policy sets is now applied by the command it is given to, or the policy is refused; `outcome verify` printed `POLICY: OK` over an attached, verified retraction under a rule it never applies. No object of the caller reaches the body of a public function except where an argument's contract names it: an iterator or a generator is refused (pass a list or a tuple), a memoryview no private copy can take is refused, and a value of the caller's own class reaches the body as a stand-in that holds nothing of the caller. The reading does not yet prove a joint state of mutable inputs: a change made and undone between its two reads is not seen, as `RESTRISIKO_620.md` names. The release notes name the affected versions, the effect and the upgrade.
+
+The closing round runs at a later head than the one this file describes, so this file cannot state its result. In the tagged tree its verdict is the gate line of `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`, and the pre-tag receipt `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result; the release notes name the same places.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
-[Pre tag receipt](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/pre_tag_receipt_v6.1.0.json) · [Residual risks](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/RESTRISIKO_610.md) · [Findings register](https://github.com/b7n0de/proofbundle/blob/dcac5aeec92e850443cf34d9c07ab5cd277fabe1/audit_artifacts/610/findings_register_v2.json)
-
-The v2 findings register is unsigned. Its signature state must not be inferred from the separate pre tag receipt.
+[Residual risks](https://github.com/b7n0de/proofbundle/blob/v6.2.0/RESTRISIKO_620.md)
 
 </details>
 
@@ -46,10 +49,10 @@ The v2 findings register is unsigned. Its signature state must not be inferred f
 Install the verifier, download an example, then verify the local file.
 
 ```bash
-python -m pip install proofbundle==6.1.0
+python -m pip install proofbundle==6.2.0
 
 curl -fsSLo receipt.json \
-  https://raw.githubusercontent.com/b7n0de/proofbundle/v6.1.0/examples/example_bundle.json
+  https://raw.githubusercontent.com/b7n0de/proofbundle/v6.2.0/examples/example_bundle.json
 
 proofbundle verify receipt.json
 ```
@@ -73,7 +76,7 @@ These exit codes apply to `proofbundle verify`, not to every command in the pack
 To try deliberate tampering, install the evaluation extra and run the demo.
 
 ```bash
-python -m pip install 'proofbundle[eval]==6.1.0'
+python -m pip install 'proofbundle[eval]==6.2.0'
 proofbundle demo
 ```
 

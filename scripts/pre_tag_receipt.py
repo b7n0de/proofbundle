@@ -26,7 +26,9 @@ with no filter, attribute, index bit or `core.*` setting in between; see `_baumz
 
 WHAT THAT ESTABLISHES, AND WHAT IT DOES NOT. Established: the working tree equalled the committed head
 before the run and after it, the head and the tree digest were the same at both points, and the output
-digest is over the bytes this process read from that run. Not established: a change made and undone
+digest is over the bytes this process read from that run. Before the run no path lay in the tree that
+the head does not carry, ignored ones included (since 2026-09-27); after it, files the tree's own
+rules ignore may lie there, because the audit wrote them. Not established: a change made and undone
 DURING the run, by the audit program itself or by a concurrent writer, lies between the two
 measurements and is invisible to them; the interpreter and its standard library are trusted, not
 measured; and the audit program's own behaviour is recorded, not judged.
@@ -115,18 +117,18 @@ def _bytecode_cache_elsewhere() -> None:
 #: the cleanliness gate would have judged a tree nobody named. Dropped from THIS process before the
 #: first git call, so every git invocation of this run -- the gate's listings, the tree digest and any
 #: git the audit program runs -- answers about the tree given as `--repo`.
-_GIT_UMLEITUNG = (
-    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
-    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM",
-    "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_REPLACE_REF_BASE",
-)
+#:
+#: SINCE 2026-09-27 THIS TOOL'S OWN GIT CALLS DO NOT DEPEND ON THIS AT ALL: every one of them goes
+#: through `pre_tag_receipt_lib.git_run`, which builds git's environment from an allowlist and pins
+#: the configuration on the command line. What is removed here is what the AUDIT PROGRAM would
+#: otherwise inherit, and it is removed by the prefix of git's whole namespace, `GIT_`, because a
+#: list of names was measured to miss names git reads (`GIT_ICASE_PATHSPECS`, `GIT_TRACE`).
+#: Importing the library runs no git.
 
 
 def _umgebung_ohne_git_umleitung() -> None:
-    """Remove the redirecting GIT_* variables from this process (see `_GIT_UMLEITUNG`), and make
-    every git call of this process read the RAW objects.
+    """Remove every `GIT_*` variable from this process, and make any git the audit program runs
+    read the RAW objects.
 
     REPLACEMENT OBJECTS (Codex, fifth round, 2026-09-21): `refs/replace/*` under the root `.git`
     make git substitute one object for another everywhere it reads, `ls-tree HEAD`, `show` and
@@ -135,28 +137,83 @@ def _umgebung_ohne_git_umleitung() -> None:
     `git status` is clean, and `ls-tree HEAD` lists the evil blob, so the computed comparison
     agreed with the bytes on disk while `GIT_NO_REPLACE_OBJECTS=1 git show HEAD:a.txt` still said
     `clean`. The receipt would have bound the head's id to a tree that head does not have.
-    `GIT_NO_REPLACE_OBJECTS=1` is set for this process, so the tool's own calls, the library's tree
-    digest and any git the audit program runs all read the objects the revision really names.
+    `GIT_NO_REPLACE_OBJECTS=1` is set for this process, so any git the audit program runs reads
+    the objects the revision really names; the tool's own calls pin the same on git's command line
+    (`core.useReplaceRefs=false`), where a repository's configuration cannot switch it back on.
     """
     for name in list(os.environ):
-        if name in _GIT_UMLEITUNG or name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+        if name.startswith("GIT_"):
             os.environ.pop(name, None)
     os.environ["GIT_NO_REPLACE_OBJECTS"] = "1"
 
 
 _bytecode_cache_elsewhere()
-_umgebung_ohne_git_umleitung()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pre_tag_receipt_lib import RECEIPT_SCHEMA, canonical_bytes, subject_tree_digest  # noqa: E402
+from pre_tag_receipt_lib import (  # noqa: E402
+    RECEIPT_SCHEMA,
+    BaumNichtLesbar,
+    canonical_bytes,
+    git_file,
+    git_run,
+    git_tree,
+    subject_tree_digest,
+)
+
+_umgebung_ohne_git_umleitung()
 
 
 def _tree_digest(repo: Path) -> str:
-    return subject_tree_digest(repo)
+    """The library's tree digest, or a refusal with its reason: a digest the library cannot take
+    (a commit or a tree that is not the object its id names, among others) ends the run by name,
+    not with a traceback."""
+    try:
+        return subject_tree_digest(repo)
+    except BaumNichtLesbar as fehler:
+        raise SystemExit(f"emit: the tree digest of {repo} cannot be taken ({fehler}) — refusing to "
+                         "bind a tree digest that may not describe what was measured "
+                         "(fail-closed)") from fehler
 
 
-def _gate_source_digest(repo: Path) -> str:
-    return hashlib.sha256((repo / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
+#: The gate whose digest the receipt binds, as a path inside the tree.
+_GATE_REL = "scripts/pre_tag_audit_gate.py"
+
+
+def _gate_source_digest(repo: Path, kopf: str = "HEAD") -> str:
+    """sha256 of the gate source AS THE HEAD STORES IT: a regular file's committed blob.
+
+    MEASURED 2026-09-27: the tool read `scripts/pre_tag_audit_gate.py` with `read_bytes()`, which
+    follows a symbolic link. With that path committed as a link to `scripts/real_gate.py`, the
+    emit returned 0 and bound sha256 of the TARGET (3af880f3...), while the head carries the LINK
+    TEXT at that path (sha256 edca6c03...), and the third-party verifier hashes exactly that blob
+    (`git show <commit>:scripts/pre_tag_audit_gate.py`). The receipt named a gate the commit does
+    not have at the path it names. A link has no coherent gate digest here: the release gate hashes
+    the file it runs from, which is the target, and a reader of the commit hashes the link text.
+    So a gate source that is not a regular file refuses, and a regular one is read from the head:
+    the tree was measured equal to the head before and after the audit, so those are the bytes on
+    disk as well, and they are the bytes the verifier reads.
+
+    THE BLOB IS THE ONE ITS ID NAMES (review finding on PR 249, 2026-09-27, the sibling of the trust
+    anchor's read). This hashed the output of `git cat-file blob <id>`, which is whatever the object
+    store holds under the id: with the gate's loose object rewritten, the checkout still equal to the
+    head (the cleanliness check hashes the bytes on disk, not the object), the receipt bound the
+    digest of a gate the head does not carry. The entry and its blob are now read with `git_file`,
+    from the head that was measured, each object checked against its id.
+    """
+    try:
+        eintrag = git_file(repo, kopf, _GATE_REL)
+    except BaumNichtLesbar as fehler:
+        raise SystemExit(
+            f"emit: {_GATE_REL} cannot be read from the head as the objects its ids name "
+            f"({fehler}) — refusing, because the receipt would bind the digest of bytes the head "
+            "does not carry") from fehler
+    if eintrag is None or eintrag[1] != "blob" or eintrag[0] not in ("100644", "100755"):
+        art = "no entry" if eintrag is None else f"mode {eintrag[0]}"
+        raise SystemExit(
+            f"emit: the head carries {_GATE_REL} as {art}, not as a regular file — refusing, "
+            "because the receipt binds the digest of the gate source, and only a regular file has "
+            "one digest for the gate that runs it and for a reader of the commit")
+    return hashlib.sha256(eintrag[3]).hexdigest()
 
 
 def _version_token(v: str) -> str:
@@ -183,7 +240,12 @@ def build_context(repo: Path, version: str, audit_command: str, runner_identity:
     """
     vorher = _baumzustand_oder_stop(repo, "before the audit")
     exit_code, ausgabe_digest, laenge = _audit_ausfuehren(repo, audit_command, audit_output_file)
-    nachher = _baumzustand_oder_stop(repo, "after the audit ran")
+    # AFTER THE RUN AN IGNORED PATH IS ONE THE AUDIT WROTE: the measurement before refused every
+    # ignored path, so whatever the tree's rules ignore now appeared during the run. A test suite as
+    # the audit writes caches into the tree it runs in (hypothesis writes `.hypothesis/`, measured
+    # 2026-09-27); refusing those would refuse every such audit, and they were not there to be read
+    # when it started. Dirt still refuses here as before.
+    nachher = _baumzustand_oder_stop(repo, "after the audit ran", ignorierte_zulassen=True)
     if nachher != vorher:
         raise SystemExit(
             f"emit: the tree changed while the audit ran (head {vorher['head'][:12]} -> "
@@ -199,7 +261,7 @@ def build_context(repo: Path, version: str, audit_command: str, runner_identity:
         "schema": RECEIPT_SCHEMA,
         "version": version,
         "subject_tree_digest": vorher["tree_digest"],
-        "gate_source_digest": _gate_source_digest(repo),
+        "gate_source_digest": _gate_source_digest(repo, vorher["head"]),
         "audit_command": audit_command,
         "audit_exit_code": exit_code,
         "audit_output_digest": ausgabe_digest,
@@ -225,25 +287,52 @@ def assemble_receipt(context: dict, sig_b64: str, signer_pubkey_b64: str) -> dic
     """Two-half keyless: wrap a context (the 9 signed fields) + an externally produced signature over
     ``canonical_bytes(context)`` into a receipt. Self-checks the signature under signer_pubkey — a mismatch
     REFUSES (fail-closed), so a bad sig/context pair never becomes a receipt on disk. The bytes signed here
-    are byte-identical to what verify_receipt reconstructs, so the assembled receipt verifies at the gate."""
+    are byte-identical to what verify_receipt reconstructs, so the assembled receipt verifies at the gate.
+
+    A KEY THE TRUST-ANCHOR RULE REFUSES (SPEC section 4b) is refused here too, before anything is
+    written: this is where the signer's key ENTERS the receipt. Measured on 3c9c98c3: the identity
+    point with the signature R = identity, S = 0 was assembled into a receipt, exit 0, because the
+    check here used the section 4a profile and left the refusal to `pre_tag_receipt_lib.verify_receipt`.
+    The rule is the shared one (`signature.ed25519_trust_anchor_weakness`), not a copy. The inline
+    path needs no such check: its public key is derived from the private key, and a clamped scalar
+    times the base point is never a point of small order.
+
+    Each field handed in is read once (`_wire_b64.wire_value`), and that plain value is decoded,
+    judged and written (lens run 7 at 75c3aa48, F2): a `str` subclass whose `encode` answered for a
+    real key passed the rule while its own text, the identity point, went into the receipt."""
     import binascii
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    from proofbundle._wire_b64 import decode_b64
+    from proofbundle._wire_b64 import decode_b64, wire_value
+    from proofbundle.signature import (
+        TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned)
+    pub_feld, sig_feld = wire_value(signer_pubkey_b64), wire_value(sig_b64)
+    # THE CONTEXT IS READ ONCE TOO, from its storage (lens run 8 at fddc00f4, finding B): the signature
+    # check read it through `canonical_bytes`, which runs a dict subclass's `items()` or `__getitem__`,
+    # and the copy below read its storage, so a context storing B and answering A was written as B
+    # under a signature over A. The plain copy is what is verified and what is written.
+    from proofbundle._plain_value import plain_json  # noqa: PLC0415
+    if not issubclass(type(context), dict):
+        raise SystemExit(f"assemble: the receipt context must be a JSON object, got "
+                         f"{type(context).__name__} — refusing")
+    context = plain_json(context, what="the receipt context",
+                          error=lambda m: SystemExit(f"assemble: {m} — refusing"))
     # LAUF11-L2: eine nicht-kanonische Schreibweise ist ein URTEIL (refusing), kein Absturz —
     # ein Werkzeug der Freigabekette darf nicht sterben, wo es abweisen kann.
     try:
-        pub = Ed25519PublicKey.from_public_bytes(decode_b64(signer_pubkey_b64))
-        roh_sig = decode_b64(sig_b64)
+        if pub_feld is None or sig_feld is None:
+            raise binascii.Error("the signature and the public key must be base64 text")
+        pub = decode_b64(pub_feld)
+        roh_sig = decode_b64(sig_feld)
     except (binascii.Error, ValueError) as e:
         raise SystemExit(f"assemble: signature/pubkey field is not canonical base64 — refusing: {e}")
-    try:
-        pub.verify(roh_sig, canonical_bytes(context))
-    except InvalidSignature:
+    grund = ed25519_trust_anchor_weakness(pub)
+    if grund is not None:
+        raise SystemExit(f"assemble: the signer public key is a {grund} Ed25519 key, refused as a "
+                         f"trusted key: {TRUST_ANCHOR_REFUSAL[grund]} — refusing (fail-closed)")
+    if not verify_ed25519_pinned(pub, roh_sig, canonical_bytes(context)):
         raise SystemExit("assemble: signature does not verify over canonical_bytes(context) — refusing (fail-closed)")
     receipt = dict(context)
-    receipt["signature"] = sig_b64
-    receipt["signer_pubkey"] = signer_pubkey_b64
+    receipt["signature"] = sig_feld
+    receipt["signer_pubkey"] = pub_feld
     return receipt
 
 
@@ -303,13 +392,15 @@ def _inline_erlaubt_oder_stop() -> None:
 
 
 def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
-               erlaubte_codes: tuple[int, ...] = (0,), umgebung: dict | None = None) -> bytes:
+               erlaubte_codes: tuple[int, ...] = (0,)) -> bytes:
     """One git call in `repo`, its stdout as bytes. Any failure to answer refuses the whole run:
-    not-determinable is not a clearance, and a release receipt is the last place to guess."""
+    not-determinable is not a clearance, and a release receipt is the last place to guess.
+
+    The call goes through `git_run`, the one funnel of the chain; there is no parameter that
+    hands git another environment (the one this function had defaulted to the caller's)."""
     try:
-        lauf = subprocess.run(["git", "-C", str(repo), *args], input=eingabe,
-                              capture_output=True, timeout=120, env=umgebung)
-    except (OSError, subprocess.SubprocessError) as fehler:
+        lauf = git_run(repo, *args, stdin_bytes=eingabe)
+    except BaumNichtLesbar as fehler:
         raise SystemExit(
             f"emit: cannot determine whether {repo} is clean (git {' '.join(args[:2])}: {fehler}) "
             "— refusing to bind a tree digest that may not describe what was measured "
@@ -323,10 +414,17 @@ def _git_bytes(repo: Path, *args: str, eingabe: bytes | None = None,
     return lauf.stdout
 
 
-def _git_z(repo: Path, *args: str, umgebung: dict | None = None) -> list[str]:
-    """A NUL-separated git listing as a list of entries, raw paths, no quoting."""
-    return [e.decode("utf-8", "replace")
-            for e in _git_bytes(repo, *args, umgebung=umgebung).split(b"\0") if e]
+def _git_z(repo: Path, *args: str) -> list[str]:
+    """A NUL-separated git listing as a list of entries, raw paths, no quoting.
+
+    DECODED THE WAY THE FILESYSTEM NAMES ARE, `os.fsdecode`, not UTF-8 with replacement. Measured
+    2026-09-27: a committed file named with the byte 0xE9 came back from `ls-tree` as a name with
+    U+FFFD in it, which no file on disk carries, so a clean tree refused with the file both missing
+    (`D`) and untracked (`??`). The walk below reads names with `os.scandir`, which escapes such a
+    byte as a surrogate; the same decoding here makes the two spellings of one name compare equal,
+    and `os.fsencode` gives git the original bytes back.
+    """
+    return [os.fsdecode(e) for e in _git_bytes(repo, *args).split(b"\0") if e]
 
 
 def _pfade_auf_platte(repo_abs: Path) -> list[str]:
@@ -362,33 +460,55 @@ def _pfade_auf_platte(repo_abs: Path) -> list[str]:
     return sorted(raus)
 
 
-def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[str]:
-    """Paths on disk that HEAD does not carry, unless a TRACKED ignore rule hides them.
+def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> tuple[list[str], list[str]]:
+    """(dirt, ignored): the paths on disk that HEAD does not carry, in two lists.
 
     `git check-ignore -v` is asked one thing only: which rule, from which file, hides a path. A
-    path hidden by a rule in a `.gitignore` the head carries is a tool cache the tree itself
-    declared (`.pytest_cache/`, `__pycache__/`, a virtual environment) and is fine. A path hidden
-    by anything else — `.git/info/exclude`, a global `core.excludesFile`, an untracked `.gitignore`
-    — is hidden by state the head does not carry, and refuses. A path no rule hides is untracked
-    and refuses. `core.ignorecase` is forced off for the question, so the rule matching does not
-    inherit a configured equality either.
+    path hidden by a rule in a `.gitignore` the head carries is IGNORED, the second list: a tool
+    cache the tree itself declared (`.pytest_cache/`, `__pycache__/`, a virtual environment), or
+    any other file the tree's rules name. A path hidden by anything else — `.git/info/exclude`, a
+    global `core.excludesFile`, an untracked `.gitignore` — is hidden by state the head does not
+    carry, and is dirt. A path no rule hides is untracked, and is dirt. `core.ignorecase` is forced
+    off for the question, so the rule matching does not inherit a configured equality either.
+
+    WHAT AN IGNORED PATH MEANS IS THE CALLER'S TO DECIDE (owner decision on PR 249, 2026-09-27):
+    before the audit it refuses as dirt does, because the audit can read it and the receipt binds a
+    tree that does not carry it; after the audit it is a file the audit wrote (the measurement
+    before refused any), and the tree's rules say it is not part of the tree. See
+    `_baumzustand_oder_stop`.
+
+    THE SOURCE IS JUDGED BY WHAT IT IS, NOT BY ITS NAME (2026-09-27, measured). `check-ignore -v`
+    reports an excludes file by the string the configuration gives, and `core.excludesFile =
+    logs/.gitignore` names a TRACKED file: the rule then passed as the tree's own, and an untracked
+    `conftest.py` that rewrote every test outcome was hidden while the emit returned 0. The funnel
+    now pins `core.excludesFile` to an empty file, and a source counts only if it is a tracked file
+    named `.gitignore` in a directory that contains the path, which is the only place a per-directory
+    rule can apply.
+
+    EACH NAME IS HANDED OVER AS `./<name>` (2026-09-27, measured): `check-ignore` parses its input
+    as pathspecs, so an untracked `:build/conftest.py` was read as the magic `:build...` and never
+    looked up, and an ignored `:!x.log` made git die with "pathspec magic not supported". A name
+    that begins with `./` carries no magic; git echoes it back as given, and the prefix is removed
+    again below. (`GIT_LITERAL_PATHSPECS` is not the answer here: `check-ignore` rejects every path
+    under it.)
     """
     kandidaten = [p for p in _pfade_auf_platte(repo_abs) if p not in verfolgt]
     if not kandidaten:
-        return []
+        return [], []
     if any("\n" in p or "\0" in p for p in kandidaten):
         raise SystemExit("emit: a path on disk carries a newline or NUL in its name — refusing, such "
                          "a path cannot be named to git without ambiguity")
-    eingabe = b"".join(os.fsencode(p) + b"\0" for p in kandidaten)
+    eingabe = b"".join(b"./" + os.fsencode(p) + b"\0" for p in kandidaten)
     # exit 1 means "none of the given paths is ignored", which is an answer, not an error.
     roh = _git_bytes(repo, "-c", "core.ignorecase=false", "check-ignore", "-v", "-z", "--no-index",
                      "--stdin", eingabe=eingabe, erlaubte_codes=(0, 1))
-    felder = [f.decode("utf-8", "replace") for f in roh.split(b"\0")]
+    felder = [os.fsdecode(f) for f in roh.split(b"\0")]          # same decoding as `_git_z`
     quelle_je_pfad: dict[str, tuple[str, str]] = {}
     for i in range(0, len(felder) - 3, 4):
         quelle, _zeile, muster, pfad = felder[i:i + 4]
-        quelle_je_pfad[pfad] = (quelle, muster)
+        quelle_je_pfad[pfad[2:] if pfad.startswith("./") else pfad] = (quelle, muster)
     raus: list[str] = []
+    ignoriert: list[str] = []
     for p in kandidaten:
         if p not in quelle_je_pfad:
             raus.append(f"?? {p}")
@@ -401,12 +521,24 @@ def _unverfolgte_pfade(repo: Path, repo_abs: Path, verfolgt: set[str]) -> list[s
         if muster.startswith("!"):
             raus.append(f"?? {p}")
             continue
-        if quelle not in verfolgt:
+        if not _eine_verfolgte_regel_fuer(quelle, p, verfolgt):
             raus.append(f"!! {p} (hidden by {quelle}: {muster!r}, which is not a tracked rule)")
-    return raus
+            continue
+        ignoriert.append(f"ignored {p} (by {quelle}: {muster!r})")
+    return raus, ignoriert
 
 
-def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
+def _eine_verfolgte_regel_fuer(quelle: str, pfad: str, verfolgt: set[str]) -> bool:
+    """True iff `quelle` is a tracked `.gitignore` whose directory contains `pfad`: the only kind of
+    file whose rule is the tree's own word about that path. A tracked file of another name, or a
+    tracked `.gitignore` in an unrelated directory, is a source the configuration pointed at."""
+    if quelle not in verfolgt:
+        return False
+    ordner, _, name = quelle.rpartition("/")
+    return name == ".gitignore" and (not ordner or pfad.startswith(ordner + "/"))
+
+
+def _baumzustand_oder_stop(repo: Path, wann: str, *, ignorierte_zulassen: bool = False) -> dict:
     """Refuse unless the working tree equals the committed head; return head and tree digest.
 
     THE RECEIPT BINDS `git ls-tree -r HEAD` AND THE RUN READS THE WORKING TREE. Those are two
@@ -452,11 +584,24 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
                           in the index and not in the head is named as such;
       untracked paths     read from the FILESYSTEM by `_pfade_auf_platte`, never from an index or
                           a git listing, and compared by name with the entries of `ls-tree`; a
-                          path the head does not carry refuses unless a rule in a TRACKED
-                          `.gitignore` hides it (`_unverfolgte_pfade` asks `git check-ignore -v`
-                          which rule from which file, with `core.ignorecase` forced off) — hidden
-                          by `.git/info/exclude`, a global `core.excludesFile` or an untracked
-                          `.gitignore` refuses by name, and a nested `.git` refuses by name.
+                          path the head does not carry refuses (`_unverfolgte_pfade` asks `git
+                          check-ignore -v` which rule from which file, with `core.ignorecase`
+                          forced off, only to name the reason) — hidden by `.git/info/exclude`, a
+                          global `core.excludesFile` or an untracked `.gitignore`, or by no rule,
+                          it is dirt; a nested `.git` refuses by name;
+      ignored paths       a path a rule in a TRACKED `.gitignore` hides refuses as well, by name and
+                          as ignored, unless `ignorierte_zulassen` (the measurement after the audit,
+                          see `build_context`).
+
+    AN IGNORED FILE IS NOT IN THE BOUND TREE (a review comment on PR 249 and the owner's decision
+    on it, 2026-09-27, option B, before the tag). Until then a path a tracked rule hides passed as
+    the tree's own word: a file the committed `.gitignore` names, lying uncommitted in the
+    checkout, was read by the audit while the receipt bound `git ls-tree -r HEAD`, which does not
+    carry it (measured at `f17bcd7`: exit 0, and the audit's record held that file's content). What
+    `git status --ignored` lists before the audit now refuses, with the reason named, and the audit
+    does not start. In practice a receipt is produced from a fresh checkout; `git clean -ndX` names
+    what lies there. The paths come from the same walk of the filesystem as the untracked ones, so
+    the refusal does not depend on git's configuration either.
 
     No filter, no attribute, no index bit and no `core.*` setting stands between the bytes on disk
     and the comparison. WHAT THAT COSTS, named rather than smoothed over: a checkout whose files
@@ -471,8 +616,21 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
     repo_abs = repo.resolve()
     schmutzig: list[str] = []
     # ── every committed entry against the bytes on disk ─────────────────────────────────────────
-    felder = _git_z(repo, "ls-tree", "-r", "-z", "HEAD")
+    # THE ENTRIES COME FROM OBJECTS CHECKED AGAINST THEIR IDS (review finding on PR 249,
+    # 2026-09-27). This was `ls-tree -r -z HEAD`, which reads the commit and its trees as the
+    # object store holds them: a tree rewritten under its id lists other blobs, and the bytes on
+    # disk were then compared with a tree the head does not carry. `git_tree` hashes every object
+    # it reads; the entries are written in the form `ls-tree -r -z` printed, so nothing below
+    # changes.
+    try:
+        kopf_id, baum = git_tree(repo, "HEAD")
+    except BaumNichtLesbar as fehler:
+        raise SystemExit(f"emit: {wann}, cannot determine whether {repo} is clean: its head cannot "
+                         f"be read as the objects its ids name ({fehler}) — refusing to bind a tree "
+                         "digest that may not describe what was measured (fail-closed)") from fehler
+    felder = [f"{m} {t} {o}\t{os.fsdecode(p)}" for m, t, o, p in baum if t != "tree"]
     regulaer: list[tuple[str, str]] = []            # (path, expected oid) for the batch hash
+    ordner_befund: dict[str, str | None] = {}       # directory -> why it is not a directory
     for feld in felder:
         kopf, _, pfad = feld.partition("\t")
         try:
@@ -482,6 +640,16 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
         if typ != "blob":
             schmutzig.append(f"?! {pfad} (a {typ} entry; this tool compares files and symbolic "
                              "links only, so it refuses rather than guess)")
+            continue
+        # EVERY LEADING COMPONENT IS A DIRECTORY, read with lstat (2026-09-27, measured). `lstat`
+        # does not follow the LAST component only: with the tracked directory `vendor` replaced by a
+        # symbolic link to an identical copy outside the tree, and `vendor` hidden by a tracked
+        # ignore rule, `lstat("vendor/lib.py")` and `hash-object --stdin-paths` both read the copy
+        # outside, git status said ` D vendor/lib.py`, and the emit returned 0 while the audit read
+        # the outside file. A path is compared only where each directory above it is one.
+        befund = _kein_ordner_darueber(repo_abs, pfad, ordner_befund)
+        if befund is not None:
+            schmutzig.append(befund)
             continue
         ziel = repo_abs / pfad
         try:
@@ -499,7 +667,13 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
             if ist_oid != oid:
                 schmutzig.append(f"M {pfad}")
         elif stat.S_ISREG(st.st_mode):
-            ist_mode = "100755" if st.st_mode & 0o111 else "100644"
+            # THE OWNER'S EXECUTE BIT, as git reads it (2026-09-27, measured). git records 100755
+            # iff `S_IXUSR` is set and ignores the group and other bits; this read `& 0o111`. A
+            # committed 100755 `run.sh` at 0655 on disk (git status: ` M run.sh`, and the audit got
+            # `Permission denied` running it) emitted, and a 100644 file at 0645 (git status clean)
+            # refused. The comparison is the one git makes with `core.fileMode=true`; it is not
+            # left to the configuration, so `core.fileMode=false` still refuses a mode change.
+            ist_mode = "100755" if st.st_mode & stat.S_IXUSR else "100644"
             regulaer.append((pfad, oid))
         else:
             schmutzig.append(f"?! {pfad} (neither a regular file nor a symbolic link)")
@@ -524,20 +698,64 @@ def _baumzustand_oder_stop(repo: Path, wann: str) -> dict:
                 "comparison over a partial set would clear paths nobody looked at")
         schmutzig.extend(f"M {p}" for (p, soll), oid in zip(regulaer, ist) if oid != soll)
     # ── staged content against the head, on the real index ─────────────────────────────────────
-    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames", "--name-status", "HEAD")
+    gestaged = _git_z(repo, "diff-index", "--cached", "-z", "--no-renames",
+                      "--ignore-submodules=none", "--name-status", "HEAD")
     schmutzig.extend(f"staged {e}" for e in _paare(gestaged))
     # ── untracked paths, read from the filesystem and judged by the tree's own rules ────────────
     verfolgt = {feld.partition("\t")[2] for feld in felder}
-    schmutzig.extend(_unverfolgte_pfade(repo, repo_abs, verfolgt))
+    unverfolgt, ignoriert = _unverfolgte_pfade(repo, repo_abs, verfolgt)
+    schmutzig.extend(unverfolgt)
+    if ignorierte_zulassen:
+        ignoriert = []
+    gruende = []
     if schmutzig:
-        gezeigt = "\n  ".join(schmutzig[:20])
-        mehr = f"\n  … and {len(schmutzig) - 20} more" if len(schmutzig) > 20 else ""
-        raise SystemExit(
-            f"emit: {wann}, the working tree of {repo} carries {len(schmutzig)} uncommitted "
-            f"path(s), and the receipt would bind `git ls-tree -r HEAD` instead — refusing, because "
-            f"the bytes attested would not be the bytes measured:\n  {gezeigt}{mehr}")
-    head = _git_bytes(repo, "rev-parse", "--verify", "HEAD").decode("ascii", "replace").strip()
-    return {"head": head, "tree_digest": _tree_digest(repo)}
+        gruende.append(
+            f"the working tree of {repo} carries {len(schmutzig)} uncommitted path(s), and the "
+            "receipt would bind `git ls-tree -r HEAD` instead — refusing, because the bytes "
+            f"attested would not be the bytes measured:{_aufgezaehlt(schmutzig)}")
+    if ignoriert:
+        gruende.append(
+            f"{len(ignoriert)} ignored path(s) lie in the working tree of {repo} (what `git status "
+            "--ignored` lists): an ignored file is not in the tree the receipt binds, and the audit "
+            "can read it — refusing; produce the receipt from a fresh checkout (`git clean -ndX` "
+            f"names what lies there):{_aufgezaehlt(ignoriert)}")
+    if gruende:
+        raise SystemExit("\n".join(f"emit: {wann}, {grund}" for grund in gruende))
+    return {"head": kopf_id, "tree_digest": _tree_digest(repo)}
+
+
+def _aufgezaehlt(zeilen: list[str]) -> str:
+    """The first twenty lines of a refusal, one per line, and how many more there are."""
+    mehr = f"\n  … and {len(zeilen) - 20} more" if len(zeilen) > 20 else ""
+    return "\n  " + "\n  ".join(zeilen[:20]) + mehr
+
+
+def _kein_ordner_darueber(repo_abs: Path, pfad: str, gesehen: dict[str, str | None]) -> str | None:
+    """The refusal line for `pfad` if a directory above it is not a real directory, else None.
+
+    Each directory is read once with `lstat`, top down, and remembered in `gesehen`, so a tree with
+    many files in one directory costs one call per directory, not one per file."""
+    teile = pfad.split("/")[:-1]
+    for i in range(1, len(teile) + 1):
+        ordner = "/".join(teile[:i])
+        if ordner not in gesehen:
+            try:
+                st = os.lstat(repo_abs / ordner)
+            except FileNotFoundError:
+                gesehen[ordner] = "D"
+            except OSError as fehler:
+                gesehen[ordner] = f"cannot be read: {fehler}"
+            else:
+                gesehen[ordner] = (None if stat.S_ISDIR(st.st_mode) else
+                                   "a symbolic link" if stat.S_ISLNK(st.st_mode) else
+                                   "not a directory")
+        grund = gesehen[ordner]
+        if grund == "D":
+            return f"D {pfad}"
+        if grund is not None:
+            return (f"?! {pfad} (the directory {ordner} above it is {grund} on disk, so the path "
+                    "would be read from somewhere other than the tree)")
+    return None
 
 
 def _paare(eintraege: list[str]) -> list[str]:
@@ -578,7 +796,11 @@ def _audit_ausfuehren(repo: Path, audit_command: str, ausgabe: Path) -> tuple[in
         raise SystemExit(
             f"emit: the audit record {ausgabe} already exists — refusing, because this tool writes "
             "the record of the run it measured and does not bind one produced elsewhere")
-    umgebung = dict(os.environ)
+    # The audit program gets the caller's environment without git's namespace, built here rather
+    # than taken from the process: a caller that imports this module and sets a `GIT_*` name
+    # afterwards would otherwise hand it to the program whose run the receipt records.
+    umgebung = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    umgebung["GIT_NO_REPLACE_OBJECTS"] = "1"
     umgebung["PYTHONDONTWRITEBYTECODE"] = "1"
     umgebung["PYTHONPYCACHEPREFIX"] = str(_CACHE_DIR)
     hasher = hashlib.sha256()
