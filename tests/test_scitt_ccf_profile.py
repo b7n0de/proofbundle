@@ -408,15 +408,15 @@ def test_crit_control_listing_a_processed_label_still_confirms():
     assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "confirmed"
 
 
-@pytest.mark.parametrize("prot_map, extra_unprot", [
-    ({1: -7, 258: -16, 15: {1: "i", 2: "s"}}, {2: [1]}),                  # crit in unprotected
-    ({1: -7, 2: [], 258: -16, 15: {1: "i", 2: "s"}}, {}),                 # empty crit
-    ({1: -7, 2: [260], 258: -16, 15: {1: "i", 2: "s"}}, {}),              # lists an absent label
-    ({1: -7, 2: [259], 258: -16, 259: "a/b", 15: {1: "i", 2: "s"}}, {}),  # lists a label v1 does not process
+@pytest.mark.parametrize("prot_map, extra_unprot, status", [
+    ({1: -7, 258: -16, 15: {1: "i", 2: "s"}}, {2: [1]}, "outside_profile"),                  # crit in unprotected
+    ({1: -7, 2: [], 258: -16, 15: {1: "i", 2: "s"}}, {}, "malformed"),                       # empty crit: outside [+ label]
+    ({1: -7, 2: [260], 258: -16, 15: {1: "i", 2: "s"}}, {}, "outside_profile"),              # lists an absent label
+    ({1: -7, 2: [259], 258: -16, 259: "a/b", 15: {1: "i", 2: "s"}}, {}, "outside_profile"),  # a label v1 does not process
 ])
-def test_crit_statement(prot_map, extra_unprot):
+def test_crit_statement(prot_map, extra_unprot, status):
     st = Stmt(prot_map=prot_map)
-    assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()], extra_unprot)).status == "outside_profile"
+    assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()], extra_unprot)).status == status
 
 
 def test_crit_receipt():
@@ -731,7 +731,7 @@ def test_readable_means_the_receipt_proofs_parsed_under_the_05_cddl():
     not_ccf = verify(transparent(st, [Rcpt(data_hash=dh_of(st), vds=1).build()]))
     assert (not_ccf.receipts[0].status, not_ccf.receipts[0].readable) == ("outside_profile", False)
     none = verify(transparent(st, [Rcpt(data_hash=dh_of(st), proofs_override=[]).build()]))
-    assert (none.receipts[0].status, none.receipts[0].readable) == ("outside_profile", False)
+    assert (none.receipts[0].status, none.receipts[0].readable) == ("malformed", False)   # -1: [] is outside the CDDL
 
 
 def test_missing_trust_is_never_reported_as_an_unbound_receipt():
@@ -759,7 +759,7 @@ def test_the_hash_envelope_labels_have_their_rfc_9995_value_types():
     for good in ({}, {259: "application/json"}, {259: 50}, {259: 0}, {260: "https://example/x"}):
         assert status(good) == ("confirmed", "confirmed", True), good
     for bad in ({259: []}, {259: -1}, {259: True}, {259: b"x"}, {260: 0}, {260: b"x"}, {260: True}):
-        assert status(bad) == ("outside_profile", "outside_profile", False), bad
+        assert status(bad) == ("malformed", "malformed", False), bad          # the CDDL pass refuses the type
 
 
 def test_every_proof_family_in_the_vdp_is_parsed_and_computes_the_receipt_root():
@@ -778,8 +778,8 @@ def test_every_proof_family_in_the_vdp_is_parsed_and_computes_the_receipt_root()
         assert r.receipts[0].readable is (want != "malformed"), bad
     unknown = verify(transparent(st, [Rcpt(data_hash=dh, vdp_extra={-3: [b"junk"]}).build()]))
     assert (unknown.status, unknown.receipts[0].readable, unknown.profile_satisfied) == ("malformed", False, False)
-    # the family this reader verifies keeps its own status when empty: 3.2 asserts len(proofs) > 0
-    assert verify(transparent(st, [Rcpt(data_hash=dh, proofs_override=[]).build()])).status == "outside_profile"
+    # an empty -1 is outside the CDDL too, and the CDDL pass refuses it before any status (Nachtrag 4)
+    assert verify(transparent(st, [Rcpt(data_hash=dh, proofs_override=[]).build()])).status == "malformed"
 
 
 def test_readable_needs_a_parsed_receipt_even_when_the_receipts_are_refused_early():
@@ -1077,17 +1077,18 @@ def _without_cwt(prot_cwt=None, unprot_cwt=None) -> bytes:
     return b"\xd2\x84" + enc(st.protected()) + enc(unprot) + enc(st.payload) + enc(st.signature())
 
 
-@pytest.mark.parametrize("prot_cwt, unprot_cwt", [
-    (None, {1: "did:example:signer", 2: "s"}),     # moved to the unprotected header
-    (None, None),                                   # absent
-    ({2: "s"}, None),                               # no iss
-    ({1: "did:example:signer"}, None),              # no sub
-    ({1: "", 2: "s"}, None),                        # empty iss
-    ({1: "did:example:signer", 2: 7}, None),        # sub not text
-    ([1, 2], None),                                 # not a map
+@pytest.mark.parametrize("prot_cwt, unprot_cwt, status", [
+    (None, {1: "did:example:signer", 2: "s"}, "outside_profile"),     # moved to the unprotected header
+    (None, None, "outside_profile"),                                   # absent
+    ({2: "s"}, None, "outside_profile"),                               # no iss
+    ({1: "did:example:signer"}, None, "outside_profile"),              # no sub
+    ({1: "", 2: "s"}, None, "outside_profile"),                        # empty iss
+    ({1: "did:example:signer", 2: 7}, None, "outside_profile"),        # sub not text
+    # not a map: label 15 breaks the CWT Claims CDDL (RFC 9597), which the CDDL pass refuses first
+    ([1, 2], None, "malformed"),
 ])
-def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_cwt):
-    assert _statement_side(_without_cwt(prot_cwt, unprot_cwt), spki(STMT_KEY), ROOT) == "outside_profile"
+def test_cwt_claims_must_be_protected_with_a_text_iss_and_sub(prot_cwt, unprot_cwt, status):
+    assert _statement_side(_without_cwt(prot_cwt, unprot_cwt), spki(STMT_KEY), ROOT) == status
 
 
 def test_the_same_statement_with_protected_iss_and_sub_is_confirmed():

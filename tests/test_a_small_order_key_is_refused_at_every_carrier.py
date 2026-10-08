@@ -2167,9 +2167,9 @@ _LENGTH_32 = {
     ("policy.py", "_validate_pinned_ed25519_pubkey"): (1, "followed by the rule"),
     ("policy.py", "_validate_root_b64"): (1, "a root, no key"),
     ("relation.py", "_keys_equal"): (1, "compares two keys; writes nothing"),
-    ("scitt_ccf.py", "_consistency_roots"): (1, "the consistency anchor, a tree hash, no key"),
-    ("scitt_ccf.py", "_inclusion_root"): (2, "the leaf's transaction hash and its data-hash, no key"),
-    ("scitt_ccf.py", "_proof_map"): (1, "a path sibling hash, no key"),
+    ("scitt_ccf.py", "<module>"): (3, "the CDDL rule table of the receipt pass: the leaf's transaction "
+                                      "hash, its data-hash and the consistency anchor, tree hashes, no key"),
+    ("scitt_ccf.py", "_path_ok"): (1, "a path sibling hash, no key"),
     ("scitt_ccf.py", "_statement_profile"): (1, "the SHA-256 hash-envelope payload, a digest, no key"),
     ("scitt_ccf.py", "_verify_consistency"): (1, "the older root, no key"),
     ("scitt_ccf.py", "_verify_transparent_statement"): (2, "the canonical root and the payload digest, no key"),
