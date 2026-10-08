@@ -1985,7 +1985,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             if args.subject_profile == "public-model":
                 # The public model is disclosed as the subject; the predicate identifies it once, by the
                 # same name and digest, instead of by a salted commitment.
-                model = {"name": args.subject_name, "digest": {"sha256": (args.subject_sha256 or "").lower()}}
+                model = {"name": args.subject_name,
+                         "digest": {"sha256": (args.subject_sha256 if args.subject_sha256 is not None else "").lower()}}
             envelope = export_eval_result_v02_dsse(
                 claim, signer, evaluator_id=str(evaluator), subject_profile=args.subject_profile,
                 subject_name=args.subject_name, subject_sha256=args.subject_sha256,

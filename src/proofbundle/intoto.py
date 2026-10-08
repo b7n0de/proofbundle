@@ -1174,9 +1174,14 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
         res["predicate_shape_ok"], res["predicate_shape_detail"] = None, ""
         return res
     binding_ok, alg, detail = _content_root_binding(statement, body)
+    # The claim rule judges both versions: v0.2 carries claims[], sampleSize, commitments, suite, evaluatedAt,
+    # assuranceLevel and preRegistration under the names v0.1 uses. Measured after the merge of main into pull
+    # request 301: a signed v0.2 statement whose model commitment was "ab" verified ok=True, where v0.1 gives False.
+    eigener_typ = (EVAL_RESULT_V02_PREDICATE_TYPE if isinstance(statement, dict)
+                   and statement.get("predicateType") == EVAL_RESULT_V02_PREDICATE_TYPE else EVAL_RESULT_PREDICATE_TYPE)
     res = _judge_claim_fields(
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
-        EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
+        eigener_typ, _eval_result_statement_claim_fields)
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
     # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
     # statement is never judged under v0.2. v0.1 has no shape contract and gets none now (G2: old
@@ -1399,6 +1404,7 @@ def _eval_result_v02_predicate_problems(pred: Any) -> list:
     return out
 
 
+@_ein_stand
 def classify_eval_result_v02_predicate(statement: Any) -> tuple[bool, str]:
     """Judge a Statement against eval-result v0.2 (the revised #575 draft). Returns ``(ok, detail)``;
     ``detail`` names every violation, joined by "; ", and is empty when ok. Never raises: the input is
@@ -1431,6 +1437,7 @@ def classify_eval_result_v02_predicate(statement: Any) -> tuple[bool, str]:
     return (not out), "; ".join(out)
 
 
+@_ein_stand(fehler=BundleFormatError)
 def receipt_evidence(receipt_bytes: bytes, *, uri: Optional[str] = None) -> dict:
     """The `evidence[]` entry for an eval receipt: a ResourceDescriptor whose digest is the SHA-256 of the
     receipt file's exact bytes, so a generic consumer can fetch the file and compare.
@@ -1456,6 +1463,7 @@ def receipt_evidence(receipt_bytes: bytes, *, uri: Optional[str] = None) -> dict
     return descriptor
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_eval_result_v02_predicate(claim: dict, *, evaluator_id: str, subject_profile: str = "receipt",
                                  model: Optional[dict] = None, dataset: Optional[dict] = None,
                                  evidence: Optional[list] = None, harness: Optional[dict] = None) -> dict:
@@ -1473,8 +1481,12 @@ def to_eval_result_v02_predicate(claim: dict, *, evaluator_id: str, subject_prof
     and the note says so. ``anchors`` is not written: the draft scoped it out, and an external anchor is
     carried as an ``evidence`` entry with its own digest. Refuses a claim that carries a plaintext
     identifier or a salt, and a claim without ``suite_version`` (the draft requires ``suite.version``)."""
-    verdikt = _require_export_fields(claim)
+    _require_export_fields(claim)
     _forbid_plaintext_in_export(claim)
+    # The one claim rule, as at to_eval_result_predicate; the verdict written below is read from the claim it
+    # returns (main, 6.2.0: every exporter checks the whole claim, not only `passed`).
+    claim = require_eval_claim(claim, wo="to_eval_result_v02_predicate")
+    verdikt = _require_export_fields(claim)
     if not (isinstance(evaluator_id, str) and _URI_RE.match(evaluator_id)):
         raise BundleFormatError(
             "eval-result v0.2 needs evaluator_id, the URI of the party that ran the evaluation; there is no "
@@ -1521,6 +1533,7 @@ def to_eval_result_v02_predicate(claim: dict, *, evaluator_id: str, subject_prof
     return predicate
 
 
+@_ein_stand(fehler=BundleFormatError)
 def to_eval_result_v02_statement(claim: dict, *, subject: list, evaluator_id: str,
                                  subject_profile: str = "receipt", model: Optional[dict] = None,
                                  dataset: Optional[dict] = None, evidence: Optional[list] = None,
@@ -1543,6 +1556,7 @@ def to_eval_result_v02_statement(claim: dict, *, subject: list, evaluator_id: st
     return statement
 
 
+@_ein_stand(aussen={"signer": "signierer"}, fehler=BundleFormatError)
 def export_eval_result_v02_dsse(claim: dict, signer, *, evaluator_id: str, subject_profile: str = "receipt",
                                 subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
                                 root_b64: Optional[str] = None, model: Optional[dict] = None,
@@ -1555,14 +1569,25 @@ def export_eval_result_v02_dsse(claim: dict, signer, *, evaluator_id: str, subje
     `verify_eval_result_dsse(..., expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE)`."""
     from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
 
+    wo = "export_eval_result_v02_dsse"
     _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
     _forbid_plaintext_in_export(claim)
+    # As at export_eval_result_dsse. Measured after the merge of main into pull request 301: a claim whose issuer
+    # is the identity point was signed into a v0.2 envelope, and a NaN in harness escaped as rfc8785's raw
+    # FloatDomainError; the v0.1 exporter refuses both with BundleFormatError.
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to export the eval-result v0.2 attestation")
+    claim = require_eval_claim(claim, wo=wo)
     subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
                               subject_name=subject_name, subject_sha256=subject_sha256)
     statement = to_eval_result_v02_statement(
         claim, subject=subject, evaluator_id=evaluator_id, subject_profile=subject_profile, model=model,
         dataset=dataset, evidence=evidence, harness=harness, content_root_alg=content_root_alg)
-    body = _serialize_statement(statement, content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 

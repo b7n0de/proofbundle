@@ -704,6 +704,46 @@ class TheReleasedV01Statements(unittest.TestCase):
         self.assertIs(res["ok"], True, "no v0.2 rule reaches a v0.1 statement")
 
 
+class TheV02PathHoldsTheRulesOfV01(unittest.TestCase):
+    """Measured after the merge of main c335c6ee into this branch (8e655e28): three rules every v0.1 path of main holds
+    did not reach the v0.2 path. Each case below fails at 8e655e28 and passes after it; each has its v0.1 control."""
+
+    def test_no_v02_envelope_over_a_receipt_a_low_order_key_signed(self):
+        claim = dict(CLAIM, issuer="ed25519:" + base64.b64encode(b"\x01" + b"\x00" * 31).decode())
+        with self.assertRaises(BundleFormatError) as ctx:
+            I.export_eval_result_v02_dsse(claim, _SIGNER, evaluator_id=EVALUATOR, root_b64=ROOT)
+        self.assertIn("low-order", str(ctx.exception))
+        with self.assertRaises(BundleFormatError):   # control: the v0.1 exporter refuses the same claim
+            I.export_eval_result_dsse(claim, _SIGNER, root_b64=ROOT)
+
+    def test_a_value_the_serializer_cannot_write_is_the_exporters_refusal(self):
+        for wert in (float("nan"), float("inf"), 2 ** 64):
+            with self.subTest(value=repr(wert)):
+                with self.assertRaises(BundleFormatError):
+                    I.export_eval_result_v02_dsse(CLAIM, _SIGNER, evaluator_id=EVALUATOR, root_b64=ROOT,
+                                                  harness={"name": "h", "version": "1", "x": wert})
+
+    def test_the_claim_rule_judges_a_signed_v02_statement(self):
+        """The v0.2 shape asks a commitment for lower-case hex and a non-empty alg; the claim rule of main asks for
+        64 hex characters under sha256-salted-v1, as for v0.1, so a commitment under another algorithm is refused."""
+        cases = {
+            "model commitment of two hex characters": lambda p: p["commitments"]["model"].__setitem__("value", "ab"),
+            "dataset commitment under another algorithm":
+                lambda p: p["commitments"]["dataset"].__setitem__("alg", "md5-plain"),
+        }
+        for case, change in cases.items():
+            with self.subTest(case=case):
+                statement = _base_statement()
+                change(statement["predicate"])
+                res = _verify_v02(statement)
+                self.assertIs(res["predicate_shape_ok"], True, "the shape alone accepts it")
+                self.assertIs(res["predicate_claim_ok"], False)
+                self.assertIs(res["ok"], False)
+        res = _verify_v02(_base_statement())
+        self.assertIs(res["predicate_claim_ok"], True, "control: the draft's example passes the claim rule")
+        self.assertIs(res["ok"], True)
+
+
 class TheCommandLine(unittest.TestCase):
     def setUp(self) -> None:
         from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt, issuer_fingerprint
