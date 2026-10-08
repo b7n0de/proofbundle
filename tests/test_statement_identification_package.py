@@ -194,6 +194,26 @@ class TestManifestFields:
         assert_failed_cleanly(rc, out, err)
         assert fails_naming(out, "reference 0", "covered_bytes")
 
+    def test_a_location_other_than_the_signed_header_fails(self, pkg):
+        """Codex thread 4217984308: only the number after `entry ` was read, so another location named the same
+        slot."""
+        edit_manifest(pkg, lambda d: d["references"][0].update(location="unsigned payload, bogus label 999, entry 0"))
+        rc, out, err = run(pkg)
+        assert_failed_cleanly(rc, out, err)
+        assert fails_naming(out, "reference 0", "location")
+
+    def test_a_repeated_member_name_fails(self, pkg):
+        """Codex thread 4217984327: json.loads keeps the last of two members with one name, so a false
+        covered_bytes before the true one went unread."""
+        path = pkg / "references.json"
+        text = path.read_text(encoding="utf-8")
+        i = text.index('"covered_bytes":')
+        path.write_text(text[:i] + '"covered_bytes": "the whole object, signature included",\n      ' + text[i:],
+                        encoding="utf-8")
+        rc, out, err = run(pkg)
+        assert_failed_cleanly(rc, out, err)
+        assert fails_naming(out, "references.json", "duplicate")
+
     def test_an_unknown_manifest_field_fails(self, pkg):
         for where, change in (("reference", lambda d: d["references"][1].update(signature_covered=True)),
                               ("statement", lambda d: d["statements"][AUDIT].update(note="x")),

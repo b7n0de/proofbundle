@@ -13,6 +13,7 @@ not a general COSE validator.
 """
 import hashlib
 import json
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -47,6 +48,20 @@ failed = 0
 
 class Malformed(ValueError):
     pass
+
+
+#: The one form a reference's location takes in this package: the signed header, its label, the entry index.
+LOCATION = re.compile(rf"\Aprotected header, label {REF}, entry (0|[1-9][0-9]*)\Z")
+
+
+def no_duplicate_members(pairs: list) -> dict:
+    """json.loads keeps the last of two members with one name, so a false member before a true one would be read
+    as the true one; a manifest with a repeated name is malformed (Codex thread 4217984327 on pull request 298)."""
+    names = [name for name, _ in pairs]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise Malformed(f"duplicate member name(s) {repeated} in one object")
+    return dict(pairs)
 
 
 def check(ok: bool, text: str) -> None:
@@ -143,7 +158,12 @@ def sha256(data: bytes) -> str:
 
 
 def main() -> int:
-    doc = json.loads((HERE / "references.json").read_text(encoding="utf-8"))
+    try:
+        doc = json.loads((HERE / "references.json").read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_members)
+    except Malformed as exc:
+        check(False, f"references.json: {exc}")
+        print(f"FAILED: {failed} check(s) failed")
+        return 1
     raw, headers, tbs, keys = {}, {}, {}, {}
 
     # 0a. Every manifest field is one this checker compares or one it names as a description.
@@ -193,8 +213,15 @@ def main() -> int:
         entries = header.get(REF, [])
         for i, entry in enumerate(entries if isinstance(entries, (list, tuple)) else [entries]):
             carried[(name, i)] = entry
-    by_slot = {(ref["from"], int(ref["location"].rsplit("entry ", 1)[1])): (n, ref)
-               for n, ref in enumerate(doc["references"])}
+    # The whole location is compared, not its last number: "unsigned payload, bogus label 999, entry 0" named the
+    # same slot as the true location (Codex thread 4217984308 on pull request 298).
+    by_slot = {}
+    for n, ref in enumerate(doc["references"]):
+        form = LOCATION.match(ref["location"]) if isinstance(ref.get("location"), str) else None
+        check(form is not None, f"reference {n}: location {ref.get('location')!r} is 'protected header, label {REF}, "
+                                "entry <index>'")
+        if form is not None:
+            by_slot[(ref["from"], int(form.group(1)))] = (n, ref)
     for name, i in sorted(set(carried) - set(by_slot)):
         check(False, f"{name} carries a reference under label {REF}, entry {i}, that references.json does not "
                      "list: not listed")
