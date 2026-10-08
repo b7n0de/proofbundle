@@ -14,6 +14,13 @@ name: proofbundle-evidence
 # Exit 0: every declared item verified and names the tree of the commit, or nothing is declared and
 # require-declaration is false. Exit 1: everything else. Exit 2: the gate was called wrongly.
 #
+# With done-check true a second job, done, runs the tests of the commit under review with a signed receipt
+# and requires the declared done check (DECISIONS.md, D26) on that tree: the receipt verifies under the
+# done policy at the commit, says that every test passed, and names the tree of the checkout. The receipt
+# is made in CI, with a CI key from the secret PROOFBUNDLE_DONE_KEY whose public key the done policy pins.
+# The tests run the code under review with that key file present; GitHub passes no secret to a pull request
+# from a fork, and code owners review the tests (ci/README.md, "The done check in CI").
+#
 # Actions are pinned to full commit SHAs, copied from proofbundle's own workflows. Check them against
 # your own supply-chain policy before you rely on them.
 
@@ -28,6 +35,25 @@ on:
         description: "The full 40-character commit SHA of b7n0de/proofbundle whose plugin gate runs the check."
         type: string
         required: true
+      done-check:
+        description: "true: the job done runs the tests of the commit under review with a signed receipt and requires the done check of the declaration to pass on that tree. false: no done job."
+        type: boolean
+        required: false
+        default: false
+      done-test-command:
+        description: "The pytest command the job done runs in the checkout."
+        type: string
+        required: false
+        default: "python -m pytest -q"
+      done-proofbundle-version:
+        description: "The exact version, as ==X.Y.Z, of the proofbundle release whose pytest plugin names the git state; the job done installs it with the pytest and eval extras."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      PROOFBUNDLE_DONE_KEY:
+        description: "The CI signing key of the done receipt: the 32-byte Ed25519 seed in base64. The done policy at HEAD pins its public key."
+        required: false
 
 permissions:
   contents: read
@@ -100,3 +126,90 @@ jobs:
         run: |
           python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check \
             --repo checked --require-declaration "$REQUIRE_DECLARATION"
+
+  done:
+    if: ${{ inputs.done-check }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: The gate is pinned to a full commit SHA and the package to an exact version
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+          PB_VERSION: ${{ inputs.done-proofbundle-version }}
+        run: |
+          if [[ ! "$GATE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "proofbundle-ref must be a full 40-character commit SHA, not: $GATE_REF" >&2
+            exit 1
+          fi
+          if [[ ! "$PB_VERSION" =~ ^==[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "done-proofbundle-version must be an exact version ==X.Y.Z, not: $PB_VERSION" >&2
+            exit 1
+          fi
+
+      # The commit under review, as in the job evidence: on a pull request its head, not the merge commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: checked
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: b7n0de/proofbundle
+          ref: ${{ inputs.proofbundle-ref }}
+          path: gate
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: The gate commit is in a released tag of b7n0de/proofbundle
+        working-directory: gate
+        env:
+          GATE_REF: ${{ inputs.proofbundle-ref }}
+        run: |
+          tags="$(git tag --list 'v*' --contains "$GATE_REF")"
+          if [ -z "$tags" ]; then
+            echo "proofbundle-ref $GATE_REF is in no v* release tag of b7n0de/proofbundle; refusing to run it" >&2
+            exit 1
+          fi
+          printf 'gate ref is contained in: %s\n' "$tags"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the package that writes the receipt, and uv for the gate's verifier
+        env:
+          PB_VERSION: ${{ inputs.done-proofbundle-version }}
+        run: python -m pip install "proofbundle[pytest,eval]${PB_VERSION}" "uv==0.8.17"
+
+      # The receipt is written outside the checkout, so writing it does not change the tree it names. The key
+      # file exists only for the test run; the test command decides nothing, the done check below does.
+      - name: Run the tests with a receipt
+        working-directory: checked
+        env:
+          DONE_KEY: ${{ secrets.PROOFBUNDLE_DONE_KEY }}
+          DONE_TEST_COMMAND: ${{ inputs.done-test-command }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/done"
+          if [ -z "$DONE_KEY" ]; then
+            echo "the secret PROOFBUNDLE_DONE_KEY is not set, so no receipt can be signed" >&2
+            exit 1
+          fi
+          printf '%s' "$DONE_KEY" | base64 -d > "$RUNNER_TEMP/done/key"
+          set +e
+          PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT="$RUNNER_TEMP/done/" \
+            PROOFBUNDLE_KEY="$RUNNER_TEMP/done/key" bash -c "$DONE_TEST_COMMAND"
+          status=$?
+          rm -f "$RUNNER_TEMP/done/key"
+          echo "the test command exited $status; the done check decides"
+
+      - name: Check the receipt for the tree of the commit
+        run: |
+          receipt="$RUNNER_TEMP/done/proofbundle_pytest_receipt.json"
+          if [ -f "$receipt" ]; then sha256sum "$receipt"; fi
+          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked --receipt "$receipt"
+

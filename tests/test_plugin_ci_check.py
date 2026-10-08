@@ -283,13 +283,15 @@ def test_the_workflow_template_takes_the_requirement_from_its_caller():
     on = workflow.get("on", workflow.get(True))
     assert set(on) == {"workflow_call"}
     inputs = on["workflow_call"]["inputs"]
-    assert set(inputs) == {"require-declaration", "proofbundle-ref"}
+    assert set(inputs) == {"require-declaration", "proofbundle-ref", "done-check", "done-test-command",
+                           "done-proofbundle-version"}
     assert inputs["require-declaration"]["type"] == "boolean"
     assert inputs["require-declaration"]["required"] is True
     assert "default" not in inputs["require-declaration"]
     assert inputs["proofbundle-ref"]["required"] is True and "default" not in inputs["proofbundle-ref"]
     assert workflow["permissions"] == {"contents": "read"}
-    (job,) = workflow["jobs"].values()
+    assert set(workflow["jobs"]) == {"evidence", "done"}
+    job = workflow["jobs"]["evidence"]
     assert job["permissions"] == {"contents": "read"}
     steps = job["steps"]
     uses = [s["uses"] for s in steps if "uses" in s]
@@ -325,7 +327,7 @@ def test_the_tag_containment_step_requires_a_release_tag(tmp_path):
     against a throwaway gate repository, as the workflow would run it in the `gate` checkout."""
     yaml = pytest.importorskip("yaml")
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    (job,) = workflow["jobs"].values()
+    job = workflow["jobs"]["evidence"]
     (tag_step,) = [s for s in job["steps"] if s.get("name", "").startswith("The gate commit is in a released tag")]
     script = tag_step["run"]
     gate = tmp_path / "gate"
@@ -382,3 +384,36 @@ def test_the_ci_readme_names_the_codeowners_and_bypass_limits():
     assert "Dismissing stale approvals is a setting the repository must turn on" in collapsed
     assert "may bypass the required review" in collapsed
     assert "a separate step still to be done; the template says NOT MEASURED" in collapsed
+
+
+def test_the_done_job_checks_a_receipt_made_in_ci_for_the_tree_under_review():
+    """The job done of the template (DECISIONS.md, D26): off unless the caller asks, the package pinned to an
+    exact version, the gate from a released tag, the key from a secret through env only and removed after the
+    test run, the receipt outside the checkout, and the verdict from done-check, not from the test command."""
+    yaml = pytest.importorskip("yaml")
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    on = workflow.get("on", workflow.get(True))["workflow_call"]
+    assert on["inputs"]["done-check"] == {"description": on["inputs"]["done-check"]["description"],
+                                          "type": "boolean", "required": False, "default": False}
+    assert set(on["secrets"]) == {"PROOFBUNDLE_DONE_KEY"} and on["secrets"]["PROOFBUNDLE_DONE_KEY"]["required"] is False
+    job = workflow["jobs"]["done"]
+    assert job["if"] == "${{ inputs.done-check }}" and job["permissions"] == {"contents": "read"}
+    steps = job["steps"]
+    uses = [s["uses"] for s in steps if "uses" in s]
+    assert uses and all(re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", u) for u in uses), uses
+    checkouts = [s["with"] for s in steps if s.get("uses", "").startswith("actions/checkout@")]
+    assert all(c["persist-credentials"] is False for c in checkouts)
+    assert [c["ref"] for c in checkouts if c.get("path") == "checked"] == [
+        "${{ github.event.pull_request.head.sha || github.sha }}"]
+    runs = [s for s in steps if "run" in s]
+    assert "${{" not in "".join(s["run"] for s in runs), "inputs and secrets reach the shell through env only"
+    pin = runs[0]
+    assert "^[0-9a-f]{40}$" in pin["run"] and "^==[0-9]+" in pin["run"]
+    (tests,) = [s for s in steps if s.get("name") == "Run the tests with a receipt"]
+    assert tests["env"]["DONE_KEY"] == "${{ secrets.PROOFBUNDLE_DONE_KEY }}"
+    assert 'PROOFBUNDLE_OUT="$RUNNER_TEMP/done/"' in tests["run"] and "PROOFBUNDLE_THRESHOLD=1" in tests["run"]
+    assert 'rm -f "$RUNNER_TEMP/done/key"' in tests["run"] and "umask 077" in tests["run"]
+    last = runs[-1]
+    assert "gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked" in last["run"]
+    assert "python -I " in last["run"]
+

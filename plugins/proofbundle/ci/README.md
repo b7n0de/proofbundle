@@ -92,3 +92,37 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 ```sh
 python plugins/proofbundle/hooks/proofbundle_gate.py ci-check --repo . --require-declaration true
 ```
+
+## The done check in CI
+
+The workflow's job `done` (input `done-check: true`) is the hard boundary of the user path "Claude says done"
+(DECISIONS.md, D26). It runs the tests of the commit under review with a receipt, signed with a CI key, and runs
+`proofbundle_gate.py done-check` on the checkout: exit 0 only when the receipt verifies under the done policy at
+the commit, says that every test passed and names the tree of the checkout. Make the job a required status check,
+like the job `evidence`.
+
+```yaml
+jobs:
+  proofbundle:
+    uses: ./.github/workflows/proofbundle-evidence.yml
+    with:
+      require-declaration: false
+      proofbundle-ref: <the full commit SHA of b7n0de/proofbundle you reviewed>
+      done-check: true
+      done-test-command: python -m pytest -q
+      done-proofbundle-version: "==<the release whose pytest plugin names the git state>"
+    secrets:
+      PROOFBUNDLE_DONE_KEY: ${{ secrets.PROOFBUNDLE_DONE_KEY }}
+```
+
+Where the receipt comes from is an owner choice:
+
+| Option | What happens | Trade-off |
+|---|---|---|
+| A. Made in CI (built, recommended) | The job runs the tests on the checkout of the commit and signs with the CI key; the receipt never leaves the job | The tests run the code under review with the key file present, so a reviewer must read changes to the tests; GitHub passes no secret to a fork's pull request |
+| B. Brought by the agent | The receipt the Stop hook accepted travels with the pull request and CI checks it | A committed receipt changes the tree it names, so it must travel outside the tree (an artifact, a comment, a separate ref); CI can check the key and the tree, but not where and how the run happened |
+
+The done policy pins the CI key (and, for the Stop hook, the developer's local test key). The receipt is
+written to `$RUNNER_TEMP`, outside the checkout, and the job prints its sha256; upload it with an artifact
+action you pin yourself if you want to keep it.
+
