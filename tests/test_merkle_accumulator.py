@@ -237,6 +237,24 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
             with self.subTest(assigns=name), self.assertRaises(AttributeError):
                 setattr(akku, name, wert)
         self.assertFalse(hasattr(akku, "__dict__"))
+        # Codex thread 4221180480: a caller assigned a list subclass to the public frontier, and the class's append
+        # dispatched to its methods. The state is read-only from outside, and what is read is a copy.
+        for name, wert in (("frontier", []), ("size", 3), ("leaf_hashes", [])):
+            with self.subTest(assigns=name), self.assertRaises(AttributeError):
+                setattr(akku, name, wert)
+        akku = a.MerkleAccumulator(keep_leaf_hashes=True)
+        akku.append(b"a")
+        akku.frontier.append((0, b"\x22" * 32))
+        akku.leaf_hashes.append(b"\x22" * 32)
+        self.assertEqual((akku.size, len(akku.frontier), len(akku.leaf_hashes)), (1, 1, 1))
+
+        class Fremd(list):
+            def append(self, wert):
+                super().append((0, b"\x22" * 32))
+                super().append(wert)
+        object.__setattr__(akku, "_frontier", Fremd(akku.frontier))
+        with self.assertRaisesRegex(TypeError, "private fields"):
+            a.emit_bundle_incremental(b"payload", echt, akku)
         for vorher in (0, 1, 5):
             leaves = [f"event {i}".encode() for i in range(vorher)]
             neu = a.emit_bundle_incremental(b"payload", echt, a.MerkleAccumulator.from_leaves(leaves))

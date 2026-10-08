@@ -48,6 +48,9 @@ subclassed, and emit_bundle_incremental takes only an object of exactly this cla
 subclass to keep; a caller who wants other behaviour wraps an accumulator instead of deriving from it. The same
 holds for one instance: the class has `__slots__` for its three fields and no `__dict__`, so a method cannot be
 assigned on an instance and shadow the class's (Codex thread 4220760321), and the emitter calls the class's append.
+The three fields are private and read through properties that return copies, so a caller cannot put a container of
+its own in their place or change them through what it read (thread 4221180480); the emitter refuses an accumulator
+whose private fields hold another type than the class writes there.
 
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
 not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
@@ -92,21 +95,42 @@ class MerkleAccumulator:
     `size` leaves so far; `frontier` as (height, root) pairs, leftmost first."""
 
     # The state and nothing else: no instance dictionary, so no method of the class can be shadowed on an instance.
-    __slots__ = ("size", "frontier", "leaf_hashes")
+    # The fields are private and read through properties that hand out copies, so a caller can neither assign a
+    # container of its own nor change the state through what it read (Codex thread 4221180480 on pull request 307).
+    __slots__ = ("_size", "_frontier", "_leaf_hashes")
 
     def __init_subclass__(cls, **kwargs) -> None:
         raise TypeError("MerkleAccumulator cannot be subclassed: its bundle and restore guarantees rest on its own "
                         "methods (see NO SUBCLASS in the module docstring)")
 
     def __init__(self, keep_leaf_hashes: bool = False) -> None:
-        self.size = 0
-        self.frontier: List[tuple] = []
-        self.leaf_hashes: Optional[List[bytes]] = [] if keep_leaf_hashes else None
+        self._size = 0
+        self._frontier: List[tuple] = []
+        self._leaf_hashes: Optional[List[bytes]] = [] if keep_leaf_hashes else None
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    @property
+    def frontier(self) -> List[tuple]:
+        """A copy: changing it changes nothing here."""
+        return list(self._frontier)
+
+    @property
+    def leaf_hashes(self) -> Optional[List[bytes]]:
+        """A copy, or None when no leaf hashes are kept: changing it changes nothing here."""
+        return None if self._leaf_hashes is None else list(self._leaf_hashes)
+
+    def _eigene_felder(self) -> bool:
+        """Whether the private fields hold what this class puts there: a plain int and plain lists."""
+        return (type(self._size) is int and type(self._frontier) is list
+                and (self._leaf_hashes is None or type(self._leaf_hashes) is list))
 
     def copy(self) -> "MerkleAccumulator":
         neu = MerkleAccumulator()
-        neu.size, neu.frontier = self.size, list(self.frontier)
-        neu.leaf_hashes = None if self.leaf_hashes is None else list(self.leaf_hashes)
+        neu._size, neu._frontier = self._size, list(self._frontier)
+        neu._leaf_hashes = None if self._leaf_hashes is None else list(self._leaf_hashes)
         return neu
 
     # -- appending ----------------------------------------------------------------------------------------
@@ -115,37 +139,37 @@ class MerkleAccumulator:
         """Append one leaf's data. Returns (root, inclusion path of that leaf): what merkle_tree_hash and
         inclusion_proof over the whole list would give."""
         wert = _leaf(data)
-        if self.leaf_hashes is not None:
-            self.leaf_hashes.append(wert)
+        if self._leaf_hashes is not None:
+            self._leaf_hashes.append(wert)
         hoehe, pfad = 0, []
-        while self.frontier and self.frontier[-1][0] == hoehe:
-            links = self.frontier.pop()[1]
+        while self._frontier and self._frontier[-1][0] == hoehe:
+            links = self._frontier.pop()[1]
             pfad.append(links)
             wert = _node(links, wert)
             hoehe += 1
-        self.frontier.append((hoehe, wert))
-        self.size += 1
+        self._frontier.append((hoehe, wert))
+        self._size += 1
         wurzel = wert
-        for _, links in reversed(self.frontier[:-1]):
+        for _, links in reversed(self._frontier[:-1]):
             pfad.append(links)
             wurzel = _node(links, wurzel)
         return wurzel, pfad
 
     def root(self) -> bytes:
-        if not self.frontier:
+        if not self._frontier:
             return hashlib.sha256(b"").digest()   # merkle_tree_hash([]), RFC 6962 MTH of the empty list
-        wurzel = self.frontier[-1][1]
-        for _, links in reversed(self.frontier[:-1]):
+        wurzel = self._frontier[-1][1]
+        for _, links in reversed(self._frontier[:-1]):
             wurzel = _node(links, wurzel)
         return wurzel
 
     # -- later proofs, from the kept leaf hashes ------------------------------------------------------------
 
     def _need_leaf_hashes(self) -> List[bytes]:
-        if self.leaf_hashes is None:
+        if self._leaf_hashes is None:
             raise ValueError("this accumulator keeps no leaf hashes: only the root and the path of the leaf "
                              "just appended are available")
-        return self.leaf_hashes
+        return self._leaf_hashes
 
     def inclusion_proof_at(self, index: int) -> List[bytes]:
         blaetter = self._need_leaf_hashes()
@@ -162,10 +186,10 @@ class MerkleAccumulator:
     # -- persisting ----------------------------------------------------------------------------------------
 
     def _unsigned_state(self) -> dict:
-        return {"format": STATE_FORMAT, "what_is_signed": WHAT_IS_SIGNED, "tree_size": self.size,
-                "frontier": [{"height": h, "root": r.hex()} for h, r in self.frontier], "root": self.root().hex(),
-                "leaf_hashes_sha256": (hashlib.sha256(b"".join(self.leaf_hashes)).hexdigest()
-                                       if self.leaf_hashes is not None else None)}
+        return {"format": STATE_FORMAT, "what_is_signed": WHAT_IS_SIGNED, "tree_size": self._size,
+                "frontier": [{"height": h, "root": r.hex()} for h, r in self._frontier], "root": self.root().hex(),
+                "leaf_hashes_sha256": (hashlib.sha256(b"".join(self._leaf_hashes)).hexdigest()
+                                       if self._leaf_hashes is not None else None)}
 
     def state(self, signer: Ed25519PrivateKey) -> dict:
         inhalt = self._unsigned_state()
@@ -215,7 +239,7 @@ class MerkleAccumulator:
         if hoehen != erwartet or any(len(r) != 32 for _, r in front):
             raise AccumulatorStateError("the frontier does not have one root per set bit of the size")
         neu = cls(keep_leaf_hashes=leaf_hashes is not None)
-        neu.size, neu.frontier = groesse, front
+        neu._size, neu._frontier = groesse, front
         # The checks fold with this class's own methods, not with ones a subclass of the caller overrides (the
         # class of Codex thread 4219691072 on pull request 307, swept here): an overridden root or frontier
         # rebuild could answer with the stated values.
@@ -239,7 +263,7 @@ class MerkleAccumulator:
             probe = MerkleAccumulator._frontier_from_leaf_hashes(blaetter)
             if probe != front:
                 raise AccumulatorStateError("the leaf hashes do not reproduce the frontier")
-            neu.leaf_hashes = blaetter
+            neu._leaf_hashes = blaetter
         return neu
 
     @staticmethod
@@ -311,6 +335,8 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     if type(accumulator) is not MerkleAccumulator:
         raise TypeError("emit_bundle_incremental takes a MerkleAccumulator, not another object with its methods "
                         "(see NO SUBCLASS in the module docstring)")
+    if not accumulator._eigene_felder():
+        raise TypeError("the accumulator's private fields hold another type than this class writes there")
     if _puffer_von(payload) is not None:
         payload = _puffer_von(payload)
     index = accumulator.size
