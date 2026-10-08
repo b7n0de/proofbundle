@@ -66,24 +66,54 @@ from __future__ import annotations
 
 import base64
 import binascii
+from typing import Any
 
-__all__ = ["decode_b64", "decode_b64url", "decode_b64_either", "decode_b64_c2sp"]
+from .canonical import _type_name
+from .signature import plain_bytes, plain_text
+
+__all__ = ["decode_b64", "decode_b64url", "decode_b64_either", "decode_b64_c2sp", "wire_value"]
+
+
+def wire_value(s: Any) -> "str | bytes | None":
+    """A base64 field as the caller handed it, read ONCE from its own storage: an exact ``str`` for
+    a ``str``, an exact ``bytes`` for a ``bytes``, and None for anything else.
+
+    A PRODUCER THAT DECODES A FIELD AND THEN WRITES IT WRITES THIS VALUE (lens run 7 at 75c3aa48, F2).
+    The decoders below used to call the caller's own ``encode`` on a ``str`` subclass, so a key text
+    whose ``encode`` answers for a real key and whose stored text is the base64 of the identity point
+    was judged as the real key and written as the identity point. The read is
+    ``signature.plain_text`` or ``signature.plain_bytes``, which run no method of the caller's; see
+    there for what was measured."""
+    if issubclass(type(s), bytes):
+        return plain_bytes(s)
+    return plain_text(s)
 
 
 def _as_bytes(s: "str | bytes") -> bytes:
     """Accept the str and bytes forms both call sites use, rejecting anything else with the same
     error type as a malformed body -- a caller handing us an int must not get a TypeError out of a
-    never-raise surface."""
-    if isinstance(s, bytes):
-        return s
-    if isinstance(s, str):
+    never-raise surface. The field is read once from its storage (:func:`wire_value`), so what is
+    decoded is the text or the bytes the value holds, never an answer of its own ``encode``.
+
+    READ BY WHAT THE VALUE STORES (round 12, the class of lens run 11). The type is the value's own
+    and the content is its characters or its stored bytes (:func:`wire_value`): a ``str`` subclass's
+    own ``encode`` and a ``bytes`` subclass's own ``__bytes__`` or buffer never decide what is
+    decoded. Measured at cd5d39f4: every decode site called the field's own ``encode``, the reason a
+    ``str`` subclass in ``payload_b64`` could hand the signature check one payload and the parser
+    another (round 11's L2), and the reason it still could at sites round 11 did not touch (F4, F6).
+    An object that merely claims ``str`` or ``bytes`` through ``__class__`` is refused, as any other
+    type, and so is a ``bytearray``."""
+    wert = wire_value(s)
+    if isinstance(wert, bytes):
+        return wert
+    if wert is not None:
         try:
-            return s.encode("ascii")
+            return wert.encode("ascii")
         except UnicodeEncodeError as e:
             # A non-ASCII character cannot be base64 of any alphabet; say so in the wire vocabulary
             # rather than leaking a unicode error out of a decode.
             raise binascii.Error("non-ASCII character in base64 field") from e
-    raise binascii.Error(f"base64 field must be str or bytes, got {type(s).__name__}")
+    raise binascii.Error(f"base64 field must be str or bytes, got {_type_name(type(s))}")
 
 
 def _canonical_std(raw: bytes) -> bytes:

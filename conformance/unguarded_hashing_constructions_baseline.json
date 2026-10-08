@@ -53,14 +53,6 @@
       "last_seen_line": 856,
       "exposure": "operator-configured (allowed_issuers from the policy dict), not attacker-supplied; a partial guard _pinned_key_forgeable already runs on the same value. Lower severity than the agent_review sites.",
       "exposure_measured": true
-    },
-    {
-      "file": "proofbundle/policy.py",
-      "qualname": "evaluate_decision_policy",
-      "expr": "r.get('relation')",
-      "last_seen_line": 696,
-      "exposure": "NICHT GEMESSEN",
-      "exposure_measured": false
     }
   ],
   "matching": "AN ENTRY IS MATCHED BY (file, qualname, expr) AND BY COUNT, NEVER BY LINE NUMBER. Two measurements drove this shape, in this order. FIRST, 2026-09-15: merging origin/main added 19 lines to agent_review.py, all seven carried sites moved, and a baseline bound to file:line reported its own seven entries as NEW — a line number is a property of the surrounding file, not of the site. SECOND, the same day, an adversarial lens falsified the first repair: keyed on (file, expr) alone, closing the carried attacker-exposed site in derive_limitation_codes and opening a brand-new unguarded construction with the SAME expression elsewhere in the same file kept the count at three and the guard stayed green — measured, with a real TypeError: unhashable type: 'list' in the new code. The old line-bound rule WOULD have caught it. qualname closes that: a new site lands in a different enclosing definition, so its key is not carried. last_seen_line is informational, for navigation only, and is allowed to drift."
