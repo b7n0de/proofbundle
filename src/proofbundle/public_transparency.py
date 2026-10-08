@@ -26,8 +26,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .canonical import (_ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie, _zeichen_von)
 from .errors import ProofBundleError
-from ._membership import is_member
+from ._membership import is_member, stored_str_items
 
 _STATUS_NAMES = (
     "LOG_ORIGIN", "CHECKPOINT_SIGNATURE", "ROOT_BYTES_AUTHENTICITY",
@@ -35,6 +36,10 @@ _STATUS_NAMES = (
 )
 _POLICY_KEYS = {"requireSignedCheckpoint", "trustedLogOrigins", "trustedLogKeys",
                 "requireConsistencyProof", "witnessQuorum"}
+
+
+#: An expected tree size that is no integer (round 12): it equals no size, as a str or an object did.
+_NIE_GLEICH = object()
 
 
 class PublicTransparencyError(ProofBundleError):
@@ -114,21 +119,42 @@ class ConsistencyVerificationResult:
         return errors
 
 
+@_ein_stand
 def validate_public_transparency_policy(policy: Any) -> list[str]:
     """Fail-closed validation of a public-transparency policy object (empty = valid)."""
+    try:
+        policy = _pruefkopie(policy)   # one reading, by what it stores (round 12)
+    except ValueError as exc:
+        # The boolean fields keep the message PR 291 gives them, an object whose `__class__` says bool
+        # included, read from what the policy stores (`stored_str_items` runs no code of the caller).
+        gespeichert = stored_str_items(policy)
+        return [f"policy is not a JSON value: {exc}"] + [
+            f"{b} must be a boolean" for b in ("requireSignedCheckpoint", "requireConsistencyProof")
+            if b in gespeichert and type(gespeichert[b]) is not bool]
     errors: list[str] = []
     if not isinstance(policy, dict):
         return ["policy must be a JSON object"]
     for k in policy:
         if not is_member(k, _POLICY_KEYS):
             errors.append(f"unknown policy key {k!r}")
-    if "requireSignedCheckpoint" in policy and not isinstance(policy["requireSignedCheckpoint"], bool):
+    # type(), not isinstance(): an object whose __class__ says bool passed and then switched a requirement
+    # off with its own __bool__ (policy._require_bool had the same hole).
+    if "requireSignedCheckpoint" in policy and type(policy["requireSignedCheckpoint"]) is not bool:
         errors.append("requireSignedCheckpoint must be a boolean")
-    if "requireConsistencyProof" in policy and not isinstance(policy["requireConsistencyProof"], bool):
+    if "requireConsistencyProof" in policy and type(policy["requireConsistencyProof"]) is not bool:
         errors.append("requireConsistencyProof must be a boolean")
     for lk in ("trustedLogOrigins", "trustedLogKeys"):
         if lk in policy and not (isinstance(policy[lk], list) and all(isinstance(x, str) for x in policy[lk])):
             errors.append(f"{lk} must be a list of strings")
+    # A KEY ALLOWLIST THAT NO CHECK READS (deep gate run 7 at 1a3cd672, L3-620v7-T18-PUBLIC-TRANSPARENCY-TRUSTEDLOGKEYS-
+    # DROPPED-01, P2): `trustedLogKeys` is read only by the checkpoint signature check, which runs only under
+    # `requireSignedCheckpoint`. With a witness quorum as the anchor, a checkpoint of a log the allowlist does not name
+    # gave PUBLIC_TRANSPARENCY PASS. A rule given and applied by nothing is refused, as in the trust policy.
+    if isinstance(policy.get("trustedLogKeys"), list) and policy["trustedLogKeys"] \
+            and policy.get("requireSignedCheckpoint") is not True:
+        errors.append("trustedLogKeys is set but requireSignedCheckpoint is not true: the allowlist is read only by "
+                      "the checkpoint signature check, so it would be applied by nothing (set requireSignedCheckpoint, "
+                      "or drop trustedLogKeys)")
     wq = policy.get("witnessQuorum")
     if "witnessQuorum" in policy:
         if not isinstance(wq, dict) or "threshold" not in wq:
@@ -143,6 +169,49 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
     return errors
 
 
+@dataclass
+class _KonsistenzStand:
+    """A consistency result read once at the call of `evaluate_public_transparency`: the answer of its own
+    ``validate()`` and the four fields the evaluation compares, each read one time (verify lane V2 on 6d674973).
+    The evaluation read the caller's object at five places; one whose fields are computed on each access passed
+    with the root of one state and the confirmation of another, where each state fails. A dataclass of this
+    package, so `canonical._stand` compares two readings of it field by field (`canonical._derselbe`)."""
+    _befund: list
+    new_origin: Any
+    new_tree_size: Any
+    new_root_b64: Any
+    confirmed: Any
+
+    def validate(self) -> list:
+        return list(self._befund)
+
+
+def _konsistenz_stand(wert: Any) -> Any:
+    """The boundary reader of ``consistency_result`` (`canonical._ein_stand`). None, and an object without
+    ``validate``, are handed on unchanged for the evaluation to judge as before; so is an object whose
+    ``validate()`` answer is no list or whose fields cannot be read, which the evaluation then reads as before. The
+    object can only be read through its own code, so `canonical._stand` runs this reader before its first collect and
+    after its second and compares the two answers field by field: a gc callback between two of its reads, or one
+    that changes it and another argument together, cannot pair two states."""
+    if wert is None or not hasattr(wert, "validate"):
+        return wert
+    felder = ("new_origin", "new_tree_size", "new_root_b64", "confirmed")
+
+    def lesen() -> list:
+        befund = wert.validate()
+        if type(befund) is not list:
+            raise TypeError("validate() answered no list")
+        return [list(befund)] + [getattr(wert, feld) for feld in felder]
+    try:
+        gelesen = lesen()
+    except RecursionError:
+        raise   # the stack ran out: `canonical._stand` raises it as it is (verify lane V10 on d58be0b8, F3)
+    except Exception:  # noqa: BLE001 - an object that cannot be read here is read by the evaluation as before
+        return wert
+    return _KonsistenzStand(*gelesen)
+
+
+@_ein_stand(consistency_result=_konsistenz_stand)
 def evaluate_public_transparency(
     signed_note: str, policy: dict, *, log_vkey: str | None = None,
     witness_vkeys: list | None = None, expected_root_b64: str | None = None,
@@ -167,11 +236,37 @@ def evaluate_public_transparency(
     additive: the default (``strict_consistency=False``) preserves every existing caller's behavior
     exactly."""
     from . import checkpoint as cp  # noqa: PLC0415
-    if not isinstance(signed_note, str):
+    # ONE READING of every input, by what it holds (round 12): the note as its characters, read once
+    # for the parse, the signature check and the quorum; the policy as the plain copy of what it
+    # stores; the log key, the expected root and the witness roster as their characters; the expected
+    # size as its integer. At cd5d39f4 each comparison asked the caller's own `__eq__` (a `str`
+    # subclass expected root answered PASS for another root), and the policy was read through its own
+    # `get` once per check.
+    signed_note = _zeichen_von(signed_note)
+    if signed_note is None:
         # RE-GATE never-raise: a non-str signed_note is malformed input — coerce to "" so every checkpoint
         # parse below fails gracefully (all statuses FAIL, a fail-closed verdict), never a raw AttributeError
         # from an early string op on this dict-returning evaluate surface.
         signed_note = ""
+    if issubclass(type(policy), dict):
+        policy = _plain_for_jcs(policy, lambda text: PublicTransparencyError(
+            f"invalid public-transparency policy: {text}"))
+    if log_vkey is not None and _zeichen_von(log_vkey) is not None:
+        log_vkey = _zeichen_von(log_vkey)
+    # The expected root by its characters; a pin that is no string is still a pin, and it never
+    # matches (the status is FAIL, as before).
+    wurzel_gepinnt = expected_root_b64 is not None
+    expected_root_b64 = _zeichen_von(expected_root_b64)
+    # The expected size as an exact int; an exact bool or float is compared as before, and a value of
+    # any other type never matches (an object claiming int through `__class__` answered `==`), a
+    # subclass of int included (PR 293's rule for a number; round 12 read the integer it stores).
+    erwartete_groesse: Any = expected_tree_size
+    if expected_tree_size is not None and type(expected_tree_size) not in (bool, float):
+        groesse = _ganzzahl_von(expected_tree_size)
+        erwartete_groesse = groesse if groesse is not None else _NIE_GLEICH
+    if witness_vkeys is not None and not issubclass(type(witness_vkeys), (str, bytes, bytearray)) \
+            and hasattr(type(witness_vkeys), "__iter__"):
+        witness_vkeys = [_zeichen_von(w) if _zeichen_von(w) is not None else w for w in _folge_von(witness_vkeys)]
 
     perrs = validate_public_transparency_policy(policy)
     if perrs:
@@ -234,14 +329,15 @@ def evaluate_public_transparency(
 
     # ROOT_BYTES_AUTHENTICITY — only when the relying party supplied a reference root (else NOT_EVALUATED,
     # honestly: consistency under the STATED root is not authenticity of the root itself).
-    if expected_root_b64 is not None:
-        statuses["ROOT_BYTES_AUTHENTICITY"] = "PASS" if (parsed_ok and root == expected_root_b64) else "FAIL"
+    if wurzel_gepinnt:
+        statuses["ROOT_BYTES_AUTHENTICITY"] = ("PASS" if (parsed_ok and expected_root_b64 is not None
+                                                          and root == expected_root_b64) else "FAIL")
         if statuses["ROOT_BYTES_AUTHENTICITY"] == "FAIL":
             errors.append("checkpoint root does not equal the relying party's expected root")
 
     # TREE_CONTEXT_AUTHENTICITY
     if expected_tree_size is not None:
-        statuses["TREE_CONTEXT_AUTHENTICITY"] = "PASS" if (parsed_ok and tree_size == expected_tree_size) else "FAIL"
+        statuses["TREE_CONTEXT_AUTHENTICITY"] = "PASS" if (parsed_ok and tree_size == erwartete_groesse) else "FAIL"
         if statuses["TREE_CONTEXT_AUTHENTICITY"] == "FAIL":
             errors.append("checkpoint tree size does not equal the relying party's expected tree size")
 

@@ -113,12 +113,23 @@ _NAME_PATTERN = re.compile(
     # verliessen 7 von 7 bzw. 6 von 6 feindliche Formen sie als roher AttributeError. Sie
     # gehoeren in den NENNER, nicht daneben; die Typboeden sitzen jetzt an der Quelle.
     r"|split_key_binding|holder_key_from_cnf"
+    # 2026-10 (Nachtrag 43, security-fix 6.2.0): `trust_pack_is_pinned` is a PREDICATE over a caller-supplied
+    # trust-pack predicate (untrusted) that decides whether the relying party has anchored it. It falls in no
+    # prefix family and must JUDGE — True / False / None — for every input instead of crashing (the content-root
+    # digest computation is wrapped fail-closed; every other read is `_as_dict`/`_as_list`/`_zeichen_von`/
+    # `_richtlinie_von`, none of which raise). In the denominator, like `is_conformant` above.
+    r"|trust_pack_is_pinned"
     # 2026-09-05, Tiefen-Gate-Fund L4-02: `subject_cardinality` liest die Subjektzahl aus einem vom
     # AUFRUFER gelieferten Statement und entscheidet damit, ob ueberhaupt gebunden werden darf. Sie
     # faellt in keine Praefix-Familie und ist trotzdem ein Verbraucher unvertrauter Eingabe — also in
     # den NENNER, nicht daneben. Der Populations-Riegel hat sie beim ersten Lauf gemeldet; das ist
     # genau die Bewegung, die er erzwingen soll.
     r"|subject_cardinality"
+    # 2026-09-27, lens run 7 at 75c3aa48, F1 and F2: `plain_bytes` and `plain_text` read a caller's key
+    # object once, from its own storage, for every producer that writes a caller's key. They take
+    # whatever the caller hands in and must hand back a value (the exact bytes or text, or None) for
+    # every input, never raise; so they belong in the denominator, like the rule they feed.
+    r"|plain_bytes|plain_text"
     # `require_` statt `require_valid_|require_derived_` (2026-08-18). DIE URSPRUENGLICHE
     # BEGRUENDUNG HIER WAR FALSCH und ist korrigiert (Deep-Gate-Linse 1, Befund 3): sie nannte
     # einen Pruefer `require_wellformed_expected_origin` als Anlass. Den gibt es im Baum NICHT —
@@ -238,6 +249,11 @@ _OUT_OF_SCOPE = frozenset({
     "measure_build", "measure_vector_set", "measure_verifier_block", "build_verifier_block",
     "build_test_result_statement", "sign_test_result_statement", "attach", "statement_digest",
     "test_result_ref", "join_test_result", "report",
+    # Nachtrag 32 (Z309 Critical): issuer_key_fingerprint consumes no untrusted serialized input. `alg` is the
+    # algorithm the SD-JWT issuer signature already verified under, and `pub` is the already-decoded issuer key
+    # bytes; it only formats the "<alg>:<base64>" fingerprint, guards its two argument types, and returns None
+    # instead of raising. It parses nothing, so it cannot violate the never-raise property — it lies outside.
+    "issuer_key_fingerprint",
     # 2026-09-04, Teil A2 des v0.2-Vorgabewechsels. DREI neue oeffentliche Flaechen, und nur EINE
     # gehoert hierher — die Trennung ist die Entscheidung, die dieser Riegel erzwingt:
     #
@@ -729,6 +745,19 @@ class NeverRaiseSurfaceFamilyProperty(unittest.TestCase):
                     lambda kk=_k, x=_hv: relation.evaluate_relations_policy(_full_sec, {"edges": [
                         {"relation": "supersedes", "resolution": "VERIFIED", "targetDigest": "d",
                          "verified_under": "vu", kk: x}]}, successor_key_b64="s"))
+        # The same unhashable relation where the rule is empty or absent (2026-09-29). The signer and
+        # target loops now refuse a relation that is no str before a rule is looked up, but only when the
+        # rule holds an entry, so an empty or absent `relation_signer` and `require_relation_target` are
+        # the only way to the two R7-2b guards at the lookup. No case above took it: with the mutation
+        # anchors of the two guards drawn onto today's source, both mutants survived this file, and both
+        # raise TypeError here (measured on 938fa4cc).
+        for _sec in ({}, {"relation_signer": {}}, {"require_relation_target": {}},
+                     {"relation_signer": {}, "require_relation_target": {}}):
+            for _hv in ([1], {1: 2}, {1, 2}, bytearray(b"x")):
+                run(f"R7-2b rule empty or absent {sorted(_sec)} relation={type(_hv).__name__}",
+                    lambda s=_sec, x=_hv: relation.evaluate_relations_policy(s, {"edges": [
+                        {"relation": x, "resolution": "VERIFIED", "targetDigest": "d"}]},
+                        successor_key_b64="s"))
         # R7-3 — evaluate_policy merkle.trusted_checkpoints ELEMENT non-dict: entry.get('hashAlg') ran
         #        BEFORE _authenticate_trusted_checkpoint's own try/except and escaped raw.
         for _bad_cp in (5, "x", None, [1], True):
