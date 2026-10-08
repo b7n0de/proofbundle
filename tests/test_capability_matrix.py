@@ -155,7 +155,8 @@ def _measure(cap: dict, *, wheel=(), sdist=(), tag=(), main=(), branch=()) -> di
         if pfad == "NOTES.md":
             return b"the x capability, stable\n"
         if pfad == "src/proofbundle/cli.py":
-            return "".join(f'sub.add_parser("{e[4:]}")\n' for e in sorted(orte[ref]) if e.startswith("cli:")).encode()
+            return ("def build_parser():\n    pass\n" + "".join(
+                f'    sub.add_parser("{e[4:]}")\n' for e in sorted(orte[ref]) if e.startswith("cli:"))).encode()
         return b"" if pfad in orte[ref] else None
 
     def git(*args: str) -> str:
@@ -435,10 +436,11 @@ class WhatIsReadIsReadByItsMeaning(unittest.TestCase):
     def test_a_subcommand_is_a_registration_call_not_its_text(self) -> None:
         """Thread 4220770815: a pattern over the text found a commented-out registration."""
         modul = _load()
-        quelle = ('# sub.add_parser("decision") was removed\n'
-                  'hinweis = \'sub.add_parser("outcome")\'\n'
-                  'sub.add_parser("verify", help="x")\n'
-                  'other.add_parser("nested")\n')
+        quelle = ('def build_parser():\n'
+                  '    # sub.add_parser("decision") was removed\n'
+                  '    hinweis = \'sub.add_parser("outcome")\'\n'
+                  '    sub.add_parser("verify", help="x")\n'
+                  '    other.add_parser("nested")\n')
         self.assertEqual(modul._subcommands(quelle), {"verify"})
         self.assertEqual(modul._subcommands(""), set(), "control: no cli.py gives no subcommand")
         with self.assertRaisesRegex(SystemExit, "does not parse"):
@@ -471,8 +473,47 @@ class WhatAStaticReadingCannotDecideStops(unittest.TestCase):
                        'while False:\n    sub.add_parser("decision")\n'):
             with self.subTest(source=quelle), self.assertRaisesRegex(SystemExit, "not measured"):
                 modul._subcommands(quelle)
-        self.assertEqual(modul._subcommands('if args.x:\n    pass\nsub.add_parser("verify")\n'), {"verify"},
-                         "control: a condition that is not a constant does not stop it")
+        self.assertEqual(modul._subcommands('def build_parser():\n    if args.x:\n        pass\n'
+                                            '    sub.add_parser("verify")\n'), {"verify"},
+                         "control: a registration after a branch, not under it, is read")
+
+    def test_only_an_unconditional_registration_of_build_parser_counts(self) -> None:
+        """Thread 4221639819: `if enabled:` above a registration counted, since only a constant condition stopped it,
+        and a registration in a function nobody calls counted too. Only a statement of build_parser's own body, under
+        no branch, loop, try or with, is read; anything else stops the measurement."""
+        modul = _load()
+        for quelle in ('def build_parser():\n    if enabled:\n        sub.add_parser("decision")\n',
+                       'def build_parser():\n    for n in names:\n        sub.add_parser("decision")\n',
+                       'def build_parser():\n    try:\n        sub.add_parser("decision")\n    except E:\n        pass\n',
+                       'def other():\n    sub.add_parser("decision")\n',
+                       'sub.add_parser("decision")\n'):
+            with self.subTest(source=quelle), self.assertRaisesRegex(SystemExit, "not measured"):
+                modul._subcommands(quelle)
+
+    def test_toml_forms_with_comments_and_dotted_keys_are_read_or_stop(self) -> None:
+        """Thread 4221639830: a table header with a trailing comment was skipped, so its entry points read as absent;
+        a dotted key at the root and a quoted scripts key were skipped as well."""
+        modul = _load()
+        self.assertEqual(modul._entry_points_in_pyproject(
+            '[project.entry-points.inspect_ai] # active\nproofbundle = "x"\n'), {"inspect_ai:proofbundle"})
+        for form in ('project.entry-points.inspect_ai.proofbundle = "x"\n',
+                     '[project]\n"scripts".proofbundle = "x"\n',
+                     "[project]\n'entry-points'.inspect_ai.proofbundle = 'x'\n"):
+            with self.subTest(form=form), self.assertRaisesRegex(SystemExit, "not measured"):
+                modul._entry_points_in_pyproject(form)
+
+    def test_a_provider_or_label_inside_an_html_comment_is_not_read(self) -> None:
+        """Thread 4221639836: a provider named only inside an HTML comment counted; the label reader read comments
+        too. Every reader of the docs reads the text without its comments."""
+        modul = _load()
+        cap = {"id": "x", "provider": "actions/attest", "label": [("NOTES.md", r"(the x capability[^\n]*)")]}
+        modul._git_bytes = lambda ref, pfad: (b"the x capability\n<!-- actions/attest provides this -->\n"
+                                              if pfad == "NOTES.md" else None)
+        self.assertFalse(modul._names_provider("v6.1.0", cap))
+        modul._git_bytes = lambda ref, pfad: b"<!-- the x capability, stable -->\n" if pfad == "NOTES.md" else None
+        self.assertEqual(modul._label_at("v6.1.0", cap["label"]), (None, None))
+        modul._git_bytes = lambda ref, pfad: b"the x capability\nProvenance from actions/attest.\n" if pfad == "NOTES.md" else None
+        self.assertTrue(modul._names_provider("v6.1.0", cap), "control: a visible naming counts")
 
     def test_a_commented_out_pin_is_no_channel(self) -> None:
         """Thread 4221179850: a cited fenced block holding only `# uses: ...@v1.0.0` was read as the documented tag."""

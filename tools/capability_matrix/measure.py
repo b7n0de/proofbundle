@@ -155,12 +155,19 @@ def _subcommands(cli_source: str) -> set:
             continue
         if not (k.args and isinstance(k.args[0], ast.Constant) and isinstance(k.args[0].value, str)):
             raise SystemExit("cli.py registers a subcommand with a computed name; its subcommands are not measured")
-        oben = eltern.get(k)
-        while oben is not None:
-            if isinstance(oben, (ast.If, ast.While, ast.IfExp)) and isinstance(oben.test, ast.Constant):
-                raise SystemExit("cli.py registers a subcommand under a constant condition; its subcommands are not "
-                                 "measured")
+        # Only a registration that build_parser makes unconditionally is read: a statement of its body, under no
+        # branch, loop, try or with, in no other function (Codex thread 4221639819: `if enabled:` counted, and a
+        # condition that is not a constant cannot be decided statically). Anything else stops the measurement. At
+        # v6.1.0, 0ace3039 and the head of this branch all 19 registrations have that form.
+        oben, kontrolle = eltern.get(k), False
+        while oben is not None and not isinstance(oben, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            kontrolle = kontrolle or isinstance(oben, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.Try, ast.With,
+                                                       ast.AsyncWith, ast.IfExp, ast.Lambda, ast.comprehension,
+                                                       ast.Match))
             oben = eltern.get(oben)
+        if kontrolle or oben is None or oben.name != "build_parser":
+            raise SystemExit("cli.py registers a subcommand outside the unconditional body of build_parser; its "
+                             "subcommands are not measured")
         if re.fullmatch(r"[a-z0-9-]+", k.args[0].value):
             namen.add(k.args[0].value)
     return namen
@@ -215,6 +222,11 @@ def _entry_points_in_pyproject(text: str) -> set:
         rein = zeile.strip()
         if not rein or rein.startswith("#"):
             continue
+        if rein.startswith("[") and "]" in rein:
+            # a comment after a table header is TOML (Codex thread 4221639830: the header with `# active` was skipped)
+            rest = rein[rein.rindex("]") + 1:].strip()
+            if not rest or rest.startswith("#"):
+                rein = rein[:rein.rindex("]") + 1]
         kopf = kopf_muster.fullmatch(rein)
         if kopf:
             gruppe = "console_scripts" if kopf.group(1) else _toml_schluessel(kopf.group(2))
@@ -231,17 +243,25 @@ def _entry_points_in_pyproject(text: str) -> set:
                                  "read; entry points are not measured")
             gefunden.add(f"{gruppe}:{_toml_schluessel(eintrag.group(1))}")
         elif (abschnitt == "[project.entry-points]"
-              or (abschnitt == "[project]" and re.match(r"""(?:scripts|["']?entry-points["']?)\s*[.=]""", rein))):
+              or (abschnitt == "[project]" and re.match(r"""["']?(?:scripts|gui-scripts|entry-points)["']?\s*[.=]""", rein))
+              or (abschnitt is None and re.match(r"""["']?project["']?\s*\.""", rein))):
             raise SystemExit("pyproject.toml declares entry points as a dotted key or an inline table; entry "
                              "points are not measured")
     return gefunden
 
 
+def _sichtbarer_text(ref: str, datei: str) -> str:
+    """The text of `datei` at `ref` as a reader of the rendered docs sees it: HTML comments removed. Codex thread
+    4221639836 on pull request 304: a provider named only inside a comment counted, and a label inside one could be
+    found as well; every reader of the docs reads through this."""
+    roh = _git_bytes(ref, datei)
+    return re.sub(r"<!--.*?-->", "", roh.decode("utf-8"), flags=re.S) if roh is not None else ""
+
+
 def _label_at(ref: str, paare: list):
     """(label text, file) of the first (file, pattern) that matches at `ref`, else (None, None)."""
     for datei, muster in paare:
-        roh = _git_bytes(ref, datei)
-        treffer = re.search(muster, roh.decode("utf-8")) if roh is not None else None
+        treffer = re.search(muster, _sichtbarer_text(ref, datei))
         if treffer:
             return " ".join(treffer.group(1).split()), datei
     return None, None
@@ -282,8 +302,7 @@ def _cited_passage(ref: str, paare: list):
     dropped it from the cited example and named it in an unrelated paragraph kept the cell. The tag the docs pin is
     the same class and is read here too."""
     for datei, muster in paare:
-        roh = _git_bytes(ref, datei)
-        text = roh.decode("utf-8") if roh is not None else ""
+        text = _sichtbarer_text(ref, datei)
         treffer = re.search(muster, text)
         if treffer:
             return _passage(text, treffer.start()), datei
