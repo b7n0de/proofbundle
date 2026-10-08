@@ -84,12 +84,20 @@ mismatch with a name. M5 and M6 are measured over the observation window, not pe
 two writes are recorded as two; "none found" is the count 0 and means none found in what the API returned then, and
 says nothing about writes the API does not list.
 
+An effect is matched to a proposed action by surface, target and bytes, since the API shows no proposal identifier.
+An effect that matches more than one proposed action of the window is matched to none of them: it is the mismatch
+class `ambiguous effect`, M1 is `unknown` for each action it matches, and it counts under M6 when any of them was
+refused. Assigning it to one of them would decide by choice which verdict caused it, and a rerun under criterion 4
+could not recover that choice from the stored records.
+
 ## 6. Exit criteria
 
 The pilot ends, with a written result, when all of these hold:
 
 1. every surface in scope that the repository's rules let an agent session write has at least one action
-   the gate approved, whose decision and outcome receipts verify offline with the operator's two public keys, and
+   the gate approved before the write, by a decision of type `preActionAuthorization` whose `decidedAt` is not later
+   than the `performedAt` of the effect (a post-hoc review, a simulation, or an approval recorded after the effect
+   does not count here), whose decision and outcome receipts verify offline with the operator's two public keys, and
    whose reconciliation is recorded with M1, M2, M3 and M4 each measured: an action with `not measured` or
    `unknown` in any of them does not count here, because it does not answer in which form it arrived, and a
    refused action does not count here even when it arrived, because the named question asks which approved
@@ -136,7 +144,10 @@ It stops early, with the reason written down, when:
 
 - Approved bytes of actions that arrived are public on GitHub already; the records keep their SHA-256 and
   may keep the bytes.
-- Refused actions keep only the SHA-256 of the proposed bytes and the gate's reason, never the bytes.
+- Refused actions keep only the SHA-256 of the proposed bytes and the gate's reason, never the bytes, in the
+  gate's records and in the decision receipt. When a refused action nevertheless arrives, its bytes are public on
+  GitHub, and the stored API response below keeps them as returned, because criterion 4 needs them to reproduce the
+  M6 classification; that response is the only record of the pilot that holds them.
 - No record carries an access token, a request header, a private key or the content of the environment.
 - The stored API responses are kept as returned, with the time of the request, so that criterion 4 can be
   met without calling the API again.

@@ -98,9 +98,40 @@ class ThePilotContract(unittest.TestCase):
         text = " ".join(_text().split())
         kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
         eins = kriterien[kriterien.index("1. "):kriterien.index("2. M5 and M6")]
-        self.assertIn("has at least one action the gate approved, whose decision and outcome receipts verify", eins)
+        self.assertIn("has at least one action the gate approved before the write", eins)
+        self.assertIn("whose decision and outcome receipts verify offline", eins)
         self.assertIn("a refused action does not count here even when it arrived", eins)
         self.assertIn("a refused action that arrived is a mismatch under M6", eins)
+
+    def test_an_effect_matching_several_proposals_is_matched_to_none(self) -> None:
+        """Codex thread 4220774964: the API effect carries no proposal identifier, so an effect matching an allowed and
+        a refused proposal with the same bytes could be assigned to either, and the choice decided M6 and criterion 1.
+        It is matched to none, M1 is unknown for each, and it counts under M6 when one of them was refused."""
+        text = " ".join(_text().split())
+        massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
+        self.assertIn("An effect that matches more than one proposed action of the window is matched to none of them",
+                      massnahmen)
+        self.assertIn("M1 is `unknown` for each action it matches", massnahmen)
+        self.assertIn("it counts under M6 when any of them was refused", massnahmen)
+
+    def test_the_witness_was_authorized_before_the_write(self) -> None:
+        """Codex thread 4220774980: an ALLOW recorded after the effect, or a post-hoc review or simulation, could be
+        the witness of a surface, although the pilot's premise is a gate that decides before the write."""
+        text = " ".join(_text().split())
+        kriterien = text[text.index("## 6. Exit criteria"):text.index("It stops early")]
+        eins = kriterien[kriterien.index("1. "):kriterien.index("2. M5 and M6")]
+        self.assertIn("by a decision of type `preActionAuthorization` whose `decidedAt` is not later than the "
+                      "`performedAt` of the effect", eins)
+        self.assertIn("a post-hoc review, a simulation, or an approval recorded after the effect does not count here",
+                      eins)
+
+    def test_the_data_rule_says_where_refused_bytes_that_arrived_are_kept(self) -> None:
+        """Codex thread 4220774987: refused bytes were never to be kept, and the stored API response of a refused
+        action that arrived holds them; the rule names that response as the one record that keeps them."""
+        text = " ".join(_text().split())
+        daten = text[text.index("## 8. Data"):text.index("## 9. First reconciliation example")]
+        self.assertIn("in the gate's records and in the decision receipt", daten)
+        self.assertIn("that response is the only record of the pilot that holds them", daten)
 
     def test_the_agent_holds_neither_signing_key(self) -> None:
         text = _text()
