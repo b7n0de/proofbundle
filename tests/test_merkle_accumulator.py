@@ -201,6 +201,52 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                     self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                     self.assertTrue(verify_bundle(neu).ok)
 
+    def test_an_overridden_append_does_not_change_the_size_of_the_bundle(self) -> None:
+        """Codex thread 4219691072 on pull request 307: the size was read again after accumulator.append, which a
+        subclass can override to append more before it returns. The root and the path describe the size after this
+        payload's append, and the bundle states that size."""
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.emit import emit_bundle
+        a = _load()
+        echt = _emitter_key()
+
+        class Mehr(a.MerkleAccumulator):
+            def append(self, data):
+                ergebnis = super().append(data)
+                super().append(b"extra")
+                return ergebnis
+        for vorher in (0, 1, 5):
+            leaves = [f"event {i}".encode() for i in range(vorher)]
+            akku = Mehr.from_leaves([])
+            for blatt in leaves:
+                a.MerkleAccumulator.append(akku, blatt)
+            neu = a.emit_bundle_incremental(b"payload", echt, akku)
+            alt = emit_bundle(b"payload", echt, prior_leaves=leaves)
+            with self.subTest(history=vorher):
+                self.assertEqual(akku.size, vorher + 2, "the override appended")
+                self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+                self.assertTrue(verify_bundle(neu).ok)
+
+    def test_the_rebuild_reads_the_leaves_as_the_reference_does(self) -> None:
+        """Codex thread 4219691080 on pull request 307: from_leaves iterated the caller's list through its own
+        __iter__, and emit_bundle reads prior_leaves through the base type. A list subclass that yields other leaves
+        than it stores gave the rebuild another tree than the reference; now both read the stored leaves."""
+        from proofbundle.emit import emit_bundle
+        from proofbundle.merkle import merkle_tree_hash
+        a = _load()
+        echt = _emitter_key()
+
+        class Anders(list):
+            def __iter__(self):
+                return iter([b"x", b"y"])
+        for liste in (Anders([b"a", b"b"]), Anders([bytearray(b"a"), b"b"])):
+            akku = a.MerkleAccumulator.from_leaves(liste)
+            with self.subTest(leaves=[type(b).__name__ for b in list.__iter__(liste)]):
+                self.assertEqual(akku.root(), merkle_tree_hash([b"a", b"b"]))
+                neu = a.emit_bundle_incremental(b"payload", echt, akku)
+                alt = emit_bundle(b"payload", echt, prior_leaves=liste)
+                self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+
     def test_the_signer_is_asked_in_emit_bundles_order(self) -> None:
         """Codex thread 4219203464 on pull request 307: emit_bundle signs and then reads the public key, and the
         accumulator read the key first. A signer whose public_key answers by whether it has signed yet then gave the
@@ -300,6 +346,39 @@ class TheRestartRule(unittest.TestCase):
             gemischt["signature"] = base64.b64encode(self.signer.sign(rfc8785.dumps(gemischt["state"]))).decode()
             with self.assertRaises(self.a.AccumulatorStateError):
                 self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
+
+    def test_a_subclass_that_overrides_the_fold_does_not_decide_the_checks(self) -> None:
+        """The class of Codex thread 4219691072, swept to restore: the root check and the frontier rebuild ran
+        through methods a subclass of the caller can override, which could answer with the stated values. Both
+        checks fold with the accumulator's own methods."""
+        import base64
+        import rfc8785
+        akku, zustand = self._state_at(37, keep=True)
+        pub = _pub(self.signer)
+        fremd = self.a.MerkleAccumulator.from_leaves([b"other " + b for b in _LEAVES[:37]])
+
+        def signiert(inhalt):
+            return {"state": inhalt, "signature": base64.b64encode(self.signer.sign(rfc8785.dumps(inhalt))).decode()}
+        falsche_wurzel = json.loads(json.dumps(zustand["state"]))
+        falsche_wurzel["root"] = "22" * 32
+        fremde_front = json.loads(json.dumps(zustand["state"]))
+        fremde_front["frontier"] = [{"height": h, "root": r.hex()} for h, r in fremd.frontier]
+        fremde_front["root"] = fremd.root().hex()
+
+        class WurzelGefaellig(self.a.MerkleAccumulator):
+            def root(self):
+                return bytes.fromhex("22" * 32)
+
+        class FrontGefaellig(self.a.MerkleAccumulator):
+            @staticmethod
+            def _frontier_from_leaf_hashes(hashes):
+                return list(fremd.frontier)
+        for name, klasse, kaputt, blaetter in (
+                ("root not the fold", WurzelGefaellig, signiert(falsche_wurzel), None),
+                ("frontier of other leaves beside these hashes", FrontGefaellig, signiert(fremde_front),
+                 akku.leaf_hashes)):
+            with self.subTest(case=name), self.assertRaises(self.a.AccumulatorStateError):
+                klasse.restore(kaputt, pub, leaf_hashes=blaetter)
 
     def test_a_signed_state_of_another_shape_or_spelling_is_refused_as_a_state_error(self) -> None:
         """The signature check comes first, so everything after it reads values the pinned key signed, and

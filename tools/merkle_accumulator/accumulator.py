@@ -55,7 +55,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import merkle
 from proofbundle._wire_b64 import decode_b64
-from proofbundle.canonical import _folge_von, canonicalize_statement
+from proofbundle.canonical import _folge_von, _puffer_von, canonicalize_statement
 from proofbundle.emit import SCHEMA
 from proofbundle.errors import ProofBundleError
 from proofbundle.signature import verify_ed25519_pinned
@@ -200,7 +200,10 @@ class MerkleAccumulator:
             raise AccumulatorStateError("the frontier does not have one root per set bit of the size")
         neu = cls(keep_leaf_hashes=leaf_hashes is not None)
         neu.size, neu.frontier = groesse, front
-        if neu.root().hex() != inhalt.get("root"):
+        # The checks fold with this class's own methods, not with ones a subclass of the caller overrides (the
+        # class of Codex thread 4219691072 on pull request 307, swept here): an overridden root or frontier
+        # rebuild could answer with the stated values.
+        if MerkleAccumulator.root(neu).hex() != inhalt.get("root"):
             raise AccumulatorStateError("the stated root is not the fold of the frontier")
         if leaf_hashes is not None:
             # Each leaf hash is 32 bytes, checked before anything hashes them: the digest in the state and the
@@ -217,7 +220,7 @@ class MerkleAccumulator:
             if len(blaetter) != groesse or hashlib.sha256(b"".join(blaetter)).hexdigest() != inhalt.get(
                     "leaf_hashes_sha256"):
                 raise AccumulatorStateError("the leaf hashes are not the ones the state was written with")
-            probe = cls._frontier_from_leaf_hashes(blaetter)
+            probe = MerkleAccumulator._frontier_from_leaf_hashes(blaetter)
             if probe != front:
                 raise AccumulatorStateError("the leaf hashes do not reproduce the frontier")
             neu.leaf_hashes = blaetter
@@ -236,10 +239,14 @@ class MerkleAccumulator:
 
     @classmethod
     def from_leaves(cls, leaves: List[bytes], keep_leaf_hashes: bool = False) -> "MerkleAccumulator":
-        """A deliberate rebuild from the whole history: O(n) hashes, never done by `restore`."""
+        """A deliberate rebuild from the whole history: O(n) hashes, never done by `restore`. The leaves are read
+        as emit_bundle reads prior_leaves: the caller's list once through its base type's own iteration, each leaf
+        through the buffer reading (Codex thread 4219691080 on pull request 307: a list subclass's own __iter__
+        gave this rebuild other leaves than the reference hashes)."""
         neu = cls(keep_leaf_hashes=keep_leaf_hashes)
-        for blatt in leaves:
-            neu.append(blatt)
+        for blatt in _folge_von(leaves):
+            gelesen = _puffer_von(blatt)
+            neu.append(blatt if gelesen is None else gelesen)
         return neu
 
 
@@ -282,8 +289,6 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     the accumulator: the same bytes, the same per-event signature over the payload. Appends the payload."""
     from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
 
-    from proofbundle.canonical import _puffer_von  # noqa: PLC0415
-
     # One reading, before any code of the caller runs, as emit_bundle reads it: the bytes hashed, written and
     # signed are one snapshot. Codex thread 4217987333 on pull request 307: a bytearray payload was hashed
     # here, and a signer that changed it before signing got another payload signed than the one in the tree.
@@ -291,9 +296,10 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
         payload = _puffer_von(payload)
     index = accumulator.size
     wurzel, pfad = accumulator.append(payload)
-    # Every value of the bundle is read before code of the caller runs: the signer's public_key and sign could
-    # append to this accumulator (Codex thread 4218672721 on pull request 307: tree_size was read after them).
-    groesse = accumulator.size
+    # The size the root and the path describe is the one after this append, index + 1, and it is not read back
+    # from the accumulator: the signer's public_key and sign could append to it (Codex thread 4218672721 on pull
+    # request 307), and so could an append a subclass overrides, before it returns (thread 4219691072).
+    groesse = index + 1
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731 - the encoding emit.py uses
     # The signer's methods in emit_bundle's order, sign first and the public key after it: a caller's object may
     # answer by the order it is asked in (Codex thread 4219203464 on pull request 307: public_key came first here).
