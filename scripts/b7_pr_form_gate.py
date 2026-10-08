@@ -215,7 +215,12 @@ def _aufgeloest(ziel: str) -> str:
     if schema == "" or schema in _SPECIAL:
         ziel = ziel.replace("\\", "/")
         rest = ziel[len(schema) + 1:] if schema else ziel
-        if rest.startswith("//"):
+        if schema and schema not in ("https", "file"):
+            # A special scheme other than the base's reads any run of slashes, none included, as the start of the
+            # host: http:/session_123 names the host session_123 (Codex thread 4221642871). The base's own scheme
+            # without two slashes is a relative reference, and file has rules of its own.
+            rest = "//" + rest.lstrip("/")
+        elif rest.startswith("//"):
             rest = "//" + rest.lstrip("/")
         ziel = (schema + ":" if schema else "") + rest
     return urllib.parse.urljoin(_BASIS, ziel)
@@ -258,8 +263,10 @@ def _session_path(adresse: str, *, aus_text: bool) -> bool:
     # segments: a browser removes them only from a hierarchical path (Codex thread 4220777693 on pull request 308).
     undurchsichtig = teile.scheme not in _SPECIAL and not teile.path.startswith("/")
     roh = teile.path.split("/") if undurchsichtig else _ohne_punktsegmente(teile.path)
-    # folded after decoding: %53 decodes to S, and a fold before the decoding never saw it (Codex thread 4221178345)
-    segmente = [urllib.parse.unquote(s).casefold() for s in roh]
+    # folded after decoding, with the whole fold the description gets: %53 decodes to S (Codex thread 4221178345),
+    # %EF%BC%B3 to a full-width S that NFKC makes an S, and an encoded format character is removed (thread 4221642886)
+    segmente = ["".join(z for z in unicodedata.normalize("NFKC", urllib.parse.unquote(s))
+                        if unicodedata.category(z) != "Cf").casefold() for s in roh]
     return any(_SESSION_SEGMENT.match(s) or (s in ("session", "sessions") and i + 1 < len(segmente))
                for i, s in enumerate(segmente))
 

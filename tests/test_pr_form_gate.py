@@ -92,13 +92,17 @@ def _rules(out: str) -> set:
     # Codex thread 4220777711: %5C is data in its segment, so these paths have no session segment
     TEXT + "\n\nSee [the note](https://example.org/%5Csession_123) for it.\n\n" + FOOTER,
     TEXT + "\n\nSee [the note](https://example.org/%5Csessions/0000) for it.\n\n" + FOOTER,
+    # Codex thread 4221642871: a special scheme other than the base's reads any slash run as the start of the host
+    TEXT + "\n\nSee [the host](http:/session_123) for it.\n\n" + FOOTER,
+    TEXT + "\n\nSee [the host](ftp:session_123) for it.\n\n" + FOOTER,
 ], ids=["body", "footer-only", "trailing-lf", "trailing-crlf", "crlf", "prose-generated-with",
         "prose-sessions-page", "prose-session-id", "prose-generated-by-then-a-link",
         "undefined-shortcut-reference", "undefined-full-reference", "undefined-collapsed-reference",
         "session-in-the-query", "session-in-the-fragment", "label-with-underscore", "label-with-star",
         "label-with-backtick", "label-with-tilde", "triple-slash-is-a-host", "dot-segment-resolved-away",
         "absolute-dot-segment", "absolute-encoded-dot-segment", "text-dot-segment", "text-triple-slash-is-a-host",
-        "encoded-backslash-is-data", "encoded-backslash-before-sessions"])
+        "encoded-backslash-is-data", "encoded-backslash-before-sessions", "http-one-slash-is-a-host",
+        "ftp-no-slash-is-a-host"])
 def test_green_a_milestone_and_the_footer_as_the_last_text(tmp_path, capsys, body):
     code, out = _judge(tmp_path, capsys, body=body)
     assert code == 0, out
@@ -224,6 +228,11 @@ _BEFORE_THE_FOOTER = {
     "session-link-wss-backslash": "[run](wss://tool.example\\code\\session_0000)",
     "session-link-encoded-uppercase": "[run](https://tool.example/%53ession_0000)",
     "session-link-encoded-uppercase-sessions": "[run](https://tool.example/%53ESSIONS/0000)",
+    # Codex thread 4221642886: the whole fold after decoding, NFKC and format characters included; and the base's
+    # own scheme with one slash stays a path, as the control of thread 4221642871
+    "session-link-encoded-fullwidth": "[run](https://tool.example/%EF%BC%B3ession_0000)",
+    "session-link-encoded-format-character": "[run](https://tool.example/ses%E2%80%8Bsion_0000)",
+    "session-link-same-scheme-one-slash": "[run](https:/session_0000)",
     "retired-1": RETIRED_1,
     "retired-1-wrapped": RETIRED_1.replace(" a standing ", " a standing\n"),
     "retired-1-upper-case": RETIRED_1.upper(),
