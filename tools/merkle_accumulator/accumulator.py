@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from typing import List, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -70,7 +71,7 @@ class AccumulatorStateError(ValueError):
 
 
 def _leaf(data: bytes) -> bytes:
-    return merkle.leaf_hash(data)          # looked up at call time, so a counter can wrap it
+    return merkle.leaf_hash(data)          # the package's public leaf hash, which reads its argument once
 
 
 def _node(left: bytes, right: bytes) -> bytes:
@@ -171,6 +172,11 @@ class MerkleAccumulator:
                                         f"({type(exc).__name__})") from exc
         if not verify_ed25519_pinned(public_key, signatur, nachricht):
             raise AccumulatorStateError("the state's signature does not verify under the pinned key")
+        # What restore reads is what the signature covers: the state is read back from the signed bytes. The
+        # canonicalizer reads a mapping by what it stores, and `.get` or `[]` of a dict subclass could answer
+        # with another frontier, size and root that fit each other, a state nobody signed (the one-reading
+        # class of Codex thread 4217987333 on pull request 307, swept here).
+        inhalt = json.loads(nachricht)
         # Signed is not well formed: each field restore reads is checked for the shape and spelling state()
         # writes, and anything else is refused as an AccumulatorStateError, never as a raw error.
         if not isinstance(inhalt, dict) or inhalt.get("format") != STATE_FORMAT or inhalt.get(
@@ -271,6 +277,13 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
     the accumulator: the same bytes, the same per-event signature over the payload. Appends the payload."""
     from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
 
+    from proofbundle.canonical import _puffer_von  # noqa: PLC0415
+
+    # One reading, before any code of the caller runs, as emit_bundle reads it: the bytes hashed, written and
+    # signed are one snapshot. Codex thread 4217987333 on pull request 307: a bytearray payload was hashed
+    # here, and a signer that changed it before signing got another payload signed than the one in the tree.
+    if _puffer_von(payload) is not None:
+        payload = _puffer_von(payload)
     index = accumulator.size
     wurzel, pfad = accumulator.append(payload)
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731 - the encoding emit.py uses

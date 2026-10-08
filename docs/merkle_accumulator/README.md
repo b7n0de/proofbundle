@@ -24,7 +24,10 @@ untimed warm-up calls, nearest-rank percentiles:
 - **append alone**: the root and the new leaf's path from the frontier, without the signature.
 
 The SHA-256 calls of one emit and of one append are counted by wrapping the merkle module's leaf and node
-hash, not timed. The runs were taken one after another at one commit, each started with the one-minute
+hash, not timed. At `35563abb`, where these runs were taken, every hash of the tree went through those two
+functions. Main has since routed the tree through `_leaf_hash`, which that wrapping misses; pull request 306
+corrects the harness, and `tests/test_merkle_accumulator.py` counts every SHA-256 call of the merkle module
+and the accumulator, by whichever path. The runs were taken one after another at one commit, each started with the one-minute
 load average below 0.5, on the machine the runtime baseline names.
 
 ## The runs

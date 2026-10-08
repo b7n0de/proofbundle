@@ -6,8 +6,9 @@ for the same ordered leaves, the root, the new leaf's inclusion path, later incl
 consistency proofs are byte-identical, and verify_inclusion and verify_consistency accept them, at the
 sizes 0 to 3 and around every power of two up to 2^12; a bundle emitted through it is byte-identical to
 emit_bundle's; a restart from a persisted state continues identically; a tampered state is refused, never
-rebuilt, while an older state the same key signed is restored, as the module says; and one append makes
-at most 2 * floor(log2(n)) + 2 hash calls, counted, whatever the history.
+rebuilt, while an older state the same key signed is restored, as the module says; what restore reads and
+what the bundle signs is one reading of what the caller passed; and one append makes at most
+2 * floor(log2(n)) + 2 hash calls, counted, whatever the history.
 """
 from __future__ import annotations
 
@@ -140,6 +141,35 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                 self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                 self.assertTrue(verify_bundle(neu).ok)
                 self.assertNotIn("what_is_signed", json.dumps(neu))
+
+    def test_the_payload_is_read_once_before_the_signer_runs(self) -> None:
+        """Codex thread 4217987333 on pull request 307: emit_bundle reads a bytes-like payload once before any
+        code of the caller runs; the accumulator hashed the caller's buffer, and a signer that changed it before
+        signing got b"b" signed beside the tree and the payload of b"a". The bundle is emit_bundle's again."""
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.emit import emit_bundle
+        a = _load()
+        echt = _emitter_key()
+
+        class Umschreiber:
+            def __init__(self, puffer):
+                self.puffer = puffer
+
+            def sign(self, data):
+                self.puffer[:] = b"b"
+                return echt.sign(data)
+
+            def public_key(self):
+                return echt.public_key()
+        for vorher in (0, 1, 5):
+            leaves = [f"event {i}".encode() for i in range(vorher)]
+            p_alt, p_neu = bytearray(b"a"), bytearray(b"a")
+            alt = emit_bundle(p_alt, Umschreiber(p_alt), prior_leaves=leaves)
+            neu = a.emit_bundle_incremental(p_neu, Umschreiber(p_neu), a.MerkleAccumulator.from_leaves(leaves))
+            with self.subTest(history=vorher):
+                self.assertEqual(p_neu, b"b", "the signer ran and changed the caller's buffer")
+                self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+                self.assertTrue(verify_bundle(neu).ok)
 
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
@@ -320,6 +350,25 @@ class TheRestartRule(unittest.TestCase):
             with self.subTest(docstring=name):
                 self.assertEqual(hygiene.scan_text(text, name), [])
 
+    def test_restore_reads_the_state_the_signature_covers(self) -> None:
+        """Codex thread 4217987333 on pull request 307, its class swept to restore: the signature was checked over
+        the canonical form of the mapping, which reads what a dict stores, and the fields were then read through
+        `.get` and `[]`, which a dict subclass answers itself. A subclass answering with the frontier, size and
+        root of another tree, consistent among themselves, restored a state nobody signed."""
+        _akku, zustand = self._state_at(37)
+        fremd = self.a.MerkleAccumulator.from_leaves([b"other " + b for b in _LEAVES[:37]])
+        anders = {"frontier": [{"height": h, "root": r.hex()} for h, r in fremd.frontier], "root": fremd.root().hex()}
+
+        class ZweiLesarten(dict):
+            def get(self, key, default=None):
+                return anders[key] if key in anders else dict.get(self, key, default)
+
+            def __getitem__(self, key):
+                return anders[key] if key in anders else dict.__getitem__(self, key)
+        wieder = self.a.MerkleAccumulator.restore(dict(zustand, state=ZweiLesarten(zustand["state"])), _pub(self.signer))
+        self.assertEqual(wieder.root().hex(), zustand["state"]["root"])
+        self.assertNotEqual(wieder.root(), fremd.root())
+
     def test_a_low_order_pinned_key_refuses_a_state_that_nobody_signed(self) -> None:
         """R = identity, S = 0 verifies for every message under the identity point, so under such a pinned
         key a state needs no private key at all (tests/test_trust_anchor_keys_refused_on_every_surface.py).
@@ -335,34 +384,70 @@ class TheRestartRule(unittest.TestCase):
 
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
+class _CountingHashlib:
+    """A module's `hashlib` for the duration of a count: every `sha256` call is counted, every other name is the
+    real module's."""
+
+    def __init__(self, echt, zaehler) -> None:
+        self._echt, self._zaehler = echt, zaehler
+
+    def sha256(self, *args, **kwargs):
+        self._zaehler[0] += 1
+        return self._echt.sha256(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._echt, name)
+
+
+def _count_sha256(fn, *module) -> int:
+    """Every SHA-256 call the merkle module and the given modules make while `fn` runs, whichever of their
+    functions makes it. Codex thread 4217987321 on pull request 307: the count wrapped the public `leaf_hash`,
+    main's tree calls `_leaf_hash`, and every leaf of an emit went uncounted (127 instead of at least 256 at 64
+    prior leaves). A count by the name of a function misses the next path that does not take that name."""
+    from proofbundle import merkle
+    zaehler = [0]
+    module = (merkle, *module)
+    echt = [m.hashlib for m in module]
+    for m in module:
+        m.hashlib = _CountingHashlib(m.hashlib, zaehler)
+    try:
+        fn()
+    finally:
+        for m, h in zip(module, echt):
+            m.hashlib = h
+    return zaehler[0]
+
+
 class HashWorkPerAppendDoesNotRecomputeTheHistory(unittest.TestCase):
-    """Counted, not timed: the merkle module's two hash functions are wrapped for the count."""
+    """Counted, not timed: every SHA-256 call of the merkle module and of the accumulator, by any path."""
 
-    def _count(self, fn) -> int:
+    def _count(self, fn, a=None) -> int:
+        return _count_sha256(fn, *((a,) if a is not None else ()))
+
+    def test_the_count_is_the_rfc_6962_count_and_follows_any_path(self) -> None:
+        """The control, from arithmetic and not from the code counted: an RFC 6962 tree over n leaves hashes n
+        leaves and n - 1 nodes. And a leaf path the counter has never heard of is counted all the same."""
         from proofbundle import merkle
-        zaehler = [0]
-        alt_leaf, alt_node = merkle.leaf_hash, merkle._node_hash
+        for n in range(1, 10):
+            with self.subTest(leaves=n):
+                self.assertEqual(self._count(lambda: merkle.merkle_tree_hash(_LEAVES[:n])), 2 * n - 1)
+        alt = merkle._leaf_hash
 
-        def leaf(d):
-            zaehler[0] += 1
-            return alt_leaf(d)
-
-        def node(left, right):
-            zaehler[0] += 1
-            return alt_node(left, right)
-        merkle.leaf_hash, merkle._node_hash = leaf, node
+        def anderer_weg(data):
+            return merkle.hashlib.sha256(b"\x00" + bytes(data)).digest()
+        merkle._leaf_hash = anderer_weg
         try:
-            fn()
+            self.assertEqual(self._count(lambda: merkle.merkle_tree_hash(_LEAVES[:8])), 15)
         finally:
-            merkle.leaf_hash, merkle._node_hash = alt_leaf, alt_node
-        return zaehler[0]
+            merkle._leaf_hash = alt
+        self.assertIs(merkle.hashlib, __import__("hashlib"), "the module's hashlib is restored")
 
     def test_every_append_up_to_4097_stays_within_the_logarithmic_bound(self) -> None:
         a = _load()
         akku = a.MerkleAccumulator()
         schlimmste = 0
         for groesse in range(1, 4098):
-            anzahl = self._count(lambda: akku.append(_LEAVES[groesse - 1]))
+            anzahl = self._count(lambda: akku.append(_LEAVES[groesse - 1]), a)
             grenze = 2 * (groesse.bit_length() - 1) + 2
             self.assertLessEqual(anzahl, grenze, groesse)
             schlimmste = max(schlimmste, anzahl)
@@ -376,7 +461,7 @@ class HashWorkPerAppendDoesNotRecomputeTheHistory(unittest.TestCase):
             vorher = _LEAVES[:groesse]
             akku = a.MerkleAccumulator.from_leaves(vorher)
             alt = self._count(lambda: emit_bundle(b"payload", signer, prior_leaves=vorher))
-            neu = self._count(lambda: a.emit_bundle_incremental(b"payload", signer, akku))
+            neu = self._count(lambda: a.emit_bundle_incremental(b"payload", signer, akku), a)
             with self.subTest(history=groesse):
                 self.assertGreaterEqual(alt, 4 * groesse)
                 self.assertLessEqual(neu, 2 * ((groesse + 1).bit_length() - 1) + 2)
