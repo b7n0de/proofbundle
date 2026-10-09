@@ -487,6 +487,48 @@ def _expansion_present(command: str) -> bool:
     return False
 
 
+#: Characters with which a shell may rewrite an unquoted word into other words or other text before git sees it (review
+#: 2026-10-09, F2): a glob (`*`, `?`, `[`, every POSIX shell), a brace expansion (`{`, bash, zsh and ksh) and zsh's
+#: extended glob (`^`, `#`, under EXTENDED_GLOB). A `(` ends the word for the lexer, so an extglob or a glob qualifier
+#: never reaches a free form. zsh's `~` inside a word excludes only together with another of these characters (measured
+#: with zsh 5.9: `a.txt~b` stays as it is, `a.tx#t~b` becomes `a.txt`), so it needs no entry of its own.
+_REWRITE_CHARS = frozenset("*?[{^#")
+#: The tilde forms the gate models as os.path.expanduser does: `~` or `~name`, then a slash or the end of the word. The
+#: shell's `~+`, `~-` and `~N` name directories of the shell's own state, which the gate cannot read.
+_TILDE_MODELLED = re.compile(r"~(?:[A-Za-z_][A-Za-z0-9._-]*)?(?:/|$)")
+
+
+def _shell_rewrites(raw: str, tilde_modelled: bool = False) -> bool:
+    """Whether the shell may rewrite the word as written (its raw text, quotes included) before the command sees it: an
+    unquoted, unescaped character of _REWRITE_CHARS; a leading `~` (a home or a directory of the shell's state) unless
+    tilde_modelled and the form is one _TILDE_MODELLED names; a `~` right after an unquoted `=` or `:` (bash expands
+    `a=~/x`, zsh under MAGIC_EQUAL_SUBST also `--file=~/x`; measured); or a leading `=` (zsh's command path). Inside
+    '…' and "…" and after a backslash a character is literal. A word that may be rewritten is not the word the gate
+    read: a file named `--edit` turns `*` into an option (review 2026-10-09, F2)."""
+    if raw.startswith("="):
+        return True
+    if raw.startswith("~") and not (tilde_modelled and _TILDE_MODELLED.match(raw)):
+        return True
+    i, n = 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "'":
+            j = raw.find("'", i + 1)
+            i = n if j < 0 else j + 1
+        elif c == '"':
+            i += 1
+            while i < n and raw[i] != '"':
+                i += 2 if raw[i] == "\\" else 1
+            i += 1
+        elif c == "\\":
+            i += 2
+        elif c in _REWRITE_CHARS or (c == "~" and i > 0 and raw[i - 1] in "=:"):
+            return True
+        else:
+            i += 1
+    return False
+
+
 def _hooks_off(key: str) -> bool:
     """Whether a git config key is `core.hooksPath` (any case), which would redirect or disable the hook."""
     return key.strip().lower() == "core.hookspath"
@@ -500,15 +542,20 @@ _ADD_OPTIONS = frozenset({"-A", "--all", "-u", "--update"})
 _COMMIT_FLAGS = frozenset({"-a", "--all", "-q", "--quiet"})
 
 
-def _plain_add_commit(sub: str, args: list[str]) -> bool:
+def _plain_add_commit(sub: str, args: list[str], rewrites: list[bool] | None = None) -> bool:
     """Whether `git <sub> <args>` is one of the two plain forms K-NW-2 B frees after the state check: `git add` with
     pathspecs and only the options of _ADD_OPTIONS, or `git commit` with at least one message and only -a, -q and
-    pathspecs. A `--` ends the options; a lone `-` is no pathspec here."""
+    pathspecs. A `--` ends the options; a lone `-` is no pathspec here. `rewrites` says, word by word, whether the
+    shell may rewrite it (_shell_rewrites): such a word before the `--` that ends the options, a message included,
+    may become an option, so the form is not free (review 2026-10-09, F2); after that `--` it stays a pathspec."""
     after_dashdash = False
+    rewritten = list(rewrites) if rewrites is not None else [False] * len(args)
     if sub == "add":
-        for word in args:
+        for n, word in enumerate(args):
             if after_dashdash:
                 continue
+            if rewritten[n]:
+                return False
             if word == "--":
                 after_dashdash = True
             elif word.startswith("-") and word not in _ADD_OPTIONS:
@@ -522,10 +569,12 @@ def _plain_add_commit(sub: str, args: list[str]) -> bool:
         if after_dashdash:
             i += 1
             continue
+        if rewritten[i]:
+            return False
         if word == "--":
             after_dashdash = True
         elif word in ("-m", "--message"):
-            if i + 1 >= len(args):
+            if i + 1 >= len(args) or rewritten[i + 1]:
                 return False
             message, i = True, i + 1
         elif word.startswith("--message="):
@@ -539,7 +588,7 @@ def _plain_add_commit(sub: str, args: list[str]) -> bool:
                 if letter != "m":
                     return False
                 if not word[n + 2:]:          # -am: the message is the next word
-                    if i + 1 >= len(args):
+                    if i + 1 >= len(args) or rewritten[i + 1]:
                         return False
                     i += 1
                 message = True                # -mMSG or -aqmMSG: the rest of the word is the message
@@ -717,8 +766,8 @@ _FROM_DIRECTORY = object()
 _BARE_VERSION = re.compile(r"[ \t]*git[ \t]+--version[ \t]*")
 
 
-def _strict_git(words: list[str], directory: str | None,
-                free_base: object = _FROM_DIRECTORY) -> tuple[str, str | None, list[str] | None] | None:
+def _strict_git(words: list[str], directory: str | None, free_base: object = _FROM_DIRECTORY,
+                rewrites: list[bool] | None = None) -> tuple[str, str | None, list[str] | None] | None:
     """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call, or None
     only for the bare `git --version` that is the whole command (free_base _FROM_DIRECTORY): since review Runde 9
     (owner choice B) no other git form is free, and every form that acts on a repository is NOT MEASURED
@@ -777,7 +826,7 @@ def _strict_git(words: list[str], directory: str | None,
             return None
         return ("git --version" if words == ["--version"] else "git"), UNKNOWN, [_NOT_FREE]
     if sub in ("add", "commit") and i == 0 and free_base is _FROM_DIRECTORY and start is not UNKNOWN \
-            and _plain_add_commit(sub, args):
+            and _plain_add_commit(sub, args, None if rewrites is None else rewrites[i + 1:]):
         # K-NW-2 B (2026-10-08): the whole command is a plain `git add` or `git commit -m` with no global option;
         # the judge frees it only after the state check of its repository.
         return f"git {sub}", directory, [_STATE_FREE]
@@ -902,6 +951,9 @@ def _resolve_single(words: list[tuple], directory: str | None,
     head = words[i][0]
     base = os.path.basename(head)
     rest = [w[0] for w in words[i + 1:]]
+    # The value of a `-C` is joined with os.path.expanduser (_strict_git), so a plain `~` there is modelled.
+    rewritten = [_shell_rewrites(w[2], tilde_modelled=k > i + 1 and words[k - 1][0] == "-C")
+                 for k, w in enumerate(words) if k > i]
     if base not in ("git", "git-push", "gh"):
         return []
     bare = head == base
@@ -909,11 +961,11 @@ def _resolve_single(words: list[tuple], directory: str | None,
         name = _gh_call(rest)
         if name is None:
             return []
-        return [(name, directory if (bare and neutral_only) else UNKNOWN, None)]
+        return [(name, directory if (bare and neutral_only and not any(rewritten)) else UNKNOWN, None)]
     # A program path (`./git`, `/opt/x/git`) names a program the gate does not know, so even `git --version` there
     # is NOT MEASURED (review Runde 7, R7-4; Runde 8, R8-5).
     call = (("git push", directory, rest) if base == "git-push"
-            else _strict_git(rest, directory, free_base=_FROM_DIRECTORY if bare else UNKNOWN))
+            else _strict_git(rest, directory, free_base=_FROM_DIRECTORY if bare else UNKNOWN, rewrites=rewritten))
     if call is None:
         # The free `git --version` is free only without an unvetted prefix assignment: the environment selects
         # programs as configuration does (review Runde 6, R6-2 class), so it is NOT MEASURED.
@@ -924,6 +976,10 @@ def _resolve_single(words: list[tuple], directory: str | None,
     if detail == [_STATE_FREE] and not neutral_only:
         return [(name, UNKNOWN, [_NOT_FREE])]  # an unvetted assignment may select a program, as configuration does
     if not (bare and neutral_only):
+        return [(name, UNKNOWN, None)]
+    if cdir is not UNKNOWN and detail != [_STATE_FREE] and any(rewritten):
+        # A word the shell may rewrite is not the word the resolver read: the target, a refspec or an option of the
+        # push may differ (review 2026-10-09, F2). The plain forms decided that word by word above.
         return [(name, UNKNOWN, None)]
     return [call]
 
@@ -3519,6 +3575,8 @@ def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] 
     toks = _lex(_drop_comments(command))
     if toks is None or any(t[0] == "op" for t in toks) or _expansion_present(command):
         return None
+    if any(_shell_rewrites(t[3]) for t in toks if t[0] == "word"):
+        return None  # the approved text is not the command git gets when the shell rewrites a word (F2)
     words = [t[1] for t in toks if t[0] == "word"]
     if len(words) < 2 or words[0] != "git" or words[1].startswith("-"):
         return None
@@ -3635,7 +3693,26 @@ def _codex_plain_push(command: str) -> bool:
     if len(words) < 2 or _ASSIGNMENT.match(words[0][0]):
         return False
     (head, head_subst, head_raw), (sub_word, sub_subst, sub_raw) = words[0], words[1]
-    return head == head_raw == "git" and sub_word == sub_raw == "push" and not (head_subst or sub_subst)
+    if not (head == head_raw == "git" and sub_word == sub_raw == "push" and not (head_subst or sub_subst)):
+        return False
+    return not _push_options_rewritten(words[2:])
+
+
+def _push_options_rewritten(words: list[tuple]) -> bool:
+    """Whether a word among `git push`'s options, before the `--` that ends them, may be rewritten by the shell
+    (_shell_rewrites): `--no-verif?` with a file named `--no-verify` turns the pre-push hook off (review 2026-10-09,
+    F2). A `--` ends the options only after a word that takes no value: `push` itself, a word that is no option, a
+    target-neutral flag or an inline `--opt=value`; after any other option it may be that option's value (`-o --`),
+    so the options go on. After the `--` that ends them a word is a repository or a refspec, and the hook still runs."""
+    takes_value = False
+    for value, _subst, raw in words:
+        if value == "--" and not takes_value:
+            return False
+        if _shell_rewrites(raw):
+            return True
+        takes_value = (value.startswith("-") and value != "-" and "=" not in value
+                       and value not in _PUSH_FLAGS_NEUTRAL)
+    return False
 
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
@@ -4004,11 +4081,13 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                 verdicts.append(Verdict(
                     "ask", unbound + " Under Codex only the plain form `git push …` warns: one command headed by a "
                                      "bare `git`, with no prefix assignment, chain, wrapper, global option, other "
-                                     "git path or expansion (owner choice K5-1 C, DECISIONS.md D12). This form is "
-                                     "not that form, so it may step around the pre-push hook.",
+                                     "git path or expansion, and no option word the shell may rewrite, such as a "
+                                     "glob (owner choice K5-1 C, DECISIONS.md D12; review 2026-10-09, F2). This form "
+                                     "is not that form, so it may step around the pre-push hook.",
                     "codex_push_not_plain", evidence=f"the repository and target {name} acts on",
                     failed="the push is not the plain form `git push …` headed by a bare `git` with no prefix "
-                           "assignment, chain, wrapper, global option, other git path or expansion",
+                           "assignment, chain, wrapper, global option, other git path, expansion or option word the "
+                           "shell may rewrite",
                     next_step="run the push as the plain `git push <remote> <refspec>` on its own, or have a person "
                               "push"))
                 continue
@@ -4063,10 +4142,12 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
             continue
         if resolved is UNKNOWN:
             verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {name} acts on "
-                                           "(a directory change or a git option it does not resolve).",
+                                           "(a directory change, a git option it does not resolve, or a word the "
+                                           "shell may rewrite, such as a glob).",
                                     "directory_unresolved", evidence=f"unknown, the repository {name} acts on",
                                     failed="the gate cannot resolve the directory",
-                                    next_step="run the call in the repository's directory, with a literal path"))
+                                    next_step="run the call in the repository's directory, with a literal path and "
+                                              "literal words"))
             continue
         try:
             verdicts.append(_evaluate_call(name, resolved, detail, deadline))

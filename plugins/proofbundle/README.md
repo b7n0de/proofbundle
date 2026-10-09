@@ -434,7 +434,9 @@ trusts. It states what the done check verified, not that the tests test anything
   K-NW-2 B). In a repository with a filter, a hook the form runs, fsmonitor, a signature program, or a key, hook or
   `GIT_*` name the check does not know, it asks (Claude Code) or denies (Codex), and in a run without a person the
   agent cannot commit there; the done check can then only pass on an uncommitted state. Under Codex the check reads
-  the session directory, because the hook is not told where a command runs.
+  the session directory, because the hook is not told where a command runs. A word the shell may rewrite before the
+  `--` that ends the options (an unquoted glob, brace, zsh extended glob or tilde) leaves the form not free, because a
+  file named like an option turns it into one (review 2026-10-09, F2); `git add -- *.py` stays free.
 - The `TaskCompleted` hook keeps every task open in a repository whose order is not done, whatever the task.
 
 `proofbundle_gate.py done-check --repo DIR [--receipt FILE | --receipt-dir DIR] [--at-commit REV]` makes the same
@@ -480,7 +482,8 @@ The gate behaves differently under Codex in two ways:
   so it could judge a different repository than the push acts on. **A plain `git push` under Codex warns with
   that reason and is not denied** (owner choice Karte 5 A with D, 2026-10-08). Plain means one command headed by
   a bare `git` with `push` right after it, with no prefix assignment, chain, wrapper, global option, other git
-  path or expansion; every other push form is denied (`codex_push_not_plain`, owner choice K5-1 C, 2026-10-08),
+  path or expansion, and no option word the shell may rewrite (a glob such as `--no-verif?`, review 2026-10-09,
+  F2); every other push form is denied (`codex_push_not_plain`, owner choice K5-1 C, 2026-10-08),
   because it may step around the hook. The boundary is the done check at the
   end of the session and the required CI check, and git's `pre-push` hook (Level 2, D24) checks the push in its
   own repository where it is installed, the evidence and the done check at the pushed commit (D30); you install

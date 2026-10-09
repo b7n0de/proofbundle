@@ -270,6 +270,18 @@ Any other option (`-p`, `-i`, `-e`, `--renormalize`, `-S`, `-v`, `--amend`, `-F`
 answer is a `pass`: a message, no permission decision, so the host's own permission flow applies. Reason id
 `free_after_state_check`.
 
+A word the shell may rewrite before git sees it is not the word the gate read (review 2026-10-09, F2, measured at
+91a52faa: with a file named `--edit`, `git commit -m msg *` was free and bash makes `*` into `--edit`, which starts an
+editor). Before the `--` that ends the options, a message included, every word must be literal: no unquoted glob
+(`*`, `?`, `[`), brace (`{`), zsh extended glob (`^`, `#`), leading `~`, `~` after `=` or `:`, or leading `=`
+(`_shell_rewrites`). Otherwise the form is not free. After that `--` a rewritten word is a pathspec and the form stays
+free (`git commit -m msg -- *`). The same predicate decides, for the same reason, the plain push under Codex (D12),
+every push and gh call Level 1 resolves under Claude Code (a rewritten word anywhere leaves its repository and target
+NOT MEASURED) and the candidates for a human rule of D25 (a command with a rewritten word is none: the approved text
+is not the command git gets). zsh's `~` inside a word excludes only together with another glob character (measured
+with zsh 5.9), so alone it is literal. The value of a `-C` keeps the plain `~` and `~name` the gate joins with
+os.path.expanduser; `~+`, `~-` and `~N` name directories of the shell's state and leave it NOT MEASURED.
+
 The state check (`_add_commit_state_problem`), in the hook's environment, so git reads the same files the call reads:
 - the effective configuration with every include, read by `git config --list --show-origin --show-scope`. A key of
   a program source is named as such: `filter.*` (an empty driver name included), `hook.*` and
@@ -651,7 +663,10 @@ UNDER CODEX ONLY THE PLAIN GIT PUSH WARNS (owner choice K5-1 C, 2026-10-08)
   any kind (a neutral one like `LANG=C` included), no chain, pipeline, background, subshell or group, no wrapper
   (`env`, `command`, `exec`, `nice`, `time`, `bash -c`, `sh -c`, `eval`), no global option before `push` (`-c`,
   `-C`, `--git-dir`, `--exec-path`), no other git path or program (`/usr/bin/git`, `./git`, `git-push`, a quoted
-  `'git'`) and no expansion. Options and arguments after `push` and a redirection keep the form plain.
+  `'git'`) and no expansion. Options and arguments after `push` and a redirection keep the form plain, as long as
+  every word before the `--` that ends the push's options is literal (D3, `_shell_rewrites`; review 2026-10-09, F2:
+  `git push --no-verif?` with a file named `--no-verify` warned at 91a52faa, and bash makes it `--no-verify`). A `--`
+  ends the options only after a word that takes no value; after `-o` it may be that option's value.
 - Only that form warns (`_codex_plain_push` in the gate). Every other push form gets the reason id
   `codex_push_not_plain` and is denied under Codex, with the next step to run the plain form on its own or to have
   a person push. A form that turns hooks off on the command line keeps its earlier `hooks_disabled` deny.
