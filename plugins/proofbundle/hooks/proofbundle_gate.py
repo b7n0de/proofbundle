@@ -794,7 +794,6 @@ _STATE_INERT_PATTERN = re.compile(r"(remote\.[^\n]*\.(url|pushurl|fetch)|branch\
                                   r"|url\.[^\n]*\.(insteadof|pushinsteadof))")
 #: The spellings of false that git reads as false and the state check accepts for commit.gpgSign and core.fsmonitor.
 #: Every other value, a number included (review Runde 9: `2`, `1k`, `0x1` are true), counts as on.
-_FALSE_WORDS = frozenset({"false", "no", "off", "0"})
 #: Hook names githooks(5) of git 2.43 documents and neither `git add` nor `git commit -m` runs: the hooks of push,
 #: receive, rebase, checkout, merge, am, send-email and p4, and fsmonitor-watchman, which only core.fsmonitor selects.
 #: A hook of any other name, an unknown one included, leaves the form not free (pre-commit, prepare-commit-msg,
@@ -814,22 +813,35 @@ _STATE_INERT_ENV = re.compile(r"GIT_(CONFIG_(GLOBAL|SYSTEM|NOSYSTEM|PARAMETERS|C
                               r"|ASKPASS|SSH|SSH_COMMAND|SSH_VARIANT|SSL_[A-Z_]+|HTTP_[A-Z_]+)")
 
 
-def _program_source(key: str, value: str | None) -> str | None:
+def _git_false(directory: str, value: str | None, deadline: float) -> bool:
+    """Whether git reads value as the boolean false, asked of git itself with no configuration read (--type=bool on a
+    default the null device cannot override, as _git_path does): `0`, ` 0`, `00`, `FALSE` and the empty value are
+    false, ` no`, `no `, `false ` and `0 ` are no boolean at all, and core.fsmonitor then names a program git starts
+    (measured with git 2.43.0; review round 5 of 2026-10-09, the class of R5-1: a strip made them `no` and `false`).
+    A key without a value is true."""
+    if value is None:
+        return False
+    out = _run_git(directory, ("config", "--file", os.devnull, "--type=bool", "--default", value, "--get",
+                               "proofbundle-gate.boolean"), deadline)
+    return out.returncode == 0 and out.stdout == b"false\n"
+
+
+def _program_source(key: str, value: str | None, directory: str, deadline: float) -> str | None:
     """The program source a lower-cased configuration key names for `git add` or `git commit -m`, or None: a filter
     driver (any filter.* key, an empty driver name included), a hook (config hooks and gc.recentObjectsHook, which
     automatic maintenance runs after a commit), fsmonitor, a signature program (gpg.program, gpg.<format>.program,
     gpg.ssh.defaultKeyCommand, commit.gpgSign on), or automatic maintenance beyond git's own default (maintenance.*,
-    gc.*)."""
+    gc.*). fsmonitor and commit.gpgSign are off only where git itself reads the value as false (_git_false)."""
     if key.startswith("filter."):
         return "filter"
     if key.startswith("hook.") or key == "gc.recentobjectshook":
         return "hook"
-    if key == "core.fsmonitor" and not (value is not None and value.strip().lower() in _FALSE_WORDS):
+    if key == "core.fsmonitor" and not _git_false(directory, value, deadline):
         return "fsmonitor"
     if key == "gpg.program" or (key.startswith("gpg.") and key.endswith(".program")) \
             or key == "gpg.ssh.defaultkeycommand":
         return "signature program"
-    if key == "commit.gpgsign" and not (value is not None and value.strip().lower() in _FALSE_WORDS):
+    if key == "commit.gpgsign" and not _git_false(directory, value, deadline):
         return "signature program"
     if key.startswith("maintenance.") or key.startswith("gc."):
         return "automatic maintenance"
@@ -877,7 +889,7 @@ def _add_commit_state_problem(directory: str, deadline: float, environ: dict | N
         return f"in the {scope} configuration {where}"
 
     for scope, origin, key, value in entries:
-        source = _program_source(key.lower(), value)
+        source = _program_source(key.lower(), value, directory, deadline)
         if source is not None:
             return f"a {source}: {key} {origin_of(scope, origin)}"
     for scope, origin, key, value in entries:

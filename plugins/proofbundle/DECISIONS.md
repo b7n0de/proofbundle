@@ -316,7 +316,11 @@ The state check (`_add_commit_state_problem`), in the hook's environment, so git
   a program source is named as such: `filter.*` (an empty driver name included), `hook.*` and
   `gc.recentObjectsHook` (a hook), `core.fsmonitor` unless false, `gpg.program`, `gpg.<format>.program`,
   `gpg.ssh.defaultKeyCommand` and `commit.gpgSign` unless false (a signature program; a number is true, review
-  Runde 9), `maintenance.*` and `gc.*` (automatic maintenance). An entry that came in through an include is named
+  Runde 9), `maintenance.*` and `gc.*` (automatic maintenance). "False" is what git itself reads as false
+  (`git config --type=bool` on the value, no configuration read): `0`, ` 0`, `00`, `FALSE` and the empty value are
+  false; ` no`, `no `, ` false`, `false ` and `0 ` are no boolean, and core.fsmonitor then names a program git starts
+  (measured with git 2.43.0, review round 5 of 2026-10-09, the class of R5-1; a strip had read them as false, and
+  `00` and the empty value, which start nothing, as on). An entry that came in through an include is named
   with the included file. Every other key must be on the positive list `_STATE_INERT_KEYS` /
   `_STATE_INERT_PATTERN` (repository format, stat and line-ending options, identity, editor and pager, signing
   settings that act only when signing is on, the settings of other commands, the transport settings), or the form
