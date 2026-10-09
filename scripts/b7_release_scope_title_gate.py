@@ -330,20 +330,38 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
 _NICHT_BEGONNEN = "(not started)"
 
 
+#: A header cell that names a branch column, in any position and in the forms a writer uses.
+_ZWEIGKOPF = re.compile(r"\b(?:branch(?:es)?|zweig(?:e)?)\b", re.IGNORECASE)
+#: The separator row under a markdown table header.
+_TRENNZEILE = re.compile(r"^\|?(?:\s*:?-+:?\s*\|)+\s*:?-*:?\s*\|?$")
+
+
 def _als_nicht_begonnen_ausgewiesen(text: str, im_umfang: str) -> bool:
     """True when the title of the file declares it not started AND no In table heads a branch column.
 
     The title is the first level-one heading. Both conditions are needed: the declaration alone
     would also cover a file whose branch column the reader cannot read, and that file must stay
-    NOT MEASURABLE."""
+    NOT MEASURABLE.
+
+    A BRANCH COLUMN IN ANY POSITION COUNTS (Codex on pull request 327, P2, measured at its head):
+    the first version looked only at the LAST header cell, the one `lies_umfang` reads, so a
+    declared file headed `| Item | Branch | Why |` counted as having no branch column and its
+    branch was judged outside the scope instead of NOT MEASURABLE. The reader reads the last
+    column; a branch column anywhere else is one it cannot read, and that is the malformed file
+    this rule must not loosen. Only HEADER rows are asked, the row above a separator, because the
+    rows of a real unstarted scope say "no frozen branch" in their prose."""
     titel = next((z for z in text.splitlines() if z.startswith("# ")), "")
     if _NICHT_BEGONNEN not in titel:
         return False
-    for zeile in im_umfang.splitlines():
+    zeilen = im_umfang.splitlines()
+    for i, zeile in enumerate(zeilen):
         if not zeile.startswith("|") or zeile.count("|") < 3:
             continue
         spalten = [s.strip() for s in zeile.strip("|").split("|")]
         if spalten and spalten[-1].lower() in _ZWEIGSPALTE:
+            return False
+        kopf = i + 1 < len(zeilen) and _TRENNZEILE.match(zeilen[i + 1].strip())
+        if kopf and any(_ZWEIGKOPF.search(s.strip("`*_ ")) for s in spalten):
             return False
     return True
 
