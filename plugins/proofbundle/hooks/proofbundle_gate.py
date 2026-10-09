@@ -4974,15 +4974,21 @@ def _tally(repo: str, **increments) -> None:
 
 
 def _blocker(result: dict, session: str, blocks: int) -> dict:
+    """The blocker file: every open point of the last verdict, in its order, with what it found and the command that
+    closes it (review 2026-10-09, F5: a missing change in the order's paths was not named, and the paths outside them
+    were lost when it came first); the paths the order names, the commit it was compared with, and each check."""
     state = result["state"] or {}
     checks = [{"id": row["id"], "status": row["status"], "detail": row["failed"] or "verified", "command": row["command"]}
               for row in result["checks"]]
-    opened = [p for p in result["open"] if p["id"] == "paths"]
+    opened = [{"id": p["id"], "status": p["status"], "detail": p["failed"], "command": p["command"],
+               **({"outside": p["outside"]} if "outside" in p else {})} for p in result["open"]]
+    outside = next((p.get("outside", []) for p in result["open"] if p["status"] == "outside_paths"), [])
+    done = result["done"] or {}
     return {"schema": DONE_FILES_SCHEMA.format("blocker"), "verdict": "NOT DONE", "written": _now(),
             "session": session, "blocks_without_progress": blocks - 1, "head": result["commit"],
             "tree": state.get("tree"), "working_tree": state.get("worktree"),
-            "clean": (state.get("worktree") == state.get("tree")) if state else None, "checks": checks,
-            "outside_paths": opened[0].get("outside", []) if opened else [],
+            "clean": (state.get("worktree") == state.get("tree")) if state else None, "open": opened,
+            "checks": checks, "paths": done.get("paths"), "order_base": result.get("base"), "outside_paths": outside,
             "text": "NOT DONE. The Stop hook stopped blocking after the same open points stayed open; this file names "
                     "them and the state the gate measured. It is not a receipt and proves nothing about the tests."}
 

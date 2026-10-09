@@ -1410,7 +1410,12 @@ Chosen (option B of the owner card for N1):
   sets `continue`. Codex runs the same `stop` from `.codex-plugin/plugin.json` with `--host codex`.
 - After `max_blocks` blocks with the same open points (kind and check, not the trees) in the same session, the hook
   writes `.proofbundle/done-blocker.json` with the open points, their commands and the commit, tree and working
-  tree it measured, and lets the session end without a done verdict. A pass removes the blocker.
+  tree it measured, and lets the session end without a done verdict. A pass removes the blocker. `open` is every
+  open point of the last verdict in its order (status, what was found, the command, and the paths for
+  outside_paths), `paths` the order's patterns and `order_base` the commit that declared the order; `checks` lists
+  every check. Measured by the review of 2026-10-09 (F5) and in the host runs codex_run_nochange and
+  codex_sandbox-nochange of 2026-10-08: before, the blocker listed only the checks, all green, and an empty
+  `outside_paths`, so the one open point, no change in the order's paths, was not in it.
   `.proofbundle/done-metrics.json` counts blocked ends, blocked task completions, missing checks, ends completed
   after a block, blockers and passes; `.proofbundle/done-state.json` holds the current count. The files are written
   through a fresh temporary file that replaces them, never through a link, and are untracked under `.proofbundle/`,

@@ -364,8 +364,9 @@ policy or the key to end the session.
 
 The hook never sets `continue: false`; a block asks the host to go on working. After `max_blocks` blocks (3 by
 default, at most 7) with the same open points in the same session, the hook writes `.proofbundle/done-blocker.json`
-with the open points, the commands, and the commit, tree and working tree it measured, and lets the session end
-without a done verdict (`NOT DONE`). The file is not a receipt and proves nothing about the tests. A later pass
+with every open point of the last verdict (`open`: a missing change in the order's paths, paths outside them, each
+open check), the commands, the order's paths and the commit it was compared with, and the commit, tree and working
+tree it measured, and lets the session end without a done verdict (`NOT DONE`). The file is not a receipt and proves nothing about the tests. A later pass
 removes it. `.proofbundle/done-metrics.json` counts, locally and without any network, the blocked ends, the
 missing checks, the ends after a block that were completed, the blockers and the passes, and
 `.proofbundle/done-state.json` holds the count of the current session. None of the three is part of the working
