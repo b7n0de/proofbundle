@@ -139,6 +139,13 @@ include Makefile
 # outside a checkout the file is absent and not in SOURCES.txt, so `tests/conftest.py` reports the
 # module as a skip that names the file instead of aborting collection.
 #
+# OUT, and deliberately decided (2026-09-28): scripts/b7_pr_form_gate.py. It judges the milestone
+# and the description of one pull request of this repository from the event payload the runner
+# writes, and `.github/workflows/pr-form.yml` runs it on every pull request. An installed package
+# has no pull request and no event payload, the same reason `b7_release_scope_title_gate.py` stands
+# outside. Its contract `tests/test_pr_form_gate.py` loads it through `spec_from_file_location` on
+# module level, so `tests/conftest.py` reports the module as a skip outside a checkout.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der
