@@ -1478,7 +1478,11 @@ Chosen (option B of the owner card for N1):
   `.proofbundle/done-metrics.json` counts blocked ends, blocked task completions, missing checks, ends completed
   after a block, blockers and passes; `.proofbundle/done-state.json` holds the current count. The files are written
   through a fresh temporary file that replaces them, never through a link, and are untracked under `.proofbundle/`,
-  so they are not part of the working state. Their content is counted, never trusted for a verdict.
+  so they are not part of the working state. Their content is counted, never trusted for a verdict. The count binds
+  the session by the sha256 of the host's session id, and no done file is written larger than the 64 KiB the hook
+  reads back, so the hook can always read its own record at the next stop; a present count it cannot read is named
+  in the block, which then counts as the first (review round 4 of 2026-10-09, R4-3: a session id of 65536 characters
+  made a record of 65684 bytes that the next read discarded, and the session never reached the blocker).
 - Claude Code's `TaskCompleted` hook runs the same check. The gate prints the line and exits 0; the hook command
   turns a printed line into exit 2 with the line on stderr, and any other exit into exit 2 with its own line,
   because Python itself exits 2 when it cannot open the gate (measured). Codex has no such event.

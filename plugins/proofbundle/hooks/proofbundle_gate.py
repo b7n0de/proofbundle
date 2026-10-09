@@ -5251,9 +5251,33 @@ def _read_done_file(repo: str, name: str, kind: str) -> dict | None:
     return doc if isinstance(doc, dict) and doc.get("schema") == DONE_FILES_SCHEMA.format(kind) else None
 
 
+def _done_file_problem(repo: str, name: str, kind: str) -> str | None:
+    """Why one of the done check's own files is present but cannot be read back (_read_done_file), None when it is
+    absent or readable (review round 4 of 2026-10-09, R4-3: a record the next count cannot read is named, not taken
+    for a first block in silence)."""
+    path = os.path.join(repo, *name.split("/"))
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return f"{name} cannot be examined ({exc.strerror or exc})"
+    if _read_done_file(repo, name, kind) is not None:
+        return None
+    if not stat.S_ISREG(st.st_mode):
+        return f"{name} is not a regular file"
+    if st.st_size > MAX_STATE_BYTES:
+        return f"{name} is {st.st_size} bytes, more than the {MAX_STATE_BYTES} the hook reads back"
+    return f"{name} is not the hook's own record (strict JSON of its schema)"
+
+
 def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
     """Write one of the done check's own files through a fresh temporary file that replaces it; never through a
-    link. None on success, else why not."""
+    link. None on success, else why not. A document whose bytes exceed MAX_STATE_BYTES is not written: the hook would
+    not read it back, so the next count would start again in silence (R4-3)."""
+    data = (json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8", "surrogatepass")
+    if len(data) > MAX_STATE_BYTES:
+        return f"{name} would be {len(data)} bytes, more than the {MAX_STATE_BYTES} the hook reads back"
     folder = _evidence_folder(repo, create=True)
     if folder is None:
         return f"{EVIDENCE_DIR} is not a directory of the repository"
@@ -5262,7 +5286,7 @@ def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
         with os.fdopen(fd, "wb") as handle:
-            handle.write((json.dumps(doc, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+            handle.write(data)
         os.replace(temporary, target)
     except OSError as exc:
         try:
@@ -5290,7 +5314,26 @@ def _tally(repo: str, **increments) -> None:
     _write_done_file(repo, DONE_METRICS, metrics)
 
 
-def _blocker(result: dict, session: str, blocks: int) -> dict:
+#: The longest session id a blocker names in full; a longer one is named by its sha256 alone (R4-3).
+MAX_SESSION_TEXT = 256
+
+
+def _session_key(event: dict | None) -> str:
+    """The sha256 of the host's session id ("" when the event names none): the state file binds the session by this
+    fixed-length key, so the record stays within MAX_STATE_BYTES whatever the host sends (review round 4 of
+    2026-10-09, R4-3: a session id of 65536 characters made a record of 65684 bytes the next read discarded). Equal
+    ids give equal keys and different ids different keys, so the count stays per session."""
+    session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
+    return hashlib.sha256(session.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _session_text(event: dict | None) -> str | None:
+    """The session id for a human reading the blocker, None when it is longer than MAX_SESSION_TEXT."""
+    session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
+    return session if len(session) <= MAX_SESSION_TEXT else None
+
+
+def _blocker(result: dict, event: dict | None, blocks: int) -> dict:
     """The blocker file: every open point of the last verdict, in its order, with what it found and the command that
     closes it (review 2026-10-09, F5: a missing change in the order's paths was not named, and the paths outside them
     were lost when it came first); the paths the order names, the commit it was compared with, and each check."""
@@ -5308,7 +5351,8 @@ def _blocker(result: dict, session: str, blocks: int) -> dict:
     outside = next((p.get("outside", []) for p in result["open"] if p["status"] == "outside_paths"), [])
     done = result["done"] or {}
     return {"schema": DONE_FILES_SCHEMA.format("blocker"), "verdict": "NOT DONE", "written": _now(),
-            "session": session, "blocks_without_progress": blocks - 1, "head": result["commit"],
+            "session": _session_text(event), "session_sha256": _session_key(event),
+            "blocks_without_progress": blocks - 1, "head": result["commit"],
             "tree": state.get("tree"), "working_tree": state.get("worktree"),
             "clean": (state.get("worktree") == state.get("tree")) if state else None, "open": opened,
             "checks": checks, "paths": done.get("paths"), "order_base": result.get("base"), "outside_paths": outside,
@@ -5316,18 +5360,22 @@ def _blocker(result: dict, session: str, blocks: int) -> dict:
                     "them and the state the gate measured. It is not a receipt and proves nothing about the tests."}
 
 
-def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | None, str | None]:
-    """Count one blocked end (D28, N3 and N5) and decide whether to keep blocking. Returns (blocker, problem): blocker
+def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | None, str | None, str | None]:
+    """Count one blocked end (D28, N3 and N5) and decide whether to keep blocking. Returns (blocker, problem, unread):
+    blocker
     None to block, else the path of the blocker file written instead: after `limit` blocks (the order's max_blocks)
     with the same open points (no progress) in the same session the hook writes the blocker and lets the session end
     without a done verdict. problem names why the count could not be recorded, None when it was: the bounded end then
     cannot take effect, and the block says so instead of depending silently on a file it could not write (review
-    round 3 of 2026-10-09, R3-4)."""
+    round 3 of 2026-10-09, R3-4). The record binds the session by its sha256 and never exceeds the bound it is read
+    with; unread names a present record the hook could not read, in which case this block counted as the first and the
+    record is written again (R4-3), None otherwise."""
     repo = result["repo"]
-    session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
+    session = _session_key(event)
     signature = [[p["id"], p["status"]] for p in result["open"]]
     previous = _read_done_file(repo, DONE_STATE, "state")
-    same = (previous is not None and previous.get("session") == session and previous.get("open") == signature
+    unread = _done_file_problem(repo, DONE_STATE, "state") if previous is None else None
+    same = (previous is not None and previous.get("session_sha256") == session and previous.get("open") == signature
             and type(previous.get("blocks")) is int and previous["blocks"] >= 0)
     blocks = previous["blocks"] + 1 if same else 1
     statuses = [p["status"] for p in result["open"]]
@@ -5337,33 +5385,33 @@ def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | 
         # exists and shows the state last measured: the open points can keep their ids and statuses while the paths
         # and the tree change, and a deleted blocker is written again (review round 2 of 2026-10-09, R2-5). The
         # counter of blockers counts it once.
-        problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, session, blocks))
+        problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, event, blocks))
         if problem is not None:
             _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
-            _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+            _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                                 "open": signature, "blocks": blocks, "blocker": False})
-            return None, f"the blocker could not be written ({problem})"
+            return None, f"the blocker could not be written ({problem})", unread
         if first:
             _tally(repo, blockers=1)
-        _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+        _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                             "open": signature, "blocks": blocks, "blocker": True})
-        return DONE_BLOCKER, None
+        return DONE_BLOCKER, None, unread
     _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
-    problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+    problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                                   "open": signature, "blocks": blocks, "blocker": False})
-    return None, (None if problem is None else f"the block count could not be recorded ({problem})")
+    return None, (None if problem is None else f"the block count could not be recorded ({problem})"), unread
 
 
 def _account_pass(result: dict, event: dict | None) -> None:
     """Count a done verdict, and a completion after at least one block in the same session; the blocker of an
     earlier stop no longer stands and is removed."""
     repo = result["repo"]
-    session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
+    session = _session_key(event)
     previous = _read_done_file(repo, DONE_STATE, "state")
-    after_block = previous is not None and previous.get("session") == session and \
+    after_block = previous is not None and previous.get("session_sha256") == session and \
         type(previous.get("blocks")) is int and previous["blocks"] >= 1
     _tally(repo, done=1, completed_after_block=1 if after_block else 0)
-    _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session, "open": [],
+    _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session, "open": [],
                                         "blocks": 0, "blocker": False})
     blocker = os.path.join(repo, *DONE_BLOCKER.split("/"))
     try:
@@ -5412,13 +5460,13 @@ def stop_command(argv: list[str]) -> int:
                           evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
                           next_step="report this error")
         result = _failed_check(exc, verdict)
-    blocker, counting = None, None
+    blocker, counting, unread = None, None, None
     # Every refusal counts toward the limit, a check that refused early or failed included (review 2026-10-09, F6);
     # where no order could be read, the default limit applies.
     limit = result["done"]["max_blocks"] if result is not None and result["done"] is not None else DEFAULT_MAX_BLOCKS
     try:
         if result is not None and result["repo"] and result["open"] and verdict.decision == "deny":
-            blocker, counting = _account_block(result, event, limit)
+            blocker, counting, unread = _account_block(result, event, limit)
         elif result is not None and result["done"] is not None and verdict.decision == "pass":
             _account_pass(result, event)
     except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
@@ -5440,6 +5488,10 @@ def stop_command(argv: list[str]) -> int:
             line += (f" The hook could not count this block: {counting}, so the end after {limit} blocks without "
                      f"progress cannot take effect; make {EVIDENCE_DIR} a directory of the repository that the hook "
                      "can write.")
+        elif unread is not None and verdict.decision == "deny":
+            line += (f" The hook counted this block as the first: the earlier count could not be read ({unread}); "
+                     f"its own record is written again, so the end after {limit} blocks without progress counts from "
+                     "here.")
         sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
     return 0
 
