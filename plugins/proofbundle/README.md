@@ -437,9 +437,11 @@ trusts. It states what the done check verified, not that the tests test anything
   the session directory, because the hook is not told where a command runs.
 - The `TaskCompleted` hook keeps every task open in a repository whose order is not done, whatever the task.
 
-`proofbundle_gate.py done-check --repo DIR [--receipt FILE | --receipt-dir DIR]` makes the same check in CI and exits
-0 only for a pass; every NOT MEASURED, every block and a repository without a done check exit 1, a wrong call exits
-2. `--receipt-dir` reads one receipt per check, named `<id>.json`.
+`proofbundle_gate.py done-check --repo DIR [--receipt FILE | --receipt-dir DIR] [--at-commit REV]` makes the same
+check in CI and exits 0 only for a pass; every NOT MEASURED, every block and a repository without a done check exit
+1, a wrong call exits 2. `--receipt-dir` reads one receipt per check, named `<id>.json`. `--at-commit` checks that
+commit instead of the working state: its declaration, policy and order, its tree, and only a clean run on it
+(`git_clean` true); the CI template names the commit it checked out, never HEAD.
 
 ## Install from this repository
 

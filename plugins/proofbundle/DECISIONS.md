@@ -1404,6 +1404,13 @@ Chosen (option B of the owner card for N1):
   turns a printed line into exit 2 with the line on stderr, and any other exit into exit 2 with its own line,
   because Python itself exits 2 when it cannot open the gate (measured). Codex has no such event.
 - `done-check --receipt-dir DIR` reads one receipt per check from `DIR/<id>.json` for CI.
+- `done-check --at-commit REV` gives the verdict for that commit, as the check at a pushed commit does (N2 C): the
+  declaration, the policy and the order from the commit, its tree in place of the working state, and at a commit
+  only a clean run counts (`git_clean` true; a receipt for a working state that differed from the commit fails,
+  whatever tree ids it names). The CI template passes the commit it checked out, from the event, never HEAD,
+  because the test command runs the code under review and can change the working tree and move HEAD. Measured by
+  the review of 2026-10-09 (F1) at 91a52faa: without it, the job checked the working state the test command left
+  behind and passed a receipt with `git_clean` false that the pre-push hook rejected.
 
 Measured in host runs on 2026-10-08 (runs2 of the report): with Claude Code 2.1.294 and `claude -p --plugin-dir`,
 valid work ends at the first stop; missing, foreign, stale, manipulated and red receipts block with their kind

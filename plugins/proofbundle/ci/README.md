@@ -97,9 +97,12 @@ python plugins/proofbundle/hooks/proofbundle_gate.py ci-check --repo . --require
 
 The workflow's job `done` (input `done-check: true`) is the hard boundary of the user path "Claude says done"
 (DECISIONS.md, D26). It runs the tests of the commit under review with a receipt, signed with a CI key, and runs
-`proofbundle_gate.py done-check` on the checkout: exit 0 only when the receipt verifies under the done policy at
-the commit, says that every test passed and names the tree of the checkout. Make the job a required status check,
-like the job `evidence`.
+`proofbundle_gate.py done-check --at-commit` for the commit it checked out: exit 0 only when the receipt verifies
+under the done policy at that commit, says that every test passed and names that commit and its tree, from a clean
+run (`git_clean` true). The commit comes from the event (the head of a pull request, else the pushed commit), not
+from HEAD: the test command runs the code under review, which can change the working tree or move HEAD, and a
+receipt for anything but the commit's own tree fails (review 2026-10-09, F1). Make the job a required status
+check, like the job `evidence`.
 
 ```yaml
 jobs:

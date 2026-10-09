@@ -4581,7 +4581,7 @@ _OPEN_REASON = {"missing": "no_receipt", "unverified": "verification_failed", "r
 
 
 def done_evaluation(directory: str, deadline: float, receipt_path: str | None = None, environ: dict | None = None,
-                    receipt_dir: str | None = None, at_commit: str | None = None) -> dict:
+                    receipt_dir: str | None = None, at_commit: str | None = None, reviewed: bool = False) -> dict:
     """The done check (D26, D28) with what it found: {"verdict", "done", "repo", "commit", "state", "checks",
     "open", "policy", "base", "inside"}. Pass when every check of the done section has a receipt that verifies under
     the declared policy at HEAD, says that every test passed, was run with the check's selection, names HEAD's commit
@@ -4592,7 +4592,10 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
     override the declared receipts, for the CI check, whose receipts lie outside the checkout. `at_commit` is the
     check at a pushed commit (owner choice N2 C): the declaration, the policy and the order come from that commit,
     and its tree, read from git, stands in for the working state; the receipts are still read from the working
-    tree. A pushed commit without a declaration or a done check gets no done check (inactive)."""
+    tree. A pushed commit without a declaration or a done check gets no done check (inactive). At a commit a receipt
+    counts only for a clean run on that commit (git_clean true, review 2026-10-09 F1): a run on a working state that
+    differed from it is not a run on the commit, whatever tree ids the receipt names. `reviewed` names the commit in
+    the texts as the commit under review (the CI check) instead of a pushed commit."""
     environ = os.environ if environ is None else environ
     result = {"verdict": None, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
               "policy": None, "base": None, "inside": []}
@@ -4609,8 +4612,10 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         pushed = _git(repo, "rev-parse", "--verify", "-q", f"{at_commit}^{{commit}}", deadline=deadline)
         commit = pushed.stdout.decode("ascii", "replace").strip()
         if pushed.returncode != 0 or len(commit) not in _BLOB_HASHES:
-            raise GateError(f"git could not name the pushed commit {at_commit[:12]}")
-        where, now = f"the pushed commit {commit[:12]}", "the tree the push sends"
+            raise GateError(f"git could not name the {'commit under review' if reviewed else 'pushed commit'} "
+                            f"{at_commit[:12]}")
+        where, now = ((f"the commit under review {commit[:12]}", "the tree of the commit under review") if reviewed
+                      else (f"the pushed commit {commit[:12]}", "the tree the push sends"))
     result.update(repo=repo, commit=commit or None)
     raw = _blob(repo, commit, DECLARATION, deadline, MAX_DECLARATION_BYTES) if commit else None
     if raw is None and at_commit is not None:
@@ -4726,6 +4731,12 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         if tested != state["worktree"]:
             row.update(status="stale", failed=f"the tests ran on tree {tested[:12]}, and {now} is "
                                               f"tree {state['worktree'][:12]}")
+            continue
+        if at_commit is not None and provenance.get("git_clean") is not True:
+            row.update(status="stale", failed=f"the receipt says git_clean false: its tests ran on a working state "
+                                              f"that differed from commit {state['commit'][:12]}, and at "
+                                              f"{where.removesuffix(' ' + commit[:12])} only a clean run on its own "
+                                              "tree counts")
             continue
         row.update(status="green", tested=tested, tests=claim["n"])
     result["checks"] = rows
@@ -5037,13 +5048,16 @@ def task_completed_command(argv: list[str]) -> int:
     return 0
 
 
-DONE_CHECK_USAGE = "usage: done-check --repo DIR [--receipt FILE | --receipt-dir DIR]"
+DONE_CHECK_USAGE = "usage: done-check --repo DIR [--receipt FILE | --receipt-dir DIR] [--at-commit REV]"
 
 
 def done_check_command(argv: list[str]) -> int:
     """The done check in CI (D26, Teil 3): exit 0 only for a pass; every NOT MEASURED, every deny and a repository
-    that declares no done check exit 1; a wrong call exits 2."""
-    options, i = {"--repo": None, "--receipt": None, "--receipt-dir": None}, 0
+    that declares no done check exit 1; a wrong call exits 2. `--at-commit REV` checks that commit as the commit under
+    review: its declaration, policy and order, its tree in place of the working state, and only a clean run on it
+    (review 2026-10-09 F1). The CI job names the commit it checked out, from the event, never HEAD, which the test
+    command can move."""
+    options, i = {"--repo": None, "--receipt": None, "--receipt-dir": None, "--at-commit": None}, 0
     while i < len(argv):
         if argv[i] in options and i + 1 < len(argv) and options[argv[i]] is None:
             options[argv[i]], i = argv[i + 1], i + 2
@@ -5051,13 +5065,14 @@ def done_check_command(argv: list[str]) -> int:
             print(f"{DONE_CHECK_USAGE}; unexpected {argv[i]!r}", file=sys.stderr)
             return 2
     if not options["--repo"] or options["--receipt"] == "" or options["--receipt-dir"] == "" or \
-            (options["--receipt"] is not None and options["--receipt-dir"] is not None):
+            options["--at-commit"] == "" or (options["--receipt"] is not None and options["--receipt-dir"] is not None):
         print(DONE_CHECK_USAGE, file=sys.stderr)
         return 2
     deadline = time.monotonic() + DEADLINE_SECONDS
     try:
         verdict = done_evaluation(options["--repo"], deadline, options["--receipt"],
-                                  receipt_dir=options["--receipt-dir"])["verdict"]
+                                  receipt_dir=options["--receipt-dir"], at_commit=options["--at-commit"],
+                                  reviewed=options["--at-commit"] is not None)["verdict"]
     except GateError as exc:
         verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
                           failed=str(exc), next_step="fix the cause named here")

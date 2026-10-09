@@ -207,9 +207,14 @@ jobs:
           rm -f "$RUNNER_TEMP/done/key"
           echo "the test command exited $status; the done check decides"
 
+      # The verdict is for the commit checked out above, named from the event, never HEAD: the test command can change
+      # the working tree and move HEAD, and at a commit only a clean run on its own tree counts (review 2026-10-09 F1).
       - name: Check the receipt for the tree of the commit
+        env:
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           receipt="$RUNNER_TEMP/done/proofbundle_pytest_receipt.json"
           if [ -f "$receipt" ]; then sha256sum "$receipt"; fi
-          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked --receipt "$receipt"
+          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked \
+            --at-commit "$COMMIT" --receipt "$receipt"
 
