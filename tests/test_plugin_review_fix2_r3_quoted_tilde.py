@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import subprocess
 
 import pytest
@@ -55,10 +56,13 @@ def home_repo(tmp_path, monkeypatch) -> pathlib.Path:
     return work
 
 
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
 @pytest.mark.parametrize("value", ["'~'", '"~"', "\\~"])
-def test_claude_code_never_judges_the_home_repository_for_a_quoted_tilde(home_repo, value):
+def test_claude_code_never_judges_the_home_repository_for_a_quoted_tilde(home_repo, value, shell):
+    if shutil.which(shell) is None:
+        pytest.skip(f"{shell} is not installed")
     command = f"git -C {value} push origin main"
-    proc = subprocess.run(["bash", "-c", f"git -C {value} rev-parse --show-toplevel"], cwd=home_repo,
+    proc = subprocess.run([shell, "-c", f"git -C {value} rev-parse --show-toplevel"], cwd=home_repo,
                           capture_output=True, text=True, timeout=60, check=False)
     assert proc.returncode != 0 and "~" in proc.stderr, proc  # non-vacuous: git looks for cwd/~, not for HOME
     outcome = f2._decide(command, home_repo, "claude")
