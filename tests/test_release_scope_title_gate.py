@@ -981,3 +981,40 @@ def test_ein_ausgewiesener_umfang_mit_zweig_wird_wie_jeder_andere_gelesen(tmp_pa
     assert GATE.umfang_nicht_begonnen(p) is False
     d = GATE.pruefe(branch="fix/a1", title="docs: no identifier", version="9.9.9", scope_pfad=p)
     assert d["urteil"] == "ROT" and d["kennung_des_zweigs"] == "A1", d
+
+
+def test_ROT_eine_zweigspalte_an_anderer_stelle_ist_keine_fehlende(tmp_path):
+    """Codex on pull request 327, P2: the declaration check looked at the LAST header cell only, so
+    `| Item | Branch | Why |` counted as no branch column, and a branch the file names was judged
+    outside the scope, green, where the parent said NOT MEASURABLE. The reader reads the last
+    column, so a branch column anywhere else is one it cannot read, and the gate stays RED."""
+    p = _schreib(tmp_path, "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                           "| Item | Branch | Why |\n|---|---|---|\n"
+                           "| A1 | fix/a1 | planned |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    _zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert zustand.startswith("NICHT MESSBAR"), zustand
+    d = GATE.pruefe(branch="fix/a1", title="docs: ordinary", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "ROT", d
+
+
+def test_ROT_auch_eine_anders_geschriebene_zweigspalte_zaehlt(tmp_path):
+    """The siblings the finding names: a reordered or differently written branch header."""
+    for kopf in ("| Branches | Item |", "| Item | `Branch` |", "| Item | Git branch | Note |",
+                 "| Item | Zweige | Grund |"):
+        spalten = kopf.count("|") - 1
+        trenner = "|" + "---|" * spalten
+        zeile = "| A1 |" + " x |" * (spalten - 1)
+        p = _schreib(tmp_path, "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                               f"{kopf}\n{trenner}\n{zeile}\n\n## Out\n")
+        assert GATE.umfang_nicht_begonnen(p) is False, kopf
+
+
+def test_GRUEN_das_wort_branch_in_einer_zeile_ist_keine_zweigspalte(tmp_path):
+    """THE COUNTER-DIRECTION: only header rows are asked. The rows of the real 6.3.0 scope say
+    "no frozen branch" in their prose, and that must not turn it NOT MEASURABLE again."""
+    p = _schreib(tmp_path, _NICHT_BEGONNEN.replace("| P30 | something for later |",
+                                                   "| P30 | Not on `main`, no frozen branch. |"))
+    assert GATE.umfang_nicht_begonnen(p) is True
+    zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert (zu_zweig, zustand) == ({}, "gemessen")
