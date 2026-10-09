@@ -159,7 +159,12 @@ MEASURED. The remote itself is not read.
   (Runde 6, R6-2 class). Git booleans are read as git reads them (`1`, `yes`, `on` are true),
   and a value git cannot read is NOT MEASURED (R3-3). A bare `git push` resolves only under a push
   configuration the gate can model faithfully (`push.default` simple/current/upstream, no extra ref
-  updates).
+  updates). Every name and list the resolution reads from git keeps the bytes git printed (review round 5 of
+  2026-10-09, R5-1): a configuration value and the branch of HEAD lose only their one closing newline, the
+  remotes are one per line, value lists, URLs and fetch refspecs are read whole (`--null`, a blank URL counts).
+  Measured with git 2.43.0: a `pushRemote` of `origin ` pushes to that remote, a branch ending in U+0085 is a new
+  branch on the remote, a second `pushurl` of one blank is a second endpoint, and an `insteadOf` prefix holding
+  U+0085 rewrites the URL; the gate had judged each against `origin/main`.
 - The push endpoint must be one URL, equal for fetch and push, so the remote-tracking ref records the state
   of the endpoint the push updates. A `pushurl` or a second `remote.<name>.url` sends the push elsewhere or
   to a further endpoint and is NOT MEASURED (Befund 1). A `url.<base>.insteadOf` **or**

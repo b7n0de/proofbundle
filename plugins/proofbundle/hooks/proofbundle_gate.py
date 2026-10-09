@@ -2706,13 +2706,17 @@ _TRACKABLE = ("refs/heads/", "refs/tags/")
 
 
 def _remote_names(repo: str, deadline: float) -> set:
+    """The remotes git lists, one name per line with its bytes (_git_lines): a name may carry a blank, which a split
+    on whitespace made two names, neither of them the one git pushes to (review round 5 of 2026-10-09, R5-1)."""
     out = _git(repo, "remote", deadline=deadline)
-    return set(out.stdout.decode().split()) if out.returncode == 0 else set()
+    return set((_git_lines(out.stdout) or []) if out.returncode == 0 else [])
 
 
 def _config(repo: str, key: str, deadline: float) -> str | None:
+    """One value as git reads it, with its bytes (_git_value): a strip made `origin ` the remote `origin`, so the
+    gate judged another remote than the one git pushed to (R5-1)."""
     out = _git(repo, "config", "--get", key, deadline=deadline)
-    return out.stdout.decode().strip() if out.returncode == 0 else None
+    return _git_value(out.stdout) if out.returncode == 0 else None
 
 
 def _config_bool(repo: str, key: str, deadline: float) -> bool:
@@ -2749,12 +2753,22 @@ def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
 def _config_all(repo: str, key: str, deadline: float) -> list[str]:
     """Every value of a (possibly multi-valued) config key, as git reads it; [] when unset. A git error
     other than 'not set' raises GateError (NOT MEASURED)."""
-    out = _git(repo, "config", "--get-all", key, deadline=deadline)
+    out = _git(repo, "config", "--null", "--get-all", key, deadline=deadline)
     if out.returncode == 1:
         return []
-    if out.returncode != 0:
+    values = _git_values(out.stdout) if out.returncode == 0 else None
+    if values is None:
         raise GateError(f"git could not read {key}")
-    return out.stdout.decode().splitlines()
+    return values
+
+
+def _git_values(raw: bytes) -> list[str] | None:
+    """The values `git config --null` printed, each ended by NUL, with their bytes; None for output that does not end
+    in NUL. str.splitlines split a value at U+0085 or \x1c-\x1e and a value may hold a newline, so a URL or a refspec
+    became two values git does not read (R5-1)."""
+    if not raw.endswith(b"\0"):
+        return None
+    return [_git_text(value) for value in raw[:-1].split(b"\0")]
 
 
 def _rewrite_rules(repo: str, deadline: float) -> list[tuple[str, str, str]]:
@@ -2833,9 +2847,10 @@ def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
     fetch = _git(repo, "remote", "get-url", "--all", remote, deadline=deadline)
     if push.returncode != 0 or fetch.returncode != 0:
         raise GateError(f"git could not read the URLs of remote {remote}")
-    push_urls = [u for u in push.stdout.decode().splitlines() if u.strip()]
-    fetch_urls = [u for u in fetch.stdout.decode().splitlines() if u.strip()]
-    return len(push_urls) == 1 and len(fetch_urls) == 1 and push_urls[0] == fetch_urls[0]
+    # Every line counts, a blank one too: git pushes to a pushurl of blanks as to any other (R5-1).
+    push_urls, fetch_urls = _git_lines(push.stdout), _git_lines(fetch.stdout)
+    return (push_urls is not None and fetch_urls is not None and len(push_urls) == 1 and len(fetch_urls) == 1
+            and push_urls[0] == fetch_urls[0])
 
 
 def _refspec_apply(src: str, dst: str, ref: str) -> str | None:
@@ -2855,10 +2870,12 @@ def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadli
     `tracking`, and map nothing else onto `tracking`. Otherwise the tracking ref does not record the state
     of `dest` on the remote (a remapped or colliding refspec), so the comparison the gate would make is
     against the wrong state and the target is NOT MEASURED (review R3-2)."""
-    out = _git(repo, "config", "--get-all", f"remote.{remote}.fetch", deadline=deadline)
+    out = _git(repo, "config", "--null", "--get-all", f"remote.{remote}.fetch", deadline=deadline)
     if out.returncode not in (0, 1):
         return False
-    specs = [line for line in out.stdout.decode().splitlines() if line.strip()]
+    specs = _git_values(out.stdout) if out.returncode == 0 else []
+    if specs is None:
+        return False
     dest_maps_to, maps_to_tracking = set(), set()
     for spec in specs:
         src, sep, dst = spec.lstrip("+").partition(":")
@@ -2979,9 +2996,9 @@ def _default_targets(repo: str, deadline: float, remotes: set, remote: str | Non
     git's push configuration makes that faithful. push.default matching, a configured remote.push, a
     pushurl, a mirror or push.followTags add updates the gate cannot name, so those are NOT MEASURED."""
     branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", deadline=deadline)
-    if branch.returncode != 0 or not branch.stdout.strip():
-        return None  # a detached HEAD names no branch to push
-    name = branch.stdout.decode().strip()
+    name = _git_value(branch.stdout) if branch.returncode == 0 else None
+    if name is None:
+        return None  # a detached HEAD names no branch to push; a branch name keeps its bytes, U+0085 too (R5-1)
     if remote is None:
         remote = (_config(repo, f"branch.{name}.pushRemote", deadline)
                   or _config(repo, "remote.pushDefault", deadline)
@@ -3090,9 +3107,9 @@ def _push_sources(repo: str, args: list[str] | None, deadline: float) -> tuple[l
             sources.append(commit.stdout.decode().strip())
         return sources, remote
     branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", deadline=deadline)
-    if branch.returncode != 0 or not branch.stdout.strip():
+    name = _git_value(branch.stdout) if branch.returncode == 0 else None
+    if name is None:
         return None, remote
-    name = branch.stdout.decode().strip()
     chosen = remote or (_config(repo, f"branch.{name}.pushRemote", deadline)
                         or _config(repo, "remote.pushDefault", deadline)
                         or _config(repo, f"branch.{name}.remote", deadline) or "origin")
