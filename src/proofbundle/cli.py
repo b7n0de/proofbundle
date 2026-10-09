@@ -1867,7 +1867,12 @@ def _historical_now_posix(value):
     # sub-second fraction cannot be represented and must NOT be silently truncated to the whole second (which
     # read `…00.750000Z` as `…00` and so BEFORE an expiry at `…00.500000Z`, passing an expired receipt). Reject
     # a nonzero fractional second fail-closed, naming the whole-second requirement; a whole second is unchanged.
-    if dt.microsecond:
+    # 6.2.1 R6b-5 (Z309): the fraction is judged on the TEXT, before the parse can lose it. The parser keeps six
+    # digits, so `…00.0000001Z` reached here as microsecond 0 and passed as the whole second. Every digit of a
+    # written fraction must be 0, whatever its length.
+    import re as _re  # noqa: PLC0415
+    _frac = _re.search(r"\.(\d+)Z\Z", value)
+    if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
                          "(fail-closed)")
