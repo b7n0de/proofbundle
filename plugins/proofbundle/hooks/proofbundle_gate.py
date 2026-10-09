@@ -1824,7 +1824,7 @@ _OBJECT_FREE_CALLS = frozenset({
     ("config", "--list", "--null", "--show-origin", "--show-scope"),
     ("rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir", "--git-path", "hooks"),
     ("rev-parse", "--path-format=absolute", "--show-toplevel"),
-    ("var", "GIT_CONFIG_GLOBAL"), ("var", "GIT_CONFIG_SYSTEM"),
+    ("var", "GIT_CONFIG_GLOBAL"), ("var", "GIT_CONFIG_SYSTEM"), ("var", "GIT_ATTR_SYSTEM"), ("var", "GIT_ATTR_GLOBAL"),
 })
 
 
@@ -3550,7 +3550,9 @@ MAX_RULES = 256
 MAX_HOOK_BYTES = 4 * 1024 * 1024
 _RULE_KEYS = frozenset({"repo", "form", "effect", "state_digest"})
 _RULE_EFFECTS = ("free", "ask")
-GATE_STATE_SCHEMA = "proofbundle-plugin/gate-state/v1"
+#: v2 (review round 4 of 2026-10-09, R4-1): the attribute entries name the system and the global file git reads and
+#: carry each file's path, so no digest of v1 equals one of v2 and a rule written before asks once.
+GATE_STATE_SCHEMA = "proofbundle-plugin/gate-state/v2"
 #: Environment names, beside every GIT_* name, that select the programs or configuration a git call runs with.
 _DIGEST_ENV_EXTRA = frozenset({"PATH", "HOME", "XDG_CONFIG_HOME", "PAGER", "EDITOR", "VISUAL", "SSH_ASKPASS"})
 
@@ -3638,21 +3640,46 @@ def _git_path(directory: str, value: str, deadline: float) -> str | None:
     return _git_text(out.stdout[:-1])
 
 
-def _config_value(entries: list, key: str) -> str | None:
-    """The effective value of a lower-cased config key from _config_entries (git's last value wins), or None."""
-    value = None
-    for _scope, _origin, name, raw in entries:
-        if name.lower() == key:
-            value = raw
-    return value
+#: The attribute files git reads outside the work tree, as git var names them (git 2.42 and later): the system file,
+#: $(prefix)/etc/gitattributes unless GIT_ATTR_NOSYSTEM is set, and the global file, core.attributesFile, else
+#: $XDG_CONFIG_HOME/git/attributes, else $HOME/.config/git/attributes (gitattributes(5)). An unset key is not an absent
+#: file: git reads the default then (review round 4 of 2026-10-09, R4-1).
+_ATTRIBUTE_VARIABLES = (("system", "GIT_ATTR_SYSTEM"), ("global", "GIT_ATTR_GLOBAL"))
+
+
+def _attribute_files(directory: str, toplevel: str | None, deadline: float) -> list | None:
+    """[(label, path or None)] for each file of _ATTRIBUTE_VARIABLES, path None where git reads no such file; None
+    when git cannot name one for sure. git var interpolates as the git that runs the command does (`~/`, `~user/`,
+    `%(prefix)/`) and answers in the hook's environment; it exits 1 with no output where git reads no such file
+    (measured with git 2.43: GIT_ATTR_NOSYSTEM, or neither HOME nor XDG_CONFIG_HOME set), 129 where the git is older
+    than 2.42 and does not know the variable, and 128 where the configuration is broken. Anything but a known absence
+    or one line is unknown, and so is a relative name without a work tree: git opens it against the work tree it has
+    set up (measured for core.attributesFile from a subdirectory and with -C)."""
+    found: list = []
+    for label, name in _ATTRIBUTE_VARIABLES:
+        out = _git(directory, "var", name, deadline=deadline)
+        if out.returncode == 1 and out.stdout == b"":
+            found.append((label, None))
+            continue
+        lines = _git_lines(out.stdout) if out.returncode == 0 else None
+        if lines is None or len(lines) != 1 or not lines[0]:
+            return None
+        path = lines[0]
+        if not os.path.isabs(path):
+            if toplevel is None:
+                return None
+            path = os.path.join(toplevel, path)
+        found.append((label, path))
+    return found
 
 
 def _bound_state_digest(directory: str, deadline: float, environ: dict | None = None) -> str | None:
     """The hex sha256 of the program-selecting state of the repository at directory, or None when any part
     cannot be read (so the gate asks). It binds a human rule to the state at the time the rule was written: the
     effective git configuration, the effective hook directory (each entry's name, permission bits and content
-    hash, core.hooksPath included because git resolves it into this directory), the gitattributes git honours
-    (info/attributes and core.attributesFile) and the GIT_* and program-selecting environment (PATH included).
+    hash, core.hooksPath included because git resolves it into this directory), the attribute files git reads outside
+    the work tree (info/attributes, and the system and the global file as git var names them, R4-1: an unset
+    core.attributesFile is the default file, not none) and the GIT_* and program-selecting environment (PATH included).
     A change to any of these — a new hook, an edited config, a prepended PATH — changes the digest, so the rule
     stops acting and the gate asks again (N24 Punkt 4). Computed the same way by the `state-digest` CLI a human
     runs and by the gate on every call, so the two compare."""
@@ -3687,28 +3714,26 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
                 return None
             marker = "toolarge" if len(content) > MAX_HOOK_BYTES else hashlib.sha256(content).hexdigest()
             hooks.append([name, oct(stat.S_IMODE(info.st_mode)), marker])
+    attribute_files = _attribute_files(directory, paths["toplevel"], deadline)
+    if attribute_files is None:
+        return None   # git cannot name an attribute file it reads, so the state is unknown rather than "absent"
     attrs: list = []
-    attrs_file = _config_value(entries, "core.attributesfile")
-    attrs_path = None
-    if attrs_file:
-        # git's interpolation (R3-3), and a relative value against the work tree, where git reads it (measured with
-        # git 2.43 from a subdirectory and with -C); a value git cannot resolve, or a relative one without a work
-        # tree, leaves the state unknown rather than "absent".
-        attrs_path = _git_path(directory, attrs_file, deadline)
-        if attrs_path is not None and not os.path.isabs(attrs_path):
-            attrs_path = os.path.join(paths["toplevel"], attrs_path) if paths["toplevel"] else None
-        if attrs_path is None:
-            return None
-    for label, path in (("info/attributes", os.path.join(common, "info", "attributes")),
-                        ("core.attributesFile", attrs_path)):
+    for label, path in [("info/attributes", os.path.join(common, "info", "attributes")), *attribute_files]:
         if path is None:
-            attrs.append([label, "none"])
+            attrs.append([label, None, "none"])
             continue
         try:
-            with open(path, "rb") as handle:
-                attrs.append([label, hashlib.sha256(handle.read()).hexdigest()])
+            info = os.stat(path)   # follows a link, as git does; a FIFO or a directory is not read, it is unknown
         except FileNotFoundError:
-            attrs.append([label, "absent"])
+            attrs.append([label, path, "absent"])
+            continue
+        except OSError:
+            return None
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        try:
+            with open(path, "rb") as handle:
+                attrs.append([label, path, hashlib.sha256(handle.read()).hexdigest()])
         except OSError:
             return None
     env = sorted((name, value) for name, value in environ.items()

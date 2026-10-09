@@ -209,7 +209,9 @@ and the plugin only reads; each rule is `{repo, form, effect, state_digest}`, wh
 `ask` and `state_digest` binds the rule to the repository's program-selecting state (its config, hooks,
 attributes and environment) at the time it was written. A human computes that digest with
 `proofbundle_gate.py state-digest [--repo DIR]`. If any of that state changes, the digest differs and the rule
-stops acting — the gate asks again. A write by a file tool to anything under the gate directory is **denied**,
+stops acting — the gate asks again. The digest needs git 2.42 or later, which names the attribute files git reads
+(`git var GIT_ATTR_SYSTEM`, `GIT_ATTR_GLOBAL`); with an older git there is no digest, no rule acts and the form
+asks. A write by a file tool to anything under the gate directory is **denied**,
 not asked, under both hosts. A shell command can still write the mode and the rules (review Runde 15, F15-2:
 `printf with-approvals > "$PROOFBUNDLE_GATE_DIR/mode"` switched the mode without a gate call), so every call a
 rule frees names the mode and rules files, when each last changed and its sha256, and says that the gate cannot

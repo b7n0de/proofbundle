@@ -1296,10 +1296,19 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
   asks. What cannot be measured, asks.
 - The state binding (Punkt 4): the digest is the sha256 of a canonical serialization of the repository's
   effective configuration (`git config` with scope and origin), its effective hook directory (each hook's name,
-  mode and sha256, including a `core.hooksPath` override), its attributes source, and the program-selecting
-  environment. A rule carries the digest of the state when the human wrote it; the gate recomputes and compares.
-  If the configuration, the hooks or that environment change, the digest differs and the rule stops acting — the
-  gate asks again. A human computes the digest for a rule with `proofbundle_gate.py state-digest [--repo DIR]`.
+  mode and sha256, including a `core.hooksPath` override), the attribute files git reads outside the work tree,
+  and the program-selecting environment. A rule carries the digest of the state when the human wrote it; the gate
+  recomputes and compares. If the configuration, the hooks, those attribute files or that environment change, the
+  digest differs and the rule stops acting — the gate asks again. A human computes the digest for a rule with
+  `proofbundle_gate.py state-digest [--repo DIR]`.
+  The attribute files are `info/attributes` and the two files git var names (review round 4 of 2026-10-09, R4-1):
+  the system file (`GIT_ATTR_SYSTEM`, absent under `GIT_ATTR_NOSYSTEM`) and the global file (`GIT_ATTR_GLOBAL`:
+  `core.attributesFile`, else `$XDG_CONFIG_HOME/git/attributes`, else `$HOME/.config/git/attributes`). An unset
+  `core.attributesFile` is the default file, not "no file". Where git cannot name one of them for sure (a git
+  older than 2.42 does not know the variables, a broken configuration, a relative name without a work tree) the
+  digest is unknown and the gate asks. The `.gitattributes` files of the work tree are not part of the digest: they
+  select only a driver the bound configuration defines. Since this change the digest schema is
+  `gate-state/v2`, so a rule written with a v1 digest asks once and needs the new digest.
   Every name and value of that state keeps the bytes git printed (review round 4 of 2026-10-09, R4-2): the gate
   reads git's paths, configuration and repository layout without replacing a byte that is not UTF-8, so the file it
   hashes or protects is the file git opens, and the digest tells such a byte from U+FFFD. The write gate's protected
