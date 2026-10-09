@@ -1487,9 +1487,9 @@ same answers in the same order.
 
 Limits: everything in D26 and D27. The agent can commit a changed order or write the count file; the first changes
 what the local hook asks for, the second can only end the session without a done verdict. A check binds the pytest
-arguments, not plugins or conftest code that skip, select or rewrite tests. The `PreToolUse` gate asks before (Claude
-Code) or denies (Codex) `git add` and `git commit` (D3, Nachtrag 23), so in a run without a person the agent cannot
-commit and the done check can only pass on an uncommitted state. The `TaskCompleted` hook keeps every task open in a
+arguments, not plugins or conftest code that skip, select or rewrite tests. The PreToolUse gate frees the narrow git add
+and git commit -m forms after a repository state check (D3), so an unattended run can commit when that check passes.
+Other forms still ask under Claude Code or deny under Codex. The `TaskCompleted` hook keeps every task open in a
 repository whose order is not done.
 
 Options for the carrier of the order (owner card N1):
