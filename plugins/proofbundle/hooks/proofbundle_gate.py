@@ -2890,7 +2890,9 @@ def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadli
         return False
     dest_maps_to, maps_to_tracking = set(), set()
     for spec in specs:
-        src, sep, dst = spec.lstrip("+").partition(":")
+        # One leading + is the force flag; git reads a second as part of the source (measured with git 2.43.0:
+        # `++refs/heads/*:refs/remotes/origin/*` maps nothing), so only one is removed (review round 5, R5-1 class)
+        src, sep, dst = (spec[1:] if spec.startswith("+") else spec).partition(":")
         if not sep:
             continue  # a fetch spec with no destination writes FETCH_HEAD, not a tracking ref
         forward = _refspec_apply(src, dst, dest)
