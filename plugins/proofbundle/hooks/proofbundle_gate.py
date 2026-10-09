@@ -284,37 +284,41 @@ def _lex(command: str) -> list | None:
     control operator (';', '&&', '||', '|', '&', '(', ')', '{', '}', '<<') or ('word', <value>, <has_subst>,
     <raw>), where <value> is the word with its quotes removed, <has_subst> says whether an unquoted or
     double-quoted parameter or command substitution appeared in it, and <raw> is the original slice. A
-    newline is a ';'. Output redirections are consumed with their target and dropped; a here-document or
+    newline is a ';'. A redirection is ('redir', <operator>, <target>), its target the word that follows as a
+    (<value>, <has_subst>, <raw>) tuple, or None when no word follows before an operator or the end; nothing is
+    dropped, so every predicate sees the targets too (review round 2 of 2026-10-09, R2-1). A here-document or
     here-string is reported as '<<'. A bare `{` or `}` word is reported as that operator."""
     s = command
     i, n = 0, len(s)
     toks: list = []
-    drop_target = False  # the next word is the target of a redirection just read, and is dropped
+    target_of: int | None = None  # the index of the redirection whose target the next word is
     while i < n:
         c = s[i]
         if c in " \t":
             i += 1
             continue
         if c == "\n":
-            toks.append(("op", ";")); i += 1; continue
+            toks.append(("op", ";")); i += 1; target_of = None; continue
         if s.startswith("&&", i):
-            toks.append(("op", "&&")); i += 2; continue
+            toks.append(("op", "&&")); i += 2; target_of = None; continue
         if s.startswith("||", i):
-            toks.append(("op", "||")); i += 2; continue
+            toks.append(("op", "||")); i += 2; target_of = None; continue
         if s.startswith(";;", i):
-            toks.append(("op", ";")); i += 2; continue
+            toks.append(("op", ";")); i += 2; target_of = None; continue
         m = _REDIR.match(s, i)
         if m:
             i = m.end()
             if m.group().startswith("<<"):
                 toks.append(("op", "<<"))  # here-document / here-string: unknown-forcing
+                target_of = None
             else:
-                drop_target = True
+                toks.append(("redir", m.group(), None))
+                target_of = len(toks) - 1
             continue
         if c in ";|&":
-            toks.append(("op", c)); i += 1; continue
+            toks.append(("op", c)); i += 1; target_of = None; continue
         if c in "()":
-            toks.append(("op", c)); i += 1; continue
+            toks.append(("op", c)); i += 1; target_of = None; continue
         start = i
         buf: list = []
         has_subst = False
@@ -369,13 +373,19 @@ def _lex(command: str) -> list | None:
                 has_subst = True; buf.append(s[i:j + 1]); i = j + 1; continue
             buf.append(c); i += 1
         raw = s[start:i]
-        if raw in ("{", "}"):
+        if target_of is not None:
+            toks[target_of] = ("redir", toks[target_of][1], ("".join(buf), has_subst, raw))
+            target_of = None
+        elif raw in ("{", "}"):
             toks.append(("op", raw))
-        elif drop_target:
-            drop_target = False
         else:
             toks.append(("word", "".join(buf), has_subst, raw))
     return toks
+
+
+def _redirection_targets(toks: list) -> list[tuple]:
+    """The targets of the redirections in toks, as word tuples (value, has_subst, raw), in their order."""
+    return [t[2] for t in toks if t[0] == "redir" and t[2] is not None]
 
 
 #: A detail marker (first element): the command would turn off the real-push check — `git push --no-verify`,
@@ -1065,6 +1075,12 @@ def _overmatch(command: str, toks: list, depth: int,
     for t in toks:
         if t[0] == "word":
             run.append(t[1:])
+        elif t[0] == "redir":
+            # A redirection does not end the simple command, and its target is read as one of its words: a shell
+            # that reads the text another way (zsh's numeric glob `<1-2>`) gives git that word (R2-1). Reading
+            # more words can only find more gated calls or a hook-disabling form, never free one.
+            if t[2] is not None:
+                run.append(t[2])
         else:  # a control operator ends the run
             if run:
                 _scan_run(run, emit, depth, env_set)
@@ -1300,6 +1316,8 @@ def _net_position_unmodeled(toks: list) -> bool:
             if t[1] in _NET_CMD_START:
                 state = "prefix"
             continue
+        if t[0] == "redir":
+            continue                       # a redirection names no program; its target is data
         value, raw = t[1], t[3]
         active = _unquoted_active_expansion(raw)
         if state == "args":
@@ -1592,6 +1610,15 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
     head_gated = h < len(words) and os.path.basename(words[h][0]) in ("git", "git-push", "gh")
     if single and head_gated:
         calls = _resolve_single(words, directory, inherited_env)
+        targets = _redirection_targets(toks)
+        if targets:
+            # The hook check reads every redirection target as a word of the command as well: zsh reads
+            # `<1-2> --no-verify` as a numeric glob and an option, bash as two redirections (review round 2 of
+            # 2026-10-09, R2-1). A form that turns the hook off in either reading denies.
+            disabling = [c for c in _resolve_single(words + targets, directory, inherited_env)
+                         if c[2] == [_HOOKS_DISABLE]]
+            if disabling:
+                return disabling
         if _redirection_present(text):  # the two free forms are free only without a redirection (K-NW-2 B)
             calls = [(n, UNKNOWN, [_NOT_FREE]) if d == [_STATE_FREE] else (n, c, d) for n, c, d in calls]
         if not calls and os.path.basename(words[h][0]) == "git" and not _BARE_VERSION.fullmatch(command):
