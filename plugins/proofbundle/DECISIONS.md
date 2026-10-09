@@ -1318,6 +1318,11 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
   digest is unknown and the gate asks. The `.gitattributes` files of the work tree are not part of the digest: they
   select only a driver the bound configuration defines. Since this change the digest schema is
   `gate-state/v2`, so a rule written with a v1 digest asks once and needs the new digest.
+  A hook longer than 4 MiB (`MAX_HOOK_BYTES`) is not read in full, so the state is unknown and no rule acts while
+  it is there (review round 5 of 2026-10-09, R5-2: a fixed marker stood in for its bytes, and a change behind the
+  first 4 MiB kept the digest; measured with a post-commit hook of 4194433 bytes that git ran with its changed
+  bytes). An entry of the hook directory that is not a regular file is bound by name and mode alone: git cannot
+  exec a directory or a FIFO as a hook (measured with git 2.43.0).
   Every name and value of that state keeps the bytes git printed (review round 4 of 2026-10-09, R4-2): the gate
   reads git's paths, configuration and repository layout without replacing a byte that is not UTF-8, so the file it
   hashes or protects is the file git opens, and the digest tells such a byte from U+FFFD. The write gate's protected

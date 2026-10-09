@@ -3754,7 +3754,8 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
     """The hex sha256 of the program-selecting state of the repository at directory, or None when any part
     cannot be read (so the gate asks). It binds a human rule to the state at the time the rule was written: the
     effective git configuration, the effective hook directory (each entry's name, permission bits and content
-    hash, core.hooksPath included because git resolves it into this directory), the attribute files git reads outside
+    hash, core.hooksPath included because git resolves it into this directory; a hook longer than MAX_HOOK_BYTES makes
+    the state unknown, R5-2), the attribute files git reads outside
     the work tree (info/attributes, and the system and the global file as git var names them, R4-1: an unset
     core.attributesFile is the default file, not none) and the GIT_* and program-selecting environment (PATH included).
     A change to any of these — a new hook, an edited config, a prepended PATH — changes the digest, so the rule
@@ -3782,6 +3783,8 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
             except OSError:
                 return None
             if not stat.S_ISREG(info.st_mode):
+                # git cannot exec a directory, a FIFO or a device as a hook (measured with git 2.43.0: "cannot exec
+                # ... Permission denied"), so there is no content to bind; a change to a regular file changes this
                 hooks.append([name, oct(stat.S_IMODE(info.st_mode)), "nonfile"])
                 continue
             try:
@@ -3789,8 +3792,11 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
                     content = handle.read(MAX_HOOK_BYTES + 1)
             except OSError:
                 return None
-            marker = "toolarge" if len(content) > MAX_HOOK_BYTES else hashlib.sha256(content).hexdigest()
-            hooks.append([name, oct(stat.S_IMODE(info.st_mode)), marker])
+            if len(content) > MAX_HOOK_BYTES:
+                # A hook the digest does not read in full is unknown: a fixed marker in place of its bytes let a
+                # change behind the first MAX_HOOK_BYTES keep the digest (review round 5 of 2026-10-09, R5-2)
+                return None
+            hooks.append([name, oct(stat.S_IMODE(info.st_mode)), hashlib.sha256(content).hexdigest()])
     attribute_files = _attribute_files(directory, paths["toplevel"], deadline)
     if attribute_files is None:
         return None   # git cannot name an attribute file it reads, so the state is unknown rather than "absent"
