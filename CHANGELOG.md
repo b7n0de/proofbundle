@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- **The pytest plugin writes no receipt that names a metric it did not compute** (`proofbundle.pytest_plugin`).
+  The plugin computes the pass rate and wrote it under any name `PROOFBUNDLE_METRIC` gave: with `accuracy`, one
+  test passed and one failed, the signed receipt said `accuracy` against a threshold of 0.9 for a value that was
+  the pass rate (Codex on pull request 302). A value other than `pass_rate` now skips the receipt and prints why;
+  unset or `pass_rate`, nothing changes. INTEGRATIONS.md says which variables the plugin reads.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,

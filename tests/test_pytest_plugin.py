@@ -74,3 +74,34 @@ class TestThresholdRequired(unittest.TestCase):
             pytest_terminal_summary(_reporter(passed=0, failed=4), 1, _config(False))
             os.environ.pop("PROOFBUNDLE_EMIT", None)
             self.assertEqual(list(Path(d).glob("*.json")), [])
+
+
+class TestTheMetricIsThePassRate(unittest.TestCase):
+    """Codex thread 4217185750 on pull request 302: the plugin computes the pass rate and wrote it under any name
+    PROOFBUNDLE_METRIC gave, so `accuracy` with one test passed and one failed signed an accuracy verdict of 0.5."""
+
+    def _run(self, metric):
+        import os
+        from unittest import mock
+        umgebung = {"PROOFBUNDLE_EMIT": "1", "PROOFBUNDLE_THRESHOLD": "0.9"}
+        if metric is not None:
+            umgebung["PROOFBUNDLE_METRIC"] = metric
+        with TemporaryDirectory() as d, mock.patch.dict(os.environ, dict(umgebung, PROOFBUNDLE_OUT=d)):
+            if metric is None:
+                os.environ.pop("PROOFBUNDLE_METRIC", None)
+            pytest_terminal_summary(_reporter(passed=1, failed=1), 1, _config(False))
+            return [decode_eval_claim(json.loads(f.read_text())) for f in Path(d).glob("*.json")]
+
+    def test_another_metric_name_writes_no_receipt(self):
+        for name in ("accuracy", "", "pass_rate "):
+            with self.subTest(metric=repr(name)):
+                self.assertEqual(self._run(name), [])
+
+    def test_the_pass_rate_is_written_as_pass_rate(self):
+        for name in (None, "pass_rate"):
+            with self.subTest(metric=repr(name)):
+                claims = self._run(name)
+                self.assertEqual(len(claims), 1)
+                self.assertEqual(claims[0]["metric"], "pass_rate")
+                self.assertFalse(claims[0]["passed"])          # 1/2 = 0.5 < 0.9
+

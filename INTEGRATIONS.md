@@ -8,24 +8,31 @@ via each framework's native plugin API. Both are **opt-in**: they emit only when
 
 ```bash
 pip install "proofbundle[inspect,eval]"
-PROOFBUNDLE_EMIT=1 inspect eval task.py --model mockllm/model
+PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.8 inspect eval task.py --model mockllm/model
 ```
 
 Installed via the `inspect_ai` entry-point group; the hook fires at end of task and writes a receipt. Needs
 `inspect_ai>=0.3.112` (the generic lifecycle hooks). Config via env: `PROOFBUNDLE_KEY` (a 32-byte Ed25519
-seed; else an ephemeral key, with a warning), `PROOFBUNDLE_OUT` (file or directory), `PROOFBUNDLE_METRIC` /
-`PROOFBUNDLE_COMPARATOR` / `PROOFBUNDLE_THRESHOLD` (the pass/fail assertion; default `>= 0`). The model and
-dataset stay salted commitments.
+seed; else an ephemeral key, with a warning), `PROOFBUNDLE_OUT` (file or directory), `PROOFBUNDLE_METRIC`
+(else the log's first metric) and the pass/fail assertion, `PROOFBUNDLE_COMPARATOR` (default `>=`) with
+`PROOFBUNDLE_THRESHOLD`. The threshold is required and has no default since 5.0.0: without it the hook
+skips the receipt and prints why. A default of 0 would make every non-negative score read as passed; set
+it explicitly, `0` included when you want the score bound without asserting a bar. The model and dataset
+stay salted commitments.
 
 ## pytest (pytest11 plugin)
 
 ```bash
 pip install "proofbundle[pytest,eval]"
-PROOFBUNDLE_EMIT=1 pytest            # or: pytest --proofbundle
+PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 pytest     # or: PROOFBUNDLE_THRESHOLD=0.9 pytest --proofbundle
 ```
 
 Installed via the `pytest11` entry-point; `pytest_terminal_summary` emits a receipt of the run (metric
 `pass_rate`, with the per-outcome counts and exit status in provenance) from `terminalreporter.stats`.
+`PROOFBUNDLE_KEY`, `PROOFBUNDLE_OUT` and `PROOFBUNDLE_COMPARATOR` apply as above, and `PROOFBUNDLE_THRESHOLD` is
+required here too: without it the plugin skips the receipt and prints why. The metric is always `pass_rate`:
+`PROOFBUNDLE_METRIC` set to any other value skips the receipt and prints why, so no receipt names a metric the
+plugin did not compute.
 
 ## GitHub Action
 
