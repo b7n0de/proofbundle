@@ -489,6 +489,8 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         f += mldsa
     if _backend_da("anchors"):
         f += _flaechen_vier_ots()
+    if _backend_da("scitt"):
+        f += _flaechen_vier_scitt()
     return f, aufraeumen
 
 
@@ -497,6 +499,11 @@ _OTS_GRUNDFAELLE = ("anchors_markovian.verify_markovian", "anchors_ots.verify_op
 #: The verdict surfaces `_flaechen_vier` builds on an ML-DSA key, named so that a build without ML-DSA can name them.
 _MLDSA_GRUNDFAELLE = ("checkpoint.cosign_checkpoint_mldsa", "checkpoint.cosign_key_id_mldsa",
                       "checkpoint.cosign_vkey_mldsa")
+#: The verdict surfaces `_flaechen_vier_scitt` builds on the scitt-ccf/v1 reader, named so that an environment without
+#: cbor2 can name them.
+_SCITT_GRUNDFAELLE = ("scitt_ccf.decode_cose_sign1", "scitt_ccf.recompute_data_hash", "scitt_ccf.load_cose_keyset",
+                      "scitt_ccf.verify_statement_signature", "scitt_ccf.verify_transparent_statement",
+                      "scitt_ccf.verify_consistency_receipt")
 
 #: Every verdict surface whose LEGITIMATE input needs an optional backend, by backend. A surface is built only where its
 #: backend is present (`_backend_da`), and `_grundfaelle` names every group whose backend is missing open, never held.
@@ -507,8 +514,10 @@ _MLDSA_GRUNDFAELLE = ("checkpoint.cosign_checkpoint_mldsa", "checkpoint.cosign_k
 _JE_BACKEND: "dict[str, tuple[str, ...]]" = {
     "pq": _MLDSA_GRUNDFAELLE,
     "anchors": tuple(_sweep._OTS_FLAECHEN) + _OTS_GRUNDFAELLE,
+    "scitt": _SCITT_GRUNDFAELLE,
 }
-_BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTimestamps (proofbundle[anchors])"}
+_BACKEND_GRUND = {"pq": "an ML-DSA build (proofbundle[pq])", "anchors": "OpenTimestamps (proofbundle[anchors])",
+                  "scitt": "cbor2 (proofbundle[scitt])"}
 
 
 def _backend_da(backend: str) -> bool:
@@ -525,6 +534,9 @@ def _backend_da(backend: str) -> bool:
     4163240539 at dd079791)."""
     if backend == "anchors":
         return _sweep._ots_vorhanden()
+    if backend == "scitt":
+        import importlib.util
+        return importlib.util.find_spec("cbor2") is not None
     if backend == "pq":
         import importlib.util
         name = "cryptography.hazmat.primitives.asymmetric.mldsa"
@@ -571,6 +583,45 @@ def _flaechen_vier_ots() -> list:
             w(aufgewertet(r1)), w(r1), frozen=w({}), now=w(1_780_000_000), rp_trust=w(kopf))),
     ]
     assert tuple(name for name, _ in f) == _OTS_GRUNDFAELLE, "_OTS_GRUNDFAELLE names what is built here"
+    return f
+
+
+def _flaechen_vier_scitt() -> list:
+    """The six public surfaces of the scitt-ccf/v1 reader, each on the real bytes of a local scitt-ccf-ledger
+    (tests/fixtures/scitt_ccf/local_ledger_control.json and local_ledger_consistency.json): a Transparent Statement the
+    ledger registered, its service key set and statement signer, and a consistency receipt from an older verified state
+    to a newer one."""
+    import json
+    from proofbundle import scitt_ccf as scitt
+    from proofbundle._wire_b64 import decode_b64
+
+    ordner = _sweep._WURZEL / "tests" / "fixtures" / "scitt_ccf"
+    kontrolle = json.loads((ordner / "local_ledger_control.json").read_text(encoding="utf-8"))
+    ts = decode_b64(kontrolle["transparent_statement_b64"])
+    wurzel = bytes.fromhex(kontrolle["canonical_root_hex"])
+    satz = decode_b64(kontrolle["service_keyset_b64"])
+    unterzeichner = decode_b64(kontrolle["statement_signer_spki_b64"])
+    rp = {"scitt_ccf_services": {kontrolle["issuer"]: scitt.load_cose_keyset(satz)},
+          "scitt_statement_keys": [unterzeichner]}
+    kette = json.loads((ordner / "local_ledger_consistency.json").read_text(encoding="utf-8"))
+    kette_rp = {"scitt_ccf_services": {kette["issuer"]: scitt.load_cose_keyset(decode_b64(kette["service_keyset_b64"]))},
+                "scitt_statement_keys": [decode_b64(kette["statement_signer_spki_b64"])]}
+    # The older root is the one the inclusion receipt of the older state recomputes (the fixture's own control,
+    # tests/test_scitt_ccf_consistency.py), taken from the recorded bytes so that building the case verifies nothing.
+    aelter = bytes.fromhex(kette["states"]["older"]["root_hex"])
+    konsistenz = decode_b64(kette["consistency_receipt_b64"])
+    f = [
+        ("scitt_ccf.decode_cose_sign1", lambda w: scitt.decode_cose_sign1(w(ts))),
+        ("scitt_ccf.recompute_data_hash", lambda w: scitt.recompute_data_hash(w(ts))),
+        ("scitt_ccf.load_cose_keyset", lambda w: scitt.load_cose_keyset(w(satz))),
+        ("scitt_ccf.verify_statement_signature", lambda w: scitt.verify_statement_signature(
+            w(ts), statement_keys=w([unterzeichner]))),
+        ("scitt_ccf.verify_transparent_statement", lambda w: scitt.verify_transparent_statement(
+            w(ts), canonical_root=w(wurzel), rp_trust=w(rp))),
+        ("scitt_ccf.verify_consistency_receipt", lambda w: scitt.verify_consistency_receipt(
+            w(konsistenz), older_root=w(aelter), older_issuer=w(kette["issuer"]), rp_trust=w(kette_rp))),
+    ]
+    assert tuple(name for name, _ in f) == _SCITT_GRUNDFAELLE, "_SCITT_GRUNDFAELLE names what is built here"
     return f
 
 

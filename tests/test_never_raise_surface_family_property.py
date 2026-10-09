@@ -71,6 +71,13 @@ _MODULES = [
     # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
     # arrive there.
     "adapters.agt_receipt",
+    # 2026-09-25: the scitt-ccf/v1 reader of ADR 0009 (not an anchor type yet). The population guard
+    # reported its five surfaces the moment the module existed, which is its job. A FOREIGN binary
+    # format again, read from a Transparency Service we do not run: decode_cose_sign1,
+    # load_cose_keyset and recompute_data_hash refuse with a typed ScittFormatError (a
+    # BundleFormatError) or ScittUnavailable without the [scitt] extra; the two verify_ surfaces
+    # return a status for every input and never raise.
+    "scitt_ccf",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.

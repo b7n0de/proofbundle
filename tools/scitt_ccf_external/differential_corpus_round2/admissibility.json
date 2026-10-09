@@ -1,0 +1,95 @@
+{
+ "note": "Refusals of this service, as returned. A refusal is what this service did with the bytes; it is not judged SCITT-invalid here.",
+ "refused": [
+  {
+   "id": "g09-map-indefinite",
+   "class": "g",
+   "phase": "initial",
+   "mutation": "the protected map with an indefinite length (bf ... ff); signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "v1_reader_on_submitted_bytes": "malformed",
+   "files": "vectors/g09-map-indefinite/"
+  },
+  {
+   "id": "h01-protected-duplicate-alg-equal",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) twice in the protected map, -7 both times, the two entries adjacent; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}",
+   "v1_reader_on_submitted_bytes": "malformed",
+   "files": "vectors/h01-protected-duplicate-alg-equal/"
+  },
+  {
+   "id": "h02-protected-duplicate-alg-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "alg (1) twice in the protected map, -7 then -35, the two entries adjacent; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Failed to decode protected header: QCBOR_ERR_DUPLICATE_LABEL\"}",
+   "v1_reader_on_submitted_bytes": "malformed",
+   "files": "vectors/h02-protected-duplicate-alg-conflicting/"
+  },
+  {
+   "id": "h03-unprotected-duplicate-equal",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "label 99 twice in the unprotected map, equal; the control's signature",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "v1_reader_on_submitted_bytes": "malformed",
+   "files": "vectors/h03-unprotected-duplicate-equal/"
+  },
+  {
+   "id": "h04-unprotected-duplicate-conflicting",
+   "class": "h",
+   "phase": "initial",
+   "mutation": "label 99 twice in the unprotected map, conflicting; the control's signature",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Signature verification failed\"}",
+   "v1_reader_on_submitted_bytes": "malformed",
+   "files": "vectors/h04-unprotected-duplicate-conflicting/"
+  },
+  {
+   "id": "i04-crit-unknown-int-present",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [99], label 99 present; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}",
+   "v1_reader_on_submitted_bytes": "read",
+   "files": "vectors/i04-crit-unknown-int-present/"
+  },
+  {
+   "id": "i05-crit-unknown-int-absent",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [99], label 99 absent; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 99 is not allowed\"}",
+   "v1_reader_on_submitted_bytes": "read",
+   "files": "vectors/i05-crit-unknown-int-absent/"
+  },
+  {
+   "id": "i06-crit-unknown-text-present",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [\"x\"], label \"x\" present; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit values must be integers\"}",
+   "v1_reader_on_submitted_bytes": "read",
+   "files": "vectors/i06-crit-unknown-text-present/"
+  },
+  {
+   "id": "i07-crit-registered-not-listed",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [259], a registered label the service does not list; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"x509 signed statement crit value 259 is not allowed\"}",
+   "v1_reader_on_submitted_bytes": "read",
+   "files": "vectors/i07-crit-registered-not-listed/"
+  },
+  {
+   "id": "i08-crit-empty",
+   "class": "i",
+   "phase": "initial",
+   "mutation": "crit [], an empty array; signed again",
+   "service_error": "{\"-1\": \"InvalidInput\", \"-2\": \"Cannot have crit array of length 0 in COSE protected header.\"}",
+   "v1_reader_on_submitted_bytes": "read",
+   "files": "vectors/i08-crit-empty/"
+  }
+ ]
+}

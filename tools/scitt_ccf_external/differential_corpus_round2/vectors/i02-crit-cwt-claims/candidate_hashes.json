@@ -1,0 +1,136 @@
+{
+ "tool": "tools/scitt_ccf_external/preimage_candidates.py",
+ "vector": "i02-crit-cwt-claims",
+ "class": "i",
+ "base": "control",
+ "mutation": "crit [15], CWT claims; signed again",
+ "rules": {
+  "deterministic_encoding": "RFC 8949 section 4.2.1 core deterministic; string contents never changed, except the protected map in 4-deep-tagged",
+  "receipt_material": "unprotected label 394 only (COSE Receipts WG source df5113e9, SCITT architecture WG source ba7d23d4)",
+  "tag_18": "3, 4 and 5 tagged and untagged; 1 and 2 as stored; 6 to 10 untagged",
+  "key_order_of_U": "5 sorted per 4.2.1 and in the submitted order",
+  "element_form": "7 to 10 as content and as a preferred-head bstr; 7 also as submitted",
+  "added_candidates": "4-deep-tagged re-encodes the protected map; 11 keeps the submitted framing",
+  "full_text": "preimage_summary.json, key rules"
+ },
+ "encodings_in_this_directory": {
+  "request.hex": "the exact submitted encoding",
+  "statement.hex": "the exact returned encoding (GET /entries/{txid}/statement)",
+  "receipt.hex": "the receipt as served"
+ },
+ "oracles": {
+  "candidates": "own computation: this tool's CBOR reader and encoder, hashlib SHA-256",
+  "data_hash": "own reader of receipt.hex, checked against cbor2 (foreign, pinned by the [scitt] extra) where installed",
+  "foreign_re_encoding": "cbor2 encodes 4, 4-deep-tagged, 5 and 6 again from its own decoding of request.hex; its canonical mode is length-first (RFC 8949 4.2.3)"
+ },
+ "receipt_data_hash": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+ "receipt_inclusion_proofs": 1,
+ "data_hash_cbor2_agrees": true,
+ "facts": {
+  "returned_contents_equal_request_contents": true,
+  "request_unprotected_labels": [],
+  "returned_unprotected_labels": [
+   394
+  ],
+  "protected_content_is_core_deterministic": true,
+  "returned_statement_tagged": true
+ },
+ "candidates": {
+  "1": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true
+  },
+  "2": {
+   "sha256": "b886186906eeebd0a9c3c2ccf7594207cd11c831b69242cdafe78a0d3d8a0d7b",
+   "equals_data_hash": false
+  },
+  "3-tagged": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true
+  },
+  "3-untagged": {
+   "sha256": "7d3b06abae759aca22bbce9148d695f7c33e9c5edd1f38c9037a20e73fa28882",
+   "equals_data_hash": false
+  },
+  "4-tagged": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true,
+   "cbor2_equal": true
+  },
+  "4-untagged": {
+   "sha256": "7d3b06abae759aca22bbce9148d695f7c33e9c5edd1f38c9037a20e73fa28882",
+   "equals_data_hash": false,
+   "cbor2_equal": true
+  },
+  "4-deep-tagged": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true,
+   "cbor2_equal": true
+  },
+  "5-sorted-tagged": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true,
+   "cbor2_equal": true
+  },
+  "5-sorted-untagged": {
+   "sha256": "7d3b06abae759aca22bbce9148d695f7c33e9c5edd1f38c9037a20e73fa28882",
+   "equals_data_hash": false,
+   "cbor2_equal": true
+  },
+  "5-submitted-order-tagged": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true,
+   "cbor2_equal": true
+  },
+  "5-submitted-order-untagged": {
+   "sha256": "7d3b06abae759aca22bbce9148d695f7c33e9c5edd1f38c9037a20e73fa28882",
+   "equals_data_hash": false,
+   "cbor2_equal": true
+  },
+  "6": {
+   "sha256": "e6dbdd318d29f210e9ce94bed8cfe9534b41b005d3c9e5b058bdbe90e95c323d",
+   "equals_data_hash": false,
+   "cbor2_equal": true
+  },
+  "7-content": {
+   "sha256": "93e7bbf6c9f37bd92ca9f03b17bf6fd490de14f3b9fc68837cf2f722b8319e79",
+   "equals_data_hash": false
+  },
+  "7-element": {
+   "sha256": "b6ea43e3d4f4ab14e01f5fc8429814aff11c31c344167c4d85c4d8ec737015e2",
+   "equals_data_hash": false
+  },
+  "7-element-as-submitted": {
+   "sha256": "b6ea43e3d4f4ab14e01f5fc8429814aff11c31c344167c4d85c4d8ec737015e2",
+   "equals_data_hash": false
+  },
+  "8-content": {
+   "sha256": "c169de421d85c37ff2ea63845ecce507bb28874bd8df37795f2f5dfdc23c3b23",
+   "equals_data_hash": false
+  },
+  "8-element": {
+   "sha256": "1641f17edeac106c8a93fc5f0547ebb23c7dbc07fb0740312bb09717dc6c94b2",
+   "equals_data_hash": false
+  },
+  "9-content": {
+   "sha256": "e3eb7bddc92478b69b5494fa6e5779ec0fa5c8182d4964bad930325807ee8a77",
+   "equals_data_hash": false
+  },
+  "9-element": {
+   "sha256": "6d38dad0384227631cf5348830e6dc888c08efdededac325bcaacbe6a5b4280d",
+   "equals_data_hash": false
+  },
+  "10-content": {
+   "sha256": "3284854793f440302f3d8e915f76874f28bb38d0e40345ff0c1150206eadeb17",
+   "equals_data_hash": false
+  },
+  "10-element": {
+   "sha256": "fc493974e51b36702a705d021896a19606c1e5d9d76c8c5f0023dfc71278241b",
+   "equals_data_hash": false
+  },
+  "11": {
+   "sha256": "3edc61ae7af43c5756986868c7b6a55cf26d7fe333867b4dd56cc550dee38b60",
+   "equals_data_hash": true
+  }
+ }
+}
