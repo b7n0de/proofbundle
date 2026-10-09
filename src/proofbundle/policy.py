@@ -1895,7 +1895,8 @@ def _gelesene_richtlinie(policy):
 def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
     in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
-    (defaults to the current UTC time). An unparseable value is treated as None here — load_policy already
+    (defaults to the current UTC time); an explicit ``now`` that is no datetime reads as expired, never as the
+    current time. An unparseable value is treated as None here — load_policy already
     rejects a malformed ``valid_until`` fail-closed, so this projection never sees one from a loaded policy."""
     vu = policy.get("valid_until")
     if vu is None:
@@ -1903,7 +1904,12 @@ def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     parsed = _parse_iso_utc(vu)
     if parsed is None:
         return None
-    current = now or datetime.now(timezone.utc)
+    # 6.2.1 ZT-02 (Z309): an explicit value is the caller's instant and is never replaced by the wall clock; one
+    # that is no datetime (0, False, "") is a malformed clock and reads as expired (fail-closed).
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        return True
+    current = _uhr if _uhr is not None else datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     return current > parsed
@@ -1920,7 +1926,11 @@ def policy_not_yet_valid(policy: dict, *, now=None) -> Union[bool, None]:
     parsed = _parse_iso_utc(vf)
     if parsed is None:
         return None
-    current = now or datetime.now(timezone.utc)
+    # 6.2.1 ZT-02 (Z309): as in policy_expired, a malformed explicit clock reads as not yet valid (fail-closed).
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        return True
+    current = _uhr if _uhr is not None else datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     return current < parsed
@@ -1953,7 +1963,12 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     vu = entry.get("validUntil")
     if vu is not None:
         parsed = _parse_iso_utc(vu)
-        current = now or datetime.now(timezone.utc)
+        # 6.2.1 ZT-02 (Z309): an explicit value is never replaced by the wall clock; one that is no datetime is a
+        # malformed clock and the entry is not authenticated (fail-closed).
+        _uhr = _zeitpunkt_von(now)
+        if _uhr is KEIN_ZEITPUNKT:
+            return False, "trusted checkpoint judged at a malformed evaluation time (now is no datetime)"
+        current = _uhr if _uhr is not None else datetime.now(timezone.utc)
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
         if parsed is not None and current > parsed:
