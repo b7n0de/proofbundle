@@ -140,7 +140,7 @@ def test_the_protected_files_name_the_include_with_its_bytes(ff_include):
     repo, included = ff_include
     files, _dirs, problem = gate._state_files(str(repo), time.monotonic() + 30)
     assert not problem
-    assert included in files, sorted(f for f in files if "included" in f)
+    assert included in files, ascii(sorted(f for f in files if "included" in f))
     assert not any("�" in f for f in files)
 
 
@@ -200,7 +200,7 @@ def test_a_write_into_the_git_directory_of_that_repository_is_gated(ff_repo, lea
     target = str(ff_repo / ".git" / leaf)
     outcome = gate.decide_write("Write", {"file_path": target, "content": "x\n"}, str(ff_repo),
                                 time.monotonic() + 30, host="claude")
-    assert outcome is not None, target
+    assert outcome is not None, ascii(target)
     assert gate.answer(outcome.decision, outcome.text, host="claude")["hookSpecificOutput"]["permissionDecision"] \
         == "ask"
 
