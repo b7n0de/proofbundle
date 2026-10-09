@@ -118,6 +118,21 @@ jobs:
       PROOFBUNDLE_DONE_KEY: ${{ secrets.PROOFBUNDLE_DONE_KEY }}
 ```
 
+An order with several checks (D28) needs one receipt per check. The job names the folder the done check reads in
+`PROOFBUNDLE_RECEIPT_DIR` (`done-check --receipt-dir`), and each check leaves `<id>.json` there; `PROOFBUNDLE_OUT`
+names `tests.json`, the receipt of the one-check form, so the plain test command above needs nothing more. For an
+order with the checks `unit` and `integration`, set `PROOFBUNDLE_OUT` per run and give each run exactly the check's
+pytest arguments (no `-q`, an empty `PYTEST_ADDOPTS`):
+
+```yaml
+      done-test-command: >-
+        PYTEST_ADDOPTS= PROOFBUNDLE_OUT="${PROOFBUNDLE_RECEIPT_DIR:?}/unit.json" python -m pytest tests/unit;
+        PYTEST_ADDOPTS= PROOFBUNDLE_OUT="${PROOFBUNDLE_RECEIPT_DIR:?}/integration.json" python -m pytest tests/integration
+```
+
+Until review 2026-10-09 (F3) the job passed exactly one receipt with `--receipt`, so an order with two checks ended
+in `gate_error`.
+
 Where the receipt comes from is an owner choice:
 
 | Option | What happens | Trade-off |

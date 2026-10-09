@@ -185,8 +185,10 @@ jobs:
           PB_VERSION: ${{ inputs.done-proofbundle-version }}
         run: python -m pip install "proofbundle[pytest,eval]${PB_VERSION}" "uv==0.8.17"
 
-      # The receipt is written outside the checkout, so writing it does not change the tree it names. The key
-      # file exists only for the test run; the test command decides nothing, the done check below does.
+      # The receipts are written outside the checkout, so writing them does not change the tree they name: one per
+      # check of the done section, $PROOFBUNDLE_RECEIPT_DIR/<id>.json. PROOFBUNDLE_OUT names tests.json, the receipt
+      # of the one-check form; for an order the test command sets PROOFBUNDLE_OUT per check (README). The key file
+      # exists only for the test run; the test command decides nothing, the done check below does.
       - name: Run the tests with a receipt
         working-directory: checked
         env:
@@ -201,8 +203,9 @@ jobs:
           fi
           printf '%s' "$DONE_KEY" | base64 -d > "$RUNNER_TEMP/done/key"
           set +e
-          PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_OUT="$RUNNER_TEMP/done/" \
-            PROOFBUNDLE_KEY="$RUNNER_TEMP/done/key" bash -c "$DONE_TEST_COMMAND"
+          PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=1 PROOFBUNDLE_RECEIPT_DIR="$RUNNER_TEMP/done" \
+            PROOFBUNDLE_OUT="$RUNNER_TEMP/done/tests.json" PROOFBUNDLE_KEY="$RUNNER_TEMP/done/key" \
+            bash -c "$DONE_TEST_COMMAND"
           status=$?
           rm -f "$RUNNER_TEMP/done/key"
           echo "the test command exited $status; the done check decides"
@@ -213,8 +216,9 @@ jobs:
         env:
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          receipt="$RUNNER_TEMP/done/proofbundle_pytest_receipt.json"
-          if [ -f "$receipt" ]; then sha256sum "$receipt"; fi
+          for receipt in "$RUNNER_TEMP"/done/*.json; do
+            if [ -f "$receipt" ]; then sha256sum "$receipt"; fi
+          done
           python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked \
-            --at-commit "$COMMIT" --receipt "$receipt"
+            --at-commit "$COMMIT" --receipt-dir "$RUNNER_TEMP/done"
 

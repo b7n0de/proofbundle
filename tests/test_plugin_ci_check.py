@@ -411,7 +411,8 @@ def test_the_done_job_checks_a_receipt_made_in_ci_for_the_tree_under_review():
     assert "^[0-9a-f]{40}$" in pin["run"] and "^==[0-9]+" in pin["run"]
     (tests,) = [s for s in steps if s.get("name") == "Run the tests with a receipt"]
     assert tests["env"]["DONE_KEY"] == "${{ secrets.PROOFBUNDLE_DONE_KEY }}"
-    assert 'PROOFBUNDLE_OUT="$RUNNER_TEMP/done/"' in tests["run"] and "PROOFBUNDLE_THRESHOLD=1" in tests["run"]
+    assert 'PROOFBUNDLE_OUT="$RUNNER_TEMP/done/tests.json"' in tests["run"] and "PROOFBUNDLE_THRESHOLD=1" in tests["run"]
+    assert 'PROOFBUNDLE_RECEIPT_DIR="$RUNNER_TEMP/done"' in tests["run"]   # one receipt per check (review F3)
     assert 'rm -f "$RUNNER_TEMP/done/key"' in tests["run"] and "umask 077" in tests["run"]
     last = runs[-1]
     assert "gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked" in last["run"]
