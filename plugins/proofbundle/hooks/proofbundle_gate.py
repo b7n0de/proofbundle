@@ -3891,7 +3891,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     decision, which asks. The model can neither set the mode nor write a rule."""
     outcome = _decide_outcome(command, cwd, deadline, host, environ)
     if outcome is not None:
-        _name_narrower_spelling(outcome, command)
+        _name_narrower_spelling(outcome, command, cwd, deadline, host, environ)
     return outcome
 
 
@@ -3932,14 +3932,24 @@ def _narrower_spelling(command: str) -> str | None:
     return proposal
 
 
-def _name_narrower_spelling(outcome: Outcome, command: str) -> None:
+def _name_narrower_spelling(outcome: Outcome, command: str, cwd: str, deadline: float, host: str,
+                            environ: dict | None) -> None:
     """Name the narrower spelling (_narrower_spelling) in the next step of a refused `git add` or `git commit` whose
-    words the shell may rewrite, in place of the general hint, so an agent can run the form the gate frees."""
+    words the shell may rewrite, in place of the general hint, so an agent can run the form the gate frees. The
+    spelling is named only when the whole gate passes it in the same context (host, directory, environment and the
+    same deadline): gated_calls alone named `git add -- git-*`, which the net check still refuses, and a spelling a
+    repository state check refuses (review round 3 of 2026-10-09, R3-5). Otherwise the general hint stays."""
     hinted = [v for v in outcome.verdicts if v.reason_id == "git_form_not_free" and v.next_step == _FREE_FORMS_HINT]
     if not hinted:
         return
     proposal = _narrower_spelling(command)
     if proposal is None:
+        return
+    try:
+        checked = _decide_outcome(proposal, cwd, deadline, host, environ)
+    except GateError:
+        return
+    if checked is None or checked.decision != "pass":
         return
     step = (f"run `{proposal}` instead: it leaves no word before the end of the options that the shell may turn into "
             "an option, and the gate frees it after a state check of the repository (DECISIONS.md D3); otherwise have "
