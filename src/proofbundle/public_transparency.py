@@ -306,7 +306,10 @@ def evaluate_public_transparency(
         elif not log_vkey:
             statuses["CHECKPOINT_SIGNATURE"] = "FAIL"
             errors.append("requireSignedCheckpoint but no log vkey supplied (fail-closed)")
-        elif isinstance(trusted_keys, list) and trusted_keys and log_vkey not in trusted_keys:
+        # 6.2.1 key identity Fund 3 (Z309): a PRESENT allowlist is an allowlist, also when it is empty. An
+        # empty `trustedLogKeys` was read like an absent one, so any log key that matched the signature passed.
+        # A present empty list allows no key.
+        elif isinstance(trusted_keys, list) and log_vkey not in trusted_keys:
             statuses["CHECKPOINT_SIGNATURE"] = "FAIL"
             errors.append("supplied log vkey is not on the policy's trustedLogKeys allowlist")
         else:
@@ -320,7 +323,9 @@ def evaluate_public_transparency(
                 errors.append("checkpoint signature check raised (malformed note/vkey)")
 
     # LOG_ORIGIN
-    if isinstance(trusted_origins, list) and trusted_origins:
+    # 6.2.1 Fund 3, sibling: a present empty `trustedLogOrigins` allows no origin (it was not evaluated, and
+    # the aggregate passed for any origin).
+    if isinstance(trusted_origins, list):
         if parsed_ok and origin in trusted_origins:
             statuses["LOG_ORIGIN"] = "PASS"
         else:
