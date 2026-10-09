@@ -75,7 +75,11 @@ def _nachtrag() -> tuple[dict[str, int], str]:
     return aus, "measured"
 
 
-def karte(repo_slug: str = "b7n0de/proofbundle", version: str | None = None) -> dict:
+def karte(repo_slug: str = "b7n0de/proofbundle", version: str | None = None,
+          scope_pfad: pathlib.Path | None = None) -> dict:
+    """The card for one release. `scope_pfad` names the scope file instead of
+    `docs/release_scope/<version>.md`, as `pruefe` of the gate does; the contract cases use it to
+    count against a frozen scope of their own rather than against whatever release is being built."""
     G = _gate()
     # WITHOUT A VERSION, THE RELEASE BEING BUILT, by the gate's own rule rather than a second one.
     # This default was the typed "6.1.0" as well, and it went stale at the same release.
@@ -86,7 +90,7 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str | None = None) -> 
                     "grund": herkunft, "rc": 2}
     else:
         herkunft = "argument"
-    pfad = REPO / "docs" / "release_scope" / f"{version}.md"
+    pfad = scope_pfad or (REPO / "docs" / "release_scope" / f"{version}.md")
     zeilen, lage = G.fuehrende_kennungen(pfad)
     if lage != "measured" and not lage.startswith("gemessen"):
         return {"schema": "b7n0de.release_scope_landing_card.v1", "zustand": "NOT MEASURABLE",
@@ -142,6 +146,9 @@ def karte(repo_slug: str = "b7n0de/proofbundle", version: str | None = None) -> 
         "zustand": "gemessen", "rc": 0,
         "version": version,
         "version_herkunft": herkunft,
+        # A SCOPE THAT HAS NOT STARTED is measured with zero branches and says so, so that nought of
+        # nought is not read as a release whose lines all went missing.
+        "umfang_nicht_begonnen": G.umfang_nicht_begonnen(pfad),
         "zeilen_gesamt": len(zeilen),
         "zeilen_zaehlbar": len(zaehlbar),
         # LINES, NOT IDENTIFIERS, and that is the same mistake once more, one level deeper.
@@ -184,6 +191,9 @@ def main(argv=None) -> int:
         # minus ambiguous lines leaves the countable ones.
         print(f"landing card {d['version']}: {d['gelandet']} of {d['zeilen_zaehlbar']} countable "
               f"lines landed")
+        if d["umfang_nicht_begonnen"]:
+            print(f"  the scope file of {d['version']} declares itself not started and names no "
+                  f"branch, so no line of it can land yet")
         print(f"  {d['zeilen_gesamt']} lines total, minus {d['mitlaeufer_zeilen']} rider lines "
               f"({len(d['mitlaeufer_kennungen'])} identifiers), minus "
               f"{d['kennung_mehrdeutig_zeilen']} lines under "
