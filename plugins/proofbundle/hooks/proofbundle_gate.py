@@ -807,7 +807,8 @@ _BARE_VERSION = re.compile(r"[ \t]*git[ \t]+--version[ \t]*")
 
 
 def _strict_git(words: list[str], directory: str | None, free_base: object = _FROM_DIRECTORY,
-                rewrites: list[bool] | None = None) -> tuple[str, str | None, list[str] | None] | None:
+                rewrites: list[bool] | None = None,
+                raws: list[str] | None = None) -> tuple[str, str | None, list[str] | None] | None:
     """Parse one strict `git …` simple command (the words after a bare `git`). Returns the gated call, or None
     only for the bare `git --version` that is the whole command (free_base _FROM_DIRECTORY): since review Runde 9
     (owner choice B) no other git form is free, and every form that acts on a repository is NOT MEASURED
@@ -819,7 +820,10 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
     subcommand that is not a local one (`_GIT_LOCAL_SUBCOMMANDS`) — an unknown word, `send-pack`, `rebase
     --exec`, `bisect run`, `submodule foreach` — is NOT MEASURED as a possible transfer (`_MAYBE_PUSH`), and a
     per-command `-c alias.*` makes a local subcommand a possible transfer too, because the alias may name any
-    command the gate does not see (review Runde 5, Punkt 6/7/8). Its arguments are never read with the push parser."""
+    command the gate does not see (review Runde 5, Punkt 6/7/8). Its arguments are never read with the push parser.
+    `raws` are the words as written: a `-C` value is expanded as a home directory only where the shell expands it, a
+    `~` the written word starts with, unquoted and unescaped; a quoted or escaped `~` is the directory named `~`
+    (review round 2 of 2026-10-09, R2-3). Without `raws` a value is read literally."""
     i, c_count, not_measured, deny, alias_config = 0, 0, False, False, False
     start, c_values = directory, []
     while i < len(words) and words[i].startswith("-"):
@@ -828,9 +832,10 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
         value = inline if eq else (words[i + 1] if has_value and i + 1 < len(words) else "")
         if option == "-C" and value and "$" not in value:
             c_count += 1
-            c_values.append(os.path.expanduser(value))
-            directory = (os.path.join(directory, os.path.expanduser(value))
-                         if directory is not UNKNOWN else UNKNOWN)
+            shell_tilde = not eq and raws is not None and i + 1 < len(raws) and raws[i + 1].startswith("~")
+            named = os.path.expanduser(value) if shell_tilde else value
+            c_values.append(named)
+            directory = os.path.join(directory, named) if directory is not UNKNOWN else UNKNOWN
         elif option in ("-c", "--config-env"):
             key = value.partition("=")[0].strip()
             if _hooks_off(key):
@@ -991,7 +996,8 @@ def _resolve_single(words: list[tuple], directory: str | None,
     head = words[i][0]
     base = os.path.basename(head)
     rest = [w[0] for w in words[i + 1:]]
-    # The value of a `-C` is joined with os.path.expanduser (_strict_git), so a plain `~` there is modelled.
+    # The value of a `-C` that starts with `~` as written is joined with os.path.expanduser (_strict_git), so a plain
+    # `~` there is modelled; a quoted or escaped one stays the literal directory (R2-3).
     rewritten = [_shell_rewrites(w[2], tilde_modelled=k > i + 1 and words[k - 1][0] == "-C")
                  for k, w in enumerate(words) if k > i]
     if base not in ("git", "git-push", "gh"):
@@ -1005,7 +1011,8 @@ def _resolve_single(words: list[tuple], directory: str | None,
     # A program path (`./git`, `/opt/x/git`) names a program the gate does not know, so even `git --version` there
     # is NOT MEASURED (review Runde 7, R7-4; Runde 8, R8-5).
     call = (("git push", directory, rest) if base == "git-push"
-            else _strict_git(rest, directory, free_base=_FROM_DIRECTORY if bare else UNKNOWN, rewrites=rewritten))
+            else _strict_git(rest, directory, free_base=_FROM_DIRECTORY if bare else UNKNOWN, rewrites=rewritten,
+                             raws=[w[2] for w in words[i + 1:]]))
     if call is None:
         # The free `git --version` is free only without an unvetted prefix assignment: the environment selects
         # programs as configuration does (review Runde 6, R6-2 class), so it is NOT MEASURED.
