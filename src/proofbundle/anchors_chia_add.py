@@ -24,8 +24,10 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 from ._membership import require_switch
+from ._strict_json import loads_reject_duplicate_keys
 from .anchors_chia import ANCHOR_TYPE, verify_offline_merkle
 from .canonical import _ein_stand
+from .errors import BundleFormatError
 
 _CHIA_BIN = os.getenv("CHIA_CLI", shutil.which("chia") or "chia")
 
@@ -85,8 +87,12 @@ def _rpc(service: str, method: str, payload: dict, *, timeout: int = 60) -> dict
         raise ChiaRpcError(f"chia rpc {service} {method} timed out") from exc
     if proc.returncode != 0:
         raise ChiaRpcError(f"chia rpc {service} {method} exit {proc.returncode}: {(proc.stderr or proc.stdout)[:200]}")
+    # A key the answer names twice has no one value: a last-wins reader would read
+    # `{"success": false, "success": true}` as success. The answer is refused, not read.
     try:
-        data = json.loads(proc.stdout)
+        data = loads_reject_duplicate_keys(proc.stdout)
+    except BundleFormatError as exc:
+        raise ChiaRpcError(f"chia rpc {service} {method}: response carries a duplicate JSON key") from exc
     except ValueError as exc:
         raise ChiaRpcError(f"chia rpc {service} {method}: non-JSON response") from exc
     # 3.6.3 never-raise residual: chia data_layer/full_node RPC always answers with a JSON object; a
