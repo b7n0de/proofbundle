@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from typing import Any, Optional
 
 from .canonical import _ein_stand, _plain_for_jcs, _puffer_von, _zeichen_von
@@ -33,7 +34,7 @@ from .errors import BundleFormatError
 from .signature import verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
 
-__all__ = ["pae", "sign_envelope", "verify_envelope"]
+__all__ = ["openssh_sha256_keyid", "pae", "sign_envelope", "verify_envelope"]
 
 
 def _b64decode_any(s: str) -> bytes:
@@ -60,6 +61,36 @@ def pae(payload_type: str, body: bytes) -> bytes:
             + str(len(body)).encode("ascii") + b" " + body)
 
 
+@_ein_stand
+def openssh_sha256_keyid(public_key_raw: bytes) -> str:
+    """OpenSSH's SHA256 fingerprint of a raw 32-byte Ed25519 public key: ``SHA256:`` and the unpadded
+    standard base64 of SHA-256 over the key's SSH wire form (RFC 8709 section 4: string "ssh-ed25519",
+    string key). It is the keyid go-securesystemslib's ``dsse.SHA256KeyID`` derives and the one sigstore's
+    key providers compare, measured against securesystemslib 1.5.1 and GUAC 1.1.0 in
+    tools/intoto_external on claude/intoto-external (Z225, finding F3)."""
+    if not isinstance(public_key_raw, bytes) or len(public_key_raw) != 32:
+        raise ValueError("an Ed25519 public key is 32 raw bytes")
+
+    def string(b: bytes) -> bytes:
+        return len(b).to_bytes(4, "big") + b
+
+    digest = hashlib.sha256(string(b"ssh-ed25519") + string(public_key_raw)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _default_keyid(signer) -> Optional[str]:
+    """The keyid of an Ed25519 signer, or None for a signer that exposes no Ed25519 public key. A probe, after the
+    signature is made: the signing contract asks only for `sign`, so whatever the signer's `public_key` raises means
+    no key is exposed, and the envelope is written without a keyid (Codex thread 4220244927 on pull request 287:
+    `NotImplementedError` escaped, and a sign-only adapter that signed got no envelope)."""
+    try:
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: PLC0415
+        raw = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    except Exception:  # noqa: BLE001 - a probe of the caller's signer: any failure is "no key exposed"
+        return None
+    return openssh_sha256_keyid(raw) if type(raw) is bytes and len(raw) == 32 else None
+
+
 @_ein_stand(aussen={"signer": "signierer"})
 def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str] = None) -> dict:
     """Sign the RAW `body` bytes into a DSSE envelope. `signer` is an Ed25519 private key (its `.sign`
@@ -67,7 +98,17 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
 
     The type, the body and the key id are read once, by what they hold, and the envelope carries
     exactly what was signed (round 12): at cd5d39f4 the envelope wrote the caller's own objects
-    beside a PAE built from their ``encode`` and ``__radd__``. The body is read as `pae` reads it."""
+    beside a PAE built from their ``encode`` and ``__radd__``. The body is read as `pae` reads it.
+
+    The in-toto envelope layer says a keyid SHOULD be included for each signing key (in-toto/attestation
+    v1.2.0, spec/v1/envelope.md), and securesystemslib and GUAC refuse an envelope without one (Z225, F3).
+    So `keyid=None` writes the signer's OpenSSH SHA256 fingerprint (`openssh_sha256_keyid`), a given
+    string is written as it is, and `keyid=""` writes none; a signer that exposes no Ed25519 public key gets
+    none unless one is passed. The keyid is not signed. `verify_envelope` and the single-key verifiers built on
+    it select no key by it, so among well-formed envelopes their verdict does not change with its value;
+    `trust_pack.verify_trust_pack` selects each of its several keys by keyid, by design. It is part of the
+    envelope's JSON all the same, so a keyid that is not well-formed text (a lone surrogate) makes the
+    envelope malformed, as any other field would."""
     typ_text, body = _zeichen_von(payload_type), _puffer_von(body)
     if typ_text is None or body is None:
         raise BundleFormatError("DSSE sign_envelope needs a str payload type and a bytes body")
@@ -77,6 +118,8 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
     payload_type = typ_text
     sig = signer.sign(pae(payload_type, body))
     entry = {"sig": base64.b64encode(sig).decode("ascii")}
+    if keyid is None:
+        keyid = _default_keyid(signer)
     if keyid:
         entry = {"keyid": keyid, "sig": entry["sig"]}
     return {
