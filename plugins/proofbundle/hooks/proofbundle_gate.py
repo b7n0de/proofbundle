@@ -283,8 +283,11 @@ def _lex(command: str) -> list | None:
     closed (the caller then falls back to the over-matching regex). A token is ('op', <operator>) for a
     control operator (';', '&&', '||', '|', '&', '(', ')', '{', '}', '<<') or ('word', <value>, <has_subst>,
     <raw>), where <value> is the word with its quotes removed, <has_subst> says whether an unquoted or
-    double-quoted parameter or command substitution appeared in it, and <raw> is the original slice. A
-    newline is a ';'. A redirection is ('redir', <operator>, <target>), its target the word that follows as a
+    double-quoted parameter or command substitution appeared in it, and <raw> is the original slice. The value of a
+    word without a substitution is the text the shell forms from it, read by the one rule _shell_characters also
+    gives every other reader (review round 3 of 2026-10-09, R3-1), so a predicate, the repository a `-C` names and a
+    proposed spelling see the bytes git receives. A line continuation between words adds no word; a backslash at the
+    very end of the command, which bash keeps and zsh drops, makes the command unparsable. A newline is a ';'. A redirection is ('redir', <operator>, <target>), its target the word that follows as a
     (<value>, <has_subst>, <raw>) tuple, or None when no word follows before an operator or the end; nothing is
     dropped, so every predicate sees the targets too (review round 2 of 2026-10-09, R2-1). A here-document or
     here-string is reported as '<<'. A bare `{` or `}` word is reported as that operator."""
@@ -296,6 +299,9 @@ def _lex(command: str) -> list | None:
         c = s[i]
         if c in " \t":
             i += 1
+            continue
+        if s.startswith("\\\n", i):  # a line continuation is removed before the shell reads a word (R3-1)
+            i += 2
             continue
         if c == "\n":
             toks.append(("op", ";")); i += 1; target_of = None; continue
@@ -335,8 +341,10 @@ def _lex(command: str) -> list | None:
                 i += 1
                 while i < n and s[i] != '"':
                     d = s[i]
-                    if d == "\\" and i + 1 < n and s[i + 1] in '"\\$`':
-                        buf.append(s[i + 1]); i += 2; continue
+                    if d == "\\" and i + 1 < n and s[i + 1] in _DQ_ESCAPED:
+                        if s[i + 1] != "\n":
+                            buf.append(s[i + 1])
+                        i += 2; continue
                     if d == "$":
                         has_subst = True
                         e = _consume_subst(s, i)
@@ -353,12 +361,11 @@ def _lex(command: str) -> list | None:
                     return None
                 i += 1; continue
             if c == "\\":
-                if i + 1 < n:
-                    if s[i + 1] != "\n":
-                        buf.append(s[i + 1])
-                    i += 2
-                else:
-                    i += 1
+                if i + 1 >= n:
+                    return None  # bash keeps a backslash at the very end, zsh drops it (R3-1): not one word
+                if s[i + 1] != "\n":
+                    buf.append(s[i + 1])
+                i += 2
                 continue
             if c == "$":
                 has_subst = True
@@ -373,13 +380,14 @@ def _lex(command: str) -> list | None:
                 has_subst = True; buf.append(s[i:j + 1]); i = j + 1; continue
             buf.append(c); i += 1
         raw = s[start:i]
+        value = "".join(buf) if has_subst else "".join(ch for ch, _literal in _shell_characters(raw))
         if target_of is not None:
-            toks[target_of] = ("redir", toks[target_of][1], ("".join(buf), has_subst, raw))
+            toks[target_of] = ("redir", toks[target_of][1], (value, has_subst, raw))
             target_of = None
         elif raw in ("{", "}"):
             toks.append(("op", raw))
         else:
-            toks.append(("word", "".join(buf), has_subst, raw))
+            toks.append(("word", value, has_subst, raw))
     return toks
 
 
@@ -538,11 +546,19 @@ _REWRITE_CHARS = frozenset("*?[{^#")
 _TILDE_MODELLED = re.compile(r"~(?:[A-Za-z_][A-Za-z0-9._-]*)?(?:/|$)")
 
 
+#: The characters a backslash escapes inside double quotes (POSIX 2.2.3, measured with bash 5.2 and zsh 5.9): before any
+#: other character the backslash stays a character of the word.
+_DQ_ESCAPED = '$`"\\\n'
+
+
 def _shell_characters(raw: str) -> list[tuple[str, bool]]:
-    """The characters a word as written contributes, each with whether it is literal (quoted or escaped). A line
-    continuation (backslash-newline, outside and inside double quotes) is removed before the shell reads the word, and
-    an empty quote contributes nothing, so neither stands between a character and the start of the word or the
-    character before it (review round 2 of 2026-10-09, R2-6)."""
+    """The characters a word as written contributes, each with whether it is literal (quoted or escaped): the one word
+    formation of the gate, which the lexer's value, the hint of a narrower spelling and the repository a `-C` names all
+    read (review round 3 of 2026-10-09, R3-1). A line continuation (backslash-newline, outside and inside double
+    quotes) is removed before the shell reads the word, and an empty quote contributes nothing, so neither stands
+    between a character and the start of the word or the character before it (review round 2 of 2026-10-09, R2-6).
+    Inside double quotes a backslash escapes only what _DQ_ESCAPED names; before any other character it is a
+    character of the word, as `"a\\b"` gives git `a\\b`."""
     chars: list[tuple[str, bool]] = []
     i, n = 0, len(raw)
     while i < n:
@@ -559,7 +575,7 @@ def _shell_characters(raw: str) -> list[tuple[str, bool]]:
         elif c == '"':
             i += 1
             while i < n and raw[i] != '"':
-                if raw[i] == "\\" and i + 1 < n:
+                if raw[i] == "\\" and i + 1 < n and raw[i + 1] in _DQ_ESCAPED:
                     if raw[i + 1] != "\n":
                         chars.append((raw[i + 1], True))
                     i += 2

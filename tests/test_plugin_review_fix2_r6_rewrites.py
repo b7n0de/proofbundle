@@ -13,6 +13,7 @@ the gate models in a `-C` value is only one the word starts with as written. Red
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -83,7 +84,19 @@ def test_git_add_with_such_a_word_is_not_free_under_either_host(repo, word, shel
         assert f2._host_answer(outcome, host) == ("ask" if host == "claude" else "deny")
 
 
-@pytest.mark.parametrize("value", ["''~", "\\\n~", '""~'])
+@pytest.mark.parametrize("value", ["''~", '""~'])
 def test_a_c_value_the_shell_may_expand_differently_leaves_the_push_not_measured(value):
     calls = gate.gated_calls(f"git -C {value} push origin main", "/work")
     assert calls and all(directory is gate.UNKNOWN for _n, directory, _d in calls), calls
+
+
+def test_a_continuation_before_the_tilde_is_removed_as_the_shell_removes_it():
+    """Review round 3 (R3-1): a line continuation is removed before the shell reads the word, so `\\<LF>~` is the
+    plain `~`, which bash 5.2 and zsh 5.9 both expand to the home directory (measured); the gate resolves it so."""
+    for shell in ("bash", "zsh"):
+        if shutil.which(shell) is None:
+            continue
+        proc = subprocess.run([shell, "-c", "printf %s \\\n~"], capture_output=True, text=True, timeout=30)
+        assert proc.stdout == os.path.expanduser("~"), (shell, proc.stdout)
+    (_name, directory, _detail), = gate.gated_calls("git -C \\\n~ push origin main", "/work")
+    assert directory == os.path.expanduser("~")
