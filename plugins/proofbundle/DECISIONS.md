@@ -1315,9 +1315,10 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
   `core.attributesFile`, else `$XDG_CONFIG_HOME/git/attributes`, else `$HOME/.config/git/attributes`). An unset
   `core.attributesFile` is the default file, not "no file". Where git cannot name one of them for sure (a git
   older than 2.42 does not know the variables, a broken configuration, a relative name without a work tree) the
-  digest is unknown and the gate asks. The `.gitattributes` files of the work tree are not part of the digest: they
-  select only a driver the bound configuration defines. Since this change the digest schema is
-  `gate-state/v2`, so a rule written with a v1 digest asks once and needs the new digest.
+  digest is unknown and the gate asks. The .gitattributes files of the work tree are not part of the digest. A rule
+  therefore also covers later selections of drivers already defined by the bound configuration. Built-in attribute
+  handling, such as text conversion and line endings, is not bound by this digest. Since this change the digest
+  schema is `gate-state/v2`, so a rule written with a v1 digest asks once and needs the new digest.
   A hook longer than 4 MiB (`MAX_HOOK_BYTES`) is not read in full, so the state is unknown and no rule acts while
   it is there (review round 5 of 2026-10-09, R5-2: a fixed marker stood in for its bytes, and a change behind the
   first 4 MiB kept the digest; measured with a post-commit hook of 4194433 bytes that git ran with its changed
