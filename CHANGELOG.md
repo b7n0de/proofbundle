@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- `sdjwt_vc.check_vc_profile` refuses an issuer JWT header that names a critical extension (RFC 7515 §4.1.11), also where the issuer signature is not required.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
