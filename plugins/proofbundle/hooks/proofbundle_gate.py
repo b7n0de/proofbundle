@@ -495,6 +495,46 @@ def _git_lines(raw: bytes) -> list[str] | None:
     return [_git_text(line) for line in raw[:-1].split(b"\n")]
 
 
+def _git_value(raw: bytes) -> str | None:
+    """One value git printed, as the bytes before its one closing newline (_git_text); None when the output does not
+    end in a newline or holds nothing before it. Only that newline is removed: a name may itself end in a newline, a
+    CR, a TAB, U+0085 or a blank, which decode().strip() cut and rstrip(b"\\n") cut in part (review round 5 of
+    2026-10-09, R5-1)."""
+    if not raw.endswith(b"\n") or raw == b"\n":
+        return None
+    return _git_text(raw[:-1])
+
+
+#: git's own answer that a directory lies in no work tree: outside every repository (also at a filesystem
+#: boundary, or where GIT_DIR or a .git file names no repository), or in a git directory without one. Matched on
+#: the whole message, untranslated (LC_ALL=C): a message that only contains these words, such as a configuration
+#: value quoted in another error, is not this answer (R5-1).
+_NO_WORK_TREE = re.compile(rb"fatal: (?:not a git repository(?: \(or any of the parent directories\): [^\n]*"
+                           rb"| \(or any parent up to mount point [^\n]*\)\nStopping at filesystem boundary "
+                           rb"\(GIT_DISCOVERY_ACROSS_FILESYSTEM not set\)\.|: [^\n]*)"
+                           rb"|this operation must be run in a work tree)\n")
+
+
+def _work_tree(directory: str, deadline: float, *flags: str) -> tuple[str | None, str]:
+    """The work tree git names for directory, with the bytes it printed (_git_value): (path, "") inside one, (None,
+    "") where git answers that directory lies in none (_NO_WORK_TREE), (None, why) for any other answer, a failed read
+    or output that is not one absolute path. Every path that reaches a verdict reads the work tree here, so the gate
+    judges exactly the repository the call names, and a read that failed never counts as no repository (review round
+    5 of 2026-10-09, R5-1: a repository whose name ends in LF, CR, TAB, U+0085 or a blank was judged as its
+    neighbour or as none, and a configuration git refused to read made the done check inactive)."""
+    top = _git(directory, "rev-parse", *flags, "--show-toplevel", deadline=deadline)
+    if top.returncode != 0:
+        if _NO_WORK_TREE.fullmatch(top.stderr):
+            return None, ""
+        why = top.stderr.decode("utf-8", "replace").strip().splitlines()
+        return None, (f"git could not name the work tree of {directory}: "
+                      + (why[0] if why else f"git rev-parse exited {top.returncode}"))
+    path = _git_value(top.stdout)
+    if path is None or not os.path.isabs(path):
+        return None, "git rev-parse --show-toplevel gave output the gate cannot read as one path"
+    return path, ""
+
+
 def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
     """The effective configuration as git itself reads it in directory, with the hook's environment:
     (scope, origin, key, value) per entry, value None for a key without '='. None when git cannot read it
@@ -521,20 +561,16 @@ def _repo_paths(directory: str, deadline: float) -> tuple[dict | None, str]:
     out = _git(directory, "rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir",
                "--git-path", "hooks", deadline=deadline)
     if out.returncode != 0:
-        if b"not a git repository" in out.stderr:
+        if _NO_WORK_TREE.fullmatch(out.stderr):
             return {"hooks": None, "common": None, "gitdir": None, "toplevel": None}, ""
         return None, out.stderr.decode("utf-8", "replace").strip() or f"git rev-parse exited {out.returncode}"
     lines = _git_lines(out.stdout)
     if lines is None or len(lines) != 3 or not all(os.path.isabs(line) for line in lines):
         return None, "git rev-parse gave output the gate cannot read"
     common, gitdir, hooks = lines
-    top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
-    toplevel = None
-    if top.returncode == 0:
-        named = _git_lines(top.stdout)
-        if named is None or len(named) != 1 or not os.path.isabs(named[0]):
-            return None, "git rev-parse --show-toplevel gave output the gate cannot read"
-        toplevel = named[0]
+    toplevel, why = _work_tree(directory, deadline, "--path-format=absolute")
+    if why:
+        return None, why
     return {"hooks": hooks, "common": common, "gitdir": gitdir, "toplevel": toplevel}, ""
 
 
@@ -1766,11 +1802,15 @@ def _read_env() -> dict:
     honours it from fetching a missing object of a partial clone (review Runde 7, R7-7; measured effective on
     git 2.43.0 as Ubuntu builds it, 1:2.43.0-1ubuntu7.3). A git that ignores it is caught by
     _refuse_partial_clone, which does not depend on the version. That refusal carries the case end to end; this
-    variable is a second lock with a function contract only (review Runde 8, R8-3)."""
+    variable is a second lock with a function contract only (review Runde 8, R8-3). LC_ALL=C keeps git's messages
+    untranslated: the gate reads one of them as git's answer that a directory lies in no work tree (_NO_WORK_TREE,
+    review round 5 of 2026-10-09, R5-1), and a translation of it would be read as a failure."""
     env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
     env["GIT_NO_LAZY_FETCH"] = "1"
+    env["LC_ALL"] = "C"
+    env.pop("LANGUAGE", None)
     return env
 
 
@@ -3268,14 +3308,18 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Fal
     D22 for CI; decide_mcp's local diagnosis for an MCP tool, never its decision). A shell `git push`
     does not use this path; it resolves its targets through evaluate_push. check_range is accepted for
     compatibility and ignored: the range is never read at HEAD alone."""
-    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
-    if top.returncode != 0:
+    repo, unreadable = _work_tree(directory, deadline)
+    if unreadable:
+        return Verdict("ask", f"NOT MEASURED: {unreadable}, so no evidence was checked.", "not_a_work_tree",
+                       evidence=f"none, {unreadable}", failed="the gate cannot name the repository to check",
+                       next_step="run the call inside the repository it acts on, or confirm it yourself",
+                       repo=directory)
+    if repo is None:
         return Verdict("ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked.",
                        "not_a_work_tree", evidence=f"none, {directory} is not inside a git work tree",
                        failed="there is no repository to check",
                        next_step="run the call inside the repository it acts on, or confirm it yourself",
                        repo=directory)
-    repo = top.stdout.decode().strip()
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     if head.returncode != 0:
         return Verdict("ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked.",
@@ -3308,14 +3352,18 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
     branch to its upstream): the evidence at every commit the push newly sends to each target, and whether
     those commits change the evidence rules against the target's locally known state. An unresolved push,
     or one whose range or comparison state the gate cannot determine, is NOT MEASURED (N1, N2, N3)."""
-    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
-    if top.returncode != 0:
+    repo, unreadable = _work_tree(directory, deadline)
+    if unreadable:
+        return Verdict("ask", f"NOT MEASURED: {unreadable}, so no evidence was checked.", "not_a_work_tree",
+                       evidence=f"none, {unreadable}", failed="the gate cannot name the repository to check",
+                       next_step="run the call inside the repository it acts on, or confirm it yourself",
+                       repo=directory)
+    if repo is None:
         return Verdict("ask", f"NOT MEASURED: {directory} is not inside a git work tree, so no evidence was checked.",
                        "not_a_work_tree", evidence=f"none, {directory} is not inside a git work tree",
                        failed="there is no repository to check",
                        next_step="run the call inside the repository it acts on, or confirm it yourself",
                        repo=directory)
-    repo = top.stdout.decode().strip()
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     if head.returncode != 0:
         return Verdict("ask", f"NOT MEASURED: {repo} has no commit at HEAD, so no evidence was checked.",
@@ -3492,12 +3540,12 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
     line becomes a target: source = the local sha (None when it is all-zero, a deletion), dest = the remote
     ref, tracking = the remote sha (None when the remote has no such ref yet). Then the shared core judges
     the evidence exactly as for a resolved shell push."""
-    top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
-    if top.returncode != 0:
-        return Verdict("deny", f"proofbundle gate (pre-push): {directory} is not inside a git work tree.",
-                       "not_a_work_tree", evidence=f"none, {directory} is not a work tree",
-                       failed="the pre-push hook ran outside a repository", next_step="run the hook from the repository")
-    repo = top.stdout.decode().strip()
+    repo, unreadable = _work_tree(directory, deadline)
+    if repo is None:
+        named = unreadable or f"{directory} is not inside a git work tree"
+        return Verdict("deny", f"proofbundle gate (pre-push): {named}.", "not_a_work_tree", evidence=f"none, {named}",
+                       failed="the pre-push hook cannot name the repository it runs in",
+                       next_step="run the hook from the repository")
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     head_commit = head.stdout.decode().strip() if head.returncode == 0 and head.stdout.strip() else ""
     targets = []
@@ -4991,12 +5039,13 @@ def _refused(result: dict, verdict: Verdict, ident: str) -> dict:
 def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: str | None, environ: dict | None,
                    receipt_dir: str | None, at_commit: str | None, reviewed: bool) -> dict:
     environ = os.environ if environ is None else environ
-    top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
-    if top.returncode != 0:
+    repo, unreadable = _work_tree(directory, deadline, "--path-format=absolute")
+    if unreadable:
+        raise GateError(unreadable)   # a read that failed is not "no repository": the end is not freed (R5-1)
+    if repo is None:
         result["verdict"] = Verdict("inactive", "NOT MEASURED: not a git repository; no done check applies.",
                                     "no_repository")
         return result
-    repo = os.fsdecode(top.stdout.rstrip(b"\n"))
     # The repository is known from here on: a failure after this point, the partial-clone refusal of the HEAD read
     # among them, is counted toward the repeat limit like any other refusal (review round 2 of 2026-10-09, R2-4).
     result["repo"] = repo
@@ -5738,10 +5787,9 @@ def done_init(directory: str, key_path: str | None, deadline: float, environ: di
     receipt, all staged. Writes nothing it has not named; refuses a repository that already declares a done
     check. The key is a local test key, never a release key."""
     environ = os.environ if environ is None else environ
-    top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
-    if top.returncode != 0:
-        raise GateError(f"{directory} is not a git repository")
-    repo = os.fsdecode(top.stdout.rstrip(b"\n"))
+    repo, unreadable = _work_tree(directory, deadline, "--path-format=absolute")
+    if repo is None:
+        raise GateError(unreadable or f"{directory} is not a git repository")
     if key_path is None:
         gate_dir = _gate_dir(environ)
         if gate_dir is None:
@@ -6168,10 +6216,9 @@ def run_evidence(directory: str, out: str, command: list[str],
 
     try:
         deadline = time.monotonic() + DEADLINE_SECONDS
-        top = _git(directory, "rev-parse", "--show-toplevel", deadline=deadline)
-        if top.returncode != 0:
-            return refuse("not_a_work_tree", f"{directory} is not inside a git work tree")
-        repo = top.stdout.decode().strip()
+        repo, unreadable = _work_tree(directory, deadline)
+        if repo is None:
+            return refuse("not_a_work_tree", unreadable or f"{directory} is not inside a git work tree")
         head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
         if head.returncode != 0:
             return refuse("no_commit", f"{repo} has no commit at HEAD")

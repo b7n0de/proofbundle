@@ -1383,6 +1383,14 @@ Chosen:
   cannot run, a working state that cannot be read as files and any error inside the check block: the turn does
   not end on a check that reached no verdict. Every block is one line with what is missing, the command that
   delivers it and the rule never to weaken the declaration, the policy or the key (D19).
+- The repository is the work tree git names for the directory, with the bytes git printed and only its one
+  closing newline removed; every path to a verdict reads it so (the done check, the push path, the pre-push hook,
+  the CI mode, the MCP diagnosis, run-evidence and done-init). No repository means git's own answer that the
+  directory lies in no work tree (outside every repository, in a bare repository or in `.git`); a read git fails
+  for any other reason (measured: a repository format version 99, an unknown repository extension, a bad boolean
+  value) reached no verdict and blocks. Review round 5 of 2026-10-09, R5-1: a work tree whose name ended in LF, CR,
+  TAB, U+0085 or a blank was cut to another name and judged as its neighbour or as none, and such a failed read
+  made the done check inactive.
 - `done-check --repo DIR [--receipt FILE]` is the same check for CI (exit 0 only for a pass), and `done-init`
   sets the check up: a local test key with the package's key path in the gate directory, a policy that pins it,
   the done section and an ignore rule for the receipt, staged.
@@ -1394,7 +1402,9 @@ is an early warning; the boundary is the required CI check. The agent
 that runs the tests can read the test key, and repository code under pytest can write the receipt. A receipt binds
 the tree, not which tests the run selected: a run that leaves a failing test out (`-k`, a path, `--deselect`,
 `PYTEST_ADDOPTS`) signs passed true for the same tree (measured with `-k`, 2026-10-08), so only a run with the
-repository's own command, as in the CI job, decides which tests count. Codex is not
+repository's own command, as in the CI job, decides which tests count. An agent that moves `.git` away or
+points a `.git` file at no repository leaves no repository by git's own answer, and the hook stays silent; the
+CI check is the boundary there. Codex is not
 wired: NOT MEASURED there. (D28 wires Codex to the same Stop hook and binds the selection of each check.)
 
 Options:
