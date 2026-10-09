@@ -3601,6 +3601,19 @@ def _read_rules(environ: dict) -> list[dict]:
     return rules
 
 
+def _git_path(directory: str, value: str, deadline: float) -> str | None:
+    """A pathname value of git's configuration as git interpolates it (git-config(1), "pathname": a leading `~/`,
+    `~user/` and `%(prefix)/`), asked of git itself with no configuration read: the value is the default of a key the
+    null device cannot hold, so the git that runs the command reads it with its own rules and its own runtime prefix
+    (review round 3 of 2026-10-09, R3-3; os.path.expanduser knew `~` only). A relative result stays relative: its base
+    is the caller's. None when git cannot say."""
+    out = _run_git(directory, ("config", "--file", os.devnull, "--type=path", "--default", value, "--get",
+                               "proofbundle-gate.interpolate"), deadline)
+    if out.returncode != 0 or not out.stdout.endswith(b"\n"):
+        return None
+    return out.stdout[:-1].decode("utf-8", "surrogateescape")
+
+
 def _config_value(entries: list, key: str) -> str | None:
     """The effective value of a lower-cased config key from _config_entries (git's last value wins), or None."""
     value = None
@@ -3652,8 +3665,18 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
             hooks.append([name, oct(stat.S_IMODE(info.st_mode)), marker])
     attrs: list = []
     attrs_file = _config_value(entries, "core.attributesfile")
+    attrs_path = None
+    if attrs_file:
+        # git's interpolation (R3-3), and a relative value against the work tree, where git reads it (measured with
+        # git 2.43 from a subdirectory and with -C); a value git cannot resolve, or a relative one without a work
+        # tree, leaves the state unknown rather than "absent".
+        attrs_path = _git_path(directory, attrs_file, deadline)
+        if attrs_path is not None and not os.path.isabs(attrs_path):
+            attrs_path = os.path.join(paths["toplevel"], attrs_path) if paths["toplevel"] else None
+        if attrs_path is None:
+            return None
     for label, path in (("info/attributes", os.path.join(common, "info", "attributes")),
-                        ("core.attributesFile", os.path.expanduser(attrs_file) if attrs_file else None)):
+                        ("core.attributesFile", attrs_path)):
         if path is None:
             attrs.append([label, "none"])
             continue
@@ -4032,18 +4055,24 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     for _scope, origin, key, value in entries:
         source = None
         if origin.startswith("file:"):
-            source = os.path.join(base, os.path.expanduser(origin[5:]))
+            # git names the file as it opened it, already interpolated; a relative name is relative to where git
+            # read it, the work tree (R3-3: os.path.expanduser here turned a directory named `~` into the home)
+            source = os.path.join(base, origin[5:])
             files.add(source)
         k = key.lower()
         if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
-            included = os.path.expanduser(value)
-            if source is not None:
-                files.add(os.path.join(os.path.dirname(source), included))
-            elif os.path.isabs(included):
-                files.add(included)   # an include from the command scope or standard input names its file
+            included = _git_path(directory, value, deadline)   # git's interpolation, `%(prefix)/` included (R3-3)
+            if included is None:
+                return files, dirs, f"git cannot resolve the include {value!r} from {origin or 'an unnamed origin'}"
+            if os.path.isabs(included):
+                files.add(included)   # an absolute include, also one from the command scope or standard input
+            elif source is not None:
+                files.add(os.path.join(os.path.dirname(source), included))   # relative to the including file
             else:   # git-config(1): a relative include must come from a file, so git itself refuses it
                 return files, dirs, f"the include {value!r} from {origin or 'an unnamed origin'} names no file"
-    home = os.path.expanduser("~")
+    # git reads ~/.gitconfig at $HOME (git-config(1)); os.path.expanduser falls back to the password database when
+    # HOME is unset. Both are protected, so neither reading leaves a file git may use unprotected (R3-3).
+    homes = {os.path.expanduser("~")} | ({os.environ["HOME"]} if os.environ.get("HOME") else set())
     for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):   # git-var(1): the files git itself would use
         named = _git(directory, "var", name, deadline=deadline)
         if named.returncode == 0:
@@ -4055,8 +4084,9 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
         elif value is None and default:
             files.add(default)
     if os.environ.get("GIT_CONFIG_GLOBAL") is None:
-        files.add(os.path.join(home, ".gitconfig"))
-        files.add(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "git", "config"))
+        for home in homes:
+            files.add(os.path.join(home, ".gitconfig"))
+            files.add(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "git", "config"))
     for root in {paths["common"], paths["gitdir"]} - {None}:
         # commondir (gitrepository-layout(5)) names the directory git takes the shared configuration and hooks
         # from, so a write to it, also one that creates it, redirects them (review Runde 8, R8-4)
