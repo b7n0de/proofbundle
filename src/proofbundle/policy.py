@@ -811,6 +811,10 @@ def _gemeinsame_fehler(policy: dict, zweck: "str | None", now=None) -> list:
     `outcome verify` and `relation-statement verify` passed an expired policy, one not yet valid, one for another
     path and a raw template, where `verify` and `decision verify` fail each."""
     fehler = []
+    # 6.2.1 ZT-01 (Z309): one wall-clock reading for the whole lifecycle, so valid_from and valid_until are judged
+    # at the same instant (each helper read its own clock, and two readings could straddle valid_until).
+    if now is None:
+        now = datetime.now(timezone.utc)
     if policy.get("requiresIdentityOverlay") is True:
         fehler.append("policy is a raw template (requiresIdentityOverlay:true) — instantiate it before using it "
                       "to authorise anything")
@@ -932,7 +936,8 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if _uhr is KEIN_ZEITPUNKT:
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"now must be a datetime, got {type(now).__name__} (fail-closed)"]}
-    now = _uhr
+    # 6.2.1 ZT-01 (Z309): without an explicit instant the wall clock is read once, here, for every lifecycle check.
+    now = _uhr if _uhr is not None else datetime.now(timezone.utc)
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
@@ -1252,7 +1257,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         grund = f"now must be a datetime, got {type(now).__name__} (fail-closed)"
         return {"policy_ok": False, "checks": [{"name": "policy:clock", "ok": False, "detail": grund}],
                 "reason": grund}
-    now = _uhr
+    # 6.2.1 ZT-01 (Z309): without an explicit instant the wall clock is read once, here: the lifecycle, every
+    # trusted checkpoint and the freshness rule below are judged at that one instant, not at 2 + N + 1 readings.
+    now = _uhr if _uhr is not None else datetime.now(timezone.utc)
     try:
         if not issubclass(type(bundle), dict):
             raise PolicyError("the bundle must be a JSON object")
