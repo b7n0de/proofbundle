@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- `verify_decision_receipt` judges a decision policy's lifetime at the receipt's evaluation instant with its fraction of a second, not at that instant cut to the whole second.
+- `--verification-time` of `decision verify` and `verify-enclave` refuses a time whose fractional seconds are not all zero, however many digits are written.
+- `decision verify --verification-time` marks its output HISTORICAL also without `--policy`, and `verify-enclave --verification-time` marks its JSON and text output HISTORICAL.
+- A policy lifecycle evaluation without an explicit instant reads the wall clock once and judges both ends of the policy's validity window at that one instant.
+- `policy_expired`, `policy_not_yet_valid` and the trusted-checkpoint check of `evaluate_policy` use an explicit evaluation instant as given and never replace it with the wall clock; a value that is not an aware datetime fails closed.
+- `verify_enclave_attestation` refuses an evaluation time `now` that is not an exact int instead of comparing it as given.
+- `check_freshness` judges an eval claim's age on the exact difference: a claim dated after the reference time is never fresh, and one older than the bound by any fraction is not fresh.
+- `verify_anchor` and `verify_anchors` refuse an explicit `now` that is not an exact int before any anchor verifier runs.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
