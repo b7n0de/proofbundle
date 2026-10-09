@@ -1182,6 +1182,12 @@ it, and no other path of the gate writes a hook.
   agent that can write those folders or the hook itself can change what runs (the D27 class: local hooks are an
   early warning). `git push --no-verify` skips it, which is why Level 1 denies that form (D24). The boundary stays
   the required CI check (D22).
+- Two of these limits by name, measured by the review of 2026-10-09 and again on 2026-10-09 at 281901af: the mark
+  is a heuristic, not provenance. `install-pre-push` takes a hook whose
+  second line starts with `PRE_PUSH_MARK` as its own and replaces it, whoever wrote it, and refuses one without it,
+  however it came. And whoever can write the plugin cache chooses the gate: the wrapper runs the gate of the newest
+  version folder beside the one it was installed from, so a folder `…/proofbundle/9.9.9` with a gate of its own is
+  the gate that checks every push.
 
 Measured (tests/test_plugin_gate_install_pre_push.py, 2026-10-08): the wrapper lands in `.git/hooks` or a local
 `core.hooksPath` inside the repository with no configuration changed; a foreign hook (script, link, folder, a mark
@@ -1371,6 +1377,9 @@ Owner rule (2026-10-08, for findings on the plugin from now on):
   status'` builds the program word `git`), F15-3 (the state digest binds the search path, not the program it
   selects, so a swapped `git` at the same path keeps a rule acting) and others of the same kind. A shell can
   build a command from text the gate does not model; Level 1 cannot close that class.
+- The same class at Level 2 (review of 2026-10-09, D24B): the ownership mark of `install-pre-push` is a heuristic,
+  and whoever can write the plugin cache chooses the gate the pre-push hook runs. Both are named limits, not
+  repaired: a local hook is an early warning.
 - Repaired is what makes a receipt, a verify or the required CI check falsely green, and what lets the agent
   switch the early warning off silently. F15-4 is repaired: no JSON read of the gate or the server takes `NaN`,
   `Infinity` or `-Infinity`, and a logging notification with a level MCP does not define refuses the verifier
@@ -1578,6 +1587,14 @@ Chosen:
   a shallow clone cut before it (the cut commit is in git's shallow list), more than `MAX_ORDER_WALK` (256) commits
   that changed the declaration, or git cannot list them. The next step is `git fetch --unshallow` or a person.
 - An order without paths, and the one-check form, are as before: no change is required.
+
+D28 and D31 together (review of 2026-10-09): the local hook cannot tell whether the owner or the agent wrote a new
+order. Any commit that changes the done section declares a new order, and from then on its checks, its paths and its
+base are the ones the gate uses, also when the agent wrote it, with paths it had already changed or with none. The
+protection is review: CODEOWNERS over `.proofbundle/` with a required code owner review in CI (D22), not the hook.
+And `order_base` is read from the history the checkout holds, by the first-parent walk above; it is not anchored
+outside the repository, so it is only as good as that history. In CI that is the whole history of the commit under
+review (fetch-depth 0, review 2026-10-09 F4), the history the reviewer sees.
 
 Delimitation from D26: D26 makes "done" mean that receipts signed by the pinned key name exactly the state at hand
 and say that every test passed; it never said that the work was done, and it still does not. D31 adds one measured
