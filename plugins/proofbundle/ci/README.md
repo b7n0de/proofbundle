@@ -101,8 +101,10 @@ The workflow's job `done` (input `done-check: true`) is the hard boundary of the
 under the done policy at that commit, says that every test passed and names that commit and its tree, from a clean
 run (`git_clean` true). The commit comes from the event (the head of a pull request, else the pushed commit), not
 from HEAD: the test command runs the code under review, which can change the working tree or move HEAD, and a
-receipt for anything but the commit's own tree fails (review 2026-10-09, F1). Make the job a required status
-check, like the job `evidence`.
+receipt for anything but the commit's own tree fails (review 2026-10-09, F1). The job checks the commit out with
+its whole history (`fetch-depth: 0`): an order that names paths is compared with the commit that declared it (D28),
+and a checkout of one commit leaves that NOT MEASURED (review 2026-10-09, F4). Make the job a required status check,
+like the job `evidence`.
 
 ```yaml
 jobs:

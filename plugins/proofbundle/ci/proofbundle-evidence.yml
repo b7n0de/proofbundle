@@ -148,12 +148,15 @@ jobs:
             exit 1
           fi
 
-      # The commit under review, as in the job evidence: on a pull request its head, not the merge commit.
+      # The commit under review, as in the job evidence: on a pull request its head, not the merge commit. With its
+      # whole history: an order that names paths is compared with the commit that declared it, and a checkout of one
+      # commit leaves that NOT MEASURED (review 2026-10-09, F4).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: checked
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
