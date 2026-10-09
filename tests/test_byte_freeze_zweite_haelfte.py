@@ -42,8 +42,10 @@ _MARKER_HINWEIS = "slow ist hier eine Beschriftung, kein Filter — siehe Kommen
 
 
 def _modul():
+    from _private_build_tree import private_build_tree  # noqa: PLC0415 - tests/ is on sys.path
+    # Built in a private tree of the checkout, never in the checkout other workers read (tests/_private_build_tree.py).
     spec = importlib.util.spec_from_file_location(
-        "_br_zweite_haelfte", str(REPO / "scripts" / "build_reproducible.py"))
+        "_br_zweite_haelfte", str(private_build_tree() / "scripts" / "build_reproducible.py"))
     m = importlib.util.module_from_spec(spec)
     sys.modules["_br_zweite_haelfte"] = m
     spec.loader.exec_module(m)

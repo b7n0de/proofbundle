@@ -6,30 +6,36 @@ is skipped (honest DATA_BLOCKED, never a false pass), but the registry-integrity
 runs (it does not need the binary)."""
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
 import unittest
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BIN_DEBUG = ROOT / "tools" / "pb_verify_rs" / "target" / "debug" / "pb_verify_rs"
-BIN_RELEASE = ROOT / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
 CROSSCHECK = ROOT / "tools" / "pb_verify_rs" / "crosscheck.py"
 
 
-def _binary_available() -> bool:
-    return BIN_DEBUG.exists() or BIN_RELEASE.exists()
-
-
 class TestRelationDifferential(unittest.TestCase):
-    @unittest.skipUnless(_binary_available(), "pb_verify_rs not cargo-built (run `cargo build` in tools/pb_verify_rs)")
     def test_crosscheck_relation_differential_green(self):
+        # Decided at run time through tests/_pb_verify_rs.py, no longer at import: a binary built by an
+        # earlier test is found, and where CI requires the binary its absence fails this test.
+        # The seam's binary is what crosscheck measures: passed as its pin, so the validation and the run are
+        # one file (Codex thread 4217981884).
+        binary = _pb_verify_rs.binary_or_skip()
         proc = subprocess.run([sys.executable, str(CROSSCHECK)], capture_output=True, text=True,
-                              cwd=str(ROOT), timeout=300)
+                              cwd=str(ROOT), timeout=300,
+                              env={**os.environ, _pb_verify_rs.PINNED_ENV: str(binary)})
         self.assertEqual(proc.returncode, 0, f"crosscheck failed:\n{proc.stdout}\n{proc.stderr}")
         # The relation vectors were driven differentially and Python==Rust on every one.
         self.assertIn("relation vector(s) differentially", proc.stdout)
         self.assertIn("Python==Rust", proc.stdout)
+        self.assertIn(f"BINARY UNDER TEST: {binary} ", proc.stdout)
 
 
 class TestRegistryHonesty(unittest.TestCase):

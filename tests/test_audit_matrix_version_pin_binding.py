@@ -44,8 +44,10 @@ def matrix():
         p = str(REPO / sub)
         if p not in sys.path:
             sys.path.insert(0, p)
+    from _private_build_tree import private_build_tree  # noqa: PLC0415 - tests/ is on sys.path
+    # Built in a private tree of the checkout, never in the checkout other workers read (tests/_private_build_tree.py).
     spec = importlib.util.spec_from_file_location(
-        "_acm_pin", str(REPO / "scripts" / "audit_candidate_matrix.py"))
+        "_acm_pin", str(private_build_tree() / "scripts" / "audit_candidate_matrix.py"))
     m = importlib.util.module_from_spec(spec)
     sys.modules["_acm_pin"] = m
     spec.loader.exec_module(m)

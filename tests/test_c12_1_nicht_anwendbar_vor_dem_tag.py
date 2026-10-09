@@ -37,8 +37,11 @@ def _lauf(event: str | None) -> subprocess.CompletedProcess:
     # Laeufe dieser Datei nicht zehnmal die Vorgabe abwarten. Er wird nicht abgeschaltet: eine
     # abgeschaltete Zelle waere NICHT GEMESSEN und aendert den Bericht.
     env.setdefault("AUDIT_MATRIX_SMALL_SOAK_SECONDS", "1")
-    return subprocess.run([sys.executable, str(SKRIPT)], capture_output=True, text=True,
-                          cwd=str(REPO), env=env, timeout=300)
+    from _private_build_tree import private_build_tree  # noqa: PLC0415 - tests/ is on sys.path
+    # Built in a private tree of the checkout, never in the checkout other workers read (tests/_private_build_tree.py).
+    baum = private_build_tree()
+    return subprocess.run([sys.executable, str(baum / "scripts" / "audit_candidate_matrix.py")], capture_output=True,
+                          text=True, cwd=str(baum), env=env, timeout=300)
 
 
 def _quittungslage() -> str:

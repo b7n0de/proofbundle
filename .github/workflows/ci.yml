@@ -284,6 +284,12 @@ jobs:
     # 53bbb94c; the spread is the speed of the runner, and 105 with the reserve of
     # tests/test_der_ci_schnitt_haelt.py needs 132.
     timeout-minutes: 180
+    # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
+    # here, and required. A test that would skip for a missing binary fails in this job, because a
+    # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    env:
+      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
+      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
     strategy:
       fail-fast: false
       matrix:
@@ -334,7 +340,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev]" pytest-xdist==3.8.0
       - name: Lint
         run: ruff check .
       - name: Type check
@@ -355,8 +361,13 @@ jobs:
       # `scripts/test_manifest_gate.py` nennt pytest seit jeher "the normative runner"; hier folgt
       # der Pflicht-Job dem Namen, den die Sache schon trug. pytest liegt im `[dev]`-Extra, das der
       # Install-Schritt oben schon zieht — kein neuer Abhaengigkeitsschritt.
+      - name: Build the Rust second verifier the suite requires (pinned above)
+        run: cd tools/pb_verify_rs && cargo build --release
+      # PARALLEL (owner decision 2026-09-28, Z281): the whole suite, one pytest call, on every worker
+      # the runner has. Written with `=` so the normative-runner guard reads the values as option
+      # values, not as path selections; it still collects exactly what `pytest tests` collects.
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q --numprocesses=auto --dist=worksteal
       - name: Conformance corpus (offline; anchor sub-checks skip without the [anchors] extra)
         run: python conformance/run_conformance.py
       - name: F1 corpus integrity (schema + cross-format one-vocabulary consistency)
@@ -471,16 +482,26 @@ jobs:
     # test files took 68 min against 28, the rest about 1.35 times as long. The spread is the speed of
     # the runner, and the mutation layer, which needs coverage, was skipped at 52c7e634 because of it.
     timeout-minutes: 300
+    # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
+    # here, and required. A test that would skip for a missing binary fails in this job, because a
+    # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    env:
+      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
+      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
       - name: Install with all test extras
-        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest
+        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 pytest-cov==7.1.0
+      - name: Build the Rust second verifier the suite requires (pinned above)
+        run: cd tools/pb_verify_rs && cargo build --release
+      # PARALLEL (Z281): pytest-cov measures every worker and combines the data before the report;
+      # the floor is unchanged.
       - name: Coverage with a --fail-under ratchet floor
         run: |
-          python -m coverage run --source=src/proofbundle -m pytest -q
+          python -m pytest -q --numprocesses=auto --dist=worksteal --cov=src/proofbundle --cov-report=
           python -m coverage report -m --fail-under=83
 
   crypto-floor:
@@ -491,6 +512,12 @@ jobs:
     # 45, NOT 20 (owner decision of 2026-10-01 on card OA-52e183ce21, option A): 16 min at d388ed3d,
     # cut at 20 at 6b02d9f7 without a failing test, for the cost of the reading at each call.
     timeout-minutes: 45
+    # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
+    # here, and required. A test that would skip for a missing binary fails in this job, because a
+    # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
+    env:
+      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
+      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -500,6 +527,8 @@ jobs:
         run: |
           python -m pip install -e ".[dev,eval]"
           python -m pip install "cryptography==42.*"
+      - name: Build the Rust second verifier the suite requires (pinned above)
+        run: cd tools/pb_verify_rs && cargo build --release
       - name: Core test suite on the floor
         run: python -m unittest discover -s tests
       - name: Dependency-free verify must hold on the floor (trusted-core verify path)
