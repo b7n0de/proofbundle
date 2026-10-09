@@ -4677,9 +4677,31 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
     counts only for a clean run on that commit (git_clean true, review 2026-10-09 F1): a run on a working state that
     differed from it is not a run on the commit, whatever tree ids the receipt names. `reviewed` names the commit in
     the texts as the commit under review (the CI check) instead of a pushed commit."""
-    environ = os.environ if environ is None else environ
     result = {"verdict": None, "done": None, "repo": None, "commit": None, "state": None, "checks": [], "open": [],
               "policy": None, "base": None, "inside": []}
+    try:
+        return _evaluate_done(result, directory, deadline, receipt_path, environ, receipt_dir, at_commit, reviewed)
+    except Exception as exc:
+        # What the check had found before it failed, for the Stop hook's count (review 2026-10-09, F6).
+        try:
+            exc.partial = result  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        raise
+
+
+def _refused(result: dict, verdict: Verdict, ident: str) -> dict:
+    """A check that refuses before it reaches the open checks: the verdict, and the same refusal as the one open point,
+    so the Stop hook counts it toward max_blocks and writes the blocker like any other (review 2026-10-09, F6)."""
+    result["verdict"] = verdict
+    result["open"] = [{"id": ident, "status": verdict.reason_id, "failed": verdict.failed,
+                       "command": verdict.next_step}]
+    return result
+
+
+def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: str | None, environ: dict | None,
+                   receipt_dir: str | None, at_commit: str | None, reviewed: bool) -> dict:
+    environ = os.environ if environ is None else environ
     top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
     if top.returncode != 0:
         result["verdict"] = Verdict("inactive", "NOT MEASURED: not a git repository; no done check applies.",
@@ -4710,11 +4732,11 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
                                                     "and in the working tree); no done check applies.",
                                         "nothing_declared", repo=repo, head=commit or None)
             return result
-        result["verdict"] = Verdict("deny", f"NOT MEASURED: {DECLARATION} is in the working tree but not at HEAD.",
-                                    "declaration_not_committed", evidence=f"the declaration {DECLARATION}",
-                                    failed="the declaration is not committed, so the done check cannot read it from "
-                                           "HEAD", next_step=f"commit {DECLARATION}", repo=repo, head=commit or None)
-        return result
+        return _refused(result, Verdict("deny", f"NOT MEASURED: {DECLARATION} is in the working tree but not at HEAD.",
+                                        "declaration_not_committed", evidence=f"the declaration {DECLARATION}",
+                                        failed="the declaration is not committed, so the done check cannot read it "
+                                               "from HEAD", next_step=f"commit {DECLARATION}", repo=repo,
+                                        head=commit or None), "declaration")
     done = parse_done(raw)
     if done is None:
         result["verdict"] = Verdict("inactive", f"NOT MEASURED: {DECLARATION} at {where} declares no done check.",
@@ -4726,12 +4748,11 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
         raise GateError(f"the done check declares {len(checks)} checks; name a folder of receipts with --receipt-dir")
     policy = _blob(repo, commit, done["policy"], deadline, MAX_DECLARATION_BYTES)
     if policy is None:
-        result["verdict"] = Verdict("deny", f"proofbundle gate: the done policy {done['policy']} is missing at {where}.",
-                                    "missing_file", evidence=f"the done policy {done['policy']}",
-                                    failed=f"the policy is missing at {where}",
-                                    next_step=f"commit the policy {done['policy']} that pins your test key",
-                                    repo=repo, head=commit)
-        return result
+        return _refused(result, Verdict("deny", f"proofbundle gate: the done policy {done['policy']} is missing at "
+                                                f"{where}.", "missing_file", evidence=f"the done policy {done['policy']}",
+                                        failed=f"the policy is missing at {where}",
+                                        next_step=f"commit the policy {done['policy']} that pins your test key",
+                                        repo=repo, head=commit), "policy")
     require_pinned_signer(policy, f"the done policy {done['policy']}")
     result["policy"] = policy
     rows = []
@@ -4801,8 +4822,7 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
             result["state"] = state
             if state["worktree"] is None:
                 result["checks"] = rows
-                result["verdict"] = _state_not_measured(now, state, repo, commit)
-                return result
+                return _refused(result, _state_not_measured(now, state, repo, commit), "state")
         named = (provenance.get("git_hash"), provenance.get("git_tree"))
         if named != (state["commit"], state["tree"]):
             row.update(status="stale", failed=f"the receipt names commit {str(named[0])[:12]} with tree "
@@ -4830,16 +4850,14 @@ def done_evaluation(directory: str, deadline: float, receipt_path: str | None = 
             state = result["state"] = (working_state(repo, deadline) if at_commit is None
                                        else commit_state(repo, commit, deadline))
             if state["worktree"] is None:
-                result["verdict"] = _state_not_measured(now, state, repo, commit)
-                return result
+                return _refused(result, _state_not_measured(now, state, repo, commit), "state")
         base, why = order_base(repo, commit, done, deadline)
         if base is None:
-            result["verdict"] = Verdict(
+            return _refused(result, Verdict(
                 "deny", f"NOT MEASURED: {why}, so the gate cannot tell whether the work changed the paths the order "
                         "names.", "order_base_not_measured", evidence=f"the history of {DECLARATION}", failed=why,
                 next_step="fetch the full history (git fetch --unshallow) and run the checks again, or have a person "
-                          "judge the work", repo=repo, head=commit)
-            return result
+                          "judge the work", repo=repo, head=commit), "paths")
         result["base"] = base
         changed = changed_paths(repo, base, state["files"], deadline)
         named = ", ".join(done["paths"])
@@ -4993,11 +5011,11 @@ def _blocker(result: dict, session: str, blocks: int) -> dict:
                     "them and the state the gate measured. It is not a receipt and proves nothing about the tests."}
 
 
-def _account_block(result: dict, event: dict | None) -> str | None:
+def _account_block(result: dict, event: dict | None, limit: int) -> str | None:
     """Count one blocked end (D28, N3 and N5) and decide whether to keep blocking. Returns None to block, else the
-    path of the blocker file written instead: after max_blocks blocks with the same open points (no progress) in the
-    same session the hook writes the blocker and lets the session end without a done verdict."""
-    repo, done = result["repo"], result["done"]
+    path of the blocker file written instead: after `limit` blocks (the order's max_blocks) with the same open points
+    (no progress) in the same session the hook writes the blocker and lets the session end without a done verdict."""
+    repo = result["repo"]
     session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
     signature = [[p["id"], p["status"]] for p in result["open"]]
     previous = _read_done_file(repo, DONE_STATE, "state")
@@ -5005,7 +5023,7 @@ def _account_block(result: dict, event: dict | None) -> str | None:
             and type(previous.get("blocks")) is int and previous["blocks"] >= 0)
     blocks = previous["blocks"] + 1 if same else 1
     statuses = [p["status"] for p in result["open"]]
-    if blocks > done["max_blocks"]:
+    if blocks > limit:
         first = not (same and previous.get("blocker") is True)
         problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, session, blocks)) if first else None
         if problem is not None:
@@ -5076,14 +5094,19 @@ def stop_command(argv: list[str]) -> int:
     except GateError as exc:
         verdict = Verdict("deny", f"proofbundle gate: {exc}.", "gate_error", evidence="the done check",
                           failed=f"the check reached no verdict ({exc})", next_step="fix the cause named here")
+        result = _failed_check(exc, verdict)
     except Exception as exc:  # noqa: BLE001 - any failure inside the check blocks, it never lets the end through
         verdict = Verdict("deny", f"proofbundle gate: internal error {type(exc).__name__}: {exc}.", "internal_error",
                           evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
                           next_step="report this error")
+        result = _failed_check(exc, verdict)
     blocker = None
+    # Every refusal counts toward the limit, a check that refused early or failed included (review 2026-10-09, F6);
+    # where no order could be read, the default limit applies.
+    limit = result["done"]["max_blocks"] if result is not None and result["done"] is not None else DEFAULT_MAX_BLOCKS
     try:
-        if result is not None and result["done"] is not None and result["open"] and verdict.decision == "deny":
-            blocker = _account_block(result, event)
+        if result is not None and result["repo"] and result["open"] and verdict.decision == "deny":
+            blocker = _account_block(result, event, limit)
         elif result is not None and result["done"] is not None and verdict.decision == "pass":
             _account_pass(result, event)
     except Exception:  # noqa: BLE001 - counting never changes the answer
@@ -5096,13 +5119,26 @@ def stop_command(argv: list[str]) -> int:
         sys.stdout.write(json.dumps({"systemMessage": verdict.detail}) + "\n")
     elif blocker is not None:
         sys.stdout.write(json.dumps({"systemMessage": (
-            f"proofbundle done check: NOT DONE. The same open points stayed open through {result['done']['max_blocks']} "
+            f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
             f"blocks, so the hook stops blocking and the session ends without a done verdict. The open points and the "
             f"state the gate measured are in {blocker}. Open: {verdict.failed.rstrip('.')}.")}) + "\n")
     elif verdict.decision != "inactive":
         line = _done_line(verdict)
         sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
     return 0
+
+
+def _failed_check(exc: Exception, verdict: Verdict) -> dict | None:
+    """The result the check had reached when it failed (done_evaluation attaches it), with the failure as its one open
+    point, so a check that fails the same way at every stop is counted like any other refusal; None when the failure
+    came before the repository was known."""
+    partial = getattr(exc, "partial", None)
+    if not isinstance(partial, dict) or not partial.get("repo"):
+        return None
+    partial["verdict"] = verdict
+    partial["open"] = [{"id": "done-check", "status": verdict.reason_id, "failed": verdict.failed,
+                        "command": verdict.next_step}]
+    return partial
 
 
 def task_completed_command(argv: list[str]) -> int:

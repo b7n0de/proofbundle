@@ -1416,6 +1416,12 @@ Chosen (option B of the owner card for N1):
   every check. Measured by the review of 2026-10-09 (F5) and in the host runs codex_run_nochange and
   codex_sandbox-nochange of 2026-10-08: before, the blocker listed only the checks, all green, and an empty
   `outside_paths`, so the one open point, no change in the order's paths, was not in it.
+- Every refusal counts toward `max_blocks`, also one that comes before the checks are read (review 2026-10-09, F6,
+  measured at 91a52faa: a shallow clone, order_base_not_measured, blocked at every stop and never reached the
+  blocker). An uncommitted declaration (`declaration`), a missing policy (`policy`), a working state that cannot be
+  read as files (`state`) and a history cut before the order (`paths`) are each the one open point of their result,
+  and a check that fails (`gate_error`, `internal_error`) is the open point `done-check` of what it had reached.
+  Where no order could be read, the default limit of 3 applies. Input that names no repository counts nothing.
   `.proofbundle/done-metrics.json` counts blocked ends, blocked task completions, missing checks, ends completed
   after a block, blockers and passes; `.proofbundle/done-state.json` holds the current count. The files are written
   through a fresh temporary file that replaces them, never through a link, and are untracked under `.proofbundle/`,
