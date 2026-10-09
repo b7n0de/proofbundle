@@ -5146,9 +5146,16 @@ def _done_line(verdict: Verdict) -> str:
 
 # --- the done check's own files in the evidence folder (D28) -------------------------------------------------------
 
-def _evidence_folder(repo: str) -> str | None:
-    """The repository's .proofbundle folder when it is a real directory (not a link), else None."""
+def _evidence_folder(repo: str, create: bool = False) -> str | None:
+    """The repository's .proofbundle folder when it is a real directory (not a link), else None. With create, a folder
+    that is absent (nothing at all at its path) is made first, so the done check can count its blocks in a working tree
+    from which the folder was removed (review round 3 of 2026-10-09, R3-4); a file or a link there is left as it is."""
     path = os.path.join(repo, EVIDENCE_DIR.rstrip("/"))
+    if create:
+        try:
+            os.mkdir(path, 0o755)
+        except OSError:
+            pass   # it exists (a directory, a file or a link), or it cannot be made: the check below decides
     try:
         return path if stat.S_ISDIR(os.lstat(path).st_mode) else None
     except OSError:
@@ -5176,7 +5183,7 @@ def _read_done_file(repo: str, name: str, kind: str) -> dict | None:
 def _write_done_file(repo: str, name: str, doc: dict) -> str | None:
     """Write one of the done check's own files through a fresh temporary file that replaces it; never through a
     link. None on success, else why not."""
-    folder = _evidence_folder(repo)
+    folder = _evidence_folder(repo, create=True)
     if folder is None:
         return f"{EVIDENCE_DIR} is not a directory of the repository"
     target = os.path.join(repo, *name.split("/"))
@@ -5238,10 +5245,13 @@ def _blocker(result: dict, session: str, blocks: int) -> dict:
                     "them and the state the gate measured. It is not a receipt and proves nothing about the tests."}
 
 
-def _account_block(result: dict, event: dict | None, limit: int) -> str | None:
-    """Count one blocked end (D28, N3 and N5) and decide whether to keep blocking. Returns None to block, else the
-    path of the blocker file written instead: after `limit` blocks (the order's max_blocks) with the same open points
-    (no progress) in the same session the hook writes the blocker and lets the session end without a done verdict."""
+def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | None, str | None]:
+    """Count one blocked end (D28, N3 and N5) and decide whether to keep blocking. Returns (blocker, problem): blocker
+    None to block, else the path of the blocker file written instead: after `limit` blocks (the order's max_blocks)
+    with the same open points (no progress) in the same session the hook writes the blocker and lets the session end
+    without a done verdict. problem names why the count could not be recorded, None when it was: the bounded end then
+    cannot take effect, and the block says so instead of depending silently on a file it could not write (review
+    round 3 of 2026-10-09, R3-4)."""
     repo = result["repo"]
     session = event.get("session_id") if isinstance(event, dict) and isinstance(event.get("session_id"), str) else ""
     signature = [[p["id"], p["status"]] for p in result["open"]]
@@ -5261,16 +5271,16 @@ def _account_block(result: dict, event: dict | None, limit: int) -> str | None:
             _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
             _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
                                                 "open": signature, "blocks": blocks, "blocker": False})
-            return None
+            return None, f"the blocker could not be written ({problem})"
         if first:
             _tally(repo, blockers=1)
         _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
                                             "open": signature, "blocks": blocks, "blocker": True})
-        return DONE_BLOCKER
+        return DONE_BLOCKER, None
     _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
-    _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
-                                        "open": signature, "blocks": blocks, "blocker": False})
-    return None
+    problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
+                                                  "open": signature, "blocks": blocks, "blocker": False})
+    return None, (None if problem is None else f"the block count could not be recorded ({problem})")
 
 
 def _account_pass(result: dict, event: dict | None) -> None:
@@ -5331,17 +5341,17 @@ def stop_command(argv: list[str]) -> int:
                           evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
                           next_step="report this error")
         result = _failed_check(exc, verdict)
-    blocker = None
+    blocker, counting = None, None
     # Every refusal counts toward the limit, a check that refused early or failed included (review 2026-10-09, F6);
     # where no order could be read, the default limit applies.
     limit = result["done"]["max_blocks"] if result is not None and result["done"] is not None else DEFAULT_MAX_BLOCKS
     try:
         if result is not None and result["repo"] and result["open"] and verdict.decision == "deny":
-            blocker = _account_block(result, event, limit)
+            blocker, counting = _account_block(result, event, limit)
         elif result is not None and result["done"] is not None and verdict.decision == "pass":
             _account_pass(result, event)
-    except Exception:  # noqa: BLE001 - counting never changes the answer
-        blocker = None
+    except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
+        blocker, counting = None, f"counting failed ({type(exc).__name__}: {exc})"
     try:
         write_log(log_entry(host, event, Outcome(verdict.decision, verdict.text(), [verdict]), ["Stop"]), host)
     except Exception:  # noqa: BLE001 - the log never changes the answer
@@ -5355,6 +5365,10 @@ def stop_command(argv: list[str]) -> int:
             f"state the gate measured are in {blocker}. Open: {verdict.failed.rstrip('.')}.")}) + "\n")
     elif verdict.decision != "inactive":
         line = _done_line(verdict)
+        if counting is not None and verdict.decision == "deny":
+            line += (f" The hook could not count this block: {counting}, so the end after {limit} blocks without "
+                     f"progress cannot take effect; make {EVIDENCE_DIR} a directory of the repository that the hook "
+                     "can write.")
         sys.stdout.write(json.dumps({"decision": "block", "reason": line, "systemMessage": line}) + "\n")
     return 0
 
