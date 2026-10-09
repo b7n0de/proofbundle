@@ -478,10 +478,28 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: readers below remain for the write gate.
 
 
+def _git_text(raw: bytes) -> str:
+    """Bytes git printed for a name or a value, as Python names the same bytes (os.fsdecode, surrogateescape): every
+    byte survives, so os.open and every later git argument get exactly what git printed back, and a byte that is not
+    UTF-8 never becomes U+FFFD, the name of another file (review round 4 of 2026-10-09, R4-2). Messages may replace
+    bytes; a name or value that enters a verdict is read only through this function."""
+    return raw.decode("utf-8", "surrogateescape")
+
+
+def _git_lines(raw: bytes) -> list[str] | None:
+    """The newline-terminated lines git printed, each through _git_text; None when the output does not end in a
+    newline. Split on the newline byte alone: str.splitlines also splits on U+0085, U+2028 and the separators
+    \x1c-\x1e, which a path may carry, and a strip would drop the blanks a name may end in (R4-2)."""
+    if not raw.endswith(b"\n"):
+        return None
+    return [_git_text(line) for line in raw[:-1].split(b"\n")]
+
+
 def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
     """The effective configuration as git itself reads it in directory, with the hook's environment:
     (scope, origin, key, value) per entry, value None for a key without '='. None when git cannot read it
-    (an unreadable or malformed file, an include it cannot open: measured, `git config --list` exits 128)."""
+    (an unreadable or malformed file, an include it cannot open: measured, `git config --list` exits 128).
+    Origins and values keep their bytes (_git_text, R4-2)."""
     out = _git(directory, "config", "--list", "--null", "--show-origin", "--show-scope", deadline=deadline)
     if out.returncode != 0:
         why = out.stderr.decode("utf-8", "replace").strip().splitlines()
@@ -491,26 +509,32 @@ def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
         return None, "git config --list --null --show-origin --show-scope gave output the gate cannot read"
     entries = []
     for i in range(0, len(parts) - 1, 3):
-        scope, origin, kv = (x.decode("utf-8", "replace") for x in parts[i:i + 3])
+        scope, origin, kv = (_git_text(x) for x in parts[i:i + 3])
         key, nl, value = kv.partition("\n")
         entries.append((scope, origin, key, value if nl else None))
     return entries, ""
 
 
 def _repo_paths(directory: str, deadline: float) -> tuple[dict | None, str]:
-    """{'hooks', 'common', 'gitdir', 'toplevel'} of the repository at directory (all None outside one)."""
+    """{'hooks', 'common', 'gitdir', 'toplevel'} of the repository at directory (all None outside one), each with the
+    bytes git printed (_git_lines, R4-2); a path that is not absolute is output the gate cannot read."""
     out = _git(directory, "rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir",
                "--git-path", "hooks", deadline=deadline)
     if out.returncode != 0:
         if b"not a git repository" in out.stderr:
             return {"hooks": None, "common": None, "gitdir": None, "toplevel": None}, ""
         return None, out.stderr.decode("utf-8", "replace").strip() or f"git rev-parse exited {out.returncode}"
-    lines = out.stdout.decode("utf-8", "replace").splitlines()
-    if len(lines) != 3:
+    lines = _git_lines(out.stdout)
+    if lines is None or len(lines) != 3 or not all(os.path.isabs(line) for line in lines):
         return None, "git rev-parse gave output the gate cannot read"
     common, gitdir, hooks = lines
     top = _git(directory, "rev-parse", "--path-format=absolute", "--show-toplevel", deadline=deadline)
-    toplevel = top.stdout.decode("utf-8", "replace").strip() if top.returncode == 0 else None
+    toplevel = None
+    if top.returncode == 0:
+        named = _git_lines(top.stdout)
+        if named is None or len(named) != 1 or not os.path.isabs(named[0]):
+            return None, "git rev-parse --show-toplevel gave output the gate cannot read"
+        toplevel = named[0]
     return {"hooks": hooks, "common": common, "gitdir": gitdir, "toplevel": toplevel}, ""
 
 
@@ -783,7 +807,7 @@ def _standard_config_files(directory: str, deadline: float, paths: dict) -> set[
     for name in ("GIT_CONFIG_SYSTEM", "GIT_CONFIG_GLOBAL"):
         out = _git(directory, "var", name, deadline=deadline)
         if out.returncode == 0:
-            files.update(os.path.realpath(line) for line in out.stdout.decode("utf-8", "replace").splitlines() if line)
+            files.update(os.path.realpath(line) for line in _git_lines(out.stdout) or () if line)
     for base, leaf in ((paths["common"], "config"), (paths["gitdir"], "config.worktree")):
         if base:
             files.add(os.path.realpath(os.path.join(base, leaf)))
@@ -2706,10 +2730,10 @@ def _rewrite_rules(repo: str, deadline: float) -> list[tuple[str, str, str]]:
         if not entry:
             continue
         key, _, value = entry.partition(b"\n")
-        name = key.decode("utf-8", "replace")
+        name = _git_text(key)   # base and prefix keep their bytes: U+FFFD would match a URL git does not rewrite (R4-2)
         for suffix, kind in ((".pushinsteadof", "pushInsteadOf"), (".insteadof", "insteadOf")):
             if name.lower().endswith(suffix):
-                rules.append((kind, name[len("url."):-len(suffix)], value.decode("utf-8", "replace")))
+                rules.append((kind, name[len("url."):-len(suffix)], _git_text(value)))
                 break
     return rules
 
@@ -3611,7 +3635,7 @@ def _git_path(directory: str, value: str, deadline: float) -> str | None:
                                "proofbundle-gate.interpolate"), deadline)
     if out.returncode != 0 or not out.stdout.endswith(b"\n"):
         return None
-    return out.stdout[:-1].decode("utf-8", "surrogateescape")
+    return _git_text(out.stdout[:-1])
 
 
 def _config_value(entries: list, key: str) -> str | None:
@@ -3693,7 +3717,10 @@ def _bound_state_digest(directory: str, deadline: float, environ: dict | None = 
                 "config": [[scope, origin, key, value] for scope, origin, key, value in entries],
                 "hooks_dir": os.path.realpath(hooks_dir) if hooks_dir else None,
                 "hooks": hooks, "attributes": attrs, "env": [[name, value] for name, value in env]}
-    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    # surrogateescape: a name or value carries the bytes git printed, and the serialisation carries them back as those
+    # bytes, so FF and EF BF BD are two states, not one (R4-2); text that is UTF-8 serialises as before
+    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=False)
+                          .encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] | None:
@@ -4094,7 +4121,7 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):   # git-var(1): the files git itself would use
         named = _git(directory, "var", name, deadline=deadline)
         if named.returncode == 0:
-            for p in named.stdout.decode("utf-8", "replace").splitlines():
+            for p in _git_lines(named.stdout) or ():
                 if p and p != os.devnull:
                     files |= anchored(p)
     for name, default in (("GIT_CONFIG_GLOBAL", None), ("GIT_CONFIG_SYSTEM", "/etc/gitconfig")):

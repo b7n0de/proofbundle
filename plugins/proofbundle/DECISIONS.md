@@ -1300,6 +1300,10 @@ Chosen (owner choice A, 2026-10-04, two modes in the plugin):
   environment. A rule carries the digest of the state when the human wrote it; the gate recomputes and compares.
   If the configuration, the hooks or that environment change, the digest differs and the rule stops acting — the
   gate asks again. A human computes the digest for a rule with `proofbundle_gate.py state-digest [--repo DIR]`.
+  Every name and value of that state keeps the bytes git printed (review round 4 of 2026-10-09, R4-2): the gate
+  reads git's paths, configuration and repository layout without replacing a byte that is not UTF-8, so the file it
+  hashes or protects is the file git opens, and the digest tells such a byte from U+FFFD. The write gate's protected
+  files are read the same way.
 - No file tool can create an approval (Punkt 3): `decide_write` denies — not asks — every write by a file
   tool whose target is the mode file, the rule file, the log file, or anything under the gate directory, under
   both hosts. A git command that would change those paths is never free. The gate has no code path that writes a
