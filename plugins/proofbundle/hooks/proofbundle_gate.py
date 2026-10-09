@@ -538,34 +538,64 @@ _REWRITE_CHARS = frozenset("*?[{^#")
 _TILDE_MODELLED = re.compile(r"~(?:[A-Za-z_][A-Za-z0-9._-]*)?(?:/|$)")
 
 
-def _shell_rewrites(raw: str, tilde_modelled: bool = False) -> bool:
-    """Whether the shell may rewrite the word as written (its raw text, quotes included) before the command sees it: an
-    unquoted, unescaped character of _REWRITE_CHARS; a leading `~` (a home or a directory of the shell's state) unless
-    tilde_modelled and the form is one _TILDE_MODELLED names; a `~` right after an unquoted `=` or `:` (bash expands
-    `a=~/x`, zsh under MAGIC_EQUAL_SUBST also `--file=~/x`; measured); or a leading `=` (zsh's command path). Inside
-    '…' and "…" and after a backslash a character is literal. A word that may be rewritten is not the word the gate
-    read: a file named `--edit` turns `*` into an option (review 2026-10-09, F2)."""
-    if raw.startswith("="):
-        return True
-    if raw.startswith("~") and not (tilde_modelled and _TILDE_MODELLED.match(raw)):
-        return True
+def _shell_characters(raw: str) -> list[tuple[str, bool]]:
+    """The characters a word as written contributes, each with whether it is literal (quoted or escaped). A line
+    continuation (backslash-newline, outside and inside double quotes) is removed before the shell reads the word, and
+    an empty quote contributes nothing, so neither stands between a character and the start of the word or the
+    character before it (review round 2 of 2026-10-09, R2-6)."""
+    chars: list[tuple[str, bool]] = []
     i, n = 0, len(raw)
     while i < n:
         c = raw[i]
-        if c == "'":
+        if c == "\\":
+            if i + 1 < n and raw[i + 1] != "\n":
+                chars.append((raw[i + 1], True))
+            i += 2
+        elif c == "'":
             j = raw.find("'", i + 1)
-            i = n if j < 0 else j + 1
+            j = n if j < 0 else j
+            chars.extend((ch, True) for ch in raw[i + 1:j])
+            i = j + 1
         elif c == '"':
             i += 1
             while i < n and raw[i] != '"':
-                i += 2 if raw[i] == "\\" else 1
+                if raw[i] == "\\" and i + 1 < n:
+                    if raw[i + 1] != "\n":
+                        chars.append((raw[i + 1], True))
+                    i += 2
+                else:
+                    chars.append((raw[i], True))
+                    i += 1
             i += 1
-        elif c == "\\":
-            i += 2
-        elif c in _REWRITE_CHARS or (c == "~" and i > 0 and raw[i - 1] in "=:"):
-            return True
         else:
+            chars.append((c, False))
             i += 1
+    return chars
+
+
+def _shell_rewrites(raw: str, tilde_modelled: bool = False) -> bool:
+    """Whether the shell may rewrite the word as written (its raw text, quotes included) before the command sees it,
+    read at the characters it contributes (_shell_characters): an unquoted, unescaped character of _REWRITE_CHARS; an
+    unquoted `~` or `=` that comes first (a home or a directory of the shell's state; zsh's command path, `=git`) or
+    right after an unquoted `=` or `:` (bash expands `a=~/x`; zsh under MAGIC_EQUAL_SUBST also `a=''~`, `a==git` and
+    `a=b:=git`; measured with bash 5.2 and zsh 5.9). An empty quote and a line continuation count for nothing, so
+    `''~` and a backslash-newline before `~` are a leading `~` (review round 2 of 2026-10-09, R2-6). With
+    tilde_modelled, a leading `~` stays literal only in a form _TILDE_MODELLED names that the written word itself
+    starts with, unquoted: there os.path.expanduser reads it like every shell. Inside '…' and "…" and after a
+    backslash a character is literal. A word that may be rewritten is not the word the gate read: a file named
+    `--edit` turns `*` into an option (review 2026-10-09, F2)."""
+    chars = _shell_characters(raw)
+    for k, (c, literal) in enumerate(chars):
+        if literal:
+            continue
+        if c in _REWRITE_CHARS:
+            return True
+        if c in "~=":
+            if k == 0:
+                if c == "=" or not (tilde_modelled and raw.startswith("~") and _TILDE_MODELLED.match(raw)):
+                    return True
+            elif chars[k - 1] in (("=", False), (":", False)):
+                return True
     return False
 
 
