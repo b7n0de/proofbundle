@@ -1897,9 +1897,13 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    # 6.2.1 R6b-7 (Z309): an explicit instant judges the EAT freshness AS OF that instant, so the output says so.
+    _historical = getattr(args, "verification_time", None)
     if args.json:
-        print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
-                                              "fresh", "detail")}))
+        _rep = {k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok", "fresh", "detail")}
+        if _historical is not None:
+            _rep["verification_time"] = {"mode": "HISTORICAL", "time": _historical}
+        print(json.dumps(_rep))
     else:
         # `enclave.py` setzt `detail = f"malformed EAT token: {exc}"` — der Ausnahmetext kann
         # Token-Bytes tragen. Gleiche Behandlung wie oben.
@@ -1908,6 +1912,8 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         if res["ok"]:
             print(f"    tier    {_safe_line(str(res['tier']))}")
             print(f"    profile {_safe_line(str(res['profile']))}")
+        if _historical is not None:
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(_historical))})")
         print("=> OK" if res["ok"] else "=> FAILED")
     return 0 if res["ok"] else 1
 
@@ -2355,18 +2361,23 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # (a policy expired/not-yet-valid TODAY stays unsafe even when the historical POLICY verdict passes); this
     # surfaces the two lifecycle verdicts so a consumer sees why. CURRENT_POLICY_STATUS is the present-tense
     # lifecycle (read at the real current time); HISTORICAL_POLICY_STATUS is the verdict AS OF the instant.
+    # 6.2.1 R6b-7 (Z309): the explicit instant also pins the receipt freshness without a policy, so every accepted
+    # historical call is labelled; without a policy both policy statuses read NOT_EVALUATED.
     _vtr = None
-    if getattr(args, "verification_time", None) is not None and isinstance(policy, dict):
-        from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
-        _cur_exp, _cur_nyv = _pexp(policy), _pnyv(policy)
-        if _cur_exp is True:
-            _cur = "EXPIRED"
-        elif _cur_nyv is True:
-            _cur = "NOT_YET_VALID"
-        elif _cur_exp is None and _cur_nyv is None:
-            _cur = "NO_LIFECYCLE_WINDOW"
+    if getattr(args, "verification_time", None) is not None:
+        if isinstance(policy, dict):
+            from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+            _cur_exp, _cur_nyv = _pexp(policy), _pnyv(policy)
+            if _cur_exp is True:
+                _cur = "EXPIRED"
+            elif _cur_nyv is True:
+                _cur = "NOT_YET_VALID"
+            elif _cur_exp is None and _cur_nyv is None:
+                _cur = "NO_LIFECYCLE_WINDOW"
+            else:
+                _cur = "VALID"
         else:
-            _cur = "VALID"
+            _cur = "NOT_EVALUATED"
         _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
                 "historical_policy_status": ("PASS" if result["policy_ok"] else
                                              "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
