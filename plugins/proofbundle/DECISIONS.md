@@ -282,6 +282,26 @@ is not the command git gets). zsh's `~` inside a word excludes only together wit
 with zsh 5.9), so alone it is literal. The value of a `-C` keeps the plain `~` and `~name` the gate joins with
 os.path.expanduser; `~+`, `~-` and `~N` name directories of the shell's state and leave it NOT MEASURED.
 
+The predicate reads a word at the characters the shell expands (review round 2 of 2026-10-09, R2-6, measured at
+87dcbed8 with bash 5.2 and zsh 5.9): a line continuation (backslash-newline) is removed first and an empty quote adds
+nothing, so `''~` (zsh) and a backslash-newline before `~` (bash and zsh) are a leading `~`, and an `=` right after an
+unquoted `=` or `:` is a rewrite as well (zsh under MAGIC_EQUAL_SUBST turns `a==git` into `a=` and the git program's
+path). A `-C` value is joined as a home directory only when the word as written starts with an unquoted `~`; a quoted
+or escaped `~` is the directory named `~` under the command's directory, where git runs it (R2-3: `git -C '~'` was
+judged at the home repository).
+
+A redirection is no longer dropped by the lexer (R2-1, R2-2). It is a token with its target, and two rules read it.
+The hook check reads every redirection target as a word too, so a hook-disabling word denies whether the shell reads
+it as an argument or as a target: zsh reads `<1-2> --no-verify` as a numeric glob and an option, bash as two
+redirections. And no positive answer is given to a form whose redirection opens a file: only a duplication or a
+close of a descriptor (`2>&1`, `>&2`, `2>&-`) and `/dev/null` written exactly so keep a push resolved under Claude
+Code, the plain push under Codex (D12) and a rule candidate (D25); `> .git/hooks/pre-pus?` empties the pre-push hook
+in bash and zsh before git starts. The two free forms were free only without any redirection already.
+
+A refused `git add` or `git commit -m` whose words the shell may rewrite names the narrower spelling the gate frees,
+when there is one: the paths after `--` (`git add -- *.py`) and a rewritten message in single quotes
+(`git commit -m 'fix#12'`). The spelling is judged by the same scan first, so the hint never names a refused form.
+
 The state check (`_add_commit_state_problem`), in the hook's environment, so git reads the same files the call reads:
 - the effective configuration with every include, read by `git config --list --show-origin --show-scope`. A key of
   a program source is named as such: `filter.*` (an empty driver name included), `hook.*` and
@@ -666,7 +686,9 @@ UNDER CODEX ONLY THE PLAIN GIT PUSH WARNS (owner choice K5-1 C, 2026-10-08)
   `'git'`) and no expansion. Options and arguments after `push` and a redirection keep the form plain, as long as
   every word before the `--` that ends the push's options is literal (D3, `_shell_rewrites`; review 2026-10-09, F2:
   `git push --no-verif?` with a file named `--no-verify` warned at 91a52faa, and bash makes it `--no-verify`). A `--`
-  ends the options only after a word that takes no value; after `-o` it may be that option's value.
+  ends the options only after a word that takes no value; after `-o` it may be that option's value. A redirection
+  keeps the form plain only when it opens no file (a descriptor duplication or close, `/dev/null`): `git push origin
+  main > .git/hooks/pre-push` warned at 87dcbed8 while the shell emptied the hook (review round 2, R2-2).
 - Only that form warns (`_codex_plain_push` in the gate). Every other push form gets the reason id
   `codex_push_not_plain` and is denied under Codex, with the next step to run the plain form on its own or to have
   a person push. A form that turns hooks off on the command line keeps its earlier `hooks_disabled` deny.
@@ -1430,7 +1452,12 @@ Chosen (option B of the owner card for N1):
   blocker). An uncommitted declaration (`declaration`), a missing policy (`policy`), a working state that cannot be
   read as files (`state`) and a history cut before the order (`paths`) are each the one open point of their result,
   and a check that fails (`gate_error`, `internal_error`) is the open point `done-check` of what it had reached.
-  Where no order could be read, the default limit of 3 applies. Input that names no repository counts nothing.
+  Where no order could be read, the default limit of 3 applies. Input that names no repository counts nothing. The
+  repository is named the moment show-toplevel finds it, so a failure after that point counts too (review round 2
+  of 2026-10-09, R2-4: a partial clone refused the read of HEAD and blocked at every stop). Every stop past the limit
+  writes the blocker from the verdict it reached, so the file the message names exists and shows the state last
+  measured, also after a rename or a deletion of the blocker (R2-5); the counter of blockers counts it once. A check
+  the done check stopped before comparing with the state is "not judged", never "verified".
   `.proofbundle/done-metrics.json` counts blocked ends, blocked task completions, missing checks, ends completed
   after a block, blockers and passes; `.proofbundle/done-state.json` holds the current count. The files are written
   through a fresh temporary file that replaces them, never through a link, and are untracked under `.proofbundle/`,
