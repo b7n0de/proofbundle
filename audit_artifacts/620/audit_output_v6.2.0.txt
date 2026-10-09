@@ -1,0 +1,178 @@
+........................................................ [  0%]
+.............................................................. [  1%]
+......................................... [  2%]
+.......... [  2%]
+............................................................................................................................................................................................ [  4%]
+........................................................................................................................ [  6%]
+.................................................. [  7%]
+........................................................................ [  8%]
+........................................................... [  8%]
+.............................................. [  9%]
+................................... [  9%]
+.......................................... [ 10%]
+........................................................................ [ 11%]
+................................................................. [ 12%]
+.................................................... [ 13%]
+................................................ [ 13%]
+.............................................................. [ 14%]
+.................................... [ 15%]
+..................................................................... [ 16%]
+........................................................................ [ 16%]
+................................................. [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+...
+Dimension                Limit CPU@L(min) CPU@L(max9)  Speicher@L  Exp(Zeit)  Exp(Arbeit)  Arbeit empf.  Flaeche
+input_bytes            8388608     0.0286      0.0339    8194.5KiB       1.01         1.00          True  _strict_json.loads_strict
+json_nodes              200000     0.0487      0.0532   14000.4KiB       1.03         1.00          True  _strict_json.loads_strict
+json_depth                  64     0.0000      0.0000       4.0KiB       0.39         0.85          True  _strict_json.loads_strict
+string_len             1000000     0.0034      0.0035     978.6KiB       0.96         0.00         False  _strict_json.loads_strict
+signatures                 512     0.0048      0.0049     253.9KiB       0.89         0.98          True  dsse.verify_envelope
+merkle_path                256     0.0003      0.0003       7.1KiB       0.68         0.85          True  merkle.verify_inclusion
+disclosures                256     0.0042      0.0044     210.7KiB       0.83         1.00          True  sdjwt.verify_sd_jwt
+renewal_ats_chain        10000     0.4578      0.4826   19906.4KiB       1.18         1.00          True  renewal.verify_sequence
+witnesses                  256     0.0026      0.0028     165.4KiB       0.96         0.96          True  trust_pack.validate_trust_pack_predicate
+int_bits                  8192     0.0025      0.0026       3.6KiB       1.36         0.93          True  merkle.verify_inclusion
+data_digests              2000     0.0032      0.0033     304.5KiB       0.88         0.98          True  renewal.verify_sequence
+renewal_work          40000000     2.1335      2.3083   20192.9KiB       1.01         0.92          True  renewal.verify_sequence
+
+Kombination                                    CPU(max9)    Speicher  erreicht
+renewal_ats_chain x int_bits                     1.3951s     19.43MiB  renewal_ats_chain=10000, int_bits=8192
+renewal_ats_chain x 5 hash-algorithmen           0.7001s     19.43MiB  renewal_ats_chain=10000
+renewal_ats_chain x data_digests                 1.2589s     19.46MiB  renewal_ats_chain=10000, data_digests=2000
+merkle_path x int_bits                           0.0029s      0.01MiB  int_bits=8192, merkle_path=256
+signatures x string_len                          0.0126s      3.32MiB  signatures=512, string_len=999996
+renewal_ats_chain x data_digests x hash-algorithmen    1.5796s     19.46MiB  renewal_work=40000000
+input_bytes x json_depth x string_len            0.0311s      7.63MiB  input_bytes=7992156, json_depth=64, string_len=999000
+..................................................................... [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+.............................................................................................sss............................................... [ 24%]
+.......................................................... [ 25%]
+........................................................................................... [ 26%]
+.......................................................... [ 27%]
+............................................................ [ 28%]
+........................................................................ [ 29%]
+.......................................................... [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+............................................................................. [ 33%]
+..................................................................................................................................................................................................................................................................... [ 37%]
+........................................................................................ [ 38%]
+.......................................... [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 41%]
+......................................................................... [ 42%]
+..sss................................................................... [ 43%]
+........................................................................ [ 44%]
+........................................s.s............................. [ 45%]
+.............................................. [ 46%]
+...........ssss.ss.ss.ssssssssss........................................ [ 47%]
+......................................... [ 48%]
+...............s........................... [ 48%]
+............................................................... [ 49%]
+........................................ [ 50%]
+........................................................................................................... [ 51%]
+..................................................................... [ 52%]
+........................................................................ [ 53%]
+............................s........................................................s. [ 54%]
+................................................................... [ 55%]
+...................................................................................... [ 56%]
+............................. [ 56%]
+..............................................ssss...................... [ 57%]
+.............................................................. [ 58%]
+........................................................................ [ 59%]
+...................................................................................................... [ 61%]
+........................................................ [ 61%]
+..................................................................... [ 62%]
+................................................................... [ 63%]
+............................................................. [ 64%]
+........................ [ 64%]
+...................................................... [ 65%]
+............................................ [ 66%]
+.................................................................................. [ 67%]
+................s....................................................... [ 68%]
+s...............s....................................................... [ 69%]
+........s......................ssssss..................................................................... [ 70%]
+...................................................... [ 71%]
+........................................................................ [ 72%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+.............................................................................................................. [ 75%]
+................................................................ [ 76%]
+.................................................................. [ 77%]
+............................................................................................... [ 78%]
+.................................................................... [ 79%]
+...................................................................... [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........s............................................................... [ 83%]
+............................................................. [ 84%]
+.......................................................... [ 85%]
+........................................................................ [ 86%]
+..........s......................................................... [ 87%]
+.................................................................... [ 88%]
+................................................................................................................... [ 89%]
+........................................................................ [ 90%]
+............................................................................................................................................................................ [ 92%]
+........................................................................ [ 93%]
+...................s..............s.................... [ 94%]
+........................................... [ 95%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+........................................................................ [ 98%]
+.................................................... [ 98%]
+.....................................................................................                        [100%]
+=============================== warnings summary ===============================
+tests/test_byte_freeze_zweite_haelfte.py:53
+  /mnt/bigstore/claude_scratch/z309_quittung_tag620/wt/tests/test_byte_freeze_zweite_haelfte.py:53: PytestUnknownMarkWarning: Unknown pytest.mark.slow - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.slow   # siehe _MARKER_HINWEIS: heute eine Beschriftung, kein Filter
+
+tests/test_byte_freeze_zweite_haelfte.py:122
+  /mnt/bigstore/claude_scratch/z309_quittung_tag620/wt/tests/test_byte_freeze_zweite_haelfte.py:122: PytestUnknownMarkWarning: Unknown pytest.mark.slow - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.slow
+
+tests/test_readiness_pack_counts_are_derived.py:1
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_der_messaufbau_findet_ueberhaupt_etwas
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_die_eigene_dokumentation_ist_kein_verstoss
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_keine_sammlung_haengt_an_einem_nicht_ausgelieferten_skript
+  /mnt/bigstore/claude_scratch/z309_quittung_tag620/wt/tests/test_readiness_pack_counts_are_derived.py:1: DeprecationWarning: invalid escape sequence '\d'
+    """Counts the readiness pack states about the tree are derived from the tree.
+
+tests/test_shipped_comment_numbers.py:193
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_der_messaufbau_findet_ueberhaupt_etwas
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_die_eigene_dokumentation_ist_kein_verstoss
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund
+tests/test_bare_install_degrades_to_clean_skips.py::EinNichtAusgelieferteSkriptIstDIESELBEKlasse::test_keine_sammlung_haengt_an_einem_nicht_ausgelieferten_skript
+  /mnt/bigstore/claude_scratch/z309_quittung_tag620/wt/tests/test_shipped_comment_numbers.py:193: DeprecationWarning: invalid escape sequence '\d'
+    """How many cases this file HAS -- asked of the collector, not derived from the source.
+
+tests/test_audit_candidate_360.py: 9 warnings
+tests/test_audit_matrix_version_pin_binding.py: 1 warning
+tests/test_ausfuehrung_aus_quelltext_l5_g7_04.py: 1 warning
+tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py: 1 warning
+tests/test_erwartungsvergleich_population_guard.py: 2 warnings
+tests/test_kein_test_haengt_an_einem_fremden_import_nebeneffekt.py: 2 warnings
+tests/test_lauf11_l3_testlast_ist_gedeckelt.py: 3 warnings
+tests/test_mutation_selection.py: 1 warning
+tests/test_sdist_ohne_signierwerkzeug.py: 1 warning
+tests/test_sdist_selftest_derivation.py: 1 warning
+  <unknown>:1: DeprecationWarning: invalid escape sequence '\d'
+
+tests/test_audit_candidate_360.py: 9 warnings
+tests/test_audit_matrix_version_pin_binding.py: 1 warning
+tests/test_ausfuehrung_aus_quelltext_l5_g7_04.py: 1 warning
+tests/test_dokumentierte_laeufer_koennen_die_suite_fahren.py: 1 warning
+tests/test_erwartungsvergleich_population_guard.py: 2 warnings
+tests/test_kein_test_haengt_an_einem_fremden_import_nebeneffekt.py: 2 warnings
+tests/test_lauf11_l3_testlast_ist_gedeckelt.py: 3 warnings
+tests/test_mutation_selection.py: 1 warning
+tests/test_sdist_ohne_signierwerkzeug.py: 1 warning
+tests/test_sdist_selftest_derivation.py: 1 warning
+  <unknown>:193: DeprecationWarning: invalid escape sequence '\d'
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+7353 passed, 47 skipped, 56 warnings, 17705 subtests passed in 4904.98s (1:21:44)
