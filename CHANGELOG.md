@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- `verify_trust_pack` lets an old-root pin authorise a rotation only when its `alg` is absent or exactly `ed25519`; an `alg` it does not implement vouches for no rotation.
+- `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.
+- `evaluate_public_transparency` treats a present `trustedLogKeys` or `trustedLogOrigins` list as an allowlist whatever its length: an empty list allows no log key and no origin.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
