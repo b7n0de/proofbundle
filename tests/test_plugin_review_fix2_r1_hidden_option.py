@@ -67,3 +67,12 @@ def test_the_lexer_keeps_every_redirection_with_its_target():
 def test_control_the_plain_push_in_the_same_directory_still_warns_under_codex(numbered):
     outcome = f2._decide("git push origin main", numbered, "codex")
     assert outcome.decision == "warn" and {v.reason_id for v in outcome.verdicts} == {"codex_context_unbound"}
+
+
+@pytest.mark.parametrize("command", ["git push origin main <1-2> --no-verify && true",
+                                     "true; git push <1-2> --no-verify origin main"])
+@pytest.mark.parametrize("host", ["claude", "codex"])
+def test_in_a_compound_command_the_hidden_option_denies_as_well(numbered, command, host):
+    """A redirection target is a word of its run in a compound command too, so the hook check finds it there."""
+    outcome = f2._decide(command, numbered, host)
+    assert outcome.decision == "deny" and "hooks_disabled" in {v.reason_id for v in outcome.verdicts}, outcome.verdicts
