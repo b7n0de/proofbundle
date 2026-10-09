@@ -3844,6 +3844,68 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     digest to the repository's program-selecting state. push and gh never reach this path; a rule with effect
     "ask", a digest that no longer matches, strict mode, Codex, or no rule at all all fall through to the normal
     decision, which asks. The model can neither set the mode nor write a rule."""
+    outcome = _decide_outcome(command, cwd, deadline, host, environ)
+    if outcome is not None:
+        _name_narrower_spelling(outcome, command)
+    return outcome
+
+
+def _narrower_spelling(command: str) -> str | None:
+    """The narrower spelling of a refused `git add <paths>` or `git commit -m <message> [paths]` that the gate frees:
+    the paths after a `--` that ends the options, and a message the shell may rewrite in single quotes (review round 2
+    of 2026-10-09: `git add -- *.py`, `git add -- src/*`, `git commit -m 'fix#12'`). None when the command is not one
+    plain simple form of the two, when it has no such spelling, or when the gate would not free the spelling itself
+    (it is judged by gated_calls, so the hint never names a form the gate refuses)."""
+    toks = _lex(_drop_comments(command))
+    if toks is None or any(t[0] != "word" for t in toks) or _expansion_present(command):
+        return None
+    words = [t[1:] for t in toks]
+    if len(words) < 3 or words[0][2] != "git" or words[1][2] not in ("add", "commit"):
+        return None
+    sub, rest = words[1][2], words[2:]
+    if any(value == "--" for value, _subst, _raw in rest):
+        return None
+    if sub == "add":
+        if any(value.startswith("-") for value, _subst, _raw in rest):
+            return None
+        spelled = ["git", "add", "--"] + [raw for _value, _subst, raw in rest]
+    else:
+        if len(rest) < 2 or rest[0][2] not in ("-m", "--message"):
+            return None
+        (message, message_subst, message_raw), paths = rest[1], rest[2:]
+        if _shell_rewrites(message_raw):
+            if "'" in message or message_subst:
+                return None
+            message_raw = f"'{message}'"
+        if any(value.startswith("-") for value, _subst, _raw in paths):
+            return None
+        spelled = ["git", "commit", rest[0][2], message_raw] + (["--"] + [raw for _v, _s, raw in paths] if paths else [])
+    proposal = " ".join(spelled)
+    calls = gated_calls(proposal)
+    if proposal == command.strip() or len(calls) != 1 or calls[0][2] != [_STATE_FREE]:
+        return None
+    return proposal
+
+
+def _name_narrower_spelling(outcome: Outcome, command: str) -> None:
+    """Name the narrower spelling (_narrower_spelling) in the next step of a refused `git add` or `git commit` whose
+    words the shell may rewrite, in place of the general hint, so an agent can run the form the gate frees."""
+    hinted = [v for v in outcome.verdicts if v.reason_id == "git_form_not_free" and v.next_step == _FREE_FORMS_HINT]
+    if not hinted:
+        return
+    proposal = _narrower_spelling(command)
+    if proposal is None:
+        return
+    step = (f"run `{proposal}` instead: it leaves no word before the end of the options that the shell may turn into "
+            "an option, and the gate frees it after a state check of the repository (DECISIONS.md D3); otherwise have "
+            "a person review the call")
+    for verdict in hinted:
+        verdict.next_step = step
+    outcome.text = outcome.text.replace(_FREE_FORMS_HINT.rstrip("."), step.rstrip("."))
+
+
+def _decide_outcome(command: str, cwd: str, deadline: float, host: str, environ: dict | None) -> Outcome | None:
+    """decide() without the hint of _name_narrower_spelling."""
     environ = os.environ if environ is None else environ
     calls = gated_calls(command)
     plain = host == "codex" and _codex_plain_push(command)
