@@ -312,8 +312,55 @@ def lies_umfang(pfad: pathlib.Path) -> tuple[dict[str, list[str]], list[str], st
         else:
             mitlaeufer.append(kennung)
     if not zu_zweig:
+        # A RELEASE THAT HAS NOT STARTED NAMES NO BRANCH, and that is a measurement, not a gap.
+        # Measured on 2026-10-09 after the tag v6.2.0: the next scope file, 6.3.0, says "(not
+        # started)" in its title and heads its In tables `Item | ...` without a branch column, so
+        # this reader returned NOT MEASURABLE, and every pull request on main went red on the gate
+        # and on the landing card. A file that declares itself not started and has no branch column
+        # at all is read as zero branches. A file that has a branch column and no branch the reader
+        # can read stays NOT MEASURABLE, declared or not: that is a malformed column, not an
+        # unstarted release.
+        if _als_nicht_begonnen_ausgewiesen(text, im_umfang):
+            return {}, mitlaeufer, "gemessen"
         return {}, mitlaeufer, "NICHT MESSBAR: kein einziger Zweig im In-Abschnitt gefunden"
     return zu_zweig, mitlaeufer, "gemessen"
+
+
+#: The words by which a scope file declares, in its title, that its release has not started.
+_NICHT_BEGONNEN = "(not started)"
+
+
+def _als_nicht_begonnen_ausgewiesen(text: str, im_umfang: str) -> bool:
+    """True when the title of the file declares it not started AND no In table heads a branch column.
+
+    The title is the first level-one heading. Both conditions are needed: the declaration alone
+    would also cover a file whose branch column the reader cannot read, and that file must stay
+    NOT MEASURABLE."""
+    titel = next((z for z in text.splitlines() if z.startswith("# ")), "")
+    if _NICHT_BEGONNEN not in titel:
+        return False
+    for zeile in im_umfang.splitlines():
+        if not zeile.startswith("|") or zeile.count("|") < 3:
+            continue
+        spalten = [s.strip() for s in zeile.strip("|").split("|")]
+        if spalten and spalten[-1].lower() in _ZWEIGSPALTE:
+            return False
+    return True
+
+
+def umfang_nicht_begonnen(pfad: pathlib.Path) -> bool:
+    """Whether the scope file at `pfad` is read as a release that has not started: zero branches,
+    measured. Callers use it to say so in their verdict instead of a bare "outside the scope"."""
+    try:
+        text = pfad.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    schnitt = _ENDE_DES_UMFANGS.search(text)
+    if schnitt is None:
+        return False
+    zu_zweig, _mitlaeufer, zustand = lies_umfang(pfad)
+    return (zustand == "gemessen" and not zu_zweig
+            and _als_nicht_begonnen_ausgewiesen(text, text[: schnitt.start()]))
 
 
 def fuehrende_kennungen(pfad: pathlib.Path) -> tuple[list[tuple[str, str, str]], str]:
@@ -491,9 +538,12 @@ def pruefe(*, branch: str, title: str, version: str,
     passend = sorted(zu_zweig.get(branch) or [])
     if not passend:
         # NOT A PASS, BUT A STATEMENT ABOUT REACH. The caller should see that nothing was checked
-        # here, rather than reading a green checkmark as a statement about the content.
+        # here, rather than reading a green checkmark as a statement about the content. A scope
+        # that has not started is named as such, so that "outside" is not read as a branch the
+        # scope forgot.
         return _urteil(branch, title, version, [], None, zu_zweig, mitlaeufer, zustand,
-                       ausserhalb=True)
+                       ausserhalb=True,
+                       nicht_begonnen=not zu_zweig and umfang_nicht_begonnen(pfad))
     if len(passend) > 1:
         gruende.append(f"der Zweig {branch!r} steht bei MEHREREN Umfangszeilen {passend} — "
                        "ein Zweig je Zeile, sonst zaehlt die Landekarte ihn doppelt oder gar nicht")
@@ -567,7 +617,7 @@ def pruefe(*, branch: str, title: str, version: str,
 
 
 def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zustand,
-            *, ausserhalb: bool = False) -> dict:
+            *, ausserhalb: bool = False, nicht_begonnen: bool = False) -> dict:
     gruen = not gruende
     return {
         "schema": "b7n0de.release_scope_title_gate.v1",
@@ -576,6 +626,7 @@ def _urteil(branch, title, version, gruende, kennung, zu_zweig, mitlaeufer, zust
         "gruende": gruende,
         "kennung_des_zweigs": kennung,
         "ausserhalb_des_umfangs": ausserhalb,
+        "umfang_nicht_begonnen": nicht_begonnen,
         "umfang_zustand": zustand,
         "umfangszeilen_mit_zweig": len(zu_zweig),
         "mitlaeufer_ohne_zweig": sorted(mitlaeufer),
@@ -650,6 +701,9 @@ def main(argv: list[str] | None = None) -> int:
             d["kennung_des_zweigs"] or "—")
         print(f"release-scope-title: {d['urteil']} · {d['branch']} · {marke}")
         print(f"  version: {d['version']} ({herkunft})")
+        if d.get("umfang_nicht_begonnen"):
+            print(f"  the scope file of {d['version']} declares itself not started and names no "
+                  f"branch, so every branch lies outside its scope")
         for g in d["gruende"]:
             print(f"  ! {g}")
         print(f"  geprueft: {d['geprueft_wird']}")
