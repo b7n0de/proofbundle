@@ -5417,6 +5417,42 @@ def _session_text(event: dict | None) -> str | None:
     return session if len(session) <= MAX_SESSION_TEXT else None
 
 
+_STATE_FIELDS = frozenset({"schema", "session_sha256", "open", "blocks", "blocker"})
+#: The form the gate wrote before R4-3, with the session id in clear (f0e25574 and earlier).
+_STATE_FIELDS_CLEAR = frozenset({"schema", "session", "open", "blocks", "blocker"})
+_SESSION_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _done_state(repo: str) -> tuple[dict | None, str | None]:
+    """The count record (DONE_STATE) as (record, problem). record carries session_sha256, open, blocks and blocker
+    when the file is a running count, problem is None then and where there is no file; (None, why) where a present
+    file does not serve as a running count. The schema value alone does not make a record usable: every field is
+    checked (review round 5 of 2026-10-09, R5-3: an older gate's record with the session in clear, and blocks "1" as a
+    string, both restarted the count without a word). The form the gate wrote before R4-3, with the session id in
+    clear, is taken over by the session's sha256, so an update of the plugin continues the count it finds."""
+    doc = _read_done_file(repo, DONE_STATE, "state")
+    if doc is None:
+        return None, _done_file_problem(repo, DONE_STATE, "state")
+    fields = frozenset(doc)
+    if fields == _STATE_FIELDS_CLEAR and isinstance(doc["session"], str):
+        session = hashlib.sha256(doc["session"].encode("utf-8", "surrogatepass")).hexdigest()
+    elif fields == _STATE_FIELDS:
+        session = doc["session_sha256"]
+    else:
+        return None, f"{DONE_STATE} carries the fields {', '.join(sorted(fields))}, not those of the hook's count"
+    open_points = doc["open"]
+    why = ("its session is not a sha256" if not (isinstance(session, str) and _SESSION_SHA256.fullmatch(session))
+           else "its open points are not a list of [id, status] pairs"
+           if not (isinstance(open_points, list) and all(isinstance(p, list) and len(p) == 2
+                                                         and all(isinstance(x, str) for x in p) for p in open_points))
+           else "its block count is not a whole number of at least 0"
+           if not (type(doc["blocks"]) is int and doc["blocks"] >= 0)
+           else "its blocker flag is not true or false" if type(doc["blocker"]) is not bool else None)
+    if why is not None:
+        return None, f"{DONE_STATE} is not a running count: {why}"
+    return {"session_sha256": session, "open": open_points, "blocks": doc["blocks"], "blocker": doc["blocker"]}, None
+
+
 def _blocker(result: dict, event: dict | None, blocks: int) -> dict:
     """The blocker file: every open point of the last verdict, in its order, with what it found and the command that
     closes it (review 2026-10-09, F5: a missing change in the order's paths was not named, and the paths outside them
@@ -5453,18 +5489,17 @@ def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | 
     cannot take effect, and the block says so instead of depending silently on a file it could not write (review
     round 3 of 2026-10-09, R3-4). The record binds the session by its sha256 and never exceeds the bound it is read
     with; unread names a present record the hook could not read, in which case this block counted as the first and the
-    record is written again (R4-3), None otherwise."""
+    record is written again (R4-3; a record of the right schema that is no running count included, R5-3), None
+    otherwise."""
     repo = result["repo"]
     session = _session_key(event)
     signature = [[p["id"], p["status"]] for p in result["open"]]
-    previous = _read_done_file(repo, DONE_STATE, "state")
-    unread = _done_file_problem(repo, DONE_STATE, "state") if previous is None else None
-    same = (previous is not None and previous.get("session_sha256") == session and previous.get("open") == signature
-            and type(previous.get("blocks")) is int and previous["blocks"] >= 0)
+    previous, unread = _done_state(repo)
+    same = previous is not None and previous["session_sha256"] == session and previous["open"] == signature
     blocks = previous["blocks"] + 1 if same else 1
     statuses = [p["status"] for p in result["open"]]
     if blocks > limit:
-        first = not (same and previous.get("blocker") is True)
+        first = not (same and previous["blocker"] is True)
         # Every stop past the limit writes the blocker from the verdict it reached, so the file the message names
         # exists and shows the state last measured: the open points can keep their ids and statuses while the paths
         # and the tree change, and a deleted blocker is written again (review round 2 of 2026-10-09, R2-5). The
@@ -5491,9 +5526,8 @@ def _account_pass(result: dict, event: dict | None) -> None:
     earlier stop no longer stands and is removed."""
     repo = result["repo"]
     session = _session_key(event)
-    previous = _read_done_file(repo, DONE_STATE, "state")
-    after_block = previous is not None and previous.get("session_sha256") == session and \
-        type(previous.get("blocks")) is int and previous["blocks"] >= 1
+    previous, _unused = _done_state(repo)
+    after_block = previous is not None and previous["session_sha256"] == session and previous["blocks"] >= 1
     _tally(repo, done=1, completed_after_block=1 if after_block else 0)
     _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session, "open": [],
                                         "blocks": 0, "blocker": False})

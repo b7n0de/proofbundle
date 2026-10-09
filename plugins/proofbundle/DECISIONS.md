@@ -1506,7 +1506,14 @@ Chosen (option B of the owner card for N1):
   the session by the sha256 of the host's session id, and no done file is written larger than the 64 KiB the hook
   reads back, so the hook can always read its own record at the next stop; a present count it cannot read is named
   in the block, which then counts as the first (review round 4 of 2026-10-09, R4-3: a session id of 65536 characters
-  made a record of 65684 bytes that the next read discarded, and the session never reached the blocker).
+  made a record of 65684 bytes that the next read discarded, and the session never reached the blocker). The schema
+  value alone does not make a count usable: each field is checked (the session's sha256, the open points as
+  [id, status] pairs, a whole block count of at least 0, a true or false blocker flag, no other field), and a
+  present record that fails names why in the block. The record an older gate wrote with the session id in clear is
+  taken over by the session's sha256, so an update continues the count (review round 5 of 2026-10-09, R5-3: such a
+  record, and a block count "1" written as a string, restarted the count without a word). The counters in
+  `done-metrics.json` are not checked that way: a file that is not the counters' form starts them afresh, and a write
+  that fails goes unreported; they decide no verdict.
 - Claude Code's `TaskCompleted` hook runs the same check. The gate prints the line and exits 0; the hook command
   turns a printed line into exit 2 with the line on stderr, and any other exit into exit 2 with its own line,
   because Python itself exits 2 when it cannot open the gate (measured). Codex has no such event.
