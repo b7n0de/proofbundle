@@ -4061,14 +4061,21 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
     paths, why = _repo_paths(directory, deadline)
     if paths is None:
         return files, dirs, f"the repository layout cannot be read ({why})"
-    base = paths["toplevel"] or directory
+    bases = {paths["toplevel"] or directory, directory}
+
+    def anchored(name: str) -> set[str]:
+        """A file name as git opens it. git takes a relative name (a relative GIT_CONFIG_GLOBAL, measured with git
+        2.43) against its working directory, which is the work tree once git has set up the repository and the
+        command's directory for a read before that (an alias): both are protected (R3-3). An absolute name is
+        itself, never passed through os.path.expanduser: git names the file as it opened it, already interpolated,
+        so a directory named `~` stays that directory."""
+        return {name} if os.path.isabs(name) else {os.path.join(b, name) for b in bases}
+
     for _scope, origin, key, value in entries:
-        source = None
+        sources: set[str] = set()
         if origin.startswith("file:"):
-            # git names the file as it opened it, already interpolated; a relative name is relative to where git
-            # read it, the work tree (R3-3: os.path.expanduser here turned a directory named `~` into the home)
-            source = os.path.join(base, origin[5:])
-            files.add(source)
+            sources = anchored(origin[5:])
+            files |= sources
         k = key.lower()
         if value and (k == "include.path" or (k.startswith("includeif.") and k.endswith(".path"))):
             included = _git_path(directory, value, deadline)   # git's interpolation, `%(prefix)/` included (R3-3)
@@ -4076,27 +4083,29 @@ def _state_files(directory: str, deadline: float) -> tuple[set, set, str]:
                 return files, dirs, f"git cannot resolve the include {value!r} from {origin or 'an unnamed origin'}"
             if os.path.isabs(included):
                 files.add(included)   # an absolute include, also one from the command scope or standard input
-            elif source is not None:
-                files.add(os.path.join(os.path.dirname(source), included))   # relative to the including file
+            elif sources:
+                files.update(os.path.join(os.path.dirname(s), included) for s in sources)   # beside the including file
             else:   # git-config(1): a relative include must come from a file, so git itself refuses it
                 return files, dirs, f"the include {value!r} from {origin or 'an unnamed origin'} names no file"
-    # git reads ~/.gitconfig at $HOME (git-config(1)); os.path.expanduser falls back to the password database when
-    # HOME is unset. Both are protected, so neither reading leaves a file git may use unprotected (R3-3).
-    homes = {os.path.expanduser("~")} | ({os.environ["HOME"]} if os.environ.get("HOME") else set())
+    # git reads ~/.gitconfig and the XDG file at $HOME (git-config(1)) and neither when HOME is unset (measured with
+    # git 2.43); os.path.expanduser reads HOME as well and falls back to the password database only when HOME is
+    # unset, where it protects a file git does not read.
+    home = os.path.expanduser("~")
     for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):   # git-var(1): the files git itself would use
         named = _git(directory, "var", name, deadline=deadline)
         if named.returncode == 0:
-            files.update(p for p in named.stdout.decode("utf-8", "replace").splitlines() if p and p != os.devnull)
+            for p in named.stdout.decode("utf-8", "replace").splitlines():
+                if p and p != os.devnull:
+                    files |= anchored(p)
     for name, default in (("GIT_CONFIG_GLOBAL", None), ("GIT_CONFIG_SYSTEM", "/etc/gitconfig")):
         value = os.environ.get(name)
         if value and value != os.devnull:
-            files.add(value)
+            files |= anchored(value)
         elif value is None and default:
             files.add(default)
     if os.environ.get("GIT_CONFIG_GLOBAL") is None:
-        for home in homes:
-            files.add(os.path.join(home, ".gitconfig"))
-            files.add(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "git", "config"))
+        files.add(os.path.join(home, ".gitconfig"))
+        files.add(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config"), "git", "config"))
     for root in {paths["common"], paths["gitdir"]} - {None}:
         # commondir (gitrepository-layout(5)) names the directory git takes the shared configuration and hooks
         # from, so a write to it, also one that creates it, redirects them (review Runde 8, R8-4)
