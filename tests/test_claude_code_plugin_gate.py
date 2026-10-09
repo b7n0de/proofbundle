@@ -250,7 +250,7 @@ def reason(answer: dict) -> str:
     ("git push origin HEAD:main", [("git push", ".", ["origin", "HEAD:main"])]),
     ("git push origin main --tags", [("git push", ".", ["origin", "main", "--tags"])]),
     ("GIT_TERMINAL_PROMPT=0 git push", [("git push", ".", [])]),           # a neutral prefix still resolves
-    ("git push origin main 2>&1", [("git push", ".", ["origin", "main"])]),  # a trailing redirection is dropped
+    ("git push origin main 2>&1", [("git push", ".", ["origin", "main"])]),  # a duplication opens no file (R2-2)
     ("git push origin main >/dev/null", [("git push", ".", ["origin", "main"])]),
     ("git -C ../other push", [("git push", "./../other", [])]),  # one literal -C, joined not normalised (R4-2)
     ("git-push origin", [("git push", ".", ["origin"])]),
@@ -1166,8 +1166,10 @@ _DIFFERENTIAL = [
     ("git push origin main 2>/dev/null", "a"),
     ("git -C ../b push origin main", "b"),
     ("git -C blink push origin main", "b"),                     # a symlinked -C, resolved physically (R4-2)
-    ("git push origin main >{bad}", "a"),                       # the redirection fails, so no push runs
     # everything else is NOT MEASURED
+    ("git push origin main >{bad}", None),                      # a redirection that opens a file (R2-2): here it
+                                                                # fails and no push runs, elsewhere it may empty
+                                                                # the pre-push hook before git starts
     ("true && git push origin main", None),
     ("cd ../b && git push origin main", None),
     ("cd ../b ; git push origin main", None),

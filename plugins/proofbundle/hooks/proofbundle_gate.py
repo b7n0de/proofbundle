@@ -388,6 +388,33 @@ def _redirection_targets(toks: list) -> list[tuple]:
     return [t[2] for t in toks if t[0] == "redir" and t[2] is not None]
 
 
+#: A redirection operator that duplicates or closes a descriptor (`2>&1`, `>&2`, `<&3`, `2>&-`): it opens no file when
+#: its target is a descriptor number or `-`.
+_FD_DUPLICATION = re.compile(r"\d*(?:>&|<&)")
+
+
+def _redirections_open_no_file(toks: list) -> bool:
+    """Whether every redirection in toks opens no file: a duplication or a close of a descriptor whose target is a
+    number or `-` as written, or the null device written exactly `/dev/null`. Any other redirection may create,
+    truncate or read a file before the command starts, the hook of a push among them (`> .git/hooks/pre-pus?` empties
+    the pre-push hook in bash and zsh, measured), so a form with one gets no positive answer (review round 2 of
+    2026-10-09, R2-2). A redirection without a target, or with a target the shell expands, is not one of these."""
+    for t in toks:
+        if t[0] != "redir":
+            continue
+        target = t[2]
+        if target is None:
+            return False
+        value, has_subst, raw = target
+        if has_subst or raw != value:
+            return False
+        if _FD_DUPLICATION.fullmatch(t[1]) and (raw == "-" or raw.isdigit() and raw.isascii()):
+            continue
+        if raw != "/dev/null":
+            return False
+    return True
+
+
 #: A detail marker (first element): the command would turn off the real-push check — `git push --no-verify`,
 #: a command-level `core.hooksPath` override, or a `git config core.hooksPath` — so the gate denies it rather
 #: than let an unchecked push through (review Nachtrag 15, Ebene 1, Punkt 5).
@@ -404,6 +431,9 @@ _NOT_FREE = "\x00not-free"
 #: repository (_add_commit_state_problem) finds nothing that starts a program for it; otherwise it asks under Claude
 #: Code and is denied under Codex, with the source it found (DECISIONS.md D3, "two forms after a state check").
 _STATE_FREE = "\x00state-free"
+#: The details that already carry their answer (deny, ask, a possible transfer, a state check), which a redirection
+#: does not change into an unresolved push (R2-2).
+_MARKER_DETAILS = ([_HOOKS_DISABLE], [_NOT_FREE], [_STATE_FREE], [_MAYBE_PUSH])
 #: Detail marker for the safety net (review Runde 11, owner choice A of 2026-10-04): the raw command names git
 #: or gh as a command word that the structured scan reached no decision for. It is never free and never a push
 #: the gate resolves; it asks under Claude Code and is denied under Codex.
@@ -1621,6 +1651,11 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
                 return disabling
         if _redirection_present(text):  # the two free forms are free only without a redirection (K-NW-2 B)
             calls = [(n, UNKNOWN, [_NOT_FREE]) if d == [_STATE_FREE] else (n, c, d) for n, c, d in calls]
+        if not _redirections_open_no_file(toks):
+            # A redirection that opens a file runs before git does, the pre-push hook may be its target (R2-2): the
+            # repository and target of a push or gh call are not resolved, so it is NOT MEASURED, never inactive.
+            calls = [(n, UNKNOWN, None) if c is not UNKNOWN and d not in _MARKER_DETAILS else (n, c, d)
+                     for n, c, d in calls]
         if not calls and os.path.basename(words[h][0]) == "git" and not _BARE_VERSION.fullmatch(command):
             return [("git --version", UNKNOWN, [_NOT_FREE])]  # free only as its exact text (review Runde 9)
         return calls
@@ -3604,6 +3639,8 @@ def _rule_candidate(command: str, cwd: str, deadline: float) -> tuple[str, str] 
         return None
     if any(_shell_rewrites(t[3]) for t in toks if t[0] == "word"):
         return None  # the approved text is not the command git gets when the shell rewrites a word (F2)
+    if not _redirections_open_no_file(toks):
+        return None  # a form a rule frees writes no file through the shell (R2-2)
     words = [t[1] for t in toks if t[0] == "word"]
     if len(words) < 2 or words[0] != "git" or words[1].startswith("-"):
         return None
@@ -3710,11 +3747,14 @@ def _codex_plain_push(command: str) -> bool:
     """True when the whole command is the plain push form owner choice K5-1 C lets warn under Codex: one simple
     command, no chain, pipeline, background job, subshell, group, here-document or expansion anywhere, no prefix
     assignment of any kind, the command word exactly `git` as written (no path, no quotes, no wrapper) and `push`
-    right after it (no global option such as -c or -C). Trailing redirections with a literal target keep the form
-    plain: they change no program and git still starts the pre-push hook. Every other push form can step around
-    that hook or the repository it runs in, so under Codex it is denied (DECISIONS.md D12)."""
+    right after it (no global option such as -c or -C). A redirection keeps the form plain only when it opens no file
+    (_redirections_open_no_file: `2>&1`, `>&2`, `2>&-`, `/dev/null`): any other target is opened before git starts and
+    may be the pre-push hook itself (review round 2 of 2026-10-09, R2-2). Every other push form can step around that
+    hook or the repository it runs in, so under Codex it is denied (DECISIONS.md D12)."""
     toks = _lex(_drop_comments(command))
     if toks is None or any(t[0] == "op" for t in toks) or _expansion_present(command):
+        return False
+    if not _redirections_open_no_file(toks):
         return False
     words = [t[1:] for t in toks if t[0] == "word"]
     if len(words) < 2 or _ASSIGNMENT.match(words[0][0]):
