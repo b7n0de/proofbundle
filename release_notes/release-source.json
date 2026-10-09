@@ -8,7 +8,7 @@
  "kopfsatz": "Stricter input checks at verification boundaries, hardened Ed25519 trust-anchor handling, and offline AGT receipt verification. **Beta. Locations of the closing records are listed under Audit status.**",
  "sicherheit": {
   "titel": "Findings addressed in 6.2.0",
-  "einleitung": "6.2.0 closes five findings in the released 6.0.0 and 6.1.0, eight further findings of one class in pull request 312, six release-preparation findings in pull request 313, and six findings of four later gate rounds and two findings of a security scan with two neighbours of the first in pull request 311, each present in the released 6.0.0 and 6.1.0. The group of pull request 313 includes a pre-release regression. The rows below summarize affected surfaces, representative effects and fixes; their measurement baselines are named separately where they differ. The last five rows are classes found by the fifth and sixth rounds of the external review and the Codex class searches on the release candidate, closed in pull request 311 as well; each row names where it was measured.",
+  "einleitung": "6.2.0 closes five findings in the released 6.0.0 and 6.1.0, eight further findings of one class in pull request 312, six release-preparation findings in pull request 313, and six findings of four later gate rounds and two findings of a security scan with two neighbours of the first in pull request 311, each present in the released 6.0.0 and 6.1.0. The group of pull request 313 includes a pre-release regression. The rows below summarize affected surfaces, representative effects and fixes; their measurement baselines are named separately where they differ. The last five rows are classes found by the fifth and sixth rounds of the external review and the Codex class searches on the release candidate; their fixes are in pull request 311 as well, and each row names where it was measured.",
   "zeilen": [
    {
     "befund": "Truthy non-boolean callback results promoted verification evidence",
@@ -104,19 +104,19 @@
     "befund": "A judge adopted a verification result for other data than that result verified",
     "betroffen": "Python API `evaluate_policy`, `evaluate_decision_policy`, `evaluate_relations_policy`, `svr_properties`; not measured against 6.0.0 and 6.1.0",
     "wirkung": "A result built by hand, or verified for another bundle, statement or claim, was judged as if it had verified the data passed beside it",
-    "behoben": "A result carries an origin over what its verifier verified, and each judge adopts only a result of this process for exactly its input ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+    "behoben": "A result carries an origin token over what its verifier recorded, and each judge refuses a hand-built result and one whose recorded signer, payload, SD-JWT presentation, Merkle root, statement or claim differs from its input ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
    },
    {
     "befund": "Expired material produced a positive verdict",
     "betroffen": "6.0.0, 6.1.0; CLI `decision verify`, Python API `verify_status_snapshot`, `verify_enclave_attestation`",
     "wirkung": "`decision verify` exited 0 for a receipt whose `validity.expiresAt` had passed, and a status-list snapshot or an enclave attestation past its expiry at the given `now` was `ok`",
-    "behoben": "One evaluation time per verification; an expired or unreadable expiry fails closed, and `decision verify` exits 2 ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+    "behoben": "The clock is read once per verification; an expired or unreadable receipt expiry fails closed, and `decision verify` exits 2 ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
    },
    {
     "befund": "A JWS whose protected header names a critical extension verified",
     "betroffen": "6.0.0, 6.1.0; Python API `verify_key_binding`, `verify_sd_jwt`, `verify_status_snapshot`, `verify_enclave_attestation`, and the `sd-jwt-key-binding` check of `verify_bundle`",
     "wirkung": "A token signed with `crit: [\"future\"]` in its protected header, an extension proofbundle does not understand, reached `ok=True`; RFC 7515 §4.1.11 makes such a JWS invalid",
-    "behoben": "Any `crit` in a protected header fails closed, in the Python verifiers and in the Rust `verify-bundle` ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
+    "behoben": "Any `crit` in a protected header fails closed in `verify_key_binding`, `verify_sd_jwt`, `verify_status_snapshot`, `verify_enclave_attestation` and the Rust `verify-bundle` ([#311](https://github.com/b7n0de/proofbundle/pull/311))"
    },
    {
     "befund": "The eval adapters read the last of two duplicate JSON keys",
@@ -160,7 +160,7 @@
   },
   {
    "bereich": "Review rounds 5 and 6",
-   "aenderung": "A trust pack confers role trust only under a relying-party anchor, a judge adopts a result only for the data it verified, a verification reads one evaluation time, a JWS `crit` header is refused, and the eval adapters refuse duplicate JSON keys.",
+   "aenderung": "A trust pack confers role trust only under a relying-party anchor, a judge refuses a result built by hand or verified for another signer, payload, SD-JWT presentation or Merkle root, a verification reads the clock once, the JWS verifiers refuse a `crit` header, and the eval adapters refuse duplicate JSON keys.",
    "beleg": "[#311](https://github.com/b7n0de/proofbundle/pull/311) · [Detail](https://github.com/b7n0de/proofbundle/blob/bc0d35ba357cb62c54c1075a2900cc2e75c1e663/CHANGELOG.md)"
   }
  ],
@@ -183,7 +183,7 @@
   },
   {
    "titel": "Release-candidate fixes.",
-   "text": "`decision verify` exits 2 for a receipt whose `validity.expiresAt` has passed, where 6.1.0 exited 0, and for one whose `validity.expiresAt` cannot be read; `--verification-time` pins the instant. A trust pack confers `safeForAutomation` and role trust only under an anchor of the relying party, and a verification result built by hand or verified for other data fails the policy. A token whose protected JWS header carries `crit` no longer verifies, and the eval adapters refuse a results file with a duplicate key. [Details](https://github.com/b7n0de/proofbundle/blob/bc0d35ba357cb62c54c1075a2900cc2e75c1e663/CHANGELOG.md)."
+   "text": "`decision verify` exits 2 for a receipt whose `validity.expiresAt` has passed, where 6.1.0 exited 0, and for one whose `validity.expiresAt` cannot be read; `--verification-time` pins the instant. A trust pack confers `safeForAutomation` and role trust only under an anchor of the relying party, and a verification result built by hand or verified for another signer, payload, SD-JWT presentation or Merkle root fails the policy. A token whose protected JWS header carries `crit` no longer verifies, and the eval adapters refuse a results file with a duplicate key. [Details](https://github.com/b7n0de/proofbundle/blob/bc0d35ba357cb62c54c1075a2900cc2e75c1e663/CHANGELOG.md)."
   }
  ],
  "auditstatus": "These notes describe the package-source commit linked above; the closing record identifies the head actually checked. In the `v6.2.0` tagged tree, consult `gate_zeile.head` and `gate_zeile.verdict` in `audit_artifacts/360/fuzz_soak_latest.json` and `audit_artifacts/360/rust_differential_matrix.json`; the separate `audit_artifacts/620/pre_tag_receipt_v6.2.0.json` records its own audit command and result. A short soak does not satisfy C6.3's full 24-hour requirement; a full run after the tag is planned.\n\n[Residual risks](https://github.com/b7n0de/proofbundle/blob/bc0d35ba357cb62c54c1075a2900cc2e75c1e663/RESTRISIKO_620.md) · [README status](https://github.com/b7n0de/proofbundle/blob/bc0d35ba357cb62c54c1075a2900cc2e75c1e663/README.md#current-release)\n\nThe published package and a passed closing audit are separate facts.",

@@ -53,11 +53,11 @@ break calls on purpose: the SD-JWT rules of a trust policy and `verify` itself r
 SD-JWT or its Key Binding JWT only under the new `sd_jwt.issuer_key_pin` or a binding to the signed eval claim,
 and `anchor verify-pack` needs `--target-file` or `--expected-root`.
 The fifth and sixth rounds of the external review and the Codex class searches on the release candidate found five
-more classes, closed by the first five entries under Fixed: a trust pack conferred role trust without an anchor of
-the relying party, a judge adopted a verification result for data that result had not verified, a verification read
-more than one evaluation time and let expired material pass, a JWS whose protected header names a critical
-extension the verifier does not understand verified, and the eval adapters read the last of two duplicate JSON keys
-into a claim that is then signed.
+more classes, and the first five entries under Fixed describe what this release changes in each: a trust pack
+conferred role trust without an anchor of the relying party, a judge adopted a verification result for data that
+result had not verified, a verification read more than one evaluation time and let expired material pass, a JWS
+whose protected header names a critical extension the verifier does not understand verified, and the eval adapters
+read the last of two duplicate JSON keys into a claim that is then signed.
 What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
 
 ### Fixed
@@ -94,7 +94,8 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `tests/test_security_fix_620_trustpack_n47b_wrapper.py`, `tests/test_security_fix_620_trustpack_r6a.py` and the
     combination test `tests/test_z309_f4_group4_trustpack_receiver.py`; each new case fails before its fix.
 
-- **A judge adopts a verification result only for exactly the data that result verified** (review 5409929917 on
+- **A judge no longer adopts a hand-built verification result, or one whose recorded signer, payload, SD-JWT
+  presentation or Merkle root differs from the data it is judged with** (review 5409929917 on
   pull request 311, the external review of the N46 and N48 contracts, rounds 6a of the external review, orders 44 to
   46g, R6a-1 and R6a-2, owner decisions on cards OA-187663a5c8, OA-67a397a7b8, OA-31938f4666, OA-a9986c2e64 and
   OA-4238c783d5).
@@ -103,14 +104,14 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     path closed and `sd-jwt-issuer-trust` false.
   - `verify_bundle` records what it verified (signer, payload digest, the Merkle root its root check and its
     inclusion check passed under, the exact `sd_jwt_vc.compact`) and stamps a per-process origin token over that
-    state and every check, only on a passing signature. `evaluate_policy` judges a bundle only with the result that
-    verified exactly this bundle (`policy:result_bundle_binding`, `policy:result_origin`,
-    `policy:result_sd_jwt_binding`), and authenticates a root on any path only when the result proved inclusion under
-    that root. The `verify` command re-stamps the token after its checkpoint check, only when the result was already
-    authentic.
+    state and every check, only on a passing signature. `evaluate_policy` judges a bundle only with a result whose
+    recorded signer, payload digest and SD-JWT presentation equal this bundle's and whose origin token is intact
+    (`policy:result_bundle_binding`, `policy:result_origin`, `policy:result_sd_jwt_binding`), and it adopts a
+    positive root check only for the Merkle root that result verified. The `verify` command re-stamps the token
+    after its checkpoint check, only when the result was already authentic.
   - `evaluate_decision_policy`, `evaluate_relations_policy` (`relation_signer`) and `svr_properties` likewise adopt
-    only a result that the matching verifier of this process produced for exactly this statement, successor receipt
-    or claim, with `crypto_ok` exactly true for the decision path.
+    only a result whose origin token, stamped by the matching verifier of this process, covers the statement,
+    successor receipt or claim they are given, with `crypto_ok` exactly true for the decision path.
   - The origin token type-marks every part, so values of different types never share a token, and it never travels in
     CLI output: `decision verify`, `outcome verify` and `relation-statement verify` strip `verified_origin` from
     `--json` at every level.
@@ -123,7 +124,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `tests/test_security_fix_620_bind_n48.py`, `tests/test_security_fix_620_bind_r6a.py` and the combination tests
     `tests/test_z309_f4_group1_signature_checkpoint.py` and `tests/test_z309_f4_group2_kb_presentation.py`.
 
-- **One evaluation time per verification, and expired or non-fresh material is never a positive verdict** (the Codex
+- **One clock reading per verification, and an expired or unreadable receipt expiry fails closed** (the Codex
   class search K4 at e37e872b and CX-01 to CX-05, the Codex findings F-01 and F-02, round 6a of the external review,
   orders 49, 49b, 49c, R6a-4 to R6a-7 and R6b-6, owner decisions on cards OA-67a397a7b8, OA-10762e3e40 and
   OA-b5cac74844).
@@ -135,10 +136,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     included) now fails closed (`freshness_ok` False, `ok` False); only an absent key is not-applicable. The CLI exit
     now folds this axis (an expired receipt exits 2, no longer 0). A `--verification-time` (ISO-8601 'Z', past) pins
     the evaluation instant.
-  - `--verification-time` at `decision verify` and `verify-enclave` takes only a literal-`Z` instant naming a whole
-    second; a zone offset, a naive time or a sub-second fraction is a format error, exit 2, never re-read or
-    truncated. An explicit `now` that is malformed fails the verdict closed with no fallback to the wall clock; with
-    `now` omitted, the receipt freshness and the policy lifecycle read one and the same clock reading.
+  - `--verification-time` at `decision verify` and `verify-enclave` takes a literal-`Z` instant; a zone offset, a
+    naive time or a fraction with a nonzero microsecond part is a format error, exit 2. An explicit `now` that is
+    malformed fails the verdict closed with no fallback to the wall clock; with `now` omitted, the receipt freshness
+    and the policy lifecycle are both judged from the one clock reading of the call.
     `evaluate_decision_policy` takes `now` and judges the policy lifecycle at that instant.
   - In historical mode `safeForAutomation` stays a present-tense verdict: a policy expired or not yet valid today
     keeps it false (`POLICY_EXPIRED`, `POLICY_NOT_YET_VALID`), and the CLI labels the report (`VERIFICATION_TIME:
@@ -159,9 +160,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `tests/test_security_fix_620_zeit_r6a.py`, `tests/test_security_fix_620_zeit_r6b6.py` and the combination test
     `tests/test_z309_f4_group3_decision_time.py`.
 
-- **A JWS whose protected header names a critical extension is invalid** (the Codex findings K5-01 and K5-02, orders
-  50, 50b and 50c). RFC 7515 section 4.1.11 makes a JWS invalid when its protected header names, in `crit`, an
-  extension the verifier does not understand. proofbundle understands no JWS extension.
+- **The four JWS verifiers refuse a protected header that names a critical extension** (the Codex findings K5-01
+  and K5-02, orders 50, 50b and 50c). RFC 7515 section 4.1.11 makes a JWS invalid when its protected header names,
+  in `crit`, an extension the verifier does not understand. proofbundle understands no JWS extension.
   - `verify_key_binding`, `verify_sd_jwt`, `verify_status_snapshot` and the experimental
     `verify_enclave_attestation` now fail closed on any `crit` in the protected header: a `crit` that is not a
     non-empty array, holds a non-string or a duplicate name, names a base-spec header parameter or a parameter absent
