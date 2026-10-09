@@ -129,16 +129,35 @@ Shipped features do not all have the same maturity. Agent review disclosures are
 
 proofbundle ships plugins for pytest and Inspect AI. Receipt emission is opt-in and requires an explicit pass threshold.
 
-| Plugin | Install | Run with a receipt |
-|---|---|---|
-| pytest | `python -m pip install 'proofbundle[pytest,eval]==6.2.0'` | `PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 pytest` |
-| Inspect AI | `python -m pip install 'proofbundle[inspect,eval]==6.2.0'` | `PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval task.py --model <model>` |
+| Plugin | Package |
+|---|---|
+| pytest | `proofbundle[pytest,eval]` |
+| Inspect AI | `proofbundle[inspect,eval]` |
+
+<details>
+<summary>Commands, threshold and output</summary>
+
+**pytest**
+
+```bash
+python -m pip install 'proofbundle[pytest,eval]==6.2.0'
+PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 pytest
+```
+
+**Inspect AI**
+
+```bash
+python -m pip install 'proofbundle[inspect,eval]==6.2.0'
+PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval task.py --model <model>
+```
 
 These commands use POSIX shell syntax. Run pytest in your test project; replace `task.py` and `<model>` with your Inspect task and configured model.
 
 `0.9` is an example, not a default. pytest records `pass_rate`; Inspect selects the first available metric unless you set `PROOFBUNDLE_METRIC`. The comparison defaults to `>=`; set `PROOFBUNDLE_COMPARATOR` to change it. The threshold verdict is recorded in the receipt and does not change the test or eval exit status. Without `PROOFBUNDLE_THRESHOLD`, receipt emission is skipped.
 
 Receipts go to the current directory by default, and the plugin prints the output path. Set `PROOFBUNDLE_OUT` to choose a file or directory. Set `PROOFBUNDLE_KEY` to the path of a file containing a 32-byte raw Ed25519 seed for a reusable signing key. Otherwise, an emitted receipt uses a temporary key and is not tied to a lasting identity.
+
+</details>
 
 ## Documentation
 
