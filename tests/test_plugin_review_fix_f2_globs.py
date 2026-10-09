@@ -259,7 +259,8 @@ def test_the_predicate_leaves_literal_words(raw):
     assert not gate._shell_rewrites(raw), raw
 
 
-@pytest.mark.parametrize("raw,rewrites", [("~", False), ("~/x", False), ("~root/x", False), ("~+", True),
+@pytest.mark.parametrize("raw,rewrites", [("~", False), ("~/x", False), ("~root/x", True), ("~+", True),
                                           ("~-/x", True), ("~1", True), ("~/x*", True)])
 def test_in_a_c_value_only_the_tilde_forms_expanduser_reads_like_the_shell_are_modelled(raw, rewrites):
+    """`~root/x` is not modelled since review round 3 (R3-2): zsh reads `~name` from its named directories first."""
     assert gate._shell_rewrites(raw, tilde_modelled=True) is rewrites, raw

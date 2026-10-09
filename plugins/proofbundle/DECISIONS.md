@@ -279,8 +279,12 @@ free (`git commit -m msg -- *`). The same predicate decides, for the same reason
 every push and gh call Level 1 resolves under Claude Code (a rewritten word anywhere leaves its repository and target
 NOT MEASURED) and the candidates for a human rule of D25 (a command with a rewritten word is none: the approved text
 is not the command git gets). zsh's `~` inside a word excludes only together with another glob character (measured
-with zsh 5.9), so alone it is literal. The value of a `-C` keeps the plain `~` and `~name` the gate joins with
-os.path.expanduser; `~+`, `~-` and `~N` name directories of the shell's state and leave it NOT MEASURED.
+with zsh 5.9), so alone it is literal. The value of a `-C` keeps the plain `~`, alone or before a slash, which the gate
+joins with os.path.expanduser. `~name` is not modelled: zsh resolves it through its table of named directories
+(`hash -d`), state of the running shell the gate cannot read, so with `hash -d pb_review_named=/path/B` zsh runs
+`git -C ~pb_review_named` in B while bash and os.path.expanduser read a literal directory (review round 3 of
+2026-10-09, R3-2). Like `~+`, `~-` and `~N`, which name directories of the shell's state too, it leaves the call
+NOT MEASURED, and no verdict is given about either directory.
 
 The predicate reads a word at the characters the shell expands (review round 2 of 2026-10-09, R2-6, measured at
 87dcbed8 with bash 5.2 and zsh 5.9): a line continuation (backslash-newline) is removed first and an empty quote adds

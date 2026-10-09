@@ -541,9 +541,11 @@ def _expansion_present(command: str) -> bool:
 #: never reaches a free form. zsh's `~` inside a word excludes only together with another of these characters (measured
 #: with zsh 5.9: `a.txt~b` stays as it is, `a.tx#t~b` becomes `a.txt`), so it needs no entry of its own.
 _REWRITE_CHARS = frozenset("*?[{^#")
-#: The tilde forms the gate models as os.path.expanduser does: `~` or `~name`, then a slash or the end of the word. The
-#: shell's `~+`, `~-` and `~N` name directories of the shell's own state, which the gate cannot read.
-_TILDE_MODELLED = re.compile(r"~(?:[A-Za-z_][A-Za-z0-9._-]*)?(?:/|$)")
+#: The tilde form the gate models as os.path.expanduser does: the plain `~`, then a slash or the end of the word. `~name`
+#: is not modelled: zsh resolves it through its table of named directories (`hash -d`), state of the running shell the
+#: gate cannot read, before the user names expanduser knows (review round 3 of 2026-10-09, R3-2). The shell's `~+`,
+#: `~-` and `~N` name directories of the shell's own state as well.
+_TILDE_MODELLED = re.compile(r"~(?:/|$)")
 
 
 #: The characters a backslash escapes inside double quotes (POSIX 2.2.3, measured with bash 5.2 and zsh 5.9): before any
@@ -881,7 +883,11 @@ def _strict_git(words: list[str], directory: str | None, free_base: object = _FR
             shell_tilde = not eq and raws is not None and i + 1 < len(raws) and raws[i + 1].startswith("~")
             named = os.path.expanduser(value) if shell_tilde else value
             c_values.append(named)
-            directory = os.path.join(directory, named) if directory is not UNKNOWN else UNKNOWN
+            # A value the shell may rewrite (a glob, a `~name`, a tilde after an empty quote) names a directory the
+            # gate cannot know, for every subcommand: no free form and no verdict about another repository (R3-2).
+            rewritten_value = not eq and rewrites is not None and i + 1 < len(rewrites) and rewrites[i + 1]
+            directory = (os.path.join(directory, named) if directory is not UNKNOWN and not rewritten_value
+                         else UNKNOWN)
         elif option in ("-c", "--config-env"):
             key = value.partition("=")[0].strip()
             if _hooks_off(key):
