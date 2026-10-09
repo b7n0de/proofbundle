@@ -197,7 +197,10 @@ def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult
     ``verified_inclusion_root`` (the Merkle root the inclusion check passed under, R6a-2) and
     ``verified_sd_jwt_vc_compact`` (the exact sd_jwt_vc.compact the result verified, R6a-1) — so the rebuilt
     stand-in still represents the verification of that same bundle, which the authenticated-root and sd_jwt
-    binding gates now require."""
+    binding gates now require.
+
+    6.2.1 R6b-1/R6b-2: and ``verified_inclusion_context``, the digest of the whole inclusion context the
+    inclusion check passed under, which the authenticated-root and checkpoint rules now compare."""
     checks = [Check(c.name, ok if c.name == name else c.ok, c.detail) for c in result.checks]
     if not any(c.name == name for c in result.checks):
         checks.append(Check(name, ok))
@@ -207,6 +210,7 @@ def _with_check(result: VerificationResult, name: str, ok) -> VerificationResult
     out.verified_merkle_root = result.verified_merkle_root
     out.verified_inclusion_root = result.verified_inclusion_root
     out.verified_sd_jwt_vc_compact = result.verified_sd_jwt_vc_compact
+    out.verified_inclusion_context = result.verified_inclusion_context
     out.stamp_origin()
     return out
 
