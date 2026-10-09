@@ -5103,7 +5103,13 @@ def _blocker(result: dict, session: str, blocks: int) -> dict:
     closes it (review 2026-10-09, F5: a missing change in the order's paths was not named, and the paths outside them
     were lost when it came first); the paths the order names, the commit it was compared with, and each check."""
     state = result["state"] or {}
-    checks = [{"id": row["id"], "status": row["status"], "detail": row["failed"] or "verified", "command": row["command"]}
+    # A check is "verified" only when it was judged green; one the check stopped before comparing with the state
+    # (status None, e.g. a state that could not be measured) is not judged, never verified (R2-5).
+    checks = [{"id": row["id"], "status": row["status"],
+               "detail": row["failed"] or ("verified" if row["status"] == "green" else
+                                           "not judged: the check stopped before it compared this receipt with the "
+                                           "state"),
+               "command": row["command"]}
               for row in result["checks"]]
     opened = [{"id": p["id"], "status": p["status"], "detail": p["failed"], "command": p["command"],
                **({"outside": p["outside"]} if "outside" in p else {})} for p in result["open"]]
@@ -5132,7 +5138,11 @@ def _account_block(result: dict, event: dict | None, limit: int) -> str | None:
     statuses = [p["status"] for p in result["open"]]
     if blocks > limit:
         first = not (same and previous.get("blocker") is True)
-        problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, session, blocks)) if first else None
+        # Every stop past the limit writes the blocker from the verdict it reached, so the file the message names
+        # exists and shows the state last measured: the open points can keep their ids and statuses while the paths
+        # and the tree change, and a deleted blocker is written again (review round 2 of 2026-10-09, R2-5). The
+        # counter of blockers counts it once.
+        problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, session, blocks))
         if problem is not None:
             _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
             _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session": session,
