@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Fixed
+
+- `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.
+- The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
