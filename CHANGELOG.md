@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [Unreleased]
+
+### Changed
+
+- **A label starts no CI run any more, and `landung` still starts the mutation layer**
+  (`.github/workflows/ci.yml`, new `.github/workflows/landung.yml`). ci.yml ran on `labeled` and
+  `unlabeled` for the label `landung`, and its concurrency group cancels a running pull-request run, so
+  every label set on a pull request cancelled its CI and started a full one (measured 2026-09-28 on the
+  pull requests of the 6.2.0 chain, about 55 minutes each). ci.yml now runs on opened, synchronize and
+  reopened only. The mutation layer runs from landung.yml when `landung` is set and again on every new head
+  of a pull request that carries it, and is cancelled when the label is taken off. There it waits, as in
+  ci.yml, for test and coverage of the same head: `needs` does not reach into another workflow, so the job
+  `ci-prerequisites` waits for them and for the collector `all-checks-passed` in the ci.yml run of the head
+  (`scripts/landung_waits_for_ci.py`), and the layer needs that job; the collector keeps a fork's one-leg
+  run from counting as the release matrix. Its other ways in (by hand, a `release/` branch, the merge queue) stay in
+  ci.yml behind test and coverage. The two copies of the mutation jobs are held equal by
+  `tests/test_ein_label_startet_keine_ci.py`, which also holds that landung.yml carries no required
+  context: its jobs are skipped on every other label, and a skipped required check reads as passed. No
+  required context changed. A fork pull request still gets the full matrix under the label, now at its
+  next push.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
