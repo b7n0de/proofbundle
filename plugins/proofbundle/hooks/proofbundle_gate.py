@@ -4812,6 +4812,9 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
                                     "no_repository")
         return result
     repo = os.fsdecode(top.stdout.rstrip(b"\n"))
+    # The repository is known from here on: a failure after this point, the partial-clone refusal of the HEAD read
+    # among them, is counted toward the repeat limit like any other refusal (review round 2 of 2026-10-09, R2-4).
+    result["repo"] = repo
     head = _git(repo, "rev-parse", "--verify", "-q", "HEAD^{commit}", deadline=deadline)
     head_commit = head.stdout.decode("ascii", "replace").strip() if head.returncode == 0 else ""
     commit, where, now = head_commit, "HEAD", "the working state now"
