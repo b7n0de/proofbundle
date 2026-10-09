@@ -6,7 +6,7 @@ framework flag that maps to it. A security tool that surprises you loses trust. 
 no-op unless emission is enabled, catches its own errors (an integration must never fail the host run), and
 imports the crypto lazily (this module is only imported from inside a hook body, never at framework startup).
 
-Configuration (all optional, all env):
+Configuration (all env; PROOFBUNDLE_THRESHOLD is required for receipt emission):
   PROOFBUNDLE_EMIT       "1" to enable emission (the master opt-in). Anything else = disabled.
   PROOFBUNDLE_KEY        path to a 32-byte raw Ed25519 seed to sign with. If unset, an EPHEMERAL key is
                          generated (a warning is printed; the receipt is self-verifiable but not tied to a
