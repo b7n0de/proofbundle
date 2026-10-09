@@ -1,0 +1,2912 @@
+{
+ "record": "acde01 run record",
+ "draft": "draft-abak-agent-control-delivery-evidence-01",
+ "draft_sha256_pinned": "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf",
+ "draft_copy_used": {
+  "sha256": "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf",
+  "bytes": 108147,
+  "lines": 2576,
+  "form": "txt"
+ },
+ "head": "ecd2fe99e9587a565b5f4480a9084fd32644a987",
+ "command": "python interop/acde_01/tools/make_run_record.py --head <head> --draft <draft.txt>; python -m pytest interop/acde_01/tests",
+ "environment": {
+  "python": "3.11.15",
+  "implementation": "CPython",
+  "platform": "Linux-6.18.44-fc-v77-x86_64-with-glibc2.39",
+  "acde01": "0.1.0",
+  "utc_time_of_run": "2026-10-07T08:37:26Z",
+  "other_interpreter_runs": [
+   "3.10.20: 146/146 vectors passed without pytest, vector file regenerates identically",
+   "3.12.3: 146/146 vectors passed without pytest, vector file regenerates identically",
+   "3.13.12: 146/146 vectors passed without pytest, vector file regenerates identically"
+  ]
+ },
+ "file_sha256": {
+  "acde01/__init__.py": "272ec0a9d47b4fa7a97599655711f67c1f6c4746fb12583832fcd1c2fe1ee9c4",
+  "acde01/canon.py": "7f73cc2f2864fccf9ed0a48f894505ed02dd7a8c62453a51cef8bc6f989b1111",
+  "acde01/profile.py": "a68942763aa270fa98427d721ef2247ab805b5ff0bde270f9ba28517ae5941f6",
+  "acde01/reconcile.py": "501123295b617c03ef1ce4e9bd1c0bf84abe978bb8950fae87b48ff388f37d17",
+  "acde01/report_check.py": "7c572e036b3cc43960e05ee73b056d80551fcd13b918b0eed84570ae129c76b3",
+  "vectors/build.py": "1d743156b3c4a0eba1e2529ec5b7ed99eb8ba125d4523babaf9d80f27cdbf16e",
+  "vectors/evaluate.py": "9f21fa33e2af337d0830f54d53845ab4a40a40adf3fe069206aea5075ef340c8",
+  "vectors/vectorfile.py": "4c15c3891a1558e2ef5c80fb9250bcd5eb3c453ca2d7714992cc91a65b28786c",
+  "vectors/generate_vectors.py": "a85ae3c01b0604154c2924287e3e4e66721918c7367c8edeca682f63da806fda",
+  "vectors/acde01_vectors.json": "c1a3bcf16d43fc65bcaee6533bab858793a53446cd697d856a878fc29d5da686",
+  "requirements.json": "34cfa519a324c9f8c6c821cb9d70314d50d011b6679340caec505b2adeb1b4df",
+  "requirements_map.json": "5291aa665c9d5fd03b1c6875ca853dca56ba45c26a9bb7ba45af15b30a142abc",
+  "tools/extract_requirements.py": "dafc8affec54696ab2f73e00544ed0edc9e51f999e3cbf1c90badc967fd649c9"
+ },
+ "vectors": {
+  "total": 146,
+  "passed": 146,
+  "failed": []
+ },
+ "conformance_cases_covered": {
+  "1": [
+   "R-01"
+  ],
+  "2": [
+   "R-02b"
+  ],
+  "3": [
+   "R-03"
+  ],
+  "4": [
+   "R-04"
+  ],
+  "5": [
+   "C-25",
+   "R-05"
+  ],
+  "6": [
+   "R-06"
+  ],
+  "7": [
+   "R-07"
+  ],
+  "8": [
+   "R-08"
+  ],
+  "9": [
+   "R-09"
+  ],
+  "10": [
+   "R-10"
+  ],
+  "11": [
+   "R-11",
+   "R-11a"
+  ],
+  "12": [
+   "R-12"
+  ],
+  "13": [
+   "R-13"
+  ],
+  "14": [
+   "R-14",
+   "R-23c"
+  ],
+  "15": [
+   "R-15",
+   "R-15d"
+  ],
+  "16": [
+   "C-03",
+   "C-04",
+   "R-16"
+  ],
+  "17": [
+   "C-06",
+   "R-02"
+  ],
+  "18": [
+   "R-18"
+  ],
+  "19": [
+   "R-19"
+  ],
+  "20": [
+   "C-24",
+   "R-20"
+  ],
+  "21": [
+   "R-14"
+  ],
+  "22": [
+   "R-22"
+  ],
+  "23": [
+   "C-26",
+   "C-27",
+   "C-28",
+   "R-23"
+  ],
+  "24": [
+   "R-19",
+   "R-23"
+  ],
+  "25": [
+   "R-25"
+  ],
+  "26": [
+   "R-26"
+  ],
+  "27": [
+   "C-15",
+   "C-15b",
+   "R-27",
+   "R-27b"
+  ],
+  "28": [
+   "C-01",
+   "C-02",
+   "T-01",
+   "T-02"
+  ],
+  "29": [
+   "C-23",
+   "R-29"
+  ],
+  "30": [
+   "C-05",
+   "R-30"
+  ]
+ },
+ "category_counts": {
+  "agreement": 108,
+  "contradiction": 0,
+  "ambiguity": 14,
+  "not_implemented": 8
+ },
+ "requirements": [
+  {
+   "id": "S4-1",
+   "section": "4",
+   "lines": [
+    529,
+    531
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Permission addressed to producers about packaging. This implementation uses one representation; nothing follows for a verifier to check."
+  },
+  {
+   "id": "S4.3-1",
+   "section": "4.3",
+   "lines": [
+    586,
+    589
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-31",
+    "R-35b"
+   ],
+   "negative_vectors": [
+    "P-12",
+    "R-35"
+   ],
+   "vectors_passed": true,
+   "note": "Reading: transport acknowledgements are not receiver-side records; they are accounted in the input accounting, outside |R|."
+  },
+  {
+   "id": "S4.4-1",
+   "section": "4.4",
+   "lines": [
+    594,
+    595
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-36"
+   ],
+   "negative_vectors": [
+    "P-15"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S4.5-1",
+   "section": "4.5",
+   "lines": [
+    638,
+    640
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23"
+   ],
+   "negative_vectors": [
+    "R-23c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S4.5-2",
+   "section": "4.5",
+   "lines": [
+    640,
+    641
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23"
+   ],
+   "negative_vectors": [
+    "R-23c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S4.5-3",
+   "section": "4.5",
+   "lines": [
+    642,
+    643
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23"
+   ],
+   "negative_vectors": [
+    "R-05"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.1-1",
+   "section": "5.1",
+   "lines": [
+    649,
+    651
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-31",
+    "R-31c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.1-2",
+   "section": "5.1",
+   "lines": [
+    651,
+    652
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-01"
+   ],
+   "negative_vectors": [
+    "P-01",
+    "R-32"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.1-3",
+   "section": "5.1",
+   "lines": [
+    652,
+    655
+   ],
+   "keywords": [
+    "MAY",
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-30"
+   ],
+   "negative_vectors": [
+    "P-02"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.1-4",
+   "section": "5.1",
+   "lines": [
+    657,
+    659
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-31b"
+   ],
+   "negative_vectors": [
+    "P-03",
+    "R-31"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.2-1",
+   "section": "5.2",
+   "lines": [
+    663,
+    665
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "R-26c"
+   ],
+   "negative_vectors": [
+    "R-03",
+    "R-26"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.2-2",
+   "section": "5.2",
+   "lines": [
+    665,
+    668
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-04",
+    "P-05"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.3-1",
+   "section": "5.3",
+   "lines": [
+    683,
+    684
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-38b",
+    "R-38c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.3-2",
+   "section": "5.3",
+   "lines": [
+    684,
+    685
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-06"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.3-3",
+   "section": "5.3",
+   "lines": [
+    685,
+    687
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23"
+   ],
+   "negative_vectors": [
+    "R-23d"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.3-4",
+   "section": "5.3",
+   "lines": [
+    689,
+    691
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-14c"
+   ],
+   "negative_vectors": [
+    "P-07",
+    "R-14",
+    "R-14b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.3-5",
+   "section": "5.3",
+   "lines": [
+    691,
+    693
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-14c"
+   ],
+   "negative_vectors": [
+    "R-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.4-1",
+   "section": "5.4",
+   "lines": [
+    697,
+    699
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-33b"
+   ],
+   "vectors_passed": true,
+   "finding": "Disposition when no issuer-side observation exists for an instruction in the population",
+   "readings": [
+    "(a) INDETERMINATE (a reason other than ordinary absence of a receiver observation)",
+    "(b) INVALID (a required record is missing)"
+   ],
+   "implemented": "(a), and the instruction is reported as not dispatched",
+   "why": "INVALID covers a required record that is malformed, fails verification or lacks a binding; an absent record is not named.",
+   "text_refs": [
+    "Section 5.4, lines 697-701",
+    "Section 6.1 INVALID and INDETERMINATE, lines 1077-1085"
+   ]
+  },
+  {
+   "id": "S5.4-2",
+   "section": "5.4",
+   "lines": [
+    699,
+    701
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-06"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.4-3",
+   "section": "5.4",
+   "lines": [
+    703,
+    706
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-34"
+   ],
+   "negative_vectors": [
+    "R-34b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.4-4",
+   "section": "5.4",
+   "lines": [
+    708,
+    709
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-33"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.4-5",
+   "section": "5.4",
+   "lines": [
+    709,
+    710
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-33"
+   ],
+   "negative_vectors": [
+    "R-33b"
+   ],
+   "vectors_passed": true,
+   "finding": "Result of an emission that failed before the issuer boundary",
+   "readings": [
+    "(a) EXPLICIT_FAILURE for each obligation of the attempt, scoped to the issuer boundary",
+    "(b) UNCONFIRMED with the failure kept as a diagnostic",
+    "(c) the instruction is excluded from I as never dispatched"
+   ],
+   "implemented": "(a); the instruction is reported as not dispatched",
+   "why": "The failure is positive and attributable, but it is observed at the issuer boundary for all targets at once, while EXPLICIT_FAILURE is defined per attempt, target and boundary and must not be generalised to other targets.",
+   "text_refs": [
+    "Section 5.4, lines 708-710",
+    "Section 6.1 EXPLICIT_FAILURE, lines 1051-1055"
+   ]
+  },
+  {
+   "id": "S5.5-1",
+   "section": "5.5",
+   "lines": [
+    714,
+    716
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "R-35b"
+   ],
+   "negative_vectors": [
+    "R-02",
+    "R-35"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.5-2",
+   "section": "5.5",
+   "lines": [
+    716,
+    720
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-07"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.5-3",
+   "section": "5.5",
+   "lines": [
+    733,
+    734
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-18"
+   ],
+   "vectors_passed": true,
+   "note": "Reading: an observer absent from the trust configuration gives INDETERMINATE (unresolved trust binding); an observer bound to another target gives an invalid receiver record and leaves the obligation as it was."
+  },
+  {
+   "id": "S5.5-4",
+   "section": "5.5",
+   "lines": [
+    734,
+    736
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-18"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.5-5",
+   "section": "5.5",
+   "lines": [
+    738,
+    739
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-26c"
+   ],
+   "negative_vectors": [
+    "R-26",
+    "R-26b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.5-6",
+   "section": "5.5",
+   "lines": [
+    739,
+    741
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-22"
+   ],
+   "negative_vectors": [
+    "R-26b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.6-1",
+   "section": "5.6",
+   "lines": [
+    745,
+    745
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-12",
+    "R-13",
+    "R-46"
+   ],
+   "negative_vectors": [
+    "C-22"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.6-2",
+   "section": "5.6",
+   "lines": [
+    745,
+    748
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-36",
+    "R-36",
+    "R-36d"
+   ],
+   "negative_vectors": [
+    "P-15",
+    "R-36b",
+    "R-36c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.6-3",
+   "section": "5.6",
+   "lines": [
+    748,
+    749
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-12"
+   ],
+   "negative_vectors": [
+    "R-36b",
+    "C-09"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.7-1",
+   "section": "5.7",
+   "lines": [
+    753,
+    754
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-12",
+    "R-13",
+    "R-46"
+   ],
+   "negative_vectors": [
+    "C-22"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.7-2",
+   "section": "5.7",
+   "lines": [
+    754,
+    756
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23e"
+   ],
+   "negative_vectors": [
+    "R-23f"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.7-3",
+   "section": "5.7",
+   "lines": [
+    756,
+    758
+   ],
+   "keywords": [
+    "MUST",
+    "MUST NOT"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-23e"
+   ],
+   "negative_vectors": [
+    "R-23f",
+    "R-36c"
+   ],
+   "vectors_passed": true,
+   "finding": "NO_EFFECT is used in two dimensions and the control-effect vocabulary is not defined",
+   "readings": [
+    "(a) NO_EFFECT in 5.7 is the enforcement value of 4.4",
+    "(b) NO_EFFECT in 5.7 is a control-effect result with its own vocabulary"
+   ],
+   "implemented": "(b): control-effect results EFFECT_OBSERVED, NO_EFFECT, UNKNOWN; NO_EFFECT requires predicate and window in both dimensions",
+   "why": "4.4 lists NO_EFFECT among enforcement outcomes, 5.7 forbids reporting silence 'as NO_EFFECT' in the control-effect section, and the appendix example uses UNKNOWN for control_effect without naming the other values.",
+   "text_refs": [
+    "Section 4.4 NO_EFFECT, lines 606-609",
+    "Section 5.7, lines 753-758",
+    "Section 6.1, lines 1093-1097"
+   ]
+  },
+  {
+   "id": "S5.8-1",
+   "section": "5.8",
+   "lines": [
+    762,
+    763
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-10"
+   ],
+   "negative_vectors": [
+    "R-10b"
+   ],
+   "vectors_passed": true,
+   "finding": "Deadline-elapsed negative observation: UNCONFIRMED or EXPLICIT_FAILURE",
+   "readings": [
+    "(a) a deadline-elapsed record keeps the obligation UNCONFIRMED and is reported as a diagnostic",
+    "(b) a deadline-elapsed record is a positive, attributable failure observation and yields EXPLICIT_FAILURE"
+   ],
+   "implemented": "(a)",
+   "why": "Case 10 says a missing acknowledgement WITHOUT a negative-observation record is UNCONFIRMED, not EXPLICIT_FAILURE, which reads as if the record would change the result; 5.8 says the record establishes only the reconciler's bounded view, and 9.1 lets a late receipt turn UNCONFIRMED into CONFIRMED.",
+   "text_refs": [
+    "Minimum Conformance Cases, case 10, lines 2441-2442",
+    "Section 5.8, lines 776-778",
+    "Section 9.1, lines 1484-1486"
+   ]
+  },
+  {
+   "id": "S5.8-2",
+   "section": "5.8",
+   "lines": [
+    763,
+    764
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-24"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.9-1",
+   "section": "5.9",
+   "lines": [
+    791,
+    792
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-23b",
+    "R-38",
+    "R-38b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.9-2",
+   "section": "5.9",
+   "lines": [
+    792,
+    795
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-09"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.9-3",
+   "section": "5.9",
+   "lines": [
+    799,
+    800
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23"
+   ],
+   "negative_vectors": [
+    "R-23b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.10-1",
+   "section": "5.10",
+   "lines": [
+    804,
+    806
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "C-19"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.10-2",
+   "section": "5.10",
+   "lines": [
+    806,
+    807
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-04",
+    "R-08"
+   ],
+   "negative_vectors": [
+    "R-06",
+    "R-07"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.10-3",
+   "section": "5.10",
+   "lines": [
+    807,
+    809
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-02",
+    "R-02b",
+    "R-10",
+    "R-11a"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.10-4",
+   "section": "5.10",
+   "lines": [
+    811,
+    813
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-30",
+    "R-39"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.10-5",
+   "section": "5.10",
+   "lines": [
+    818,
+    820
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-33"
+   ],
+   "negative_vectors": [
+    "P-16",
+    "C-19"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.10-6",
+   "section": "5.10",
+   "lines": [
+    822,
+    824
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-29"
+   ],
+   "negative_vectors": [
+    "P-17"
+   ],
+   "vectors_passed": true,
+   "note": "Reduction rule: the profile's published precedence over the seven dispositions; every applicable disposition stays listed."
+  },
+  {
+   "id": "S5.10-7",
+   "section": "5.10",
+   "lines": [
+    824,
+    827
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-29"
+   ],
+   "negative_vectors": [
+    "C-23"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-1",
+   "section": "5.11",
+   "lines": [
+    847,
+    850
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-16b"
+   ],
+   "negative_vectors": [
+    "R-16",
+    "R-42"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-2",
+   "section": "5.11",
+   "lines": [
+    850,
+    852
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "C-19"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-3",
+   "section": "5.11",
+   "lines": [
+    852,
+    854
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-08"
+   ],
+   "negative_vectors": [
+    "R-04"
+   ],
+   "vectors_passed": true,
+   "finding": "Record class of a receiver record that addresses an expected obligation but does not confirm it",
+   "readings": [
+    "(a) matched (it was correlated to the obligation, whose disposition is SUBSTITUTION, CONFLICT or INDETERMINATE)",
+    "(b) orphan (it matches no obligation in the CONFIRMED sense)",
+    "(c) a separate conflicting class"
+   ],
+   "implemented": "(a), with the matched class subdivided into confirming and non-confirming (6.4 allows subdivision that preserves the parent count)",
+   "why": "6.1 defines ORPHAN as matching no expected Delivery Obligation, while CONFIRMED is defined by a match of identifier, attempt, content, target and boundary; the word 'match' carries both meanings.",
+   "text_refs": [
+    "Section 5.11, lines 852-854",
+    "Section 6.1, lines 1087-1091",
+    "Section 6.4, lines 1222-1226"
+   ]
+  },
+  {
+   "id": "S5.11-4",
+   "section": "5.11",
+   "lines": [
+    856,
+    859
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27"
+   ],
+   "negative_vectors": [
+    "C-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-5",
+   "section": "5.11",
+   "lines": [
+    859,
+    863
+   ],
+   "keywords": [
+    "MUST",
+    "MUST",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27",
+    "C-15b"
+   ],
+   "negative_vectors": [
+    "C-15"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-6",
+   "section": "5.11",
+   "lines": [
+    863,
+    865
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27"
+   ],
+   "negative_vectors": [
+    "C-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-7",
+   "section": "5.11",
+   "lines": [
+    865,
+    868
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27"
+   ],
+   "negative_vectors": [
+    "C-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-8",
+   "section": "5.11",
+   "lines": [
+    870,
+    871
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-10"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-9",
+   "section": "5.11",
+   "lines": [
+    874,
+    877
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27"
+   ],
+   "negative_vectors": [
+    "R-27b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-10",
+   "section": "5.11",
+   "lines": [
+    877,
+    880
+   ],
+   "keywords": [
+    "MUST NOT",
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27"
+   ],
+   "negative_vectors": [
+    "R-27b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-11",
+   "section": "5.11",
+   "lines": [
+    882,
+    884
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-20",
+    "R-20b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-12",
+   "section": "5.11",
+   "lines": [
+    884,
+    886
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-20"
+   ],
+   "negative_vectors": [
+    "C-24"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.11-13",
+   "section": "5.11",
+   "lines": [
+    902,
+    906
+   ],
+   "keywords": [
+    "MAY",
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-19c"
+   ],
+   "negative_vectors": [
+    "R-19"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.12-1",
+   "section": "5.12",
+   "lines": [
+    910,
+    914
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "P-00",
+    "R-15c",
+    "R-34"
+   ],
+   "negative_vectors": [
+    "P-11",
+    "R-15",
+    "R-15b",
+    "R-15d",
+    "R-20b",
+    "R-34b",
+    "R-34c"
+   ],
+   "vectors_passed": true,
+   "finding": "Unresolved required target: INDETERMINATE by definition or INVALID by profile",
+   "readings": [
+    "(a) always INDETERMINATE (6.1 names 'an unresolved required target' there)",
+    "(b) INDETERMINATE or INVALID as the profile declares (case 15)"
+   ],
+   "implemented": "(b): the profile declares the behaviour per case (unresolved, stale, ambiguous, inconsistent); vectors cover both choices",
+   "why": "6.1 places an unresolved required target under INDETERMINATE, while case 15 and 5.12 leave INDETERMINATE or INVALID to the profile.",
+   "text_refs": [
+    "Section 6.1 INDETERMINATE, lines 1082-1085",
+    "case 15, lines 2455-2456",
+    "Section 5.12, lines 910-915"
+   ]
+  },
+  {
+   "id": "S5.12-2",
+   "section": "5.12",
+   "lines": [
+    914,
+    915
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-15c"
+   ],
+   "negative_vectors": [
+    "R-15",
+    "R-34c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.13-1",
+   "section": "5.13",
+   "lines": [
+    919,
+    920
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "R-44",
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-12"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.13-2",
+   "section": "5.13",
+   "lines": [
+    920,
+    924
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-44"
+   ],
+   "negative_vectors": [
+    "C-12"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.13-3",
+   "section": "5.13",
+   "lines": [
+    926,
+    928
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "C-00",
+    "T-01"
+   ],
+   "negative_vectors": [
+    "C-01",
+    "T-02"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.13-4",
+   "section": "5.13",
+   "lines": [
+    928,
+    932
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-14c"
+   ],
+   "negative_vectors": [
+    "R-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.13-5",
+   "section": "5.13",
+   "lines": [
+    937,
+    940
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-25b"
+   ],
+   "negative_vectors": [
+    "R-25"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.14-1",
+   "section": "5.14",
+   "lines": [
+    959,
+    960
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-02"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.14-2",
+   "section": "5.14",
+   "lines": [
+    960,
+    963
+   ],
+   "keywords": [
+    "SHOULD",
+    "SHOULD"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Addressed to a relying system's operational policy (fail-safe, retry, escalation). The report exposes the four states; choosing the local response is outside this verifier."
+  },
+  {
+   "id": "S5.15-1",
+   "section": "5.15",
+   "lines": [
+    971,
+    973
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-43",
+    "R-43b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.15-2",
+   "section": "5.15",
+   "lines": [
+    973,
+    976
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-19c"
+   ],
+   "negative_vectors": [
+    "R-19",
+    "R-41"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.15-3",
+   "section": "5.15",
+   "lines": [
+    978,
+    979
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-43b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.15-4",
+   "section": "5.15",
+   "lines": [
+    996,
+    998
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-19c"
+   ],
+   "negative_vectors": [
+    "R-19",
+    "R-19b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.16-1",
+   "section": "5.16",
+   "lines": [
+    1015,
+    1020
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-25b"
+   ],
+   "negative_vectors": [
+    "R-25"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.16-2",
+   "section": "5.16",
+   "lines": [
+    1020,
+    1024
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-34",
+    "R-25b"
+   ],
+   "negative_vectors": [
+    "P-21",
+    "R-25c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.16-3",
+   "section": "5.16",
+   "lines": [
+    1026,
+    1029
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-25b"
+   ],
+   "negative_vectors": [
+    "R-25"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S5.16-4",
+   "section": "5.16",
+   "lines": [
+    1029,
+    1031
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-25b"
+   ],
+   "negative_vectors": [
+    "R-25",
+    "R-25c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.1-1",
+   "section": "6.1",
+   "lines": [
+    1042,
+    1043
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "P-00",
+    "R-01",
+    "R-46"
+   ],
+   "negative_vectors": [
+    "R-09"
+   ],
+   "vectors_passed": true,
+   "finding": "Issuer-side identifier reuse with different content",
+   "readings": [
+    "(a) SUBSTITUTION for every obligation of the instruction (9.1)",
+    "(b) CONFLICT (two issuer records make incompatible assertions)",
+    "(c) INVALID (the identifier rule of the profile is violated)"
+   ],
+   "implemented": "(a)",
+   "why": "6.1 defines SUBSTITUTION between issuer-side and receiver-side records; 9.1 says reusing one identifier for different content creates SUBSTITUTION without a receiver record being involved.",
+   "text_refs": [
+    "Section 6.1 SUBSTITUTION, lines 1069-1071",
+    "Section 9.1, lines 1489-1491"
+   ]
+  },
+  {
+   "id": "S6.1-2",
+   "section": "6.1",
+   "lines": [
+    1053,
+    1055
+   ],
+   "keywords": [
+    "MUST",
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-05",
+    "R-22",
+    "C-00"
+   ],
+   "negative_vectors": [
+    "R-33",
+    "C-25"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.2-1",
+   "section": "6.2",
+   "lines": [
+    1104,
+    1105
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "C-07"
+   ],
+   "vectors_passed": true,
+   "finding": "Parent result of an instruction with zero obligations",
+   "readings": [
+    "(a) not defined: neither fully confirmed nor not fully confirmed",
+    "(b) vacuously fully confirmed",
+    "(c) not fully confirmed"
+   ],
+   "implemented": "(a) (null), while a structural PASS may cover the instruction where the profile permits empty sets",
+   "why": "6.2 speaks only of 'a parent instruction that has one or more required targets'.",
+   "text_refs": [
+    "Section 6.2, lines 1101-1105",
+    "Section 5.11, lines 870-877",
+    "case 27, lines 2514-2531"
+   ]
+  },
+  {
+   "id": "S6.2-2",
+   "section": "6.2",
+   "lines": [
+    1107,
+    1109
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-02",
+    "C-06"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.3-1",
+   "section": "6.3",
+   "lines": [
+    1181,
+    1183
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-08"
+   ],
+   "negative_vectors": [
+    "P-18"
+   ],
+   "vectors_passed": true,
+   "note": "Duplicate selection rule: earliest observed time, then record id; the discarded record names the selected one."
+  },
+  {
+   "id": "S6.4-1",
+   "section": "6.4",
+   "lines": [
+    1194,
+    1195
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-01",
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-03"
+   ],
+   "vectors_passed": true,
+   "finding": "Unit of a Delivery Obligation",
+   "readings": [
+    "(a) one obligation per (instruction, required target); attempts are bindings inside it",
+    "(b) one obligation per (delivery attempt, required target), as the terminology also allows"
+   ],
+   "implemented": "(a)",
+   "why": "Section 6.4 defines O = {(i,t) : i in I and t in T_i} over instructions. Under (b) |O| grows with retries and is no longer the set 6.4 counts, so a profile choosing (b) cannot use the 6.4 equation as written.",
+   "text_refs": [
+    "Section 2 'Delivery Obligation', lines 354-358",
+    "Section 6.4, lines 1187-1192"
+   ]
+  },
+  {
+   "id": "S6.4-2",
+   "section": "6.4",
+   "lines": [
+    1200,
+    1201
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27"
+   ],
+   "negative_vectors": [
+    "C-15"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.4-3",
+   "section": "6.4",
+   "lines": [
+    1203,
+    1205
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-27",
+    "C-15b"
+   ],
+   "negative_vectors": [
+    "R-20"
+   ],
+   "vectors_passed": true,
+   "finding": "Instruction-level equation has no class for a target resolution that fails or stays open",
+   "readings": [
+    "(a) such an instruction counts in neither class; the draft equation does not balance and complete accounting cannot be claimed",
+    "(b) a third published class (not closed) is added beside the two, so every instruction stays accounted for",
+    "(c) the instruction is represented by placeholder obligations"
+   ],
+   "implemented": "(a) and (b) together: the report publishes the draft equation (fails) and an extended equation with the third class (balances); no complete-accounting claim",
+   "why": "5.11 requires every instruction to remain accounted for, 6.4 offers only with-obligations and zero-obligation classes, and 6.4 allows extra classes only for records, not for instructions. (c) conflicts with the spirit of 5.11-10 (no synthetic obligations).",
+   "text_refs": [
+    "Section 6.4, lines 1203-1214",
+    "Section 5.11, lines 856-868 and 882-886",
+    "Section 5.12, lines 910-915"
+   ]
+  },
+  {
+   "id": "S6.4-4",
+   "section": "6.4",
+   "lines": [
+    1212,
+    1214
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-27",
+    "C-15b"
+   ],
+   "negative_vectors": [
+    "C-15"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.4-5",
+   "section": "6.4",
+   "lines": [
+    1219,
+    1220
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "C-00"
+   ],
+   "negative_vectors": [
+    "R-04",
+    "C-16"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.4-6",
+   "section": "6.4",
+   "lines": [
+    1224,
+    1226
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "C-17"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.4-7",
+   "section": "6.4",
+   "lines": [
+    1238,
+    1239
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "C-17"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.4-8",
+   "section": "6.4",
+   "lines": [
+    1239,
+    1242
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-37",
+    "R-11",
+    "R-39b"
+   ],
+   "negative_vectors": [
+    "P-23",
+    "R-39"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.5-1",
+   "section": "6.5",
+   "lines": [
+    1246,
+    1247
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-20"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.5-2",
+   "section": "6.5",
+   "lines": [
+    1254,
+    1256
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-40"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.5-3",
+   "section": "6.5",
+   "lines": [
+    1258,
+    1259
+   ],
+   "keywords": [
+    "MUST",
+    "MUST NOT"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-22",
+    "C-00b"
+   ],
+   "negative_vectors": [
+    "R-02b",
+    "R-03",
+    "R-10",
+    "R-30",
+    "C-05"
+   ],
+   "vectors_passed": true,
+   "finding": "Which dispositions are positive failing conditions for FAIL",
+   "readings": [
+    "(a) EXPLICIT_FAILURE and SUBSTITUTION",
+    "(b) EXPLICIT_FAILURE only",
+    "(c) also INVALID"
+   ],
+   "implemented": "(a)",
+   "why": "6.5 lists UNCONFIRMED, CONFLICT, INVALID and INDETERMINATE as preventing PASS but does not say which dispositions make FAIL; SUBSTITUTION rests on positive records that disagree, INVALID on a malformed record.",
+   "text_refs": [
+    "Section 6.5, lines 1258-1263",
+    "Section 6.1, lines 1051-1085"
+   ]
+  },
+  {
+   "id": "S6.5-4",
+   "section": "6.5",
+   "lines": [
+    1261,
+    1263
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-02",
+    "C-08"
+   ],
+   "vectors_passed": true,
+   "finding": "Excluding an obligation 'before population construction' cannot depend on its disposition",
+   "readings": [
+    "(a) the exclusion rule is decided on issuer-side attributes before any receiver evidence is used",
+    "(b) an obligation known to be UNCONFIRMED, CONFLICT, INVALID or INDETERMINATE may be excluded under a published rule"
+   ],
+   "implemented": "(a); the profile validator refuses exclusion rules over receiver-side attributes",
+   "why": "Dispositions exist only after population construction (6.3), so (b) is circular and would allow the favourable-subset selection 10.3 warns about.",
+   "text_refs": [
+    "Section 6.5, lines 1261-1263",
+    "Section 6.3 steps 1-2, lines 1129-1136",
+    "Section 10.3, lines 1608-1613"
+   ]
+  },
+  {
+   "id": "S6.5-5",
+   "section": "6.5",
+   "lines": [
+    1265,
+    1265
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "R-16b"
+   ],
+   "negative_vectors": [
+    "R-16",
+    "C-04"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.5-6",
+   "section": "6.5",
+   "lines": [
+    1267,
+    1268
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-18"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.5-7",
+   "section": "6.5",
+   "lines": [
+    1273,
+    1274
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-01"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-1",
+   "section": "6.6",
+   "lines": [
+    1278,
+    1281
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "R-45"
+   ],
+   "negative_vectors": [
+    "C-13"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-2",
+   "section": "6.6",
+   "lines": [
+    1281,
+    1282
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01",
+    "R-45",
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-01"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-3",
+   "section": "6.6",
+   "lines": [
+    1293,
+    1296
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "C-00",
+    "C-00b",
+    "T-01"
+   ],
+   "negative_vectors": [
+    "C-01",
+    "C-02",
+    "T-02"
+   ],
+   "vectors_passed": true,
+   "finding": "Co-exposure when no relying-party claim is requested",
+   "readings": [
+    "(a) the structural result always travels with an implicit claim ('the declared population reconciled under the profile's structural rules') and its support",
+    "(b) a structural result may only be exposed together with an explicitly requested claim"
+   ],
+   "implemented": "(a)",
+   "why": "6.6 requires 'the corresponding claim scope and claim-support qualification' wherever a structural result is exposed, but defines claim scope for claims exposed to a relying party; which claim corresponds when none is requested is not said.",
+   "text_refs": [
+    "Section 6.6, lines 1293-1304",
+    "Section 5.13, lines 926-935"
+   ]
+  },
+  {
+   "id": "S6.6-4",
+   "section": "6.6",
+   "lines": [
+    1297,
+    1298
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-01",
+    "C-02"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-5",
+   "section": "6.6",
+   "lines": [
+    1306,
+    1307
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "C-00"
+   ],
+   "negative_vectors": [
+    "C-21"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-6",
+   "section": "6.6",
+   "lines": [
+    1317,
+    1318
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-14"
+   ],
+   "negative_vectors": [
+    "C-10"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-7",
+   "section": "6.6",
+   "lines": [
+    1322,
+    1323
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-01"
+   ],
+   "negative_vectors": [
+    "R-02",
+    "C-11"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-8",
+   "section": "6.6",
+   "lines": [
+    1332,
+    1333
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-19",
+    "R-19d"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S6.6-9",
+   "section": "6.6",
+   "lines": [
+    1333,
+    1335
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-19"
+   ],
+   "negative_vectors": [
+    "P-20",
+    "R-19b",
+    "R-19d"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S7-1",
+   "section": "7",
+   "lines": [
+    1352,
+    1355
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Addressed to protocol design (attachment points). Not a verifier behaviour."
+  },
+  {
+   "id": "S7-2",
+   "section": "7",
+   "lines": [
+    1390,
+    1394
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-25b"
+   ],
+   "negative_vectors": [
+    "R-25"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S8.1-1",
+   "section": "8.1",
+   "lines": [
+    1426,
+    1428
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-01"
+   ],
+   "negative_vectors": [
+    "P-08",
+    "R-37",
+    "R-37b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S8.1-2",
+   "section": "8.1",
+   "lines": [
+    1430,
+    1433
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-14c"
+   ],
+   "negative_vectors": [
+    "R-14",
+    "R-23c"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S8.1-3",
+   "section": "8.1",
+   "lines": [
+    1433,
+    1434
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-19c"
+   ],
+   "negative_vectors": [
+    "R-41"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S8.1-4",
+   "section": "8.1",
+   "lines": [
+    1434,
+    1436
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-14c"
+   ],
+   "negative_vectors": [
+    "R-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S8.3-1",
+   "section": "8.3",
+   "lines": [
+    1473,
+    1475
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "P-35"
+   ],
+   "negative_vectors": [
+    "P-22"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.1-1",
+   "section": "9.1",
+   "lines": [
+    1481,
+    1482
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Addressed to deployments (deadline definition). Not a verifier behaviour."
+  },
+  {
+   "id": "S9.1-2",
+   "section": "9.1",
+   "lines": [
+    1484,
+    1486
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-11"
+   ],
+   "negative_vectors": [
+    "R-11a"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.1-3",
+   "section": "9.1",
+   "lines": [
+    1488,
+    1489
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-31b"
+   ],
+   "negative_vectors": [
+    "R-31"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.2-1",
+   "section": "9.2",
+   "lines": [
+    1496,
+    1498
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00"
+   ],
+   "negative_vectors": [
+    "P-13"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.2-2",
+   "section": "9.2",
+   "lines": [
+    1498,
+    1501
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-32"
+   ],
+   "negative_vectors": [
+    "P-14"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.3-1",
+   "section": "9.3",
+   "lines": [
+    1520,
+    1523
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Addressed to deployments (binding paths into a Required Target Set). The per-obligation reconciliation it leads to is implemented under S5.10-1."
+  },
+  {
+   "id": "S9.3-2",
+   "section": "9.3",
+   "lines": [
+    1525,
+    1527
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-19c"
+   ],
+   "negative_vectors": [
+    "R-19"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.4-1",
+   "section": "9.4",
+   "lines": [
+    1533,
+    1537
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "P-00",
+    "R-23"
+   ],
+   "negative_vectors": [
+    "P-25"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.4-2",
+   "section": "9.4",
+   "lines": [
+    1539,
+    1542
+   ],
+   "keywords": [
+    "MUST NOT",
+    "MUST NOT"
+   ],
+   "category": "ambiguity",
+   "positive_vectors": [
+    "R-23",
+    "C-28"
+   ],
+   "negative_vectors": [
+    "R-23b",
+    "C-27"
+   ],
+   "vectors_passed": true,
+   "finding": "'Occurred before control activation' needs an ordering basis",
+   "readings": [
+    "(a) without a supported ordering the crossing is neither protected nor blockable: indeterminate",
+    "(b) the reconciler orders by the asserted timestamps"
+   ],
+   "implemented": "(a)",
+   "why": "9.4 protects only crossings that actually occurred before activation; 5.9 says matching identifiers do not establish precedence and unsupported ordering claims must be omitted or indeterminate.",
+   "text_refs": [
+    "Section 9.4, lines 1539-1544",
+    "Section 5.9, lines 797-800"
+   ]
+  },
+  {
+   "id": "S9.4-3",
+   "section": "9.4",
+   "lines": [
+    1547,
+    1550
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23"
+   ],
+   "negative_vectors": [
+    "R-23b"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.4-4",
+   "section": "9.4",
+   "lines": [
+    1551,
+    1552
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23",
+    "C-28"
+   ],
+   "negative_vectors": [
+    "C-26"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S9.4-5",
+   "section": "9.4",
+   "lines": [
+    1560,
+    1562
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-23",
+    "C-28"
+   ],
+   "negative_vectors": [
+    "C-27"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S10.4-1",
+   "section": "10.4",
+   "lines": [
+    1635,
+    1636
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-02"
+   ],
+   "negative_vectors": [
+    "C-03"
+   ],
+   "vectors_passed": true
+  },
+  {
+   "id": "S11-1",
+   "section": "11",
+   "lines": [
+    1662,
+    1665
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Privacy practice for implementations in deployment. Not a verifier behaviour; the vectors carry no personal data."
+  },
+  {
+   "id": "S11-2",
+   "section": "11",
+   "lines": [
+    1665,
+    1667
+   ],
+   "keywords": [
+    "SHOULD NOT"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Privacy default for producers. Not a verifier behaviour; vectors carry only small synthetic instruction content."
+  },
+  {
+   "id": "S11-3",
+   "section": "11",
+   "lines": [
+    1671,
+    1672
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "not_implemented",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "reason": "Privacy practice for profiles (commitments, nonces). Not implemented; digests here are unsalted and the vectors use synthetic content."
+  },
+  {
+   "id": "SA.MCC-1",
+   "section": "A.MCC",
+   "lines": [
+    2415,
+    2416
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "category": "agreement",
+   "positive_vectors": [],
+   "negative_vectors": [],
+   "vectors_passed": null,
+   "note": "Every one of the 30 cases is exercised by at least one vector (tests/test_vectors.py checks this)."
+  },
+  {
+   "id": "SA.MCC-2",
+   "section": "A.MCC",
+   "lines": [
+    2509,
+    2512
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "category": "agreement",
+   "positive_vectors": [
+    "R-26c"
+   ],
+   "negative_vectors": [
+    "R-26"
+   ],
+   "vectors_passed": true
+  }
+ ]
+}
