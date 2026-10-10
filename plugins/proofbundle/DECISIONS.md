@@ -227,7 +227,15 @@ MEASURED. The remote itself is not read.
   `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_CEILING_DIRECTORIES`, `GIT_DISCOVERY_ACROSS_FILESYSTEM`,
   `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
   `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_COUNT`/`_KEY_<n>`/`_VALUE_<n>` and `GIT_CONFIG_PARAMETERS` are read from the
-  same source. Neutralized for the gate's reads: replace refs and grafts (above), `GIT_INDEX_FILE` (the working state
+  same source, and in the same meaning (review round 7 of 2026-10-10, R7-1; measured with git 2.43.0 and 2.51.1): git
+  takes a relative `GIT_DIR` or `GIT_WORK_TREE` once, against the directory it starts in, while the gate's reads after
+  the first run in the work tree that directory names, so each of them carries the absolute values git named in the
+  call's directory, and the git directory git found there where `GIT_WORK_TREE` comes without `GIT_DIR`. Started
+  outside its work tree, git reads a relative value of `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`,
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_SHALLOW_FILE`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `HOME`,
+  `XDG_CONFIG_HOME`, `core.excludesFile` or `core.attributesFile` against that directory in one command and against
+  the work tree in another (`ls-files --others` and `status` read two index files), so it is NOT MEASURED there. The
+  gate had taken `GIT_WORK_TREE=repo` against the work tree and attested an empty subdirectory. Neutralized for the gate's reads: replace refs and grafts (above), `GIT_INDEX_FILE` (the working state
   is read with an index of the gate's own), `GIT_CONFIG` (it moves only `git config`, not push, add or commit, so the
   gate's `git config` reads would have read another file than the push), and the pathspec names
   (`GIT_LITERAL_PATHSPECS` set, `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS`, `GIT_ICASE_PATHSPECS` dropped: the

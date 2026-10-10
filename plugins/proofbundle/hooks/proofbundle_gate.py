@@ -532,7 +532,101 @@ def _work_tree(directory: str, deadline: float, *flags: str) -> tuple[str | None
     path = _git_value(top.stdout)
     if path is None or not os.path.isabs(path):
         return None, "git rev-parse --show-toplevel gave output the gate cannot read as one path"
-    return path, ""
+    pins, why = _pins(directory, path, deadline)
+    if pins is None:
+        return None, why
+    pins = {**(getattr(directory, "pins", None) or {}), **pins}   # a work tree named again keeps what it carried
+    return (_Tree(path, pins) if pins else path), ""
+
+
+class _Tree(str):
+    """A work tree as _work_tree names it, with the values git resolved for the call's directory (review round 7 of
+    2026-10-10, R7-1). Every later read of the gate runs `git -C <work tree>`; _read_env sets these values for each git
+    started on it, so the read means what git meant in the directory the call named."""
+    pins: dict
+
+    def __new__(cls, path: str, pins: dict) -> "_Tree":
+        tree = super().__new__(cls, path)
+        tree.pins = pins
+        return tree
+
+
+#: The path-valued names git reads once, against the directory it starts in (review round 7 of 2026-10-10, R7-1;
+#: measured with git 2.43.0 and 2.51.1): GIT_WORK_TREE=repo started in P names P/repo, started in P/repo it names
+#: P/repo/repo; GIT_DIR=../.git started in sub names the top's .git. git keeps that meaning for the whole command.
+_PINNED_NAMES = ("GIT_DIR", "GIT_WORK_TREE")
+#: The path-valued names git reads where it works after setting up the repository. Started at or below the top of the
+#: work tree, git changes into the top first, so it reads them there, as the gate's `git -C <top>` does. Started
+#: outside the work tree it does not change directory, and git's own commands then disagree (measured with git 2.43.0
+#: and 2.51.1, started in P with the work tree P/repo): with GIT_INDEX_FILE=idx `ls-files --others` read P/idx and
+#: `status` read P/repo/idx, with core.excludesFile=ex `ls-files` read P/ex and `check-ignore` read P/repo/ex. No one
+#: value names what git reads, so the gate does not read them there (NOT MEASURED). HOME, XDG_CONFIG_HOME and the two
+#: configuration files name where core.excludesFile comes from when it is not set elsewhere.
+_PHASED_NAMES = ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+                 "GIT_SHALLOW_FILE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "HOME", "XDG_CONFIG_HOME")
+#: The configuration keys whose relative path git reads in the same two places, and that a read of the gate uses:
+#: the exclude file of `ls-files --exclude-standard` and the attributes file of the state digest.
+_PHASED_KEYS = ("core.excludesFile", "core.attributesFile")
+
+
+def _relative_value(name: str, value: str | None) -> bool:
+    """Whether value names a path relative to a directory. An empty value names none, the same in every directory
+    (git refuses an empty GIT_DIR or GIT_WORK_TREE, and opens no file for the others). The alternates are a list
+    separated by colons, an entry in double quotes is unquoted by git and counted as relative here."""
+    if not value:
+        return False
+    if name == "GIT_ALTERNATE_OBJECT_DIRECTORIES":
+        return '"' in value or any(entry and not os.path.isabs(entry) for entry in value.split(":"))
+    return not os.path.isabs(value)
+
+
+def _pins(directory: str, top: str, deadline: float) -> tuple[dict | None, str]:
+    """The values every later read on the work tree top needs so that it reads what git started in directory reads
+    (R7-1): ({}, "") when none is needed, (pins, "") with absolute values git itself named in directory, (None, why)
+    where no value names what git reads there (NOT MEASURED).
+
+    Nothing is needed when directory is the top itself, or when the host gives no relative path and no GIT_WORK_TREE
+    without GIT_DIR. Otherwise a relative GIT_DIR becomes the git directory git names in directory, a relative
+    GIT_WORK_TREE becomes top. GIT_WORK_TREE without GIT_DIR makes git find the repository from directory, and a read
+    started in top could find another one (a repository nested between them, or the one of top where directory lies in
+    an outer repository): GIT_DIR becomes the one git found. Started outside the work tree, a relative value of a
+    _PHASED_NAMES name or of a _PHASED_KEYS key is NOT MEASURED."""
+    environ = dict(os.environ, **(getattr(directory, "pins", None) or {}))
+    pinned = [n for n in _PINNED_NAMES if _relative_value(n, environ.get(n))]
+    phased = [n for n in _PHASED_NAMES if _relative_value(n, environ.get(n))]
+    found = environ.get("GIT_WORK_TREE") is not None and environ.get("GIT_DIR") is None
+    try:
+        if os.path.samefile(directory, top):
+            return {}, ""
+    except OSError:
+        pass
+    inside = _git(directory, "rev-parse", "--is-inside-work-tree", deadline=deadline)
+    if inside.returncode != 0 or inside.stdout not in (b"true\n", b"false\n"):
+        return None, f"git could not say whether {directory} lies inside its work tree"
+    if inside.stdout == b"false\n":
+        for key in _PHASED_KEYS:
+            value = _git(directory, "config", "--type=path", "--get", key, deadline=deadline)
+            if value.returncode == 1 and not value.stdout and not value.stderr:
+                continue
+            if value.returncode != 0 or not value.stdout.endswith(b"\n"):
+                return None, f"git could not read {key} in {directory}"
+            if _relative_value(key, _git_text(value.stdout[:-1])):
+                phased.append(key)
+        if phased:
+            return None, (f"{', '.join(phased)} names a relative path, and {directory} lies outside the work tree "
+                          f"{top}: git's own commands read it there and in the work tree (ls-files and status read "
+                          "two different files), so no read of the gate means what git reads (NOT MEASURED); give "
+                          "it as an absolute path, or run from inside the work tree")
+    if not pinned and not found:
+        return {}, ""
+    out = _git(directory, "rev-parse", "--absolute-git-dir", deadline=deadline)
+    gitdir = _git_value(out.stdout) if out.returncode == 0 else None
+    if gitdir is None or not os.path.isabs(gitdir):
+        return None, f"git could not name the git directory of {directory} as one absolute path"
+    pins = {"GIT_DIR": gitdir} if ("GIT_DIR" in pinned or found) else {}
+    if "GIT_WORK_TREE" in pinned:
+        pins["GIT_WORK_TREE"] = top
+    return pins, ""
 
 
 def _config_entries(directory: str, deadline: float) -> tuple[list | None, str]:
@@ -1802,7 +1896,7 @@ def gated_calls(command: str, directory: str | None = ".", depth: int = 0,
 _READ_ONLY_GIT = ("--no-replace-objects",)
 
 
-def _read_env() -> dict:
+def _read_env(repo: str | None = None) -> dict:
     """The environment for the gate's own git reads: the host's own (so the gate reads the same git
     configuration the push will use, including a GIT_CONFIG_* injection the push would honour), plus
     GIT_NO_REPLACE_OBJECTS so no git honours a replace ref and GIT_GRAFT_FILE set to the empty device so
@@ -1829,8 +1923,13 @@ def _read_env() -> dict:
     (GIT_TRACE, GIT_TRACE_<x>, GIT_TRACE2, GIT_TRACE2_<x>) change what git prints, not what it reads, and are dropped:
     the gate reads a configuration key as absent only where git exits 1 and says nothing (R6-2), and a trace on stderr
     had made every absent key unreadable, so every push NOT MEASURED (measured at 5714030c, found in the class search
-    of R6-2)."""
+    of R6-2).
+
+    A read on a work tree _work_tree named carries the values git resolved in the call's directory (_Tree, review round
+    7 of 2026-10-10, R7-1): a relative GIT_WORK_TREE taken against the work tree instead of that directory had named
+    an empty subdirectory, and the done check had passed without the untracked file the work tree held."""
     env = dict(os.environ)
+    env.update(getattr(repo, "pins", None) or {})
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
     env["GIT_NO_LAZY_FETCH"] = "1"
@@ -1872,7 +1971,7 @@ def _run_git(repo: str, args: tuple, deadline: float) -> subprocess.CompletedPro
         raise GateError("the gate ran out of time")
     try:
         return subprocess.run(["git", *_READ_ONLY_GIT, "-C", repo, *args], capture_output=True,
-                              timeout=left, check=False, env=_read_env())
+                              timeout=left, check=False, env=_read_env(repo))
     except FileNotFoundError as exc:
         raise GateError("git is not on PATH") from exc
     except subprocess.TimeoutExpired as exc:
@@ -1898,12 +1997,15 @@ def _refuse_partial_clone(repo: str, deadline: float) -> None:
 
 
 #: The gate's git calls that read the configuration or the repository layout and no object: the reads of the
-#: state check (_config_entries, _repo_paths) and of the write gate (_state_files). Every other call is asked
-#: _refuse_partial_clone first, so a call not on this list is treated as an object read.
+#: state check (_config_entries, _repo_paths), of the write gate (_state_files) and of the directory a call names
+#: (_pins, R7-1). Every other call is asked _refuse_partial_clone first, so a call not on this list is treated as an
+#: object read.
 _OBJECT_FREE_CALLS = frozenset({
     ("config", "--list", "--null", "--show-origin", "--show-scope"),
     ("rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir", "--git-path", "hooks"),
     ("rev-parse", "--path-format=absolute", "--show-toplevel"),
+    ("rev-parse", "--is-inside-work-tree"), ("rev-parse", "--absolute-git-dir"),
+    *(("config", "--type=path", "--get", key) for key in _PHASED_KEYS),
     ("var", "GIT_CONFIG_GLOBAL"), ("var", "GIT_CONFIG_SYSTEM"), ("var", "GIT_ATTR_SYSTEM"), ("var", "GIT_ATTR_GLOBAL"),
 })
 
@@ -1960,7 +2062,7 @@ def _blob_sha256s(repo: str, oids: list[bytes], deadline: float) -> list[str]:
     try:
         proc = subprocess.Popen(["git", *_READ_ONLY_GIT, "-C", repo, "cat-file", "--batch"],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                env=_read_env())
+                                env=_read_env(repo))
     except FileNotFoundError as exc:
         raise GateError("git is not on PATH") from exc
     timer = threading.Timer(left, proc.kill)
@@ -4896,7 +4998,7 @@ def working_state(repo: str, deadline: float) -> dict:
         head.add(path)
     with tempfile.TemporaryDirectory(prefix="proofbundle-state-") as scratch:
         os.mkdir(os.path.join(scratch, "hooks"))
-        env = dict(_read_env(), GIT_INDEX_FILE=os.path.join(scratch, "no-index"))
+        env = dict(_read_env(repo), GIT_INDEX_FILE=os.path.join(scratch, "no-index"))
         left = deadline - time.monotonic()
         if left <= 0:
             raise GateError("the gate ran out of time")
@@ -6339,7 +6441,7 @@ def _working_tree_problem(repo: str, commit: str, deadline: float) -> str | None
                     "checkout filter, line-ending or encoding rule the gate does not model)")
     with tempfile.TemporaryDirectory(prefix="proofbundle-untracked-") as scratch:
         os.mkdir(os.path.join(scratch, "hooks"))
-        env = dict(_read_env(), GIT_INDEX_FILE=os.path.join(scratch, "no-index"))
+        env = dict(_read_env(repo), GIT_INDEX_FILE=os.path.join(scratch, "no-index"))
         left = deadline - time.monotonic()
         if left <= 0:
             raise GateError("the gate ran out of time")
