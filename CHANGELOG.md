@@ -6,25 +6,29 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
-## [Unreleased]
+## [6.2.1] - 2026-10-10
+
+No public interface is added or removed. Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
+to results; two judge a policy's validity at one instant and with its fraction of a second, so at the edge of a
+validity window a verdict can differ from 6.2.0 in either direction.
 
 ### Fixed
 
-- `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.
-- The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.
-- `sdjwt_vc.check_vc_profile` refuses an issuer JWT header that names a critical extension (RFC 7515 §4.1.11), also where the issuer signature is not required.
-- `verify_decision_receipt` judges a decision policy's lifetime at the receipt's evaluation instant with its fraction of a second, not at that instant cut to the whole second.
-- `--verification-time` of `decision verify` and `verify-enclave` refuses a time whose fractional seconds are not all zero, however many digits are written.
-- `decision verify --verification-time` marks its output HISTORICAL also without `--policy`, and `verify-enclave --verification-time` marks its JSON and text output HISTORICAL.
-- A policy lifecycle evaluation without an explicit instant reads the wall clock once and judges both ends of the policy's validity window at that one instant.
-- `policy_expired`, `policy_not_yet_valid` and the trusted-checkpoint check of `evaluate_policy` use an explicit evaluation instant as given and never replace it with the wall clock; a value that is not an aware datetime fails closed.
-- `verify_enclave_attestation` refuses an evaluation time `now` that is not an exact int instead of comparing it as given.
-- `check_freshness` judges an eval claim's age on the exact difference: a claim dated after the reference time is never fresh, and one older than the bound by any fraction is not fresh.
-- `verify_anchor` and `verify_anchors` refuse an explicit `now` that is not an exact int before any anchor verifier runs.
-- `evaluate_policy` treats a trusted checkpoint, the tree context and the root as authenticated only when the bundle states the same inclusion context (hash algorithm, leaf index, tree size, audit path and root) that `verify_bundle` verified for it.
-- `verify_trust_pack` lets an old-root pin authorise a rotation only when its `alg` is absent or exactly `ed25519`; an `alg` it does not implement vouches for no rotation.
-- `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.
-- `evaluate_public_transparency` treats a present `trustedLogKeys` or `trustedLogOrigins` list as an allowlist whatever its length: an empty list allows no log key and no origin.
+- **Repeated field names are rejected in review policies.** `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.
+- **Replies from Chia with repeated field names are rejected.** The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.
+- **Credential checks reject unsupported requirements.** `sdjwt_vc.check_vc_profile` refuses an issuer JWT header with an unsupported or malformed `crit` field (RFC 7515 §4.1.11), including when the issuer signature is not required.
+- **A policy is checked at the same time as the receipt, including fractions of a second.** `verify_decision_receipt` judges a decision policy's lifetime at the receipt's evaluation instant with its fraction of a second, not at that instant cut to the whole second.
+- **These verification commands require whole seconds.** `--verification-time` of `decision verify` and `verify-enclave` refuses a time whose fractional seconds are not all zero, however many digits are written.
+- **These commands label results at a supplied time as HISTORICAL.** With `--verification-time`, `decision verify` labels verification results HISTORICAL even without `--policy`, and `verify-enclave` labels its JSON and text results HISTORICAL.
+- **One clock reading judges both ends of a policy's validity.** A policy lifecycle evaluation without an explicit instant reads the wall clock once and judges both ends of the policy's validity window at that one instant.
+- **Policy time checks do not silently replace a supplied time with the current time.** For their time comparisons, `policy_expired`, `policy_not_yet_valid` and the trusted-checkpoint check of `evaluate_policy` no longer replace a malformed non-`None` `now` with the wall clock; `None` retains the default clock behaviour, and naive datetimes are treated as UTC.
+- **An enclave check rejects an invalid supplied time.** `verify_enclave_attestation` refuses an evaluation time `now` other than `None` unless its type is exactly `int`.
+- **Fractions of a second count when checking a claim's age.** `check_freshness` compares parsed timestamps without truncating their age to whole seconds; with `max_age_seconds` set, a negative age or an age above the bound is not fresh.
+- **The time is checked before it reaches the proof verifier.** Before dispatching an anchor verifier, `verify_anchor` and `verify_anchors` reject a supplied `now` other than `None` unless its type is exactly `int`.
+- **A log entry must match the proof that was checked.** `evaluate_policy` treats a trusted checkpoint, the tree context and the root as authenticated only when the bundle states the same inclusion context (hash algorithm, leaf index, tree size, audit path and root) that `verify_bundle` verified for it.
+- **An old key cannot approve its replacement using an unsupported signing method.** `verify_trust_pack` no longer treats an explicit unsupported or invalid `alg` on an old-root pin as Ed25519; an absent `alg` and the legacy bare-key form still mean Ed25519.
+- **When two signature methods are required, one alone is not enough.** `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.
+- **An empty list of permitted log keys or sources grants no permission.** `evaluate_public_transparency` treats a present `trustedLogKeys` list as an allowlist when `requireSignedCheckpoint` is enabled, and a present `trustedLogOrigins` list as an allowlist; an empty list accepts no key or origin in the respective check.
 
 ## [6.2.0] - 2026-09-28
 
