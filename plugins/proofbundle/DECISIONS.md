@@ -1665,8 +1665,12 @@ Chosen:
   the done section as it is (an evidence item, a subject, a reformatting) does not move it; a new order does, and
   work before it does not count for it. The same base now serves `outside_paths` (D28).
 - Where it cannot be determined, the check is NOT MEASURED and blocks, never a pass (`order_base_not_measured`):
-  a shallow clone cut before it (the cut commit is in git's shallow list), more than `MAX_ORDER_WALK` (256) commits
-  that changed the declaration, or git cannot list them. The next step is `git fetch --unshallow` or a person.
+  a history cut before it, more than `MAX_ORDER_WALK` (256) commits that changed the declaration, or git cannot list
+  them. The next step is `git fetch --unshallow` or a person. A cut is a commit git shows without the parents its
+  commit object names, asked of git for each commit the walk reaches; the gate reads no shallow file of its own, so a
+  shallow clone and a shallow file named by `GIT_SHALLOW_FILE` count alike (review round 6 of 2026-10-10, R6-1: the gate
+  read the cut points from `--git-path shallow`, an empty file, while git followed `GIT_SHALLOW_FILE` and cut the history
+  at a commit after the order, which then passed as the commit that declared it).
 - An order without paths, and the one-check form, are as before: no change is required.
 
 D28 and D31 together (review of 2026-10-09): the local hook cannot tell whether the owner or the agent wrote a new

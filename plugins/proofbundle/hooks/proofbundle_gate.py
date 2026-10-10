@@ -4951,21 +4951,23 @@ def _signed_payload(content: bytes) -> bytes | None:
 MAX_ORDER_WALK = 256
 
 
-def _shallow_commits(repo: str, deadline: float) -> set[str]:
-    """The commits at which a shallow clone cuts the history (their parents are not in the repository); empty for a
-    full clone. GateError when git cannot say."""
-    proc = _git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline)
-    answer = proc.stdout.decode("ascii", "replace").strip()
-    if proc.returncode != 0 or answer not in ("true", "false"):
-        raise GateError("git cannot say whether the repository is a shallow clone")
-    if answer == "false":
-        return set()
-    where = _git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow", deadline=deadline)
-    try:
-        with open(os.fsdecode(where.stdout.rstrip(b"\n")), encoding="ascii") as handle:
-            return {line.strip() for line in handle if line.strip()}
-    except (OSError, UnicodeDecodeError) as exc:
-        raise GateError("the repository is a shallow clone and git's list of where it is cut cannot be read") from exc
+def _parents(repo: str, commit: str, deadline: float) -> tuple[list[str], list[str]] | None:
+    """(shown, recorded): the parents git shows for a commit and the parents its commit object names, or None where git
+    cannot read either. They differ where git cuts the history at the commit (a shallow clone, or a shallow file named
+    by GIT_SHALLOW_FILE), whatever source told git so; the gate reads no shallow file itself (review round 6 of
+    2026-10-10, R6-1: it read the cut points from `--git-path shallow` while git followed GIT_SHALLOW_FILE). Replace refs
+    and grafts are already off for every read of the gate (_read_env), so a difference is a cut."""
+    shown = _git(repo, "rev-list", "--parents", "--max-count=1", commit, deadline=deadline)
+    raw = _git(repo, "cat-file", "commit", commit, deadline=deadline)
+    if shown.returncode != 0 or raw.returncode != 0:
+        return None
+    ids = shown.stdout.decode("ascii", "replace").split()
+    if not ids or ids[0] != commit:
+        return None
+    header = raw.stdout.split(b"\n\n", 1)[0]
+    recorded = [line[len(b"parent "):].decode("ascii", "replace") for line in header.split(b"\n")
+                if line.startswith(b"parent ")]
+    return ids[1:], recorded
 
 
 def _order_at(repo: str, commit: str, deadline: float) -> tuple | None:
@@ -4985,26 +4987,30 @@ def order_base(repo: str, commit: str, done: dict, deadline: float) -> tuple[str
     """The commit that declared the order as it stands at `commit` (owner choice Nordstern B, D28): on the first-parent
     line, the newest commit that changed the declaration and whose first parent declares another order or none. A
     change to the declaration that leaves the done section as it is (an evidence item, a subject) does not move it.
-    (None, why) where it cannot be determined: the history is cut (a shallow clone) before it is found, more than
-    MAX_ORDER_WALK commits changed the declaration, or git cannot list them. `rev-list`, not `log`: no signature
-    check, no pager, no program a configuration names."""
+    (None, why) where it cannot be determined: the history is cut before it is found (git shows a commit without the
+    parents its object names: a shallow clone or a shallow file git reads, R6-1), more than MAX_ORDER_WALK commits
+    changed the declaration, or git cannot list them. `rev-list`, not `log`: no signature check, no pager, no program a
+    configuration names."""
     section = _done_canonical(done)
     proc = _git(repo, "rev-list", "--first-parent", f"--max-count={MAX_ORDER_WALK + 1}", commit, "--", DECLARATION,
                 deadline=deadline)
     if proc.returncode != 0:
         return None, "git could not list the commits that changed the declaration"
     candidates = proc.stdout.decode("ascii", "replace").split()
-    shallow = _shallow_commits(repo, deadline)
     for n, candidate in enumerate(candidates):
         if n == MAX_ORDER_WALK:
             return None, f"more than {MAX_ORDER_WALK} commits changed {DECLARATION} since the order was declared"
-        if candidate in shallow:
-            return None, (f"the history is cut at {candidate[:12]} (a shallow clone), so the gate cannot tell which "
-                          "commit declared the order")
-        parent = _git(repo, "rev-parse", "--verify", "-q", f"{candidate}^1", deadline=deadline)
-        if parent.returncode != 0:
+        parents = _parents(repo, candidate, deadline)
+        if parents is None:
+            return None, f"git could not read the parents of {candidate[:12]}"
+        shown, recorded = parents
+        if shown != recorded:
+            return None, (f"the history is cut at {candidate[:12]}: git shows it without the parents its commit names "
+                          "(a shallow clone, or a shallow file git reads), so the gate cannot tell which commit declared "
+                          "the order")
+        if not recorded:
             return candidate, ""   # a root commit of a full history declared it
-        if _order_at(repo, parent.stdout.decode("ascii", "replace").strip(), deadline) != section:
+        if _order_at(repo, recorded[0], deadline) != section:
             return candidate, ""
     return None, f"no commit on the first-parent line of {commit[:12]} declared the order it holds"
 
