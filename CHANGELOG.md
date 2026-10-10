@@ -22,6 +22,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 - `check_freshness` judges an eval claim's age on the exact difference: a claim dated after the reference time is never fresh, and one older than the bound by any fraction is not fresh.
 - `verify_anchor` and `verify_anchors` refuse an explicit `now` that is not an exact int before any anchor verifier runs.
 - `evaluate_policy` treats a trusted checkpoint, the tree context and the root as authenticated only when the bundle states the same inclusion context (hash algorithm, leaf index, tree size, audit path and root) that `verify_bundle` verified for it.
+- `verify_trust_pack` lets an old-root pin authorise a rotation only when its `alg` is absent or exactly `ed25519`; an `alg` it does not implement vouches for no rotation.
+- `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.
+- `evaluate_public_transparency` treats a present `trustedLogKeys` or `trustedLogOrigins` list as an allowlist whatever its length: an empty list allows no log key and no origin.
 
 ## [6.2.0] - 2026-09-28
 
