@@ -3120,6 +3120,23 @@ def _tracking_ref(repo: str, remote: str, dest: str, deadline: float) -> str | N
     return candidate if _fetch_maps_cleanly(repo, remote, dest, candidate, deadline) else None
 
 
+def _push_source(repo: str, src: str, deadline: float) -> str | None:
+    """The commit git push sends for the refspec source `src`, or None where git refuses it or the gate cannot read it.
+    git push takes a name that answers to more than one ref (a branch and a tag of one name) as no source at all ("src
+    refspec main matches more than one", measured with git 2.43.0 and 2.51.1), while `rev-parse --verify` silently
+    takes the tag: the gate had judged the tag's commit (review round 7 of 2026-10-10, the class of R7-2). git's own
+    count of the refs a name answers to decides, with the ambiguity warning on whatever the configuration says, since
+    push counts them either way; a name that answers to none is an object name, which push and rev-parse read alike."""
+    named = _git(repo, "-c", "core.warnAmbiguousRefs=true", "rev-parse", "--symbolic-full-name", src,
+                 deadline=deadline)
+    if named.returncode != 0 or named.stderr:
+        return None   # git names more than one ref, or none it can read
+    commit = _git(repo, "rev-parse", "--verify", "--quiet", src + "^{commit}", deadline=deadline)
+    if commit.returncode != 0 or not commit.stdout.strip():
+        return None
+    return commit.stdout.decode().strip()
+
+
 def _qualify_dest(value: str) -> str | None:
     """The full ref a push destination names, or None when it is not a literal branch or tag ref.
     A bare name is a branch (git may also match a tag, which the gate treats as unresolved by returning
@@ -3205,10 +3222,10 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         if src == "":  # `:dst` deletes the destination ref
             targets.append(PushTarget(source=None, dest=dest, tracking=tracking))
             continue
-        commit = _git(repo, "rev-parse", "--verify", "--quiet", src + "^{commit}", deadline=deadline)
-        if commit.returncode != 0 or not commit.stdout.strip():
+        commit = _push_source(repo, src, deadline)
+        if commit is None:
             return None
-        targets.append(PushTarget(source=commit.stdout.decode().strip(), dest=dest, tracking=tracking))
+        targets.append(PushTarget(source=commit, dest=dest, tracking=tracking))
     return targets or None
 
 
@@ -3231,11 +3248,13 @@ def _default_push(repo: str, deadline: float, remotes: set, remote: str | None) 
     one upstream. push.autoSetupRemote stands in for an upstream that is not set at all. A configured
     remote.<name>.push, push.default nothing or matching, or a value git does not read is None. A read failure
     raises GateError (NOT MEASURED)."""
-    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", deadline=deadline)
-    name = _git_value(branch.stdout) if branch.returncode == 0 else None
-    if name is None:
+    head = _git(repo, "symbolic-ref", "--quiet", "HEAD", deadline=deadline)
+    refname = _git_value(head.stdout) if head.returncode == 0 else None
+    if refname is None or not refname.startswith("refs/heads/"):
         return None  # a detached HEAD names no branch to push; a branch name keeps its bytes, U+0085 too (R5-1)
-    refname = "refs/heads/" + name
+    # The full refname, never the short form: with a tag of the same name `symbolic-ref --short` says heads/main, and
+    # the gate had built refs/heads/heads/main and read branch.heads/main.* (review round 7 of 2026-10-10, R7-2)
+    name = refname[len("refs/heads/"):]
     branch_remote = _config_value(repo, f"branch.{name}.remote", deadline)
     default_remote = next(iter(remotes)) if len(remotes) == 1 else "origin"
     fetch_remote = default_remote if branch_remote is None else branch_remote
@@ -3372,10 +3391,10 @@ def _push_sources(repo: str, args: list[str] | None, deadline: float) -> tuple[l
             src = spec.partition(":")[0]
             if src == "":
                 continue  # `:dst` deletes; it sends no commit
-            commit = _git(repo, "rev-parse", "--verify", "--quiet", src + "^{commit}", deadline=deadline)
-            if commit.returncode != 0 or not commit.stdout.strip():
+            commit = _push_source(repo, src, deadline)
+            if commit is None:
                 return None, remote
-            sources.append(commit.stdout.decode().strip())
+            sources.append(commit)
         return sources, remote
     remotes = _remote_names(repo, deadline)
     if remotes is None:
