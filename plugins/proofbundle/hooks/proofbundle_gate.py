@@ -6702,8 +6702,14 @@ def run_evidence(directory: str, out: str, command: list[str],
             argv = [program, *command[1:], "-p", "no:cacheprovider", f"--junitxml={junit}",
                     "-o", f"junit_suite_name={suite_name}"]
             started = _now()
+            # The check process starts in the work tree, and a relative GIT_DIR or GIT_WORK_TREE of the host would name
+            # another repository or tree from there than the one compared above: it gets the values git resolved in the
+            # call's directory (_pins), and none of the other settings of the gate's own reads (review round 8 of
+            # 2026-10-10, R8-1; measured with git 2.43.0 and 2.51.1: GIT_WORK_TREE=repo given in P made the test read
+            # P/repo/repo while the statement named P/repo).
+            check_env = dict(os.environ, **(getattr(repo, "pins", None) or {}), PYTHONDONTWRITEBYTECODE="1")
             try:
-                proc = subprocess.Popen(argv, cwd=repo, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                proc = subprocess.Popen(argv, cwd=repo, env=check_env,
                                         stdin=subprocess.DEVNULL, stdout=2, stderr=2, start_new_session=True)
             except OSError as exc:
                 return refuse("not_started", f"the command could not start ({exc})")

@@ -1134,6 +1134,13 @@ Chosen (smallest variant, 2026-09-30; the report binding tightened after the rev
 - `proofbundle_gate.py run-evidence --repo DIR --out FILE [--timeout S] -- COMMAND...` runs a named
   pytest command in the repository, without a shell, with `-p no:cacheprovider --junitxml=<a file outside
   the repository>` added and PYTHONDONTWRITEBYTECODE=1 set.
+- The command starts in the work tree with the host's environment plus the values git resolved for the call's
+  directory (`GIT_DIR`, `GIT_WORK_TREE` as absolute paths, the same the gate's own reads carry, R7-1), so a git the
+  tests start opens the repository and tree the statement names. None of the other settings of the gate's own reads
+  reaches the tests (replace refs, grafts, lazy fetch, literal pathspecs, `LC_ALL`, trace). Until review round 8 of
+  2026-10-10 (R8-1) the command got the raw environment: `GIT_WORK_TREE=repo` given in P named P/repo for the
+  comparison and P/repo/repo for a test that asked git for its work tree, and that run was recorded green for P/repo
+  (measured by the reviewer with git 2.43.0 and 2.51.1).
 - The command must have a supported pytest form, and the report must carry this invocation's random suite
   name. This rejects unsupported command forms and an unchanged report from another invocation; it does not
   authenticate the executable or the reported test activity. Code of the repository that runs under pytest
