@@ -105,7 +105,7 @@ def _declared_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, str]:
     _git(repo, "commit", "-q", "-m", "evidence")
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
-    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+    _git(repo, "push", "-q", "-u", "origin", "HEAD:refs/heads/main")   # with the upstream a bare push needs (R6-2)
     return repo, key
 
 

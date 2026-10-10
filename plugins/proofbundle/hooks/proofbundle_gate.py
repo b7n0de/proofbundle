@@ -2739,26 +2739,42 @@ PushTarget = collections.namedtuple("PushTarget", "source dest tracking remote_a
 _TRACKABLE = ("refs/heads/", "refs/tags/")
 
 
-def _remote_names(repo: str, deadline: float) -> set:
+def _remote_names(repo: str, deadline: float) -> set | None:
     """The remotes git lists, one name per line with its bytes (_git_lines): a name may carry a blank, which a split
-    on whitespace made two names, neither of them the one git pushes to (review round 5 of 2026-10-09, R5-1)."""
+    on whitespace made two names, neither of them the one git pushes to (review round 5 of 2026-10-09, R5-1). None
+    where git cannot list them: `git remote` reads the remote and branch configuration push reads and stops where push
+    stops (measured with git 2.43.0: a branch.main.remote, pushRemote or merge, a remote.pushDefault or a remote's url,
+    pushurl, push or fetch given with no value), so an unreadable list is not an empty one (review round 6 of
+    2026-10-10, the class of R6-2)."""
     out = _git(repo, "remote", deadline=deadline)
-    return set((_git_lines(out.stdout) or []) if out.returncode == 0 else [])
+    if out.returncode != 0:
+        return None
+    names = _git_lines(out.stdout) if out.stdout else []   # no remote: git prints nothing
+    return None if names is None else set(names)
 
 
-def _config(repo: str, key: str, deadline: float) -> str | None:
-    """One value as git reads it, with its bytes (_git_value): a strip made `origin ` the remote `origin`, so the
-    gate judged another remote than the one git pushed to (R5-1)."""
+def _config_value(repo: str, key: str, deadline: float) -> str | None:
+    """One value of a key as git reads it, with its bytes (_git_text; a strip made `origin ` the remote `origin`,
+    R5-1): None only where the key is absent (git exits 1 and says nothing), a present value as it stands, the empty
+    one included. git prints `key =` and a key with no `=` alike, and reads neither as absent: an empty
+    branch.main.pushRemote made `git push` fail with "no path specified" instead of falling back to remote.pushDefault
+    (measured with git 2.43.0; review round 6 of 2026-10-10, R6-2, where one reader returned None for both and an
+    or-chain fell through to another remote). Any other answer of git raises GateError (NOT MEASURED)."""
     out = _git(repo, "config", "--get", key, deadline=deadline)
-    return _git_value(out.stdout) if out.returncode == 0 else None
+    if out.returncode == 1 and not out.stdout and not out.stderr:
+        return None
+    if out.returncode != 0 or not out.stdout.endswith(b"\n"):
+        raise GateError(f"git could not read {key}")
+    return _git_text(out.stdout[:-1])
 
 
 def _config_bool(repo: str, key: str, deadline: float) -> bool:
     """A git boolean config value, normalised by git itself (so 1, yes and on read as true). False when the
     key is unset. A value git cannot read as a boolean, or a multi-valued key, raises GateError, which the
-    caller turns into NOT MEASURED (review R3-3)."""
+    caller turns into NOT MEASURED (review R3-3). Unset is exit 1 with nothing said: git also exits 1 for a key it
+    cannot parse, and says so (review round 6 of 2026-10-10, the class of R6-2)."""
     out = _git(repo, "config", "--bool", "--get", key, deadline=deadline)
-    if out.returncode == 1 and not out.stdout.strip():
+    if out.returncode == 1 and not out.stdout.strip() and not out.stderr:
         return False
     if out.returncode != 0:
         raise GateError(f"git could not read {key} as a boolean")
@@ -2766,11 +2782,13 @@ def _config_bool(repo: str, key: str, deadline: float) -> bool:
 
 
 def _config_present(repo: str, key: str, deadline: float) -> bool:
-    """Whether a (possibly multi-valued) config key has any value. A git error other than 'not set' raises
-    GateError (NOT MEASURED)."""
+    """Whether a (possibly multi-valued) config key has any value, an empty one included. A git error other than
+    'not set' (exit 1 with nothing said, _config_bool) raises GateError (NOT MEASURED)."""
     out = _git(repo, "config", "--get-all", key, deadline=deadline)
-    if out.returncode in (0, 1):
-        return out.returncode == 0
+    if out.returncode == 0:
+        return True
+    if out.returncode == 1 and not out.stdout and not out.stderr:
+        return False
     raise GateError(f"git could not read {key}")
 
 
@@ -2786,9 +2804,9 @@ def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
 
 def _config_all(repo: str, key: str, deadline: float) -> list[str]:
     """Every value of a (possibly multi-valued) config key, as git reads it; [] when unset. A git error
-    other than 'not set' raises GateError (NOT MEASURED)."""
+    other than 'not set' (exit 1 with nothing said, _config_bool) raises GateError (NOT MEASURED)."""
     out = _git(repo, "config", "--null", "--get-all", key, deadline=deadline)
-    if out.returncode == 1:
+    if out.returncode == 1 and not out.stdout and not out.stderr:
         return []
     values = _git_values(out.stdout) if out.returncode == 0 else None
     if values is None:
@@ -2970,6 +2988,8 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     if _git_namespace() is not None:
         return None  # the push writes under refs/namespaces/ on the remote, which no tracking ref records
     remotes = _remote_names(repo, deadline)
+    if remotes is None:
+        return None  # git cannot read the remote configuration, and its push stops there as well
     remote, refspecs, i, options_done = None, [], 0, False
     while i < len(args):
         word = args[i]
@@ -3029,36 +3049,85 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     return targets or None
 
 
-def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None) -> list[PushTarget] | None:
-    """A push with no refspec: the current branch to the chosen remote under the same name, but only when
-    git's push configuration makes that faithful. push.default matching, a configured remote.push, a
-    pushurl, a mirror or push.followTags add updates the gate cannot name, so those are NOT MEASURED."""
+#: The push.default values git 2.43.0 reads (builtin/push.c, git_default_push_config), case as written: `nothing`
+#: and `matching` push no branch or more than one; any other value stops every git command.
+_PUSH_DEFAULTS_CURRENT_BRANCH = ("simple", "current", "upstream", "tracking")
+
+
+def _default_push(repo: str, deadline: float, remotes: set, remote: str | None) -> tuple[str, str] | None:
+    """(remote, destination ref) of a push that names no refspec, set up as git 2.43.0 sets it up, or None where git
+    pushes no single branch or stops (review round 6 of 2026-10-10, R6-2 and its class).
+
+    The remote (remote.c, pushremote_for_branch and remote_for_branch): the one given, else the first of
+    branch.<name>.pushRemote, remote.pushDefault and branch.<name>.remote that is present, whatever its value, else
+    the one configured remote when there is exactly one, else origin. A present empty value is the remote git takes,
+    and git cannot push to it ("no path specified"), so the push is None; it never falls through to the next key.
+    The destination (builtin/push.c, setup_default_push_refspecs and get_upstream_ref): `current` pushes the branch
+    under its own name; `simple` too, but to the branch's own remote only with exactly one upstream, written as the
+    branch's own full ref, and a branch remote; `upstream` (and `tracking`) only to the branch's own remote, to its
+    one upstream. push.autoSetupRemote stands in for an upstream that is not set at all. A configured
+    remote.<name>.push, push.default nothing or matching, or a value git does not read is None. A read failure
+    raises GateError (NOT MEASURED)."""
     branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", deadline=deadline)
     name = _git_value(branch.stdout) if branch.returncode == 0 else None
     if name is None:
         return None  # a detached HEAD names no branch to push; a branch name keeps its bytes, U+0085 too (R5-1)
+    refname = "refs/heads/" + name
+    branch_remote = _config_value(repo, f"branch.{name}.remote", deadline)
+    default_remote = next(iter(remotes)) if len(remotes) == 1 else "origin"
+    fetch_remote = default_remote if branch_remote is None else branch_remote
     if remote is None:
-        remote = (_config(repo, f"branch.{name}.pushRemote", deadline)
-                  or _config(repo, "remote.pushDefault", deadline)
-                  or _config(repo, f"branch.{name}.remote", deadline)
-                  or ("origin" if "origin" in remotes else None))
-    if remote is None or remote not in remotes:
+        for key in (f"branch.{name}.pushRemote", "remote.pushDefault"):
+            remote = _config_value(repo, key, deadline)
+            if remote is not None:
+                break
+        else:
+            remote = fetch_remote
+    if remote == "":
+        return None  # git takes the empty value as the remote and cannot push to it
+    if _config_present(repo, f"remote.{remote}.push", deadline):
+        return None  # the remote's own push list decides what goes, not the current branch
+    default = _config_value(repo, "push.default", deadline)
+    default = "simple" if default is None else default
+    if default not in _PUSH_DEFAULTS_CURRENT_BRANCH:
+        return None  # nothing, matching, or a value git does not read
+    if default == "current":
+        return remote, refname
+    same_remote = remote == fetch_remote
+    if default == "simple" and not same_remote:
+        return remote, refname
+    if default != "simple" and not same_remote:
+        return None  # upstream to another remote than the branch's own: git refuses
+    merges = _config_all(repo, f"branch.{name}.merge", deadline)
+    if not merges and _config_bool(repo, "push.autoSetupRemote", deadline):
+        upstream = refname   # git pushes under the branch's own name and sets the upstream
+    elif not merges or branch_remote is None or len(merges) != 1:
+        return None  # no upstream, or two: git refuses
+    else:
+        upstream = merges[0]
+    if default == "simple":
+        return (remote, refname) if upstream == refname else None
+    return (remote, upstream) if upstream.startswith("refs/heads/") else None
+
+
+def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None) -> list[PushTarget] | None:
+    """A push with no refspec: the branch git pushes (_default_push) to the remote git chooses, but only when that
+    is faithful here. A configured remote.push, a pushurl, a mirror or push.followTags add updates the gate cannot
+    name, so those are NOT MEASURED."""
+    try:
+        chosen = _default_push(repo, deadline, remotes, remote)
+    except GateError:
+        return None  # a value git cannot read: NOT MEASURED
+    if chosen is None:
         return None
+    remote, dest = chosen
+    if remote not in remotes:
+        return None  # a URL or a path, or a name no configured remote carries
     try:
         if _push_adds_unnamed_refs(repo, remote, deadline) or not _endpoint_consistent(repo, remote, deadline):
             return None
     except GateError:
         return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
-    default = (_config(repo, "push.default", deadline) or "simple").lower()
-    if default not in ("simple", "current", "upstream", "tracking"):
-        return None  # matching, or anything the gate does not model, pushes more than the current branch
-    if default in ("upstream", "tracking"):
-        merge = _config(repo, f"branch.{name}.merge", deadline)
-        dest = merge if merge and merge.startswith("refs/heads/") else None
-    else:  # simple, current: the branch of the same name on the remote
-        dest = "refs/heads/" + name
-    if dest is None:
-        return None
     tracking = _tracking_ref(repo, remote, dest, deadline)
     if tracking is None:
         return None
@@ -3106,8 +3175,9 @@ def _push_sources(repo: str, args: list[str] | None, deadline: float) -> tuple[l
     resolved — and the remote word it names (review Runde 6, Befund 1). ([], remote) for a push that only
     deletes. (None, remote) when the source is unclear: an option the gate does not model (--all, --mirror,
     --tags, a delete flag, an abbreviation, --receive-pack), a wildcard or negative refspec, a refspec that
-    names no commit, or a bare push whose current branch git would not push alone (a detached HEAD, a
-    configured remote.<name>.push, push.default matching or one the gate does not model). There is no
+    names no commit, or a bare push whose current branch git would not push alone or not at all (_default_push: a
+    detached HEAD, a configured remote.<name>.push, push.default matching or one git does not read, an empty remote
+    value, an upstream git refuses). There is no
     substitute: an unclear source is never replaced by HEAD. A read failure raises GateError."""
     args = [] if args is None else args
     remote, refspecs, i, options_done = None, [], 0, False
@@ -3144,17 +3214,10 @@ def _push_sources(repo: str, args: list[str] | None, deadline: float) -> tuple[l
                 return None, remote
             sources.append(commit.stdout.decode().strip())
         return sources, remote
-    branch = _git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", deadline=deadline)
-    name = _git_value(branch.stdout) if branch.returncode == 0 else None
-    if name is None:
-        return None, remote
-    chosen = remote or (_config(repo, f"branch.{name}.pushRemote", deadline)
-                        or _config(repo, "remote.pushDefault", deadline)
-                        or _config(repo, f"branch.{name}.remote", deadline) or "origin")
-    if _config_present(repo, f"remote.{chosen}.push", deadline):
-        return None, remote
-    if (_config(repo, "push.default", deadline) or "simple").lower() not in ("simple", "current", "upstream",
-                                                                             "tracking"):
+    remotes = _remote_names(repo, deadline)
+    if remotes is None:
+        raise GateError("git could not list the remotes")
+    if _default_push(repo, deadline, remotes, remote) is None:  # the same choice as the target's (R6-2)
         return None, remote
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     if head.returncode != 0 or not head.stdout.strip():
@@ -3436,7 +3499,7 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
         try:
             sources, remote = _push_sources(repo, push_args, deadline)
             rewrites = (_applicable_rewrites(repo, remote, deadline)
-                        if remote is not None and remote in _remote_names(repo, deadline) else [])
+                        if remote is not None and remote in (_remote_names(repo, deadline) or ()) else [])
         except GateError:
             sources, rewrites = None, []
         if rewrites:

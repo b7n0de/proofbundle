@@ -159,7 +159,17 @@ MEASURED. The remote itself is not read.
   (Runde 6, R6-2 class). Git booleans are read as git reads them (`1`, `yes`, `on` are true),
   and a value git cannot read is NOT MEASURED (R3-3). A bare `git push` resolves only under a push
   configuration the gate can model faithfully (`push.default` simple/current/upstream, no extra ref
-  updates). Every name and list the resolution reads from git keeps the bytes git printed (review round 5 of
+  updates), and to the target git sets, or to none (review round 6 of 2026-10-10, R6-2 and its class; measured
+  with git 2.43.0, builtin/push.c and remote.c): the remote is the first of `branch.<name>.pushRemote`,
+  `remote.pushDefault` and `branch.<name>.remote` that is present, whatever its value, else the one configured
+  remote, else `origin`. A present empty value is not an absent one: git takes it and cannot push ("no path
+  specified"), so the push is NOT MEASURED, where the gate had fallen through to the next key and passed. The
+  destination follows git's own refusals: `simple` to the branch's own remote needs exactly one upstream, written as
+  the branch's full ref, and a branch remote; `upstream` needs the branch's own remote and one upstream;
+  `push.autoSetupRemote` stands in for an upstream not set at all. `push.default` is read with its case, as git
+  reads it. A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. The source
+  check of an unresolved bare push takes the same choice, so it no longer names HEAD where git pushes a configured
+  push list of another remote. Every name and list the resolution reads from git keeps the bytes git printed (review round 5 of
   2026-10-09, R5-1): a configuration value and the branch of HEAD lose only their one closing newline, the
   remotes are one per line, value lists, URLs and fetch refspecs are read whole (`--null`, a blank URL counts), and a
   fetch refspec loses only its one force sign (git maps nothing for `++refs/heads/*:refs/remotes/origin/*`).

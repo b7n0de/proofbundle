@@ -124,8 +124,9 @@ POLICY = ".proofbundle/policy.json"
 
 def _publish(repo: pathlib.Path) -> None:
     """Push HEAD to the repository's local bare remote, so the remote-tracking ref records it as the
-    reviewed state the next push is measured against (DECISIONS.md, D20)."""
-    _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+    reviewed state the next push is measured against (DECISIONS.md, D20). With the upstream set, as a clone has
+    it: without one git refuses a bare `git push` (review round 6 of 2026-10-10, R6-2)."""
+    _git(repo, "push", "-q", "-u", "origin", "HEAD:refs/heads/main")
 
 
 def _plain(tmp_path: pathlib.Path, name: str = "plain", *, remote: bool = False) -> pathlib.Path:
@@ -139,7 +140,7 @@ def _plain(tmp_path: pathlib.Path, name: str = "plain", *, remote: bool = False)
     if remote:
         _git(tmp_path, "init", "-q", "--bare", str(tmp_path / f"{name}.git"))
         _git(path, "remote", "add", "origin", str(tmp_path / f"{name}.git"))
-        _git(path, "push", "-q", "origin", "HEAD:refs/heads/main")
+        _git(path, "push", "-q", "-u", "origin", "HEAD:refs/heads/main")
     return path
 
 
@@ -1039,7 +1040,7 @@ def _repo_with_remote(tmp_path, name, *, stale):
     _commit(path)
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / f"{name}.git"))
     _git(path, "remote", "add", "origin", str(tmp_path / f"{name}.git"))
-    _git(path, "push", "-q", "origin", "HEAD:refs/heads/main")
+    _git(path, "push", "-q", "-u", "origin", "HEAD:refs/heads/main")
     _write(path / "f.txt", name + " more\n")
     _commit(path, "more")  # one commit ahead, so there is something to push
     return path
