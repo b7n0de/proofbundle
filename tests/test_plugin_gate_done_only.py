@@ -70,6 +70,8 @@ def _repo(tmp_path: pathlib.Path, declaration: dict | None, commit_it: bool = Tr
     _git(repo, "add", "a.txt", *([".proofbundle"] if declaration is not None and commit_it else []))
     _git(repo, "commit", "-q", "-m", "base")
     _git(repo, "remote", "add", "origin", str(bare))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(repo, "push", "-q", "-u", "origin", "main")
     (repo / "a.txt").write_text("a\nb\n", encoding="utf-8")
     _git(repo, "add", "a.txt")

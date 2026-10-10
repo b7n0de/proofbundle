@@ -88,6 +88,8 @@ def _make_repo(tmp_path: pathlib.Path, name: str, *, declare: str) -> tuple[path
         _git(repo, "commit", "-q", "-m", "evidence")
     _git(repo, "init", "-q", "--bare", str(bare))
     _git(repo, "remote", "add", "origin", str(bare))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
     _git(repo, "fetch", "-q", "origin")
     return repo, bare

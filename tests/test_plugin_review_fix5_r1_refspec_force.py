@@ -19,12 +19,14 @@ _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
 DOUBLE = "++refs/heads/*:refs/remotes/origin/*"
+#: The value pattern of the branch rule among the fixture's fetch rules (the recording rules of R8-2 stay as they are).
+BRANCH_RULE = r"^\+refs/heads/"
 
 
 def test_git_maps_nothing_with_a_double_force_sign(tmp_path):
     """Non-vacuous: with the refspec, a fetch does not write the tracking ref again once it is gone."""
     r = n2c.Repo(tmp_path)
-    _git(r.path, "config", "remote.origin.fetch", DOUBLE)
+    _git(r.path, "config", "--replace-all", "remote.origin.fetch", DOUBLE, BRANCH_RULE)
     _git(r.path, "update-ref", "-d", "refs/remotes/origin/main")
     _git(r.path, "fetch", "-q", "origin")
     listed = subprocess.run(["git", "-C", str(r.path), "for-each-ref", "refs/remotes"], capture_output=True, text=True,
@@ -35,7 +37,7 @@ def test_git_maps_nothing_with_a_double_force_sign(tmp_path):
 def test_a_push_compared_with_a_tracking_ref_git_does_not_keep_is_not_measured(env, tmp_path):
     r = n2c.Repo(tmp_path)
     r.make("valid")
-    _git(r.path, "config", "remote.origin.fetch", DOUBLE)
+    _git(r.path, "config", "--replace-all", "remote.origin.fetch", DOUBLE, BRANCH_RULE)
     answer, entry = n2c._level1(env, r.path)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
     assert entry["verdict"] != "pass", entry
@@ -44,7 +46,7 @@ def test_a_push_compared_with_a_tracking_ref_git_does_not_keep_is_not_measured(e
 def test_control_one_force_sign_maps_as_before(env, tmp_path):
     r = n2c.Repo(tmp_path)
     r.make("valid")
-    _git(r.path, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+    _git(r.path, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*", BRANCH_RULE)
     answer, entry = n2c._level1(env, r.path)
     assert answer["hookSpecificOutput"].get("permissionDecision") is None, answer
     assert (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry

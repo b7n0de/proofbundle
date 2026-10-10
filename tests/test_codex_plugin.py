@@ -267,6 +267,8 @@ def _repo(tmp_path: pathlib.Path, *, declare: bool, tamper: bool = False) -> pat
     # to the NOT MEASURED of an unresolved push.
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
     return repo
 

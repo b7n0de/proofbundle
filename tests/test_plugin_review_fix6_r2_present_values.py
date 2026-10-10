@@ -52,6 +52,7 @@ def _other_remote(tmp_path, repo) -> None:
     """A second remote `other` that holds main and has its tracking ref, so the gate could judge a push to it."""
     subprocess.run(["git", "init", "--bare", "-q", str(tmp_path / "other.git")], check=True, timeout=60)
     _git(repo, "remote", "add", "other", str(tmp_path / "other.git"))
+    n2c.record_remote_refs(repo, "other")
     _git(repo, "push", "-q", "other", "origin/main:refs/heads/main")
     _git(repo, "fetch", "-q", "other")
 

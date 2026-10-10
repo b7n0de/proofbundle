@@ -3146,6 +3146,29 @@ def _local_ref(dst: str, pattern: bool) -> str:
     return "refs/" + dst if dst.startswith(("heads/", "tags/", "remotes/")) else "refs/heads/" + dst
 
 
+def _fetch_rules(repo: str, deadline: float) -> dict[str, list] | None:
+    """Every remote's fetch refspecs as _fetch_refspec parses them, by remote name: {} where there is none, None where
+    git cannot read them or a rule has no value or is one git refuses."""
+    out = _git(repo, "config", "--null", "--get-regexp", r"^remote\..*\.fetch$", deadline=deadline)
+    if out.returncode == 1 and not out.stdout and not out.stderr:
+        return {}
+    if out.returncode != 0 or not out.stdout.endswith(b"\0"):
+        return None
+    rules: dict[str, list] = {}
+    for entry in out.stdout[:-1].split(b"\0"):
+        key, newline, value = entry.partition(b"\n")
+        parsed = _fetch_refspec(_git_text(value)) if newline else None
+        if parsed is None:
+            return None
+        rules.setdefault(_git_text(key)[len("remote."):-len(".fetch")], []).append(parsed)
+    return rules
+
+
+def _fetch_excluded(specs: list, ref: str) -> bool:
+    """Whether a negative refspec among specs excludes the remote ref `ref` from the fetch."""
+    return any(_refspec_map(src, None, pattern, ref) is not None for negative, src, _dst, pattern in specs if negative)
+
+
 def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadline: float) -> bool:
     """Whether the fetch rules in effect map the destination branch `dest` to exactly the tracking ref `tracking`,
     and nothing else onto it. Otherwise the tracking ref does not record the state of `dest` on the remote (a remapped
@@ -3158,22 +3181,10 @@ def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadli
     writes nothing; a `*` may stand anywhere in a side; a short name or an empty source (the remote's HEAD) writes the
     tracking ref like any other source (git then refuses the fetch, "Cannot fetch both"); and another remote whose
     fetch writes the tracking ref makes it record that remote. A rule git refuses is NOT MEASURED."""
-    out = _git(repo, "config", "--null", "--get-regexp", r"^remote\..*\.fetch$", deadline=deadline)
-    if out.returncode == 1 and not out.stdout and not out.stderr:
-        return False   # no fetch rule at all: nothing maps dest
-    if out.returncode != 0 or not out.stdout.endswith(b"\0"):
-        return False
-    rules: dict[str, list] = {}
-    for entry in out.stdout[:-1].split(b"\0"):
-        key, newline, value = entry.partition(b"\n")
-        parsed = _fetch_refspec(_git_text(value)) if newline else None
-        if parsed is None:
-            return False   # a rule with no value, or one git refuses
-        rules.setdefault(_git_text(key)[len("remote."):-len(".fetch")], []).append(parsed)
-
-    def excluded(specs: list, ref: str) -> bool:
-        return any(_refspec_map(src, None, pattern, ref) is not None for negative, src, _dst, pattern in specs
-                   if negative)
+    rules = _fetch_rules(repo, deadline)
+    if not rules:
+        return False   # no fetch rule at all, nothing maps dest; or a rule git refuses, or one the gate cannot read
+    excluded = _fetch_excluded
 
     dest_maps_to, maps_to_tracking = set(), set()
     for name, specs in rules.items():
@@ -3217,6 +3228,80 @@ def _tracking_ref(repo: str, remote: str, dest: str, deadline: float) -> str | N
     if not (out.returncode == 0 and out.stdout.strip()):
         return None
     return candidate if _fetch_maps_cleanly(repo, remote, dest, candidate, deadline) else None
+
+
+#: The rules by which git takes a name for a ref (refs.c, ref_rev_parse_rules), as prefix and suffix around the name.
+#: git push applies them to the destination it looks up among the refs the remote advertises (remote.c, match_explicit
+#: through count_refspec_match and refname_match), a full name such as refs/heads/main included.
+_REV_PARSE_RULES = (("", ""), ("refs/", ""), ("refs/tags/", ""), ("refs/heads/", ""), ("refs/remotes/", ""),
+                    ("refs/remotes/", "/HEAD"))
+
+
+def _dest_candidates(value: str) -> list[tuple[str, bool]]:
+    """Every remote ref git push matches the destination value against, with whether git counts that match as strong
+    (remote.c, count_refspec_match): a match is weak where the ref lies outside refs/heads/ and refs/tags/ and the value
+    is neither the whole name nor the whole name less its leading `refs/`. Where a strong match exists the weak ones do
+    not count; two strong matches make git refuse the push ("dst refspec ... matches more than one"). Only names under
+    refs/ can be refs a remote advertises for a push."""
+    found: list[tuple[str, bool]] = []
+    for prefix, suffix in _REV_PARSE_RULES:
+        name = prefix + value + suffix
+        if not name.startswith("refs/") or any(known == name for known, _strong in found):
+            continue
+        strong = (len(name) == len(value) or len(value) == len(name) - len("refs/")
+                  or name.startswith(("refs/heads/", "refs/tags/")))
+        found.append((name, strong))
+    return found
+
+
+def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str, deadline: float) -> str | None:
+    """None where the refs this repository records of `remote` show that git push resolves the destination value
+    `value` to exactly `dest`, else why that is not evidenced (NOT MEASURED; review round 8 of 2026-10-10, R8-2).
+
+    git looks the value up among every ref the remote advertises, by the rules of _REV_PARSE_RULES: for the value
+    refs/heads/main it also matches refs/refs/heads/main, refs/tags/refs/heads/main and refs/heads/refs/heads/main, and
+    with one of them beside refs/heads/main git refuses the push (measured with git 2.43.0 and 2.51.1; where
+    refs/heads/main is missing git writes the other ref). The remote itself is not read (D3), so what the gate knows of
+    its refs is what the remote's fetch rules recorded at the last fetch: a strong candidate is evidenced absent only
+    where a positive pattern rule of the remote maps it to a local ref that does not exist and no negative rule excludes
+    it. A recorded candidate that exists is an ambiguity git refuses; a candidate no rule records is not evidenced
+    either way; and a value whose candidates do not include dest names another ref than the one the gate judges."""
+    candidates = _dest_candidates(value)
+    if (dest, True) not in candidates:
+        return f"git push looks up {value} on the remote, which does not name {dest}"
+    rules = _fetch_rules(repo, deadline)
+    if rules is None:
+        return "git cannot read every fetch rule"
+    specs = rules.get(remote, [])
+    if any(not negative and not pattern for negative, _src, _dst, pattern in specs):
+        return f"a fetch rule of {remote} has a plain source, which records no remote ref the gate can name (R7-4)"
+    for name, strong in candidates:
+        if name == dest or not strong:
+            continue   # dest itself is the state the tracking ref records; a weak match counts only without a strong one
+        recorded = [_refspec_map(src, dst, True, name) for negative, src, dst, pattern in specs
+                    if not negative and pattern and dst]
+        recorded = [local for local in recorded if local is not None]
+        if not recorded or _fetch_excluded(specs, name):
+            return (f"no fetch rule of {remote} records the remote ref {name}, which git push also matches for {value}, "
+                    "so whether the remote holds it is not known here")
+        for local in recorded:
+            shown = _git(repo, "show-ref", "--verify", "--quiet", local, deadline=deadline)
+            if shown.returncode == 0:
+                return (f"the remote held {name} at the last fetch ({local}), so git push matches more than one ref "
+                        f"for {value} and refuses the push")
+            if shown.returncode != 1 or shown.stdout or shown.stderr:
+                return f"git could not say whether {local} exists"
+    return None
+
+
+def _source_full_name(repo: str, src: str, deadline: float) -> str | None:
+    """The full name of the local ref a refspec source names, as git push takes it for a refspec without `:`
+    (remote.c, match_explicit: the destination is the source's own full name), or None where git names no single ref."""
+    named = _git(repo, "-c", "core.warnAmbiguousRefs=true", "rev-parse", "--symbolic-full-name", src, deadline=deadline)
+    if named.returncode != 0 or named.stderr:
+        return None
+    full = _git_value(named.stdout)
+    return full if full and full.startswith("refs/") else None
 
 
 def _push_source(repo: str, src: str, deadline: float) -> str | None:
@@ -3328,6 +3413,14 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         tracking = _tracking_ref(repo, remote, dest, deadline)
         if tracking is None:  # no uniquely mapped local target state: NOT MEASURED, no fallback (N1)
             return None
+        # The value git looks up on the remote: the destination as written, or for a refspec without `:` the source's
+        # own full name (R8-2); neither its spelling nor the fetch mapping of dest shows that git resolves it to dest
+        value = dst if sep else _source_full_name(repo, src, deadline)
+        try:
+            if value is None or _dest_resolution_problem(repo, remote, value, dest, deadline) is not None:
+                return None
+        except GateError:
+            return None
         if src == "":  # `:dst` deletes the destination ref
             targets.append(PushTarget(source=None, dest=dest, tracking=tracking))
             continue
@@ -3421,6 +3514,11 @@ def _default_targets(repo: str, deadline: float, remotes: set, remote: str | Non
         return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
     tracking = _tracking_ref(repo, remote, dest, deadline)
     if tracking is None:
+        return None
+    try:   # git sets up `<branch>:<dest>` with dest in full, and looks that value up on the remote (R8-2)
+        if _dest_resolution_problem(repo, remote, dest, dest, deadline) is not None:
+            return None
+    except GateError:
         return None
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     if head.returncode != 0 or not head.stdout.strip():

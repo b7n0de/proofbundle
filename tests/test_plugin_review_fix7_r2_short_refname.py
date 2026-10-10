@@ -87,7 +87,9 @@ def test_git_names_the_branch_in_full_and_pushes_main(tmp_path, config):
 def test_the_bare_push_is_judged_as_the_push_git_performs(env, tmp_path, config):
     r = _swap(tmp_path)
     _configure(r.path, CONFIGS[config])
-    explicit = _verdict(env, r.path, "git push origin HEAD:main")
+    # The explicit push in full: a short destination (HEAD:main) is NOT MEASURED since R8-2, because git also matches
+    # refs/main on the remote for it, which no fetch rule here records
+    explicit = _verdict(env, r.path, "git push origin HEAD:refs/heads/main")
     assert explicit == ("ask", ["rules_changed"]), explicit
     assert _verdict(env, r.path, "git push") == explicit
 
@@ -121,8 +123,8 @@ def test_a_source_that_names_a_branch_and_a_tag_at_the_pushed_commit_does_not_pa
     assert _verdict(env, r.path, "git push origin main") == ("ask", ["push_not_measured"])
 
 
-@pytest.mark.parametrize("command", ["git push origin refs/heads/main:refs/heads/main", "git push origin HEAD:main",
-                                     "git push origin heads/main:main"])
+@pytest.mark.parametrize("command", ["git push origin refs/heads/main:refs/heads/main",
+                                     "git push origin HEAD:refs/heads/main", "git push origin heads/main:refs/heads/main"])
 def test_control_a_source_that_names_one_ref_is_judged(env, tmp_path, command):
     r = _swap(tmp_path)
     assert _git_push(r.path, *command.split()[2:]).returncode == 0
@@ -142,7 +144,7 @@ def test_control_a_valid_push_with_the_tag_still_passes(env, tmp_path):
     r = n2c.Repo(tmp_path)
     r.make("valid")
     _git(r.path, "tag", "main", "HEAD~1")
-    assert _verdict(env, r.path, "git push origin HEAD:main") == ("pass", ["done"])
+    assert _verdict(env, r.path, "git push origin HEAD:refs/heads/main") == ("pass", ["done"])
     assert _verdict(env, r.path, "git push") == ("pass", ["done"])
 
 

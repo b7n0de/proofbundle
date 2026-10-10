@@ -79,6 +79,8 @@ def repo(tmp_path: pathlib.Path, keys: dc.Keys) -> pathlib.Path:
     dc._commit(path, "the order")
     subprocess.run(["git", "init", "--bare", "-q", str(tmp_path / "remote.git")], check=True, timeout=60)
     dc._git(path, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        dc._git(path, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     dc._git(path, "push", "-q", "-u", "origin", "main")
     return path
 

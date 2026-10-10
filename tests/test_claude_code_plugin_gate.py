@@ -140,6 +140,8 @@ def _plain(tmp_path: pathlib.Path, name: str = "plain", *, remote: bool = False)
     if remote:
         _git(tmp_path, "init", "-q", "--bare", str(tmp_path / f"{name}.git"))
         _git(path, "remote", "add", "origin", str(tmp_path / f"{name}.git"))
+        for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+            _git(path, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
         _git(path, "push", "-q", "-u", "origin", "HEAD:refs/heads/main")
     return path
 
@@ -167,6 +169,8 @@ def repo(tmp_path: pathlib.Path) -> pathlib.Path:
     assert _head_digest(path) == digest
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     _git(path, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(path, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _publish(path)
     return path
 
@@ -950,6 +954,8 @@ def test_an_intermediate_commit_that_changes_the_rules_is_caught(shim, tmp_path)
     sign("A: declare")  # A
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "chain.git"))
     _git(path, "remote", "add", "origin", str(tmp_path / "chain.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(path, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(path, "push", "-q", "origin", "main")
     _git(path, "rm", "-q", "-r", ".proofbundle")
     _commit(path, "B: remove the declaration")  # B
@@ -1040,6 +1046,8 @@ def _repo_with_remote(tmp_path, name, *, stale):
     _commit(path)
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / f"{name}.git"))
     _git(path, "remote", "add", "origin", str(tmp_path / f"{name}.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(path, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(path, "push", "-q", "-u", "origin", "HEAD:refs/heads/main")
     _write(path / "f.txt", name + " more\n")
     _commit(path, "more")  # one commit ahead, so there is something to push
@@ -1402,7 +1410,8 @@ def test_a_fetch_refspec_that_does_not_map_the_target_is_not_measured(shim, repo
     main is judged against the wrong state. NOT MEASURED. Red against 3026924e, which checked only the
     name. The reviewer's reproduction: a force push to main stayed inactive and removed the declaration."""
     assert _resolve(repo, "origin", "main") is not None  # the standard refspec maps main cleanly
-    _git(repo, "config", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/main")
+    _git(repo, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/main",
+         r"^\+refs/heads/\*")   # the branch rule only; the recording rules of R8-2 stay
     assert _resolve(repo, "origin", "main") is None, "main no longer maps to origin/main"
     answer = run_gate(shim, repo, "git push --force origin main")
     assert decision(answer) == "ask" and reason(answer).startswith("NOT MEASURED: ")
@@ -1492,7 +1501,7 @@ def test_a_force_push_that_drops_a_declaration_on_another_branch_is_resolved_or_
     _git(repo, "push", "-q", "origin", "HEAD:refs/heads/release")  # release = A (declared), now tracked
     _git(repo, "rm", "-q", "-r", ".proofbundle")
     _commit(repo, "drop the declaration")
-    answer = run_gate(shim, repo, "git push --force origin HEAD:release")
+    answer = run_gate(shim, repo, "git push --force origin HEAD:refs/heads/release")   # in full (R8-2)
     assert decision(answer) == "ask"
     assert "the push removes the declaration" in reason(answer)
 
@@ -1542,6 +1551,8 @@ def test_adding_a_declaration_to_a_repository_the_remote_knows_is_a_rules_change
     plain = _plain(tmp_path)
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "plain.git"))
     _git(plain, "remote", "add", "origin", str(tmp_path / "plain.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(plain, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _publish(plain)
     digest = _head_digest(plain)
     signer = generate_signer()

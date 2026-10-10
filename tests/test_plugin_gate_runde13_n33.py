@@ -273,6 +273,8 @@ def _declared_repo(tmp_path: pathlib.Path, *, remote: bool = False) -> pathlib.P
         bare = tmp_path / "remote.git"
         _git(tmp_path, "init", "-q", "--bare", str(bare))
         _git(repo, "remote", "add", "origin", str(bare))
+        for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+            _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
         _git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
     return repo
 

@@ -247,6 +247,8 @@ def test_the_check_does_not_read_the_push_range(env, repo, tmp_path, monkeypatch
         monkeypatch.setenv(name, env[name])  # the in-process gate starts its verifier through the uv shim
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
+    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
+        _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(repo, "push", "-q", "origin", "HEAD~1:refs/heads/main")
     _git(repo, "fetch", "-q", "origin")
     verdict = gate.evaluate_push(str(repo), ["origin", "main"], gate.time.monotonic() + gate.DEADLINE_SECONDS)

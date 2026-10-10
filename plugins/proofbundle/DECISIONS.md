@@ -191,7 +191,25 @@ MEASURED. The remote itself is not read.
   `heads/main` (review round 7 of 2026-10-10, R7-2: the gate had read `branch.heads/main.*` and compared against a
   remote branch `heads/main`). A refspec source that names more than one ref, a branch and a tag of one name, is NOT
   MEASURED: git push refuses it ("matches more than one", measured with git 2.43.0 and 2.51.1), while `rev-parse`
-  takes the tag. A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. Every
+  takes the tag. The destination is resolved in git's meaning, not read from its spelling (review round 8 of
+  2026-10-10, R8-2; remote.c count_refspec_match with the rules of refs.c ref_rev_parse_rules, measured with git 2.43.0
+  and 2.51.1): git looks the destination value up among every ref the remote advertises, so for refs/heads/main it also
+  matches refs/heads/refs/heads/main, refs/tags/refs/heads/main and refs/refs/heads/main, and for a short main
+  refs/tags/main and refs/main. Two such matches make git refuse the push ("dst refspec refs/heads/main matches more
+  than one"), and where refs/heads/main is missing git writes the other ref; a match under refs/remotes/ counts only
+  where there is no other. The value is the part after the colon, and for a refspec without one the source's own full
+  name (`git push origin rel` with a tag rel writes refs/tags/rel). The remote is not read: a candidate other than the
+  destination counts as absent only where a pattern rule of the pushing remote records it in a local ref that does not
+  exist and no negative rule excludes it. A recorded candidate that exists is an evidenced ambiguity; a candidate no
+  rule records, and any plain-source rule, leave the resolution unevidenced; both are NOT MEASURED, and the full
+  spelling of the destination alone is not enough. The cost: the standard rule `+refs/heads/*:refs/remotes/<remote>/*`
+  records refs/heads/ only, so with it alone every Level 1 push is NOT MEASURED. Two further fetch rules,
+  `+refs/tags/*:refs/recorded/<remote>/tags/*` and `+refs/refs/*:refs/recorded/<remote>/refs/*`, make a full
+  destination measurable after the next fetch; a short destination stays NOT MEASURED with them, since refs/main needs
+  a rule of its own (`+refs/m*:refs/recorded/<remote>/m*` records it). Level 2 is not affected: the pre-push hook gets
+  the remote ref git resolved. The gate had passed `git push origin main` beside a remote
+  refs/heads/refs/heads/main, where git refused the push and left both refs as they were.
+  A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. Every
   push value git parses is read before any step of the resolution, explicit or bare, whatever the case needs (review
   round 7 of 2026-10-10, R7-3; measured with git 2.43.0 and 2.51.1): `push.autoSetupRemote`, `push.followTags`,
   `push.useForceIfIncludes`, `push.negotiate`, `push.useBitmaps` and `submodule.recurse` as booleans, every value;

@@ -79,6 +79,20 @@ def _git(repo: pathlib.Path, *args: str, env: dict | None = None, check: bool = 
                           env=env, timeout=120)
 
 
+#: Fetch rules that record the remote's refs under refs/tags/ and refs/refs/ in local namespaces of their own. With
+#: the pattern rule for refs/heads/ they record every ref git push can also match for a full branch destination
+#: (refs/heads/refs/heads/<x>, refs/tags/refs/heads/<x>, refs/refs/heads/<x>), which the gate needs to evidence that
+#: the destination resolves to the branch alone (review round 8 of 2026-10-10, R8-2). A repository without them leaves
+#: every Level 1 push NOT MEASURED; the tests of that are in test_plugin_review_fix8_r2_push_destination.py.
+RECORDING_RULES = ("+refs/tags/*:refs/recorded/{remote}/tags/*", "+refs/refs/*:refs/recorded/{remote}/refs/*")
+
+
+def record_remote_refs(repo: pathlib.Path, remote: str = "origin") -> None:
+    """Give `remote` the fetch rules of RECORDING_RULES beside its own."""
+    for rule in RECORDING_RULES:
+        _git(repo, "config", "--add", f"remote.{remote}.fetch", rule.format(remote=remote))
+
+
 def _rev(repo: pathlib.Path, rev: str) -> str:
     return _git(repo, "rev-parse", rev).stdout.strip()
 
@@ -139,6 +153,7 @@ class Repo:
             _commit(path, "evidence for the declaring commit")
         subprocess.run(["git", "init", "--bare", "-q", str(tmp_path / "remote.git")], check=True, timeout=60)
         _git(path, "remote", "add", "origin", str(tmp_path / "remote.git"))
+        record_remote_refs(path)
         _git(path, "push", "-q", "-u", "origin", "main")
         _write(path / "src" / "module.py", "VALUE = 2\n")
         _commit(path, "work")
@@ -354,7 +369,7 @@ def test_the_check_is_at_the_pushed_commit_not_at_head(env, tmp_path):
     pushed = _rev(r.path, "HEAD")
     _git(r.path, "switch", "-q", "main")
     _receipt(r.path, r.signer)                       # a valid receipt for HEAD, which is main
-    answer, entry = _level1(env, r.path, command="git push origin other:main")
+    answer, entry = _level1(env, r.path, command="git push origin other:refs/heads/main")   # in full (R8-2)
     assert answer["hookSpecificOutput"]["permissionDecision"] == "deny", answer
     assert entry["reason_ids"] == ["stale_receipt"]
     assert f"the pushed commit {pushed[:12]}" in answer["systemMessage"]
@@ -362,6 +377,6 @@ def test_the_check_is_at_the_pushed_commit_not_at_head(env, tmp_path):
     _git(r.path, "switch", "-q", "other")
     _receipt(r.path, r.signer)                       # now a receipt for the pushed commit
     _git(r.path, "switch", "-q", "main")
-    answer, entry = _level1(env, r.path, command="git push origin other:main")
+    answer, entry = _level1(env, r.path, command="git push origin other:refs/heads/main")
     assert "permissionDecision" not in answer["hookSpecificOutput"], answer
     assert entry["reason_ids"] == ["done"]

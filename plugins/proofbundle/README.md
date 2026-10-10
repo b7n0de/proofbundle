@@ -180,6 +180,7 @@ measured.
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
 | The evidence verifies, but the push changes the evidence rules against what the remote is known to hold (the declaration's items, a policy, a key, the done check or the done policy) | The call asks, with the change named: changes to the evidence rules need a review (D20). |
 | The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks. `git fetch` makes the remote's state known (D20). |
+| The evidence verifies, but the fetch rules do not record every remote ref git push also matches for the destination; the standard rule `+refs/heads/*:refs/remotes/origin/*` alone records refs/heads/ only | NOT MEASURED, and the call asks. `git config --add remote.origin.fetch '+refs/tags/*:refs/recorded/origin/tags/*'` and `git config --add remote.origin.fetch '+refs/refs/*:refs/recorded/origin/refs/*'`, then `git fetch`, make a full destination measurable (`main`, `HEAD:refs/heads/main`); a short one such as `HEAD:main` stays NOT MEASURED (D3). |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
 It never answers allow. Every deny and ask names the evidence, what failed and the next step, and
