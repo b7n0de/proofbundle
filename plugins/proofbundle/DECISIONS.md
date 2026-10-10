@@ -190,7 +190,12 @@ MEASURED. The remote itself is not read.
   round 7 of 2026-10-10, R7-3; measured with git 2.43.0 and 2.51.1): `push.autoSetupRemote`, `push.followTags`,
   `push.useForceIfIncludes`, `push.negotiate`, `push.useBitmaps` and `submodule.recurse` as booleans, every value;
   `push.gpgSign` as a boolean or `if-asked`; `push.recurseSubmodules` as false, `check`, `on-demand` or `only`;
-  `push.pushOption` with a value; `color.push` and its slots. A value git refuses stops git push, also one before a
+  `push.pushOption` with a value, read as the list git builds from it: each value appended, an empty value clearing
+  the values before it, and any `-o`/`--push-option` of the command replacing the list for that push, so an option of
+  the list git uses that holds a newline stops git push and the push is NOT MEASURED, while a newline value an empty
+  value cleared, or the command line replaced, does not count (review round 8 of 2026-10-10, R8-3: `pushOption =
+  "one\ntwo"` had passed while git refused the push with exit 128, measured with git 2.43.0 and 2.51.1; `-o` with a
+  newline on the command line had passed too); `color.push` and its slots. A value git refuses stops git push, also one before a
   valid value, so the push is NOT MEASURED; `on-demand`, `only` and a true `submodule.recurse` push the submodules'
   commits besides and are NOT MEASURED as well. The gate had read `push.autoSetupRemote` only for a branch without an
   upstream. The source

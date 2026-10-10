@@ -2919,14 +2919,21 @@ _PUSH_BOOLEANS = ("push.autoSetupRemote", "push.followTags", "push.useForceIfInc
                   "push.useBitmaps", "submodule.recurse")
 
 
-def _push_config_problem(repo: str, deadline: float) -> str | None:
+def _push_config_problem(repo: str, deadline: float, command_options: list[str] | None = None) -> str | None:
     """What in the push configuration stops git push or makes it push more than the command names, or None. Every value
     of every key is read, before any resolution step, because git reads them all at the start of every push (R7-3: a
     bare push with an upstream had passed while push.autoSetupRemote held a value git refused, since only the case
     without an upstream read that key). Read through git's own parsers: --type=bool, --get-colorbool, --type=color, and
     the entries of --get-regexp, where a key written without `=` has no value. submodule.recurse true or
     push.recurseSubmodules on-demand or only make git push the submodules' commits to their own remotes, which no
-    tracking ref here records; `check` pushes nothing more, and any other word stops git."""
+    tracking ref here records; `check` pushes nothing more, and any other word stops git.
+
+    push.pushOption is the list git builds (builtin/push.c, git_push_config): each value appended, an empty value
+    clearing what came before, a key without a value stopping every push. The options the command line gives
+    (command_options, `-o`/`--push-option`) replace that list for the push; git refuses the push when an option of the
+    list it uses holds a newline (review round 8 of 2026-10-10, R8-3; measured with git 2.43.0 and 2.51.1: `pushOption
+    = "one\\ntwo"` stopped the push with exit 128 while the gate passed it, a later empty value made git accept it again,
+    and `-o x` on the command line too). A NUL stands in neither a configuration value nor an argument."""
     def entries(pattern: str) -> list[tuple[str, str | None]] | None:
         out = _git(repo, "config", "--null", "--get-regexp", pattern, deadline=deadline)
         if out.returncode == 1 and not out.stdout and not out.stderr:
@@ -2971,6 +2978,13 @@ def _push_config_problem(repo: str, deadline: float) -> str | None:
     options = entries("^push[.]pushoption$")
     if options is None or any(value is None for _name, value in options):
         return "push.pushOption is set without a value, and git push stops there"
+    listed: list[str] = []
+    for _name, value in options:
+        listed = [] if value == "" else [*listed, value]   # an empty value clears the list (R8-3)
+    used = command_options if command_options else listed
+    if any("\n" in option for option in used):
+        where = "on the command line" if command_options else "in push.pushOption"
+        return f"a push option {where} holds a newline, and git push stops there"
     color = _git(repo, "config", "--get-colorbool", "color.push", deadline=deadline)
     if color.returncode not in (0, 1):
         return "git cannot read color.push, and git push stops there"
@@ -3248,15 +3262,7 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         args = []
     if _git_namespace() is not None:
         return None  # the push writes under refs/namespaces/ on the remote, which no tracking ref records
-    try:
-        if _push_config_problem(repo, deadline) is not None:
-            return None  # git stops at a push value, or pushes more than the command names, whatever the case (R7-3)
-    except GateError:
-        return None
-    remotes = _remote_names(repo, deadline)
-    if remotes is None:
-        return None  # git cannot read the remote configuration, and its push stops there as well
-    remote, refspecs, i, options_done = None, [], 0, False
+    remote, refspecs, i, options_done, push_options = None, [], 0, False, []
     while i < len(args):
         word = args[i]
         if not options_done and word == "--":  # end of options; what follows is <remote> <refspec>...
@@ -3269,9 +3275,14 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
                 i += 1
                 continue
             if eq and opt in _PUSH_OPTS_NEUTRAL_INLINE:
+                if opt == "--push-option":
+                    push_options.append(word[len(opt) + 1:])
                 i += 1
                 continue
             if not eq and word in _PUSH_OPTS_NEUTRAL_VALUE:
+                if i + 1 >= len(args):
+                    return None  # git stops: the option needs a value
+                push_options.append(args[i + 1])
                 i += 2
                 continue
             return None  # an abbreviation, a target option (--all/--mirror/--tags/--delete/--repo), unknown
@@ -3280,6 +3291,14 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         else:
             refspecs.append(word)
         i += 1
+    try:
+        if _push_config_problem(repo, deadline, push_options) is not None:
+            return None  # git stops at a push value, or pushes more than the command names, whatever the case (R7-3)
+    except GateError:
+        return None
+    remotes = _remote_names(repo, deadline)
+    if remotes is None:
+        return None  # git cannot read the remote configuration, and its push stops there as well
     if remote is None:  # a bare `git push`: the current branch to its chosen remote, same name
         return _default_targets(repo, deadline, remotes)
     if remote not in remotes:  # a URL or a filesystem path, not a configured remote name
