@@ -12,6 +12,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.
 - The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.
+- `sdjwt_vc.check_vc_profile` refuses an issuer JWT header that names a critical extension (RFC 7515 §4.1.11), also where the issuer signature is not required.
 
 ## [6.2.0] - 2026-09-28
 
