@@ -5674,22 +5674,26 @@ def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | 
     return None, (None if problem is None else f"the block count could not be recorded ({problem})"), unread
 
 
-def _account_pass(result: dict, event: dict | None) -> None:
+def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | None]:
     """Count a done verdict, and a completion after at least one block in the same session; the blocker of an
-    earlier stop no longer stands and is removed."""
+    earlier stop no longer stands and is removed. Returns (problem, unread) as _account_block does: problem names why
+    the reset count could not be recorded, unread a present record the hook could not read and replaced, None where
+    there is none. A done end names both like a refused one (review round 6 of 2026-10-10, R6-4: the record's problem
+    was read here and dropped, so a record with blocks "1" was written over without a word, against R5-3)."""
     repo = result["repo"]
     session = _session_key(event)
-    previous, _unused = _done_state(repo)
+    previous, unread = _done_state(repo)
     after_block = previous is not None and previous["session_sha256"] == session and previous["blocks"] >= 1
     _tally(repo, done=1, completed_after_block=1 if after_block else 0)
-    _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session, "open": [],
-                                        "blocks": 0, "blocker": False})
+    problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
+                                                  "open": [], "blocks": 0, "blocker": False})
     blocker = os.path.join(repo, *DONE_BLOCKER.split("/"))
     try:
         if stat.S_ISREG(os.lstat(blocker).st_mode):
             os.unlink(blocker)
     except OSError:
         pass
+    return (None if problem is None else f"the count could not be reset ({problem})"), unread
 
 
 def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
@@ -5739,7 +5743,7 @@ def stop_command(argv: list[str]) -> int:
         if result is not None and result["repo"] and result["open"] and verdict.decision == "deny":
             blocker, counting, unread = _account_block(result, event, limit)
         elif result is not None and result["done"] is not None and verdict.decision == "pass":
-            _account_pass(result, event)
+            counting, unread = _account_pass(result, event)
     except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
         blocker, counting = None, f"counting failed ({type(exc).__name__}: {exc})"
     try:
@@ -5747,7 +5751,13 @@ def stop_command(argv: list[str]) -> int:
     except Exception:  # noqa: BLE001 - the log never changes the answer
         pass
     if verdict.decision == "pass":
-        sys.stdout.write(json.dumps({"systemMessage": verdict.detail}) + "\n")
+        message = verdict.detail
+        if counting is not None:
+            message += f" The hook could not record this end in its count: {counting}."
+        elif unread is not None:
+            message += (f" The earlier count could not be read ({unread}); the hook wrote its own record in its "
+                        "place.")
+        sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
     elif blocker is not None:
         sys.stdout.write(json.dumps({"systemMessage": (
             f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
