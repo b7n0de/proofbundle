@@ -117,7 +117,7 @@ def test_control_without_the_untracked_file_the_relative_environment_passes(env,
 
 def test_a_relative_git_dir_is_taken_against_the_named_directory(env, tmp_path, keys):
     """The sibling: GIT_DIR=repo/.git and GIT_WORK_TREE=repo, both relative, from P."""
-    repo = _fixture(tmp_path, keys)
+    _fixture(tmp_path, keys)
     rel = dict(env, GIT_DIR="repo/.git", GIT_WORK_TREE="repo")
     code, report = _done_check(rel, tmp_path)
     assert code == 1 and {"stale_receipt", "outside_paths"} & _open_reasons(report), report
