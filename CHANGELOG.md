@@ -8,9 +8,11 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [6.2.1] - 2026-10-10
 
-No public interface is added or removed. Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
+Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
 to results; two judge a policy's validity at one instant and with its fraction of a second, so at the edge of a
 validity window a verdict can differ from 6.2.0 in either direction.
+
+`VerificationResult` gains a `verified_inclusion_context` field after its existing fields; positional construction is unchanged.
 
 ### Fixed
 

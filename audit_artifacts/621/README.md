@@ -16,9 +16,10 @@ the current release surface, so this directory carries its own README from its f
 1. The findings register. The signed carrier the release gate reads stays `audit_artifacts/findings_register_361.json`;
    the maintainer signs it over its canonical body for version 6.2.1, and `C12.2` reads and counts that register, not
    any prose here.
-2. The pre-tag receipt, `pre_tag_receipt_v6.2.1.json`, beside this file. It is produced from a fresh checkout of the
-   final head of the release preparation by `scripts/pre_tag_receipt.py --version 6.2.1`, which runs the audit
-   command itself and records the command and its exit status.
+2. The pre-tag receipt, `pre_tag_receipt_v6.2.1.json`, beside this file. It is to be produced from a fresh checkout
+   of the final release-preparation head with `scripts/pre_tag_receipt.py`, using version `6.2.1` and explicitly
+   selecting `audit_artifacts/621/pre_tag_receipt_v6.2.1.json` with `--out`. The supplied audit command runs while
+   the receipt context is produced; its command and exit status are recorded before signing.
 
 ## The signed register of this cut
 

@@ -21,7 +21,7 @@
 
 ## Current release
 
-**[v6.2.1](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.1) · Beta · Closing audit record named in the release notes**
+**[v6.2.1](https://github.com/b7n0de/proofbundle/releases/tag/v6.2.1) · Beta · Check the closing audit record in the tagged tree**
 
 [Known limitations](https://github.com/b7n0de/proofbundle/blob/v6.2.1/RESTRISIKO_620.md) · [Release notes](https://github.com/b7n0de/proofbundle/blob/v6.2.1/CHANGELOG.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/v6.2.1/docs/release_scope/6.2.1.md)
 
@@ -35,7 +35,7 @@
 - **A proof counts only where it was checked.** Trust in a transparency log inclusion applies only to the inclusion context the verifier checked, including its position, tree size, proof path and root.
 - **Duplicate fields and unsupported requirements are rejected.** Agent-review policy files and Chia node replies with duplicate JSON keys are rejected. The credential profile check also rejects unsupported or malformed critical-extension fields.
 
-In the tagged tree, the pre-tag receipt `audit_artifacts/621/pre_tag_receipt_v6.2.1.json` records its own audit command and result; the release notes name the same place.
+In the tagged tree, check `audit_artifacts/621/pre_tag_receipt_v6.2.1.json` for the recorded audit command and result.
 
 The package being published and its closing audit passing are separate facts. An audit that was not run makes no statement about the absence of defects.
 
