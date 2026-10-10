@@ -568,6 +568,11 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # copy that only relabels merkle.root_b64 to a pinned foreign root is refused. Left None otherwise.
         if sig_ok is True and incl_ok is True:
             result.verified_inclusion_root = root
+            # 6.2.1 R6b-1/R6b-2 (Z309): and the whole context it passed under (hash algorithm, leaf index,
+            # tree size, audit path, root), origin-covered. The same root holds under another leaf index or
+            # audit path, so a judge adopting this inclusion verdict compares the passed bundle's context.
+            result.verified_inclusion_context = merkle._inclusion_context_digest(
+                mk.get("hash_alg"), leaf_index, tree_size, proof, root)
 
     # 2b. P0-A (§6.2): relying-party root authentication. The stated root is NOT signed, so inclusion
     # alone does not authenticate it; only a bit-exact match against a root/size the relying party

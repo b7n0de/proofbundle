@@ -57,8 +57,9 @@ def _tag_part(h, part) -> None:
 
 def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[str],
                           merkle_root: Optional[bytes], checks=(), inclusion_root: Optional[bytes] = None,
-                          sd_jwt_vc_compact: Optional[str] = None) -> str:
-    """HMAC over the captured verified state AND the result's checks. Each part — the five state parts and
+                          sd_jwt_vc_compact: Optional[str] = None,
+                          inclusion_context: Optional[bytes] = None) -> str:
+    """HMAC over the captured verified state AND the result's checks. Each part — the six state parts and
     every check's name and detail — is type-marked (None / bytes / str / other, see :func:`_tag_part`) and
     length-prefixed, and the checks are counted and in list order, so two states that differ in any part's
     VALUE or TYPE, or in a check's name, detail, order or count, produce different tokens (Nachtrag 46e closed
@@ -84,13 +85,18 @@ def _compute_origin_token(signer_pub: Optional[bytes], payload_digest: Optional[
     swapped KB-JWT signature (same signer and payload) and a pinned foreign root each kept an old positive
     ``evaluate_policy`` verdict. Both new parts are type-marked and length-prefixed like the other state
     parts; ``policy.evaluate_policy`` now compares the passed bundle's sd_jwt_vc and stated root against
-    these, so a result cannot adopt its checks or authenticate a root for other data."""
+    these, so a result cannot adopt its checks or authenticate a root for other data.
+
+    6.2.1 R6b-1/R6b-2 (Z309): the token also covers ``inclusion_context``, the digest of the whole inclusion
+    context the passing inclusion check verified (hash algorithm, leaf index, tree size, audit path, root;
+    ``merkle._inclusion_context_digest``). An equal root does not name one inclusion, so a judge compares
+    this digest, not the root alone."""
     h = hmac.new(_ORIGIN_KEY, digestmod=hashlib.sha256)
-    for part in (signer_pub, payload_digest, merkle_root, inclusion_root, sd_jwt_vc_compact):
+    for part in (signer_pub, payload_digest, merkle_root, inclusion_root, sd_jwt_vc_compact, inclusion_context):
         _tag_part(h, part)   # Nachtrag 46e: type-marked (None/bytes/str/other), so bytes and str never collide
-    # Nachtrag 46c: the checks block, after the five state parts, with a fixed section tag and a count so
-    # a removed or added check changes the token. The five parts always run exactly above (a fixed count of
-    # five), so this section tag sits at a determined position and is never confused with a part marker. `ok`
+    # Nachtrag 46c: the checks block, after the six state parts, with a fixed section tag and a count so
+    # a removed or added check changes the token. The six parts always run exactly above (a fixed count of
+    # six), so this section tag sits at a determined position and is never confused with a part marker. `ok`
     # is read by identity (`is True`/`is False`), never by its truth, so a lying `__bool__` runs no code and a
     # truthy non-bool is a third, distinct marker.
     h.update(b"\x02checks")
@@ -196,6 +202,14 @@ class VerificationResult:
     verified_inclusion_root: Optional[bytes] = field(default=None, compare=False, repr=False)
     verified_sd_jwt_vc_compact: Optional[str] = field(default=None, compare=False, repr=False)
     verified_origin: Optional[str] = field(default=None, compare=False, repr=False)
+    # 6.2.1 R6b-1/R6b-2 (Z309): the digest of the whole inclusion context the passing inclusion check verified
+    # (hash algorithm, leaf index, tree size, audit path, root), origin-covered, set only on a passing bundle
+    # signature AND a passing inclusion. The same root holds under another leaf index or audit path, so a judge
+    # that adopts the inclusion verdict compares the passed bundle's stated context with this digest.
+    # It stands LAST: the class is exported, and a field inserted before an existing one moves every positional
+    # argument after it. Placed before verified_origin, a call in the form of 6.2.0 set this field instead of the
+    # origin token (final text review of 6.2.1).
+    verified_inclusion_context: Optional[bytes] = field(default=None, compare=False, repr=False)
 
     def stamp_origin(self) -> None:
         """Record the origin token over the verified state AND the checks currently on this result. Called by
@@ -203,7 +217,8 @@ class VerificationResult:
         recorded (Nachtrag 46c: the token covers the checks, so it must be stamped after the last check)."""
         self.verified_origin = _compute_origin_token(
             self.verified_signer_pub, self.verified_payload_digest, self.verified_merkle_root, self.checks,
-            inclusion_root=self.verified_inclusion_root, sd_jwt_vc_compact=self.verified_sd_jwt_vc_compact)
+            inclusion_root=self.verified_inclusion_root, sd_jwt_vc_compact=self.verified_sd_jwt_vc_compact,
+            inclusion_context=self.verified_inclusion_context)
 
     def origin_authentic(self) -> bool:
         """True only when this result carries a token this process's verifier stamped over exactly the fields
@@ -217,7 +232,8 @@ class VerificationResult:
             _compute_origin_token(self.verified_signer_pub, self.verified_payload_digest,
                                   self.verified_merkle_root, self.checks,
                                   inclusion_root=self.verified_inclusion_root,
-                                  sd_jwt_vc_compact=self.verified_sd_jwt_vc_compact))
+                                  sd_jwt_vc_compact=self.verified_sd_jwt_vc_compact,
+                                  inclusion_context=self.verified_inclusion_context))
 
     @property
     def ok(self) -> bool:

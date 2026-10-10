@@ -1059,3 +1059,52 @@ def test_a_quoted_or_escaped_separator_does_not_end_the_command(text):
 
 def test_CONTROL_an_unquoted_separator_still_ends_the_command():
     assert _trifft("uv --directory foo; add proofbundle==6.1.0") is None
+
+
+# ── 6.2.1: the release notes of the source version carry its install line (2026-10-10) ──────────
+
+_NOTIZ_621 = "release_notes/RELEASE_NOTES_v6.2.1.md"
+
+
+def _notizbaum(tmp_path, rel: str, pin: str) -> pathlib.Path:
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "6.2.1"\n', encoding="utf-8")
+    (tmp_path / "release_notes").mkdir(exist_ok=True)
+    (tmp_path / rel).write_text(f"```\npython -m pip install --upgrade proofbundle=={pin}\n```\n",
+                                encoding="utf-8")
+    return tmp_path
+
+
+def test_RED_the_notes_of_the_source_version_declare_their_install_line(tmp_path, monkeypatch):
+    """The two-level release page of 6.2.1 opens with the install line of its own version. Check 6
+    read that line as a place nobody declared, and the real tree failed the gate at the notes commit.
+    The notes of the source version are a declared place for the project pin now."""
+    g = _gate()
+    repo = _notizbaum(tmp_path, _NOTIZ_621, "6.2.1")
+    monkeypatch.setattr(g, "_tracked_files", lambda _repo: [_NOTIZ_621])
+    assert g.check_undeclared_places(repo, "6.2.1") == []
+
+
+def test_RED_a_stale_pin_in_the_notes_of_the_source_version_is_a_tracked_finding(tmp_path):
+    """Declared means kept current: Check 4 compares the pin of these notes with the source version."""
+    g = _gate()
+    repo = _notizbaum(tmp_path, _NOTIZ_621, "6.2.0")
+    funde = [f for f in g.check_tracked_places(repo, "6.2.1") if _NOTIZ_621 in f]
+    assert funde and "6.2.0" in funde[0], funde
+
+
+def test_CONTROL_the_notes_of_another_version_are_not_declared(tmp_path, monkeypatch):
+    """The declaration is narrow: notes named after another version that pin the current one are a
+    claim nobody declared, as before."""
+    g = _gate()
+    rel = "release_notes/RELEASE_NOTES_v6.2.0.md"
+    repo = _notizbaum(tmp_path, rel, "6.2.1")
+    monkeypatch.setattr(g, "_tracked_files", lambda _repo: [rel])
+    funde = g.check_undeclared_places(repo, "6.2.1")
+    assert funde and rel in funde[0], funde
+
+
+def test_CONTROL_without_notes_of_the_source_version_nothing_is_tracked_for_them(tmp_path):
+    """Between the bump and the notes commit the file does not exist yet, and that is no finding."""
+    g = _gate()
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "6.2.1"\n', encoding="utf-8")
+    assert not [f for f in g.check_tracked_places(tmp_path, "6.2.1") if "RELEASE_NOTES" in f]

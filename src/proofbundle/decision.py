@@ -1085,7 +1085,10 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                           "errors": ["policy not evaluated: the evaluation time (now) is malformed "
                                      "(fail-closed)"]}
                 else:
-                    _pol_now = datetime.fromtimestamp(int(cast("int | float", _eval_now_posix)), tz=timezone.utc)
+                    # 6.2.1 R6b-4 (Z309): the same instant, not truncated. `int(...)` cut the wall-clock reading
+                    # to the whole second, so at 00.75 a policy that ended at 00.5 was still valid and one that
+                    # began at 00.5 was not yet valid, while the receipt was judged at 00.75.
+                    _pol_now = datetime.fromtimestamp(cast("int | float", _eval_now_posix), tz=timezone.utc)
                     pe = evaluate_decision_policy(
                         statement, r, {k: v for k, v in richtlinie.items() if k != "relations"},
                         signer_public_key_b64=base64.b64encode(schluessel).decode(), anchor_status=anchor_status,

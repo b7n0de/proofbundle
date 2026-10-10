@@ -294,7 +294,9 @@ def instantiate_template(template: str, *, issuer_keys, policy_id, expected_root
                       if is_decision else inst.get("allowed_issuers"))
     final_root_ok = (not require_auth_root) or bool(_as_dict(inst.get("merkle")).get("trusted_roots"))
     purpose_defined = inst.get("policyPurpose") in POLICY_PURPOSES
-    lifecycle_ok = policy_expired(inst) is not True and policy_not_yet_valid(inst) is not True
+    from datetime import datetime, timezone  # noqa: PLC0415
+    _jetzt = datetime.now(timezone.utc)   # 6.2.1 ZT-01 (Z309): one reading for valid_until and valid_from
+    lifecycle_ok = policy_expired(inst, now=_jetzt) is not True and policy_not_yet_valid(inst, now=_jetzt) is not True
     not_template = inst.get("requiresIdentityOverlay") is not True
     inst["deploymentReady"] = (bool(final_identity) and final_root_ok and purpose_defined
                                and lifecycle_ok and not_template)
