@@ -885,7 +885,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # (NOT_EVALUATED) and exit 1 dominates.
     policy_ok = None
     policy_result = None       # HISTORICAL evaluation (now=verification_time): drives the exit code + POLICY line
-    policy_result_now = None   # CURRENT evaluation (now=None): drives safeForAutomation + the tree-context inputs
+    policy_result_now = None   # CURRENT evaluation (now=_jetzt): drives safeForAutomation + the tree-context inputs
+    # 6.2.1 ZT-01 (Z309): the present instant of this verify, read once; the current evaluation and the
+    # present-tense lifecycle flags below are judged at it.
+    from datetime import datetime, timezone  # noqa: PLC0415
+    _jetzt = datetime.now(timezone.utc)
     if policy is not None and crypto_ok:
         # A-P0-2 §6.3: in historical mode `now` is the explicit --verification-time — the POLICY verdict +
         # exit code answer "was it valid THEN". But safeForAutomation is a PRESENT-tense "safe to act on now"
@@ -896,10 +900,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         # The anchors section was applied above (the requirement and the trust material), so the evaluator gets the
         # policy without it; it refuses any rule it does not apply itself (T16).
         _ohne_anker = {k: v for k, v in policy.items() if k != "anchors"}
-        policy_result = evaluate_policy(bundle, result, _ohne_anker, now=verification_time)
+        policy_result = evaluate_policy(bundle, result, _ohne_anker,
+                                        now=_jetzt if verification_time is None else verification_time)
         policy_ok = policy_result["policy_ok"]
         policy_result_now = (policy_result if verification_time is None
-                             else evaluate_policy(bundle, result, _ohne_anker, now=None))
+                             else evaluate_policy(bundle, result, _ohne_anker, now=_jetzt))
     # WP4: the --require-anchor gate is a relying-party requirement layered OVER the crypto result,
     # exactly like --policy — evaluated ONLY when crypto passed (fail-closed; a crypto failure dominates
     # and exits 1). Unmet → anchor_required_ok False → exit 3. Without the flag it stays None and nothing
@@ -951,8 +956,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     _requires_overlay = (policy or {}).get("requiresIdentityOverlay") is True
     from .policy import policy_expired as _policy_expired  # noqa: PLC0415
     from .policy import policy_not_yet_valid as _policy_not_yet_valid  # noqa: PLC0415
-    pol_expired = bool(policy is not None and _policy_expired(policy))          # at the REAL current time
-    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy))  # A-P0-2 not-before mirror
+    pol_expired = bool(policy is not None and _policy_expired(policy, now=_jetzt))  # at the REAL current time
+    pol_not_yet_valid = bool(policy is not None and _policy_not_yet_valid(policy, now=_jetzt))  # not-before mirror
     # A-P0-1 §5.3/§5.4: the atomic tree context. True via (a) a verified --trusted-checkpoint whose
     # (root, size) both match, (b) a policy trusted_checkpoints match at CURRENT time (policy_result_now,
     # so an expired-today checkpoint never authenticates even in historical mode), or (c) an RP-supplied
@@ -1008,7 +1013,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             current_status = "EXPIRED"
         elif pol_not_yet_valid:
             current_status = "NOT_YET_VALID"
-        elif policy is not None and _policy_expired(policy) is None and _policy_not_yet_valid(policy) is None:
+        elif (policy is not None and _policy_expired(policy, now=_jetzt) is None
+              and _policy_not_yet_valid(policy, now=_jetzt) is None):
             current_status = "NO_LIFECYCLE_WINDOW"
         else:
             current_status = "VALID"
@@ -1867,7 +1873,12 @@ def _historical_now_posix(value):
     # sub-second fraction cannot be represented and must NOT be silently truncated to the whole second (which
     # read `…00.750000Z` as `…00` and so BEFORE an expiry at `…00.500000Z`, passing an expired receipt). Reject
     # a nonzero fractional second fail-closed, naming the whole-second requirement; a whole second is unchanged.
-    if dt.microsecond:
+    # 6.2.1 R6b-5 (Z309): the fraction is judged on the TEXT, before the parse can lose it. The parser keeps six
+    # digits, so `…00.0000001Z` reached here as microsecond 0 and passed as the whole second. Every digit of a
+    # written fraction must be 0, whatever its length.
+    import re as _re  # noqa: PLC0415
+    _frac = _re.search(r"\.(\d+)Z\Z", value)
+    if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
                          "(fail-closed)")
@@ -1892,9 +1903,13 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    # 6.2.1 R6b-7 (Z309): an explicit instant judges the EAT freshness AS OF that instant, so the output says so.
+    _historical = getattr(args, "verification_time", None)
     if args.json:
-        print(json.dumps({k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok",
-                                              "fresh", "detail")}))
+        _rep = {k: res[k] for k in ("ok", "tier", "profile", "ueid", "nonce_ok", "fresh", "detail")}
+        if _historical is not None:
+            _rep["verification_time"] = {"mode": "HISTORICAL", "time": _historical}
+        print(json.dumps(_rep))
     else:
         # `enclave.py` setzt `detail = f"malformed EAT token: {exc}"` — der Ausnahmetext kann
         # Token-Bytes tragen. Gleiche Behandlung wie oben.
@@ -1903,6 +1918,8 @@ def _cmd_verify_enclave(args: argparse.Namespace) -> int:
         if res["ok"]:
             print(f"    tier    {_safe_line(str(res['tier']))}")
             print(f"    profile {_safe_line(str(res['profile']))}")
+        if _historical is not None:
+            print(f"VERIFICATION_TIME: HISTORICAL ({_safe_line(str(_historical))})")
         print("=> OK" if res["ok"] else "=> FAILED")
     return 0 if res["ok"] else 1
 
@@ -2350,18 +2367,25 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # (a policy expired/not-yet-valid TODAY stays unsafe even when the historical POLICY verdict passes); this
     # surfaces the two lifecycle verdicts so a consumer sees why. CURRENT_POLICY_STATUS is the present-tense
     # lifecycle (read at the real current time); HISTORICAL_POLICY_STATUS is the verdict AS OF the instant.
+    # 6.2.1 R6b-7 (Z309): the explicit instant also pins the receipt freshness without a policy, so every accepted
+    # historical call is labelled; without a policy both policy statuses read NOT_EVALUATED.
     _vtr = None
-    if getattr(args, "verification_time", None) is not None and isinstance(policy, dict):
-        from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
-        _cur_exp, _cur_nyv = _pexp(policy), _pnyv(policy)
-        if _cur_exp is True:
-            _cur = "EXPIRED"
-        elif _cur_nyv is True:
-            _cur = "NOT_YET_VALID"
-        elif _cur_exp is None and _cur_nyv is None:
-            _cur = "NO_LIFECYCLE_WINDOW"
+    if getattr(args, "verification_time", None) is not None:
+        if isinstance(policy, dict):
+            from datetime import datetime, timezone  # noqa: PLC0415
+            from .policy import policy_expired as _pexp, policy_not_yet_valid as _pnyv  # noqa: PLC0415
+            _jetzt = datetime.now(timezone.utc)   # 6.2.1 ZT-01 (Z309): one present reading for both statuses
+            _cur_exp, _cur_nyv = _pexp(policy, now=_jetzt), _pnyv(policy, now=_jetzt)
+            if _cur_exp is True:
+                _cur = "EXPIRED"
+            elif _cur_nyv is True:
+                _cur = "NOT_YET_VALID"
+            elif _cur_exp is None and _cur_nyv is None:
+                _cur = "NO_LIFECYCLE_WINDOW"
+            else:
+                _cur = "VALID"
         else:
-            _cur = "VALID"
+            _cur = "NOT_EVALUATED"
         _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
                 "historical_policy_status": ("PASS" if result["policy_ok"] else
                                              "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
