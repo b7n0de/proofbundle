@@ -2905,42 +2905,97 @@ def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
             and push_urls[0] == fetch_urls[0])
 
 
-def _refspec_apply(src: str, dst: str, ref: str) -> str | None:
-    """The ref `src:dst` maps `ref` to, or None when it does not match. Both sides are full refs, wildcard
-    only as a trailing `*` on both sides. A negative or malformed spec matches nothing."""
-    if src.startswith("^") or dst.startswith("^") or not dst:
+def _fetch_refspec(spec: str) -> tuple[bool, str, str | None, bool] | None:
+    """One fetch refspec as git 2.43.0 parses it (refspec.c, parse_refspec): (negative, source, destination, pattern),
+    destination None where the spec has no colon. One leading `+` is the force sign and one leading `^` makes the spec
+    negative, never both (git reads `+^…` as an invalid ref, and `++…` as a source starting with `+`, R5-1 class); the
+    last colon splits the sides; each side holds at most one `*`, a positive pattern needs it on both sides, and a
+    negative spec has a source only. None for a spec git refuses (review round 6 of 2026-10-10, R6-3)."""
+    negative = spec.startswith("^")
+    rest = spec[1:] if spec[:1] in ("+", "^") else spec
+    head, colon, tail = rest.rpartition(":")
+    src, dst = (head, tail) if colon else (rest, None)
+    if (negative and (dst is not None or not src)) or src.count("*") > 1 or (dst or "").count("*") > 1:
         return None
-    if src.endswith("*") and dst.endswith("*"):
-        return dst[:-1] + ref[len(src) - 1:] if ref.startswith(src[:-1]) else None
-    if "*" in src or "*" in dst:
+    pattern = "*" in src
+    if pattern != ("*" in (dst or "")) and not (negative and dst is None):
         return None
-    return dst if ref == src else None
+    return negative, src, dst, pattern
+
+
+def _refspec_map(key: str, value: str | None, pattern: bool, name: str) -> str | None:
+    """What `name` maps to through one refspec side `key` onto the other side `value`, as git's
+    match_name_with_pattern maps it (remote.c): a pattern side holds one `*` anywhere, which stands for any run of
+    characters, an empty one too, and the same run fills the `*` of `value`; a plain side matches only itself. None
+    where `name` does not match; with `value` None the matching name itself. A trailing `*` was all the gate read, so
+    `refs/heads/o*her:refs/remotes/origin/ma*n` mapped nothing for it while git fetched oiher into main (R6-3)."""
+    if not pattern:
+        return None if name != key else (name if value is None else value)
+    prefix, _, suffix = key.partition("*")
+    if not (name.startswith(prefix) and name.endswith(suffix) and len(name) >= len(prefix) + len(suffix)):
+        return None
+    if value is None:
+        return name
+    head, _, tail = value.partition("*")
+    return head + name[len(prefix):len(name) - len(suffix)] + tail
+
+
+def _local_ref(dst: str, pattern: bool) -> str:
+    """The local ref a fetch destination writes (remote.c, get_local_ref): a plain destination outside refs/ is
+    completed, `heads/`, `tags/` and `remotes/` under refs/, anything else under refs/heads/; a pattern's expansion is
+    taken as it stands."""
+    if pattern or dst.startswith("refs/"):
+        return dst
+    return "refs/" + dst if dst.startswith(("heads/", "tags/", "remotes/")) else "refs/heads/" + dst
 
 
 def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadline: float) -> bool:
-    """Whether the remote's fetch refspecs map the destination branch `dest` to exactly the tracking ref
-    `tracking`, and map nothing else onto `tracking`. Otherwise the tracking ref does not record the state
-    of `dest` on the remote (a remapped or colliding refspec), so the comparison the gate would make is
-    against the wrong state and the target is NOT MEASURED (review R3-2)."""
-    out = _git(repo, "config", "--null", "--get-all", f"remote.{remote}.fetch", deadline=deadline)
-    if out.returncode not in (0, 1):
+    """Whether the fetch rules in effect map the destination branch `dest` to exactly the tracking ref `tracking`,
+    and nothing else onto it. Otherwise the tracking ref does not record the state of `dest` on the remote (a remapped
+    or colliding refspec), the comparison would be against the wrong state, and the target is NOT MEASURED (review
+    R3-2).
+
+    The rules in effect are every remote's fetch refspecs, read as git 2.43.0 reads them (review round 6 of
+    2026-10-10, R6-3, measured): a negative refspec of the remote excludes the remote refs it names, so an excluded
+    `dest` is never fetched into its tracking ref (`git fetch` exits 0 and leaves it as it was), and an excluded source
+    writes nothing; a `*` may stand anywhere in a side; a short name or an empty source (the remote's HEAD) writes the
+    tracking ref like any other source (git then refuses the fetch, "Cannot fetch both"); and another remote whose
+    fetch writes the tracking ref makes it record that remote. A rule git refuses is NOT MEASURED."""
+    out = _git(repo, "config", "--null", "--get-regexp", r"^remote\..*\.fetch$", deadline=deadline)
+    if out.returncode == 1 and not out.stdout and not out.stderr:
+        return False   # no fetch rule at all: nothing maps dest
+    if out.returncode != 0 or not out.stdout.endswith(b"\0"):
         return False
-    specs = _git_values(out.stdout) if out.returncode == 0 else []
-    if specs is None:
-        return False
+    rules: dict[str, list] = {}
+    for entry in out.stdout[:-1].split(b"\0"):
+        key, newline, value = entry.partition(b"\n")
+        parsed = _fetch_refspec(_git_text(value)) if newline else None
+        if parsed is None:
+            return False   # a rule with no value, or one git refuses
+        rules.setdefault(_git_text(key)[len("remote."):-len(".fetch")], []).append(parsed)
+
+    def excluded(specs: list, ref: str) -> bool:
+        return any(_refspec_map(src, None, pattern, ref) is not None for negative, src, _dst, pattern in specs
+                   if negative)
+
+    own = rules.get(remote, [])
+    if excluded(own, dest):
+        return False   # the remote's fetch leaves dest out, so the tracking ref does not follow it
     dest_maps_to, maps_to_tracking = set(), set()
-    for spec in specs:
-        # One leading + is the force flag; git reads a second as part of the source (measured with git 2.43.0:
-        # `++refs/heads/*:refs/remotes/origin/*` maps nothing), so only one is removed (review round 5, R5-1 class)
-        src, sep, dst = (spec[1:] if spec.startswith("+") else spec).partition(":")
-        if not sep:
-            continue  # a fetch spec with no destination writes FETCH_HEAD, not a tracking ref
-        forward = _refspec_apply(src, dst, dest)
-        if forward is not None:
-            dest_maps_to.add(forward)
-        reverse = _refspec_apply(dst, src, tracking)
-        if reverse is not None:
-            maps_to_tracking.add(reverse)
+    for name, specs in rules.items():
+        for negative, src, dst, pattern in specs:
+            if negative or not dst:
+                continue   # no destination: the fetch writes FETCH_HEAD, not a tracking ref
+            local = _local_ref(dst, pattern)
+            source = _refspec_map(local, src, pattern, tracking)
+            if source is not None and not excluded(specs, source):
+                if name != remote:
+                    return False   # another remote's fetch writes the tracking ref
+                maps_to_tracking.add(source)
+            if name == remote:
+                target = _refspec_map(src, local, pattern, dest)
+                if target is not None:
+                    dest_maps_to.add(target)
     return dest_maps_to == {tracking} and maps_to_tracking == {dest}
 
 

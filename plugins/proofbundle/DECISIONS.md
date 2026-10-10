@@ -148,7 +148,15 @@ MEASURED. The remote itself is not read.
 - A shell `git push` resolves its targets from the command and local configuration (`resolve_push_targets`):
   the remote must be a configured name, not a URL or path; each refspec maps to a branch or tag on the
   remote with a local remote-tracking ref that the remote's fetch refspecs map that branch to and nothing
-  else, so the ref records the state of that branch and not another (review R3-2). There is no default-branch fallback: a new
+  else, so the ref records the state of that branch and not another (review R3-2). The fetch rules are read as git
+  2.43.0 reads them, every remote's (review round 6 of 2026-10-10, R6-3; refspec.c, remote.c, measured): a negative
+  refspec excludes the remote refs it names, exactly or by a pattern whose one `*` may stand anywhere, so an
+  excluded target branch is never fetched into its tracking ref (`git fetch` exits 0 and leaves it as it was) and
+  the comparison is NOT MEASURED, while an excluded source writes nothing and is no collision; a `*` in the middle of
+  a side maps as a trailing one does; a short name or an empty source (the remote's HEAD) writes the tracking ref like
+  any other source; another remote whose fetch rules write the tracking ref makes it record that remote; and a rule
+  git refuses is NOT MEASURED. The gate had skipped every fetch refspec without a colon and every `*` not at the end.
+  There is no default-branch fallback: a new
   branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
   MEASURED (N1). `--all`, `--mirror`, `--tags`, a wildcard or negative refspec, a configured
   `remote.<name>.push`, a mirror remote or `push.followTags` add updates the command does not name, so the
