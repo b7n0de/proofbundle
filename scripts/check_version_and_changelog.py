@@ -732,6 +732,23 @@ def _kommentar_beginnt(z: str) -> bool:
     return False
 
 
+#: THE NOTES OF THE SOURCE VERSION ARE A DECLARED PLACE FOR THE PROJECT PIN, while they exist. From
+#: 6.2.1 the release page opens with the install line of its own version, so Check 6 read the rendered
+#: notes as a place nobody declared. The file is named after its version and rendered from a source
+#: the renderer binds to that version (`render_release.lade`), so the place moves with the version by
+#: construction. It is declared here and not in `_TRACKED_PLACES`, whose entries are fixed file names
+#: and fail when the file is missing: the notes arrive one commit after the bump. Only the notes of the
+#: SOURCE version are declared; the notes of another version stay swept like any other file.
+def _versionsgebundene_stellen(repo: Path, version: str | None) -> list:
+    if not version:
+        return []
+    rel = f"release_notes/RELEASE_NOTES_v{version}.md"
+    if not (repo / rel).is_file():
+        return []
+    return [(rel, re.compile(_PROJECT_PIN + _SEMVER + _PIN_ENDE, re.IGNORECASE),
+             "every `proofbundle==X.Y.Z` pin in the release notes of the source version")]
+
+
 def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]:
     """Find "this is the current release" claims outside _TRACKED_PLACES.
 
@@ -767,7 +784,7 @@ def check_undeclared_places(repo: Path, version: str | None = None) -> list[str]
     # because the valid declared pin skipped the line before the stale word claim was read. The
     # matched text is blanked, and the rest of the line is swept like any other.
     declared_patterns: dict[str, list] = {}
-    for rel_d, pattern_d, _ in _TRACKED_PLACES:
+    for rel_d, pattern_d, _ in _TRACKED_PLACES + _versionsgebundene_stellen(repo, version):
         declared_patterns.setdefault(rel_d, []).append(pattern_d)
     problems: list[str] = []
     for rel in _tracked_files(repo):
@@ -812,7 +829,7 @@ def check_tracked_places(repo: Path, version: str, herkunft: str = "the source f
     reworded, nobody is checking that place any more and the gate would go quietly blind.
     """
     problems: list[str] = []
-    for rel, pattern, beschreibung in _TRACKED_PLACES:
+    for rel, pattern, beschreibung in _TRACKED_PLACES + _versionsgebundene_stellen(repo, version):
         path = repo / rel
         if not path.is_file():
             problems.append(f"{rel}: tracked version place is missing (expected {beschreibung})")
