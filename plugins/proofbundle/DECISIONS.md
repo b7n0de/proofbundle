@@ -231,7 +231,9 @@ MEASURED. The remote itself is not read.
   is read with an index of the gate's own), `GIT_CONFIG` (it moves only `git config`, not push, add or commit, so the
   gate's `git config` reads would have read another file than the push), and the pathspec names
   (`GIT_LITERAL_PATHSPECS` set, `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS`, `GIT_ICASE_PATHSPECS` dropped: the
-  gate's paths are its own literal paths). `GIT_SHALLOW_FILE` is read through git's own view of each commit's parents
+  gate's paths are its own literal paths), and the trace variables `GIT_TRACE*` (they change what git prints, not what
+  it reads; with a trace on stderr every absent configuration key had read as unreadable after R6-2, so every push
+  was NOT MEASURED). `GIT_SHALLOW_FILE` is read through git's own view of each commit's parents
   (D28). Refused: `GIT_NAMESPACE` at Level 1, where git writes the push under `refs/namespaces/` on a local remote
   while the tracking ref records the plain branch; at Level 2 git reports the namespaced target's state itself (absent,
   so NOT MEASURED).

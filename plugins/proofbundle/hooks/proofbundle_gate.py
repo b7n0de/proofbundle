@@ -1825,7 +1825,11 @@ def _read_env() -> dict:
     reads the configuration git push, add and commit read. GIT_LITERAL_PATHSPECS is set and the glob, noglob and icase
     variants dropped: every path the gate names to git is its own literal path (the declaration, a file at a commit);
     GIT_ICASE_PATHSPECS made `rev-list -- .proofbundle/evidence.json` list a commit of another file and `ls-tree` refuse
-    the path (measured with git 2.43.0: "pathspec magic not supported by this command: 'icase'")."""
+    the path (measured with git 2.43.0: "pathspec magic not supported by this command: 'icase'"). The trace variables
+    (GIT_TRACE, GIT_TRACE_<x>, GIT_TRACE2, GIT_TRACE2_<x>) change what git prints, not what it reads, and are dropped:
+    the gate reads a configuration key as absent only where git exits 1 and says nothing (R6-2), and a trace on stderr
+    had made every absent key unreadable, so every push NOT MEASURED (measured at 5714030c, found in the class search
+    of R6-2)."""
     env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
@@ -1836,6 +1840,8 @@ def _read_env() -> dict:
     env["GIT_LITERAL_PATHSPECS"] = "1"
     for name in ("GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"):
         env.pop(name, None)
+    for name in [name for name in env if name.startswith("GIT_TRACE")]:
+        del env[name]
     return env
 
 
