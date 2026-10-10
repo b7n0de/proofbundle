@@ -37,6 +37,14 @@ class R6b5FractionRefusedOnTheText(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 _historical_now_posix(text)
 
+    def test_a_comma_separated_sub_microsecond_fraction_is_a_format_error(self):
+        """ISO 8601 allows a comma as the decimal sign. From Python 3.11 the parser takes it and keeps six
+        digits, so `,0000001Z` reached the guard as microsecond 0 while the text check looked only after a
+        period. Red at 9b0d6520 under Python 3.11; under 3.10 the parse already refuses the form."""
+        for text in ("2026-01-01T00:00:00,0000001Z", "2026-01-01T00:00:00,0000000001Z"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                _historical_now_posix(text)
+
     def test_the_cli_refuses_it_and_judges_no_policy(self):
         env, pub, aud, nonce, _sk = R6A._signed_receipt()
         pol = {"schema": "proofbundle/trust-policy/v0.2", "policy_id": "r6b-5",
