@@ -1875,9 +1875,10 @@ def _historical_now_posix(value):
     # a nonzero fractional second fail-closed, naming the whole-second requirement; a whole second is unchanged.
     # 6.2.1 R6b-5 (Z309): the fraction is judged on the TEXT, before the parse can lose it. The parser keeps six
     # digits, so `…00.0000001Z` reached here as microsecond 0 and passed as the whole second. Every digit of a
-    # written fraction must be 0, whatever its length.
+    # written fraction must be 0, whatever its length. ISO 8601 allows a comma as the decimal sign, and the
+    # parser of Python 3.11 and later accepts it, so the text check reads both separators.
     import re as _re  # noqa: PLC0415
-    _frac = _re.search(r"\.(\d+)Z\Z", value)
+    _frac = _re.search(r"[.,](\d+)Z\Z", value)
     if dt.microsecond or (_frac is not None and _frac.group(1).strip("0")):
         raise ValueError(f"--verification-time {value!r} must name a whole second — a sub-second fraction "
                          "is not a representable POSIX-seconds evaluation time and is never silently truncated "
