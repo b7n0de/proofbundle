@@ -194,3 +194,14 @@ def test_a_source_whose_full_name_is_not_the_branch_is_not_measured(env, tmp_pat
     _git(r.path, "fetch", "-q", "origin")
     _git(r.path, "tag", "rel", "HEAD")
     assert _verdict(env, r.path, "git push origin rel") == NOT_MEASURED
+
+
+def test_a_plain_fetch_rule_without_a_destination_is_not_measured(env, tmp_path):
+    """R7-4 counts any plain source of the pushing remote as not evidenced. A plain rule without a destination writes
+    FETCH_HEAD only and maps no tracking ref, so only the destination check sees it (mutation M82h); git fetches with
+    it."""
+    r = _repo(tmp_path)
+    _git(r.path, "config", "--add", "remote.origin.fetch", "refs/heads/main")
+    assert subprocess.run(["git", "-C", str(r.path), "fetch", "-q", "origin"], capture_output=True, timeout=60,
+                          check=False).returncode == 0
+    assert _verdict(env, r.path, "git push origin main") == NOT_MEASURED

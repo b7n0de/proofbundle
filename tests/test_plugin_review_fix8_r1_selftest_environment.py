@@ -105,3 +105,15 @@ def test_control_without_a_git_name_the_command_acts_on_the_throwaway_repository
     remote = subprocess.run(["git", "--git-dir", prepared["remote"], "rev-parse", "refs/heads/main"],
                             capture_output=True, text=True, check=True)
     assert remote.stdout.strip() == (work.parent / "base_oid").read_text(encoding="utf-8").strip()
+
+
+def test_a_push_rewrite_of_the_throwaway_remote_makes_the_selftest_not_measurable(env, tmp_path):
+    """A configuration the host hands on (here GIT_CONFIG_COUNT, as `git -c` passes it) that rewrites the push URL of
+    the self-test's folder sends the command's push elsewhere, while git directory, work tree, index and objects stay
+    the folder's own; so the push URL is asked of git too (mutation M81e)."""
+    temp = tmp_path / "temp"
+    prepared = _prepare(env, tmp_path, GIT_CONFIG_COUNT="1",
+                        GIT_CONFIG_KEY_0=f"url.{tmp_path / 'elsewhere'}/.pushInsteadOf", GIT_CONFIG_VALUE_0=f"{temp}/")
+    assert prepared["is_error"] and prepared["error"].startswith("NOT MEASURABLE: "), prepared
+    assert "another URL" in prepared["error"], prepared
+    assert _left_behind(tmp_path) == []
