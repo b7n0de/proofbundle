@@ -3089,7 +3089,22 @@ def _endpoint_consistent(repo: str, remote: str, deadline: float) -> bool:
     records the old endpoint. So the gate additionally requires that no rewrite applies to this remote, push-
     only or symmetric, resolved by git's own rules (_applicable_rewrites, review Runde 6, Punkt 2). A rule for
     another host does not count; how common a rule is (an SSH rewrite, say) is no reason to release a
-    comparison it does apply to. A git error raises GateError (NOT MEASURED)."""
+    comparison it does apply to. A git error raises GateError (NOT MEASURED).
+
+    remote.<name>.url is a list git reads with a reset rule and a fallback (review round 8 of 2026-10-10, the class of
+    R8-3; measured with git 2.43.0 and 2.51.1): git 2.51.1 clears the list with an empty value, git 2.43.0 keeps the
+    empty value as a URL and refuses the push, and where no URL is left both take the remote's own name for one
+    (remote.c, add_url_alias) and push to that path below the top level. Only exactly one non-empty configured value
+    reads the same under both, so any other list is NOT MEASURED; `get-url` alone had shown `origin` for both sides and
+    passed a push to ./origin."""
+    configured = _git(repo, "config", "--null", "--get-all", f"remote.{remote}.url", deadline=deadline)
+    if configured.returncode == 1 and not configured.stdout and not configured.stderr:
+        return False   # no URL: git pushes to the remote's name as a path
+    if configured.returncode != 0 or not configured.stdout.endswith(b"\0"):
+        raise GateError(f"git could not read the URLs of remote {remote}")
+    values = configured.stdout[:-1].split(b"\0")
+    if len(values) != 1 or not values[0]:
+        return False   # an empty value: a URL git 2.43.0 refuses, a reset in newer git; or more than one URL
     if _applicable_rewrites(repo, remote, deadline):
         return False
     push = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)

@@ -238,7 +238,13 @@ MEASURED. The remote itself is not read.
   U+0085 rewrites the URL; the gate had judged each against `origin/main`.
 - The push endpoint must be one URL, equal for fetch and push, so the remote-tracking ref records the state
   of the endpoint the push updates. A `pushurl` or a second `remote.<name>.url` sends the push elsewhere or
-  to a further endpoint and is NOT MEASURED (Befund 1). A `url.<base>.insteadOf` **or**
+  to a further endpoint and is NOT MEASURED (Befund 1). `remote.<name>.url` is a list git reads with a reset rule
+  and a fallback (review round 8 of 2026-10-10, the class of R8-3; measured with git 2.43.0 and 2.51.1): git 2.51.1
+  clears it with an empty value, git 2.43.0 keeps the empty value as a URL and refuses the push ("no path
+  specified"), and where no URL is left both take the remote's own name for one (remote.c, add_url_alias) and push
+  to that path below the top level, into a repository that stands there. Only exactly one non-empty configured value
+  reads the same under both, so any other URL list is NOT MEASURED, a list newer git resets to one URL included;
+  `git remote get-url` had shown `origin` on both sides and the gate had passed. A `url.<base>.insteadOf` **or**
   `url.<base>.pushInsteadOf` rewrite that applies to this remote also makes the push NOT MEASURED (review
   R4-7, Runde 5 Punkt 9). Which rule applies is resolved by git's own rules (Runde 6, Punkt 2): an
   `insteadOf` rule rewrites a configured `url` or an explicit `pushurl` it is the longest matching prefix
