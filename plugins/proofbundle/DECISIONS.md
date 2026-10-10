@@ -1589,7 +1589,12 @@ Chosen (option B of the owner card for N1):
   6 of 2026-10-10, R6-4: a done end had written over a record with blocks "1" without a word). The end that writes
   the blocker names a count record it could not write, and so does a block whose blocker could not be written; a done
   end names an earlier blocker it could not remove (review round 7 of 2026-10-10, R7-5: the record's write error after
-  a written blocker was dropped, and the next stop read the record from before that end). The counters in
+  a written blocker was dropped, and the next stop read the record from before that end). On a done end the three
+  stay apart: a record it could not write is a count it could not record, a blocker it could not remove is named as
+  such, and an unreadable earlier record is named whatever else failed, with "wrote its own record in its place" only
+  where the write succeeded (review round 8 of 2026-10-10, R8-4: a failed removal beside an unreadable record had been
+  reported as an end that could not be counted, while the record held a valid count, and the unreadable record went
+  unnamed). The counters in
   `done-metrics.json` are not checked that way: a file that is not the counters' form starts them afresh, and a write
   that fails goes unreported; they decide no verdict.
 - Claude Code's `TaskCompleted` hook runs the same check. The gate prints the line and exits 0; the hook command

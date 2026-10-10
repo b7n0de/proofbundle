@@ -5912,12 +5912,15 @@ def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | 
     return None, (None if problem is None else f"the block count could not be recorded ({problem})"), unread
 
 
-def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | None]:
+def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | None, str | None]:
     """Count a done verdict, and a completion after at least one block in the same session; the blocker of an
-    earlier stop no longer stands and is removed. Returns (problem, unread) as _account_block does: problem names why
-    the reset count could not be recorded, unread a present record the hook could not read and replaced, None where
-    there is none. A done end names both like a refused one (review round 6 of 2026-10-10, R6-4: the record's problem
-    was read here and dropped, so a record with blocks "1" was written over without a word, against R5-3)."""
+    earlier stop no longer stands and is removed. Returns (problem, removal, unread): problem names why the reset count
+    could not be written, removal why the earlier blocker could not be removed, unread a present record the hook could
+    not read (replaced only where problem is None), None where there is none. A done end names each like a refused one
+    (review round 6 of 2026-10-10, R6-4: the record's problem was read here and dropped, so a record with blocks "1" was
+    written over without a word, against R5-3). The three stay apart (review round 8 of 2026-10-10, R8-4: a removal that
+    failed was reported as a count that could not be recorded, while the record held a valid count, and the note on the
+    replaced unread record was dropped)."""
     repo = result["repo"]
     session = _session_key(event)
     previous, unread = _done_state(repo)
@@ -5934,8 +5937,7 @@ def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | N
         pass
     except OSError as exc:   # the earlier NOT DONE would stand beside this done end: named, not dropped (R7-5 class)
         removed = f"the earlier blocker {DONE_BLOCKER} could not be removed ({exc})"
-    problems = ([] if problem is None else [f"the count could not be reset ({problem})"]) + ([removed] if removed else [])
-    return ("; ".join(problems) or None), unread
+    return (None if problem is None else f"the count could not be reset ({problem})"), removed, unread
 
 
 def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
@@ -5977,7 +5979,7 @@ def stop_command(argv: list[str]) -> int:
                           evidence="the done check", failed=f"internal error {type(exc).__name__}: {exc}",
                           next_step="report this error")
         result = _failed_check(exc, verdict)
-    blocker, counting, unread = None, None, None
+    blocker, counting, unread, removal = None, None, None, None
     # Every refusal counts toward the limit, a check that refused early or failed included (review 2026-10-09, F6);
     # where no order could be read, the default limit applies.
     limit = result["done"]["max_blocks"] if result is not None and result["done"] is not None else DEFAULT_MAX_BLOCKS
@@ -5985,7 +5987,7 @@ def stop_command(argv: list[str]) -> int:
         if result is not None and result["repo"] and result["open"] and verdict.decision == "deny":
             blocker, counting, unread = _account_block(result, event, limit)
         elif result is not None and result["done"] is not None and verdict.decision == "pass":
-            counting, unread = _account_pass(result, event)
+            counting, removal, unread = _account_pass(result, event)
     except Exception as exc:  # noqa: BLE001 - counting never changes the answer, but a failed count is named (R3-4)
         blocker, counting = None, f"counting failed ({type(exc).__name__}: {exc})"
     try:
@@ -5993,12 +5995,16 @@ def stop_command(argv: list[str]) -> int:
     except Exception:  # noqa: BLE001 - the log never changes the answer
         pass
     if verdict.decision == "pass":
+        # Each failure of the hook's own files is named for what it is, and only one that happened (R8-4)
         message = verdict.detail
         if counting is not None:
             message += f" The hook could not record this end in its count: {counting}."
-        elif unread is not None:
-            message += (f" The earlier count could not be read ({unread}); the hook wrote its own record in its "
-                        "place.")
+        if unread is not None:
+            message += (f" The earlier count could not be read ({unread}); "
+                        + ("the hook wrote its own record in its place." if counting is None
+                           else "it stays in place, since the hook could not write its own record."))
+        if removal is not None:
+            message += f" {removal[0].upper()}{removal[1:]}; this done end stands, and the blocker file is out of date."
         sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
     elif blocker is not None:
         message = (f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
