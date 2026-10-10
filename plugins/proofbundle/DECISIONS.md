@@ -155,7 +155,13 @@ MEASURED. The remote itself is not read.
   the comparison is NOT MEASURED, while an excluded source writes nothing and is no collision; a `*` in the middle of
   a side maps as a trailing one does; a short name or an empty source (the remote's HEAD) writes the tracking ref like
   any other source; another remote whose fetch rules write the tracking ref makes it record that remote; and a rule
-  git refuses is NOT MEASURED. The gate had skipped every fetch refspec without a colon and every `*` not at the end.
+  git refuses is NOT MEASURED. A source without `*` names whatever ref of the remote git resolves it to (review round
+  7 of 2026-10-10, R7-4; remote.c get_remote_ref, measured with git 2.43.0 and 2.51.1): `other` is refs/heads/other,
+  and refs/heads/gone is refs/heads/refs/heads/gone where the branch gone is missing, and a negative refspec is
+  compared with that resolved ref, so `^other` excludes nothing. The remote's refs are not evidenced here, so a plain
+  source that writes the tracking ref, or any plain source of the pushing remote, makes the comparison NOT MEASURED;
+  the single-branch rule `+refs/heads/main:refs/remotes/origin/main` of `git clone --single-branch` among them. The
+  gate had read `^other` as excluding `+other:refs/remotes/origin/main` and passed. The gate had skipped every fetch refspec without a colon and every `*` not at the end.
   There is no default-branch fallback: a new
   branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
   MEASURED (N1). `--all`, `--mirror`, `--tags`, a wildcard or negative refspec, a configured

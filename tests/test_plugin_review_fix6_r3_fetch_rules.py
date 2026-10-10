@@ -122,8 +122,10 @@ def test_control_a_middle_star_onto_other_refs_keeps_the_pass(env, tmp_path):
 
 def test_an_excluded_source_is_no_collision(env, tmp_path):
     """git fetches no excluded ref, so a rule that would write the tracking ref from it writes nothing: with
-    `^refs/heads/other` the explicit rule from other is void, the fetch exits 0 and the tracking ref follows main."""
-    r = _repo(tmp_path, "+refs/heads/other:refs/remotes/origin/main", "^refs/heads/other")
+    `^refs/heads/oiher` the middle-star rule from oiher onto main is void, the fetch exits 0 and the tracking ref follows
+    main. A plain source such as refs/heads/other is no longer read this way: which remote ref git resolves it to is not
+    evidenced, so it is NOT MEASURED (review round 7 of 2026-10-10, R7-4, test_plugin_review_fix7_r4_*)."""
+    r = _repo(tmp_path, "+refs/heads/o*her:refs/remotes/origin/ma*n", "^refs/heads/oiher")
     _git(r.path, "update-ref", "-d", TRACKING)
     assert _fetch(r.path).returncode == 0 and _tracking(r.path) == _remote_main(r.path)
     assert _verdict(env, r.path) == ("pass", ["done"])

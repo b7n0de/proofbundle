@@ -3163,6 +3163,16 @@ def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadli
             if negative or not dst:
                 continue   # no destination: the fetch writes FETCH_HEAD, not a tracking ref
             local = _local_ref(dst, pattern)
+            if not pattern and (local == tracking or name == remote):
+                # A plain source names whatever ref of the remote git resolves it to (remote.c get_remote_ref, the best
+                # of refname_match's rules against the refs the remote advertises): `other` is refs/heads/other, and
+                # refs/heads/gone is refs/heads/refs/heads/gone where the branch gone is missing (measured with git
+                # 2.43.0 and 2.51.1). A negative refspec is compared with the ref git resolved, so `^other` excludes
+                # nothing. Which remote ref that is, here or for dest, is not evidenced in this repository: NOT
+                # MEASURED, never an exclusion read from the spelling (review round 7 of 2026-10-10, R7-4)
+                return False
+            if not pattern:
+                continue   # another remote's plain source writes another ref than the tracking ref
             source = _refspec_map(local, src, pattern, tracking)
             # One decision site for an exclusion: git fetches no excluded source, so it writes nothing, and an
             # excluded dest leaves the tracking ref without its source (mutation M63a: a second check of dest alone
