@@ -1101,7 +1101,12 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   equals the recorded base OID. They do not establish why an observation is missing. NOT MEASURABLE means
   the observations do not support another result. The limit applies to every result." (review R3-6), and
   the round-2 caution that the log is local, so this is a local diagnosis, not an independent proof of the
-  host's hook. It never pushes to a real remote; the
+  host's hook. It never pushes to a real remote. Its own git calls run without any `GIT_` name the host set, and
+  prepare asks git, in the server's environment, whether a call in its folder takes that folder's repository, work
+  tree, index and object store and pushes origin to the throwaway remote; where git answers otherwise the self-test
+  is NOT MEASURABLE and removes its folder (review round 8 of 2026-10-10, the class of R8-1: an exported `GIT_DIR`
+  had made prepare commit twice onto that repository's branch and add a remote to it, measured with git 2.43.0 and
+  2.51.1). The shell the host runs the command in may carry another environment than the server. The
   check refuses any folder it did not create, and takes no special path for the self-test in the gate. The
   skill runs only when the user invokes it. The time window gate_status reports where there is no host
   session id is labelled as a window since the server started, not a session.

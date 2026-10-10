@@ -348,9 +348,38 @@ def tool_gate_status(args: dict) -> tuple[dict, bool]:
     return result, False
 
 
+def _selftest_git_env() -> dict:
+    """The environment of the self-test's own git calls: the server's, without any GIT_ name the host set. They make and
+    read only the self-test's throwaway repositories, which a GIT_DIR, GIT_COMMON_DIR, GIT_WORK_TREE, GIT_INDEX_FILE,
+    GIT_OBJECT_DIRECTORY or other GIT_ name replaces with another repository's (review round 8 of 2026-10-10, the class
+    of R8-1: with GIT_DIR exported, gate_selftest_prepare committed twice onto that repository's branch and added a
+    remote to it, measured with git 2.43.0 and 2.51.1)."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    return dict(env, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+
+
 def _run_git(*args: str, cwd: str | None = None) -> None:
-    subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True, timeout=60,
-                   env=dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0"))
+    subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True, timeout=60, env=_selftest_git_env())
+
+
+def _selftest_command_problem(work: str, bare: str) -> str | None:
+    """Why the command the self-test hands out would not push from `work` to `bare` in the server's environment, or
+    None. Asked of git in that environment, as the command runs: the git directory, common directory, work tree, index
+    and object store a call in `work` takes, and the URL its push to origin goes to. The shell the host runs the
+    command in may carry another environment than the server; that is not visible here."""
+    query = subprocess.run(["git", "-C", work, "rev-parse", "--path-format=absolute", "--absolute-git-dir",
+                            "--git-common-dir", "--show-toplevel", "--git-path", "index", "--git-path", "objects"],
+                           capture_output=True, text=True, timeout=60, check=False)
+    git_dir = os.path.join(work, ".git")
+    expected = [git_dir, git_dir, work, os.path.join(git_dir, "index"), os.path.join(git_dir, "objects")]
+    if query.returncode != 0 or [os.path.realpath(p) for p in query.stdout.splitlines()] != \
+            [os.path.realpath(p) for p in expected]:
+        return "git takes another repository, work tree, index or object store for a call in the self-test's folder"
+    url = subprocess.run(["git", "-C", work, "remote", "get-url", "--push", "--all", "origin"],
+                         capture_output=True, text=True, timeout=60, check=False)
+    if url.returncode != 0 or url.stdout.splitlines() != [bare]:
+        return "git pushes the self-test's origin to another URL than its throwaway remote"
+    return None
 
 
 #: Every self-test result carries this. The first four sentences are the reviewer's limit (review R3-6),
@@ -399,7 +428,7 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     _run_git("-C", work, "remote", "add", "origin", bare)
     _run_git(*identity, "-C", work, "push", "-q", "origin", "HEAD:refs/heads/main")
     base_oid = subprocess.run(["git", "-C", work, "rev-parse", "refs/remotes/origin/main"],
-                              capture_output=True, text=True, check=True).stdout.strip()
+                              capture_output=True, text=True, check=True, env=_selftest_git_env()).stdout.strip()
     with open(os.path.join(root, "base_oid"), "w", encoding="utf-8") as handle:
         handle.write(base_oid + "\n")
     # One more commit with the identical evidence rules and a changed tree, so its declared subject is now
@@ -407,6 +436,12 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     with open(os.path.join(work, "CHANGES.md"), "w", encoding="utf-8") as handle:
         handle.write("A change after the declaration was written, so the declared subject is stale.\n")
     commit("selftest change with a stale subject")
+    problem = _selftest_command_problem(work, bare)
+    if problem is not None:
+        shutil.rmtree(root, ignore_errors=True)
+        raise ToolInputError(f"NOT MEASURABLE: {problem} in the server's environment, so the self-test's command "
+                             "would not act on its throwaway repository. Start the host without GIT_DIR, "
+                             "GIT_WORK_TREE and the other GIT_ names that select a repository.")
     command = f"git -C {shlex.quote(work)} push origin main"
     return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -434,7 +469,8 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
     # 'changed' from an empty string.
     valid_base = len(base_oid) in (40, 64) and all(c in "0123456789abcdef" for c in base_oid)
     remote = subprocess.run(["git", "--git-dir", os.path.join(parent, "remote.git"), "rev-parse", "--verify",
-                             "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False)
+                             "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False,
+                            env=_selftest_git_env())
     remote_main = remote.stdout.strip()
     target_changed = (remote_main != base_oid) if (valid_base and remote.returncode in (0, 1)) else None
     path, source = _log_path()
