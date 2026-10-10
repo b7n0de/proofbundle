@@ -12,7 +12,7 @@ Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
 to results; two judge a policy's validity at one instant and with its fraction of a second, so at the edge of a
 validity window a verdict can differ from 6.2.0 in either direction.
 
-`VerificationResult` gains a `verified_inclusion_context` field after its existing fields; positional construction is unchanged.
+`VerificationResult` gains a `verified_inclusion_context` field after its existing fields; positional arguments accepted by 6.2.0 still set the same fields.
 
 ### Fixed
 
