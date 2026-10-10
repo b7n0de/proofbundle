@@ -2984,9 +2984,6 @@ def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadli
         return any(_refspec_map(src, None, pattern, ref) is not None for negative, src, _dst, pattern in specs
                    if negative)
 
-    own = rules.get(remote, [])
-    if excluded(own, dest):
-        return False   # the remote's fetch leaves dest out, so the tracking ref does not follow it
     dest_maps_to, maps_to_tracking = set(), set()
     for name, specs in rules.items():
         for negative, src, dst, pattern in specs:
@@ -2994,6 +2991,9 @@ def _fetch_maps_cleanly(repo: str, remote: str, dest: str, tracking: str, deadli
                 continue   # no destination: the fetch writes FETCH_HEAD, not a tracking ref
             local = _local_ref(dst, pattern)
             source = _refspec_map(local, src, pattern, tracking)
+            # One decision site for an exclusion: git fetches no excluded source, so it writes nothing, and an
+            # excluded dest leaves the tracking ref without its source (mutation M63a: a second check of dest alone
+            # changed no verdict)
             if source is not None and not excluded(specs, source):
                 if name != remote:
                     return False   # another remote's fetch writes the tracking ref
