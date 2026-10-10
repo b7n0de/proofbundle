@@ -1574,7 +1574,10 @@ Chosen (option B of the owner card for N1):
   taken over by the session's sha256, so an update continues the count (review round 5 of 2026-10-09, R5-3: such a
   record, and a block count "1" written as a string, restarted the count without a word). A done end names such a
   record too, and a reset count it cannot write, in its message, and writes its own record in its place (review round
-  6 of 2026-10-10, R6-4: a done end had written over a record with blocks "1" without a word). The counters in
+  6 of 2026-10-10, R6-4: a done end had written over a record with blocks "1" without a word). The end that writes
+  the blocker names a count record it could not write, and so does a block whose blocker could not be written; a done
+  end names an earlier blocker it could not remove (review round 7 of 2026-10-10, R7-5: the record's write error after
+  a written blocker was dropped, and the next stop read the record from before that end). The counters in
   `done-metrics.json` are not checked that way: a file that is not the counters' form starts them afresh, and a write
   that fails goes unreported; they decide no verdict.
 - Claude Code's `TaskCompleted` hook runs the same check. The gate prints the line and exits 0; the hook command

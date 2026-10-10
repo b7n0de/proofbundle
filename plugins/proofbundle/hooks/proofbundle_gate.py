@@ -5873,14 +5873,20 @@ def _account_block(result: dict, event: dict | None, limit: int) -> tuple[str | 
         problem = _write_done_file(repo, DONE_BLOCKER, _blocker(result, event, blocks))
         if problem is not None:
             _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
-            _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
-                                                "open": signature, "blocks": blocks, "blocker": False})
-            return None, f"the blocker could not be written ({problem})", unread
+            counted = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"),
+                                                          "session_sha256": session, "open": signature,
+                                                          "blocks": blocks, "blocker": False})
+            return None, (f"the blocker could not be written ({problem})"
+                          + ("" if counted is None else f", nor the block count ({counted})")), unread
         if first:
             _tally(repo, blockers=1)
-        _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
-                                            "open": signature, "blocks": blocks, "blocker": True})
-        return DONE_BLOCKER, None, unread
+        # The end stands once the blocker is written; a count the hook could not record is named in the end's message,
+        # never dropped: the next stop reads the record from before this end (review round 7 of 2026-10-10, R7-5)
+        counted = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"),
+                                                      "session_sha256": session, "open": signature, "blocks": blocks,
+                                                      "blocker": True})
+        return DONE_BLOCKER, (None if counted is None else f"the end could not be recorded in the count ({counted})"), \
+            unread
     _tally(repo, blocked=1, missing_checks=statuses.count("missing"), open=statuses)
     problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                                   "open": signature, "blocks": blocks, "blocker": False})
@@ -5901,12 +5907,16 @@ def _account_pass(result: dict, event: dict | None) -> tuple[str | None, str | N
     problem = _write_done_file(repo, DONE_STATE, {"schema": DONE_FILES_SCHEMA.format("state"), "session_sha256": session,
                                                   "open": [], "blocks": 0, "blocker": False})
     blocker = os.path.join(repo, *DONE_BLOCKER.split("/"))
+    removed = None
     try:
         if stat.S_ISREG(os.lstat(blocker).st_mode):
             os.unlink(blocker)
-    except OSError:
+    except FileNotFoundError:
         pass
-    return (None if problem is None else f"the count could not be reset ({problem})"), unread
+    except OSError as exc:   # the earlier NOT DONE would stand beside this done end: named, not dropped (R7-5 class)
+        removed = f"the earlier blocker {DONE_BLOCKER} could not be removed ({exc})"
+    problems = ([] if problem is None else [f"the count could not be reset ({problem})"]) + ([removed] if removed else [])
+    return ("; ".join(problems) or None), unread
 
 
 def _hook_event(argv: list[str], name: str) -> tuple[str, dict]:
@@ -5972,10 +5982,13 @@ def stop_command(argv: list[str]) -> int:
                         "place.")
         sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
     elif blocker is not None:
-        sys.stdout.write(json.dumps({"systemMessage": (
-            f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
-            f"blocks, so the hook stops blocking and the session ends without a done verdict. The open points and the "
-            f"state the gate measured are in {blocker}. Open: {verdict.failed.rstrip('.')}.")}) + "\n")
+        message = (f"proofbundle done check: NOT DONE. The same open points stayed open through {limit} "
+                   f"blocks, so the hook stops blocking and the session ends without a done verdict. The open points "
+                   f"and the state the gate measured are in {blocker}. Open: {verdict.failed.rstrip('.')}.")
+        if counting is not None:   # an unread record never reaches here: it makes this block the first (R4-3)
+            message += (f" The hook could not record this end in its count: {counting}; the next stop reads the record "
+                        "from before it.")
+        sys.stdout.write(json.dumps({"systemMessage": message}) + "\n")
     elif verdict.decision != "inactive":
         line = _done_line(verdict)
         if counting is not None and verdict.decision == "deny":
