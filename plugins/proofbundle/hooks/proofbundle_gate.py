@@ -3269,9 +3269,11 @@ def _dest_candidates(value: str) -> list[tuple[str, bool]]:
     return found
 
 
-def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str, deadline: float) -> str | None:
+def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
+                             deadline: float) -> tuple[str, str] | None:
     """None where the refs this repository records of `remote` show that git push resolves the destination value
-    `value` to exactly `dest`, else why that is not evidenced (NOT MEASURED; review round 8 of 2026-10-10, R8-2).
+    `value` to exactly `dest`, else why that is not evidenced and the next step, for the answer (NOT MEASURED;
+    review round 8 of 2026-10-10, R8-2).
 
     git looks the value up among every ref the remote advertises, by the rules of _REV_PARSE_RULES: for the value
     refs/heads/main it also matches refs/refs/heads/main, refs/tags/refs/heads/main and refs/heads/refs/heads/main, and
@@ -3281,15 +3283,22 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str, dead
     where a positive pattern rule of the remote maps it to a local ref that does not exist and no negative rule excludes
     it. A recorded candidate that exists is an ambiguity git refuses; a candidate no rule records is not evidenced
     either way; and a value whose candidates do not include dest names another ref than the one the gate judges."""
+    review = "have a person review the push"
+    record = (f"record what git push also matches with `git config --add remote.{remote}.fetch "
+              f"'+refs/tags/*:refs/recorded/{remote}/tags/*'` and `git config --add remote.{remote}.fetch "
+              f"'+refs/refs/*:refs/recorded/{remote}/refs/*'`, run `git fetch {remote}` and push to the destination in "
+              f"full (refs/heads/<branch>), or {review} (D3)")
     candidates = _dest_candidates(value)
     if (dest, True) not in candidates:
-        return f"git push looks up {value} on the remote, which does not name {dest}"
+        return (f"git push looks up {value} on the remote, which does not name {dest}",
+                f"push to the destination in full (refs/heads/<branch>), or {review}")
     rules = _fetch_rules(repo, deadline)
     if rules is None:
-        return "git cannot read every fetch rule"
+        return "git cannot read every fetch rule", review
     specs = rules.get(remote, [])
     if any(not negative and not pattern for negative, _src, _dst, pattern in specs):
-        return f"a fetch rule of {remote} has a plain source, which records no remote ref the gate can name (R7-4)"
+        return (f"a fetch rule of {remote} has a plain source, which records no remote ref the gate can name (R7-4)",
+                f"replace the plain fetch rule of {remote} by a pattern rule, or {review}")
     for name, strong in candidates:
         if name == dest or not strong:
             continue   # dest itself is the state the tracking ref records; a weak match counts only without a strong one
@@ -3298,14 +3307,15 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str, dead
         recorded = [local for local in recorded if local is not None]
         if not recorded or _fetch_excluded(specs, name):
             return (f"no fetch rule of {remote} records the remote ref {name}, which git push also matches for {value}, "
-                    "so whether the remote holds it is not known here")
+                    "so whether the remote holds it is not known here", record)
         for local in recorded:
             shown = _git(repo, "show-ref", "--verify", "--quiet", local, deadline=deadline)
             if shown.returncode == 0:
                 return (f"the remote held {name} at the last fetch ({local}), so git push matches more than one ref "
-                        f"for {value} and refuses the push")
+                        f"for {value} and refuses the push",
+                        f"remove {name} on the remote or push to a destination git resolves to one ref, or {review}")
             if shown.returncode != 1 or shown.stdout or shown.stderr:
-                return f"git could not say whether {local} exists"
+                return f"git could not say whether {local} exists", review
     return None
 
 
@@ -3349,7 +3359,8 @@ def _qualify_dest(value: str) -> str | None:
     return "refs/heads/" + value
 
 
-def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> list[PushTarget] | None:
+def resolve_push_targets(repo: str, args: list[str] | None, deadline: float,
+                         reasons: list | None = None) -> list[PushTarget] | None:
     """The ref updates a `git push` performs, each with its locally known target state, or None when the
     gate cannot resolve them completely (DECISIONS.md, D3 option B; N1, N2, N3).
 
@@ -3360,7 +3371,10 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     whose current branch has no tracking ref under the chosen remote; a destination that is not a literal
     branch or tag, or a branch with no uniquely mapped remote-tracking ref. There is no default-branch
     fallback: an unknown target state is NOT MEASURED, never 'unchanged' (N1). args is None for a
-    `gh pr/release create`, read as a bare push of the current branch to its upstream.
+    `gh pr/release create`, read as a bare push of the current branch to its upstream. Where a check names why
+    (a push configuration value, a destination git's resolution of which is not evidenced), `reasons` receives that
+    reason and its next step for the answer: the reason the gate found, not a list of possible ones (review round 8 of
+    2026-10-10; the reason of R8-5 had stayed inside the gate and the answer had named other causes).
     """
     if args is None:
         args = []
@@ -3396,15 +3410,17 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
             refspecs.append(word)
         i += 1
     try:
-        if _push_config_problem(repo, deadline, push_options) is not None:
-            return None  # git stops at a push value, or pushes more than the command names, whatever the case (R7-3)
+        problem = _push_config_problem(repo, deadline, push_options)
     except GateError:
+        return None
+    if problem is not None:  # git stops at a push value, or pushes more than the command names, whatever the case (R7-3)
+        _note_reason(reasons, problem, "fix or remove that configuration value, or have a person review the push")
         return None
     remotes = _remote_names(repo, deadline)
     if remotes is None:
         return None  # git cannot read the remote configuration, and its push stops there as well
     if remote is None:  # a bare `git push`: the current branch to its chosen remote, same name
-        return _default_targets(repo, deadline, remotes)
+        return _default_targets(repo, deadline, remotes, reasons=reasons)
     if remote not in remotes:  # a URL or a filesystem path, not a configured remote name
         return None
     try:
@@ -3413,7 +3429,7 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     except GateError:
         return None  # a malformed bool or an unreadable endpoint: NOT MEASURED (review R3-1, R3-3)
     if not refspecs:
-        return _default_targets(repo, deadline, remotes, remote=remote)
+        return _default_targets(repo, deadline, remotes, remote=remote, reasons=reasons)
     targets = []
     for spec in refspecs:
         spec = spec[1:] if spec.startswith("+") else spec
@@ -3432,9 +3448,12 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         # own full name (R8-2); neither its spelling nor the fetch mapping of dest shows that git resolves it to dest
         value = dst if sep else _source_full_name(repo, src, deadline)
         try:
-            if value is None or _dest_resolution_problem(repo, remote, value, dest, deadline) is not None:
-                return None
+            problem = None if value is None else _dest_resolution_problem(repo, remote, value, dest, deadline)
         except GateError:
+            return None
+        if value is None or problem is not None:
+            if problem is not None:
+                _note_reason(reasons, *problem)
             return None
         if src == "":  # `:dst` deletes the destination ref
             targets.append(PushTarget(source=None, dest=dest, tracking=tracking))
@@ -3509,7 +3528,8 @@ def _default_push(repo: str, deadline: float, remotes: set, remote: str | None) 
     return (remote, upstream) if upstream.startswith("refs/heads/") else None
 
 
-def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None) -> list[PushTarget] | None:
+def _default_targets(repo: str, deadline: float, remotes: set, remote: str | None = None,
+                     reasons: list | None = None) -> list[PushTarget] | None:
     """A push with no refspec: the branch git pushes (_default_push) to the remote git chooses, but only when that
     is faithful here. A configured remote.push, a pushurl, a mirror or push.followTags add updates the gate cannot
     name, so those are NOT MEASURED."""
@@ -3531,9 +3551,11 @@ def _default_targets(repo: str, deadline: float, remotes: set, remote: str | Non
     if tracking is None:
         return None
     try:   # git sets up `<branch>:<dest>` with dest in full, and looks that value up on the remote (R8-2)
-        if _dest_resolution_problem(repo, remote, dest, dest, deadline) is not None:
-            return None
+        problem = _dest_resolution_problem(repo, remote, dest, dest, deadline)
     except GateError:
+        return None
+    if problem is not None:
+        _note_reason(reasons, *problem)
         return None
     head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
     if head.returncode != 0 or not head.stdout.strip():
@@ -3667,12 +3689,24 @@ def _push_done(repo: str, sources: list[str], deadline: float) -> tuple[Verdict 
     return None, passes
 
 
-def _unresolved_verdict(repo: str, head: str | None, why: str) -> Verdict:
+def _then(why: str, more: str) -> str:
+    """`more` after `why`: a new sentence after a reason that ends as one (the wording of R8-5 is kept whole)."""
+    return f"{why} {more[0].upper()}{more[1:]}" if why.endswith(".") else f"{why}; {more}"
+
+
+def _note_reason(reasons: list | None, why: str, next_step: str) -> None:
+    """Keep the first reason a push resolution found, with its next step, for the answer."""
+    if reasons is not None and not reasons:
+        reasons.append((why, next_step))
+
+
+def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | None = None) -> Verdict:
     return Verdict("ask", f"NOT MEASURED: the gate cannot resolve what this push sends, so it checked nothing: "
-                          f"{why}.", "push_not_measured",
+                          f"{why.rstrip('.')}.", "push_not_measured",
                    evidence="the commits and refs this push would send",
-                   failed=why, next_step="push with an explicit remote name and refspec whose target this "
-                                         "repository already tracks, or have a person review the push",
+                   failed=why, next_step=next_step or ("push with an explicit remote name and refspec whose target "
+                                                        "this repository already tracks, or have a person review the "
+                                                        "push"),
                    repo=repo, head=head)
 
 
@@ -3892,14 +3926,16 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
                        "no_commit", evidence=f"the declaration {DECLARATION}", failed="the repository has no commit",
                        next_step="commit first, then retry", repo=repo)
     head_commit = head.stdout.decode().strip()
-    targets = resolve_push_targets(repo, push_args, deadline)
+    reasons: list = []
+    targets = resolve_push_targets(repo, push_args, deadline, reasons)
     if targets is None:
-        why = ("the remote, a refspec, or the push configuration names updates the gate cannot map to a locally "
-               "tracked target (a URL or path remote, --all/--mirror/--tags, a wildcard refspec, a configured "
-               "remote push list, or a branch this repository does not track)")
+        why, next_step = reasons[0] if reasons else (
+            "the remote, a refspec, or the push configuration names updates the gate cannot map to a locally "
+            "tracked target (a URL or path remote, --all/--mirror/--tags, a wildcard refspec, a configured "
+            "remote push list, or a branch this repository does not track)", None)
         if _git_namespace() is not None:
-            why += (f"; GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on the "
-                    "remote, a ref no tracking ref of this repository records")
+            why = _then(why, f"GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on "
+                             "the remote, a ref no tracking ref of this repository records")
         try:
             sources, remote = _push_sources(repo, push_args, deadline)
             rewrites = (_applicable_rewrites(repo, remote, deadline)
@@ -3907,17 +3943,18 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
         except GateError:
             sources, rewrites = None, []
         if rewrites:
-            why += ("; a URL rewrite applies to this remote (" + "; ".join(rewrites) + "), and equal effective "
-                    "fetch and push URLs do not prove where the existing tracking ref came from")
+            why = _then(why, "a URL rewrite applies to this remote (" + "; ".join(rewrites) + "), and equal "
+                             "effective fetch and push URLs do not prove where the existing tracking ref came from")
         if sources is None:
-            return _unresolved_verdict(repo, head_commit, why + "; the gate cannot tell which commits the push sends, "
-                                       "so it checked no evidence, and no check of HEAD stands in for that")
+            return _unresolved_verdict(repo, head_commit, _then(why, "the gate cannot tell which commits the push "
+                                       "sends, so it checked no evidence, and no check of HEAD stands in for that"),
+                                       next_step)
         denial = _source_denial(repo, head_commit, sources, deadline, why)
         if denial is not None:
             return denial
         checked = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none (the push only deletes)"
-        return _unresolved_verdict(repo, head_commit, why + f"; the evidence at the sent source commit(s) {checked} "
-                                   "showed no failure, which is not a verdict on the push")
+        return _unresolved_verdict(repo, head_commit, _then(why, f"the evidence at the sent source commit(s) "
+                                   f"{checked} showed no failure, which is not a verdict on the push"), next_step)
     return _evaluate_targets(repo, head_commit, targets, deadline)
 
 

@@ -18,6 +18,7 @@ the standard rule alone leaves every Level 1 push NOT MEASURED, which the cost t
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -205,3 +206,27 @@ def test_a_plain_fetch_rule_without_a_destination_is_not_measured(env, tmp_path)
     assert subprocess.run(["git", "-C", str(r.path), "fetch", "-q", "origin"], capture_output=True, timeout=60,
                           check=False).returncode == 0
     assert _verdict(env, r.path, "git push origin main") == NOT_MEASURED
+
+
+def _answer(env, repo, command: str, host: str = "claude") -> str:
+    answer, _entry = n2c._level1(env, repo, host=host, command=command)
+    return json.dumps(answer, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("command", ["git push origin main", "git push"])
+def test_the_answer_names_the_unrecorded_ref_and_the_rules_that_record_it(env, tmp_path, command):
+    """The cost tells the user what to do: the answer names the remote ref no rule records and the two rules. Under
+    Codex every push is NOT MEASURED before its target is read (D12), so this is Claude Code's answer."""
+    r = _repo(tmp_path, record=False)
+    text = _answer(env, r.path, command)
+    assert "no fetch rule of origin records the remote ref refs/" in text, text
+    assert "+refs/tags/*:refs/recorded/origin/tags/*" in text and "+refs/refs/*:refs/recorded/origin/refs/*" in text
+    assert "a wildcard refspec" not in text, text
+
+
+@pytest.mark.parametrize("name", STRONG)
+def test_the_answer_names_the_ambiguity_git_refuses(env, tmp_path, name):
+    r = _repo(tmp_path)
+    _beside(tmp_path, r, name)
+    text = _answer(env, r.path, "git push origin main")
+    assert f"the remote held {name}" in text and "refuses the push" in text, text

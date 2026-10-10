@@ -227,6 +227,10 @@ MEASURED. The remote itself is not read.
   "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED." (review round 8 of
   2026-10-10, R8-5: the gate had said git pushes the submodules' commits where a later false and
   `push.recurseSubmodules=false` kept the transport off, measured by the reviewer with git 2.43.0 and 2.51.1). The
+  answer carries the reason the gate found, this one verbatim, with a next step for it; so does the answer for a
+  newline in a push option and for a destination whose resolution is not evidenced, whose next step names the two
+  fetch rules below (found in the milestone runs of round 8: the reason had stayed inside the gate, and the answer
+  had listed other causes, a URL remote, --all, a wildcard, and told the user to name the refspec they had named). The
   gate had read `push.autoSetupRemote` only for a branch without an upstream. The source
   check of an unresolved bare push takes the same choice, so it no longer names HEAD where git pushes a configured
   push list of another remote. Every name and list the resolution reads from git keeps the bytes git printed (review round 5 of

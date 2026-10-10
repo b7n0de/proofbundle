@@ -10,6 +10,7 @@ contains submodule.recurse=true; submodule push behavior is NOT MEASURED." Red a
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 
@@ -84,3 +85,14 @@ def test_control_no_true_and_no_recursion_word_keeps_the_pass(env, tmp_path, pai
     r = _repo(tmp_path, *pairs)
     assert _reason(r.path) is None
     assert _verdict(env, r.path) == ("pass", ["done"])
+
+
+def test_the_answer_carries_the_reason_verbatim(env, tmp_path):
+    """The wording is for the user: the answer carries it, with a next step for that value. Until 87dd0d5d the reason
+    stayed inside the gate and the answer named other causes (a URL remote, --all, a wildcard). Under Codex every push
+    is NOT MEASURED before its configuration is read (D12), so this is Claude Code's answer."""
+    r = _repo(tmp_path, ("submodule.recurse", "true"))
+    answer, _entry = n2c._level1(env, r.path, command="git push origin main")
+    text = json.dumps(answer, ensure_ascii=False)
+    assert VERBATIM in text, text
+    assert "fix or remove that configuration value" in text and "a wildcard refspec" not in text, text

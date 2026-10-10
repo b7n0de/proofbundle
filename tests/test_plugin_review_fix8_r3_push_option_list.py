@@ -14,6 +14,7 @@ configuration value nor an argument. Red against 1fc58527.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -124,3 +125,11 @@ def test_a_newline_in_a_command_line_option_gets_no_green_verdict(env, tmp_path)
     r = _repo(tmp_path)
     assert _git_push(r.path, "--dry-run", "-o", "a\nb", "origin", "main").returncode == 128
     assert _verdict(env, r.path, "git push -o 'a\nb' origin main") != PASS
+
+
+def test_the_answer_names_the_newline(env, tmp_path):
+    r = _repo(tmp_path, LF)
+    answer, _entry = n2c._level1(env, r.path, command="git push origin main")
+    text = json.dumps(answer, ensure_ascii=False)
+    assert "a push option in push.pushOption holds a newline, and git push stops there" in text, text
+    assert "fix or remove that configuration value" in text, text
