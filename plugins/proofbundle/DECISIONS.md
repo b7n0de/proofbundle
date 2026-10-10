@@ -160,7 +160,13 @@ MEASURED. The remote itself is not read.
   and refs/heads/gone is refs/heads/refs/heads/gone where the branch gone is missing, and a negative refspec is
   compared with that resolved ref, so `^other` excludes nothing. The remote's refs are not evidenced here, so a plain
   source that writes the tracking ref, or any plain source of the pushing remote, makes the comparison NOT MEASURED;
-  the single-branch rule `+refs/heads/main:refs/remotes/origin/main` of `git clone --single-branch` among them. The
+  the single-branch rule `+refs/heads/main:refs/remotes/origin/main` of `git clone --single-branch` among them. Owner
+  choice A of 2026-10-10 (question A of round 7) keeps the single-branch rule NOT MEASURED; its exact form is not taken
+  as read. `git clone --depth` writes the single-branch rule unless `--no-single-branch` is given. With
+  `--no-single-branch` git writes the pattern rule; as long as the clone stays shallow, the check of the newly
+  reachable commits is NOT MEASURED all the same (measured with git 2.43.0 and 2.51.1: `--depth 1` wrote
+  `+refs/heads/main:refs/remotes/origin/main`, `--depth 1 --no-single-branch` wrote `+refs/heads/*:refs/remotes/origin/*`,
+  both clones shallow). A full clone with the pattern rule, or `git fetch --unshallow`, leaves both conditions behind. The
   gate had read `^other` as excluding `+other:refs/remotes/origin/main` and passed. The gate had skipped every fetch refspec without a colon and every `*` not at the end.
   There is no default-branch fallback: a new
   branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
