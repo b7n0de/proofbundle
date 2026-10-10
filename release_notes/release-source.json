@@ -5,7 +5,7 @@
  "version": "6.2.1",
  "vorheriger_tag": "v6.2.0",
  "tag": "v6.2.1",
- "release_commit": "2bde427baa19d090fd7451dc5d433c6a1065fba2",
+ "release_commit": "61a260151c2943c7e3573273593dcf80c9dd37d3",
  "kopfsatz": "**A security update for everyone on 6.2.0.** It tightens checks on policy validity, timestamps, key algorithms and log inclusion proofs, and rejects ambiguous input on additional paths.",
  "highlights": [
   {

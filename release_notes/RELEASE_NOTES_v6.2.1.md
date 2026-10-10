@@ -13,7 +13,7 @@ python -m pip install --upgrade proofbundle==6.2.1
 
 ## Verify this release yourself
 
-Use the checksums and build provenance to check the downloaded files, and check the signed pre-tag audit receipt from a clone. The commands and their limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/2bde427baa19d090fd7451dc5d433c6a1065fba2/RELEASE.md#verifying-a-published-release-anyone).
+Use the checksums and build provenance to check the downloaded files, and check the signed pre-tag audit receipt from a clone. The commands and their limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/61a260151c2943c7e3573273593dcf80c9dd37d3/RELEASE.md#verifying-a-published-release-anyone).
 
 ## What a receipt still does not prove
 
@@ -42,6 +42,6 @@ A valid signature binds the signed content to the signing key. It does not make 
 
 </details>
 
-[Full changelog](https://github.com/b7n0de/proofbundle/blob/2bde427baa19d090fd7451dc5d433c6a1065fba2/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/2bde427baa19d090fd7451dc5d433c6a1065fba2/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/2bde427baa19d090fd7451dc5d433c6a1065fba2/docs/release_scope/6.2.1.md) · [proofbundle.dev](https://proofbundle.dev)
+[Full changelog](https://github.com/b7n0de/proofbundle/blob/61a260151c2943c7e3573273593dcf80c9dd37d3/CHANGELOG.md) · [Known limitations](https://github.com/b7n0de/proofbundle/blob/61a260151c2943c7e3573273593dcf80c9dd37d3/RESTRISIKO_620.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/61a260151c2943c7e3573273593dcf80c9dd37d3/docs/release_scope/6.2.1.md) · [proofbundle.dev](https://proofbundle.dev)
 
 Created with AI assistance. Reviewed and published by me.
