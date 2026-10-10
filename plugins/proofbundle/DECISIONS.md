@@ -196,9 +196,14 @@ MEASURED. The remote itself is not read.
   value cleared, or the command line replaced, does not count (review round 8 of 2026-10-10, R8-3: `pushOption =
   "one\ntwo"` had passed while git refused the push with exit 128, measured with git 2.43.0 and 2.51.1; `-o` with a
   newline on the command line had passed too); `color.push` and its slots. A value git refuses stops git push, also one before a
-  valid value, so the push is NOT MEASURED; `on-demand`, `only` and a true `submodule.recurse` push the submodules'
-  commits besides and are NOT MEASURED as well. The gate had read `push.autoSetupRemote` only for a branch without an
-  upstream. The source
+  valid value, so the push is NOT MEASURED. A present `on-demand` or `only` of `push.recurseSubmodules`, or a present
+  true `submodule.recurse`, is NOT MEASURED whatever value follows it: with such a value in effect git pushes the
+  submodules' commits besides, git takes the last value, so a later false turns that off, and the gate does not decide
+  which value is in effect (owner choice B: A, 2026-10-10). Its reason names the value present, not what git pushes:
+  "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED." (review round 8 of
+  2026-10-10, R8-5: the gate had said git pushes the submodules' commits where a later false and
+  `push.recurseSubmodules=false` kept the transport off, measured by the reviewer with git 2.43.0 and 2.51.1). The
+  gate had read `push.autoSetupRemote` only for a branch without an upstream. The source
   check of an unresolved bare push takes the same choice, so it no longer names HEAD where git pushes a configured
   push list of another remote. Every name and list the resolution reads from git keeps the bytes git printed (review round 5 of
   2026-10-09, R5-1): a configuration value and the branch of HEAD lose only their one closing newline, the

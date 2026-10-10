@@ -2924,9 +2924,12 @@ def _push_config_problem(repo: str, deadline: float, command_options: list[str] 
     of every key is read, before any resolution step, because git reads them all at the start of every push (R7-3: a
     bare push with an upstream had passed while push.autoSetupRemote held a value git refused, since only the case
     without an upstream read that key). Read through git's own parsers: --type=bool, --get-colorbool, --type=color, and
-    the entries of --get-regexp, where a key written without `=` has no value. submodule.recurse true or
-    push.recurseSubmodules on-demand or only make git push the submodules' commits to their own remotes, which no
-    tracking ref here records; `check` pushes nothing more, and any other word stops git.
+    the entries of --get-regexp, where a key written without `=` has no value. A present submodule.recurse true or
+    push.recurseSubmodules on-demand or only is NOT MEASURED, whatever value follows it: with such a value in effect git
+    pushes the submodules' commits to their own remotes, which no tracking ref here records, and git takes the last
+    value, so a later false turns that off (measured by the reviewer with git 2.43.0 and 2.51.1). The gate does not
+    decide which value is in effect (owner choice B: A, 2026-10-10), and its reason names the value present, not a
+    submodule push (review round 8 of 2026-10-10, R8-5). `check` pushes nothing more, and any other word stops git.
 
     push.pushOption is the list git builds (builtin/push.c, git_push_config): each value appended, an empty value
     clearing what came before, a key without a value stopping every push. The options the command line gives
@@ -2959,7 +2962,7 @@ def _push_config_problem(repo: str, deadline: float, command_options: list[str] 
         if out.returncode != 0:
             return f"git cannot read every value of {key} as a boolean, and git push stops there"
         if key == "submodule.recurse" and b"true" in out.stdout.split(b"\n"):
-            return "submodule.recurse is true, so git push also pushes the submodules' commits"
+            return "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED."
     for key, word_ok in (("push.recursesubmodules", ("check",)), ("push.gpgsign", ("if-asked",))):
         values = entries(f"^{key.replace('.', '[.]')}$")
         if values is None:
@@ -2968,7 +2971,8 @@ def _push_config_problem(repo: str, deadline: float, command_options: list[str] 
             if value is None and key == "push.gpgsign":
                 continue   # a key without `=` is true: sign the push
             if value is not None and key == "push.recursesubmodules" and value in ("on-demand", "only"):
-                return f"push.recurseSubmodules is {value}, so git push also pushes the submodules' commits"
+                return (f"The configuration contains push.recurseSubmodules={value}; submodule push behavior is NOT "
+                        "MEASURED.")
             if value is not None and (value in word_ok if key == "push.recursesubmodules"
                                       else value.lower() in word_ok):
                 continue
