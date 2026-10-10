@@ -144,3 +144,13 @@ def test_control_a_valid_push_with_the_tag_still_passes(env, tmp_path):
     _git(r.path, "tag", "main", "HEAD~1")
     assert _verdict(env, r.path, "git push origin HEAD:main") == ("pass", ["done"])
     assert _verdict(env, r.path, "git push") == ("pass", ["done"])
+
+
+def test_an_ambiguous_source_stays_not_measured_where_the_configuration_silences_the_warning(env, tmp_path):
+    """Mutation M72c: with core.warnAmbiguousRefs false git push still refuses the source (it counts the refs
+    either way), while rev-parse stops warning; the gate forces the warning on for its own count."""
+    r = _swap(tmp_path)
+    _git(r.path, "config", "core.warnAmbiguousRefs", "false")
+    push = _git_push(r.path, "origin", "main")
+    assert push.returncode != 0 and "src refspec main matches more than one" in push.stderr, push.stderr
+    assert _verdict(env, r.path, "git push origin main") == ("ask", ["push_not_measured"])

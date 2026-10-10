@@ -152,3 +152,16 @@ def test_control_a_pattern_of_another_remote_onto_origin_stays_not_measured(env,
     r = _repo(tmp_path)
     _second_rules(r.path, "+refs/heads/*:refs/remotes/origin/*", "^other")
     assert _verdict(env, r.path) == NOT_MEASURED
+
+
+@pytest.mark.parametrize("spec", ["+main:refs/remotes/origin/elsewhere", "+refs/heads/main:refs/remotes/origin/elsewhere"])
+def test_a_plain_source_of_the_pushing_remote_onto_another_ref_is_not_measured(env, tmp_path, spec):
+    """Mutation M74b: a plain source of the pushing remote also maps the target branch to another ref when git resolves
+    it to that branch, which the spelling does not tell (main and refs/heads/main both fetch main into elsewhere); the
+    gate had passed the short spelling and left the full one NOT MEASURED."""
+    r = _repo(tmp_path)
+    _git(r.path, "config", "--add", "remote.origin.fetch", spec)
+    fetched = subprocess.run(["git", "-C", str(r.path), "fetch", "origin"], capture_output=True, text=True, timeout=60)
+    assert fetched.returncode == 0, fetched.stderr
+    assert _rev(r.path, "refs/remotes/origin/elsewhere") == _rev(r.path, TRACKING)   # non-vacuous: main fetched there too
+    assert _verdict(env, r.path) == NOT_MEASURED
