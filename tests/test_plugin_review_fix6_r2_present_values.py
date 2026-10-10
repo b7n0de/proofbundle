@@ -59,10 +59,18 @@ def _other_remote(tmp_path, repo) -> None:
 @pytest.mark.parametrize("key", EMPTY_KEYS)
 def test_git_reads_the_empty_value_and_pushes_nowhere(tmp_path, key):
     """Non-vacuous: git takes the empty value as the push remote (exit 128), it does not fall back; with an explicit
-    remote the same value plays no part and the push goes through."""
+    remote the same value plays no part and the push goes through. Measured by the exit and by the remote's main, which
+    a real bare push leaves where it was: git 2.43.0 says "no path specified", 2.51.1 "No configured push destination"
+    (review round 7 of 2026-10-10, R7-6)."""
     r = _repo(tmp_path, **{key.replace(".", "__"): ""})
     bare = _dry_run(r.path)
-    assert bare.returncode == 128 and "no path specified" in bare.stderr, bare.stderr
+    assert bare.returncode == 128, bare.stderr
+    before = _git(r.path, "ls-remote", "origin", "refs/heads/main").stdout
+    pushed = subprocess.run(["git", "-C", str(r.path), "push", "--no-verify"], capture_output=True, text=True,
+                            timeout=60, check=False)
+    assert pushed.returncode == 128, pushed.stderr
+    assert _git(r.path, "ls-remote", "origin", "refs/heads/main").stdout == before   # nothing was pushed
+    assert before.split()[0] != _git(r.path, "rev-parse", "HEAD").stdout.strip()   # there was something to push
     assert _dry_run(r.path, "origin", "main").returncode == 0
 
 
