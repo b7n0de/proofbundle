@@ -179,7 +179,15 @@ MEASURED. The remote itself is not read.
   `heads/main` (review round 7 of 2026-10-10, R7-2: the gate had read `branch.heads/main.*` and compared against a
   remote branch `heads/main`). A refspec source that names more than one ref, a branch and a tag of one name, is NOT
   MEASURED: git push refuses it ("matches more than one", measured with git 2.43.0 and 2.51.1), while `rev-parse`
-  takes the tag. A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. The source
+  takes the tag. A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. Every
+  push value git parses is read before any step of the resolution, explicit or bare, whatever the case needs (review
+  round 7 of 2026-10-10, R7-3; measured with git 2.43.0 and 2.51.1): `push.autoSetupRemote`, `push.followTags`,
+  `push.useForceIfIncludes`, `push.negotiate`, `push.useBitmaps` and `submodule.recurse` as booleans, every value;
+  `push.gpgSign` as a boolean or `if-asked`; `push.recurseSubmodules` as false, `check`, `on-demand` or `only`;
+  `push.pushOption` with a value; `color.push` and its slots. A value git refuses stops git push, also one before a
+  valid value, so the push is NOT MEASURED; `on-demand`, `only` and a true `submodule.recurse` push the submodules'
+  commits besides and are NOT MEASURED as well. The gate had read `push.autoSetupRemote` only for a branch without an
+  upstream. The source
   check of an unresolved bare push takes the same choice, so it no longer names HEAD where git pushes a configured
   push list of another remote. Every name and list the resolution reads from git keeps the bytes git printed (review round 5 of
   2026-10-09, R5-1): a configuration value and the branch of HEAD lose only their one closing newline, the

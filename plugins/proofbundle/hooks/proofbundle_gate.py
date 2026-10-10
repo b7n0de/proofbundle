@@ -2910,6 +2910,77 @@ def _push_adds_unnamed_refs(repo: str, remote: str, deadline: float) -> bool:
             or _config_bool(repo, "push.followTags", deadline))
 
 
+#: The configuration only `git push` parses, read by git before it pushes anything, whatever the push needs (review
+#: round 7 of 2026-10-10, R7-3; the push names compiled into git 2.43.0 and 2.51.1, each measured with both): a value
+#: git cannot read stops the push with exit 128, an invalid value before a valid one too. The keys of remotes, branches
+#: and URL rewrites stop `git remote get-url` as well, which every push the gate resolves reads (_endpoint_consistent),
+#: and push.default, core.* and advice.* stop every read of the gate, so those need no check here.
+_PUSH_BOOLEANS = ("push.autoSetupRemote", "push.followTags", "push.useForceIfIncludes", "push.negotiate",
+                  "push.useBitmaps", "submodule.recurse")
+
+
+def _push_config_problem(repo: str, deadline: float) -> str | None:
+    """What in the push configuration stops git push or makes it push more than the command names, or None. Every value
+    of every key is read, before any resolution step, because git reads them all at the start of every push (R7-3: a
+    bare push with an upstream had passed while push.autoSetupRemote held a value git refused, since only the case
+    without an upstream read that key). Read through git's own parsers: --type=bool, --get-colorbool, --type=color, and
+    the entries of --get-regexp, where a key written without `=` has no value. submodule.recurse true or
+    push.recurseSubmodules on-demand or only make git push the submodules' commits to their own remotes, which no
+    tracking ref here records; `check` pushes nothing more, and any other word stops git."""
+    def entries(pattern: str) -> list[tuple[str, str | None]] | None:
+        out = _git(repo, "config", "--null", "--get-regexp", pattern, deadline=deadline)
+        if out.returncode == 1 and not out.stdout and not out.stderr:
+            return []
+        if out.returncode != 0 or not out.stdout.endswith(b"\0"):
+            return None
+        found = []
+        for entry in out.stdout[:-1].split(b"\0"):
+            key, newline, value = entry.partition(b"\n")
+            found.append((_git_text(key), _git_text(value) if newline else None))
+        return found
+
+    def is_false(value: str) -> bool | None:
+        """git's own reading of value as a boolean: True for false, False for true, None where git refuses it."""
+        out = _git(repo, "-c", f"proofbundle.probe={value}", "config", "--type=bool", "--get", "proofbundle.probe",
+                   deadline=deadline)
+        return None if out.returncode != 0 else out.stdout == b"false\n"
+
+    for key in _PUSH_BOOLEANS:
+        out = _git(repo, "config", "--type=bool", "--get-all", key, deadline=deadline)
+        if out.returncode == 1 and not out.stdout and not out.stderr:
+            continue
+        if out.returncode != 0:
+            return f"git cannot read every value of {key} as a boolean, and git push stops there"
+        if key == "submodule.recurse" and b"true" in out.stdout.split(b"\n"):
+            return "submodule.recurse is true, so git push also pushes the submodules' commits"
+    for key, word_ok in (("push.recursesubmodules", ("check",)), ("push.gpgsign", ("if-asked",))):
+        values = entries(f"^{key.replace('.', '[.]')}$")
+        if values is None:
+            return f"git cannot read {key}"
+        for _name, value in values:
+            if value is None and key == "push.gpgsign":
+                continue   # a key without `=` is true: sign the push
+            if value is not None and key == "push.recursesubmodules" and value in ("on-demand", "only"):
+                return f"push.recurseSubmodules is {value}, so git push also pushes the submodules' commits"
+            if value is not None and (value in word_ok if key == "push.recursesubmodules"
+                                      else value.lower() in word_ok):
+                continue
+            false = None if value is None else is_false(value)
+            if false is None or (key == "push.recursesubmodules" and not false):
+                return f"git push stops at the value {value!r} of {key}"
+    options = entries("^push[.]pushoption$")
+    if options is None or any(value is None for _name, value in options):
+        return "push.pushOption is set without a value, and git push stops there"
+    color = _git(repo, "config", "--get-colorbool", "color.push", deadline=deadline)
+    if color.returncode not in (0, 1):
+        return "git cannot read color.push, and git push stops there"
+    for slot in ("reset", "error"):
+        out = _git(repo, "config", "--type=color", "--get-all", f"color.push.{slot}", deadline=deadline)
+        if out.returncode not in (0, 1) or (out.returncode == 1 and (out.stdout or out.stderr)):
+            return f"git cannot read color.push.{slot} as a color, and git push stops there"
+    return None
+
+
 def _config_all(repo: str, key: str, deadline: float) -> list[str]:
     """Every value of a (possibly multi-valued) config key, as git reads it; [] when unset. A git error
     other than 'not set' (exit 1 with nothing said, _config_bool) raises GateError (NOT MEASURED)."""
@@ -3167,6 +3238,11 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
         args = []
     if _git_namespace() is not None:
         return None  # the push writes under refs/namespaces/ on the remote, which no tracking ref records
+    try:
+        if _push_config_problem(repo, deadline) is not None:
+            return None  # git stops at a push value, or pushes more than the command names, whatever the case (R7-3)
+    except GateError:
+        return None
     remotes = _remote_names(repo, deadline)
     if remotes is None:
         return None  # git cannot read the remote configuration, and its push stops there as well
