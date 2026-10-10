@@ -1816,14 +1816,36 @@ def _read_env() -> dict:
     _refuse_partial_clone, which does not depend on the version. That refusal carries the case end to end; this
     variable is a second lock with a function contract only (review Runde 8, R8-3). LC_ALL=C keeps git's messages
     untranslated: the gate reads one of them as git's answer that a directory lies in no work tree (_NO_WORK_TREE,
-    review round 5 of 2026-10-09, R5-1), and a translation of it would be read as a failure."""
+    review round 5 of 2026-10-09, R5-1), and a translation of it would be read as a failure.
+
+    Two more names make the gate's reads mean something else than the reads of the git it judges (review round 6 of
+    2026-10-10, the class of R6-1). GIT_CONFIG makes `git config`, and only that command, read one file instead of the
+    repository's configuration (measured with git 2.43.0: `git config --get branch.main.pushRemote` found nothing while
+    `git push` pushed to the configured remote and `git status` started core.fsmonitor), so it is dropped and the gate
+    reads the configuration git push, add and commit read. GIT_LITERAL_PATHSPECS is set and the glob, noglob and icase
+    variants dropped: every path the gate names to git is its own literal path (the declaration, a file at a commit);
+    GIT_ICASE_PATHSPECS made `rev-list -- .proofbundle/evidence.json` list a commit of another file and `ls-tree` refuse
+    the path (measured with git 2.43.0: "pathspec magic not supported by this command: 'icase'")."""
     env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull
     env["GIT_NO_LAZY_FETCH"] = "1"
     env["LC_ALL"] = "C"
     env.pop("LANGUAGE", None)
+    env.pop("GIT_CONFIG", None)
+    env["GIT_LITERAL_PATHSPECS"] = "1"
+    for name in ("GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"):
+        env.pop(name, None)
     return env
+
+
+def _git_namespace() -> str | None:
+    """The namespace GIT_NAMESPACE names, or None where it is unset or empty (git reads an empty value as no namespace
+    and stops at any value it cannot expand, `/` included, so every read then fails). Measured with git 2.43.0: the
+    variable leaves the local refs as they are, and a push to a local remote then created
+    refs/namespaces/<ns>/refs/heads/main beside the main that refs/remotes/origin/main records (review round 6 of
+    2026-10-10, the class of R6-1)."""
+    return os.environ.get("GIT_NAMESPACE") or None
 
 
 #: The configuration keys that make a repository a partial clone, as `git config --get-regexp` matches them
@@ -2945,6 +2967,8 @@ def resolve_push_targets(repo: str, args: list[str] | None, deadline: float) -> 
     """
     if args is None:
         args = []
+    if _git_namespace() is not None:
+        return None  # the push writes under refs/namespaces/ on the remote, which no tracking ref records
     remotes = _remote_names(repo, deadline)
     remote, refspecs, i, options_done = None, [], 0, False
     while i < len(args):
@@ -3406,6 +3430,9 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
         why = ("the remote, a refspec, or the push configuration names updates the gate cannot map to a locally "
                "tracked target (a URL or path remote, --all/--mirror/--tags, a wildcard refspec, a configured "
                "remote push list, or a branch this repository does not track)")
+        if _git_namespace() is not None:
+            why += (f"; GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on the "
+                    "remote, a ref no tracking ref of this repository records")
         try:
             sources, remote = _push_sources(repo, push_args, deadline)
             rewrites = (_applicable_rewrites(repo, remote, deadline)

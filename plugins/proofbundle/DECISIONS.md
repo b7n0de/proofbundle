@@ -204,6 +204,19 @@ MEASURED. The remote itself is not read.
   inside its deadline), is NOT MEASURED. Every gate read runs with replace refs and `.git/info/grafts`
   turned off, so the gate judges the objects and ancestors the push transfers, not a local rewrite of them
   (review R3-8).
+- The environment, name by name (review round 6 of 2026-10-10, the class of R6-1; the names of git(1) 2.43.0 and
+  those compiled into the installed binary): every gate read runs in the environment the git it judges runs in, so
+  `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_CEILING_DIRECTORIES`, `GIT_DISCOVERY_ACROSS_FILESYSTEM`,
+  `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
+  `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_COUNT`/`_KEY_<n>`/`_VALUE_<n>` and `GIT_CONFIG_PARAMETERS` are read from the
+  same source. Neutralized for the gate's reads: replace refs and grafts (above), `GIT_INDEX_FILE` (the working state
+  is read with an index of the gate's own), `GIT_CONFIG` (it moves only `git config`, not push, add or commit, so the
+  gate's `git config` reads would have read another file than the push), and the pathspec names
+  (`GIT_LITERAL_PATHSPECS` set, `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS`, `GIT_ICASE_PATHSPECS` dropped: the
+  gate's paths are its own literal paths). `GIT_SHALLOW_FILE` is read through git's own view of each commit's parents
+  (D28). Refused: `GIT_NAMESPACE` at Level 1, where git writes the push under `refs/namespaces/` on a local remote
+  while the tracking ref records the plain branch; at Level 2 git reports the namespaced target's state itself (absent,
+  so NOT MEASURED).
 - A `gh pr create` or `gh release create` is judged as a push of the current branch to its upstream.
 - An unresolved push is asked under Claude Code; under Codex every push is NOT MEASURED and, since Karte 5 A,
   warned about rather than denied (D12). The D5 inactive shortcut
