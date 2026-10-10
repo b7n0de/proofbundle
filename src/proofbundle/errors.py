@@ -201,12 +201,15 @@ class VerificationResult:
     verified_merkle_root: Optional[bytes] = field(default=None, compare=False, repr=False)
     verified_inclusion_root: Optional[bytes] = field(default=None, compare=False, repr=False)
     verified_sd_jwt_vc_compact: Optional[str] = field(default=None, compare=False, repr=False)
+    verified_origin: Optional[str] = field(default=None, compare=False, repr=False)
     # 6.2.1 R6b-1/R6b-2 (Z309): the digest of the whole inclusion context the passing inclusion check verified
     # (hash algorithm, leaf index, tree size, audit path, root), origin-covered, set only on a passing bundle
     # signature AND a passing inclusion. The same root holds under another leaf index or audit path, so a judge
     # that adopts the inclusion verdict compares the passed bundle's stated context with this digest.
+    # It stands LAST: the class is exported, and a field inserted before an existing one moves every positional
+    # argument after it. Placed before verified_origin, a call in the form of 6.2.0 set this field instead of the
+    # origin token (final text review of 6.2.1).
     verified_inclusion_context: Optional[bytes] = field(default=None, compare=False, repr=False)
-    verified_origin: Optional[str] = field(default=None, compare=False, repr=False)
 
     def stamp_origin(self) -> None:
         """Record the origin token over the verified state AND the checks currently on this result. Called by
