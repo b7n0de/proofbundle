@@ -32,12 +32,15 @@ generator; it re-derives every claim from the bytes in mappings.json:
       step 1: in the deterministic encoding of RFC 8949 Section 4.2.1 the keys are sorted bytewise by their
       encodings, so -16 (0x2f) belongs after 33 (0x18 0x21), 258 and 259 (0x19 0x01 ...).
   G   for X1 with O of its iss changed in one place and the signature kept (steps 2 and 3 come before step 4): a
-      leading zero in the last or in the first arc is outside_profile at step 2 (Section 5.2, label 15: each arc a
-      decimal number without leading zeros); O = 1.40.6.1.5.5.7.3.3 has the form and is untrusted_key at step 3.
+      leading zero in the last or in the first arc, and a second arc over 39 under a first arc 0 or 1, are
+      outside_profile at step 2 (Section 5.2, label 15); O = 1.39.6.1.5.5.7.3.3 and 2.40.6.1.5.5.7.3.3 have the form
+      and are untrusted_key at step 3 under the certificate pair.
   H   for M2 with a sixth protected-header pair written as given bytes, the signature kept: step 1 reads a tag as
       its number and content (a bignum, a date and a UUID included), compares keys under RFC 8949 Section 5.6.1
       (1, 1.0 and true are three keys), admits a float in its shortest form and a NaN only as f9 7e00; a key out of
       bytewise order is malformed (Section 5.2.2 step 1).
+  L   for M2 with a sixth label -1 holding arrays 60000 deep, maps 30000 deep or tags 30000 deep, step 1 stops at
+      MAX_DEPTH (64) with a resource-limit error, which Section 5.2.2 says is no status.
 Exit 0 when all hold.
 """
 import base64
@@ -270,6 +273,16 @@ def key_rep(v):
     raise TypeError("no key representation for %s" % type(v).__name__)
 
 
+#: The deepest nesting of arrays, maps and tags that step 1 reads (the item itself at depth 0). A deeper item meets a
+#: limit of this Receiver: a resource-limit error, which Section 5.2.2 says is no status, not malformed.
+MAX_DEPTH = 64
+
+
+class ResourceLimit(Exception):
+    """The Receiver stopped at one of its limits (Section 5.2.2): a resource-limit error, no status, and the
+    statement is not accepted."""
+
+
 class NotDeterministic(Exception):
     """Step 1 fails: the bytes are not one well-formed, valid data item in the deterministic encoding."""
 
@@ -281,11 +294,14 @@ def _fits(x: float, fmt: str) -> bool:
         return False
 
 
-def _decode(b: bytes, i: int):
+def _decode(b: bytes, i: int, depth: int = 0):
     """The data item at offset i and the offset after it, read from the bytes, not through cbor2. RFC 8949
     Section 4.2.1 with the choices of Section 5.2.2 step 1: arguments as short as possible, definite lengths, floats
     in their shortest form and a NaN only as f9 7e00, the keys of every map in bytewise order of their encodings and
-    no two equal under Section 5.6.1, text strings in UTF-8 (Section 5.3.1); a tag is its number and its content."""
+    no two equal under Section 5.6.1, text strings in UTF-8 (Section 5.3.1); a tag is its number and its content.
+    An item nested deeper than MAX_DEPTH raises ResourceLimit."""
+    if depth > MAX_DEPTH:
+        raise ResourceLimit("nesting deeper than %d" % MAX_DEPTH)
     if i >= len(b):
         raise NotDeterministic("ends inside an item")
     mt, ai = b[i] >> 5, b[i] & 0x1F
@@ -316,24 +332,24 @@ def _decode(b: bytes, i: int):
     if mt == 4:
         out = []
         for _ in range(arg):
-            x, j = _decode(b, j)
+            x, j = _decode(b, j, depth + 1)
             out.append(x)
         return out, j
     if mt == 5:
         out, seen, last = {}, set(), b""
         for _ in range(arg):
-            k, kj = _decode(b, j)
+            k, kj = _decode(b, j, depth + 1)
             if b[j:kj] <= last:
                 raise NotDeterministic("map keys not in bytewise order of their encodings")
             last, r = b[j:kj], key_rep(k)
             if r in seen:
                 raise NotDeterministic("two map keys equal under RFC 8949 Section 5.6.1")
             seen.add(r)
-            x, j = _decode(b, kj)
+            x, j = _decode(b, kj, depth + 1)
             out[k if isinstance(k, (int, str, bytes)) or k is None else Key(r)] = x
         return out, j
     if mt == 6:
-        x, j = _decode(b, j)
+        x, j = _decode(b, j, depth + 1)
         return Tag(arg, x), j
     if ai < 24:
         return (None if arg == 22 else Simple(arg)), j
@@ -351,17 +367,20 @@ def _decode(b: bytes, i: int):
 
 def deterministic(b: bytes):
     """Step 1 on one byte string: (the item, True) when it is one well-formed, valid data item in the deterministic
-    encoding (_decode), else (None, False)."""
+    encoding (_decode), else (None, False). ResourceLimit passes through: it is no status."""
     try:
         item, end = _decode(b, 0)
-    except Exception:  # noqa: BLE001  NotDeterministic, and a nesting deeper than the interpreter allows
+    except NotDeterministic:
         return None, False
     return (item, True) if end == len(b) else (None, False)
 
 
 KEY_LABELS = {1, 4, 15, 258, 259}
 CERT_LABELS = {1, 4, 15, 33, 258, 259}
-DID_RE = re.compile(r"\Adid:x509:0:sha256:([A-Za-z0-9_-]{43})::eku:([0-2](?:\.(?:0|[1-9][0-9]*))+)\Z")
+# O as Section 5.2, label 15 has it: first arc 0, 1 or 2; under 0 or 1 a second arc of at most 39 (X.660 7.6, RFC 9090
+# Section 2); under 2 any second arc; one or more further arcs; no leading zeros
+DID_RE = re.compile(r"\Adid:x509:0:sha256:([A-Za-z0-9_-]{43})::eku:((?:[01]\.(?:[0-9]|[1-3][0-9])|2\.(?:0|[1-9][0-9]*))"
+                    r"(?:\.(?:0|[1-9][0-9]*))*)\Z")
 P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
 
 
@@ -400,7 +419,8 @@ def _cert_pair_counts(iss, kid, chain, pair):
 
 def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, cert_pairs=()):
     """Steps 1 to 7; returns (status, step) with step None for accepted. The protected-header labels select the
-    key profile (1, 4, 15, 258, 259) or the certificate profile (1, 4, 15, 33, 258, 259)."""
+    key profile (1, 4, 15, 258, 259) or the certificate profile (1, 4, 15, 33, 258, 259). Raises ResourceLimit when
+    step 1 meets MAX_DEPTH: a resource-limit error, no status."""
     import check_receipts  # noqa: PLC0415  the receipts draft's own checker, for step 5 only
     item, det = deterministic(stmt)
     if item is None or not det:
@@ -528,7 +548,16 @@ def key_byte_replaced(stmt: bytes, label: int, new: int) -> bytes:
 OID_CASES = [
     ("a leading zero in the last arc", "1.3.6.1.5.5.7.3.03", ("outside_profile", 2)),
     ("a leading zero in the first arc", "01.3.6.1.5.5.7.3.3", ("outside_profile", 2)),
-    ("second arc 40, under the certificate pair", "1.40.6.1.5.5.7.3.3", ("untrusted_key", 3)),
+    ("second arc 40 under first arc 1", "1.40.6.1.5.5.7.3.3", ("outside_profile", 2)),
+    ("second arc 40 under first arc 0", "0.40.1", ("outside_profile", 2)),
+    ("second arc 39 under first arc 1, under the certificate pair", "1.39.6.1.5.5.7.3.3", ("untrusted_key", 3)),
+    ("second arc 40 under first arc 2, under the certificate pair", "2.40.6.1.5.5.7.3.3", ("untrusted_key", 3)),
+]
+#: (what, the value of a sixth protected-header label -1 in M2 at the end): nested past MAX_DEPTH
+DEPTH_CASES = [
+    ("arrays 60000 deep", bytes([0x81]) * 60000 + b"\x00"),
+    ("maps 30000 deep", bytes([0xA1, 0x01]) * 30000 + b"\x00"),
+    ("tags 30000 deep", bytes([0xC6]) * 30000 + b"\x00"),
 ]
 #: (the sixth pair in M2, its key and value as bytes, the label it stands before (None: at the end), status and step)
 PAIR_CASES = [
@@ -743,6 +772,14 @@ def main():
         got = check_statement(bad, p1, pub, pairs, cert_pairs)
         ok &= check("H M2 with %s: %s at step %s (expected %s at step %s)" % (what, got[0], got[1], want[0], want[1]),
                     got == want)
+    for what, value in DEPTH_CASES:
+        bad = with_pair(m2, b"\x20", value, None)
+        try:
+            got = "%s at step %s" % check_statement(bad, p1, pub, pairs, cert_pairs)
+        except ResourceLimit:
+            got = "resource-limit error"
+        ok &= check("L M2 with key -1 holding %s (%d bytes): %s (expected a resource-limit error, no status)"
+                    % (what, len(bad), got), got == "resource-limit error")
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
