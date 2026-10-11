@@ -6,6 +6,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Editorial 2026-07-20: internal gate codename replaced by its external name throughout; content unchanged._
 
+## [6.2.1] - 2026-10-10
+
+Most fixes refuse input that 6.2.0 accepted; one adds the HISTORICAL label
+to results; two judge a policy's validity at one instant and with its fraction of a second, so at the edge of a
+validity window a verdict can differ from 6.2.0 in either direction.
+
+`VerificationResult` gains a `verified_inclusion_context` field after its existing fields; positional arguments accepted by 6.2.0 still set the same fields.
+
+### Fixed
+
+- **Repeated field names are rejected in review policies.** `agent_review.load_policy` refuses a policy file that carries the same JSON key twice (`AgentReviewError`) instead of reading the last value.
+- **Replies from Chia with repeated field names are rejected.** The Chia RPC reader in `anchors_chia_add` refuses a node answer that carries the same JSON key twice (`ChiaRpcError`) instead of reading the last value.
+- **Credential checks reject unsupported requirements.** `sdjwt_vc.check_vc_profile` refuses an issuer JWT header with an unsupported or malformed `crit` field (RFC 7515 §4.1.11), including when the issuer signature is not required.
+- **A policy is checked at the same time as the receipt, including fractions of a second.** `verify_decision_receipt` judges a decision policy's lifetime at the receipt's evaluation instant with its fraction of a second, not at that instant cut to the whole second.
+- **These verification commands require whole seconds.** `--verification-time` of `decision verify` and `verify-enclave` refuses a time whose fractional seconds are not all zero, however many digits are written.
+- **These commands label results at a supplied time as HISTORICAL.** With `--verification-time`, `decision verify` labels verification results HISTORICAL even without `--policy`, and `verify-enclave` labels its JSON and text results HISTORICAL.
+- **One clock reading judges both ends of a policy's validity.** A policy lifecycle evaluation without an explicit instant reads the wall clock once and judges both ends of the policy's validity window at that one instant.
+- **Policy time checks do not silently replace a supplied time with the current time.** For their time comparisons, `policy_expired`, `policy_not_yet_valid` and the trusted-checkpoint check of `evaluate_policy` no longer replace a malformed non-`None` `now` with the wall clock; `None` retains the default clock behaviour, and naive datetimes are treated as UTC.
+- **An enclave check rejects an invalid supplied time.** `verify_enclave_attestation` refuses an evaluation time `now` other than `None` unless its type is exactly `int`.
+- **Fractions of a second count when checking a claim's age.** `check_freshness` compares parsed timestamps without truncating their age to whole seconds; with `max_age_seconds` set, a negative age or an age above the bound is not fresh.
+- **The time is checked before it reaches the proof verifier.** Before dispatching an anchor verifier, `verify_anchor` and `verify_anchors` reject a supplied `now` other than `None` unless its type is exactly `int`.
+- **A log entry must match the proof that was checked.** `evaluate_policy` treats a trusted checkpoint, the tree context and the root as authenticated only when the bundle states the same inclusion context (hash algorithm, leaf index, tree size, audit path and root) that `verify_bundle` verified for it.
+- **An old key cannot approve its replacement using an unsupported signing method.** `verify_trust_pack` no longer treats an explicit unsupported or invalid `alg` on an old-root pin as Ed25519; an absent `alg` and the legacy bare-key form still mean Ed25519.
+- **When two signature methods are required, one alone is not enough.** `pack_key_binds_signer` binds an Ed25519 outcome signature only to an Ed25519 pack key; a hybrid or ML-DSA key never binds it, so a role declared hybrid is not met by the classical half alone.
+- **An empty list of permitted log keys or sources grants no permission.** `evaluate_public_transparency` treats a present `trustedLogKeys` list as an allowlist when `requireSignedCheckpoint` is enabled, and a present `trustedLogOrigins` list as an allowlist; an empty list accepts no key or origin in the respective check.
+
 ## [6.2.0] - 2026-09-28
 
 The work on `main` after the `v6.1.0` tag, cut into a release. Owner decision of 2026-09-27, 10:04 UTC,
@@ -52,19 +78,14 @@ A security scan of the release head found two more, both in the released 6.0.0 a
 break calls on purpose: the SD-JWT rules of a trust policy and `verify` itself report a value of a stand-alone
 SD-JWT or its Key Binding JWT only under the new `sd_jwt.issuer_key_pin` or a binding to the signed eval claim,
 and `anchor verify-pack` needs `--target-file` or `--expected-root`.
-The fifth and sixth rounds of the external review and the Codex class searches on the release candidate found five
-more classes, closed by the first five entries under Fixed: a trust pack conferred role trust without an anchor of
-the relying party, a judge adopted a verification result for data that result had not verified, a verification read
-more than one evaluation time and let expired material pass, a JWS whose protected header names a critical
-extension the verifier does not understand verified, and the eval adapters read the last of two duplicate JSON keys
-into a claim that is then signed.
-What is open and why is in `RESTRISIKO_620.md`, which lands before the closing round, not after it.
+The first five entries under Fixed describe changes to trust-pack role trust, the binding between a verification
+result and the data judged with it, evaluation time, unsupported critical JWS extensions and duplicate JSON keys
+in evaluation inputs. Known limitations are documented in `RESTRISIKO_620.md`.
 
 ### Fixed
 
-- **A trust pack confers role trust only under a relying-party anchor bound to its content and its full key
-  identity** (rounds 5 and 6 of the external review and the Codex defect searches of the release preparation, orders
-  43 to 47c and R6a-3, owner decisions on cards OA-187663a5c8 and OA-67a397a7b8).
+- **A trust pack confers role trust only under a relying-party anchor bound to its content and its full key identity**
+  ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
   - A genesis trust pack authenticates itself through its own root keys, so `verify_trust_pack` reported `ok` and
     `safeForAutomation` true with no input of the relying party, and `verify_outcome_receipt` read an unpinned pack's
     executor and receiver roles as trusted. `ok` stays the self-authentication verdict (form, threshold, expiry,
@@ -94,23 +115,21 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `tests/test_security_fix_620_trustpack_n47b_wrapper.py`, `tests/test_security_fix_620_trustpack_r6a.py` and the
     combination test `tests/test_z309_f4_group4_trustpack_receiver.py`; each new case fails before its fix.
 
-- **A judge adopts a verification result only for exactly the data that result verified** (review 5409929917 on
-  pull request 311, the external review of the N46 and N48 contracts, rounds 6a of the external review, orders 44 to
-  46g, R6a-1 and R6a-2, owner decisions on cards OA-187663a5c8, OA-67a397a7b8, OA-31938f4666, OA-a9986c2e64 and
-  OA-4238c783d5).
+- **A judge no longer adopts a hand-built verification result, or one whose recorded signer, payload, SD-JWT
+  presentation or Merkle root differs from the data it is judged with** ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
   - The SD-JWT binding path trusts a Key Binding JWT only when the key that verified the SD-JWT is the bundle signer,
     and only when the bundle signature verified under exactly that key; a flipped signature byte leaves the binding
     path closed and `sd-jwt-issuer-trust` false.
   - `verify_bundle` records what it verified (signer, payload digest, the Merkle root its root check and its
     inclusion check passed under, the exact `sd_jwt_vc.compact`) and stamps a per-process origin token over that
-    state and every check, only on a passing signature. `evaluate_policy` judges a bundle only with the result that
-    verified exactly this bundle (`policy:result_bundle_binding`, `policy:result_origin`,
-    `policy:result_sd_jwt_binding`), and authenticates a root on any path only when the result proved inclusion under
-    that root. The `verify` command re-stamps the token after its checkpoint check, only when the result was already
-    authentic.
+    state and every check, only on a passing signature. `evaluate_policy` judges a bundle only with a result whose
+    recorded signer, payload digest and SD-JWT presentation equal this bundle's and whose origin token is intact
+    (`policy:result_bundle_binding`, `policy:result_origin`, `policy:result_sd_jwt_binding`), and it adopts a
+    positive root check only for the Merkle root that result verified. The `verify` command re-stamps the token
+    after its checkpoint check, only when the result was already authentic.
   - `evaluate_decision_policy`, `evaluate_relations_policy` (`relation_signer`) and `svr_properties` likewise adopt
-    only a result that the matching verifier of this process produced for exactly this statement, successor receipt
-    or claim, with `crypto_ok` exactly true for the decision path.
+    only a result whose origin token, stamped by the matching verifier of this process, covers the statement,
+    successor receipt or claim they are given, with `crypto_ok` exactly true for the decision path.
   - The origin token type-marks every part, so values of different types never share a token, and it never travels in
     CLI output: `decision verify`, `outcome verify` and `relation-statement verify` strip `verified_origin` from
     `--json` at every level.
@@ -123,10 +142,7 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `tests/test_security_fix_620_bind_n48.py`, `tests/test_security_fix_620_bind_r6a.py` and the combination tests
     `tests/test_z309_f4_group1_signature_checkpoint.py` and `tests/test_z309_f4_group2_kb_presentation.py`.
 
-- **One evaluation time per verification, and expired or non-fresh material is never a positive verdict** (the Codex
-  class search K4 at e37e872b and CX-01 to CX-05, the Codex findings F-01 and F-02, round 6a of the external review,
-  orders 49, 49b, 49c, R6a-4 to R6a-7 and R6b-6, owner decisions on cards OA-67a397a7b8, OA-10762e3e40 and
-  OA-b5cac74844).
+- **Expired receipts and unreadable expiry values are rejected** ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
   - `verify_decision_receipt` judges a declared `validity.expiresAt` at one evaluation time: the new `now` (POSIX
     seconds, an exact int in range) or the wall clock read once. A declared expiry with an unreadable value, a JSON
     null included, fails closed; only an absent key is not applicable. A decision receipt with a past
@@ -135,10 +151,10 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     included) now fails closed (`freshness_ok` False, `ok` False); only an absent key is not-applicable. The CLI exit
     now folds this axis (an expired receipt exits 2, no longer 0). A `--verification-time` (ISO-8601 'Z', past) pins
     the evaluation instant.
-  - `--verification-time` at `decision verify` and `verify-enclave` takes only a literal-`Z` instant naming a whole
-    second; a zone offset, a naive time or a sub-second fraction is a format error, exit 2, never re-read or
-    truncated. An explicit `now` that is malformed fails the verdict closed with no fallback to the wall clock; with
-    `now` omitted, the receipt freshness and the policy lifecycle read one and the same clock reading.
+  - `--verification-time` at `decision verify` and `verify-enclave` takes a literal-`Z` instant; a zone offset, a
+    naive time or a fraction with a nonzero microsecond part is a format error, exit 2. An explicit `now` that is
+    malformed fails the verdict closed with no fallback to the wall clock; with `now` omitted, the receipt freshness
+    and the policy lifecycle are both judged from the one clock reading of the call.
     `evaluate_decision_policy` takes `now` and judges the policy lifecycle at that instant.
   - In historical mode `safeForAutomation` stays a present-tense verdict: a policy expired or not yet valid today
     keeps it false (`POLICY_EXPIRED`, `POLICY_NOT_YET_VALID`), and the CLI labels the report (`VERIFICATION_TIME:
@@ -159,9 +175,9 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
     `tests/test_security_fix_620_zeit_r6a.py`, `tests/test_security_fix_620_zeit_r6b6.py` and the combination test
     `tests/test_z309_f4_group3_decision_time.py`.
 
-- **A JWS whose protected header names a critical extension is invalid** (the Codex findings K5-01 and K5-02, orders
-  50, 50b and 50c). RFC 7515 section 4.1.11 makes a JWS invalid when its protected header names, in `crit`, an
-  extension the verifier does not understand. proofbundle understands no JWS extension.
+- **The four JWS verifiers refuse a protected header that names a critical extension** ([#311](https://github.com/b7n0de/proofbundle/pull/311)).
+  RFC 7515 section 4.1.11 makes a JWS invalid when its protected header names, in `crit`, an extension the verifier
+  does not understand. proofbundle understands no JWS extension.
   - `verify_key_binding`, `verify_sd_jwt`, `verify_status_snapshot` and the experimental
     `verify_enclave_attestation` now fail closed on any `crit` in the protected header: a `crit` that is not a
     non-empty array, holds a non-string or a duplicate name, names a base-spec header parameter or a parameter absent
@@ -173,11 +189,12 @@ What is open and why is in `RESTRISIKO_620.md`, which lands before the closing r
   - What a caller sees differently: a token with `crit` in its protected header no longer verifies, where it was
     accepted before; a header without `crit` is unchanged.
   - Tests: `tests/test_security_fix_620_crit_n50.py` and `tests/test_security_fix_620_crit_n50c.py`.
-- **The eval adapters and the conformance manifest reader reject a duplicate JSON key** (the Codex class search
-  K6, order 51). `from_eee_dataset`, `from_promptfoo_results`, `from_lm_eval_results`, `samples_from_lm_eval_jsonl`,
-  `samples_from_promptfoo_results` and `measure_vector_set` read a results file or a manifest with a reader that
-  kept the last value of a duplicated key, so a duplicated score, success count, metric value or case list could
-  feed a signed `passed` or verifier-block assurance that another JSON reader would compute differently.
+- **The eval adapters and the conformance manifest reader reject a duplicate JSON key**
+  ([#311](https://github.com/b7n0de/proofbundle/pull/311)). `from_eee_dataset`, `from_promptfoo_results`,
+  `from_lm_eval_results`, `samples_from_lm_eval_jsonl`, `samples_from_promptfoo_results` and `measure_vector_set` read a
+  results file or a manifest with a reader that kept the last value of a duplicated key, so a duplicated score, success
+  count, metric value or case list could feed a signed `passed` or verifier-block assurance that another JSON reader
+  would compute differently.
   - They now reject a duplicate object key at any depth, fail closed with an error that names the duplicate, through
     the same check as the verify path. No size or structure limit is added: a file without duplicate keys parses
     exactly as before.

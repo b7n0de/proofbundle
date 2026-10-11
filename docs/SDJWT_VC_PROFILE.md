@@ -31,7 +31,9 @@ nothing to filter because nothing is ever fetched.
 - `validate_vc_policy(policy)` — fail-closed policy validation (`vctAllowlist` required non-empty;
   `requireTypeMetadataIntegrity` / `requireKeyBinding` booleans; unknown key rejected).
 - `check_vc_profile(compact, policy, *, offline_metadata=None)` — profile-only check → `{ok, typ_ok, vct_ok,
-  metadata_integrity_ok, vct, errors}`. Read `ok`.
+  metadata_integrity_ok, vct, errors}`. Read `ok`. An issuer header whose `crit` names any parameter, or is
+  malformed, fails the profile (RFC 7515 §4.1.11; proofbundle understands no JWS extension), also where the
+  issuer signature is not required.
 - `verify_sdjwt_vc(compact, policy, *, holder_pubkey=None, expected_aud=None, expected_nonce=None,
   offline_metadata=None)` — full check = profile AND (when required) holder key binding → `{ok, profile,
   binding}`.
