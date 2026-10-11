@@ -6,6 +6,13 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 22 (resource limit, no change to the text): Section 5 says that a Receiver that stops at a resource limit
+reports a resource-limit error, neither PASS nor the FAIL of a step, and Section 8 lets the limits apply before and
+during processing. parse() now measures the nesting of arrays and objects before it parses and raises
+ResourceLimitError past MAX_DEPTH (64); verify() reports it as RESOURCE_LIMIT at step 1 or 4. Before, the parser
+raised the interpreter's recursion limit to 20000 and turned a RecursionError into FAIL at step 1; at 5000 levels
+the RecursionError still came. Probes Q20 to Q27 hold the limit, for the receipt and for B.
+
 Round 21 (card DRAFTS-01-INHALT-03, review block E of 2026-10-11): the paragraph on the two parties ends with
 "the same verdict on the same receipt bytes and verification key, provided verification completes."; the check of
 round 20 reads it in that wording and finds the old ending "on the same bytes." nowhere.
@@ -254,6 +261,37 @@ class JSONSyntaxError(Exception):
     pass
 
 
+class ResourceLimitError(Exception):
+    """A limit of this Receiver was reached (Section 5: a resource-limit error, neither PASS nor FAIL)."""
+
+
+# Section 8: limits apply "before and during processing". The deepest nesting of arrays and objects that is parsed;
+# a top-level array or object is depth 1.
+MAX_DEPTH = 64
+
+
+def nesting_depth_ok(text):
+    """True if text nests arrays and objects at most MAX_DEPTH deep; brackets inside strings do not count."""
+    depth, in_string, escaped = 0, False, False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "[" or ch == "{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return False
+        elif ch == "]" or ch == "}":
+            depth -= 1
+    return True
+
+
 class JNum(object):
     """A JSON number: the exact token as written, and its IEEE 754 double."""
     __slots__ = ("token", "value")
@@ -460,7 +498,8 @@ def parse(data):
     (bom, utf8, surrogate, noncharacter, duplicate, trailing); for a lenient
     reading the value is still produced (BOM stripped, invalid UTF-8 replaced,
     last duplicate wins, trailing data ignored).  Raises JSONSyntaxError when
-    the bytes are not JSON at all.
+    the bytes are not JSON at all, and ResourceLimitError when arrays and objects
+    nest deeper than MAX_DEPTH (measured before parsing).
     """
     viol = []
     if data.startswith(b"\xef\xbb\xbf"):
@@ -471,15 +510,10 @@ def parse(data):
     except UnicodeDecodeError as e:
         viol.append(("utf8", "not UTF-8: %s at byte %d" % (e.reason, e.start)))
         text = data.decode("utf-8", errors="replace")
+    if not nesting_depth_ok(text):
+        raise ResourceLimitError("arrays and objects nested deeper than %d" % MAX_DEPTH)
     p = _Parser(text)
-    old = sys.getrecursionlimit()
-    sys.setrecursionlimit(max(old, 20000))
-    try:
-        val = p.text()
-    except RecursionError:
-        raise JSONSyntaxError("nesting too deep for this implementation (resource limit, Section 8)")
-    finally:
-        sys.setrecursionlimit(old)
+    val = p.text()
     return val, viol + p.v, p.numbers
 
 
@@ -912,6 +946,8 @@ def verify(receipt, vk, reading=DEFAULT):
         rec, viol, nums = parse(receipt)
     except JSONSyntaxError as e:
         return FAIL(1, "receipt is not a JSON text: %s" % e)
+    except ResourceLimitError as e:
+        return Result("RESOURCE_LIMIT", 1, reason="receipt: %s" % e)
     bad = [d for k, d in viol if k in STEP1_KINDS
            and not (reading.w_receipt_codepoints and k in ("utf8", "surrogate", "noncharacter"))]
     if reading.receipt_number_range_step1:
@@ -949,6 +985,8 @@ def verify(receipt, vk, reading=DEFAULT):
         pl, viol, nums = parse(B)
     except JSONSyntaxError as e:
         return FAIL(4, "B is not a JSON text: %s" % e, B=B)
+    except ResourceLimitError as e:
+        return Result("RESOURCE_LIMIT", 4, reason="B: %s" % e, B=B)
     bad = [d for k, d in viol if k in STEP1_KINDS and k not in reading.step4_skip]
     if reading.trailing_ws_is_data and "trailing" not in reading.step4_skip \
             and not any(k == "trailing" for k, _ in viol) and B != B.rstrip(_WS.encode("ascii")):
@@ -1035,7 +1073,7 @@ def lenient_parts(receipt):
     (B or None, sig bytes or None)."""
     try:
         rec, _, _ = parse(receipt)
-    except JSONSyntaxError:
+    except (JSONSyntaxError, ResourceLimitError):
         return None, None
     if not isinstance(rec, JObj):
         return None, None
@@ -1070,10 +1108,11 @@ def library_verdict(vk, sig, B):
 
 def step5_would_reject(B):
     """Lenient parse of B (BOM stripped, last duplicate wins, trailing ignored):
-    is B its own RFC 8785 serialization?  None if B is not JSON at all."""
+    is B its own RFC 8785 serialization?  None if B is not JSON at all or nests
+    deeper than MAX_DEPTH."""
     try:
         v, _, _ = parse(B)
-    except JSONSyntaxError:
+    except (JSONSyntaxError, ResourceLimitError):
         return None
     try:
         return jcs_bytes(v) != B
@@ -1886,6 +1925,12 @@ def main():
                     ("signature", JObj(sgm))])
         return jcs_bytes(rec) + tail
 
+    def deep(open_, n):
+        """n nested arrays, or n nested objects with the one member name "a"."""
+        if open_ == "[":
+            return b"[" * n + b"]" * n
+        return b'{"a":' * (n - 1) + b"{}" + b"}" * (n - 1)
+
     def rep(old, new, data=p1B):
         assert data.count(old) == 1, old
         return data.replace(old, new)
@@ -1949,6 +1994,20 @@ def main():
         ("Q19", "B of P1 after one line feed (0a), signed anew (round 14)", build(b"\n" + p1B), issuer_pub,
          [("M-P13", Reading(leading_ws_is_data=True))],
          "FAIL/5 -- step 4 admits whitespace before the JSON text, B is not its own RFC 8785 serialization"),
+        # Round 22: Section 5, a resource-limit error is neither PASS nor FAIL; MAX_DEPTH levels are read
+        ("Q20", "receipt: arrays 60000 deep", deep("[", 60000), issuer_pub, [],
+         "RESOURCE_LIMIT/1 -- 5 'a resource-limit error; that is neither PASS nor the FAIL of one of the steps'"),
+        ("Q21", "receipt: objects 30000 deep", deep("{", 30000), issuer_pub, [], "RESOURCE_LIMIT/1 -- 5"),
+        ("Q22", "B: arrays 60000 deep, signed", build(deep("[", 60000)), issuer_pub, [], "RESOURCE_LIMIT/4 -- 5"),
+        ("Q23", "B: objects 30000 deep, signed", build(deep("{", 30000)), issuer_pub, [], "RESOURCE_LIMIT/4 -- 5"),
+        ("Q24", "receipt: arrays %d deep (the limit), read" % MAX_DEPTH, deep("[", MAX_DEPTH), issuer_pub, [],
+         "FAIL/1 -- the top-level value is not an object"),
+        ("Q25", "receipt: arrays %d deep (the limit + 1)" % (MAX_DEPTH + 1), deep("[", MAX_DEPTH + 1), issuer_pub, [],
+         "RESOURCE_LIMIT/1 -- 5"),
+        ("Q26", "B: objects %d deep (the limit), read, signed" % MAX_DEPTH, build(deep("{", MAX_DEPTH)), issuer_pub,
+         [], "FAIL/6 -- the members are not those of Table 1"),
+        ("Q27", "B: objects %d deep (the limit + 1), signed" % (MAX_DEPTH + 1), build(deep("{", MAX_DEPTH + 1)),
+         issuer_pub, [], "RESOURCE_LIMIT/4 -- 5"),
     ]
     sig_p1 = ed25519_sign(issuer_seed, pae(PAE_TYPE, p1B))
     q13 = p1R.replace(b64(sig_p1).encode(), b64(sig_p1).rstrip("=").encode())
