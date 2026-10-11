@@ -718,7 +718,10 @@ Certificate profile. The protected header holds exactly the six parameters 1,
 * 15 (CWT Claims): `iss` is a did:x509 identifier {{DIDX509}} of exactly the
   form `did:x509:0:sha256:` F `::eku:` O, where F is SHA-256 over the DER bytes
   of the last certificate of x5chain, encoded in base64url without padding (43
-  characters), and O is an object identifier in dotted decimal form;
+  characters), and O is an object identifier in dotted decimal form: the first
+  arc is 0, 1 or 2, it is followed by one or more further arcs, the arcs are
+  separated by full stops, and each arc is a decimal number without leading
+  zeros;
 * 33 (x5chain) {{RFC9360}}: an array of exactly two byte strings, each a
   DER-encoded X.509 certificate {{RFC5280}}: first the leaf certificate, whose
   P-256 public key verifies the statement signature, then the trust anchor
@@ -771,7 +774,12 @@ not accepted.
    string that is not valid UTF-8 or a map with duplicate keys, is malformed;
    two keys are duplicates only when they are equal under the key equivalence
    of {{RFC8949}} Section 5.6.1, so the integer 1 and true are two keys and 0.0
-   and -0.0 are one. Step 1 does not check whether the content of a tag inside
+   and -0.0 are one. For the choices that {{RFC8949}} Section 4.2.2 leaves to a
+   protocol, step 1 uses these: a NaN is in the deterministic encoding only as
+   the half-precision quiet NaN 0xf97e00, and any other encoding of a NaN is
+   malformed; no tag adds a rule of its own, so the content of a tag, a bignum
+   included, is checked like any other data item. Step 1 does not check whether
+   the content of a tag inside
    the COSE_Sign1 is valid for that tag ({{RFC8949}} Section 5.3.2); the data
    items inside a tag are checked like any other data item. For step 1, the
    COSE_Sign1 check concerns only the outer tag, the four-element array and its

@@ -31,6 +31,13 @@ generator; it re-derives every claim from the bytes in mappings.json:
       protected header replaced by 0x2f (-16), nothing reordered and not signed again, the status is malformed at
       step 1: in the deterministic encoding of RFC 8949 Section 4.2.1 the keys are sorted bytewise by their
       encodings, so -16 (0x2f) belongs after 33 (0x18 0x21), 258 and 259 (0x19 0x01 ...).
+  G   for X1 with O of its iss changed in one place and the signature kept (steps 2 and 3 come before step 4): a
+      leading zero in the last or in the first arc is outside_profile at step 2 (Section 5.2, label 15: each arc a
+      decimal number without leading zeros); O = 1.40.6.1.5.5.7.3.3 has the form and is untrusted_key at step 3.
+  H   for M2 with a sixth protected-header pair written as given bytes, the signature kept: step 1 reads a tag as
+      its number and content (a bignum, a date and a UUID included), compares keys under RFC 8949 Section 5.6.1
+      (1, 1.0 and true are three keys), admits a float in its shortest form and a NaN only as f9 7e00; a key out of
+      bytewise order is malformed (Section 5.2.2 step 1).
 Exit 0 when all hold.
 """
 import base64
@@ -194,24 +201,162 @@ def cbor_encode(v) -> bytes:
         return cbor_head(6, v.tag) + cbor_encode(v.value)
     if isinstance(v, cbor2.CBORSimpleValue):
         return cbor_head(7, v.value)
-    # cbor2 decodes some tags into objects of its own (datetime, Decimal, Fraction, UUID, regular expression, MIME
-    # message, IP address, set); only cbor2 encodes them back, and they keep the status they had before this
-    # encoder. A map inside a set (tag 258) is then still sorted length first.
-    return cbor2.dumps(v, canonical=True)
+    raise TypeError("no deterministic encoding here for %s" % type(v).__name__)
+
+
+class Tag:
+    """A tag as the generic data model has it, its number and its content. No tag adds a rule of its own in step 1
+    (Section 5.2.2, after RFC 8949 Section 4.2.2), so the content is not read as a date, a bignum or a UUID."""
+    __slots__ = ("tag", "value")
+
+    def __init__(self, tag, value):
+        self.tag, self.value = tag, value
+
+
+class Float:
+    """A floating-point value; it equals no integer and no simple value."""
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+
+class Simple:
+    """A simple value other than null: false (20), true (21), undefined (23) and the unassigned ones. It equals no
+    integer, so true and 1 are two map keys."""
+    __slots__ = ("value",)
+
+    def __init__(self, value):
+        self.value = value
+
+
+class Key:
+    """A map key that is not an integer, a text string, a byte string or null, compared under RFC 8949 Section
+    5.6.1 (key_rep)."""
+    __slots__ = ("rep",)
+
+    def __init__(self, rep):
+        self.rep = rep
+
+    def __eq__(self, other):
+        return isinstance(other, Key) and self.rep == other.rep
+
+    def __hash__(self):
+        return hash(self.rep)
+
+
+def key_rep(v):
+    """v under the key equivalence of RFC 8949 Section 5.6.1: integers, floats, simple values, byte strings, text
+    strings, arrays, maps and tags are each their own group, so 1, 1.0 and true are three keys; within the floats
+    -0.0 equals 0.0. Step 1 admits one NaN only, f9 7e00, so every NaN here is that one."""
+    if isinstance(v, int):
+        return ("int", v)
+    if isinstance(v, bytes):
+        return ("bytes", v)
+    if isinstance(v, str):
+        return ("text", v)
+    if v is None:
+        return ("simple", 22)
+    if isinstance(v, Simple):
+        return ("simple", v.value)
+    if isinstance(v, Float):
+        return ("float", v.value) if v.value == v.value else ("nan",)
+    if isinstance(v, list):
+        return ("array", tuple(key_rep(x) for x in v))
+    if isinstance(v, dict):
+        return ("map", frozenset((k.rep if isinstance(k, Key) else key_rep(k), key_rep(x)) for k, x in v.items()))
+    if isinstance(v, Tag):
+        return ("tag", v.tag, key_rep(v.value))
+    raise TypeError("no key representation for %s" % type(v).__name__)
+
+
+class NotDeterministic(Exception):
+    """Step 1 fails: the bytes are not one well-formed, valid data item in the deterministic encoding."""
+
+
+def _fits(x: float, fmt: str) -> bool:
+    try:
+        return struct.unpack(fmt, struct.pack(fmt, x))[0] == x
+    except OverflowError:
+        return False
+
+
+def _decode(b: bytes, i: int):
+    """The data item at offset i and the offset after it, read from the bytes, not through cbor2. RFC 8949
+    Section 4.2.1 with the choices of Section 5.2.2 step 1: arguments as short as possible, definite lengths, floats
+    in their shortest form and a NaN only as f9 7e00, the keys of every map in bytewise order of their encodings and
+    no two equal under Section 5.6.1, text strings in UTF-8 (Section 5.3.1); a tag is its number and its content."""
+    if i >= len(b):
+        raise NotDeterministic("ends inside an item")
+    mt, ai = b[i] >> 5, b[i] & 0x1F
+    if ai < 24:
+        arg, j = ai, i + 1
+    elif ai < 28:
+        n = 1 << (ai - 24)
+        if i + 1 + n > len(b):
+            raise NotDeterministic("ends inside a head")
+        arg, j = int.from_bytes(b[i + 1:i + 1 + n], "big"), i + 1 + n
+        if mt != 7 and arg < (24 if n == 1 else 1 << (4 * n)):
+            raise NotDeterministic("argument not as short as possible")
+    else:
+        raise NotDeterministic("indefinite length or reserved additional information")
+    if mt == 0:
+        return arg, j
+    if mt == 1:
+        return -1 - arg, j
+    if mt in (2, 3):
+        if j + arg > len(b):
+            raise NotDeterministic("ends inside a string")
+        if mt == 2:
+            return b[j:j + arg], j + arg
+        try:
+            return b[j:j + arg].decode("utf-8"), j + arg
+        except UnicodeDecodeError:
+            raise NotDeterministic("text string not UTF-8") from None
+    if mt == 4:
+        out = []
+        for _ in range(arg):
+            x, j = _decode(b, j)
+            out.append(x)
+        return out, j
+    if mt == 5:
+        out, seen, last = {}, set(), b""
+        for _ in range(arg):
+            k, kj = _decode(b, j)
+            if b[j:kj] <= last:
+                raise NotDeterministic("map keys not in bytewise order of their encodings")
+            last, r = b[j:kj], key_rep(k)
+            if r in seen:
+                raise NotDeterministic("two map keys equal under RFC 8949 Section 5.6.1")
+            seen.add(r)
+            x, j = _decode(b, kj)
+            out[k if isinstance(k, (int, str, bytes)) or k is None else Key(r)] = x
+        return out, j
+    if mt == 6:
+        x, j = _decode(b, j)
+        return Tag(arg, x), j
+    if ai < 24:
+        return (None if arg == 22 else Simple(arg)), j
+    if ai == 24:
+        if arg < 32:
+            raise NotDeterministic("simple value below 32 in two bytes")
+        return Simple(arg), j
+    x = struct.unpack({25: ">e", 26: ">f", 27: ">d"}[ai], b[i + 1:j])[0]
+    if x != x and b[i:j] != b"\xf9\x7e\x00":
+        raise NotDeterministic("a NaN other than f9 7e00")
+    if ai > 25 and x == x and _fits(x, ">e" if ai == 26 else ">f"):
+        raise NotDeterministic("float not in its shortest form")
+    return Float(x), j
 
 
 def deterministic(b: bytes):
-    """One CBOR data item in the deterministic encoding of RFC 8949 Section 4.2.1: decoded, then re-encoded byte
-    for byte by cbor_encode."""
+    """Step 1 on one byte string: (the item, True) when it is one well-formed, valid data item in the deterministic
+    encoding (_decode), else (None, False)."""
     try:
-        item = cbor2.loads(b)
-    except Exception:  # noqa: BLE001  not well-formed, trailing bytes, invalid UTF-8
+        item, end = _decode(b, 0)
+    except Exception:  # noqa: BLE001  NotDeterministic, and a nesting deeper than the interpreter allows
         return None, False
-    try:
-        again = cbor_encode(item)
-    except Exception:  # noqa: BLE001  a value that cannot be encoded again
-        return item, False
-    return item, again == b
+    return (item, True) if end == len(b) else (None, False)
 
 
 KEY_LABELS = {1, 4, 15, 258, 259}
@@ -260,13 +405,13 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, ce
     item, det = deterministic(stmt)
     if item is None or not det:
         return "malformed", 1
-    if isinstance(item, cbor2.CBORTag):
+    if isinstance(item, Tag):
         if item.tag != 18:
             return "malformed", 1
         arr, tagged = item.value, True
     else:
         arr, tagged = item, False
-    # cbor2 5 decodes an array as list and a map as dict, cbor2 6 inside an array as tuple and frozendict
+    # _decode gives an array as list and a map as dict
     if not (isinstance(arr, (list, tuple)) and len(arr) == 4 and isinstance(arr[0], bytes)
             and isinstance(arr[1], Mapping) and isinstance(arr[2], (bytes, type(None))) and isinstance(arr[3], bytes)):
         return "malformed", 1
@@ -377,6 +522,45 @@ def key_byte_replaced(stmt: bytes, label: int, new: int) -> bytes:
     if stmt[start:start + len(prot_b)] != prot_b or stmt[at:at + 1] != cbor_encode(label):
         raise ValueError("label %d not where its encoding puts it" % label)
     return stmt[:at] + bytes([new]) + stmt[at + 1:]
+
+
+#: (what changes in O of the iss of X1, the new O, the expected status and step)
+OID_CASES = [
+    ("a leading zero in the last arc", "1.3.6.1.5.5.7.3.03", ("outside_profile", 2)),
+    ("a leading zero in the first arc", "01.3.6.1.5.5.7.3.3", ("outside_profile", 2)),
+    ("second arc 40, under the certificate pair", "1.40.6.1.5.5.7.3.3", ("untrusted_key", 3)),
+]
+#: (the sixth pair in M2, its key and value as bytes, the label it stands before (None: at the end), status and step)
+PAIR_CASES = [
+    ("key 1.5 (f9 3e00) at the end", "f93e00", "00", None, ("outside_profile", 2)),
+    ("key true (f5) at the end, next to 1", "f5", "00", None, ("outside_profile", 2)),
+    ("key 1.0 (f9 3c00) at the end, next to 1", "f93c00", "00", None, ("outside_profile", 2)),
+    ("key -1 at the end, tag 37 and 16 zero bytes", "20", "d82550" + "00" * 16, None, ("outside_profile", 2)),
+    ("key -1 at the end, tag 1 and 0", "20", "c100", None, ("outside_profile", 2)),
+    ("key -1 at the end, tag 2 and h'01'", "20", "c24101", None, ("outside_profile", 2)),
+    ("key -1 before 258, 0", "20", "00", 258, ("malformed", 1)),
+    ("key 16 before 258, tag 0 and '2026-10-11T00:00:00Z'", "10", "c074" + b"2026-10-11T00:00:00Z".hex(), 258,
+     ("outside_profile", 2)),
+    ("key 16 before 258, 1.5 (f9 3e00)", "10", "f93e00", 258, ("outside_profile", 2)),
+    ("key 16 before 258, f9 7e00", "10", "f97e00", 258, ("outside_profile", 2)),
+    ("key 16 before 258, f9 7e01", "10", "f97e01", 258, ("malformed", 1)),
+    ("key 16 before 258, fb 7ff8000000000001", "10", "fb7ff8000000000001", 258, ("malformed", 1)),
+]
+
+
+def with_pair(stmt: bytes, key: bytes, value: bytes, before) -> bytes:
+    """The tagged COSE_Sign1 with one more protected-header pair, key and value as given bytes, put before the pair
+    of label `before` or at the end; the other pairs, the unprotected header, payload and signature as they are."""
+    item = cbor2.loads(stmt)
+    prot = cbor2.loads(item.value[0])
+    pairs = [(k, cbor_encode(k) + cbor_encode(x)) for k, x in prot.items()]
+    if cbor_head(5, len(pairs)) + b"".join(e for _, e in pairs) != item.value[0]:
+        raise ValueError("protected header not as its pairs encode it")
+    at = len(pairs) if before is None else [k for k, _ in pairs].index(before)
+    enc = [e for _, e in pairs]
+    enc.insert(at, key + value)
+    prot_b = cbor_head(5, len(enc)) + b"".join(enc)
+    return cbor_encode(cbor2.CBORTag(18, [prot_b, item.value[1], item.value[2], item.value[3]]))
 
 
 def pae(typ, body):
@@ -546,6 +730,19 @@ def main():
         ok &= check("K %s with key 15 of the protected header written as -16 (0x2f), not reordered: %s at step %s "
                     "(expected malformed at step 1)" % (name, got[0], got[1]),
                     got == ("malformed", 1) and hashlib.sha256(bad).hexdigest() == want_sha)
+    o_x1 = DID_RE.match(cp["iss"]).group(2)
+    for what, o_new, want in OID_CASES:
+        bad = cbor_encode(cbor2.CBORTag(18, [cbor_encode({**x1p, 15: {1: cp["iss"][:-len(o_x1)] + o_new,
+                                                                      2: x1p[15][2]}}), {}, x1.value[2], x1.value[3]]))
+        got = check_statement(bad, p1, pub, pairs, cert_pairs)
+        ok &= check("G X1 with O = %s (%s): %s at step %s (expected %s at step %s)" % (o_new, what, got[0], got[1],
+                    want[0], want[1]), got == want and o_x1 == cp["eku"])
+    m2 = bytes.fromhex(d["M2_scitt_hash_envelope"]["cose_sign1_hex"])
+    for what, key_hex, value_hex, before, want in PAIR_CASES:
+        bad = with_pair(m2, bytes.fromhex(key_hex), bytes.fromhex(value_hex), before)
+        got = check_statement(bad, p1, pub, pairs, cert_pairs)
+        ok &= check("H M2 with %s: %s at step %s (expected %s at step %s)" % (what, got[0], got[1], want[0], want[1]),
+                    got == want)
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
