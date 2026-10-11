@@ -41,6 +41,8 @@ generator; it re-derives every claim from the bytes in mappings.json:
       bytewise order is malformed (Section 5.2.2 step 1).
   L   for M2 with a sixth label -1 holding arrays 60000 deep, maps 30000 deep or tags 30000 deep, step 1 stops at
       MAX_DEPTH (64) with a resource-limit error, which Section 5.2.2 says is no status.
+      For M2 with a candidate receipt of arrays 60000 deep, step 5 ends the same way: the receipts draft's checker
+      reports RESOURCE_LIMIT, and the error is passed on, not turned into receipt_not_verified.
 Exit 0 when all hold.
 """
 import base64
@@ -489,7 +491,9 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, ce
                 pass
     if not good:
         return "signature_invalid", 4
-    verdict, _step, _ = check_receipts.verify(candidate, receipt_key)
+    verdict, _step, why = check_receipts.verify(candidate, receipt_key)
+    if verdict == "RESOURCE_LIMIT":   # Section 5.2.2: a resource-limit error in any step is no status
+        raise ResourceLimit("step 5, the receipt procedure: %s" % why)
     if verdict != "PASS":
         return "receipt_not_verified", 5
     cb = b_of(candidate)
@@ -780,6 +784,13 @@ def main():
             got = "resource-limit error"
         ok &= check("L M2 with key -1 holding %s (%d bytes): %s (expected a resource-limit error, no status)"
                     % (what, len(bad), got), got == "resource-limit error")
+    deep_receipt = b"[" * 60000 + b"]" * 60000
+    try:
+        got = "%s at step %s" % check_statement(m2, deep_receipt, pub, pairs, cert_pairs)
+    except ResourceLimit:
+        got = "resource-limit error"
+    ok &= check("L M2 with a candidate receipt of arrays 60000 deep: %s (expected a resource-limit error in step 5, "
+                "no status; the receipts draft's checker reports RESOURCE_LIMIT)" % got, got == "resource-limit error")
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 

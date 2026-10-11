@@ -8,7 +8,11 @@ equation). Step 5 uses the full RFC 8785 serialization, including the ECMAScript
 For comparison it also asks pyca/cryptography (OpenSSL) for the bare Ed25519 verdict on each vector and
 prints it; that column is a measurement, not part of the verdict.
 
-Usage: check_receipts.py [vectors.json]  -> exit 0 when every vector meets its expected verdict and step.
+Steps 1 and 4 read arrays and objects nested at most MAX_DEPTH (64) deep; deeper input gives RESOURCE_LIMIT, the
+resource-limit error of Section 5, neither PASS nor FAIL. LIMIT_CASES hold that and the limit itself.
+
+Usage: check_receipts.py [vectors.json]  -> exit 0 when every vector and every limit case meets its expected verdict
+and step.
 """
 import base64
 import decimal
@@ -35,6 +39,34 @@ class Fail(Exception):
     def __init__(self, step, reason):
         super().__init__(reason)
         self.step, self.reason = step, reason
+
+
+class ResourceLimit(Exception):
+    """This Receiver stopped at one of its limits: Section 5 makes that a resource-limit error, neither PASS nor the
+    FAIL of a step."""
+
+    def __init__(self, step, reason):
+        super().__init__(reason)
+        self.step, self.reason = step, reason
+
+
+#: The deepest nesting of arrays and objects that steps 1 and 4 read; a top-level array or object is depth 1. The
+#: depth is measured before the text is parsed, as Section 8 allows ("before and during processing").
+MAX_DEPTH = 64
+_STRUCTURE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.S)
+
+
+def _nesting(text, what, step):
+    """Raise ResourceLimit when text nests arrays and objects deeper than MAX_DEPTH (brackets inside strings skipped)."""
+    depth = 0
+    for m in _STRUCTURE.finditer(text):
+        c = m.group()
+        if c in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                raise ResourceLimit(step, "%s nests arrays and objects deeper than %d" % (what, MAX_DEPTH))
+        elif c in "]}":
+            depth -= 1
 
 
 # ---- Ed25519, RFC 8032 Section 5.1 --------------------------------------------------------------
@@ -148,13 +180,15 @@ def _check_string(s, what, step):
 
 def ijson(b: bytes, what: str, step):
     """One I-JSON text: UTF-8 without BOM, no duplicate names (after unescaping), no surrogates or
-    noncharacters, nothing before or after the text but whitespace, no NaN or Infinity literals."""
+    noncharacters, nothing before or after the text but whitespace, no NaN or Infinity literals. Nesting deeper
+    than MAX_DEPTH raises ResourceLimit before the text is parsed."""
     if b.startswith(b"\xef\xbb\xbf"):
         raise Fail(step, "%s begins with a byte order mark" % what)
     try:
         text = b.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
         raise Fail(step, "%s is not UTF-8" % what)
+    _nesting(text, what, step)
 
     def pairs(items):
         seen = {}
@@ -288,7 +322,8 @@ def holds(score, comparator, threshold):
 
 
 def verify(receipt_bytes: bytes, key: bytes):
-    """Return ("PASS", "all", "ok") or ("FAIL", step, reason). key: the receiver-fixed 32-byte key."""
+    """Return ("PASS", "all", "ok"), ("FAIL", step, reason) or ("RESOURCE_LIMIT", step, reason). key: the
+    receiver-fixed 32-byte key."""
     try:
         # 1
         r = ijson(receipt_bytes, "the receipt", "1")
@@ -355,7 +390,33 @@ def verify(receipt_bytes: bytes, key: bytes):
         profile_verify(key, pae(TYPE, B), sig)
     except Fail as exc:
         return "FAIL", exc.step, exc.reason
+    except ResourceLimit as exc:
+        return "RESOURCE_LIMIT", exc.step, exc.reason
     return "PASS", "all", "ok"
+
+
+def _deep(kind, n):
+    """n nested arrays, or n nested objects with the one member name "a"."""
+    return "[" * n + "]" * n if kind == "array" else '{"a":' * (n - 1) + "{}" + "}" * (n - 1)
+
+
+def _receipt_of(b: bytes) -> bytes:
+    """A receipt that carries b as B, with a signature of 64 zero bytes (steps 1 to 4 come before the signature)."""
+    return ('{"payload_b64":"%s","schema":"%s","signature":{"alg":"ed25519","sig":"%s"}}'
+            % (base64.b64encode(b).decode("ascii"), MEDIA_TYPE, base64.b64encode(bytes(64)).decode("ascii"))).encode()
+
+
+#: (what, receipt bytes, expected verdict, expected step): nesting past MAX_DEPTH and the limit itself
+LIMIT_CASES = [
+    ("receipt: arrays 60000 deep", _deep("array", 60000).encode(), "RESOURCE_LIMIT", "1"),
+    ("receipt: objects 30000 deep", _deep("object", 30000).encode(), "RESOURCE_LIMIT", "1"),
+    ("B: arrays 60000 deep", _receipt_of(_deep("array", 60000).encode()), "RESOURCE_LIMIT", "4"),
+    ("B: objects 30000 deep", _receipt_of(_deep("object", 30000).encode()), "RESOURCE_LIMIT", "4"),
+    ("receipt: arrays MAX_DEPTH deep, read", _deep("array", MAX_DEPTH).encode(), "FAIL", "1"),
+    ("receipt: arrays MAX_DEPTH + 1 deep", _deep("array", MAX_DEPTH + 1).encode(), "RESOURCE_LIMIT", "1"),
+    ("B: objects MAX_DEPTH deep, read", _receipt_of(_deep("object", MAX_DEPTH).encode()), "FAIL", "6"),
+    ("B: objects MAX_DEPTH + 1 deep", _receipt_of(_deep("object", MAX_DEPTH + 1).encode()), "RESOURCE_LIMIT", "4"),
+]
 
 
 def main():
@@ -377,10 +438,17 @@ def main():
             bad.append(v["id"])
         print("%-4s %-34s %-6s %-6s %-20s %-20s %s" % (v["id"], v["requirement"], v["expected"], got, step, ossl,
                                                         reason))
+    key = base64.b64decode(doc["vectors"][0]["verification_key_b64"])
+    for what, rb, expected, exp_step in LIMIT_CASES:
+        got, step, reason = verify(rb, key)
+        if (got, step) != (expected, exp_step):
+            bad.append(what)
+        print("%-4s %-34s %-6s %-6s %-20s %-20s %s" % ("L", what[:34], expected[:6], got[:6], step, "n/a", reason))
     if bad:
         print("UNEXPECTED:", bad)
         sys.exit(1)
-    print("all %d vectors meet their expected verdict and step" % len(doc["vectors"]))
+    print("all %d vectors and %d limit cases meet their expected verdict and step" % (len(doc["vectors"]),
+                                                                                     len(LIMIT_CASES)))
 
 
 if __name__ == "__main__":
