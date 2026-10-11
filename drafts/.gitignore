@@ -8,6 +8,7 @@ xml2rfc.err
 xml2rfc.out
 v2v3.out
 v2v3.err
+v3sub.out
 idnits.out
 idnits.err
 __pycache__/
