@@ -1,0 +1,7 @@
+# The repository's ruff settings apply here too; the one exception is line length, for the draft
+# sources only: the generators, checkers and draft bodies carry long literal lines (test vectors,
+# sentences quoted from the drafts) that a wrap would change.
+extend = "../pyproject.toml"
+
+[lint]
+extend-ignore = ["E501"]
