@@ -6,6 +6,10 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 21 (card DRAFTS-01-INHALT-03, review block E of 2026-10-11): the paragraph on the two parties ends with
+"the same verdict on the same receipt bytes and verification key, provided verification completes."; the check of
+round 20 reads it in that wording and finds the old ending "on the same bytes." nowhere.
+
 Round 20 (card DRAFTS-01-INHALT-02, owner choice 5 of 2026-10-11): the Introduction holds, after its second
 paragraph, the paragraph on the two parties that use the format; the check finds it word for word in that place,
 confirms that the "Section 5" it cites is the Verification Procedure, and that it has no BCP 14 keyword.
@@ -1752,16 +1756,20 @@ def main():
            "the Issuer reports for which committed model and dataset, under which threshold and comparator. The "
            "receipt object exists next to the DSSE-compatible signature because it carries, together with B, the "
            "fixed type and the payload schema identifier and is verified by one procedure (Section 5), so that every "
-           "Receiver reaches the same verdict on the same bytes. A DSSE signature check alone is not that verdict.")
+           "Receiver reaches the same verdict on the same receipt bytes and verification key, provided verification "
+           "completes. A DSSE signature check alone is not that verdict.")
+    old21 = "so that every Receiver reaches the same verdict on the same bytes."
     before20 = "over a pre-authentication encoding that binds a fixed type. "
     after20 = " A receipt establishes integrity and origin:"
     sec5 = any(ln == "5.  Verification Procedure" for ln in lines15)
     kw20 = [k for k in ("MUST", "SHOULD", "SHALL", "REQUIRED", "RECOMMENDED", "MAY", "OPTIONAL") if re.search(r"\b%s\b" % k, p20)]
-    chk("1 (round 20): the paragraph on the two parties stands word for word after the second paragraph of the "
-        "Introduction, its 'Section 5' is the Verification Procedure, and it has no BCP 14 keyword",
-        (before20 + p20 + after20) in flat15 and flat15.count(p20) == 1 and sec5 and not kw20,
-        "found in place: %s; heading 5 is the Verification Procedure: %s; keywords: %s"
-        % ((before20 + p20 + after20) in flat15, sec5, kw20 or "none"))
+    chk("1 (rounds 20 and 21): the paragraph on the two parties, in the wording of review block E, stands word for "
+        "word after the second paragraph of the Introduction, its 'Section 5' is the Verification Procedure, it has "
+        "no BCP 14 keyword, and the old ending is gone",
+        (before20 + p20 + after20) in flat15 and flat15.count(p20) == 1 and sec5 and not kw20
+        and old21 not in flat15,
+        "found in place: %s; heading 5 is the Verification Procedure: %s; keywords: %s; old ending left: %s"
+        % ((before20 + p20 + after20) in flat15, sec5, kw20 or "none", old21 in flat15))
     # Round 16: Section 8, the Appendix A label sentence, the order of Table 2 and A.2, and the counts.
     s8 = ("In the measurements of Section 11, the plain Ed25519 verification of a general library accepted the "
           "signatures of vectors N12, N16, N18 and N61 and rejected those of N6, N17 and N59; the profile of Section "

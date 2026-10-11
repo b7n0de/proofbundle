@@ -3,6 +3,13 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 23 (card DRAFTS-01-INHALT-03, review blocks A to F of 2026-10-11): 3.4, 5.2, steps 2 and 3 of 5.2.2, its
+closing paragraph and two paragraphs of Section 9 carry the reviewer's wording. R23-A to R23-F find each block word
+for word and once; R23-OLD finds none of the replaced sentences; R23-REFS finds [RFC5280] and [DIDX509] among the
+references; R23-STEP23 computes, with status20, the boundary that B1, B2 and C1 draw: the container form of x5chain
+and the syntax of iss in step 2 (outside_profile), certificate contents and keys in step 3 (untrusted_key). R17-ALG,
+R20-TEXT and R21-TEXT read the new sentences of step 2 and Section 9 in place of the replaced ones.
+
 Round 22 (card DRAFTS-01-INHALT-02, owner choice 3 of 2026-10-11): Open Items ask, besides alg -9, whether the
 certificate profile admits an intermediate certificate or a root other than RSA, with the measured reason; R22-OI finds
 the item and the measurement in Section 12 that it cites.
@@ -1883,8 +1890,9 @@ a524 = ("In the key profile, value -19 is the fully specified Ed25519 identifier
 old17 = ["A Receiver MAY also accept -8", "for a Receiver that does not accept it", "and may accept them",
          "A Receiver may meet statements with -8"]
 check("D2", "R17-ALG", a521 in d2flat16 and a524 in d2flat16 and not any(o in d2flat16 for o in old17)
-      and "the labels select neither profile, a parameter does not have the type and value that the selected profile "
-          "gives" in d2flat16,
+      and "In the key profile, alg is the integer -19 or -8, and iss is an absolute URI." in d2flat16
+      and "A violation of these structural rules, a detached payload, a payload that is not 32 bytes, or a signature "
+          "that is not 64 bytes gives outside_profile." in d2flat16,
       "5.2.1, 5.2.2 step 2 and 5.2.4 give one alg rule: every Receiver accepts -19 and -8; any other alg value is "
       "still outside_profile under step 2",
       "old sentences left: " + (", ".join(o for o in old17 if o in d2flat16) or "none"))
@@ -2446,8 +2454,9 @@ check("DEMO", "R20-URI", _abs_uri.match(ISS20) is not None and _abs_uri.match("h
       and _abs_uri.match("did:") is not None and _abs_uri.match("did:x509:0#frag") is None,
       "RFC 3986 absolute-URI with all forms of hier-part: the did:x509 identifier of X1 (path-rootless) is one, "
       "https://issuer.example/e[val is not, an empty path is one, a fragment is not")
-s20_txt = ["The labels of the protected header select the profile: exactly 1, 4, 15, 258 and 259 select the key "
-           "profile, and exactly 1, 4, 15, 33, 258 and 259 the certificate profile.",
+s20_txt = ["The labels of the protected header select the profile: exactly the integer labels 1, 4, 15, 258 and 259 "
+           "select the key profile, and exactly the integer labels 1, 4, 15, 33, 258 and 259 select the certificate "
+           "profile.",
            "This step is not certification path validation ([RFC5280] Section 6) and does not resolve iss as a DID",
            "[RFC9864] also sets -7 to Deprecated and registers -9 (ESP256) for ECDSA with SHA-256 on P-256.",
            "The steps of Section 5.2.2, applied on 2026-10-11 to the registered statement under the certificate pair "
@@ -2577,7 +2586,8 @@ s21_txt = [
     "Receipts not read. Step 2 of Section 5.2.2 removes the receipts of a Transparent Statement without reading them;",
     "It fixes the key, not the issuer name in the receipt: two instances of a Transparency Service can carry the same "
     "issuer name and differ only in their keys (Section 12).",
-    "Digest not checked at registration.", "Only the Receiver recomputes the receipt digest",
+    "Digest not checked by registration alone.",
+    "The Receiver recomputes the receipt digest in step 6 of Section 5.2.2.",
     "as cannot-evaluate (exit status 3), not as untrusted (exit status 1); this document maps no verdict of another "
     "tool to a status of Section 5.2.2.",
     "did not anchor a chain whose leaf certificate was signed with ECDSA (exit status 3) and verified the chain with "
@@ -2608,6 +2618,114 @@ check("D2", "R22-OI", oi22_txt in oi22 and oi22_alg in oi22 and s12_22_txt in s1
       "measured reason; Section 12, which that item cites, holds the measurement and names the offline verifier",
       "item found: %s; alg -9 item: %s; Section 12 sentence: %s" % (oi22_txt in oi22, oi22_alg in oi22,
                                                                    s12_22_txt in s12_22))
+print()
+
+# Round 23 (card DRAFTS-01-INHALT-03): the reviewer's blocks A to F, each the whole paragraph or step it replaces
+print("=== D2 round 23: review blocks A to F, the boundary between steps 2 and 3 ===")
+d2flat23 = norm_ws(" ".join(d2))
+r23 = {
+    "A": "[STATEMENT-ID] proposes requirements A1 to A5 for references to signed statements. This section checks the "
+         "receipt digest against them. It is the author's analysis, not a conformance claim.",
+    "B1": "This profile names one trust anchor and no intermediate certificate. An x5chain array with more or fewer "
+          "than two elements, an x5chain that is a single byte string, and an iss with a predicate other than one eku "
+          "give outside_profile in step 2 of Section 5.2.2. Certificate contents, key restrictions and their bindings "
+          "are checked in step 3, which gives untrusted_key when one of those checks fails. An ECDSA signature depends "
+          "on a per-signature nonce, so one statement in this profile can have more than one byte string; the vectors "
+          "use the deterministic nonce of [RFC6979], which a Receiver does not check.",
+    "B2": "2. A Transparent Statement [RFC9943] carries COSE Receipts [RFC9942] in its unprotected header under label "
+          "394. If the unprotected header holds label 394 and no other label, and the value of 394 is an array of one "
+          "or more byte strings, the Receiver removes label 394 and applies the rest of this step and the following "
+          "steps with the empty unprotected header; the protected header, the payload and the signature stay as they "
+          "are. These steps do not read the receipts. The labels of the protected header select the profile: exactly "
+          "the integer labels 1, 4, 15, 258 and 259 select the key profile, and exactly the integer labels 1, 4, 15, "
+          "33, 258 and 259 select the certificate profile. If the item is not tagged 18, the unprotected header is not "
+          "empty, or the labels select neither profile, the status is outside_profile. In both profiles, kid is a "
+          "byte string of 32 bytes; 15 is a map with exactly the integer labels 1 (iss) and 2 (sub), both text "
+          "strings; 258 is the integer -16; and 259 is the type as a text string. In the key profile, alg is the "
+          "integer -19 or -8, and iss is an absolute URI. In the certificate profile, alg is the integer -7, iss has "
+          "the syntactic form given in Section 5.2, and x5chain is an array of exactly two byte strings. This step "
+          "checks only the syntax of iss and the container form of x5chain; the certificate contents, key "
+          "properties, and the bindings of iss and kid are checked in step 3. A violation of these structural rules, "
+          "a detached payload, a payload that is not 32 bytes, or a signature that is not 64 bytes gives "
+          "outside_profile. sub MUST match sha256: followed by exactly 64 lowercase hexadecimal digits; otherwise "
+          "the status is outside_profile. Step 7 compares sub byte for byte with model_id_commit of B.",
+    "C1": "Certificate profile. A configured pair counts only if its identifier is exactly equal to iss, its trust "
+          "anchor certificate is byte for byte the second certificate of x5chain, and F of iss is SHA-256 over that "
+          "certificate. The status is untrusted_key if no configured pair counts, or if any of the following does not "
+          "hold: both certificates are DER-encoded X.509 certificates; the public key of the trust anchor is an RSA "
+          "key with a modulus of at least 2048 bits; the leaf certificate is signed by that key with "
+          "sha256WithRSAEncryption; the issuer name of the leaf certificate is byte for byte the subject name of the "
+          "trust anchor; the extended key usage of the leaf certificate contains O of iss; the public key of the leaf "
+          "certificate is a P-256 key; and kid is SHA-256 over its SubjectPublicKeyInfo. This step is not "
+          "certification path validation ([RFC5280] Section 6) and does not resolve iss as a DID: it evaluates no "
+          "validity period, revocation status, name constraint, certificate policy or other extension. [DIDX509] "
+          "requires path validation for resolution. An application that additionally performs path validation "
+          "reports its result separately from the status of this procedure and may refuse to use a statement whose "
+          "status is accepted.",
+    "C2": "Configured trust. A Receiver trusts a statement key or a trust anchor because it configured it. In the "
+          "certificate profile, the procedure checks the leaf under the configured anchor but evaluates no validity "
+          "period or revocation status. A compromised leaf key can therefore continue to pass this procedure while "
+          "the configured pair remains. Additional path validation or other acceptance policy can refuse its use "
+          "separately. Removing a configured pair makes statements that would pass step 2 and whose only matching "
+          "pair was removed fail at step 3 with untrusted_key.",
+    "D": "Steps 1 to 4 do not use the receipt. For the key profile, a general COSE verifier that implements the "
+         "statement's alg value checks the signature under the rules of its own Ed25519 implementation, which can "
+         "accept a signature that step 4 refuses, for example one whose R is a point of small order. For either "
+         "profile, a COSE signature check alone does not apply steps 5 to 7, and its success does not show that the "
+         "statement cites a receipt that verifies.",
+    "F": "Digest not checked by registration alone. The Signed Statement carries a digest, not B. Registration under "
+         "a Transparency Service's policy does not by itself establish that the payload equals SHA-256 over B; "
+         "Section 12 records the registration of a statement whose payload was not that digest. The Receiver "
+         "recomputes the receipt digest in step 6 of Section 5.2.2.",
+}
+_where23 = {"A": "3.4, introduction", "B1": "5.2, the paragraph that begins This profile names",
+            "B2": "5.2.2, step 2", "C1": "5.2.2, step 3, certificate profile", "C2": "9, Configured trust",
+            "D": "5.2.2, closing paragraph", "F": "9, Digest not checked by registration alone"}
+for k23, v23 in r23.items():
+    n23 = d2flat23.count(norm_ws(v23))
+    check("D2", "R23-" + k23, n23 == 1, "%s holds review block %s word for word, once" % (_where23[k23], k23),
+          "found %d time(s)" % n23)
+old23 = ["no registration in a Transparency Service is measured", "are outside it.",
+         "a parameter does not have the type and value that the selected profile gives",
+         "gives untrusted_key when it fails", "a configured anchor vouches for every leaf certificate it signed",
+         "Digest not checked at registration.", "It does not apply steps 5 to 7,",
+         "changes the status of every statement under it to untrusted_key"]
+check("D2", "R23-OLD", not any(o in d2flat23 for o in old23),
+      "none of the replaced sentences of 3.4, 5.2, 5.2.2 and Section 9 is left",
+      "left: " + (", ".join(o for o in old23 if o in d2flat23) or "none"))
+_n23 = find_line(d2, r"^\d+\.1\.  Normative References$")
+_i23 = find_line(d2, r"^\d+\.2\.  Informative References$", _n23)
+_refs23 = {k: [i for i in range(_n23, len(d2)) if d2[i].strip().startswith(k + " ")] for k in ("[RFC5280]", "[DIDX509]")}
+check("D2", "R23-REFS", all(len(v) == 1 and _n23 < v[0] < _i23 for v in _refs23.values()),
+      "[RFC5280] and [DIDX509], which C1 cites, stand once each among the normative references",
+      "entry lines: %s; normative from line %d, informative from line %d" % (_refs23, _n23, _i23))
+# The boundary that B1, B2 and C1 draw, computed with status20 on X1 changed in one place; the signature of X1 is
+# kept, since step 2 and step 3 come before the signature check of step 4.
+_p1r = VEC["P1"]["R"]
+_sig23 = cbor2.loads(X1).value[3]
+_junk23 = b"\x30\x03\x02\x01\x01"   # DER, but not an X.509 certificate
+_iss_junk = "did:x509:0:sha256:%s::eku:%s" % (b64url_nopad(sha256(_junk23)), O20)
+_cases23 = [
+    ("x5chain with three certificates (an intermediate)", {**x1p, 33: [LEAF20, ROOT20, ROOT20]}, cpairs20,
+     ("outside_profile", 2)),
+    ("x5chain with one certificate", {**x1p, 33: [LEAF20]}, cpairs20, ("outside_profile", 2)),
+    ("x5chain a single byte string", {**x1p, 33: LEAF20}, cpairs20, ("outside_profile", 2)),
+    ("iss with two eku predicates", {**x1p, 15: {1: ISS20 + "::eku:" + O20, 2: x1p[15][2]}}, cpairs20,
+     ("outside_profile", 2)),
+    ("iss with a subject predicate in place of eku",
+     {**x1p, 15: {1: ISS20.replace("::eku:", "::subject:CN:"), 2: x1p[15][2]}}, cpairs20, ("outside_profile", 2)),
+    ("second certificate not an X.509 certificate, under a pair that names it",
+     {**x1p, 15: {1: _iss_junk, 2: x1p[15][2]}, 33: [LEAF20, _junk23]}, [(_iss_junk, _junk23)], ("untrusted_key", 3)),
+    ("trust anchor with a P-256 key (the leaf twice), under a pair that names it",
+     {**x1p, 15: {1: _iss_leaf, 2: x1p[15][2]}, 33: [LEAF20, LEAF20]}, [(_iss_leaf, LEAF20)], ("untrusted_key", 3)),
+    ("X4, whose iss names the leaf, under the pair of A.8", {**x1p, 15: {1: _iss_leaf, 2: x1p[15][2]}}, cpairs20,
+     ("untrusted_key", 3)),
+]
+_got23 = [(d_, status20(build_x(p_, _sig23), _p1r, ISSUER_PK, pairs20, cp_), want_) for d_, p_, cp_, want_ in _cases23]
+check("DEMO", "R23-STEP23", all(g_ == w_ for _, g_, w_ in _got23),
+      "the boundary of B1, B2 and C1 computed from the text: the container form of x5chain and the syntax of iss "
+      "give outside_profile in step 2, certificate contents and keys untrusted_key in step 3",
+      *["%s: %s (expected %s)" % (d_, g_, w_) for d_, g_, w_ in _got23])
 print()
 
 # ---------------------------------------------------------------------------

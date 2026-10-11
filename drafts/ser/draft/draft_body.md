@@ -270,7 +270,8 @@ and dataset, under which threshold and comparator. The receipt object exists
 next to the DSSE-compatible signature because it carries, together with B, the
 fixed type and the payload schema identifier and is verified by one procedure
 ({{verification}}), so that every Receiver reaches the same verdict on the same
-bytes. A DSSE signature check alone is not that verdict.
+receipt bytes and verification key, provided verification completes. A DSSE
+signature check alone is not that verdict.
 
 A receipt establishes integrity and origin: the holder of the signing key
 signed exactly these bytes. It does not establish truth. {{non-claims}} lists

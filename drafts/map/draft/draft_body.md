@@ -451,8 +451,7 @@ candidate that matches and fails that procedure at step 11.
 
 {{STATEMENT-ID}} proposes requirements A1 to A5 for references to signed
 statements. This section checks the receipt digest against them. It is the
-author's analysis, not a conformance claim; no registration in a Transparency
-Service is measured.
+author's analysis, not a conformance claim.
 
 A1, unambiguous target and matching rule:
 : The scheme names the hash algorithm (SHA-256), the input bytes (B, as steps 1 to
@@ -726,12 +725,14 @@ Certificate profile. The protected header holds exactly the six parameters 1,
   certificate, whose RSA public key signed the leaf certificate with
   sha256WithRSAEncryption (RSASSA-PKCS1-v1_5 with SHA-256, {{RFC8017}}).
 
-This profile names one trust anchor and no intermediate certificate. A chain
-with an intermediate certificate, an x5chain that is a single byte string, an
-anchor key that is not an RSA key, and an `iss` with a predicate other than one
-`eku` are outside it. An ECDSA signature depends on a per-signature nonce, so
-one statement in this profile can have more than one byte string; the vectors
-use the deterministic nonce of {{RFC6979}}, which a Receiver does not check.
+This profile names one trust anchor and no intermediate certificate. An
+x5chain array with more or fewer than two elements, an x5chain that is a single
+byte string, and an iss with a predicate other than one eku give outside_profile
+in step 2 of {{check-statement}}. Certificate contents, key restrictions and
+their bindings are checked in step 3, which gives untrusted_key when one of
+those checks fails. An ECDSA signature depends on a per-signature nonce, so one
+statement in this profile can have more than one byte string; the vectors use
+the deterministic nonce of {{RFC6979}}, which a Receiver does not check.
 
 The value of `sub` is a choice of this example; the receipt digest does not
 depend on it. The key that signs a statement and the receipt key can be the
@@ -789,16 +790,27 @@ not accepted.
    more byte strings, the Receiver removes label 394 and applies the rest of
    this step and the following steps with the empty unprotected header; the
    protected header, the payload and the signature stay as they are. These
-   steps do not read the receipts. The labels of the protected header select
-   the profile: exactly 1, 4, 15, 258 and 259 select the key profile, and
-   exactly 1, 4, 15, 33, 258 and 259 the certificate profile. If the item is
-   not tagged 18, the unprotected header is not empty, the labels select neither profile, a parameter does
-   not have the type and value that the selected profile gives, the payload is
-   detached or is not 32 bytes, or the signature is not 64 bytes, the status
-   is outside_profile. `sub` MUST be a text string matching `sha256:` followed
-   by exactly 64 lowercase hexadecimal digits; otherwise the status is
-   outside_profile. Step 7 then compares that string byte for byte with
-   `model_id_commit` of B.
+   steps do not read the receipts.
+
+   The labels of the protected header select the profile: exactly the integer
+   labels 1, 4, 15, 258 and 259 select the key profile, and exactly the integer
+   labels 1, 4, 15, 33, 258 and 259 select the certificate profile. If the item
+   is not tagged 18, the unprotected header is not empty, or the labels select
+   neither profile, the status is outside_profile.
+
+   In both profiles, kid is a byte string of 32 bytes; 15 is a map with exactly
+   the integer labels 1 (iss) and 2 (sub), both text strings; 258 is the
+   integer -16; and 259 is the type as a text string. In the key profile, alg
+   is the integer -19 or -8, and iss is an absolute URI. In the certificate
+   profile, alg is the integer -7, iss has the syntactic form given in
+   {{signed-statement}}, and x5chain is an array of exactly two byte strings.
+   This step checks only the syntax of iss and the container form of x5chain;
+   the certificate contents, key properties, and the bindings of iss and kid
+   are checked in step 3. A violation of these structural rules, a detached
+   payload, a payload that is not 32 bytes, or a signature that is not 64 bytes
+   gives outside_profile. sub MUST match sha256: followed by exactly 64
+   lowercase hexadecimal digits; otherwise the status is outside_profile.
+   Step 7 compares sub byte for byte with model_id_commit of B.
 3. Key profile. A configured pair counts only if its statement key is 32
    octets and its point A meets rules 1 and 2 of {{RECEIPTS}} Section 4.4: A
    is a canonical encoding of a point of order L. A point of small order or of
@@ -821,9 +833,10 @@ not accepted.
    SubjectPublicKeyInfo. This step is not certification path validation
    ({{RFC5280}} Section 6) and does not resolve iss as a DID: it evaluates no
    validity period, revocation status, name constraint, certificate policy or
-   other extension. {{DIDX509}} requires path validation for resolution; a
-   Receiver that applies it in addition, at a validation time it chooses,
-   gives untrusted_key when it fails.
+   other extension. {{DIDX509}} requires path validation for resolution. An
+   application that additionally performs path validation reports its result
+   separately from the status of this procedure and may refuse to use a
+   statement whose status is accepted.
 4. Key profile. If the signature does not meet the four rules of {{RECEIPTS}}
    Section 4.4 under a key that step 3 selected, with the Sig_structure of
    {{RFC9052}} Section 4.4 in place of PAE(type, B) in rule 4, the status is
@@ -852,11 +865,12 @@ Transparent Statements: T1 and T2 are accepted, and T3 to T5, whose
 unprotected headers hold more than the receipts or the receipts in another
 form, are outside_profile.
 
-Steps 1 to 4 do not use the receipt. A general COSE verifier that implements
-the statement's alg value checks the signature under the rules of its own
-Ed25519 implementation, which can accept a signature that step 4 refuses, for
-example one whose R is a point of small order. It does not apply steps 5 to 7,
-and its success does not show that the statement cites a receipt that verifies.
+Steps 1 to 4 do not use the receipt. For the key profile, a general COSE
+verifier that implements the statement's alg value checks the signature under
+the rules of its own Ed25519 implementation, which can accept a signature that
+step 4 refuses, for example one whose R is a point of small order. For either
+profile, a COSE signature check alone does not apply steps 5 to 7, and its
+success does not show that the statement cites a receipt that verifies.
 
 ### What Crosses and What Is Lost {#crossing}
 
@@ -1047,21 +1061,20 @@ itself. It fixes the key, not the issuer name in the receipt: two instances of
 a Transparency Service can carry the same issuer name and differ only in their
 keys ({{impl}}).
 
-Digest not checked at registration. A Transparency Service registers a Signed
-Statement under its Registration Policy and does not hold B; nothing in this
-document requires it to compare the payload with SHA-256 over B, and {{impl}}
-records the registration of a statement whose payload was not that digest.
-Only the Receiver recomputes the receipt digest (step 6 of
-{{check-statement}}).
+Digest not checked by registration alone. The Signed Statement carries a
+digest, not B. Registration under a Transparency Service's policy does not by
+itself establish that the payload equals SHA-256 over B; {{impl}} records the
+registration of a statement whose payload was not that digest. The Receiver
+recomputes the receipt digest in step 6 of {{check-statement}}.
 
 Configured trust. A Receiver trusts a statement key or a trust anchor because
-it configured it. In the certificate profile, a configured anchor vouches for
-every leaf certificate it signed: step 3 of {{check-statement}} evaluates no
-validity period and no revocation, so a leaf key that is compromised stays
-usable until the Receiver removes the anchor from its configuration, unless the
-Receiver applies path validation in addition. A Receiver that removes a
-configured pair changes the status of every statement under it to
-untrusted_key.
+it configured it. In the certificate profile, the procedure checks the leaf
+under the configured anchor but evaluates no validity period or revocation
+status. A compromised leaf key can therefore continue to pass this procedure
+while the configured pair remains. Additional path validation or other
+acceptance policy can refuse its use separately. Removing a configured pair
+makes statements that would pass step 2 and whose only matching pair was
+removed fail at step 3 with untrusted_key.
 
 # Privacy Considerations
 
