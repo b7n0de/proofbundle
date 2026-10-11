@@ -427,6 +427,14 @@ def _remote_refs(bare: str) -> str | None:
     return "".join(sorted(listing.stdout.splitlines(keepends=True))) if listing.returncode == 0 else None
 
 
+def _snapshot_holds_base(listing: str | None, base_oid: str) -> bool:
+    """Whether a recorded listing can be the state of the throwaway remote right after prepare's own push: it names
+    refs/heads/main at the base. A listing git could not take, an empty one or one without main at the base is no
+    snapshot (review round 10 of 2026-10-11, R10-2: a failed first for-each-ref was stored as an empty file, and the
+    check then reported both change fields false)."""
+    return listing is not None and f"refs/heads/main {base_oid}" in listing.splitlines()
+
+
 def _without_main(listing: str) -> set:
     """The lines of every ref but refs/heads/main, so an added, removed or moved ref beside it shows."""
     return {line for line in listing.splitlines() if line and not line.startswith("refs/heads/main ")}
@@ -480,10 +488,16 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     _run_git(*identity, "-C", work, "push", "-q", "origin", "HEAD:refs/heads/main")
     base_oid = subprocess.run(["git", "-C", work, "rev-parse", "refs/remotes/origin/main"],
                               capture_output=True, text=True, check=True, env=_selftest_git_env()).stdout.strip()
+    snapshot = _remote_refs(bare)
+    if not _snapshot_holds_base(snapshot, base_oid):
+        shutil.rmtree(root, ignore_errors=True)
+        raise ToolInputError("NOT MEASURABLE: git could not list the refs of the throwaway remote after prepare's "
+                             "own push, or the list does not name its main at the base, so the check would have no "
+                             "state to compare with.")
     with open(os.path.join(root, "base_oid"), "w", encoding="utf-8") as handle:
         handle.write(base_oid + "\n")
     with open(os.path.join(root, "remote_refs"), "w", encoding="utf-8") as handle:
-        handle.write(_remote_refs(bare) or "")
+        handle.write(snapshot or "")
     # One more commit with the identical evidence rules and a changed tree, so its declared subject is now
     # stale. Pushing it to main is what the gate must deny.
     with open(os.path.join(work, "CHANGES.md"), "w", encoding="utf-8") as handle:
@@ -537,6 +551,8 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
             recorded = handle.read()
     except OSError:
         recorded = None
+    if not (valid_base and _snapshot_holds_base(recorded, base_oid)):
+        recorded = None   # no snapshot of the state after prepare's push: nothing to compare with (R10-2)
     now = _remote_refs(os.path.join(parent, "remote.git"))
     other_changed = None if recorded is None or now is None else _without_main(now) != _without_main(recorded)
     target_changed = ((remote_main != base_oid or other_changed)
@@ -576,12 +592,16 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
                                                                if other_changed else ""))
     elif denied:
         result.update(result="NOT MEASURABLE",
-                      reason="an expected deny was found, but the target state could not be read")
+                      reason="an expected deny was found, but the target state could not be read or compared")
     elif target_changed is True:
         result.update(result="Test target changed; no matching gate event observed.",
                       reason="the target no longer equals the recorded base OID"
                              + (", or another ref of the throwaway remote changed" if other_changed else "")
                              + ", and no matching deny for this push was found in the log")
+    elif target_changed is None:
+        result.update(result="NOT MEASURABLE",
+                      reason="no matching deny for this push was found in the log, and the target state could not "
+                             "be read or compared")
     else:
         result.update(result="NOT MEASURABLE",
                       reason="no matching deny for this push was found in the log, and the target still "

@@ -1148,7 +1148,10 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   configuration had sent the push into another bare repository, measured with git 2.43.0 and 2.51.1, and the check
   had reported the target unchanged). What the check observes is bounded to the refs of the throwaway remote: a
   setting only the host's shell carries (a push URL, a receive program, a transport) is not visible to the server
-  and can send the push elsewhere unobserved. The
+  and can send the push elsewhere unobserved. The snapshot of the throwaway remote that prepare records must name
+  its main at the base; a listing git could not take ends prepare with NOT MEASURABLE before the command is handed
+  out, and an empty or foreign recorded listing makes the check NOT MEASURABLE, never "unchanged" (review round 10
+  of 2026-10-11, R10-2: a failed first listing had been stored as an empty file and read as no change). The
   check refuses any folder it did not create, and takes no special path for the self-test in the gate. The
   skill runs only when the user invokes it. The time window gate_status reports where there is no host
   session id is labelled as a window since the server started, not a session.
