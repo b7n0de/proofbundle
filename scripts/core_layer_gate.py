@@ -117,6 +117,10 @@ _DYNAMIC_ATTRIBUTE_CALLS = ("builtins.getattr", "builtins.setattr", "builtins.de
 _BUILTIN_NAMES = frozenset(dir(builtins))
 
 
+def _is_ruled_builtin(name: str) -> bool:
+    return name in _BUILTIN_NAMES and _rule_of_name(f"builtins.{name}") is not None
+
+
 class NotMeasurable(Exception):
     """An input the verdict depends on could not be read or parsed."""
 
@@ -327,7 +331,8 @@ class _Names:
     (a parameter, a loop or `with` target, an assignment the gate cannot resolve, a def or a class)
     shadows the name in that scope only. A function does not see the scope of the class it is defined
     in; `global` sends a name to the module scope. Where a scope binds a name both ways, the alias wins,
-    so an ambiguity is a finding rather than a silence.
+    so an ambiguity is a finding rather than a silence. In a module or a class body no binding hides a
+    builtin that a rule names, because there the builtin is used whenever the binding has not run.
     """
 
     def __init__(self, tree: ast.AST, modname: str, is_pkg: bool,
@@ -446,10 +451,14 @@ class _Names:
                 continue
             # A class scope is seen only by code directly in its body, never by a function in it.
             if first or s.kind != "class":
-                if name in s.alias:
-                    return s.alias[name]
-                if name in s.local:
-                    return None
+                if name in s.alias or name in s.local:
+                    # A function binds a name for its whole body. A module or a class body looks a
+                    # name up when the line runs, its own binding first and the builtin after it, and
+                    # a binding there may never run (under `if`, in `try`, through `global` in a
+                    # function nobody calls). There a builtin with a rule is not hidden by any binding.
+                    if s.kind != "function" and _is_ruled_builtin(name):
+                        return f"builtins.{name}"
+                    return s.alias.get(name)
             s, first = s.parent, False
         return f"builtins.{name}" if name in _BUILTIN_NAMES else None
 

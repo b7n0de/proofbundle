@@ -237,6 +237,50 @@ def test_a_parameter_in_one_function_does_not_hide_the_builtin_in_another(tmp_pa
     assert lines == [5, 9], lines
 
 
+# The class behind the scope finding, as a property over every form of binding: a binding hides a
+# builtin only where Python would use it. A function binds a name for its whole body, so a binding in
+# one function never reaches another. A module or a class body looks the name up when the line runs,
+# so a binding there may not have run, and a builtin a rule names stays a finding.
+_SIBLING_BINDINGS = {
+    "parameter": "def other(open):\n    return open\n",
+    "loop target": "def other(xs):\n    for open in xs:\n        pass\n",
+    "with target": "def other(c):\n    with c as open:\n        pass\n",
+    "exception name": "def other():\n    try:\n        pass\n    except Exception as open:\n        pass\n",
+    "import alias": "def other():\n    import io as open\n    return open\n",
+    "assignment": "def other():\n    open = None\n    return open\n",
+    "comprehension variable": "def other(xs):\n    return [open for open in xs]\n",
+    "walrus target": "def other(xs):\n    if (open := xs):\n        return open\n",
+    "lambda parameter": "other = lambda open: open\n",
+    "nested def": "def other():\n    def open():\n        pass\n    return open\n",
+    "class attribute": "class Other:\n    open = None\n",
+}
+
+_UNCERTAIN_BINDINGS = {
+    "assignment under if": "if False:\n    open = None\n",
+    "global in a function nobody calls": "def never():\n    global open\n    open = None\n",
+    "loop over nothing": "for open in ():\n    pass\n",
+    "def under if": "if False:\n    def open(p):\n        return p\n",
+    "import in try": "try:\n    from io import open\nexcept ImportError:\n    pass\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(_SIBLING_BINDINGS))
+def test_a_binding_in_a_sibling_scope_does_not_hide_the_builtin(tmp_path, form):
+    r = run(tmp_path, {"core.py": _SIBLING_BINDINGS[form] + "def leak(path):\n    return open(path)\n"})
+    assert ("file", "probepkg.core", "builtins.open") in found(r), form
+
+
+@pytest.mark.parametrize("form", sorted(_UNCERTAIN_BINDINGS))
+def test_a_module_level_binding_that_may_not_run_does_not_hide_the_builtin(tmp_path, form):
+    r = run(tmp_path, {"core.py": _UNCERTAIN_BINDINGS[form] + "def leak(path):\n    return open(path)\n"})
+    assert ("file", "probepkg.core", "builtins.open") in found(r), form
+
+
+def test_a_class_body_binding_that_may_not_run_does_not_hide_the_builtin(tmp_path):
+    r = run(tmp_path, {"core.py": "class C:\n    if False:\n        open = None\n    data = open('x')\n"})
+    assert ("file", "probepkg.core", "builtins.open") in found(r)
+
+
 def test_only_the_real_typing_type_checking_skips_a_body(tmp_path):
     """Codex P2: a flag that merely ends in TYPE_CHECKING is ordinary code and runs."""
     r = run(tmp_path, {"core.py": """
