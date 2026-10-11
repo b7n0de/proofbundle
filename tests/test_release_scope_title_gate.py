@@ -906,3 +906,78 @@ def test_die_genannte_grenze_ein_unsichtbares_zeichen_im_BETREFF_faellt_nicht(tm
     """
     assert _gruen(tmp_path, "[6.1.0 A1] feat(scope): sub\u200bject") == "gruen"
 
+
+
+# ---------------------------------------------------------------------------------------------
+# AFTER THE TAG v6.2.0, 2026-10-09 (order Z361). The next scope file,
+# 6.3.0, declares itself "(not started)" in its title and has no branch column, and `lies_umfang`
+# answered NOT MEASURABLE for it, so every pull request on main went red. A scope that declares
+# itself not started and has no branch column is measured with zero branches now. Each of the other
+# shapes keeps its old answer: no declaration, a branch column the reader cannot read, no Out.
+# ---------------------------------------------------------------------------------------------
+
+_NICHT_BEGONNEN = ("# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                   "| Item | Why it carries no outward outcome |\n|---|---|\n"
+                   "| P30 | something for later |\n\n## Out — what was already out stays out\n")
+
+
+def _schreib(tmp_path, text, name="9.9.9.md"):
+    p = tmp_path / name
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+def test_GRUEN_ein_nicht_begonnener_umfang_ist_gemessen_mit_null_zweigen(tmp_path, capsys):
+    """Red before the fix: NOT MEASURABLE, and the gate RED for every branch. After it, measured,
+    every branch outside the scope, the verdict says why, and the run ends with 0."""
+    p = _schreib(tmp_path, _NICHT_BEGONNEN)
+    zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert (zu_zweig, zustand) == ({}, "gemessen")
+    assert GATE.umfang_nicht_begonnen(p) is True
+    d = GATE.pruefe(branch="docs/anything", title="docs: anything", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "gruen" and d["ausserhalb_des_umfangs"], d
+    assert d["umfang_nicht_begonnen"] is True, d
+    rc = GATE.main(["--branch", "docs/anything", "--title", "docs: anything", "--version", "9.9.9",
+                    "--scope", str(p)])
+    out = capsys.readouterr().out
+    assert rc == 0 and "declares itself not started" in out, out
+
+
+def test_ROT_ohne_ausweisung_bleibt_ein_umfang_ohne_zweig_nicht_messbar(tmp_path):
+    """The other direction, unchanged by the fix: no declaration, no branch, NOT MEASURABLE."""
+    p = _schreib(tmp_path, _NICHT_BEGONNEN.replace(" (not started)", ""))
+    _zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert zustand.startswith("NICHT MESSBAR"), zustand
+    assert GATE.umfang_nicht_begonnen(p) is False
+    d = GATE.pruefe(branch="docs/anything", title="docs: anything", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "ROT" and not d["umfang_nicht_begonnen"], d
+
+
+def test_ROT_die_ausweisung_lockert_keine_unlesbare_zweigspalte(tmp_path):
+    """No loosening for a malformed file: a branch column whose cells the reader cannot read stays
+    NOT MEASURABLE, declared or not. The same shape the card refuses in the cut tests."""
+    p = _schreib(tmp_path, "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                           "| Identifier | Subject | Branch |\n|---|---|---|\n"
+                           "| A1 | something | fix/a1 |\n\n## Out\n")
+    _zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert zustand.startswith("NICHT MESSBAR"), zustand
+    assert GATE.umfang_nicht_begonnen(p) is False
+
+
+def test_ROT_die_ausweisung_ersetzt_keinen_Out_abschnitt(tmp_path):
+    """No loosening for a file without its boundary either."""
+    p = _schreib(tmp_path, _NICHT_BEGONNEN.split("## Out")[0])
+    _zu_zweig, _mitlaeufer, zustand = GATE.lies_umfang(p)
+    assert zustand.startswith("NICHT MESSBAR") and "Out" in zustand, zustand
+    assert GATE.umfang_nicht_begonnen(p) is False
+
+
+def test_ein_ausgewiesener_umfang_mit_zweig_wird_wie_jeder_andere_gelesen(tmp_path):
+    """The declaration decides only where no branch is read. A scope that says "(not started)" and
+    names a branch judges that branch as every scope does."""
+    p = _schreib(tmp_path, "# Release scope — 9.9.9 (not started)\n\n## In\n\n"
+                           "| Identifier | Subject | Branch |\n|---|---|---|\n"
+                           "| A1 | something | `fix/a1` |\n\n## Out\n")
+    assert GATE.umfang_nicht_begonnen(p) is False
+    d = GATE.pruefe(branch="fix/a1", title="docs: no identifier", version="9.9.9", scope_pfad=p)
+    assert d["urteil"] == "ROT" and d["kennung_des_zweigs"] == "A1", d

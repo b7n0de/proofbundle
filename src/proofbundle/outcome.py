@@ -256,9 +256,12 @@ def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool
     its own predicate. A receipt signed by any key and carrying ``executor.keyId = root-0`` read as a
     trusted executor and reached ``safeForAutomation=true``, although the pack carried root-0's real
     key material next to the role. The invariant: a role from the pack applies only to the key that
-    actually signed. A hybrid key binds through its Ed25519 leg (``publicKey``); an ``mldsa65`` key cannot
-    have signed an Ed25519 DSSE envelope, so it never binds. A keyId without key material in the pack
-    cannot be bound and is False (the pack contract requires every role key id in ``keys``).
+    actually signed. Only an ``ed25519`` key (``alg`` absent or exactly ``"ed25519"``) binds: an outcome
+    receipt carries one Ed25519 DSSE signature, and 6.2.1 key identity Fund 2 (Z309) showed that a key
+    declared ``hybrid-ed25519-mldsa65`` was met by that signature over its classical half alone, a
+    downgrade of the declared identity. A hybrid key or an ``mldsa65`` key therefore never binds an
+    Ed25519 signature. A keyId without key material in the pack cannot be bound and is False (the pack
+    contract requires every role key id in ``keys``).
 
     Never raises on malformed input. The key id must be a plain ``str`` and the key a plain ``bytes`` or
     ``bytearray`` object (``type()``, not ``isinstance()``, which believes an object's own ``__class__``:
@@ -274,7 +277,8 @@ def pack_key_binds_signer(key_id: Any, trust_pack: Any, public_key: Any) -> bool
     kv = keys.get(key_id) if isinstance(keys, dict) else None
     if not isinstance(kv, dict) or not isinstance(kv.get("publicKey"), str):
         return False
-    if kv.get("alg", "ed25519") not in ("ed25519", "hybrid-ed25519-mldsa65"):
+    alg = kv.get("alg", "ed25519")
+    if type(alg) is not str or alg != "ed25519":
         return False
     from ._wire_b64 import decode_b64  # noqa: PLC0415
     try:
