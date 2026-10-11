@@ -15,6 +15,7 @@ as git does not fetch it.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -62,9 +63,18 @@ def _remote_main(repo) -> str:
                           text=True, timeout=60, check=True).stdout.split()[0]
 
 
-def _verdict(env, repo, command: str = "git push origin main") -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo, command: str = "git push origin main") -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
+
+
+def _judged(env, repo, command: str = "git push origin main") -> None:
+    """Resolved up to the destination check, which since R9-1 leaves every Level 1 push NOT MEASURED; the evidence
+    at the sent commit showed no failure, and Level 2 passes the push."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    n2c.assert_destination_not_measured(answer, entry)
+    assert n2c._level2(env, repo).returncode == 0
 
 
 EXCLUSIONS = ["^refs/heads/main", "^refs/heads/ma*", "^*main", "^refs/heads/*ain"]
@@ -84,17 +94,17 @@ def test_git_does_not_fetch_an_excluded_branch_into_its_tracking_ref(tmp_path, n
 @pytest.mark.parametrize("negative", EXCLUSIONS)
 def test_an_excluded_target_branch_is_not_measured(env, tmp_path, negative, command):
     r = _repo(tmp_path, negative)
-    assert _verdict(env, r.path, command) == ("ask", ["push_not_measured"])
+    assert _verdict(env, r.path, command) == ("ask", ["push_not_measured"], False)
 
 
 @pytest.mark.parametrize("negative", ["^main", "^refs/heads/other", "^refs/heads/o*"])
 def test_control_an_exclusion_of_another_ref_keeps_the_pass(env, tmp_path, negative):
     """`^main` names the remote ref `main` exactly, which git never lists; the other two exclude other branches. git
-    fetches main into its tracking ref, and the gate judges the push."""
+    fetches main into its tracking ref, and the gate judges the push (up to the destination check, R9-1)."""
     r = _repo(tmp_path, negative)
     _git(r.path, "update-ref", "-d", TRACKING)
     assert _fetch(r.path).returncode == 0 and _tracking(r.path) == _remote_main(r.path)
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    _judged(env, r.path)
 
 
 COLLISIONS = {
@@ -111,13 +121,13 @@ def test_a_second_rule_onto_the_tracking_ref_is_not_measured(env, tmp_path, name
     r = _repo(tmp_path, COLLISIONS[name])
     fetched = _fetch(r.path)
     assert fetched.returncode == 128 and f"to {TRACKING}" in fetched.stderr, fetched.stderr
-    assert _verdict(env, r.path) == ("ask", ["push_not_measured"])
+    assert _verdict(env, r.path) == ("ask", ["push_not_measured"], False)
 
 
 def test_control_a_middle_star_onto_other_refs_keeps_the_pass(env, tmp_path):
     r = _repo(tmp_path, "+refs/heads/o*her:refs/remotes/origin/x*y")
     assert _fetch(r.path).returncode == 0
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    _judged(env, r.path)
 
 
 def test_an_excluded_source_is_no_collision(env, tmp_path):
@@ -128,7 +138,7 @@ def test_an_excluded_source_is_no_collision(env, tmp_path):
     r = _repo(tmp_path, "+refs/heads/o*her:refs/remotes/origin/ma*n", "^refs/heads/oiher")
     _git(r.path, "update-ref", "-d", TRACKING)
     assert _fetch(r.path).returncode == 0 and _tracking(r.path) == _remote_main(r.path)
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    _judged(env, r.path)
 
 
 def _second_remote(tmp_path, repo, spec: str) -> None:
@@ -141,14 +151,14 @@ def test_another_remote_whose_fetch_writes_the_tracking_ref_is_not_measured(env,
     _second_remote(tmp_path, r.path, "+refs/heads/other:refs/remotes/origin/main")
     assert _fetch(r.path, "second").returncode == 0
     assert _tracking(r.path) != _remote_main(r.path)   # fetching `second` wrote other's state into origin/main
-    assert _verdict(env, r.path) == ("ask", ["push_not_measured"])
+    assert _verdict(env, r.path) == ("ask", ["push_not_measured"], False)
 
 
 def test_control_another_remote_with_its_own_tracking_refs_keeps_the_pass(env, tmp_path):
     r = _repo(tmp_path)
     _second_remote(tmp_path, r.path, "+refs/heads/*:refs/remotes/second/*")
     assert _fetch(r.path, "second").returncode == 0 and _tracking(r.path) == _remote_main(r.path)
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    _judged(env, r.path)
 
 
 @pytest.mark.parametrize("spec", ["+refs/heads/*/*:refs/remotes/origin/*/*", "+^refs/heads/main",
@@ -157,4 +167,5 @@ def test_control_a_rule_git_refuses_stops_git_and_the_gate(env, tmp_path, spec):
     r = _repo(tmp_path, spec)
     fetched = _fetch(r.path)
     assert fetched.returncode == 128 and "invalid refspec" in fetched.stderr, fetched.stderr
-    assert _verdict(env, r.path)[0] != "pass"
+    verdict, _reasons, reached = _verdict(env, r.path)
+    assert verdict != "pass" and not reached

@@ -3277,53 +3277,45 @@ def _shell_command(*words: str) -> str:
 
 def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                              deadline: float) -> tuple[str, str] | None:
-    """None where the refs this repository records of `remote` show that git push resolves the destination value
-    `value` to exactly `dest`, else why that is not evidenced and the next step, for the answer (NOT MEASURED;
-    review round 8 of 2026-10-10, R8-2).
+    """Why git push's resolution of the destination value `value` to exactly `dest` is not evidenced, with the next
+    step, for the answer (NOT MEASURED; review round 8 of 2026-10-10, R8-2, and round 9 of 2026-10-11, R9-1); None
+    only for a value git can match to no other ref.
 
-    git looks the value up among every ref the remote advertises, by the rules of _REV_PARSE_RULES: for the value
-    refs/heads/main it also matches refs/refs/heads/main, refs/tags/refs/heads/main and refs/heads/refs/heads/main, and
-    with one of them beside refs/heads/main git refuses the push (measured with git 2.43.0 and 2.51.1; where
-    refs/heads/main is missing git writes the other ref). The remote itself is not read (D3), so what the gate knows of
-    its refs is what the remote's fetch rules recorded at the last fetch: a strong candidate is evidenced absent only
-    where a positive pattern rule of the remote maps it to a local ref that does not exist and no negative rule excludes
-    it. A recorded candidate that exists is an ambiguity git refuses; a candidate no rule records is not evidenced
-    either way; and a value whose candidates do not include dest names another ref than the one the gate judges."""
+    git looks the value up among every ref the remote advertises to the push, by the rules of _REV_PARSE_RULES: for
+    the value refs/heads/main it also matches refs/refs/heads/main, refs/tags/refs/heads/main and
+    refs/heads/refs/heads/main, and with one of them beside refs/heads/main git refuses the push (measured with git
+    2.43.0 and 2.51.1; where refs/heads/main is missing git writes the other ref). Every value has such other
+    candidates. The gate does not read the remote (D3), and nothing this repository holds shows that a candidate is
+    absent there: a configured fetch rule proves no fetch that ran under it, a fetch and a push see different sets of
+    the remote's refs (uploadpack.hideRefs hides a ref from the one, not from the other), and a ref this repository
+    does not record is no ref the remote lacks. Round 8 had counted a candidate as absent where a fetch rule recorded
+    it and no local ref existed, and passed a push git refuses (R9-1). A recorded candidate is named as what this
+    repository records, never as what the remote holds."""
     review = "have a person review the push"
-    tags, refs = (_shell_command("git", "config", "--add", f"remote.{remote}.fetch", f"+refs/{kind}/*:refs/recorded/"
-                                 f"{remote}/{kind}/*") for kind in ("tags", "refs"))
-    record = (f"record what git push also matches with `{tags}` and `{refs}`, run "
-              f"`{_shell_command('git', 'fetch', remote)}` and push to the destination in full (refs/heads/<branch>), "
-              f"or {review} (D3)")
     candidates = _dest_candidates(value)
     if (dest, True) not in candidates:
-        return (f"git push looks up {value} on the remote, which does not name {dest}",
-                f"push to the destination in full (refs/heads/<branch>), or {review}")
+        return f"git push looks up {value} on the remote, which does not name {dest}", review
+    others = [name for name, _strong in candidates if name != dest]
+    if not others:
+        return None
     rules = _fetch_rules(repo, deadline)
-    if rules is None:
-        return "git cannot read every fetch rule", review
-    specs = rules.get(remote, [])
-    if any(not negative and not pattern for negative, _src, _dst, pattern in specs):
-        return (f"a fetch rule of {remote} has a plain source, which records no remote ref the gate can name (R7-4)",
-                f"replace the plain fetch rule of {remote} by a pattern rule, or {review}")
-    for name, strong in candidates:
-        if name == dest or not strong:
-            continue   # dest itself is the state the tracking ref records; a weak match counts only without a strong one
-        recorded = [_refspec_map(src, dst, True, name) for negative, src, dst, pattern in specs
-                    if not negative and pattern and dst]
-        recorded = [local for local in recorded if local is not None]
-        if not recorded or _fetch_excluded(specs, name):
-            return (f"no fetch rule of {remote} records the remote ref {name}, which git push also matches for {value}, "
-                    "so whether the remote holds it is not known here", record)
-        for local in recorded:
+    specs = [] if rules is None else rules.get(remote, [])
+    for name in others:
+        if _fetch_excluded(specs, name):
+            continue
+        for negative, src, dst, pattern in specs:
+            local = None if negative or not pattern or not dst else _refspec_map(src, dst, True, name)
+            if local is None:
+                continue
             shown = _git(repo, "show-ref", "--verify", "--quiet", local, deadline=deadline)
             if shown.returncode == 0:
-                return (f"the remote held {name} at the last fetch ({local}), so git push matches more than one ref "
-                        f"for {value} and refuses the push",
-                        f"remove {name} on the remote or push to a destination git resolves to one ref, or {review}")
-            if shown.returncode != 1 or shown.stdout or shown.stderr:
-                return f"git could not say whether {local} exists", review
-    return None
+                return (f"this repository records {name} of {remote} as {local}, from a fetch at a time the gate does "
+                        f"not know; git push also matches {name} for {value} and refuses the push where the remote "
+                        "holds it, and what the remote holds now is not known here", review)
+    strong = [name for name, is_strong in candidates if is_strong and name != dest]
+    return (f"git push also matches {', '.join(strong or others)} for {value}, and whether the remote holds one of "
+            "them is not known here: the gate does not read the remote, and a ref this repository does not record "
+            "is no evidence that the remote lacks it (D3)", review)
 
 
 def _source_full_name(repo: str, src: str, deadline: float) -> str | None:
@@ -3711,9 +3703,7 @@ def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | 
     return Verdict("ask", f"NOT MEASURED: the gate cannot resolve what this push sends, so it checked nothing: "
                           f"{why.rstrip('.')}.", "push_not_measured",
                    evidence="the commits and refs this push would send",
-                   failed=why, next_step=next_step or ("push with an explicit remote name and refspec whose target "
-                                                        "this repository already tracks, or have a person review the "
-                                                        "push"),
+                   failed=why, next_step=next_step or "have a person review the push",
                    repo=repo, head=head)
 
 
@@ -4679,7 +4669,8 @@ def decide_mcp(tool: str, cwd: str, deadline: float, host: str = "claude") -> Ou
                                 f"this call: the local repository at {cwd}, at its HEAD, reads {diagnosis}",
                       "mcp_target_unbound", evidence=f"the remote target and the bytes {tool} writes",
                       failed="the hook binds neither the tool's actual target nor the bytes it writes",
-                      next_step="have a person review the call, or publish through a `git push` the gate resolves")
+                      next_step="have a person review the call, or publish through a plain `git push`, whose sent "
+                                "commits the gate checks; its destination stays NOT MEASURED under Level 1 (D3)")
     return Outcome(decision, verdict.text(), [verdict])
 
 
@@ -5023,7 +5014,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                 "net_unmodeled_git", evidence="a git or gh command, or an unevaluable quote, the gate could not resolve",
                 failed="the structured scan produced no gated call for a git/gh command word or an unevaluable "
                        "quote present in the text",
-                next_step="run the call in a plain form the gate resolves (a single `git`/`gh` command, no "
+                next_step="run the call in a plain form the gate reads (a single `git`/`gh` command, no "
                           "unusual quoting, substitution or letter case), or have a person review it"))
             continue
         if detail == [_STATE_FREE]:
@@ -5049,8 +5040,9 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                        "transport); the gate checked nothing.",
                 "possible_unmodeled_push", evidence="the commits and refs this command might send",
                 failed="the command is not one strict push form the gate resolves",
-                next_step="use a plain `git push <remote> <refspec>` whose target this repository tracks, or "
-                          "have a person review the command"))
+                next_step="have a person review the command, or run the push as a plain `git push <remote> "
+                          "<refspec>`, whose sent commits the gate checks; its destination stays NOT MEASURED under "
+                          "Level 1 (D3)"))
             continue
         if resolved is UNKNOWN:
             verdicts.append(Verdict("ask", f"NOT MEASURED: the gate cannot tell which repository {name} acts on "

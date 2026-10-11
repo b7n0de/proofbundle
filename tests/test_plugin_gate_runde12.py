@@ -136,12 +136,13 @@ def test_r12_2_a_hidden_second_call_in_a_comment_is_not_measured(tmp_path):
 
 def test_r12_2_the_clean_push_control_is_still_inactive_under_claude(tmp_path):
     """Control: the same push without the hidden second call is one command word and one resolved call, so the
-    gate still returns inactive under Claude (no permission decision) and, under Codex, warns with the unbound
-    push context and no decision (Karte 5 A)."""
+    net does not fire. Under Claude it was inactive (nothing declared, no decision); since R9-1 it asks at the
+    destination check (push_not_measured, the reason of an unevidenced destination). Under Codex it warns with the
+    unbound push context and no decision (Karte 5 A)."""
     repo = _repo_tracking(tmp_path)
     d_claude, ids = _hook(repo, tmp_path / "logs" / "claude", "claude", "git push origin main")
     d_codex, codex_ids = _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main")
-    assert d_claude is None, (d_claude, ids)          # inactive: nothing declared, no decision
+    assert (d_claude, ids) == ("ask", ["push_not_measured"]), (d_claude, ids)
     assert "net_unmodeled_git" not in ids, ids
     assert (d_codex, codex_ids) == (None, ["codex_context_unbound"]), (d_codex, codex_ids)
 

@@ -6,7 +6,8 @@ with pass and done, while mutation M1h of R5-1 (the remote list split on whitesp
 whitespace, so the R5-1 report's "no verdict effect" held for its four measured cases only.
 
 Property: a push to a configured remote whose name holds U+0085 is judged as git pushes it, pass where the receipt is
-valid. Green at the head, red under M1h (the mutation run of this round).
+valid (since R9-1 the destination check leaves it NOT MEASURED at Level 1; M1h stops it at an earlier step). Green at
+the head, red under M1h (the mutation run of this round).
 """
 from __future__ import annotations
 
@@ -49,5 +50,4 @@ def test_git_lists_and_pushes_to_the_remote_of_that_name(tmp_path):
 def test_a_push_to_the_remote_of_that_name_passes(env, tmp_path, command):
     r = _renamed(tmp_path)
     answer, entry = n2c._level1(env, r.path, command=command)
-    assert answer["hookSpecificOutput"].get("permissionDecision") is None, answer
-    assert (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry
+    n2c.assert_destination_not_measured(answer, entry)

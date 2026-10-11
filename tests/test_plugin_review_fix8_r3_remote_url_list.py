@@ -12,6 +12,7 @@ which is where exactly one non-empty URL is configured; every other URL list is 
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -23,8 +24,8 @@ env = n2c.env
 _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
-NOT_MEASURED = ("ask", ["push_not_measured"])
-PASS = ("pass", ["done"])
+#: NOT MEASURED at the URL list, before the destination check.
+NOT_MEASURED = ("ask", ["push_not_measured"], False)
 COMMANDS = ("git push origin main", "git push")
 
 
@@ -53,9 +54,10 @@ def _remote_main(tmp_path) -> str:
                           capture_output=True, text=True, check=True).stdout
 
 
-def _verdict(env, repo, command: str) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo, command: str) -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
 
 
 #: URL lists under which git refuses the push in 2.43.0 or 2.51.1 or both, or pushes to the remote's name.
@@ -111,5 +113,8 @@ def test_the_cost_a_list_newer_git_resets_to_one_url_is_not_measured(env, tmp_pa
 
 @pytest.mark.parametrize("command", COMMANDS)
 def test_control_one_non_empty_url_keeps_the_pass(env, tmp_path, command):
+    """The one URL counts, and the push resolves up to the destination check (since R9-1 that leaves it NOT MEASURED);
+    the pre-push hook passes it."""
     r = _repo(tmp_path, ("{remote}",))
-    assert _verdict(env, r.path, command) == PASS, command
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command=command))
+    assert n2c._level2(env, r.path).returncode == 0, command

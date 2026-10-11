@@ -15,6 +15,7 @@ branch remote. Each of these fallbacks passed Level 1 before; the gate now sets 
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -43,9 +44,17 @@ def _dry_run(repo, *args: str) -> subprocess.CompletedProcess:
                           text=True, timeout=60, check=False)
 
 
-def _verdict(env, repo, command: str) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _stopped(env, repo, command: str) -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
+
+
+def _at_destination(env, repo, command: str) -> None:
+    """Resolved as git pushes it up to the destination check, which since R9-1 leaves every Level 1 push NOT
+    MEASURED; the evidence at the sent commit showed no failure."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    n2c.assert_destination_not_measured(answer, entry)
 
 
 def _other_remote(tmp_path, repo) -> None:
@@ -79,25 +88,28 @@ def test_git_reads_the_empty_value_and_pushes_nowhere(tmp_path, key):
 @pytest.mark.parametrize("key", EMPTY_KEYS)
 def test_a_bare_push_with_an_empty_remote_value_is_not_measured(env, tmp_path, key, command):
     r = _repo(tmp_path, **{key.replace(".", "__"): ""})
-    assert _verdict(env, r.path, command) == ("ask", ["push_not_measured"])
+    assert _stopped(env, r.path, command) == ("ask", ["push_not_measured"], False)
 
 
 @pytest.mark.parametrize("key", EMPTY_KEYS)
 def test_control_an_explicit_remote_is_judged_as_git_pushes_it(env, tmp_path, key):
     r = _repo(tmp_path, **{key.replace(".", "__"): ""})
-    assert _verdict(env, r.path, "git push origin main") == ("pass", ["done"])
+    _at_destination(env, r.path, "git push origin main")
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 def test_control_without_a_value_the_bare_push_passes(env, tmp_path):
     r = _repo(tmp_path)
     assert _dry_run(r.path).returncode == 0
-    assert _verdict(env, r.path, "git push") == ("pass", ["done"])
+    _at_destination(env, r.path, "git push")
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 def test_control_an_empty_push_default_stops_git_and_the_gate(env, tmp_path):
     r = _repo(tmp_path, push__default="")
     assert _dry_run(r.path).returncode == 128
-    assert _verdict(env, r.path, "git push")[0] != "pass"
+    verdict, _reasons, reached = _stopped(env, r.path, "git push")
+    assert verdict != "pass" and not reached
 
 
 def test_control_push_default_is_read_with_its_case(env, tmp_path):
@@ -105,7 +117,8 @@ def test_control_push_default_is_read_with_its_case(env, tmp_path):
     r = _repo(tmp_path, push__default="Simple")
     dry = _dry_run(r.path)
     assert dry.returncode == 128 and "malformed value for push.default" in dry.stderr, dry.stderr
-    assert _verdict(env, r.path, "git push")[0] != "pass"
+    verdict, _reasons, reached = _stopped(env, r.path, "git push")
+    assert verdict != "pass" and not reached
 
 
 # --- the fallbacks git does not make (siblings of R6-2) ------------------------------------------------------------
@@ -113,7 +126,7 @@ def test_control_push_default_is_read_with_its_case(env, tmp_path):
 def _not_pass_where_git_stops(env, r, command: str = "git push", *, git_args: tuple = (), message: str) -> None:
     dry = _dry_run(r.path, *git_args)
     assert dry.returncode == 128 and message in dry.stderr, dry.stderr
-    assert _verdict(env, r.path, command) == ("ask", ["push_not_measured"])
+    assert _stopped(env, r.path, command) == ("ask", ["push_not_measured"], False)
 
 
 def test_simple_to_the_branch_remote_without_an_upstream(env, tmp_path):
@@ -127,7 +140,8 @@ def test_control_simple_without_an_upstream_but_auto_setup_remote(env, tmp_path)
     r = _repo(tmp_path, push__autoSetupRemote="true")
     _git(r.path, "config", "--unset", "branch.main.merge")
     assert _dry_run(r.path).returncode == 0
-    assert _verdict(env, r.path, "git push") == ("pass", ["done"])
+    _at_destination(env, r.path, "git push")
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 @pytest.mark.parametrize("merge", ["refs/heads/other", "main"])
@@ -164,18 +178,19 @@ def test_control_simple_to_another_remote_pushes_the_branch_under_its_name(env, 
     _other_remote(tmp_path, r.path)
     dry = _dry_run(r.path)
     assert dry.returncode == 0 and "main -> main" in dry.stderr, dry.stderr
-    assert _verdict(env, r.path, "git push") == ("pass", ["done"])
+    _at_destination(env, r.path, "git push")
 
 
 def test_the_one_configured_remote_is_the_default_as_in_git(env, tmp_path):
     """Neither key present and exactly one remote, not named origin: git pushes to it, the gate judges that push
-    (before, the gate looked for origin only and left the push NOT MEASURED)."""
+    (before, the gate looked for origin only and left the push NOT MEASURED; now it reaches the destination check,
+    which since R9-1 leaves it NOT MEASURED)."""
     r = _repo(tmp_path, push__default="current")
     _git(r.path, "remote", "rename", "origin", "upstream")
     _git(r.path, "config", "--unset", "branch.main.remote")
     dry = _dry_run(r.path)
     assert dry.returncode == 0 and "remote.git" in dry.stderr, dry.stderr
-    assert _verdict(env, r.path, "git push") == ("pass", ["done"])
+    _at_destination(env, r.path, "git push")
 
 
 def test_the_sources_of_an_unresolved_push_come_from_the_remote_git_pushes_to(env, tmp_path):
@@ -195,3 +210,4 @@ def test_the_sources_of_an_unresolved_push_come_from_the_remote_git_pushes_to(en
     assert (entry["verdict"], entry["reason_ids"]) == ("ask", ["push_not_measured"]), entry
     reason = answer["hookSpecificOutput"]["permissionDecisionReason"]
     assert "cannot tell which commits the push sends" in reason, reason
+    assert not n2c.reached_destination(json.dumps(answer, ensure_ascii=False)), reason

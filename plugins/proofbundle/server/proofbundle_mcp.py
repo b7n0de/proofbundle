@@ -409,8 +409,9 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
 
     # The reviewed base: a declaration whose rules are well formed. Its subject is a fixed non-matching
     # digest, so the push of the next commit is denied for a stale subject, a deny the gate reaches without
-    # the verifier, under both hosts. The base is pushed to a named branch the work repository then tracks,
-    # so the test push goes to a target the gate resolves (DECISIONS.md, D3; review N6).
+    # the verifier, under both hosts: the gate checks the evidence at the commit the push sends, whose destination
+    # it does not resolve (DECISIONS.md, D3; review round 9, R9-1). The base is pushed to a named branch the work
+    # repository then tracks, so the check can compare that branch with the recorded base (review N6).
     os.makedirs(os.path.join(work, ".proofbundle"))
     with open(os.path.join(work, "README.md"), "w", encoding="utf-8") as handle:
         handle.write("A throwaway repository for the proofbundle gate self-test.\n")

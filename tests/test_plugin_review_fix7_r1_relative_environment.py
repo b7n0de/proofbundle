@@ -233,14 +233,17 @@ def _push(env: dict, cwd: pathlib.Path) -> tuple[dict, dict]:
 @pytest.mark.parametrize("git_dir", ["relative", "absolute"])
 def test_level_1_reads_the_push_in_the_repository_git_names_from_the_call_directory(env, tmp_path, git_dir):
     """The push path takes its repository from the same reader: from P, GIT_DIR=r/.git (or absolute) and
-    GIT_WORK_TREE=r name P/r, and a valid receipt for the pushed commit passes the done check. At 0c88746f the reads
-    after the first took GIT_DIR=r/.git against P/r, found no repository and denied the push without a verdict."""
+    GIT_WORK_TREE=r name P/r, and a valid receipt for the pushed commit passes the done check (since R9-1 the
+    destination check leaves the push NOT MEASURED). At 0c88746f the reads after the first took GIT_DIR=r/.git against
+    P/r, found no repository and denied the push without a verdict."""
     logs = str(tmp_path / "logs")
     push_env = dict(env, CLAUDE_PLUGIN_DATA=logs, PLUGIN_DATA=logs)
     r = n2c.Repo(tmp_path)
     r.make("valid")
     rel = dict(push_env, GIT_DIR="r/.git" if git_dir == "relative" else str(r.path / ".git"), GIT_WORK_TREE="r")
     answer, entry = _push(rel, tmp_path)
-    assert "permissionDecision" not in answer["hookSpecificOutput"], answer
-    assert entry["reason_ids"] == ["done"], entry
+    n2c.assert_destination_not_measured(answer, entry)
+    head = n2c._rev(r.path, "HEAD")[:12]
+    assert f"the sent source commit(s) {head} showed no failure" in answer["systemMessage"], answer
+    assert n2c._level2(push_env, r.path).returncode == 0
 

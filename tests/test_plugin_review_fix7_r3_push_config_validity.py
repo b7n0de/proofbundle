@@ -16,6 +16,7 @@ gate, so those were NOT MEASURED already (controls below). Red against 0c88746f.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -44,13 +45,16 @@ def _git_push(repo, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, timeout=60, check=False)
 
 
-def _verdict(env, repo, command: str) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo, command: str) -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
 
 
-NOT_MEASURED = ("ask", ["push_not_measured"])
-PASS = ("pass", ["done"])
+#: NOT MEASURED at the push configuration, before the destination check.
+NOT_MEASURED = ("ask", ["push_not_measured"], False)
+#: Every earlier step resolved; the destination check leaves the push NOT MEASURED since R9-1.
+DESTINATION = ("ask", ["push_not_measured"], True)
 
 STOPS = {   # each stops `git push` with exit 128 under 2.43.0 and 2.51.1
     "autoSetupRemote_invalid": "[push]\n\tautoSetupRemote = invalid\n",
@@ -100,7 +104,7 @@ def test_the_returns_without_an_upstream_read_check_the_value_too(env, tmp_path,
     _git(r.path, "fetch", "-q", "other")
     with open(r.path / ".git" / "config", "a", encoding="utf-8") as handle:
         handle.write(config)
-    assert _verdict(env, r.path, "git push")[0] in ("pass", "ask")   # the case resolves without the invalid value
+    assert _verdict(env, r.path, "git push") == DESTINATION   # the case resolves without the invalid value
     with open(r.path / ".git" / "config", "a", encoding="utf-8") as handle:
         handle.write("[push]\n\tautoSetupRemote = invalid\n")
     assert _git_push(r.path).returncode == 128
@@ -131,10 +135,13 @@ def test_a_push_that_also_pushes_submodules_is_not_measured(env, tmp_path, value
     "[color]\n\tpush = auto\n[color \"push\"]\n\terror = red bold\n",
 ])
 def test_control_values_git_reads_leave_the_valid_push_passing(env, tmp_path, lines):
+    """The valid push resolves past its configuration up to the destination check (since R9-1 that leaves it NOT
+    MEASURED); the pre-push hook passes it."""
     r = _repo(tmp_path, lines)
     assert _git_push(r.path, "origin", "main").returncode == 0, lines
-    assert _verdict(env, r.path, "git push origin main") == PASS, lines
-    assert _verdict(env, r.path, "git push") == PASS, lines
+    for command in ("git push origin main", "git push"):
+        n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command=command))
+    assert n2c._level2(env, r.path).returncode == 0, lines
 
 
 @pytest.mark.parametrize("lines", [
@@ -150,5 +157,6 @@ def test_control_values_another_read_of_the_gate_stops_at_were_not_measured_alre
     r = _repo(tmp_path, lines)
     assert _git_push(r.path).returncode == 128
     for command in ("git push", "git push origin main"):
-        verdict, reasons = _verdict(env, r.path, command)
+        verdict, reasons, reached = _verdict(env, r.path, command)
         assert verdict == "ask" and reasons in (["push_not_measured"], ["not_a_work_tree"]), (command, reasons)
+        assert not reached, command

@@ -125,18 +125,32 @@ def _lines(directory: pathlib.Path) -> list[dict]:
 
 
 def test_a_gated_call_leaves_one_line_with_what_was_checked_and_nothing_else(env, tmp_path):
+    """One line per gated call, with what was checked and nothing else. Since R9-1 the push asks at the destination
+    check; its NOT MEASURED verdict names no evidence digest, and no key, secret or signed payload reaches the log."""
     repo, key = _declared_repo(tmp_path)
     data = tmp_path / "data"
     answer, _ = _gate(dict(env, CLAUDE_PLUGIN_DATA=str(data), SECRET_TOKEN="do-not-log"), repo, "git push")
-    assert "permissionDecision" not in answer["hookSpecificOutput"]
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "ask"
     (line,) = _lines(data)
     assert set(line) == ENTRY_KEYS
     assert (line["host"], line["gate_version"], line["session_id"], line["tool"]) == ("claude", "0.3.0", "s-1", "Bash")
-    assert (line["actions"], line["decision"], line["verdict"], line["reason_ids"]) == (["git push"], "none", "pass", ["verified"])
+    assert (line["actions"], line["decision"], line["verdict"], line["reason_ids"]) == (
+        ["git push"], "ask", "ask", ["push_not_measured"])
     (entry,) = line["repos"]
     head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
                           check=True).stdout.strip()
-    assert (entry["path"], entry["head"]) == (str(repo), head)
+    assert (entry["path"], entry["head"], entry["digests"]) == (str(repo), head, [])
+    # A verdict on the evidence names the digests of the files it read: a bundle whose signed bytes were changed is
+    # denied at the commit the push sends, and its line carries them.
+    bundle = json.loads((repo / ".proofbundle" / "b.json").read_text(encoding="utf-8"))
+    raw = bytearray(base64.b64decode(bundle["payload_b64"]))
+    raw[0] ^= 1
+    bundle["payload_b64"] = base64.b64encode(bytes(raw)).decode()
+    (repo / ".proofbundle" / "b.json").write_text(json.dumps(bundle), encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "a bundle whose signature does not verify")
+    answer, _ = _gate(dict(env, CLAUDE_PLUGIN_DATA=str(data), SECRET_TOKEN="do-not-log"), repo, "git push")
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
+    (entry,) = _lines(data)[-1]["repos"]
     import hashlib  # noqa: PLC0415
     expected = [f".proofbundle/b.json sha256:{hashlib.sha256((repo / '.proofbundle' / 'b.json').read_bytes()).hexdigest()}",
                 f".proofbundle/policy.json sha256:{hashlib.sha256((repo / '.proofbundle' / 'policy.json').read_bytes()).hexdigest()}"]

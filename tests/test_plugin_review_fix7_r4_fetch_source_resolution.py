@@ -16,6 +16,7 @@ comparison NOT MEASURED. A pattern source matches full names only and stays read
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -54,12 +55,14 @@ def _second_rules(repo, *specs: str) -> None:
         _git(repo, "config", "--add", "remote.second.fetch", spec)
 
 
-def _verdict(env, repo, command: str = "git push origin main") -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo, command: str = "git push origin main") -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
 
 
-NOT_MEASURED = ("ask", ["push_not_measured"])
+#: NOT MEASURED at the fetch rules, before the destination check.
+NOT_MEASURED = ("ask", ["push_not_measured"], False)
 
 WRITERS = {   # rules of `second` that make `git fetch second` write other's state into refs/remotes/origin/main
     "reviewer": ("+other:refs/remotes/origin/main", "^other"),
@@ -134,16 +137,19 @@ def test_a_single_branch_rule_is_not_measured(env, tmp_path):
 
 
 def test_a_plain_source_of_another_remote_onto_its_own_refs_keeps_the_pass(env, tmp_path):
-    """Control: another remote's plain source that writes its own tracking ref changes nothing for origin/main."""
+    """Control: another remote's plain source that writes its own tracking ref changes nothing for origin/main (since
+    R9-1 the destination check leaves the push NOT MEASURED, as it does without the rule)."""
     r = _repo(tmp_path)
     _second_rules(r.path, "+other:refs/remotes/second/other")
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path))
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 def test_control_a_pattern_of_another_remote_onto_its_own_refs_keeps_the_pass(env, tmp_path):
     r = _repo(tmp_path)
     _second_rules(r.path, "+refs/heads/*:refs/remotes/second/*")
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path))   # since R9-1 NOT MEASURED at the destination
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 def test_control_a_pattern_of_another_remote_onto_origin_stays_not_measured(env, tmp_path):

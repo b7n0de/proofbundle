@@ -176,17 +176,17 @@ measured.
 |---|---|
 | Every declared item verifies and its signed subject is the tree digest of HEAD | No permission decision. The normal permission flow applies, and a message names what was verified. |
 | An item fails, is missing at HEAD, pins no signer, names no subject or a subject other than the tree at HEAD, or its signed part names another tree; the declaration is malformed; the verifier cannot run | Deny, with the reason. |
-| No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. |
+| No declaration, neither at HEAD nor in the working tree | NOT MEASURED, and no permission decision: the gate is not active in this repository. The normal permission flow applies. A push under Level 1 is the exception: it asks, because what the remote holds at its destination is not known (D5, D3). |
 | A declaration only in the working tree, an empty list, no repository or no commit, or a directory the gate cannot resolve | NOT MEASURED, and the call asks. In `claude -p` an ask is a refusal. |
 | The evidence verifies, but the push changes the evidence rules against what the remote is known to hold (the declaration's items, a policy, a key, the done check or the done policy) | The call asks, with the change named: changes to the evidence rules need a review (D20). |
-| The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks. `git fetch` makes the remote's state known (D20). |
-| The evidence verifies, but the fetch rules do not record every remote ref git push also matches for the destination; the standard rule `+refs/heads/*:refs/remotes/origin/*` alone records refs/heads/ only | NOT MEASURED, and the call asks. `git config --add remote.origin.fetch '+refs/tags/*:refs/recorded/origin/tags/*'` and `git config --add remote.origin.fetch '+refs/refs/*:refs/recorded/origin/refs/*'`, then `git fetch`, make a full destination measurable (`main`, `HEAD:refs/heads/main`); a short one such as `HEAD:main` stays NOT MEASURED (D3). |
+| The evidence verifies, but no remote-tracking ref is known, so the gate cannot tell what the push changes | NOT MEASURED, and the call asks (D20). A fetch does not make a push measurable under Level 1 (D3). |
+| The evidence at the commits the push sends shows no failure, and the push names a destination: git push also looks that destination up among other refs of the remote (for `main` also refs/tags/refs/heads/main and refs/refs/heads/main), and two matches make git refuse the push | NOT MEASURED, and the call asks, for every push under Level 1: the gate does not read the remote, and no fetch rule shows that the remote lacks such a ref (D3). A person reviews the push. Level 2, where installed, runs on the ref lines git hands it, independent of this answer (D24). |
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
 It never answers allow. Every deny and ask names the evidence, what failed and the next step, and
 carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). It acts
-only in a repository that declares evidence: whoever deletes the
-declaration switches the gate off, and the deletion stays visible in the diff of the pushed range (D5). The declaration format and every design choice are in
+only in a repository that declares evidence, except that a push under Level 1 asks in any repository (D5): whoever
+deletes the declaration switches the gate off, and the deletion stays visible in the diff of the pushed range (D5). The declaration format and every design choice are in
 [DECISIONS.md](DECISIONS.md). MCP tools of other names are not gated; D8 lists the known ones.
 
 A pass proves what the declared evidence proves, for the tree at HEAD: the declared signer signed a

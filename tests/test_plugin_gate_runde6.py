@@ -162,13 +162,17 @@ def test_b1_sibling_a_new_remote_ref_with_missing_evidence_denies_on_ebene_2(tmp
 # --- Punkt 2: insteadOf asks only for rules that apply to this remote ---------------------------------
 
 def test_p2_a_global_rule_that_misses_the_target_lets_a_valid_push_resolve(tmp_path, monkeypatch):
-    # A rule for another host provably does not rewrite this (path) remote, so it no longer forces an ask:
-    # the push resolves and its evidence is judged as without the rule (here: the tip the remote holds).
+    # A rule for another host provably does not rewrite this (path) remote, so it no longer forces an ask of its
+    # own: the push resolves up to the destination check, which since R9-1 leaves it NOT MEASURED, and the evidence
+    # at the sent commit is judged as without the rule (no failure).
     repo, _ = _make_repo(tmp_path, "r", declare="valid")
     _global_rule(tmp_path, monkeypatch, *NON_HITTING_GLOBAL_RULE)
-    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline()) is not None
+    reasons: list = []
+    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline(), reasons) is None
+    assert reasons and "git push also matches" in reasons[0][0], reasons
     verdict = gate.evaluate_push(str(repo), ["origin", "main"], _deadline())
-    assert (verdict.decision, verdict.reason_id) == ("pass", "verified"), verdict.text()
+    assert (verdict.decision, verdict.reason_id) == ("ask", "push_not_measured"), verdict.text()
+    assert "showed no failure" in verdict.text()
 
 
 @pytest.mark.parametrize("kind", ["insteadOf", "pushInsteadOf"])
@@ -232,6 +236,8 @@ def test_b2_a_missing_local_tracking_ref_keeps_the_previous_text(tmp_path):
 # --- Punkt 5: every comparison verdict names the locally known state (R4-7K) -------------------------
 
 def test_p5_a_rules_change_verdict_names_the_locally_known_state(tmp_path):
+    """Since R9-1 Level 1 makes no comparison with the target, so its answer names no compared state; the rules
+    change is the pre-push hook's verdict, against the remote's state as git reports it."""
     repo, _ = _make_repo(tmp_path, "r", declare="valid")
     policy = json.loads((repo / POLICY).read_text(encoding="utf-8"))
     policy["allowed_issuers"].append({"public_key_b64": base64.b64encode(
@@ -239,8 +245,12 @@ def test_p5_a_rules_change_verdict_names_the_locally_known_state(tmp_path):
     (repo / POLICY).write_text(json.dumps(policy), encoding="utf-8")
     _git(repo, "commit", "-q", "-am", "widen")
     verdict = gate.evaluate_push(str(repo), ["origin", "main"], _deadline())
+    assert verdict.reason_id == "push_not_measured" and "last known state" not in verdict.text(), verdict.text()
+    head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    held = _git(repo, "rev-parse", "origin/main").stdout.strip()
+    verdict = gate.pre_push_verdict(str(repo), [("refs/heads/main", head, "refs/heads/main", held)], _deadline())
     assert verdict.reason_id == "rules_changed", verdict.text()
-    assert "last known state of the target in this repository, not a state read from the remote" in verdict.text()
+    assert "last known state" not in verdict.text()
 
 
 def test_p5_a_rules_change_on_ebene_2_names_the_remote_state_git_reported(tmp_path):

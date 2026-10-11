@@ -3,7 +3,8 @@
 Measured by the reviewer at b288ee66: the standard rule only, `git remote rename origin "o'brien"`, the hook for `git
 push "o'brien" main`. The suggested `git fetch o'brien` fails under `bash -n` with exit 2, and remote.<name>.fetch and
 the refspec were not quoted whole either. Property: every argument of a suggested command is quoted whole, so the
-command parses and names the remote as one word. Red against b288ee66.
+command parses and names the remote as one word. Red against b288ee66. Since R9-1 the answer offers no fetch rule as a
+repair, so the answer case holds with no command naming the remote; the builder case carries the property.
 """
 from __future__ import annotations
 

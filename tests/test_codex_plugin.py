@@ -316,16 +316,28 @@ def _codex_warns(answer: dict) -> None:
     assert "Codex cannot ask" not in answer["systemMessage"]
 
 
+def _rev(repo: pathlib.Path, rev: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), "rev-parse", rev], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_a_nothing_declared_push_is_inactive_under_claude_but_not_measured_under_codex(shim, tmp_path):
-    # Owner choice A (R5-2): under Claude a resolved nothing-declared push stays inactive with no decision
-    # (D5, C); under Codex it is NOT MEASURED, because the hook cannot bind the execution workdir, and since
-    # Karte 5 A it warns with that reason instead of denying.
+    # Owner choice A (R5-2): under Codex a push is NOT MEASURED, because the hook cannot bind the execution workdir,
+    # and since Karte 5 A it warns with that reason instead of denying. Under Claude a nothing-declared push was
+    # inactive with no decision (D5, C) while its target resolved; since R9-1 (R8-2 for a clone with the standard
+    # fetch rule alone) Level 1 asks, because the destination is NOT MEASURED, and the pre-push hook still finds
+    # nothing declared.
     repo = _repo(tmp_path, declare=False)
+    (repo / "README.md").write_text("y\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "d")
     claude = _run(shim, repo)
-    assert _codex_valid(claude) == "pass", "Claude: no decision on a measured nothing-declared repository"
-    assert "permissionDecision" not in claude["hookSpecificOutput"]
-    assert claude["systemMessage"].startswith("NOT MEASURED:") and INACTIVE in claude["systemMessage"]
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert claude["systemMessage"].startswith("NOT MEASURED:") and "git push also matches" in claude["systemMessage"]
+    assert INACTIVE not in claude["systemMessage"]
+    line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
+    verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
+    assert (verdict.decision, verdict.reason_id) == ("inactive", "nothing_declared"), verdict.text()
     codex = _run(shim, repo, "--host", "codex")
     _codex_warns(codex)
     assert INACTIVE not in codex["systemMessage"]  # the gate never reached the repository's state
@@ -334,12 +346,16 @@ def test_a_nothing_declared_push_is_inactive_under_claude_but_not_measured_under
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_under_codex_a_declaration_only_in_the_working_tree_is_not_measured_and_warns(shim, tmp_path):
     repo = _repo(tmp_path, declare=False)
+    (repo / "README.md").write_text("y\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "d")
     (repo / ".proofbundle").mkdir()
     (repo / ".proofbundle" / "evidence.json").write_text(json.dumps(
         {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
     claude = _run(shim, repo)
-    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
-    assert "not committed" in claude["systemMessage"]  # Claude still reaches the uncommitted-declaration case
+    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"   # Level 1 asks at the destination (R9-1)
+    line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
+    verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
+    assert "not committed" in verdict.text()  # the pre-push hook reaches the uncommitted-declaration case
     codex = _run(shim, repo, "--host", "codex")
     # Under Codex the push is NOT MEASURED before the repository is read, so the reason is the unbound context.
     _codex_warns(codex)
@@ -626,12 +642,15 @@ def test_under_codex_a_rules_change_push_is_not_measured_while_claude_asks(shim,
     _git(repo, "commit", "-q", "-m", "widen the policy")
     codex = _run(shim, repo, "--host", "codex")
     # Owner choice A (R5-2): under Codex the answer is the context-unbound NOT MEASURED, not the rules-change
-    # verdict, and since Karte 5 A it warns; Claude still reaches the rules-change ask.
+    # verdict, and since Karte 5 A it warns. Claude asks; since R9-1 at the destination check, and the rules change
+    # is the pre-push hook's verdict.
     _codex_warns(codex)
     assert "evidence rules" not in codex["systemMessage"]
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
-    assert "evidence rules" in claude["systemMessage"]
+    line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
+    verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
+    assert (verdict.decision, verdict.reason_id) == ("ask", "rules_changed"), verdict.text()
 
 
 @pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="git or bash missing")

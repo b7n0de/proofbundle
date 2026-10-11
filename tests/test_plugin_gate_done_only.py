@@ -130,16 +130,23 @@ def test_the_mcp_diagnosis_names_the_done_only_declaration(tmp_path):
 # --- the D5 cases that are real stay as they were ------------------------------------------------------------------
 
 def test_a_declaration_only_in_the_working_tree_still_asks_as_uncommitted(tmp_path):
+    """Level 1 asks at the destination check since R9-1; the pre-push hook and the CI mode read the declaration that is
+    only in the working tree as uncommitted."""
     repo = _repo(tmp_path, _done_only(), commit_it=False)
     outcome = gate.decide("git push origin main", str(repo), _deadline())
     assert outcome is not None and outcome.decision == "ask"
-    assert "declaration_uncommitted" in {v.reason_id for v in outcome.verdicts}
+    assert {v.reason_id for v in outcome.verdicts} == {"push_not_measured"} and "git push also matches" in outcome.text
+    assert gate.pre_push_verdict(str(repo), _pre_push_lines(repo), _deadline()).reason_id == "declaration_uncommitted"
     assert gate.evaluate_repository(str(repo), _deadline()).reason_id == "declaration_uncommitted"
 
 
 def test_a_repository_that_declares_nothing_is_still_inactive(tmp_path):
+    """The pre-push hook and the CI mode find nothing declared (D5). Level 1 asks since R9-1, as it did since R8-2 for a
+    clone with the standard fetch rule alone: the destination of the push is NOT MEASURED."""
     repo = _repo(tmp_path, None)
     outcome = gate.decide("git push origin main", str(repo), _deadline())
-    assert outcome is not None and outcome.decision == "inactive"
-    assert {v.reason_id for v in outcome.verdicts} == {"nothing_declared"}
+    assert outcome is not None and outcome.decision == "ask"
+    assert {v.reason_id for v in outcome.verdicts} == {"push_not_measured"} and "git push also matches" in outcome.text
+    verdict = gate.pre_push_verdict(str(repo), _pre_push_lines(repo), _deadline())
+    assert (verdict.decision, verdict.reason_id) == ("inactive", "nothing_declared"), verdict.text()
     assert gate.evaluate_repository(str(repo), _deadline()).reason_id == "nothing_declared"

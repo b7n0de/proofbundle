@@ -26,8 +26,8 @@ env = n2c.env
 _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
-NOT_MEASURED = ("ask", ["push_not_measured"])
-PASS = ("pass", ["done"])
+#: NOT MEASURED at the push options, before the destination check.
+NOT_MEASURED = ("ask", ["push_not_measured"], False)
 
 
 def _repo(tmp_path, lines: str = "") -> n2c.Repo:
@@ -47,9 +47,10 @@ def _git_push(repo, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, timeout=60, check=False)
 
 
-def _verdict(env, repo, command: str) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo, command: str) -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
 
 
 LF = '[push]\n\tpushOption = "one\\ntwo"\n'
@@ -114,17 +115,20 @@ def test_git_accepts_the_push_where_the_lf_value_is_not_in_the_list_it_uses(tmp_
 
 @pytest.mark.parametrize("case", ACCEPTED)
 def test_control_a_push_git_accepts_keeps_its_verdict(env, tmp_path, case):
-    """A cleared LF value and a list the command line replaces are not effective: the push is judged as without them."""
+    """A cleared LF value and a list the command line replaces are not effective: the push is judged as without them,
+    up to the destination check (since R9-1 that leaves it NOT MEASURED); the pre-push hook passes it."""
     lines, options = ACCEPTED[case]
     r = _repo(tmp_path, lines)
-    assert _verdict(env, r.path, _command(options)) == PASS, case
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command=_command(options)))
+    assert n2c._level2(env, r.path).returncode == 0, case
 
 
 def test_a_newline_in_a_command_line_option_gets_no_green_verdict(env, tmp_path):
     """The command line sibling: git refuses an option with a newline from the command line as from the list."""
     r = _repo(tmp_path)
     assert _git_push(r.path, "--dry-run", "-o", "a\nb", "origin", "main").returncode == 128
-    assert _verdict(env, r.path, "git push -o 'a\nb' origin main") != PASS
+    verdict, reasons, reached = _verdict(env, r.path, "git push -o 'a\nb' origin main")
+    assert verdict != "pass" and not reached, (verdict, reasons)
 
 
 def test_the_answer_names_the_newline(env, tmp_path):
@@ -133,3 +137,4 @@ def test_the_answer_names_the_newline(env, tmp_path):
     text = json.dumps(answer, ensure_ascii=False)
     assert "a push option in push.pushOption holds a newline, and git push stops there" in text, text
     assert "fix or remove that configuration value" in text, text
+    assert not n2c.reached_destination(text), text

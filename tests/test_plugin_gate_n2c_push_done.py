@@ -81,10 +81,34 @@ def _git(repo: pathlib.Path, *args: str, env: dict | None = None, check: bool = 
 
 #: Fetch rules that record the remote's refs under refs/tags/ and refs/refs/ in local namespaces of their own. With
 #: the pattern rule for refs/heads/ they record every ref git push can also match for a full branch destination
-#: (refs/heads/refs/heads/<x>, refs/tags/refs/heads/<x>, refs/refs/heads/<x>), which the gate needs to evidence that
-#: the destination resolves to the branch alone (review round 8 of 2026-10-10, R8-2). A repository without them leaves
-#: every Level 1 push NOT MEASURED; the tests of that are in test_plugin_review_fix8_r2_push_destination.py.
+#: (refs/heads/refs/heads/<x>, refs/tags/refs/heads/<x>, refs/refs/heads/<x>). Round 8 took them as evidence that the
+#: destination resolves to the branch alone (R8-2); round 9 withdrew that (R9-1): a rule proves no fetch that ran under
+#: it, and a fetch does not see every ref a push sees. The fixtures keep them, so every Level 1 push here is NOT
+#: MEASURED with them too; the tests of that are in test_plugin_review_fix9_r1_absence_is_not_evidence.py.
 RECORDING_RULES = ("+refs/tags/*:refs/recorded/{remote}/tags/*", "+refs/refs/*:refs/recorded/{remote}/refs/*")
+
+#: The reasons the destination check names (R8-2, R9-1). It is the last step of resolving a Level 1 push, and since R9-1
+#: it never evidences the destination: a push whose every earlier step resolves ends there, NOT MEASURED, where it had
+#: passed. A control of an earlier step therefore reaches it, and a case that stops at that earlier step does not.
+DESTINATION_REASONS = ("git push also matches ", "this repository records ", "git push looks up ")
+#: What the answer of an unresolved push says where the evidence at the commits it sends showed no failure (R8-5).
+SOURCES_CLEAN = "showed no failure, which is not a verdict on the push"
+
+
+def reached_destination(text: str) -> bool:
+    """Whether an answer, a log text or a verdict text says the resolution reached the destination check."""
+    return any(reason in text for reason in DESTINATION_REASONS)
+
+
+def assert_destination_not_measured(answer: dict, entry: dict | None = None, clean: bool = True) -> None:
+    """A Level 1 push since R9-1 whose earlier steps all resolve: it asks, NOT MEASURED at the destination check, and
+    with `clean` the evidence at the commits it sends showed no failure."""
+    text = json.dumps(answer, ensure_ascii=False)
+    assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
+    if entry is not None:
+        assert (entry["verdict"], entry["reason_ids"]) == ("ask", ["push_not_measured"]), entry
+    assert reached_destination(text), text
+    assert not clean or SOURCES_CLEAN in text, text
 
 
 def record_remote_refs(repo: pathlib.Path, remote: str = "origin") -> None:
@@ -219,10 +243,9 @@ def test_level_1_a_push_needs_the_done_check_at_the_pushed_commit(env, tmp_path,
     r.make(case)
     answer, entry = _level1(env, r.path)
     decision = answer["hookSpecificOutput"].get("permissionDecision")
-    if case == "valid":
-        assert decision is None, answer
-        assert (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry
-        assert f"The done check passed at the pushed commit {_rev(r.path, 'HEAD')[:12]}" in answer["systemMessage"]
+    if case == "valid":   # the done check passes at the sent commit; the destination is NOT MEASURED (R9-1)
+        assert_destination_not_measured(answer, entry)
+        assert f"the sent source commit(s) {_rev(r.path, 'HEAD')[:12]} showed no failure" in answer["systemMessage"]
     else:
         assert decision == "deny", (case, answer)
         assert entry["reason_ids"] == [REASONS[case]], (case, entry)
@@ -272,8 +295,8 @@ def test_the_pushed_tree_counts_not_the_working_tree(env, tmp_path):
     _write(r.path / "src" / "module.py", "VALUE = 99\n")   # not committed
     assert gate.done_evaluation(str(r.path), time.monotonic() + 60)["verdict"].reason_id == "stale_receipt"
     answer, entry = _level1(env, r.path)
-    assert "permissionDecision" not in answer["hookSpecificOutput"], answer
-    assert entry["reason_ids"] == ["done"]
+    assert_destination_not_measured(answer, entry)   # no deny: the commit's tree passed the done check (R9-1: asks)
+    assert _level2(env, r.path).returncode == 0
 
 
 def test_a_receipt_of_an_uncommitted_state_does_not_pass_the_push(env, tmp_path):
@@ -302,10 +325,10 @@ def test_evidence_and_done_both_have_to_pass(env, tmp_path):
     assert entry["reason_ids"] == ["no_receipt"]
     r.make("valid")
     answer, entry = _level1(env, r.path)
-    assert "permissionDecision" not in answer["hookSpecificOutput"], answer
-    assert entry["reason_ids"] == ["verified"]
-    assert "declared items verified" in answer["systemMessage"]
-    assert "The done check passed at the pushed commit" in answer["systemMessage"]
+    assert_destination_not_measured(answer, entry)   # both checks pass at the sent commit; R9-1 leaves it an ask
+    proc = _level2(env, r.path)
+    assert proc.returncode == 0, proc.stderr
+    assert "declared items verified" in proc.stderr and "The done check passed at the pushed commit" in proc.stderr
 
 
 def test_under_codex_level_1_warns_and_level_2_carries_the_done_check(env, tmp_path):
@@ -378,5 +401,5 @@ def test_the_check_is_at_the_pushed_commit_not_at_head(env, tmp_path):
     _receipt(r.path, r.signer)                       # now a receipt for the pushed commit
     _git(r.path, "switch", "-q", "main")
     answer, entry = _level1(env, r.path, command="git push origin other:refs/heads/main")
-    assert "permissionDecision" not in answer["hookSpecificOutput"], answer
-    assert entry["reason_ids"] == ["done"]
+    assert_destination_not_measured(answer, entry)   # the receipt for the pushed commit passes it; R9-1: asks
+    assert f"the sent source commit(s) {pushed[:12]} showed no failure" in answer["systemMessage"]

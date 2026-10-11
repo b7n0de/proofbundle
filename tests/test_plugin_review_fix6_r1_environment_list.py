@@ -13,6 +13,7 @@ that has no read today (GIT_LITERAL_PATHSPECS: the gate names only a fixed path 
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -149,20 +150,22 @@ def test_configuration_of_every_scope_git_push_reads_is_read_by_the_gate(env, tm
     dry = subprocess.run(["git", "-C", str(r.path), "push", "--dry-run", "--no-verify"], capture_output=True,
                          text=True, env=injected, timeout=60, check=False)
     assert "other.git" in dry.stderr, dry.stderr   # non-vacuous: git pushes to `other`
-    decision, entry = r1e._push_answer(injected, r.path, command="git push")
-    assert decision == "ask" and entry["verdict"] != "pass", entry
+    entry = r1e._stops_before_destination(injected, r.path, command="git push")
+    assert entry["verdict"] == "ask", entry
 
 
 def test_control_a_system_file_git_does_not_read_is_not_read(env, tmp_path):
-    """GIT_CONFIG_NOSYSTEM: git skips the system file, its pushRemote included, and the push to origin passes."""
+    """GIT_CONFIG_NOSYSTEM: git skips the system file, its pushRemote included, and the push to origin is resolved up
+    to the destination check (since R9-1 the destination check leaves it NOT MEASURED; Level 2 passes it)."""
     r = r1e._green(tmp_path)
     r1e._other_remote(r, tmp_path)
     n2c._git(r.path, "config", "--unset", "branch.main.pushRemote")
     file = tmp_path / "system.cfg"
     file.write_text('[branch "main"]\n\tpushRemote = other\n', encoding="utf-8")
     skipped = dict(env, GIT_CONFIG_SYSTEM=str(file), GIT_CONFIG_NOSYSTEM="1")
-    decision, entry = r1e._push_answer(skipped, r.path, command="git push")
-    assert decision is None and (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry
+    answer, entry = n2c._level1(skipped, r.path, command="git push")
+    n2c.assert_destination_not_measured(answer, entry)
+    assert n2c._level2(skipped, r.path).returncode == 0
 
 
 # --- the gate's reads: neutralized or without a read of the gate ---------------------------------------------------
@@ -186,6 +189,12 @@ def test_no_gate_read_starts_the_fsmonitor_program_git_test_fsmonitor_names(env,
     assert not marker.exists(), marker.read_text()
 
 
+def _outcome(answer: dict, entry: dict) -> tuple:
+    """The full outcome of a Level 1 push: decision, reason ids, and whether it reached the destination check."""
+    return (answer["hookSpecificOutput"].get("permissionDecision"), entry["verdict"], entry["reason_ids"],
+            n2c.reached_destination(json.dumps(answer, ensure_ascii=False)))
+
+
 NO_READ_EFFECT = {"GIT_INDEX_VERSION": "4", "GIT_IMPLICIT_WORK_TREE": "0", "GIT_REF_PARANOIA": "1",
                   "GIT_PREFIX": "sub/", "GIT_ATTR_SOURCE": "HEAD~1", "GIT_DISCOVERY_ACROSS_FILESYSTEM": "1",
                   "GIT_COMMIT_GRAPH_PARANOIA": "1", "GIT_DEFAULT_HASH": "sha256", "GIT_QUARANTINE_PATH": "quarantine"}
@@ -195,16 +204,20 @@ NO_READ_EFFECT = {"GIT_INDEX_VERSION": "4", "GIT_IMPLICIT_WORK_TREE": "0", "GIT_
 def test_a_name_without_effect_on_the_gates_reads_keeps_its_verdicts(env, tmp_path, name):
     """Each of these changes what git writes (an index format, a new repository's hash, ref updates under quarantine),
     how it reports or where an alias runs, or reads attributes the gate never asks for (it reads blobs raw and working
-    files itself): the push with a valid receipt passes and the one without is denied, as without the name."""
+    files itself): the push with a valid receipt reaches the destination check (since R9-1 NOT MEASURED there) and
+    passes Level 2, and the one without is denied, as without the name."""
     value = NO_READ_EFFECT[name]
     if name == "GIT_QUARANTINE_PATH":
         value = str(tmp_path / value)
     r = n2c.Repo(tmp_path)
     r.make("valid")
     named = dict(env, **{name: value})
-    decision, entry = r1e._push_answer(named, r.path)
-    assert decision is None and (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry
+    answer, entry = n2c._level1(named, r.path)
+    n2c.assert_destination_not_measured(answer, entry)
+    assert _outcome(answer, entry) == _outcome(*n2c._level1(env, r.path))
+    assert n2c._level2(named, r.path).returncode == 0
     (tmp_path / "no-receipt").mkdir()
     bare = n2c.Repo(tmp_path / "no-receipt")
-    decision, entry = r1e._push_answer(named, bare.path)
+    answer, entry = n2c._level1(named, bare.path)
     assert (entry["verdict"], entry["reason_ids"]) == ("deny", ["no_receipt"]), entry
+    assert _outcome(answer, entry) == _outcome(*n2c._level1(env, bare.path))

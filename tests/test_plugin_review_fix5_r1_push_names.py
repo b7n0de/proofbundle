@@ -11,6 +11,7 @@ pushed commit), where the target git writes to is not that ref: NOT MEASURED. Re
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -73,6 +74,7 @@ def test_the_push_is_not_judged_against_a_ref_git_does_not_write(env, tmp_path, 
     answer, entry = n2c._level1(env, r.path, command=command)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", (case, answer)
     assert entry["verdict"] != "pass", entry
+    assert not n2c.reached_destination(json.dumps(answer, ensure_ascii=False)), (case, answer)
 
 
 def test_git_pushes_where_the_cases_say(tmp_path):
@@ -93,8 +95,10 @@ def test_git_pushes_where_the_cases_say(tmp_path):
 
 
 def test_control_the_plain_push_with_a_valid_receipt_passes(env, tmp_path):
+    """The plain push resolves up to the destination check, which since R9-1 leaves it NOT MEASURED; the pre-push
+    hook passes it."""
     r = _valid(tmp_path)
     for command in ("git push", "git push origin main"):
         answer, entry = n2c._level1(env, r.path, command=command)
-        assert answer["hookSpecificOutput"].get("permissionDecision") is None, (command, answer)
-        assert (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), (command, entry)
+        n2c.assert_destination_not_measured(answer, entry)
+    assert n2c._level2(env, r.path).returncode == 0

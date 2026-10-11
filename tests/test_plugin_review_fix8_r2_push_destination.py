@@ -15,6 +15,12 @@ remote is not read (D3): what the gate knows of its refs is what the remote's fe
 ambiguity, and a resolution the recorded refs cannot show, are NOT MEASURED; the full spelling alone is not enough.
 The fixture of test_plugin_gate_n2c_push_done records refs/tags/ and refs/refs/ (RECORDING_RULES); a repository with
 the standard rule alone leaves every Level 1 push NOT MEASURED, which the cost tests below state. Red against 2aaeb6bc.
+
+Review round 9 of 2026-10-11, R9-1, withdrew the other half: a candidate this repository does not record is no
+candidate the remote lacks, whatever the fetch rules (a rule proves no fetch that ran under it, and a fetch does not
+see every ref a push sees). So every Level 1 push is NOT MEASURED at this check, the round-8 controls that passed with
+the recording rules are NOT MEASURED too, and the answer offers no fetch rule as a repair. git's facts below stand;
+test_plugin_review_fix9_r1_absence_is_not_evidence.py holds the cases of R9-1.
 """
 from __future__ import annotations
 
@@ -31,7 +37,6 @@ _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
 NOT_MEASURED = ("ask", ["push_not_measured"])
-PASS = ("pass", ["done"])
 
 
 def _repo(tmp_path, record: bool = True) -> n2c.Repo:
@@ -118,19 +123,22 @@ def test_the_cost_a_remote_whose_rules_record_refs_heads_only_is_not_measured(en
 
 @pytest.mark.parametrize("command", FULL_FORMS)
 def test_control_recorded_namespaces_without_a_ref_beside_main_keep_the_pass(env, tmp_path, command):
+    """Round 8 passed here; since R9-1 the recorded namespaces are no evidence that the remote lacks a ref beside
+    main, so the push asks at the destination check, after the done check at the sent commit showed no failure."""
     r = _repo(tmp_path)
-    assert _verdict(env, r.path, command) == PASS, command
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command=command))
 
 
 @pytest.mark.parametrize("name", ["refs/remotes/refs/heads/main", "refs/remotes/refs/heads/main/HEAD",
                                   "refs/heads/heads/main"])
 def test_control_a_weak_or_no_match_beside_main_keeps_the_pass(env, tmp_path, name):
     """refs/remotes/... is a weak match, which counts only without a strong one; refs/heads/heads/main is no match.
-    git pushes main in both cases."""
+    git pushes main in both cases. Since R9-1 the gate cannot show that no strong match stands beside main, so the
+    push asks at the destination check."""
     r = _repo(tmp_path)
     _beside(tmp_path, r, name)
     assert _push(r.path, "--dry-run", "origin", "main").returncode == 0
-    assert _verdict(env, r.path, "git push origin main") == PASS, name
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command="git push origin main"))
 
 
 @pytest.mark.parametrize("name", ["refs/tags/main", "refs/main"])
@@ -143,8 +151,8 @@ def test_git_refuses_a_short_destination_beside_another_match(tmp_path, name):
 
 @pytest.mark.parametrize("command", ["git push origin HEAD:main", "git push origin main:main"])
 def test_a_short_destination_is_not_measured(env, tmp_path, command):
-    """For a short value git also matches refs/main, which the two recording rules do not record; so a short
-    destination stays NOT MEASURED with them."""
+    """For a short value git also matches refs/main and refs/tags/main; whether the remote holds them is not known
+    here, so a short destination is NOT MEASURED (R8-2, R9-1)."""
     r = _repo(tmp_path)
     assert _verdict(env, r.path, command) == NOT_MEASURED, command
 
@@ -154,12 +162,13 @@ SHORT_RULE = "+refs/m*:refs/recorded/origin/m*"
 
 
 def test_a_rule_that_records_refs_main_makes_a_short_destination_measurable(env, tmp_path):
-    """The model, not a ban on short names: once refs/main is recorded as absent, git's resolution of main is shown."""
+    """Withdrawn by R9-1: round 8 took a rule that records refs/main, with no such local ref, as evidence that the
+    remote lacks it. git pushes here, and the gate cannot show it, so the push stays NOT MEASURED."""
     r = _repo(tmp_path)
     _git(r.path, "config", "--add", "remote.origin.fetch", SHORT_RULE)
     _git(r.path, "fetch", "-q", "origin")
     assert _push(r.path, "--dry-run", "origin", "HEAD:main").returncode == 0
-    assert _verdict(env, r.path, "git push origin HEAD:main") == PASS
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command="git push origin HEAD:main"))
 
 
 @pytest.mark.parametrize("name", ["refs/tags/main", "refs/main"])
@@ -199,8 +208,8 @@ def test_a_source_whose_full_name_is_not_the_branch_is_not_measured(env, tmp_pat
 
 def test_a_plain_fetch_rule_without_a_destination_is_not_measured(env, tmp_path):
     """R7-4 counts any plain source of the pushing remote as not evidenced. A plain rule without a destination writes
-    FETCH_HEAD only and maps no tracking ref, so only the destination check sees it (mutation M82h); git fetches with
-    it."""
+    FETCH_HEAD only and maps no tracking ref; git fetches with it. Since R9-1 the destination check leaves every push
+    NOT MEASURED whatever the rules, so this case no longer depends on a check of plain rules there (round 8's M82h)."""
     r = _repo(tmp_path)
     _git(r.path, "config", "--add", "remote.origin.fetch", "refs/heads/main")
     assert subprocess.run(["git", "-C", str(r.path), "fetch", "-q", "origin"], capture_output=True, timeout=60,
@@ -215,18 +224,22 @@ def _answer(env, repo, command: str, host: str = "claude") -> str:
 
 @pytest.mark.parametrize("command", ["git push origin main", "git push"])
 def test_the_answer_names_the_unrecorded_ref_and_the_rules_that_record_it(env, tmp_path, command):
-    """The cost tells the user what to do: the answer names the remote ref no rule records and the two rules. Under
-    Codex every push is NOT MEASURED before its target is read (D12), so this is Claude Code's answer."""
+    """The answer names the remote refs git push also matches and says that whether the remote holds one is not known
+    here. Round 8 also named two fetch rules as the repair; R9-1 withdrew that, so no rule is offered. Under Codex
+    every push is NOT MEASURED before its target is read (D12), so this is Claude Code's answer."""
     r = _repo(tmp_path, record=False)
     text = _answer(env, r.path, command)
-    assert "no fetch rule of origin records the remote ref refs/" in text, text
-    assert "+refs/tags/*:refs/recorded/origin/tags/*" in text and "+refs/refs/*:refs/recorded/origin/refs/*" in text
-    assert "a wildcard refspec" not in text, text
+    assert "git push also matches refs/refs/heads/main, refs/tags/refs/heads/main" in text, text
+    assert "not known here" in text and "have a person review the push" in text, text
+    assert "refs/recorded" not in text and "git fetch" not in text and "a wildcard refspec" not in text, text
 
 
 @pytest.mark.parametrize("name", STRONG)
 def test_the_answer_names_the_ambiguity_git_refuses(env, tmp_path, name):
+    """A recorded candidate is named as what this repository records, with git's refusal, never as what the remote
+    held (R9-1)."""
     r = _repo(tmp_path)
     _beside(tmp_path, r, name)
     text = _answer(env, r.path, "git push origin main")
-    assert f"the remote held {name}" in text and "refuses the push" in text, text
+    assert f"this repository records {name}" in text and "refuses the push" in text, text
+    assert "the remote held" not in text, text

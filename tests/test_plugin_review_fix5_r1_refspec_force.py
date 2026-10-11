@@ -9,6 +9,7 @@ is NOT MEASURED. Red against 3b1b4346.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import test_plugin_gate_n2c_push_done as n2c
@@ -41,6 +42,7 @@ def test_a_push_compared_with_a_tracking_ref_git_does_not_keep_is_not_measured(e
     answer, entry = n2c._level1(env, r.path)
     assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
     assert entry["verdict"] != "pass", entry
+    assert not n2c.reached_destination(json.dumps(answer, ensure_ascii=False)), answer
 
 
 def test_control_one_force_sign_maps_as_before(env, tmp_path):
@@ -48,5 +50,6 @@ def test_control_one_force_sign_maps_as_before(env, tmp_path):
     r.make("valid")
     _git(r.path, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*", BRANCH_RULE)
     answer, entry = n2c._level1(env, r.path)
-    assert answer["hookSpecificOutput"].get("permissionDecision") is None, answer
-    assert (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry
+    # the tracking ref maps as before; since R9-1 the destination check leaves the push NOT MEASURED
+    n2c.assert_destination_not_measured(answer, entry)
+    assert n2c._level2(env, r.path).returncode == 0

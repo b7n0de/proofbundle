@@ -254,11 +254,14 @@ def test_a_push_of_a_commit_without_a_change_in_the_paths_is_denied_at_both_leve
 
 
 def test_a_push_of_a_commit_with_the_work_passes_at_both_levels(env, repo, keys):
+    """Level 2 passes the push of the work. Level 1 does not deny it: the done check at the sent commit showed no
+    failure, and since R9-1 the push asks at the destination check."""
     dc._write(repo / "src" / "module.py", "VALUE = 2\n")
     dc._commit(repo, "the work")
     _receipts(repo, keys)
     answer = _level1(env, repo)
-    assert "permissionDecision" not in answer["hookSpecificOutput"], answer
+    assert answer["hookSpecificOutput"].get("permissionDecision") == "ask", answer
+    assert "git push also matches" in answer["systemMessage"] and "showed no failure" in answer["systemMessage"]
     assert _level2(env, repo).returncode == 0
 
 

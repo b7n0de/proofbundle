@@ -241,17 +241,20 @@ def test_a_malformed_declaration_and_a_verifier_that_cannot_start_fail(env, repo
 # --- the push range is not read ------------------------------------------------------------------------
 
 def test_the_check_does_not_read_the_push_range(env, repo, tmp_path, monkeypatch):
-    """Before a push the gate would ask here: the remote holds a state without the declaration, so the
-    push adds it (D20). In CI that review is the code owners' part, and the check passes on evidence."""
+    """Before a push the pre-push hook would ask here: the remote holds a state without the declaration, so the
+    push adds it (D20); Level 1 asks at the destination check since R9-1. In CI that review is the code owners'
+    part, and the check passes on evidence."""
     for name in ("PATH", "PYTHONPATH"):
         monkeypatch.setenv(name, env[name])  # the in-process gate starts its verifier through the uv shim
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     _git(repo, "remote", "add", "origin", str(tmp_path / "remote.git"))
-    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
-        _git(repo, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(repo, "push", "-q", "origin", "HEAD~1:refs/heads/main")
     _git(repo, "fetch", "-q", "origin")
-    verdict = gate.evaluate_push(str(repo), ["origin", "main"], gate.time.monotonic() + gate.DEADLINE_SECONDS)
+    deadline = gate.time.monotonic() + gate.DEADLINE_SECONDS
+    assert gate.evaluate_push(str(repo), ["origin", "main"], deadline).reason_id == "push_not_measured"
+    line = [tuple(subprocess.run(["git", "-C", str(repo), "rev-parse", "refs/heads/main", "refs/remotes/origin/main"],
+                                 capture_output=True, text=True, check=True).stdout.split())]
+    verdict = gate.pre_push_verdict(str(repo), [("refs/heads/main", line[0][0], "refs/heads/main", line[0][1])], deadline)
     assert (verdict.decision, verdict.reason_id) == ("ask", "rules_changed")
     code, report = check(env, repo, True)
     assert (code, report["outcome"]) == (0, "verified")

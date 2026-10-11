@@ -13,6 +13,7 @@ against 0c88746f.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -50,9 +51,27 @@ def _git_push(repo, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, timeout=60, check=False)
 
 
-def _verdict(env, repo, command: str) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _outcome(env, repo, command: str) -> tuple[str, list, bool, str]:
+    """The verdict, its reasons, whether the resolution reached the destination check (R9-1), and the answer's text."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    reached = n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
+    return entry["verdict"], entry["reason_ids"], reached, answer.get("systemMessage", "")
+
+
+#: The destination git resolves for every push here, as the destination reason names it (R9-1).
+FOR_MAIN = "for refs/heads/main"
+#: What the answer says where the gate resolved no source commit of the push, so checked no evidence at one.
+SOURCES_UNRESOLVED = "the gate cannot tell which commits the push sends"
+
+
+def _judged_to_main(env, repo, command: str) -> None:
+    """The push resolves its source to HEAD and its destination to refs/heads/main, where the destination check leaves
+    it NOT MEASURED since R9-1; the evidence at HEAD showed no failure."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    n2c.assert_destination_not_measured(answer, entry)
+    message = answer["systemMessage"]
+    assert f"the sent source commit(s) {_out(repo, 'rev-parse', 'HEAD')[:12]} showed no failure" in message, message
+    assert FOR_MAIN in message, message
 
 
 CONFIGS = {
@@ -87,11 +106,11 @@ def test_git_names_the_branch_in_full_and_pushes_main(tmp_path, config):
 def test_the_bare_push_is_judged_as_the_push_git_performs(env, tmp_path, config):
     r = _swap(tmp_path)
     _configure(r.path, CONFIGS[config])
-    # The explicit push in full: a short destination (HEAD:main) is NOT MEASURED since R8-2, because git also matches
-    # refs/main on the remote for it, which no fetch rule here records
-    explicit = _verdict(env, r.path, "git push origin HEAD:refs/heads/main")
-    assert explicit == ("ask", ["rules_changed"]), explicit
-    assert _verdict(env, r.path, "git push") == explicit
+    # The explicit push in full: since R9-1 its destination check leaves it NOT MEASURED, because git also matches
+    # refs/refs/heads/main and others on the remote for it; the bare push reaches the same check for refs/heads/main
+    explicit = _outcome(env, r.path, "git push origin HEAD:refs/heads/main")
+    assert explicit[:3] == ("ask", ["push_not_measured"], True) and FOR_MAIN in explicit[3], explicit
+    assert _outcome(env, r.path, "git push") == explicit
 
 
 def test_an_empty_push_remote_of_the_branch_is_read_under_its_full_name(env, tmp_path):
@@ -102,25 +121,28 @@ def test_an_empty_push_remote_of_the_branch_is_read_under_its_full_name(env, tmp
     push = _git_push(r.path)
     # git 2.43.0 says "no path specified", 2.51.1 "No configured push destination": the exit and the absent push count
     assert push.returncode == 128 and "\trefs/heads/" not in push.stdout, push.stdout + push.stderr
-    assert _verdict(env, r.path, "git push") == ("ask", ["push_not_measured"])
+    assert _outcome(env, r.path, "git push")[:3] == ("ask", ["push_not_measured"], False)
 
 
 @pytest.mark.parametrize("command", ["git push origin main", "git push origin main:main",
                                      "git push origin main:refs/heads/main"])
 def test_a_source_that_names_a_branch_and_a_tag_is_not_measured(env, tmp_path, command):
     """The class: git refuses a source that answers to two refs, the gate judged the tag's commit (deny with
-    stale_receipt at 0c88746f, pass where the tag is at the work commit)."""
+    stale_receipt at 0c88746f, pass where the tag is at the work commit). The gate resolves no source commit; for a
+    refspec with `:` the destination check runs before the source is read and its reason is the one named (R9-1)."""
     r = _swap(tmp_path)
     push = _git_push(r.path, *command.split()[2:])
     assert push.returncode != 0 and "src refspec main matches more than one" in push.stderr, push.stderr
-    assert _verdict(env, r.path, command) == ("ask", ["push_not_measured"])
+    verdict, reasons, _reached, message = _outcome(env, r.path, command)
+    assert (verdict, reasons) == ("ask", ["push_not_measured"]), message
+    assert SOURCES_UNRESOLVED in message and n2c.SOURCES_CLEAN not in message, message
 
 
 def test_a_source_that_names_a_branch_and_a_tag_at_the_pushed_commit_does_not_pass(env, tmp_path):
     r = _swap(tmp_path)
     _git(r.path, "tag", "-f", "main", "HEAD")
     assert _git_push(r.path, "origin", "main").returncode != 0
-    assert _verdict(env, r.path, "git push origin main") == ("ask", ["push_not_measured"])
+    assert _outcome(env, r.path, "git push origin main")[:3] == ("ask", ["push_not_measured"], False)
 
 
 @pytest.mark.parametrize("command", ["git push origin refs/heads/main:refs/heads/main",
@@ -128,24 +150,26 @@ def test_a_source_that_names_a_branch_and_a_tag_at_the_pushed_commit_does_not_pa
 def test_control_a_source_that_names_one_ref_is_judged(env, tmp_path, command):
     r = _swap(tmp_path)
     assert _git_push(r.path, *command.split()[2:]).returncode == 0
-    assert _verdict(env, r.path, command) == ("ask", ["rules_changed"])
+    _judged_to_main(env, r.path, command)
 
 
 def test_control_without_the_tag_the_short_source_is_judged(env, tmp_path):
     r = _swap(tmp_path)
     _git(r.path, "tag", "-d", "main")
     assert _out(r.path, "symbolic-ref", "--short", "HEAD") == "main"
-    assert _verdict(env, r.path, "git push origin main") == ("ask", ["rules_changed"])
-    assert _verdict(env, r.path, "git push") == ("ask", ["rules_changed"])
+    _judged_to_main(env, r.path, "git push origin main")
+    _judged_to_main(env, r.path, "git push")
 
 
 def test_control_a_valid_push_with_the_tag_still_passes(env, tmp_path):
-    """No rules change, a valid receipt, the tag beside the branch: the bare push passes, as the explicit one does."""
+    """No rules change, a valid receipt, the tag beside the branch: the bare push is judged as the explicit one is
+    (since R9-1 the destination check leaves both NOT MEASURED), and the pre-push hook passes it."""
     r = n2c.Repo(tmp_path)
     r.make("valid")
     _git(r.path, "tag", "main", "HEAD~1")
-    assert _verdict(env, r.path, "git push origin HEAD:refs/heads/main") == ("pass", ["done"])
-    assert _verdict(env, r.path, "git push") == ("pass", ["done"])
+    _judged_to_main(env, r.path, "git push origin HEAD:refs/heads/main")
+    assert _outcome(env, r.path, "git push") == _outcome(env, r.path, "git push origin HEAD:refs/heads/main")
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 def test_an_ambiguous_source_stays_not_measured_where_the_configuration_silences_the_warning(env, tmp_path):
@@ -155,4 +179,4 @@ def test_an_ambiguous_source_stays_not_measured_where_the_configuration_silences
     _git(r.path, "config", "core.warnAmbiguousRefs", "false")
     push = _git_push(r.path, "origin", "main")
     assert push.returncode != 0 and "src refspec main matches more than one" in push.stderr, push.stderr
-    assert _verdict(env, r.path, "git push origin main") == ("ask", ["push_not_measured"])
+    assert _outcome(env, r.path, "git push origin main")[:3] == ("ask", ["push_not_measured"], False)

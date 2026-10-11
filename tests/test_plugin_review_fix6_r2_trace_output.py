@@ -10,6 +10,7 @@ GIT_TRACE2_EVENT and GIT_TRACE_PERFORMANCE.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
@@ -25,6 +26,12 @@ TRACE = [("GIT_TRACE", "1"), ("GIT_TRACE", "2"), ("GIT_TRACE_SETUP", "1"), ("GIT
          ("GIT_TRACE_SHALLOW", "1")]
 
 
+def _outcome(answer: dict, entry: dict) -> tuple:
+    """The full outcome of a Level 1 push: decision, reason ids, and whether it reached the destination check."""
+    return (answer["hookSpecificOutput"].get("permissionDecision"), entry["verdict"], entry["reason_ids"],
+            n2c.reached_destination(json.dumps(answer, ensure_ascii=False)))
+
+
 def test_git_says_something_for_an_absent_key_under_trace(tmp_path):
     """Non-vacuous: under GIT_TRACE git exits 1 for an absent key and writes its trace to stderr."""
     r = n2c.Repo(tmp_path)
@@ -38,8 +45,10 @@ def test_git_says_something_for_an_absent_key_under_trace(tmp_path):
 def test_a_push_under_a_trace_variable_is_judged_as_without_it(env, tmp_path, name, value, command):
     r = n2c.Repo(tmp_path)
     r.make("valid")
-    _answer, entry = n2c._level1(dict(env, **{name: value}), r.path, command=command)
-    assert (entry["verdict"], entry["reason_ids"]) == ("pass", ["done"]), entry
+    answer, entry = n2c._level1(dict(env, **{name: value}), r.path, command=command)
+    n2c.assert_destination_not_measured(answer, entry)   # since R9-1 the destination check leaves it NOT MEASURED
+    assert _outcome(answer, entry) == _outcome(*n2c._level1(env, r.path, command=command))
+    assert n2c._level2(dict(env, **{name: value}), r.path).returncode == 0
 
 
 @pytest.mark.parametrize("name,value", TRACE[:2])

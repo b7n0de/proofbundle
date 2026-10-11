@@ -245,6 +245,36 @@ def reason(answer: dict) -> str:
     return answer["systemMessage"]
 
 
+#: Since review round 9 of 2026-10-11 (R9-1) every Level 1 push whose earlier steps resolve ends at the destination
+#: check, NOT MEASURED: git push also looks its destination up among refs of the remote, which the gate does not read.
+#: What a push changes against the remote's state (D20) is compared at Level 2, on git's own ref lines; the tests of
+#: that comparison check it there.
+DESTINATION = ("git push also matches ", "this repository records ", "git push looks up ")
+SOURCES_CLEAN = "showed no failure, which is not a verdict on the push"
+
+
+def at_destination(answer: dict | None, clean: bool = True) -> bool:
+    """Whether a Level 1 push asks at the destination check, with `clean` after the evidence at the commits it sends
+    showed no failure."""
+    return (decision(answer) == "ask" and any(d in reason(answer) for d in DESTINATION)
+            and (not clean or SOURCES_CLEAN in reason(answer)))
+
+
+def run_level2(env: dict, repo: pathlib.Path, source: str = "HEAD", remote_ref: str = "refs/heads/main",
+               local_ref: str = "refs/heads/main") -> subprocess.CompletedProcess:
+    """Level 2 as git starts it (D24): the pre-push hook in the repository, with git's ref line on stdin, which carries
+    the remote's own state of remote_ref, read here from the bare remote."""
+    url = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True, text=True,
+                         check=True).stdout.strip()
+    held = subprocess.run(["git", "--git-dir", url, "rev-parse", "--verify", "--quiet", remote_ref],
+                          capture_output=True, text=True, check=False).stdout.strip() or "0" * 40
+    sent = subprocess.run(["git", "-C", str(repo), "rev-parse", source], capture_output=True, text=True,
+                          check=True).stdout.strip()
+    return subprocess.run([sys.executable, str(GATE), "pre-push", "origin", url],
+                          input=f"{local_ref} {sent} {remote_ref} {held}\n", capture_output=True, text=True,
+                          cwd=str(repo), env=env, timeout=120, check=False)
+
+
 # --- which calls are gated ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("command, expected", [
@@ -384,10 +414,15 @@ def test_a_call_the_gate_does_not_know_gets_no_answer(shim, repo):
 
 
 def test_declared_evidence_that_verifies_gets_no_permission_decision(shim, repo):
-    answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "pass"
-    assert "1 of 1 declared items verified" in reason(answer)
-    assert "not that the recorded values are true" in reason(answer)
+    """Level 2 passes the verified push without a permission decision. Level 1 asks since R9-1: the evidence at the
+    sent commit showed no failure, and the destination is NOT MEASURED."""
+    _write(repo / ".proofbundle" / "notes.md", "a note, so the push sends a commit\n")
+    _commit(repo)
+    assert at_destination(run_gate(shim, repo, "git push origin main"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 0, proc.stderr
+    assert "1 of 1 declared items verified" in proc.stderr
+    assert "not that the recorded values are true" in proc.stderr
 
 
 def _decision(shim: dict, signer, *snapshot: dict) -> dict:
@@ -409,9 +444,13 @@ def test_a_decision_receipt_under_its_pinned_key_passes_and_under_another_key_is
             "subject": _subject(digest)}
     _declare(repo, item)
     _commit(repo)
-    assert "evidence rules" in reason(run_gate(shim, repo, "gh release create v1"))
+    assert at_destination(run_gate(shim, repo, "gh release create v1"))   # verifies at the commit; R9-1: asks
+    assert "evidence rules" in run_level2(shim, repo).stderr               # the rules change against the remote
     _publish(repo)
-    assert decision(run_gate(shim, repo, "gh release create v1")) == "pass"
+    _write(repo / ".proofbundle" / "notes.md", "a note, so the push sends a commit\n")
+    _commit(repo)
+    assert at_destination(run_gate(shim, repo, "gh release create v1"))
+    assert run_level2(shim, repo).returncode == 0
     _declare(repo, dict(item, public_key=_b64(generate_signer())))
     _commit(repo)
     answer = run_gate(shim, repo, "gh release create v1")
@@ -476,13 +515,18 @@ def test_a_bundle_whose_payload_is_not_a_subject_statement_is_denied(shim, repo,
 def test_a_change_inside_the_evidence_folder_keeps_the_pass(shim, repo):
     _write(repo / ".proofbundle" / "notes.md", "an added note\n")
     _commit(repo)
-    assert decision(run_gate(shim, repo, "git push")) == "pass"
+    assert at_destination(run_gate(shim, repo, "git push"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 0 and "the evidence rules match" in proc.stderr, proc.stderr
 
 
 def test_the_pass_names_the_tree_it_verified(shim, repo):
-    answer = run_gate(shim, repo, "git push")
-    assert decision(answer) == "pass"
-    assert f"{gate.TREE_ALGORITHM} {_head_digest(repo)}" in reason(answer)
+    _write(repo / ".proofbundle" / "notes.md", "a note, so the push sends a commit\n")
+    _commit(repo)
+    assert at_destination(run_gate(shim, repo, "git push"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 0, proc.stderr
+    assert f"{gate.TREE_ALGORITHM} {_head_digest(repo)}" in proc.stderr
 
 
 def test_a_tampered_bundle_at_head_is_denied(shim, repo):
@@ -494,11 +538,13 @@ def test_a_tampered_bundle_at_head_is_denied(shim, repo):
 
 
 def test_the_gate_reads_head_not_the_working_tree(shim, repo):
+    """A tampered bundle and a changed file in the working tree, then no declaration there: the evidence at the commit
+    the push sends still shows no failure (R9-1 leaves the destination NOT MEASURED)."""
     _tamper_bundle(repo / BUNDLE)
     _write(repo / "src" / "app.py", "print('uncommitted')\n")
-    assert decision(run_gate(shim, repo, "git push")) == "pass"
+    assert at_destination(run_gate(shim, repo, "git push"))
     (repo / gate.DECLARATION).unlink()
-    assert decision(run_gate(shim, repo, "git push")) == "pass"
+    assert at_destination(run_gate(shim, repo, "git push"))
 
 
 def test_a_declared_bundle_missing_at_head_is_denied(shim, repo):
@@ -541,13 +587,16 @@ def test_a_malformed_declaration_is_denied(shim, repo):
 
 
 def test_a_repository_that_declares_nothing_but_whose_push_resolves_is_inactive(shim, tmp_path):
-    """D5 still holds where the push resolves: a repository that declares nothing, pushing a tracked
-    branch whose base also declares nothing, is inactive (no permission decision)."""
+    """D5 at Level 2: a repository that declares nothing, pushing a tracked branch whose base on the remote also
+    declares nothing, is inactive (no permission decision). Level 1 asks since R9-1, as it did since R8-2 for a clone
+    with the standard fetch rule alone: the destination is NOT MEASURED, and so is what the remote holds there."""
     repo = _plain(tmp_path, remote=True)
-    answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "inactive"
-    assert reason(answer).startswith("NOT MEASURED:")
-    assert "not active in this repository" in reason(answer)
+    _write(repo / "README.md", "still never declared\n")
+    _commit(repo)
+    assert at_destination(run_gate(shim, repo, "git push origin main"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 0, proc.stderr
+    assert "NOT MEASURED:" in proc.stderr and "not active in this repository" in proc.stderr
 
 
 @pytest.mark.parametrize("command", ["git push", "git push --all", "git push https://example/x main",
@@ -564,16 +613,20 @@ def test_an_unresolved_push_is_not_measured_even_when_nothing_is_declared(shim, 
 
 def test_a_declaration_only_in_the_working_tree_is_not_measured_and_asks(shim, tmp_path):
     """The gate reads the pushed commit, not the working tree: an uncommitted declaration over a base that
-    also declares nothing is NOT MEASURED, and the ask says it is not committed (D5)."""
+    also declares nothing is NOT MEASURED, and Level 2 says it is not committed (D5). Level 1 asks at the
+    destination check (R9-1)."""
     repo = _plain(tmp_path, remote=True)
+    _write(repo / "README.md", "a change to push\n")
+    _commit(repo)
     _declare(repo, GOOD_BUNDLE)  # written to the working tree only, never committed
     answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "ask"
-    assert reason(answer).startswith("NOT MEASURED:")
-    assert "not committed" in reason(answer)
+    assert decision(answer) == "ask" and reason(answer).startswith("NOT MEASURED:")
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1 and "not committed" in proc.stderr, proc.stderr
     _git(repo, "add", "-A")
-    answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "ask", "staged is not committed; the gate reads the commit"
+    assert decision(run_gate(shim, repo, "git push origin main")) == "ask"
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1 and "not committed" in proc.stderr, "staged is not committed; the gate reads the commit"
 
 
 @pytest.mark.parametrize("plant", ["file", "dangling-link", "folder"])
@@ -615,13 +668,13 @@ def test_a_head_the_gate_cannot_list_keeps_the_ask(tmp_path, monkeypatch):
 
 def test_deleting_the_declaration_is_a_rules_change_while_the_remote_is_known(shim, repo):
     """D20 narrows the price of D5, C: a push that removes the declaration the remote holds is a change of
-    the evidence rules, asked under Claude Code, and the deletion stays in the pushed diff."""
-    assert decision(run_gate(shim, repo, "git push origin main")) == "pass"
+    the evidence rules, refused by Level 2 (and asked by Level 1 since R9-1), and the deletion stays in the pushed
+    diff."""
     _git(repo, "rm", "-q", gate.DECLARATION)
     _commit(repo, "drop the declaration")
-    answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "ask"
-    assert "the push removes the declaration" in reason(answer)
+    assert at_destination(run_gate(shim, repo, "git push origin main"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1 and "the push removes the declaration" in proc.stderr, proc.stderr
     changed = subprocess.run(["git", "-C", str(repo), "diff", "--name-status", "origin/main..HEAD"],
                              capture_output=True, text=True, check=True).stdout
     assert changed.splitlines() == [f"D\t{gate.DECLARATION}"]
@@ -666,11 +719,16 @@ def test_a_call_whose_repository_cannot_be_resolved_is_not_measured(shim, repo):
 
 def test_the_repository_a_directory_change_names_is_the_one_checked(shim, repo, tmp_path):
     other = _plain(tmp_path, "other", remote=True)
-    assert decision(run_gate(shim, repo, "git push")) == "pass"
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+    assert at_destination(run_gate(shim, repo, "git push"))
     # Nachtrag 15: a cd no longer resolves the repository; the whole command is NOT MEASURED.
-    assert decision(run_gate(shim, repo, f"cd {other} && git push")) == "ask"
-    # but a single `git -C <repo>` still names the repository, resolved physically through symlinks (R4-2).
-    assert decision(run_gate(shim, other, f"git -C {repo} push")) == "pass"
+    cd = run_gate(shim, repo, f"cd {other} && git push")
+    assert decision(cd) == "ask" and not at_destination(cd, clean=False)
+    # but a single `git -C <repo>` still names the repository, resolved physically through symlinks (R4-2): the
+    # evidence checked is at repo's commit.
+    single = run_gate(shim, other, f"git -C {repo} push")
+    assert at_destination(single) and f"source commit(s) {head[:12]}" in reason(single)
 
 
 def test_a_chain_across_repositories_is_not_measured_while_a_single_push_resolves(shim, repo, tmp_path):
@@ -679,12 +737,13 @@ def test_a_chain_across_repositories_is_not_measured_while_a_single_push_resolve
     # no longer resolves one repository per link of a chain. Red against aed5ed74, which resolved each and
     # answered inactive here.
     both = run_gate(shim, repo, f"git push && git -C {other} push")
-    assert decision(both) == "ask"
+    assert decision(both) == "ask" and not at_destination(both, clean=False)
     assert both["systemMessage"].startswith("NOT MEASURED: ")
-    # each repository still resolves on its own, as a single `git -C`; the declared, verified repo passes
-    assert decision(run_gate(shim, other, f"git -C {repo} push")) == "pass"
-    plain = _plain(tmp_path, "plain")  # no remote: a single push to it is NOT MEASURED
-    assert decision(run_gate(shim, plain, "git push")) == "ask"
+    # each repository still resolves on its own, as a single `git -C`, up to the destination check (R9-1)
+    assert at_destination(run_gate(shim, other, f"git -C {repo} push"))
+    plain = _plain(tmp_path, "plain")  # no remote: a single push to it is NOT MEASURED before the destination
+    lone = run_gate(shim, plain, "git push")
+    assert decision(lone) == "ask" and not at_destination(lone, clean=False)
 
 
 def test_one_failing_repository_denies_the_whole_call(shim, repo, tmp_path):
@@ -720,7 +779,7 @@ def test_unreadable_hook_input_is_denied(shim, repo, raw):
 
 def test_a_codex_style_argument_vector_is_read_as_a_command(shim, repo):
     direct = json.dumps({"cwd": str(repo), "tool_input": {"command": ["git", "push"]}})
-    assert decision(run_gate(shim, repo, "", raw=direct)) == "pass"
+    assert at_destination(run_gate(shim, repo, "", raw=direct))
     # A vector that wraps the push in a nested shell is read as a command too, and the push is seen: under
     # the closed grammar a nested shell is NOT MEASURED. At aed5ed74 `bash -lc 'git push'` resolved to the
     # cwd and passed a verified cwd; N15 makes it NOT MEASURED (ask). This only exercises the gate's reading
@@ -731,7 +790,8 @@ def test_a_codex_style_argument_vector_is_read_as_a_command(shim, repo):
     # R5-2 context defect (the hook's cwd is the session dir, not the execution workdir) is why every Codex
     # push is NOT MEASURED (Nachtrag 18, Punkt 10; D12).
     wrapped = json.dumps({"cwd": str(repo), "tool_input": {"command": ["bash", "-lc", "git push"]}})
-    assert decision(run_gate(shim, repo, "", raw=wrapped)) == "ask"
+    answer = run_gate(shim, repo, "", raw=wrapped)
+    assert decision(answer) == "ask" and not at_destination(answer, clean=False)
 
 
 # --- MCP tools ---------------------------------------------------------------------------------------
@@ -904,9 +964,10 @@ def test_a_rejection_names_the_evidence_what_failed_and_the_next_step(shim, repo
 def test_a_not_measured_ask_keeps_its_prefix_and_names_the_declaration(shim, repo):
     _declare(repo)
     _commit(repo)
-    text = reason(run_gate(shim, repo, "git push"))
-    assert text.startswith("NOT MEASURED: Evidence: the declaration .proofbundle/evidence.json. Failed: its evidence "
-                           "list is empty.")
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1, proc.stderr
+    assert ("NOT MEASURED: Evidence: the declaration .proofbundle/evidence.json. Failed: its evidence list is empty."
+            in proc.stderr), proc.stderr
 
 
 def test_a_weakened_policy_is_a_rules_change_and_is_asked(shim, repo):
@@ -914,12 +975,15 @@ def test_a_weakened_policy_is_a_rules_change_and_is_asked(shim, repo):
     policy["allowed_issuers"].append({"public_key_b64": _b64(generate_signer())})
     _write(repo / POLICY, policy)
     _commit(repo, "allow a second issuer")
-    answer = run_gate(shim, repo, "git push")
-    assert decision(answer) == "ask"
-    assert "the policy .proofbundle/policy.json changes" in reason(answer)
-    assert "Changes to the evidence rules need a review" in reason(answer)
+    assert at_destination(run_gate(shim, repo, "git push"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1, proc.stderr
+    assert "the policy .proofbundle/policy.json changes" in proc.stderr
+    assert "Changes to the evidence rules need a review" in proc.stderr
     _publish(repo)
-    assert decision(run_gate(shim, repo, "git push")) == "pass", "once the remote holds it, the push is plain"
+    _write(repo / ".proofbundle" / "notes.md", "a note, so the push sends a commit\n")
+    _commit(repo)
+    assert run_level2(shim, repo).returncode == 0, "once the remote holds it, the push is plain"
 
 
 def test_a_changed_key_or_item_is_a_rules_change(shim, repo):
@@ -928,15 +992,16 @@ def test_a_changed_key_or_item_is_a_rules_change(shim, repo):
     (repo / ".proofbundle" / "other.bundle.json").write_text((repo / BUNDLE).read_text())
     _write(repo / gate.DECLARATION, declaration)
     _commit(repo)
-    answer = run_gate(shim, repo, "git push")
-    assert decision(answer) == "ask"
-    assert "the declared items change" in reason(answer)
+    assert at_destination(run_gate(shim, repo, "git push"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1 and "the declared items change" in proc.stderr, proc.stderr
 
 
 def test_an_intermediate_commit_that_changes_the_rules_is_caught(shim, tmp_path):
-    """D3 B, N3: a valid tip does not heal a bad middle commit. origin/main = A (declared), B removes the
+    """D3 B, N3: a valid tip does not heal a bad middle commit. The remote's main = A (declared), B removes the
     declaration, C restores the identical rules (same pinned key) for a new tree; the tip's rules match the
-    base, yet the push still reports B's rules change, because every sent commit is compared."""
+    base, yet Level 2 still reports B's rules change, because every sent commit is compared. Level 1 checks the
+    sent tip and asks at the destination check (R9-1)."""
     path = tmp_path / "chain"
     path.mkdir()
     _git(path, "init", "-q", "-b", "main")
@@ -954,22 +1019,21 @@ def test_an_intermediate_commit_that_changes_the_rules_is_caught(shim, tmp_path)
     sign("A: declare")  # A
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "chain.git"))
     _git(path, "remote", "add", "origin", str(tmp_path / "chain.git"))
-    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
-        _git(path, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _git(path, "push", "-q", "origin", "main")
     _git(path, "rm", "-q", "-r", ".proofbundle")
     _commit(path, "B: remove the declaration")  # B
     _write(path / "src" / "app.py", "print('C')\n")
     _commit(path, "C code")
     sign("C: restore the identical rules for a new tree")  # C, same key and policy as A
-    answer = run_gate(shim, path, "git push origin main")
-    assert decision(answer) == "ask"
-    assert "the push removes the declaration" in reason(answer)
+    assert at_destination(run_gate(shim, path, "git push origin main"))
+    proc = run_level2(shim, path)
+    assert proc.returncode == 1 and "the push removes the declaration" in proc.stderr, proc.stderr
 
 
 def test_an_intermediate_commit_with_invalid_evidence_is_caught(shim, repo):
-    """D3 B, N3: an intermediate commit whose evidence does not verify denies the push, even though the
-    tip verifies. origin/main = A; B tampers the bundle for B's tree; C restores a valid tip."""
+    """D3 B, N3: an intermediate commit whose evidence does not verify denies the push at Level 2, even though
+    the tip verifies. The remote's main = A; B keeps A's evidence for B's tree; C restores a valid tip. Level 1
+    checks the tip it sends, which verifies, and asks at the destination check (R9-1): the range is Level 2's."""
     _write(repo / "src" / "app.py", "print('B and C')\n")
     _commit(repo, "B: change code, keep A's evidence (now stale for B's tree)")  # B: stale subject -> deny
     b_commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True,
@@ -982,9 +1046,10 @@ def test_an_intermediate_commit_with_invalid_evidence_is_caught(shim, repo):
     declaration["evidence"][0]["subject"] = _subject(digest_c)
     _write(repo / gate.DECLARATION, declaration)
     _commit(repo, "C: valid evidence for the tip")  # C verifies and is bound; B in the range does not
-    answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "deny"
-    assert b_commit[:12] in reason(answer) and "does not match the tree" in reason(answer)
+    assert at_destination(run_gate(shim, repo, "git push origin main"))
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1, proc.stderr
+    assert b_commit[:12] in proc.stderr and "does not match the tree" in proc.stderr
 
 
 def test_a_git_replacement_does_not_change_the_evidence_the_gate_reads(shim, tmp_path):
@@ -1011,8 +1076,9 @@ def test_a_git_replacement_does_not_change_the_evidence_the_gate_reads(shim, tmp
 def test_a_graft_does_not_hide_a_commit_the_push_sends(shim, tmp_path):
     """R3-8 (grafts): .git/info/grafts rewrites the parent chain git reads, but the push sends the real
     ancestors. A graft that reparents the tip past a malformed middle commit must not hide it. Measured red
-    against 3026924e, where --no-replace-objects left grafts in force; GIT_GRAFT_FILE emptied fixes it."""
-    path = _plain(tmp_path, "graft", remote=True)  # A: no declaration, origin/main = A
+    against 3026924e, where --no-replace-objects left grafts in force; GIT_GRAFT_FILE emptied fixes it. Since R9-1
+    the range is read at Level 2 only."""
+    path = _plain(tmp_path, "graft", remote=True)  # A: no declaration, the remote's main = A
     _write(path / gate.DECLARATION, "{ not valid json\n")
     _commit(path, "X: malformed declaration")  # X, a child of A
     _git(path, "rm", "-q", "-r", ".proofbundle")
@@ -1021,14 +1087,19 @@ def test_a_graft_does_not_hide_a_commit_the_push_sends(shim, tmp_path):
                        text=True, check=True).stdout.strip()
     c = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
                        check=True).stdout.strip()
-    assert decision(run_gate(shim, path, "git push origin main")) == "deny", "X is in the range, no graft yet"
+    proc = run_level2(shim, path)
+    assert proc.returncode == 1, "X is in the range, no graft yet"
     (path / ".git" / "info" / "grafts").write_text(f"{c} {a}\n", encoding="utf-8")  # reparent C past X
-    answer = run_gate(shim, path, "git push origin main")
-    assert decision(answer) == "deny", "the gate must evaluate X, which the push still sends"
+    proc = run_level2(shim, path)
+    assert proc.returncode == 1, "the gate must evaluate X, which the push still sends"
 
 
-def _resolve(repo, *args):
-    return gate.resolve_push_targets(str(repo), list(args), gate.time.monotonic() + 30)
+def _resolve(repo, *args) -> bool:
+    """Whether a push resolves every step before the destination check. Since R9-1 resolve_push_targets returns None
+    for every push, and names the destination check's reason where every earlier step resolved."""
+    reasons: list = []
+    assert gate.resolve_push_targets(str(repo), list(args), gate.time.monotonic() + 30, reasons) is None
+    return bool(reasons) and any(d in reasons[0][0] for d in DESTINATION)
 
 
 def _repo_with_remote(tmp_path, name, *, stale):
@@ -1089,11 +1160,13 @@ def test_a_command_that_moves_the_repository_is_resolved_or_not_measured(shim, t
 
 def test_an_unmodelled_git_env_var_is_not_measured_but_a_neutral_one_resolves(shim, tmp_path):
     """Befund 1: only a narrow list of GIT_* names is target-neutral; every other is unresolved, like a
-    push option. GIT_TERMINAL_PROMPT=0 still resolves; GIT_OBJECT_DIRECTORY does not."""
+    push option. GIT_TERMINAL_PROMPT=0 still resolves, up to the destination check (R9-1); GIT_OBJECT_DIRECTORY
+    does not."""
     _repo_with_remote(tmp_path, "r", stale=False)
-    assert decision(run_gate(shim, tmp_path / "r", "GIT_TERMINAL_PROMPT=0 git push origin main")) == "inactive"
+    assert at_destination(run_gate(shim, tmp_path / "r", "GIT_TERMINAL_PROMPT=0 git push origin main"))
     answer = run_gate(shim, tmp_path / "r", "GIT_OBJECT_DIRECTORY=/tmp/x git push origin main")
     assert decision(answer) == "ask" and "cannot tell which repository" in reason(answer)
+    assert not at_destination(answer, clean=False)
 
 
 @pytest.mark.parametrize("command", [
@@ -1304,12 +1377,12 @@ def test_a_push_insteadof_rewrite_is_not_measured(repo):
     applies to this remote makes the push NOT MEASURED. Runde 6, Punkt 2: a rule that provably does not
     match this remote's URL is excluded and no longer forces NOT MEASURED. Red against aed5ed74, which
     compared only the displayed URLs."""
-    assert _resolve(repo, "origin", "main") is not None  # no push rewrite: the target resolves
+    assert _resolve(repo, "origin", "main")  # no push rewrite: the target resolves up to the destination check
     _git(repo, "config", "url.https://mirror.invalid/.pushInsteadOf", "https://origin.invalid/")
-    assert _resolve(repo, "origin", "main") is not None  # the rule does not match the remote's path URL
+    assert _resolve(repo, "origin", "main")  # the rule does not match the remote's path URL
     url = str(repo.parent / "remote.git")  # the fixture's remote URL (a local bare repository path)
     _git(repo, "config", "url.https://mirror.invalid/x/.pushInsteadOf", url)
-    assert _resolve(repo, "origin", "main") is None      # a push-only rewrite of this remote: NOT MEASURED
+    assert not _resolve(repo, "origin", "main")      # a push-only rewrite of this remote: NOT MEASURED
 
 
 def test_a_symlinked_minus_c_is_resolved_physically(repo, tmp_path):
@@ -1409,26 +1482,27 @@ def test_a_fetch_refspec_that_does_not_map_the_target_is_not_measured(shim, repo
     remote branch onto refs/remotes/origin/main means that ref records 'other', not 'main', so a push to
     main is judged against the wrong state. NOT MEASURED. Red against 3026924e, which checked only the
     name. The reviewer's reproduction: a force push to main stayed inactive and removed the declaration."""
-    assert _resolve(repo, "origin", "main") is not None  # the standard refspec maps main cleanly
+    assert _resolve(repo, "origin", "main")  # the standard refspec maps main cleanly
     _git(repo, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/main",
          r"^\+refs/heads/\*")   # the branch rule only; the recording rules of R8-2 stay
-    assert _resolve(repo, "origin", "main") is None, "main no longer maps to origin/main"
+    assert not _resolve(repo, "origin", "main"), "main no longer maps to origin/main"
     answer = run_gate(shim, repo, "git push --force origin main")
     assert decision(answer) == "ask" and reason(answer).startswith("NOT MEASURED: ")
+    assert not at_destination(answer, clean=False)
 
 
 def test_a_fetch_refspec_collision_on_the_tracking_ref_is_not_measured(repo):
     """R3-2: if two remote branches both map onto refs/remotes/origin/main, the ref's state is whichever
     fetched last. NOT MEASURED even though the expected name exists and main still maps."""
     _git(repo, "config", "--add", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/main")
-    assert _resolve(repo, "origin", "main") is None
+    assert not _resolve(repo, "origin", "main")
 
 
 def test_options_after_a_double_dash_are_the_remote_and_refspec(repo):
     """R3-1: `--` ends options; what follows is <remote> <refspec>, not more refspecs for a default push.
     Measured red against 3026924e, where `-- origin zzz` fell through to the default push target."""
-    assert _resolve(repo, "--", "origin", "zzz") is None  # zzz has no tracking ref: NOT MEASURED
-    assert _resolve(repo, "--", "origin", "main") == _resolve(repo, "origin", "main")
+    assert not _resolve(repo, "--", "origin", "zzz")  # zzz has no tracking ref: NOT MEASURED
+    assert _resolve(repo, "--", "origin", "main") and _resolve(repo, "origin", "main")
 
 
 def test_an_option_the_gate_does_not_model_is_not_measured(repo):
@@ -1437,11 +1511,11 @@ def test_an_option_the_gate_does_not_model_is_not_measured(repo):
     3026924e, where these fell through to a resolved default target."""
     for args in (["--repo=other", "--force"], ["--repo", "other"], ["--mir", "origin"],
                  ["--yet-unknown", "origin", "main"], ["origin", "main", "--exec=/x", "--unknown"]):
-        assert _resolve(repo, *args) is None, args
-    # the narrow allowlist still resolves a plain force push and a push option
-    assert _resolve(repo, "--force", "origin", "main") is not None
-    assert _resolve(repo, "-o", "ci.skip", "origin", "main") is not None
-    assert _resolve(repo, "origin", "main", "--force-with-lease") is not None
+        assert not _resolve(repo, *args), args
+    # the narrow allowlist still resolves a plain force push and a push option, up to the destination check
+    assert _resolve(repo, "--force", "origin", "main")
+    assert _resolve(repo, "-o", "ci.skip", "origin", "main")
+    assert _resolve(repo, "origin", "main", "--force-with-lease")
 
 
 def test_a_git_true_bool_in_the_push_config_is_not_measured(repo):
@@ -1450,14 +1524,14 @@ def test_a_git_true_bool_in_the_push_config_is_not_measured(repo):
     for key, value in (("remote.origin.mirror", "1"), ("push.followTags", "on"),
                        ("remote.origin.mirror", "yes")):
         _git(repo, "config", key, value)
-        assert _resolve(repo, "origin", "main") is None, (key, value)
+        assert not _resolve(repo, "origin", "main"), (key, value)
         _git(repo, "config", "--unset-all", key)
 
 
 def test_a_malformed_git_bool_in_the_push_config_is_not_measured(repo):
     """R3-3: a value git cannot read as a boolean is NOT MEASURED, not silently false."""
     _git(repo, "config", "remote.origin.mirror", "notabool")
-    assert _resolve(repo, "origin", "main") is None
+    assert not _resolve(repo, "origin", "main")
 
 
 def test_a_rewritten_or_multiple_push_endpoint_is_not_measured(repo, tmp_path):
@@ -1466,11 +1540,11 @@ def test_a_rewritten_or_multiple_push_endpoint_is_not_measured(repo, tmp_path):
     url = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"], capture_output=True,
                          text=True, check=True).stdout.strip()
     _git(repo, "config", f"url.https://example.invalid/.pushInsteadOf", url)
-    assert _resolve(repo, "origin", "main") is None, "pushInsteadOf rewrites the push endpoint"
+    assert not _resolve(repo, "origin", "main"), "pushInsteadOf rewrites the push endpoint"
     _git(repo, "config", "--unset-all", "url.https://example.invalid/.pushInsteadOf")
-    assert _resolve(repo, "origin", "main") is not None, "without a rewrite it resolves again"
+    assert _resolve(repo, "origin", "main"), "without a rewrite it resolves again, up to the destination check"
     _git(repo, "config", "--add", "remote.origin.url", str(tmp_path / "second.git"))
-    assert _resolve(repo, "origin", "main") is None, "a second remote URL sends the push to both"
+    assert not _resolve(repo, "origin", "main"), "a second remote URL sends the push to both"
 
 
 def test_config_injected_through_the_environment_is_not_measured(repo, monkeypatch):
@@ -1478,11 +1552,11 @@ def test_config_injected_through_the_environment_is_not_measured(repo, monkeypat
     reaches its endpoint read as it reaches the push. An injected pushurl makes the push endpoint differ
     from the fetch endpoint the tracking ref records, so the push is NOT MEASURED. Red against 3026924e,
     where remote.<name>.pushurl was read only from the committed configuration."""
-    assert _resolve(repo, "origin", "main") is not None
+    assert _resolve(repo, "origin", "main")
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "remote.origin.pushurl")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://example.invalid/x.git")
-    assert _resolve(repo, "origin", "main") is None
+    assert not _resolve(repo, "origin", "main")
 
 
 def test_config_injected_on_the_command_line_is_not_measured(shim, repo):
@@ -1496,14 +1570,15 @@ def test_config_injected_on_the_command_line_is_not_measured(shim, repo):
 
 
 def test_a_force_push_that_drops_a_declaration_on_another_branch_is_resolved_or_not_measured(shim, repo, tmp_path):
-    """N1: a push to a branch this repository tracks is judged against that branch's state, not the default
-    branch. Pushing a declaration-free HEAD onto a tracked `release` that declared is a rules change."""
+    """N1: a push to a branch the remote holds is judged against that branch's state, not the default branch.
+    Pushing a declaration-free HEAD onto a `release` that declared is a rules change (Level 2; Level 1 asks at the
+    destination check since R9-1)."""
     _git(repo, "push", "-q", "origin", "HEAD:refs/heads/release")  # release = A (declared), now tracked
     _git(repo, "rm", "-q", "-r", ".proofbundle")
     _commit(repo, "drop the declaration")
-    answer = run_gate(shim, repo, "git push --force origin HEAD:refs/heads/release")   # in full (R8-2)
-    assert decision(answer) == "ask"
-    assert "the push removes the declaration" in reason(answer)
+    assert at_destination(run_gate(shim, repo, "git push --force origin HEAD:refs/heads/release"))
+    proc = run_level2(shim, repo, remote_ref="refs/heads/release")
+    assert proc.returncode == 1 and "the push removes the declaration" in proc.stderr, proc.stderr
 
 
 def test_new_evidence_for_a_new_tree_is_no_rules_change(shim, repo):
@@ -1524,19 +1599,17 @@ def test_new_evidence_for_a_new_tree_is_no_rules_change(shim, repo):
     assert decision(answer) == "deny", "signed by a key the unchanged policy does not pin"
     assert "evidence rules" not in reason(answer)
     # the rules themselves did not change: the base the remote holds and the pushed commit agree.
-    targets = gate.resolve_push_targets(str(repo), ["origin", "main"], gate.time.monotonic() + 30)
-    assert targets is not None and len(targets) == 1
-    base = gate._rules_at(str(repo), targets[0].tracking, gate.time.monotonic() + 30)
-    head = gate._rules_at(str(repo), targets[0].source, gate.time.monotonic() + 30)
+    base = gate._rules_at(str(repo), "refs/remotes/origin/main", gate.time.monotonic() + 30)
+    head = gate._rules_at(str(repo), "HEAD", gate.time.monotonic() + 30)
     assert base == head and base[0] == "declared"
+    proc = run_level2(shim, repo)
+    assert proc.returncode == 1 and "evidence rules" not in proc.stderr, proc.stderr
 
 
 def test_a_push_the_remote_already_holds_adds_no_commits(shim, repo):
-    targets = gate.resolve_push_targets(str(repo), ["origin", "main"], gate.time.monotonic() + 30)
-    assert targets is not None and len(targets) == 1
-    assert gate._newly_reachable(str(repo), targets[0].source, targets[0].tracking,
-                                 gate.time.monotonic() + 30) == []
-    assert decision(run_gate(shim, repo, "git push origin main")) == "pass"
+    assert gate._newly_reachable(str(repo), "HEAD", "refs/remotes/origin/main", gate.time.monotonic() + 30) == []
+    assert at_destination(run_gate(shim, repo, "git push origin main"))
+    assert run_level2(shim, repo).returncode == 0
 
 
 def test_without_a_remote_tracking_ref_the_range_is_not_measured(shim, repo):
@@ -1551,8 +1624,6 @@ def test_adding_a_declaration_to_a_repository_the_remote_knows_is_a_rules_change
     plain = _plain(tmp_path)
     _git(tmp_path, "init", "-q", "--bare", str(tmp_path / "plain.git"))
     _git(plain, "remote", "add", "origin", str(tmp_path / "plain.git"))
-    for rule in ("+refs/tags/*:refs/recorded/origin/tags/*", "+refs/refs/*:refs/recorded/origin/refs/*"):
-        _git(plain, "config", "--add", "remote.origin.fetch", rule)   # what git push also matches (R8-2)
     _publish(plain)
     digest = _head_digest(plain)
     signer = generate_signer()
@@ -1560,9 +1631,9 @@ def test_adding_a_declaration_to_a_repository_the_remote_knows_is_a_rules_change
     _write(plain / POLICY, _pinned_policy(signer))
     _declare(plain, {"kind": "bundle", "path": BUNDLE, "policy": POLICY, "subject": _subject(digest)})
     _commit(plain, "declare evidence")
-    answer = run_gate(shim, plain, "git push")
-    assert decision(answer) == "ask"
-    assert "the push adds the declaration" in reason(answer)
+    assert at_destination(run_gate(shim, plain, "git push"))
+    proc = run_level2(shim, plain)
+    assert proc.returncode == 1 and "the push adds the declaration" in proc.stderr, proc.stderr
 
 
 def test_every_skill_and_the_server_carry_the_rule_never_to_weaken(shim):

@@ -75,10 +75,10 @@ def _order(receipt: str = base.RECEIPT, **extra) -> dict:
 
 
 def _asks_with(env: dict, repo: base.Repo, phrase: str) -> None:
+    """Level 2 refuses the push and names the change. Level 1 asks since R9-1 at the destination check, which comes
+    before any comparison with the target, so it does not name the change; it never passes the push."""
     answer, entry = base._level1(env, repo.path)
-    assert answer["hookSpecificOutput"]["permissionDecision"] == "ask", answer
-    assert entry["reason_ids"] == ["rules_changed"], entry
-    assert phrase in answer["systemMessage"], answer["systemMessage"]
+    base.assert_destination_not_measured(answer, entry, clean=False)
     proc = base._level2(env, repo.path)
     assert proc.returncode == 1, proc.stderr
     assert phrase in proc.stderr
@@ -188,10 +188,12 @@ def test_under_codex_the_plain_push_warns_and_level_2_blocks_the_swap(env, tmp_p
 # --- the controls -----------------------------------------------------------------------------------------------
 
 def test_an_unchanged_done_check_with_a_valid_receipt_still_passes(env, tmp_path):
+    """Level 2 passes; Level 1 asks at the destination check since R9-1, after the done check at the sent commit
+    showed no failure."""
     repo = base.Repo(tmp_path)
     base._receipt(repo.path, repo.signer)
     answer, entry = base._level1(env, repo.path)
-    assert "permissionDecision" not in answer["hookSpecificOutput"] and entry["verdict"] == "pass", answer
+    base.assert_destination_not_measured(answer, entry)
     assert base._level2(env, repo.path).returncode == 0
 
 

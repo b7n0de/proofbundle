@@ -198,17 +198,27 @@ MEASURED. The remote itself is not read.
   refs/tags/main and refs/main. Two such matches make git refuse the push ("dst refspec refs/heads/main matches more
   than one"), and where refs/heads/main is missing git writes the other ref; a match under refs/remotes/ counts only
   where there is no other. The value is the part after the colon, and for a refspec without one the source's own full
-  name (`git push origin rel` with a tag rel writes refs/tags/rel). The remote is not read: a candidate other than the
-  destination counts as absent only where a pattern rule of the pushing remote records it in a local ref that does not
-  exist and no negative rule excludes it. A recorded candidate that exists is an evidenced ambiguity; a candidate no
-  rule records, and any plain-source rule, leave the resolution unevidenced; both are NOT MEASURED, and the full
-  spelling of the destination alone is not enough. The cost: the standard rule `+refs/heads/*:refs/remotes/<remote>/*`
-  records refs/heads/ only, so with it alone every Level 1 push is NOT MEASURED. Two further fetch rules,
-  `+refs/tags/*:refs/recorded/<remote>/tags/*` and `+refs/refs/*:refs/recorded/<remote>/refs/*`, make a full
-  destination measurable after the next fetch; a short destination stays NOT MEASURED with them, since refs/main needs
-  a rule of its own (`+refs/m*:refs/recorded/<remote>/m*` records it). Level 2 is not affected: the pre-push hook gets
-  the remote ref git resolved. The gate had passed `git push origin main` beside a remote
-  refs/heads/refs/heads/main, where git refused the push and left both refs as they were.
+  name (`git push origin rel` with a tag rel writes refs/tags/rel). The gate had passed `git push origin main` beside a
+  remote refs/heads/refs/heads/main, where git refused the push and left both refs as they were. The remote is not
+  read, and nothing this repository holds shows a candidate absent there (review round 9 of 2026-10-11, R9-1;
+  measured with git 2.43.0 and 2.51.1): a configured fetch rule proves no fetch that ran under it,
+  and a fetch and a push see different sets of the remote's refs, since `uploadpack.hideRefs` hides a ref from the
+  fetch and not from the push. So every candidate other than the destination leaves the resolution unevidenced, every
+  value has such candidates, and every Level 1 push is NOT MEASURED, whatever the fetch rules and the spelling of the
+  destination (owner choice C of 2026-10-11: A stays, read strictly). A candidate this repository records is named in
+  the answer as what this repository records, never as what the remote holds. Withdrawn: round 8 said here, in the
+  answer and in its report that two further fetch rules, `+refs/tags/*:refs/recorded/<remote>/tags/*` and
+  `+refs/refs/*:refs/recorded/<remote>/refs/*`, make a full destination measurable after the next fetch. With a
+  candidate hidden from the fetch by `uploadpack.hideRefs`, or with the two rules set after a fetch with `--no-tags`
+  and no fetch since, the gate passed `git push origin main` where git refused it ("dst refspec refs/heads/main matches
+  more than one") and left both refs as they were. Level 2 is not affected: the pre-push hook gets the remote ref git
+  resolved against what the remote advertised to the push. Outlook, not built: a later handover of a push whose
+  resolution is NOT MEASURED to Level 2 would, by the review of round 9, need four conditions: only the resolution
+  reason is handed over (an evidenced failure stays a deny, and a gh, MCP or send-pack route is no handover); the call
+  is bound to the git program, repository, worktree, environment, effective configuration, hook path, full hook
+  bytes, plugin version and runtime, and `--no-verify` or a change to any of them voids it; git runs the hook with the
+  real ref lines, every ref is checked with its newly reachable commits, every failure stops the push and no verdict
+  is inherited; and only a Level 2 that ran gives the verdict, so inactive or empty ref lines are no positive finding.
   A configuration key git cannot parse is not read as unset: unset is exit 1 with nothing said. Every
   push value git parses is read before any step of the resolution, explicit or bare, whatever the case needs (review
   round 7 of 2026-10-10, R7-3; measured with git 2.43.0 and 2.51.1): `push.autoSetupRemote`, `push.followTags`,
@@ -492,6 +502,10 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
   - a HEAD or a working tree where the gate cannot measure the absence, such as a failing `git ls-tree`,
     a file where the `.proofbundle/` folder should be, or a dangling link at the declaration's path.
 - Failures stay `deny` (D6).
+- A push under Level 1 asks even where nothing is declared at HEAD or in the working tree: its destination is NOT
+  MEASURED (D3), and so is what the remote holds there, such as a declaration the push would remove. Level 2 finds
+  nothing declared and blocks nothing. Measured: a clone with the standard fetch rule alone since review round 8
+  (R8-2), every clone since round 9 (R9-1, 2026-10-11).
 
 The reason starts with `NOT MEASURED:` and says that nothing was verified. In a non-interactive run
 (`claude -p`) an `ask` is a refusal.
@@ -1738,13 +1752,16 @@ of a session, for the tree the push sends.
   commit is still known, so the failure is proven (Befund 1 of review Runde 6). A pass cannot heal an
   unmeasured comparison. A pushed commit whose declaration has no done check gets none.
 - Evidence and done are both required where both are declared; a push that declares only a done check passes
-  on a passed done check (reason `done`).
+  on a passed done check (reason `done`) at Level 2. At Level 1 the destination of every push is NOT MEASURED since
+  review round 9 of 2026-10-11 (D3, R9-1), so a passed done check there leaves the push an ask that says the
+  evidence at the sent commits showed no failure.
 
 Measured (tests/test_plugin_gate_n2c_push_done.py, 2026-10-08): the counter-probes missing (`no_receipt`),
 foreign key and manipulated receipt (`verification_failed`), receipt for an earlier commit (`stale_receipt`) and
 red tests (`not_done`) deny at Level 1 and make the pre-push hook exit 1; a valid receipt passes both. Through git
 itself, with the hook in a throwaway repository's local `core.hooksPath`, a missing or stale receipt keeps the
-remote ref where it was and a valid one moves it.
+remote ref where it was and a valid one moves it. Since round 9 (R9-1) a valid receipt leaves Level 1 at NOT
+MEASURED, which asks, and still passes the pre-push hook.
 
 THE DONE CHECK IS AN EVIDENCE RULE (owner choice N2C-1 B, 2026-10-08)
 - Measured at 31031eb6 (2026-10-08): a push whose own commit swapped the done policy to a new key, with a receipt

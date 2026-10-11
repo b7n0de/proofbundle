@@ -337,11 +337,12 @@ def test_k2_crafted_stream_on_the_claude_push_path_denies(tmp_path):
 
 
 def test_k2_the_valid_stream_on_the_claude_push_path_passes(tmp_path):
-    """Control: the same push with a single valid content block passes (no permission decision)."""
+    """Control: the same push with a single valid content block is not denied: the verifier's reply is read, the
+    evidence at the sent commit shows no failure, and since R9-1 the push asks at the destination check."""
     repo = _declared_repo(tmp_path, remote=True)
     env = _uv_stream_env(tmp_path, [_init_reply(), _reply([_VALID])])
     decision, ids = _push_hook(repo, tmp_path / "logs" / "claude", "claude", env)
-    assert decision is None, (decision, ids)
+    assert (decision, ids) == ("ask", ["push_not_measured"]), (decision, ids)
 
 
 def test_k2_the_codex_push_path_stops_before_the_verifier(tmp_path):

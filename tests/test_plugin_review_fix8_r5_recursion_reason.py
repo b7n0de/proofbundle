@@ -24,7 +24,8 @@ env = n2c.env
 _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
-NOT_MEASURED = ("ask", ["push_not_measured"])
+#: NOT MEASURED at the submodule setting, before the destination check.
+NOT_MEASURED = ("ask", ["push_not_measured"], False)
 VERBATIM = "The configuration contains submodule.recurse=true; submodule push behavior is NOT MEASURED."
 
 
@@ -45,9 +46,10 @@ def _reason(repo) -> str | None:
     return gate._push_config_problem(str(repo), time.monotonic() + 60)
 
 
-def _verdict(env, repo) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command="git push origin main")
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo) -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check (R9-1)."""
+    answer, entry = n2c._level1(env, repo, command="git push origin main")
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
 
 
 def test_git_takes_the_last_value_of_submodule_recurse(tmp_path):
@@ -82,9 +84,12 @@ def test_no_reason_claims_a_submodule_push(tmp_path):
 @pytest.mark.parametrize("pairs", [(), (("submodule.recurse", "false"),), (("push.recurseSubmodules", "check"),)],
                          ids=["none", "recurse_false", "check"])
 def test_control_no_true_and_no_recursion_word_keeps_the_pass(env, tmp_path, pairs):
+    """No reason at the submodule setting: the push resolves up to the destination check (since R9-1 that leaves it
+    NOT MEASURED); the pre-push hook passes it."""
     r = _repo(tmp_path, *pairs)
     assert _reason(r.path) is None
-    assert _verdict(env, r.path) == ("pass", ["done"])
+    n2c.assert_destination_not_measured(*n2c._level1(env, r.path, command="git push origin main"))
+    assert n2c._level2(env, r.path).returncode == 0
 
 
 def test_the_answer_carries_the_reason_verbatim(env, tmp_path):
@@ -96,3 +101,4 @@ def test_the_answer_carries_the_reason_verbatim(env, tmp_path):
     text = json.dumps(answer, ensure_ascii=False)
     assert VERBATIM in text, text
     assert "fix or remove that configuration value" in text and "a wildcard refspec" not in text, text
+    assert not n2c.reached_destination(text), text

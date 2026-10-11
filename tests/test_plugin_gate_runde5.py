@@ -181,6 +181,9 @@ def test_r4_6a_a_per_command_config_is_not_measured(tmp_path):
 
 
 def test_r4_7k_a_stale_tracking_state_stays_possible_but_its_text_names_the_local_state(tmp_path):
+    """R4-7K had left a Level 1 pass against a stale tracking ref possible, with a text that named the locally known
+    state. Since R9-1 Level 1 resolves no push to a target, so a stale tracking ref is never the base of a Level 1
+    pass: the push is NOT MEASURED at the destination check, and its text claims no comparison."""
     repo, bare = _make_repo(tmp_path, "r", declare="valid")
     # Another clone advances origin/main after our last fetch; our tracking ref is now stale, with no rewrite.
     other = tmp_path / "other"
@@ -190,13 +193,12 @@ def test_r4_7k_a_stale_tracking_state_stays_possible_but_its_text_names_the_loca
     _git(other, "add", "-A")
     _git(other, "commit", "-q", "-m", "advance")
     _git(other, "push", "-q", "origin", "HEAD:refs/heads/main")
-    # Ebene 1 still resolves the push against the LOCALLY known (now stale) tracking ref: it is possible, and
-    # its verdict text says the comparison is against the locally known state, not read from the remote.
-    targets = gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline())
-    assert targets is not None
+    reasons: list = []
+    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline(), reasons) is None
+    assert reasons and "git push also matches" in reasons[0][0], reasons
     verdict = gate.evaluate_push(str(repo), ["origin", "main"], _deadline())
-    assert verdict.decision in ("pass", "inactive")
-    assert "last known state in this repository" in verdict.text() or "last known state of the target" in verdict.text()
+    assert (verdict.decision, verdict.reason_id) == ("ask", "push_not_measured"), verdict.text()
+    assert "last known state" not in verdict.text()
 
 
 # --- Ebene 2: the prototype pre-push hook (R5-1, R5-4, R5-5, exit rule) --------------------------------

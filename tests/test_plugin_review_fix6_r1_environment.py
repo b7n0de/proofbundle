@@ -44,6 +44,15 @@ def _push_answer(env: dict, repo: pathlib.Path, command: str = "git push origin 
     return answer["hookSpecificOutput"].get("permissionDecision"), entry
 
 
+def _stops_before_destination(env: dict, repo: pathlib.Path, command: str) -> dict:
+    """The push is NOT MEASURED or denied at a step before the destination check (R9-1), never passed."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    decision = answer["hookSpecificOutput"].get("permissionDecision")
+    assert decision in ("ask", "deny") and entry["verdict"] != "pass", entry
+    assert not n2c.reached_destination(json.dumps(answer, ensure_ascii=False)), answer
+    return entry
+
+
 def _done_check(env: dict, repo: pathlib.Path) -> tuple[int, dict]:
     proc = subprocess.run([sys.executable, "-I", str(dc.GATE), "done-check", "--repo", str(repo)], capture_output=True,
                           text=True, env=env, timeout=180, check=False)
@@ -78,8 +87,8 @@ def test_git_config_names_a_file_git_push_does_not_read(env, tmp_path):
 def test_the_push_is_resolved_from_the_configuration_git_push_reads(env, tmp_path):
     r = _green(tmp_path)
     fake = _other_remote(r, tmp_path)
-    decision, entry = _push_answer(dict(env, GIT_CONFIG=str(fake)), r.path, command="git push")
-    assert decision == "ask" and entry["verdict"] != "pass", entry
+    entry = _stops_before_destination(dict(env, GIT_CONFIG=str(fake)), r.path, command="git push")
+    assert entry["verdict"] == "ask", entry
 
 
 def test_the_state_digest_reads_the_configuration_git_reads(tmp_path, monkeypatch):
@@ -148,8 +157,8 @@ def test_git_namespace_sends_the_push_to_another_remote_ref(env, tmp_path):
 @pytest.mark.parametrize("command", ["git push origin main", "git push"])
 def test_level_1_does_not_judge_a_namespaced_push_against_the_tracking_ref(env, tmp_path, command):
     r = _green(tmp_path)
-    decision, entry = _push_answer(dict(env, GIT_NAMESPACE="x"), r.path, command=command)
-    assert decision == "ask" and entry["verdict"] != "pass", entry
+    entry = _stops_before_destination(dict(env, GIT_NAMESPACE="x"), r.path, command=command)
+    assert entry["verdict"] == "ask", entry
 
 
 def test_level_2_reads_the_remote_state_git_reports_under_the_namespace(env, tmp_path):
@@ -173,15 +182,15 @@ def test_level_2_reads_the_remote_state_git_reports_under_the_namespace(env, tmp
 
 def test_control_an_empty_namespace_is_no_namespace(env, tmp_path):
     r = _green(tmp_path)
-    decision, entry = _push_answer(dict(env, GIT_NAMESPACE=""), r.path)
-    assert (decision, entry["verdict"], entry["reason_ids"]) == (None, "pass", ["done"]), entry
+    answer, entry = n2c._level1(dict(env, GIT_NAMESPACE=""), r.path, command="git push origin main")
+    n2c.assert_destination_not_measured(answer, entry)   # resolved as without a namespace up to the destination (R9-1)
+    assert n2c._level2(dict(env, GIT_NAMESPACE=""), r.path).returncode == 0
 
 
 def test_a_namespace_git_cannot_expand_fails_every_read(env, tmp_path):
     """GIT_NAMESPACE=/ makes git stop ("bad git namespace path"); the gate's reads fail with it, never a pass."""
     r = _green(tmp_path)
-    decision, entry = _push_answer(dict(env, GIT_NAMESPACE="/"), r.path)
-    assert decision in ("ask", "deny") and entry["verdict"] != "pass", entry
+    _stops_before_destination(dict(env, GIT_NAMESPACE="/"), r.path, command="git push origin main")
 
 
 # --- names that are neutralized for the gate's reads ------------------------------------------------------------------
@@ -263,8 +272,8 @@ def test_configuration_given_in_the_environment_is_read_as_git_reads_it(env, tmp
     _other_remote(r, tmp_path)
     n2c._git(r.path, "config", "--unset", "branch.main.pushRemote")
     injected = dict(env, GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="branch.main.pushRemote", GIT_CONFIG_VALUE_0="other")
-    decision, entry = _push_answer(injected, r.path, command="git push")
-    assert decision == "ask" and entry["verdict"] != "pass", entry
+    entry = _stops_before_destination(injected, r.path, command="git push")
+    assert entry["verdict"] == "ask", entry
 
 
 def test_a_repository_git_will_not_read_as_ones_own_blocks(env, tmp_path, keys):
