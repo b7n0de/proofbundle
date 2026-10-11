@@ -1126,7 +1126,8 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   equals the recorded base OID. They do not establish why an observation is missing. NOT MEASURABLE means
   the observations do not support another result. The limit applies to every result." (review R3-6), and
   the round-2 caution that the log is local, so this is a local diagnosis, not an independent proof of the
-  host's hook. It never pushes to a real remote. Its own git calls run without any `GIT_` name the host set, with
+  host's hook. The command it hands out names only the throwaway remote, and the check reads only that remote's
+  refs. Its own git calls run without any `GIT_` name the host set, with
   the global and the system configuration switched off and no hook (core.hooksPath names no folder; review round
   9 of 2026-10-11, R9-6: a host's GIT_CONFIG_GLOBAL=/dev/null had been dropped with the other names, and prepare
   ran the hooks of the global configuration), and
@@ -1139,7 +1140,15 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   shell the host runs the command in may carry another environment than the server, so the check compares every
   ref of the throwaway remote with the state prepare recorded, and a ref beside main that appeared, moved or went
   is a changed target too (review round 9 of 2026-10-11, R9-2: under GIT_NAMESPACE the push had written
-  refs/namespaces/selftest-ns/refs/heads/main and the check had reported the target unchanged). The
+  refs/namespaces/selftest-ns/refs/heads/main and the check had reported the target unchanged). Prepare refuses
+  every choice of another receive program or transport in the server's environment, as long as no binding of it
+  is built: remote.origin.receivepack from any configuration source, GIT_EXEC_PATH naming another program folder
+  than git's own (a local push starts git-receive-pack from it), remote.origin.vcs (a remote helper) and
+  receive.procReceiveRefs on the throwaway remote (review round 10 of 2026-10-11, R10-1: a receivepack in the HOME
+  configuration had sent the push into another bare repository, measured with git 2.43.0 and 2.51.1, and the check
+  had reported the target unchanged). What the check observes is bounded to the refs of the throwaway remote: a
+  setting only the host's shell carries (a push URL, a receive program, a transport) is not visible to the server
+  and can send the push elsewhere unobserved. The
   check refuses any folder it did not create, and takes no special path for the self-test in the gate. The
   skill runs only when the user invokes it. The time window gate_status reports where there is no host
   session id is labelled as a window since the server started, not a session.

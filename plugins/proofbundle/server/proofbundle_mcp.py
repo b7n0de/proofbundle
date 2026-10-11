@@ -374,11 +374,24 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
     writes there: a namespace (GIT_NAMESPACE, which git reads as none where empty) writes refs/namespaces/<ns>/...,
     and a push mapping of origin (remote.origin.push) sends `push origin main` to the ref it names (review round 9
     of 2026-10-11, R9-2: under GIT_NAMESPACE the push wrote refs/namespaces/selftest-ns/refs/heads/main, the check
-    read refs/heads/main and reported the target unchanged). The shell the host runs the command in may carry
-    another environment than the server; that is not visible here, and the check compares every ref of the
-    throwaway remote for it."""
+    read refs/heads/main and reported the target unchanged). It also asks which program receives the push: a
+    receive program named for origin (remote.origin.receivepack, from any configuration source), a program folder
+    other than git's own (GIT_EXEC_PATH, where a local push starts git-receive-pack), a remote helper as the
+    transport (remote.origin.vcs) and refs handed to a proc-receive program on the throwaway remote
+    (receive.procReceiveRefs) each make the command write elsewhere than the receiver the check reads, and no
+    binding of them is built, so each is refused (review round 10 of 2026-10-11, R10-1: with a receivepack in the
+    HOME configuration the push wrote main into another bare repository, the throwaway remote stayed as it was, and
+    the check reported the target unchanged). The shell the host runs the command in may carry another environment
+    than the server; that is not visible here, and the check reads the throwaway remote's refs only."""
     if os.environ.get("GIT_NAMESPACE"):
         return "git writes the push under refs/namespaces/ on the throwaway remote (GIT_NAMESPACE), not to its main"
+    exec_path = os.environ.get("GIT_EXEC_PATH")
+    if exec_path:
+        own = subprocess.run(["git", "--exec-path"], capture_output=True, text=True, timeout=60, check=False,
+                             env={k: v for k, v in os.environ.items() if k != "GIT_EXEC_PATH"})
+        if own.returncode != 0 or os.path.realpath(own.stdout.strip()) != os.path.realpath(exec_path):
+            return ("GIT_EXEC_PATH names another program folder than git's own, from which a local push starts "
+                    "its receive program")
     query = subprocess.run(["git", "-C", work, "rev-parse", "--path-format=absolute", "--absolute-git-dir",
                             "--git-common-dir", "--show-toplevel", "--git-path", "index", "--git-path", "objects"],
                            capture_output=True, text=True, timeout=60, check=False)
@@ -395,6 +408,14 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
                              capture_output=True, text=True, timeout=60, check=False)
     if mapping.returncode != 1 or mapping.stdout or mapping.stderr:
         return "a push mapping of origin (remote.origin.push) sends `push origin main` to another ref than its main"
+    for where, key, why in ((["-C", work], "remote.origin.receivepack", "names another receive program for origin"),
+                            (["-C", work], "remote.origin.vcs", "makes a remote helper the transport of origin"),
+                            (["--git-dir", bare], "receive.procReceiveRefs",
+                             "hands refs to a proc-receive program on the throwaway remote")):
+        value = subprocess.run(["git", *where, "config", "--get-all", key], capture_output=True, text=True,
+                               timeout=60, check=False)
+        if value.returncode != 1 or value.stdout or value.stderr:
+            return f"a configured {key} {why}, a receiver the check does not read"
     return None
 
 
@@ -474,14 +495,18 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
         raise ToolInputError(f"NOT MEASURABLE: {problem} in the server's environment, so the self-test's command "
                              "would not act on its throwaway repository and its main. Start the host without "
                              "GIT_DIR, GIT_WORK_TREE, GIT_NAMESPACE and the other GIT_ names that select a "
-                             "repository or a ref, and without a configuration that rewrites the push.")
+                             "repository, a ref or git's program folder, and without a configuration that "
+                             "rewrites the push or chooses another receive program or transport.")
     command = f"git -C {shlex.quote(work)} push origin main"
     return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "note": ("Run exactly this command once with the shell tool. It pushes to a throwaway local bare "
-                     "repository in a temporary folder, never to a real remote. The gate is expected to deny "
-                     "it (a stale subject). Never change the throwaway repository or its declaration. Then "
-                     "call gate_selftest_check with work and started_at.")}, False
+            "note": ("Run exactly this command once with the shell tool. It names only a throwaway local bare "
+                     "repository in a temporary folder, and in the server's environment it pushes there. The "
+                     "check reads only the refs of the throwaway remote: a setting only the host's shell carries "
+                     "(a push URL, a receive program or a transport) can send the push elsewhere, and the check "
+                     "does not see that. The gate is expected to deny it (a stale subject). Never change the "
+                     "throwaway repository or its declaration. Then call gate_selftest_check with work and "
+                     "started_at.")}, False
 
 
 def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
@@ -612,7 +637,8 @@ TOOLS = {
     "gate_selftest_prepare": (tool_gate_selftest_prepare, {
         "description": "Create a throwaway local repository and bare remote in a temporary folder, and return the "
                        "one git push command the self-test runs. The repository declares a stale subject, so the "
-                       "gate is expected to deny the push. Never a real remote.",
+                       "gate is expected to deny the push. The command names only the throwaway remote, and the "
+                       "check reads only that remote's refs.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     }),
     "gate_selftest_check": (tool_gate_selftest_check, {
