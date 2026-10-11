@@ -37,8 +37,12 @@ from proofbundle._wire_b64 import decode_b64_either
 from proofbundle.cli import main
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt, issuer_fingerprint
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 REPO = Path(__file__).resolve().parents[1]
-RUST = [REPO / "tools" / "pb_verify_rs" / "target" / build / "pb_verify_rs" for build in ("release", "debug")]
 
 #: The Z225 test key and the keyid go-securesystemslib derived for it (recorded, see the docstring).
 #: SHA-256 of the label below, written out, so the seed is visibly a throwaway literal
@@ -212,6 +216,22 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
                 self.assertEqual(_keyids(env), [Z225_KEYID_GO_SECURESYSTEMSLIB], name)
 
 
+def _vom_sdist_ausgenommen() -> tuple:
+    """The trees MANIFEST.in prunes from the sdist, each as a path prefix ending in a slash.
+
+    The walk over the shipped corpus claims the trees the sdist ships, and a pruned tree is not shipped. It read
+    repository roots and so counted examples/verdict_contract/, a worked example for an issue in a third-party
+    repository whose files stay as they were reviewed and which MANIFEST.in prunes (measured after main 71413932
+    was merged in, where its receipt.json holds an envelope without a keyid). An unpacked sdist holds no pruned
+    tree, so there is nothing to skip when MANIFEST.in is absent."""
+    manifest = REPO / "MANIFEST.in"
+    if not manifest.is_file():
+        return ()
+    return tuple(teile[1].rstrip("/") + "/" for teile in
+                 (zeile.split() for zeile in manifest.read_text(encoding="utf-8").splitlines())
+                 if len(teile) == 2 and teile[0] == "prune")
+
+
 def _prosa(pfad: str) -> str:
     """The prose of a file, whitespace folded: this test module contributes only its own docstring, since its cases
     carry the searched sentences as literals."""
@@ -305,8 +325,10 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
                             self.assertEqual(keyid, dsse.openssh_sha256_keyid(k))
         self.assertGreaterEqual(gezaehlt, 129, "the corpus holds 117 relation and 12 agent-review signatures")
 
-    #: The shipped envelopes signed before the default keyid, kept with the bytes they were signed with.
-    _ARCHIV = ("receipts/agent_review/", "tests/fixtures/kette_147/receipt.json")
+    #: The shipped envelopes signed before the default keyid, kept with the bytes they were signed with. The
+    #: eval-result v0.1 statements under tests/fixtures/eval_result_v0_1/ come with pull request 301: released
+    #: versions emitted and signed them, and the corpus holds their bytes as the regression input of gate G2.
+    _ARCHIV = ("receipts/agent_review/", "tests/fixtures/kette_147/receipt.json", "tests/fixtures/eval_result_v0_1/")
 
     def test_every_shipped_envelope_without_a_keyid_is_a_named_archive(self):
         """Codex thread 4218670842 on pull request 287: the headline said every DSSE envelope names its key, and the
@@ -322,15 +344,21 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
             elif isinstance(x, list):
                 for v in x:
                     yield from huellen(v)
+        ausgenommen = _vom_sdist_ausgenommen()
+        if (REPO / "MANIFEST.in").is_file():
+            self.assertIn("tools/", ausgenommen, "control: the prune lines of MANIFEST.in are read")
         ohne = []
         for wurzel in ("conformance", "examples", "receipts", "tests/fixtures", "schemas"):
             for pfad in sorted((REPO / wurzel).rglob("*.json")):
+                rel = pfad.relative_to(REPO).as_posix()
+                if rel.startswith(ausgenommen):
+                    continue
                 try:
                     inhalt = json.loads(pfad.read_text(encoding="utf-8"))
                 except (ValueError, UnicodeDecodeError):
                     continue
                 if any("keyid" not in e for h in huellen(inhalt) for e in h["signatures"] if isinstance(e, dict)):
-                    ohne.append(pfad.relative_to(REPO).as_posix())
+                    ohne.append(rel)
         self.assertTrue(ohne, "control: the archived receipts are found by this walk")
         self.assertEqual([p for p in ohne if not p.startswith(self._ARCHIV)], [])
         text = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
@@ -343,15 +371,15 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
             self.assertIn(archiv.rstrip("/"), eintrag)
 
 
-@unittest.skipUnless(any(b.exists() for b in RUST), "pb_verify_rs is not built")
 class BothVerifiersIgnoreIt(unittest.TestCase):
     """AGENTS.md: Python and the Rust verifier agree on the same bytes. The same envelope, with its
     keyid as written, removed and forged, and with a good and a broken signature, gets one verdict from
-    `dsse.verify_envelope` and from `pb_verify_rs verify-dsse`."""
+    `dsse.verify_envelope` and from `pb_verify_rs verify-dsse`. The binary comes from the seam at run time,
+    so where CI requires it, its absence fails this case instead of skipping it."""
 
     def test_python_and_rust_give_the_same_verdict_whatever_the_keyid(self):
         import base64  # noqa: PLC0415 - encoding the public key for the command line only
-        binary = next(b for b in RUST if b.exists())
+        binary = _pb_verify_rs.binary_or_skip()
         signer = _signer()
         pub = _raw_pub(signer)
         env = dsse.sign_envelope(b'{"a":1}', signer, payload_type="application/vnd.in-toto+json")
