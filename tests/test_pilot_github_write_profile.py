@@ -349,9 +349,23 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
     def test_a_deeply_nested_payload_is_an_answer_and_never_raises(self) -> None:
         """Codex thread 4121766439: JSON of 10,000 nested arrays raised RecursionError out of `_statement`. Signed by
         the gate key it reaches the reader and is unknown; unsigned it is not accepted, since the pinned key is checked
-        first (thread 4220771559)."""
+        first (thread 4220771559).
+
+        The depth is asked of the parser, not fixed. Python 3.14 parses 10,000 levels that 3.10 to 3.13 refuse, and
+        the case failed in CI on 3.14 alone: the answer was unknown for the missing version signal, so the boundary
+        this case is about was never reached. It doubles from 10,000 until the interpreter's own json.loads raises,
+        which `_statement` calls, and an interpreter that parses every depth up to ten million is not measured here."""
         from proofbundle import dsse
-        roh = b"[" * 10000 + b"]" * 10000
+        tiefe = 10000
+        while tiefe <= 10_000_000:
+            try:
+                json.loads(b"[" * tiefe + b"]" * tiefe)
+            except RecursionError:
+                break
+            tiefe *= 2
+        else:
+            self.skipTest("NOT MEASURABLE: json.loads raised no RecursionError up to 10,000,000 nested arrays")
+        roh = b"[" * tiefe + b"]" * tiefe
         signiert = dsse.sign_envelope(roh, self.g.test_key("gate"), payload_type="application/vnd.in-toto+json")
         antwort = self._reconcile(signiert)
         self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
