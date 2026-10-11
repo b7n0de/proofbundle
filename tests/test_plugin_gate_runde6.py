@@ -181,7 +181,8 @@ def test_p2_a_rule_that_rewrites_this_remote_stays_not_measured(tmp_path, monkey
     # that applies to this remote keeps the comparison NOT MEASURED, a global one included.
     repo, bare = _make_repo(tmp_path, "r", declare="valid")
     _global_rule(tmp_path, monkeypatch, f"file://{bare}", str(bare), kind)
-    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline()) is None
+    reasons: list = []   # stopped before the destination check, where every push ends since R9-1 (R10-4)
+    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline(), reasons) is None and reasons == []
 
 
 def test_p2_the_longest_matching_prefix_decides_which_rule_applies(tmp_path):
@@ -210,7 +211,8 @@ def test_p2_insteadof_applies_to_an_explicit_pushurl(tmp_path):
     _git(repo, "config", "remote.origin.pushurl", str(bare))
     _git(repo, "config", "url.file:///elsewhere/.insteadOf", str(bare))
     assert gate._applicable_rewrites(str(repo), "origin", _deadline()) != []
-    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline()) is None
+    reasons: list = []   # stopped before the destination check (R10-4)
+    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline(), reasons) is None and reasons == []
 
 
 # --- Befund 2: a measured absent target ref and a missing local tracking ref are different messages ----
@@ -323,6 +325,7 @@ def test_r6_2_sibling_push_receive_pack_is_not_measured(tmp_path, args):
     # --receive-pack (alias --exec) names the program that runs as the receiving end; a path or file://
     # transport starts it on this machine. The push is NOT MEASURED, never resolved as if neutral.
     repo, _ = _make_repo(tmp_path, "r", declare="valid")
-    assert gate.resolve_push_targets(str(repo), list(args), _deadline()) is None
+    reasons: list = []   # stopped before the destination check (R10-4)
+    assert gate.resolve_push_targets(str(repo), list(args), _deadline(), reasons) is None and reasons == []
     verdict = gate.evaluate_push(str(repo), list(args), _deadline())
     assert verdict.decision == "ask" and verdict.reason_id == "push_not_measured", verdict.text()

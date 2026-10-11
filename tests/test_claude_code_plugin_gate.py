@@ -620,11 +620,11 @@ def test_a_declaration_only_in_the_working_tree_is_not_measured_and_asks(shim, t
     _commit(repo)
     _declare(repo, GOOD_BUNDLE)  # written to the working tree only, never committed
     answer = run_gate(shim, repo, "git push origin main")
-    assert decision(answer) == "ask" and reason(answer).startswith("NOT MEASURED:")
+    assert at_destination(answer) and reason(answer).startswith("NOT MEASURED:"), reason(answer)
     proc = run_level2(shim, repo)
     assert proc.returncode == 1 and "not committed" in proc.stderr, proc.stderr
     _git(repo, "add", "-A")
-    assert decision(run_gate(shim, repo, "git push origin main")) == "ask"
+    assert at_destination(run_gate(shim, repo, "git push origin main"))
     proc = run_level2(shim, repo)
     assert proc.returncode == 1 and "not committed" in proc.stderr, "staged is not committed; the gate reads the commit"
 
@@ -1088,10 +1088,20 @@ def test_a_graft_does_not_hide_a_commit_the_push_sends(shim, tmp_path):
     c = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], capture_output=True, text=True,
                        check=True).stdout.strip()
     proc = run_level2(shim, path)
-    assert proc.returncode == 1, "X is in the range, no graft yet"
+    # The reason, not the exit alone: Level 2 exits 1 for every ask and every deny, a time-out included (R10-4).
+    assert proc.returncode == 1 and f"{gate.DECLARATION} is not JSON" in proc.stderr, "X is in the range, no graft yet"
     (path / ".git" / "info" / "grafts").write_text(f"{c} {a}\n", encoding="utf-8")  # reparent C past X
     proc = run_level2(shim, path)
-    assert proc.returncode == 1, "the gate must evaluate X, which the push still sends"
+    assert proc.returncode == 1 and f"{gate.DECLARATION} is not JSON" in proc.stderr, \
+        "the gate must evaluate X, which the push still sends"
+
+
+def _reasons(repo, *args) -> list:
+    """The reasons resolve_push_targets gives for a push, with their next steps (it returns None for every push since
+    R9-1)."""
+    reasons: list = []
+    assert gate.resolve_push_targets(str(repo), list(args), gate.time.monotonic() + 30, reasons) is None
+    return reasons
 
 
 def _resolve(repo, *args) -> bool:
@@ -1502,7 +1512,9 @@ def test_options_after_a_double_dash_are_the_remote_and_refspec(repo):
     """R3-1: `--` ends options; what follows is <remote> <refspec>, not more refspecs for a default push.
     Measured red against 3026924e, where `-- origin zzz` fell through to the default push target."""
     assert not _resolve(repo, "--", "origin", "zzz")  # zzz has no tracking ref: NOT MEASURED
-    assert _resolve(repo, "--", "origin", "main") and _resolve(repo, "origin", "main")
+    # Both reach the destination check with the same reason, which names the destination they resolve to (R10-4).
+    assert _resolve(repo, "--", "origin", "main") and _reasons(repo, "--", "origin", "main") == _reasons(
+        repo, "origin", "main")
 
 
 def test_an_option_the_gate_does_not_model_is_not_measured(repo):

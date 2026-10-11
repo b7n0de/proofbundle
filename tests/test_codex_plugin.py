@@ -67,6 +67,9 @@ _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
 import proofbundle_gate as gate  # noqa: E402
 
+#: The reasons of the destination check, where every Level 1 push under Claude Code ends since R9-1.
+DESTINATION = ("git push also matches ", "this repository records ", "git push looks up ")
+
 sys.path.pop(0)
 
 
@@ -353,6 +356,7 @@ def test_under_codex_a_declaration_only_in_the_working_tree_is_not_measured_and_
         {"schema": gate.DECLARATION_SCHEMA, "evidence": []}), encoding="utf-8")
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"   # Level 1 asks at the destination (R9-1)
+    assert any(d in claude["systemMessage"] for d in DESTINATION), claude["systemMessage"]   # that reason (R10-4)
     line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
     verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
     assert "not committed" in verdict.text()  # the pre-push hook reaches the uncommitted-declaration case
@@ -648,6 +652,7 @@ def test_under_codex_a_rules_change_push_is_not_measured_while_claude_asks(shim,
     assert "evidence rules" not in codex["systemMessage"]
     claude = _run(shim, repo)
     assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert any(d in claude["systemMessage"] for d in DESTINATION), claude["systemMessage"]   # that reason (R10-4)
     line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
     verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
     assert (verdict.decision, verdict.reason_id) == ("ask", "rules_changed"), verdict.text()

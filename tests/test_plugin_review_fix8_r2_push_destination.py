@@ -36,7 +36,8 @@ env = n2c.env
 _clean_git_environment = n2c._clean_git_environment
 _git = n2c._git
 
-NOT_MEASURED = ("ask", ["push_not_measured"])
+NOT_MEASURED = ("ask", ["push_not_measured"], True)    # at the destination check (R9-1)
+BEFORE_DESTINATION = ("ask", ["push_not_measured"], False)   # an earlier step stops the resolution
 
 
 def _repo(tmp_path, record: bool = True) -> n2c.Repo:
@@ -67,9 +68,11 @@ def _push(repo, *args: str) -> subprocess.CompletedProcess:
                           text=True, timeout=60, check=False)
 
 
-def _verdict(env, repo, command: str) -> tuple[str, list]:
-    _answer, entry = n2c._level1(env, repo, command=command)
-    return entry["verdict"], entry["reason_ids"]
+def _verdict(env, repo, command: str) -> tuple[str, list, bool]:
+    """The verdict, its reasons, and whether the resolution reached the destination check: since R9-1 every push is
+    NOT MEASURED, so the step that stops it is what tells the cases apart (R10-4)."""
+    answer, entry = n2c._level1(env, repo, command=command)
+    return entry["verdict"], entry["reason_ids"], n2c.reached_destination(json.dumps(answer, ensure_ascii=False))
 
 
 def _beside(tmp_path, r, name: str) -> None:
@@ -103,6 +106,7 @@ def test_an_evidenced_ambiguity_is_not_measured(env, tmp_path, name, command):
     r = _repo(tmp_path)
     _beside(tmp_path, r, name)
     assert _verdict(env, r.path, command) == NOT_MEASURED, (name, command)
+    assert f"this repository records {name}" in _answer(env, r.path, command), (name, command)   # the case's reason
 
 
 def test_git_accepts_the_push_of_a_plain_clone(tmp_path):
@@ -204,6 +208,8 @@ def test_a_source_whose_full_name_is_not_the_branch_is_not_measured(env, tmp_pat
     _git(r.path, "fetch", "-q", "origin")
     _git(r.path, "tag", "rel", "HEAD")
     assert _verdict(env, r.path, "git push origin rel") == NOT_MEASURED
+    text = _answer(env, r.path, "git push origin rel")   # the tag is what git looks up, not refs/heads/rel (R10-4)
+    assert "git push looks up refs/tags/rel on the remote, which does not name refs/heads/rel" in text, text
 
 
 def test_a_plain_fetch_rule_without_a_destination_is_not_measured(env, tmp_path):

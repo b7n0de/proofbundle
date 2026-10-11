@@ -74,6 +74,13 @@ def _judged_to_main(env, repo, command: str) -> None:
     assert FOR_MAIN in message, message
 
 
+def _rules_change_at_level_2(env, repo) -> None:
+    """The rules change of _swap against origin/main, at Level 2, where git hands the hook the remote's state; Level 1
+    leaves the push at the destination check (R9-1). The reason is required, not the exit alone (R10-4)."""
+    proc = n2c._level2(env, repo)
+    assert proc.returncode == 1 and f"the done policy {n2c.POLICY} changes" in proc.stderr, proc.stderr
+
+
 CONFIGS = {
     "upstream": {},   # main tracks origin/main, set by `push -u`
     "auto_setup_remote": {"push.autoSetupRemote": "true", "branch.main.merge": None},
@@ -111,6 +118,7 @@ def test_the_bare_push_is_judged_as_the_push_git_performs(env, tmp_path, config)
     explicit = _outcome(env, r.path, "git push origin HEAD:refs/heads/main")
     assert explicit[:3] == ("ask", ["push_not_measured"], True) and FOR_MAIN in explicit[3], explicit
     assert _outcome(env, r.path, "git push") == explicit
+    _rules_change_at_level_2(env, r.path)
 
 
 def test_an_empty_push_remote_of_the_branch_is_read_under_its_full_name(env, tmp_path):
@@ -151,6 +159,7 @@ def test_control_a_source_that_names_one_ref_is_judged(env, tmp_path, command):
     r = _swap(tmp_path)
     assert _git_push(r.path, *command.split()[2:]).returncode == 0
     _judged_to_main(env, r.path, command)
+    _rules_change_at_level_2(env, r.path)
 
 
 def test_control_without_the_tag_the_short_source_is_judged(env, tmp_path):
@@ -159,6 +168,7 @@ def test_control_without_the_tag_the_short_source_is_judged(env, tmp_path):
     assert _out(r.path, "symbolic-ref", "--short", "HEAD") == "main"
     _judged_to_main(env, r.path, "git push origin main")
     _judged_to_main(env, r.path, "git push")
+    _rules_change_at_level_2(env, r.path)
 
 
 def test_control_a_valid_push_with_the_tag_still_passes(env, tmp_path):

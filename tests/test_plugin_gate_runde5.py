@@ -168,7 +168,9 @@ def test_r4_7_an_insteadof_rewrite_makes_ebene_1_not_measured(tmp_path, key):
     # correcting R4-7 for symmetric insteadOf too). Runde 6, Punkt 2: the rule must actually match the
     # remote's URL; a rule for another host is excluded (test_plugin_gate_runde6.py).
     _git(repo, "config", key, str(bare))
-    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline()) is None
+    # The rewrite stops the resolution before the destination check, where every push ends since R9-1 (R10-4).
+    reasons: list = []
+    assert gate.resolve_push_targets(str(repo), ["origin", "main"], _deadline(), reasons) is None and reasons == []
 
 
 def test_r4_6a_a_per_command_config_is_not_measured(tmp_path):
