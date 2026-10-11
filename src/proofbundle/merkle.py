@@ -346,3 +346,38 @@ def verify_consistency(
         and hmac.compare_digest(fr, first_root)
         and hmac.compare_digest(sr, second_root)
     )
+
+
+def _inclusion_context_digest(hash_alg: Any, leaf_index: Any, tree_size: Any, proof: Any, root: Any) -> bytes | None:
+    """One digest over the whole inclusion context a passing inclusion check verified: the hash algorithm,
+    the leaf index, the tree size, every step of the audit path in order and the root (6.2.1 R6b-1/R6b-2).
+
+    A root alone does not name an inclusion: the same root holds under another leaf index or another audit
+    path, and a checkpoint for that root says nothing about either. A judge that takes a verification result
+    and a bundle separately compares this digest of the bundle's stated context with the one the result
+    recorded, so an old positive inclusion verdict is never adopted for a context that was not verified.
+
+    Every part is type-checked and length-prefixed, and the step count is bound, so two contexts that differ
+    in any part give different digests. Anything that is not a str, an int (not a bool), a list of bytes and
+    bytes gives None: there is then no context to compare, and the judge refuses. Never raises."""
+    if not isinstance(hash_alg, str) or not isinstance(root, (bytes, bytearray)):
+        return None
+    if type(leaf_index) is not int or type(tree_size) is not int:
+        return None
+    if not isinstance(proof, (list, tuple)) or not all(isinstance(p, (bytes, bytearray)) for p in proof):
+        return None
+    h = hashlib.sha256(b"proofbundle/inclusion-context/v1\x00")
+    alg = hash_alg.encode("utf-8", "surrogatepass")
+    h.update(len(alg).to_bytes(8, "big"))
+    h.update(alg)
+    for n in (leaf_index, tree_size):   # signed, minimal length: no digit limit, no overflow
+        b = n.to_bytes(n.bit_length() // 8 + 1, "big", signed=True)
+        h.update(len(b).to_bytes(8, "big"))
+        h.update(b)
+    h.update(len(proof).to_bytes(8, "big"))
+    for step in proof:
+        h.update(len(step).to_bytes(8, "big"))
+        h.update(bytes(step))
+    h.update(len(root).to_bytes(8, "big"))
+    h.update(bytes(root))
+    return h.digest()
