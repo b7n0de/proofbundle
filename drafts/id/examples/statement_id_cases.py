@@ -23,6 +23,10 @@ header is empty or one such map; the content of a tag is not checked. Anything
 else is no statement: NO_MATCH under a usable reference (INDETERMINATE under an
 unusable one), is_scitt False, sig_valid None (not evaluated).
 
+A candidate, or its protected header read on its own, that holds a data item deeper than MAX_DEPTH (64) is not
+read: matches raises ResourceLimit, a resource-limit error with no value on any axis. Section 7 asks an
+implementation to bound the nesting it processes and names no number; the limit cases at the end of main hold it.
+
 A successful match establishes none of: signature validity, issuer trust,
 payload truth, or registration. The fixtures are synthetic; nothing is
 registered and no Receipt is verified.
@@ -205,6 +209,64 @@ STMT03 = sign1(ISSUER, P03, PAY03)
 
 
 # ---- the matcher (the thing under test) ---------------------------------------
+#: The deepest data item the matcher reads: the candidate, and its protected header read on its own, at depth 0, an
+#: item inside an array, map, tag or indefinite-length string one deeper than its container. Section 7 asks an
+#: implementation to bound the nesting it processes and names no number; 64 is the limit of the checkers of the two
+#: companion drafts, so all of them read the same bytes to the same depth.
+MAX_DEPTH = 64
+
+
+class ResourceLimit(Exception):
+    """The matcher stopped at MAX_DEPTH: a resource-limit error, no value on any axis. Section 6 gives MATCH and
+    NO_MATCH when the comparison can be completed and INDETERMINATE for an unusable reference or an absent input; a
+    candidate that is not read is not shown to be no statement."""
+
+
+def depth_ok(b: bytes) -> bool:
+    """False if a data item of b lies deeper than MAX_DEPTH. The walk reads only heads, in the order of the bytes,
+    before anything else is read, and stops without a verdict where the first data item ends or a head is not
+    well-formed; _item then decides."""
+    open_, i = [], 0   # for each open container: the items still to come, or None for an indefinite length
+    while i < len(b):
+        if open_ and open_[-1] is None and b[i] == 0xFF:   # the break that ends an indefinite length
+            open_.pop()
+            i += 1
+        else:
+            if len(open_) > MAX_DEPTH:
+                return False
+            major, ai = b[i] >> 5, b[i] & 31
+            i += 1
+            if ai < 24:
+                n = ai
+            elif ai < 28:
+                size = 1 << (ai - 24)
+                if i + size > len(b):
+                    return True
+                n, i = int.from_bytes(b[i:i + size], "big"), i + size
+            elif ai == 31 and major in (2, 3, 4, 5):
+                n = None
+            else:
+                return True
+            if open_ and open_[-1] is not None:
+                open_[-1] -= 1
+            if major in (2, 3):
+                if n is None:
+                    open_.append(None)
+                else:
+                    i += n
+            elif major == 4:
+                open_.append(n)
+            elif major == 5:
+                open_.append(None if n is None else 2 * n)
+            elif major == 6:
+                open_.append(1)
+        while open_ and open_[-1] == 0:
+            open_.pop()
+        if not open_:
+            return True
+    return True
+
+
 def _item(b: bytes, i: int):
     """One well-formed and valid CBOR data item at offset i -> (the item as a comparable value, the offset after
     it); ValueError otherwise. Well-formed is RFC 8949 Section 3 and Appendix F; valid is the basic validity of
@@ -293,7 +355,10 @@ def _map(flat):
 
 
 def _one_item(b: bytes):
-    """The comparable form of B if B is exactly one well-formed and valid data item; ValueError otherwise."""
+    """The comparable form of B if B is exactly one well-formed and valid data item; ValueError otherwise, and
+    ResourceLimit, before anything is read, if B holds a data item deeper than MAX_DEPTH."""
+    if not depth_ok(b):
+        raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
     item, end = _item(b, 0)
     if end != len(b):
         raise ValueError("data follows the data item")
@@ -337,6 +402,8 @@ def matches(ref, candidate_bytes, *, detached=None, aad=b"", scheme_alg=SHA256, 
                          and ref[1] in ("ToBeSigned", "COSE_Sign1") and isinstance(ref[2], bytes))
     try:
         tagged, is18, protected, _unprot, payload, signature, _hdr = open_sign1(candidate_bytes)
+    except ResourceLimit:
+        raise
     except Exception as e:  # noqa: BLE001
         out["match"] = "NO_MATCH" if out["ref_usable"] else "INDETERMINATE"
         out["is_scitt"] = False
@@ -492,6 +559,48 @@ def build_cases():
          c12, {"ref_usable": True, "match": "MATCH", "is_scitt": True, "sig_valid": True})
 
 
+def _deep(kind: str, n: int) -> bytes:
+    """n nested arrays, maps with the key 1 or tags 6 around the integer 0, which lies at depth n."""
+    return {"a": b"\x81", "m": b"\xa1\x01", "t": b"\xc6"}[kind] * n + b"\x00"
+
+
+def _bstr(b: bytes) -> bytes:
+    """b as a byte string with the shortest head (below 65536 bytes)."""
+    n = len(b)
+    return (bytes([0x40 + n]) if n < 24 else b"\x58" + bytes([n]) if n < 256 else b"\x59" + n.to_bytes(2, "big")) + b
+
+
+def limit_cases():
+    """(what, candidate bytes, expected axes or "resource-limit error"): MAX_DEPTH and MAX_DEPTH + 1 in the candidate,
+    in the unprotected header of statement 01 (its value of -1 lies at depth 3) and in the protected header (its value
+    of -1 lies at depth 1 of the header)."""
+    _, at = _item(STMT01, 2)   # the offset of the empty unprotected map of statement 01
+    assert STMT01[:2] == b"\xd2\x84" and STMT01[at] == 0xA0
+    rest = STMT01[at + 1:]   # payload and signature
+
+    def unprot(inner):
+        return STMT01[:at] + b"\xa1\x20" + inner + rest
+
+    def prot(inner):
+        return b"\xd2\x84" + _bstr(b"\xa1\x20" + inner) + b"\xa0" + rest
+    rl = "resource-limit error"
+    return [("the candidate: arrays 60000 deep", _deep("a", 60000), rl),
+            ("the candidate: maps 30000 deep", _deep("m", 30000), rl),
+            ("the candidate: tags 30000 deep", _deep("t", 30000), rl),
+            ("01, unprotected {-1: arrays 60000 deep}", unprot(_deep("a", 60000)), rl),
+            ("01, unprotected {-1: maps 30000 deep}", unprot(_deep("m", 30000)), rl),
+            ("01, unprotected {-1: tags 30000 deep}", unprot(_deep("t", 30000)), rl),
+            ("the candidate: arrays, deepest item at %d" % MAX_DEPTH, _deep("a", MAX_DEPTH),
+             (True, "NO_MATCH", False, None)),
+            ("the candidate: arrays, deepest item at %d" % (MAX_DEPTH + 1), _deep("a", MAX_DEPTH + 1), rl),
+            ("01, unprotected, deepest item at %d" % MAX_DEPTH, unprot(_deep("a", MAX_DEPTH - 3)),
+             (True, "MATCH", True, True)),
+            ("01, unprotected, deepest item at %d" % (MAX_DEPTH + 1), unprot(_deep("a", MAX_DEPTH - 2)), rl),
+            ("01, protected header, deepest item at %d" % MAX_DEPTH, prot(_deep("a", MAX_DEPTH - 1)),
+             (True, "NO_MATCH", True, False)),
+            ("01, protected header, deepest item at %d" % (MAX_DEPTH + 1), prot(_deep("a", MAX_DEPTH)), rl)]
+
+
 def expected_ok(c):
     return all(c["result"].get(k) == v for k, v in c["expected"].items())
 
@@ -543,10 +652,19 @@ def main():
         r = c["result"]
         print(f"{c['id']:<4} {c['requirement']:<14} {str(r['ref_usable']):<10} {str(r['match']):<13} {str(r['is_scitt']):<9} "
               f"{str(r['sig_valid']):<9} {'OK' if expected_ok(c) else 'MISMATCH'}", file=sys.stderr)
+    for what, cand, want in limit_cases():
+        try:
+            r = matches(REF_TO_01, cand, verify_key=ISSUER.public_key())
+            got = (r["ref_usable"], r["match"], r["is_scitt"], r["sig_valid"])
+        except ResourceLimit:
+            got = "resource-limit error"
+        print(f"L    {what}: {got} {'OK' if got == want else 'MISMATCH'}", file=sys.stderr)
+        if got != want:
+            bad.append("L " + what)
     if bad:
         print("UNEXPECTED:", bad, file=sys.stderr)
         sys.exit(1)
-    print("all cases match expectation", file=sys.stderr)
+    print("all cases and limit cases match expectation", file=sys.stderr)
 
 
 if __name__ == "__main__":
