@@ -43,7 +43,8 @@ def build(tmp_path: Path, files: dict[str, str], *, roots=("probepkg.core",), bo
         "modules": list(listed or [])}), encoding="utf-8")
     exceptions_file = tmp_path / "exceptions.json"
     exceptions_file.write_text(json.dumps({"entries": [
-        {"rule": r, "module": m, "operation": o} for r, m, o in exceptions]}), encoding="utf-8")
+        {"rule": e[0], "module": e[1], "operation": e[2], "count": e[3] if len(e) > 3 else 1}
+        for e in exceptions]}), encoding="utf-8")
     return tmp_path, modules_file, exceptions_file
 
 
@@ -199,6 +200,70 @@ def test_a_core_member_no_longer_reached_is_red(tmp_path):
     assert r["core_list_stale"] == ["probepkg.gone"]
 
 
+# ── the four findings of the Codex review of pull request 333, each built as its probe ──────────
+
+def test_a_second_occurrence_of_an_approved_operation_is_red(tmp_path):
+    """Codex P1: an approved `open` must not cover a second `open` in the same module."""
+    r = run(tmp_path, {"core.py": "def a(p):\n    return open(p)\ndef b(p):\n    return open(p)\n"},
+            listed=["probepkg", "probepkg.core"],
+            exceptions=[("file", "probepkg.core", "builtins.open", 1)])
+    assert r["verdict"] == "RED"
+    assert r["grown_findings"] == [{"rule": "file", "module": "probepkg.core",
+                                    "operation": "builtins.open", "baseline": 1, "found": 2}]
+
+
+def test_one_occurrence_fewer_is_red_until_the_count_is_lowered(tmp_path):
+    r = run(tmp_path, {"core.py": "def a(p):\n    return open(p)\n"},
+            listed=["probepkg", "probepkg.core"],
+            exceptions=[("file", "probepkg.core", "builtins.open", 2)])
+    assert r["verdict"] == "RED"
+    assert r["shrunk_exceptions"][0]["found"] == 1
+
+
+def test_a_parameter_in_one_function_does_not_hide_the_builtin_in_another(tmp_path):
+    """Codex P1: name resolution is per lexical scope, not one set for the module."""
+    r = run(tmp_path, {"core.py": """
+        def harmless(open):
+            return open
+        def leak(path):
+            return open(path)
+        class Holder:
+            open = None
+            def method(self, path):
+                return open(path)
+    """})
+    lines = next(f["lines"] for f in r["measured"]["findings"]
+                 if (f["rule"], f["operation"]) == ("file", "builtins.open"))
+    assert lines == [5, 9], lines
+
+
+def test_only_the_real_typing_type_checking_skips_a_body(tmp_path):
+    """Codex P2: a flag that merely ends in TYPE_CHECKING is ordinary code and runs."""
+    r = run(tmp_path, {"core.py": """
+        import typing
+        class RuntimeFlag:
+            TYPE_CHECKING = True
+        if RuntimeFlag.TYPE_CHECKING:
+            import subprocess
+        if typing.TYPE_CHECKING:
+            import socket
+    """})
+    assert ("subprocess", "probepkg.core", "import subprocess") in found(r)
+    assert not any(o == "import socket" for _, _, o in found(r))
+    bare = run(tmp_path / "bare", {"core.py": "TYPE_CHECKING = True\nif TYPE_CHECKING:\n    import subprocess\n"})
+    assert ("subprocess", "probepkg.core", "import subprocess") in found(bare)
+
+
+@pytest.mark.parametrize("reason", [None, "", "   ", 7])
+def test_a_trust_boundary_needs_a_reason(tmp_path, reason):
+    """Codex P2: a boundary without a reason is not a boundary, the run is not measurable."""
+    root, modules_file, exceptions_file = build(tmp_path, {"core.py": "import somelib\n"},
+                                                boundaries={"somelib": reason})
+    rc = gate.main(["--root", str(root), "--modules-file", str(modules_file),
+                    "--exceptions-file", str(exceptions_file)])
+    assert rc == 2
+
+
 # ── positive controls: the gate can say green ──────────────────────────────────────────────────
 
 def test_a_clean_core_is_green(tmp_path):
@@ -251,6 +316,9 @@ def test_the_gate_is_green_on_this_tree_and_counts_its_exceptions():
     for rule in gate.RULES:
         assert report["exceptions_by_rule"][rule] == sum(1 for e in entries if e["rule"] == rule)
     assert report["exceptions_total"] == len(entries)
+    for rule in gate.RULES:
+        assert report["occurrences_by_rule"][rule] == sum(e["count"] for e in entries
+                                                           if e["rule"] == rule)
 
 
 def test_the_named_exception_for_the_process_origin_carries_its_reason():

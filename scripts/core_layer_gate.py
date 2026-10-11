@@ -15,8 +15,9 @@ WHAT IT MEASURES, at the tree it runs in:
    that is no longer reached (the list only shrinks by an edit someone reviews).
 
 2. FORBIDDEN OPERATIONS IN THE CORE: file access, network, clock, environment, subprocess, randomness,
-   eval and exec, dynamic import, and dynamic access that cannot be resolved statically. Alias forms
-   are resolved before the check: `import os as o`, `from os import getenv as g`, `import builtins`,
+   eval and exec, dynamic import, and dynamic access that cannot be resolved statically. Every name is
+   resolved in its own lexical scope, as Python resolves it, and alias forms are resolved before the
+   check: `import os as o`, `from os import getenv as g`, `import builtins`,
    `reader = open`, and `getattr(x, "read_bytes")` with a literal name. A `getattr`, `setattr`,
    `delattr` or `hasattr` with a computed name is a finding of its own, because the gate cannot say
    what it reaches. A method whose name is a file method (`read_bytes`, `open`, `read`, ...) on a
@@ -27,11 +28,12 @@ WHAT IT MEASURES, at the tree it runs in:
    forbidden standard-library module (socket, subprocess, importlib, random, tempfile, ...) is a
    finding of its rule even when nothing from it is used.
 
-4. EXCEPTIONS. Each finding is bound to its rule, its module and its operation. The set of findings
-   must equal the approved baseline in scripts/core_layer_exceptions.json. A finding outside the
-   baseline is red even when another entry disappeared in the same change, and a baseline entry that no
-   longer occurs is red too: the baseline only shrinks by an edit someone reviews. The JSON output
-   carries the number of entries per rule, which is the figure S2 measures its progress against.
+4. EXCEPTIONS. Each finding is bound to its rule, its module, its operation and the number of times
+   it occurs there. The findings must equal the approved baseline in scripts/core_layer_exceptions.json.
+   A finding outside the baseline is red even when another entry disappeared in the same change, one
+   more occurrence of an approved operation is red, and an entry that occurs less often or no longer is
+   red too: the baseline only shrinks by an edit someone reviews. The JSON output carries the number of
+   entries and of occurrences per rule, the figures S2 measures its progress against.
 
 WHAT IT IS NOT: a sandbox. A static check sees the agreed boundaries and the forms it resolves. Native
 code, callbacks handed in from outside, and anything executed through data stay outside it. A missing
@@ -169,18 +171,62 @@ def parse(path: Path) -> ast.Module:
         raise NotMeasurable(f"{path}: {exc}") from exc
 
 
-def _is_type_checking(test: ast.expr) -> bool:
-    return ((isinstance(test, ast.Name) and test.id == "TYPE_CHECKING")
-            or (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"))
+_TYPING_MODULES = ("typing", "typing_extensions")
 
 
-def runtime_nodes(tree: ast.AST):
-    """Every node that can run, skipping the bodies of `if TYPE_CHECKING:`."""
+def type_checking_guards(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]:
+    """The names that really are `typing.TYPE_CHECKING` in this module: (bare names, module aliases).
+
+    A bare name counts only when `from typing import TYPE_CHECKING [as X]` binds it and nothing else
+    in the module binds it; a module alias counts only when `import typing [as t]` binds it and nothing
+    else does. Anything else that merely ends in TYPE_CHECKING is ordinary code and runs.
+    """
+    names: set[str] = set()
+    modules: set[str] = set()
+    other: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in _TYPING_MODULES:
+            for a in node.names:
+                if a.name == "TYPE_CHECKING":
+                    names.add(a.asname or a.name)
+                else:
+                    other[a.asname or a.name] = 1
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                other[a.asname or a.name] = 1
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                bound = a.asname or a.name.split(".")[0]
+                if a.name in _TYPING_MODULES and (a.asname or "." not in a.name):
+                    modules.add(bound)
+                else:
+                    other[bound] = 1
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            other[node.id] = 1
+        elif isinstance(node, ast.arg):
+            other[node.arg] = 1
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            other[node.name] = 1
+    return frozenset(names - set(other)), frozenset(modules - set(other))
+
+
+def _is_type_checking(test: ast.expr, guards: tuple[frozenset[str], frozenset[str]]) -> bool:
+    names, modules = guards
+    if isinstance(test, ast.Name):
+        return test.id in names
+    return (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name) and test.value.id in modules)
+
+
+def runtime_nodes(tree: ast.AST, guards: tuple[frozenset[str], frozenset[str]] | None = None):
+    """Every node that can run, skipping the bodies of `if TYPE_CHECKING:` for the real one only."""
+    if guards is None:
+        guards = type_checking_guards(tree)
     stack = [tree]
     while stack:
         node = stack.pop()
         yield node
-        if isinstance(node, ast.If) and _is_type_checking(node.test):
+        if isinstance(node, ast.If) and _is_type_checking(node.test, guards):
             stack.extend(reversed(node.orelse))
             continue
         stack.extend(reversed(list(ast.iter_child_nodes(node))))
@@ -257,77 +303,180 @@ def closure(roots: list[str], mods: dict[str, tuple[Path, bool]], package: str,
 
 
 # ── names and their resolution ─────────────────────────────────────────────────────────────────
-class _Names:
-    """What each local name of one module stands for, after imports and simple re-binding."""
+class _Scope:
+    __slots__ = ("kind", "parent", "alias", "local", "globals", "nonlocals", "assigns")
 
-    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool) -> None:
+    def __init__(self, kind: str, parent: "_Scope | None") -> None:
+        self.kind = kind
+        self.parent = parent
         self.alias: dict[str, str] = {}
         self.local: set[str] = set()
-        assigns: list[tuple[str, ast.expr]] = []
-        stored: set[str] = set()
-        for node in runtime_nodes(tree):
-            if isinstance(node, ast.Import):
-                for a in node.names:
-                    if a.asname:
-                        self.alias[a.asname] = a.name
-                    else:
-                        top = a.name.split(".")[0]
-                        self.alias[top] = top
-            elif isinstance(node, ast.ImportFrom):
-                base = _absolute(modname, is_pkg, node.level, node.module)
-                for a in node.names:
-                    if a.name == "*":
-                        continue
-                    self.alias[a.asname or a.name] = f"{base}.{a.name}" if base else a.name
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                self.local.add(node.name)
-            elif isinstance(node, ast.arg):
-                self.local.add(node.arg)
-            elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-                stored.add(node.id)
-            if isinstance(node, (ast.Assign, ast.AnnAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for t in targets:
-                    if isinstance(t, ast.Name) and node.value is not None:
-                        assigns.append((t.id, node.value))
-        # Re-binding to a fixpoint: `reader = open` makes `reader` stand for builtins.open.
+        self.globals: set[str] = set()
+        self.nonlocals: set[str] = set()
+        self.assigns: list[tuple[str, ast.expr]] = []
+
+
+_FUNCTION_LIKE = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
+
+
+class _Names:
+    """What each name stands for, resolved in its own lexical scope, as Python resolves it.
+
+    An import or a simple re-binding (`reader = open`) makes an alias in its scope; every other binding
+    (a parameter, a loop or `with` target, an assignment the gate cannot resolve, a def or a class)
+    shadows the name in that scope only. A function does not see the scope of the class it is defined
+    in; `global` sends a name to the module scope. Where a scope binds a name both ways, the alias wins,
+    so an ambiguity is a finding rather than a silence.
+    """
+
+    def __init__(self, tree: ast.AST, modname: str, is_pkg: bool,
+                 guards: tuple[frozenset[str], frozenset[str]]) -> None:
+        self._modname, self._is_pkg, self._guards = modname, is_pkg, guards
+        self.module = _Scope("module", None)
+        self.scope_of: dict[int, _Scope] = {}
+        self._scopes: list[_Scope] = [self.module]
+        self._visit(tree, self.module)
         for _ in range(8):
             changed = False
-            for name, value in assigns:
-                q = self.qual(value)
-                if q and self.alias.get(name) != q:
-                    self.alias[name] = q
-                    changed = True
+            for s in self._scopes:
+                for name, value in s.assigns:
+                    q = self._qual(value, s)
+                    if q and s.alias.get(name) != q:
+                        s.alias[name] = q
+                        changed = True
             if not changed:
                 break
-        # Every other binding shadows a builtin of the same name: a loop variable, a `with` target,
-        # an unpacked tuple, an assignment the gate could not resolve.
-        self.local |= {n for n in stored if n not in self.alias}
 
-    def qual(self, node: ast.expr) -> str | None:
+    def _new(self, kind: str, parent: _Scope) -> _Scope:
+        s = _Scope(kind, parent)
+        self._scopes.append(s)
+        return s
+
+    def _bind(self, scope: _Scope, name: str) -> None:
+        (self.module if name in scope.globals else scope).local.add(name)
+
+    def _args(self, args: ast.arguments, scope: _Scope) -> None:
+        for a in (*args.posonlyargs, *args.args, *args.kwonlyargs,
+                  *([args.vararg] if args.vararg else []), *([args.kwarg] if args.kwarg else [])):
+            self.scope_of[id(a)] = scope
+            scope.local.add(a.arg)
+
+    def _visit(self, node: ast.AST, scope: _Scope) -> None:
+        self.scope_of[id(node)] = scope
+        if isinstance(node, ast.If) and _is_type_checking(node.test, self._guards):
+            for child in node.orelse:
+                self._visit(child, scope)
+            return
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            self._bind(scope, node.name)
+            for d in node.decorator_list:
+                self._visit(d, scope)
+            for d in (*node.args.defaults, *[k for k in node.args.kw_defaults if k is not None]):
+                self._visit(d, scope)
+            inner = self._new("function", scope)
+            self._args(node.args, inner)
+            for stmt in node.body:
+                self._visit(stmt, inner)
+            return
+        if isinstance(node, ast.Lambda):
+            for d in (*node.args.defaults, *[k for k in node.args.kw_defaults if k is not None]):
+                self._visit(d, scope)
+            inner = self._new("function", scope)
+            self._args(node.args, inner)
+            self._visit(node.body, inner)
+            return
+        if isinstance(node, ast.ClassDef):
+            self._bind(scope, node.name)
+            for d in (*node.decorator_list, *node.bases, *[k.value for k in node.keywords]):
+                self._visit(d, scope)
+            inner = self._new("class", scope)
+            for stmt in node.body:
+                self._visit(stmt, inner)
+            return
+        if isinstance(node, _COMPREHENSIONS):
+            inner = self._new("function", scope)
+            for i, gen in enumerate(node.generators):
+                self._visit(gen.iter, scope if i == 0 else inner)
+                self._visit(gen.target, inner)
+                for cond in gen.ifs:
+                    self._visit(cond, inner)
+            for part in ((node.key, node.value) if isinstance(node, ast.DictComp) else (node.elt,)):
+                self._visit(part, inner)
+            return
+        if isinstance(node, ast.Global):
+            scope.globals.update(node.names)
+        elif isinstance(node, ast.Nonlocal):
+            scope.nonlocals.update(node.names)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                target = self.module if (a.asname or a.name.split(".")[0]) in scope.globals else scope
+                if a.asname:
+                    target.alias[a.asname] = a.name
+                else:
+                    top = a.name.split(".")[0]
+                    target.alias[top] = top
+        elif isinstance(node, ast.ImportFrom):
+            base = _absolute(self._modname, self._is_pkg, node.level, node.module)
+            for a in node.names:
+                if a.name != "*":
+                    scope.alias[a.asname or a.name] = f"{base}.{a.name}" if base else a.name
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            self._bind(scope, node.id)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            self._bind(scope, node.name)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for tg in targets:
+                if isinstance(tg, ast.Name) and node.value is not None:
+                    owner = self.module if tg.id in scope.globals else scope
+                    owner.assigns.append((tg.id, node.value))
+        for child in ast.iter_child_nodes(node):
+            self._visit(child, scope)
+
+    def _lookup(self, name: str, scope: _Scope) -> str | None:
+        s: _Scope | None = scope
+        first = True
+        while s is not None:
+            if name in s.globals and s is not self.module:
+                s, first = self.module, False
+                continue
+            if name in s.nonlocals:
+                s, first = s.parent, False
+                continue
+            # A class scope is seen only by code directly in its body, never by a function in it.
+            if first or s.kind != "class":
+                if name in s.alias:
+                    return s.alias[name]
+                if name in s.local:
+                    return None
+            s, first = s.parent, False
+        return f"builtins.{name}" if name in _BUILTIN_NAMES else None
+
+    def _qual(self, node: ast.expr, scope: _Scope) -> str | None:
         if isinstance(node, ast.Name):
-            if node.id in self.alias:
-                return self.alias[node.id]
-            if node.id in _BUILTIN_NAMES and node.id not in self.local:
-                return f"builtins.{node.id}"
-            return None
+            return self._lookup(node.id, scope)
         if isinstance(node, ast.Attribute):
-            base = self.qual(node.value)
+            base = self._qual(node.value, scope)
             return f"{base}.{node.attr}" if base else None
         return None
+
+    def qual(self, node: ast.expr) -> str | None:
+        return self._qual(node, self.scope_of.get(id(node), self.module))
 
 
 # ── findings ───────────────────────────────────────────────────────────────────────────────────
 def findings_of(tree: ast.AST, modname: str, is_pkg: bool) -> list[tuple[str, str, int]]:
     """(rule, operation, line) for one core module."""
-    names = _Names(tree, modname, is_pkg)
+    guards = type_checking_guards(tree)
+    names = _Names(tree, modname, is_pkg, guards)
     out: list[tuple[str, str, int]] = []
     parent: dict[int, ast.AST] = {}
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
             parent[id(child)] = node
 
-    for node in runtime_nodes(tree):
+    for node in runtime_nodes(tree, guards):
         line = getattr(node, "lineno", 0)
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -416,6 +565,11 @@ def measure(root: Path, modules_file: Path) -> dict:
     if not isinstance(package, str) or not isinstance(roots, dict) or not roots \
             or not isinstance(boundaries, dict):
         raise NotMeasurable(f"{modules_file}: needs package, roots and trust_boundaries")
+    # A trust boundary widens what the core may import, so it is named WITH its reason: a null, an
+    # empty string or any other value is no reason and does not count as a boundary.
+    unexplained = sorted(k for k, v in boundaries.items() if not (isinstance(v, str) and v.strip()))
+    if unexplained:
+        raise NotMeasurable(f"{modules_file}: trust boundaries without a reason: {unexplained}")
     mods = discover(root / "src", package)
     trees: dict[str, ast.Module] = {}
     reached, edges = closure(sorted(roots), mods, package, trees)
@@ -446,31 +600,42 @@ def judge(measured: dict, exceptions_file: Path) -> dict:
     entries = data.get("entries")
     if not isinstance(entries, list):
         raise NotMeasurable(f"{exceptions_file}: entries must be a list")
-    baseline: set[tuple[str, str, str]] = set()
+    # THE UNIT IS THE OCCURRENCE, NOT THE OPERATION. An entry binds rule, module and operation AND the
+    # number of times the operation occurs there; a second call of an approved operation in the same
+    # module is a new finding, and one call fewer is a baseline that has to shrink by a reviewed edit.
+    baseline: dict[tuple[str, str, str], int] = {}
     for e in entries:
         if not (isinstance(e, dict) and all(isinstance(e.get(k), str) for k in
                                             ("rule", "module", "operation"))):
             raise NotMeasurable(f"{exceptions_file}: every entry needs rule, module, operation")
         if e["rule"] not in RULES:
             raise NotMeasurable(f"{exceptions_file}: unknown rule {e['rule']!r}")
+        n = e.get("count")
+        if not (isinstance(n, int) and not isinstance(n, bool) and n >= 1):
+            raise NotMeasurable(f"{exceptions_file}: entry {e['module']} {e['operation']} needs a "
+                                f"count of at least 1")
         key = (e["rule"], e["module"], e["operation"])
         if key in baseline:
             raise NotMeasurable(f"{exceptions_file}: duplicate entry {key}")
-        baseline.add(key)
-    found = {(f["rule"], f["module"], f["operation"]) for f in measured["findings"]}
+        baseline[key] = n
+    found = {(f["rule"], f["module"], f["operation"]): f["count"] for f in measured["findings"]}
     closure_set = set(measured["closure"])
     listed = set(measured["listed"])
-    new = sorted(found - baseline)
-    stale = sorted(baseline - found)
+    new = sorted(set(found) - set(baseline))
+    stale = sorted(set(baseline) - set(found))
+    grown = sorted(k for k in set(found) & set(baseline) if found[k] > baseline[k])
+    shrunk = sorted(k for k in set(found) & set(baseline) if found[k] < baseline[k])
     core_new = sorted(closure_set - listed)
     core_stale = sorted(listed - closure_set)
     by_rule = {r: 0 for r in RULES}
-    for r, _, _ in baseline:
+    occurrences_by_rule = {r: 0 for r in RULES}
+    for (r, _, _), n in baseline.items():
         by_rule[r] += 1
+        occurrences_by_rule[r] += n
     found_by_rule = {r: 0 for r in RULES}
     for r, _, _ in found:
         found_by_rule[r] += 1
-    green = not (new or stale or core_new or core_stale)
+    green = not (new or stale or grown or shrunk or core_new or core_stale)
     return {
         "schema": SCHEMA_REPORT,
         "verdict": "GREEN" if green else "RED",
@@ -479,10 +644,15 @@ def judge(measured: dict, exceptions_file: Path) -> dict:
                          for root in measured["roots"]},
         "exceptions_by_rule": by_rule,
         "exceptions_total": len(baseline),
+        "occurrences_by_rule": occurrences_by_rule,
         "findings_by_rule": found_by_rule,
         "findings_total": len(found),
         "new_findings": [dict(zip(("rule", "module", "operation"), k)) for k in new],
         "stale_exceptions": [dict(zip(("rule", "module", "operation"), k)) for k in stale],
+        "grown_findings": [{"rule": k[0], "module": k[1], "operation": k[2], "baseline": baseline[k],
+                            "found": found[k]} for k in grown],
+        "shrunk_exceptions": [{"rule": k[0], "module": k[1], "operation": k[2],
+                               "baseline": baseline[k], "found": found[k]} for k in shrunk],
         "core_list_new": core_new,
         "core_list_stale": core_stale,
         "measured": measured,
@@ -503,7 +673,7 @@ def write_baseline(root: Path, modules_file: Path, exceptions_file: Path) -> dic
     entries = []
     for f in measured["findings"]:
         key = (f["rule"], f["module"], f["operation"])
-        entry = {"rule": key[0], "module": key[1], "operation": key[2]}
+        entry = {"rule": key[0], "module": key[1], "operation": key[2], "count": f["count"]}
         if key in reasons:
             entry["reason"] = reasons[key]
         entries.append(entry)
@@ -548,6 +718,12 @@ def main(argv: list[str] | None = None) -> int:
         for f in report["stale_exceptions"]:
             print(f"  STALE exception, no longer found (remove it): {f['rule']} · {f['module']} · "
                   f"{f['operation']}")
+        for f in report["grown_findings"]:
+            print(f"  MORE occurrences than the baseline ({f['baseline']} -> {f['found']}): "
+                  f"{f['rule']} · {f['module']} · {f['operation']}")
+        for f in report["shrunk_exceptions"]:
+            print(f"  FEWER occurrences than the baseline ({f['baseline']} -> {f['found']}, lower the "
+                  f"count): {f['rule']} · {f['module']} · {f['operation']}")
         for m in report["core_list_new"]:
             print(f"  NEW core member, the closure gained an edge: {m}")
         for m in report["core_list_stale"]:
