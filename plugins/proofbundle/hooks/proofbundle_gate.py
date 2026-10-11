@@ -3699,8 +3699,17 @@ def _note_reason(reasons: list | None, why: str, next_step: str) -> None:
         reasons.append((why, next_step))
 
 
+def _sources_clean(sources: list[str]) -> str:
+    """What an unresolved push's answer says where the evidence at the commits it sends showed no failure (R8-5)."""
+    checked = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none (the push only deletes)"
+    return f"the evidence at the sent source commit(s) {checked} showed no failure, which is not a verdict on the push"
+
+
 def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | None = None) -> Verdict:
-    return Verdict("ask", f"NOT MEASURED: the gate cannot resolve what this push sends, so it checked nothing: "
+    """NOT MEASURED for a push whose targets or range the gate cannot resolve. `why` names the reason and what was
+    checked; the text claims nothing beyond it (review round 9 of 2026-10-11, R9-3: "so it checked nothing" had stood
+    beside a reason that named the evidence check at the sent commit)."""
+    return Verdict("ask", f"NOT MEASURED: the gate cannot resolve what this push sends: "
                           f"{why.rstrip('.')}.", "push_not_measured",
                    evidence="the commits and refs this push would send",
                    failed=why, next_step=next_step or "have a person review the push",
@@ -3949,9 +3958,7 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
         denial = _source_denial(repo, head_commit, sources, deadline, why)
         if denial is not None:
             return denial
-        checked = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none (the push only deletes)"
-        return _unresolved_verdict(repo, head_commit, _then(why, f"the evidence at the sent source commit(s) "
-                                   f"{checked} showed no failure, which is not a verdict on the push"), next_step)
+        return _unresolved_verdict(repo, head_commit, _then(why, _sources_clean(sources)), next_step)
     return _evaluate_targets(repo, head_commit, targets, deadline)
 
 
@@ -3991,7 +3998,8 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
             why = (f"the push creates {t.dest}, which this repository does not track, so the gate cannot determine "
                    "which commits it adds (no comparison state)")
             denial = _source_denial(repo, head_commit, sent, deadline, why)
-            return denial if denial is not None else _unresolved_verdict(repo, head_commit or t.source, why)
+            return denial if denial is not None else _unresolved_verdict(repo, head_commit or t.source,
+                                                                         _then(why, _sources_clean(sent)))
 
     # Every commit the push newly sends, across all targets, with the source tip always evaluated so a push
     # the remote already holds still has its evidence verified (its range is otherwise empty).
@@ -4004,7 +4012,8 @@ def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: floa
             why = (f"the gate cannot list the commits this push adds to {t.dest} (a shallow clone, too long a "
                    "range, or git could not resolve it)")
             denial = _source_denial(repo, head_commit, sent, deadline, why)
-            return denial if denial is not None else _unresolved_verdict(repo, head_commit, why)
+            return denial if denial is not None else _unresolved_verdict(repo, head_commit,
+                                                                         _then(why, _sources_clean(sent)))
         for commit in [t.source, *reachable]:
             if commit not in order:
                 order.append(commit)
@@ -4112,7 +4121,8 @@ def pre_push_verdict(directory: str, lines: list[tuple], deadline: float) -> Ver
         dest = remote_ref if remote_ref.startswith(_TRACKABLE) else None
         if dest is None:  # a ref the gate does not model (not a branch or tag): NOT MEASURED
             return _unresolved_verdict(repo, head_commit or local_sha,
-                                       f"the pre-push ref {remote_ref} is not a branch or a tag")
+                                       f"the pre-push ref {remote_ref} is not a branch or a tag, so the gate checked "
+                                       "no evidence")
         source = None if local_sha in _ZERO_OIDS else local_sha
         tracking = None if remote_sha in _ZERO_OIDS else remote_sha
         targets.append(PushTarget(source=source, dest=dest, tracking=tracking, remote_absent=tracking is None))
