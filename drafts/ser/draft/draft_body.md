@@ -822,7 +822,7 @@ Additional information:
   extension(s): N/A. Macintosh file type code(s): N/A.
 
 Person & email address to contact for further information:
-: Konrad Gruszka <kontakt@b7n0de.com>
+: Konrad Gruszka \<kontakt@b7n0de.com\>
 
 Intended usage:
 : COMMON
@@ -834,7 +834,7 @@ Author:
 : Konrad Gruszka
 
 Change controller:
-: Konrad Gruszka <kontakt@b7n0de.com>
+: Konrad Gruszka \<kontakt@b7n0de.com\>
 
 # Implementation Status {#impl}
 

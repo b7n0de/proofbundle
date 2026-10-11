@@ -10,6 +10,10 @@ Round 19 (card DRAFTS-01-INHALT-01, review point 5 of 2026-10-08): the paragraph
 says that the test vectors of this version are those of Appendix A and are maintained in this document, and that
 a later version comes with its own test vectors; the check of round 14 reads the whole paragraph and finds the
 heading "Appendix A.  Test Vectors".
+The two checks of 10.1 follow owner choices 4 and 8 of 2026-10-11: the contact field is named as in RFC 6838
+("Person & email address to contact for further information"), and contact and change controller read
+"Konrad Gruszka <kontakt@b7n0de.com>". The exit code now carries the self-tests, the claim checks and the probes
+as well as the vector verdicts; before, a claim mismatch printed MISMATCH and exited 0.
 
 Round 18 (card DRAFTS-01-VORARBEIT-01, preparation of the -01): 10.1 begins with the sentence that the template
 is the one for the registration of the type in the vendor tree and is given for information, and its field
@@ -1707,17 +1711,22 @@ def main():
                    "Encoding considerations", "Security considerations", "Interoperability considerations",
                    "Published specification", "Applications that use this media type",
                    "Fragment identifier considerations", "Additional information",
-                   "Person and email address to contact for further information", "Intended usage",
+                   "Person & email address to contact for further information", "Intended usage",
                    "Restrictions on usage", "Author", "Change controller"]
     got_fields = [m.group(1) for m in re.finditer(r"^ {3}(%s):" % "|".join(re.escape(f) for f in
                   want_fields + ["Provisional registration\\?"]), "\n".join(lines15[(i101 or 0):(i11 or 0)]), re.M)]
     chk("10.1 (round 15, A): 'Provisional registration?' is gone (RFC 6838 Section 5.6: standards tree only), and "
         "the other sixteen fields stand in their order",
         got_fields == want_fields and "Provisional registration" not in flat15, str(got_fields))
+    # Round 19 (owner choices 4 and 8 of 2026-10-11): the contact field carries the name RFC 6838 gives it, and
+    # contact and change controller are "Konrad Gruszka <kontakt@b7n0de.com>", with the angle brackets in the text.
     m_cc = re.search(r"Change controller: (.*?) 11\. Implementation Status", flat12)
-    chk("10.1 (round 14): the change controller is the author of this document, no vendor name",
-        m_cc is not None and m_cc.group(1) == "The author of this document, see the Author's Address section."
-        and "b7n0de" not in m_cc.group(1), m_cc.group(1) if m_cc else "not found")
+    m_pc = re.search(r"Person & email address to contact for further information: (.*?) Intended usage:", flat12)
+    owner_cc = "Konrad Gruszka <kontakt@b7n0de.com>"
+    chk("10.1 (round 19): contact and change controller are %s, and the author is Konrad Gruszka" % owner_cc,
+        m_cc is not None and m_cc.group(1) == owner_cc and m_pc is not None and m_pc.group(1) == owner_cc
+        and re.search(r"Author: Konrad Gruszka Change controller:", flat12) is not None and "mailto:" not in flat12,
+        "%s | %s" % (m_cc.group(1) if m_cc else "not found", m_pc.group(1) if m_pc else "not found"))
     chk("10 (round 14): 10.2, the URN sub-namespace and its references are gone, and IANA is asked for nothing",
         "URN Sub-namespace" not in flat12 and "urn:ietf:params" not in flat12 and "[RFC3553]" not in flat12
         and "[RFC8141]" not in flat12 and "IANA is requested" not in flat12 and "two requests" not in flat12)
@@ -1957,7 +1966,11 @@ def main():
     print("  verdict matches: %d of %d" % (n_verdict, len(vectors)))
     print("MATCH (verdict and step): %d of %d; mismatches: %s"
           % (n_ok, len(vectors), ("; ".join("%s computed %s expected %s" % m for m in mismatches) if mismatches else "none")))
-    return 0 if n_ok == len(vectors) else 1
+    # Revision -01 (card DRAFTS-01-INHALT-01): the exit code also carries the self-tests, the consistency and
+    # claim checks and the probes; before, only the vector verdicts set it, so a claim mismatch exited 0.
+    ok = (n_ok == len(vectors) and all(o for _, o in st) and all(checks) and probe_ok == len(probes))
+    print("EXIT: %d (vectors, self-tests, claim checks and probes all hold: %s)" % (0 if ok else 1, ok))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

@@ -219,9 +219,9 @@ def certificate_section(d):
     return out
 
 
-TS_FORM = {"T1": "the protected header, payload and signature of M2; unprotected header {394: [R]}",
-           "T2": "the protected header, payload and signature of X1; unprotected header {394: [R]}",
-           "T3": "as T2; unprotected header {4: the kid of X1, 394: [R]}",
+TS_FORM = {"T1": "the protected header, payload and signature of M2; unprotected header {394: [ R ]}",
+           "T2": "the protected header, payload and signature of X1; unprotected header {394: [ R ]}",
+           "T3": "as T2; unprotected header {4: the kid of X1, 394: [ R ]}",
            "T4": "as T2; unprotected header {394: R}, the byte string not in an array",
            "T5": "as T2; unprotected header {394: []}"}
 
