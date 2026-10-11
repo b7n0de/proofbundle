@@ -3269,6 +3269,12 @@ def _dest_candidates(value: str) -> list[tuple[str, bool]]:
     return found
 
 
+def _shell_command(*words: str) -> str:
+    """A command the answer suggests, every word quoted whole for a POSIX shell, so it parses and names each value as
+    one word (review round 9 of 2026-10-11, R9-4: the remote o'brien had made `git fetch o'brien` an open quote)."""
+    return " ".join(shlex.quote(word) for word in words)
+
+
 def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                              deadline: float) -> tuple[str, str] | None:
     """None where the refs this repository records of `remote` show that git push resolves the destination value
@@ -3284,10 +3290,11 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
     it. A recorded candidate that exists is an ambiguity git refuses; a candidate no rule records is not evidenced
     either way; and a value whose candidates do not include dest names another ref than the one the gate judges."""
     review = "have a person review the push"
-    record = (f"record what git push also matches with `git config --add remote.{remote}.fetch "
-              f"'+refs/tags/*:refs/recorded/{remote}/tags/*'` and `git config --add remote.{remote}.fetch "
-              f"'+refs/refs/*:refs/recorded/{remote}/refs/*'`, run `git fetch {remote}` and push to the destination in "
-              f"full (refs/heads/<branch>), or {review} (D3)")
+    tags, refs = (_shell_command("git", "config", "--add", f"remote.{remote}.fetch", f"+refs/{kind}/*:refs/recorded/"
+                                 f"{remote}/{kind}/*") for kind in ("tags", "refs"))
+    record = (f"record what git push also matches with `{tags}` and `{refs}`, run "
+              f"`{_shell_command('git', 'fetch', remote)}` and push to the destination in full (refs/heads/<branch>), "
+              f"or {review} (D3)")
     candidates = _dest_candidates(value)
     if (dest, True) not in candidates:
         return (f"git push looks up {value} on the remote, which does not name {dest}",
@@ -5680,7 +5687,7 @@ def _evaluate_done(result: dict, directory: str, deadline: float, receipt_path: 
             location = os.path.join(repo, *check["receipt"].split("/"))
         command = check_command(check, environ)
         if at_commit is not None and commit != head_commit:  # the receipt must name the pushed commit's tree
-            command = f"git checkout {commit[:12]} && {command}"
+            command = f"{_shell_command('git', 'checkout', commit[:12])} && {command}"
         row = {"id": check["id"], "receipt": check["receipt"], "location": location, "status": None, "failed": "",
                "command": command, "content": None, "payload": None}
         try:
