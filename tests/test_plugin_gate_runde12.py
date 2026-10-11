@@ -118,10 +118,22 @@ def test_r12_1_quote_and_escape_spellings_are_not_measured(tmp_path, command):
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason="net_unmodeled_git")
 
 
-@pytest.mark.parametrize("command", ["git push origin main", "gh pr list"])
+@pytest.mark.parametrize("command", ["gh pr list"])
 def test_r12_1_literal_controls_are_gated(tmp_path, command):
-    """The literal controls are gated the same way, so the fix removes a difference, it does not add one."""
+    """The literal controls are gated the same way, so the fix removes a difference, it does not add one. The literal
+    push has a control of its own below (owner choice 1 A)."""
     _gated(_repo(tmp_path), tmp_path / "logs", command)
+
+
+def test_the_literal_push_control_is_resolved_by_the_gate(tmp_path):
+    """Control: the literal push is one call the gate resolves itself, not the net. The repository declares nothing,
+    so since owner choice 1 A of 2026-10-11 (D5) it is locally inactive under Claude Code (no decision); under Codex
+    it warns with the unbound push context (Karte 5 A). The hidden spellings above stay NOT MEASURED: a form the gate
+    does not model is not exempted."""
+    repo = _repo(tmp_path)
+    assert _hook(repo, tmp_path / "logs" / "claude", "claude", "git push origin main") == (
+        None, ["nothing_declared_locally"])
+    assert _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main") == (None, ["codex_context_unbound"])
 
 
 # --- R12-2: a recognised push does not mask a further command word ------------------------------------------------
@@ -136,13 +148,13 @@ def test_r12_2_a_hidden_second_call_in_a_comment_is_not_measured(tmp_path):
 
 def test_r12_2_the_clean_push_control_is_still_inactive_under_claude(tmp_path):
     """Control: the same push without the hidden second call is one command word and one resolved call, so the
-    net does not fire. Under Claude it was inactive (nothing declared, no decision); since R9-1 it asks at the
-    destination check (push_not_measured, the reason of an unevidenced destination). Under Codex it warns with the
-    unbound push context and no decision (Karte 5 A)."""
+    net does not fire. Under Claude it was inactive (nothing declared, no decision); from R9-1 on it asked at the
+    destination check; since owner choice 1 A of 2026-10-11 (D5) it is locally inactive again (no decision). Under
+    Codex it warns with the unbound push context and no decision (Karte 5 A)."""
     repo = _repo_tracking(tmp_path)
     d_claude, ids = _hook(repo, tmp_path / "logs" / "claude", "claude", "git push origin main")
     d_codex, codex_ids = _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main")
-    assert (d_claude, ids) == ("ask", ["push_not_measured"]), (d_claude, ids)
+    assert (d_claude, ids) == (None, ["nothing_declared_locally"]), (d_claude, ids)
     assert "net_unmodeled_git" not in ids, ids
     assert (d_codex, codex_ids) == (None, ["codex_context_unbound"]), (d_codex, codex_ids)
 

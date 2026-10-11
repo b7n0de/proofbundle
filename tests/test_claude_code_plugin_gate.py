@@ -588,27 +588,45 @@ def test_a_malformed_declaration_is_denied(shim, repo):
 
 def test_a_repository_that_declares_nothing_but_whose_push_resolves_is_inactive(shim, tmp_path):
     """D5 at Level 2: a repository that declares nothing, pushing a tracked branch whose base on the remote also
-    declares nothing, is inactive (no permission decision). Level 1 asks since R9-1, as it did since R8-2 for a clone
-    with the standard fetch rule alone: the destination is NOT MEASURED, and so is what the remote holds there."""
+    declares nothing, is inactive (no permission decision). Level 1 asked from R9-1 on; since owner choice 1 A of
+    2026-10-11 (D5) it is locally inactive too: no decision, and the destination stays NOT MEASURED."""
     repo = _plain(tmp_path, remote=True)
     _write(repo / "README.md", "still never declared\n")
     _commit(repo)
-    assert at_destination(run_gate(shim, repo, "git push origin main"))
+    answer = run_gate(shim, repo, "git push origin main")
+    assert decision(answer) == "inactive" and reason(answer).startswith("NOT MEASURED: the gate checks nothing here.")
     proc = run_level2(shim, repo)
     assert proc.returncode == 0, proc.stderr
     assert "NOT MEASURED:" in proc.stderr and "not active in this repository" in proc.stderr
 
 
-@pytest.mark.parametrize("command", ["git push", "git push --all", "git push https://example/x main",
-                                      "git push origin HEAD:release"])
+@pytest.mark.parametrize("command", ["git push", "git push --all"])
 def test_an_unresolved_push_is_not_measured_even_when_nothing_is_declared(shim, tmp_path, command):
-    """N1, N2: with no tracking ref for the target, with --all, with a URL remote, or with a destination
-    this repository does not track, the gate cannot see everything the push sends. It does not switch off
-    because HEAD declares nothing; it asks (deny under Codex). There is no default-branch fallback."""
+    """N1, N2: with no upstream for a bare push, or with --all, the gate cannot tell which commits the push sends. It
+    does not switch off because HEAD declares nothing; it asks (deny under Codex). There is no default-branch
+    fallback, and owner choice 1 A of 2026-10-11 (D5) does not apply: its sources are not all determined."""
     repo = _plain(tmp_path, remote=(command != "git push"))  # a remote exists, but the target is untracked
     answer = run_gate(shim, repo, command)
     assert decision(answer) == "ask"
     assert "cannot resolve what this push sends" in reason(answer)
+    assert "the commits the push sends are not all determined" in reason(answer)
+
+
+@pytest.mark.parametrize("command, records", [
+    ("git push https://example/x main", "the local record(s) of its destination: refs/remotes/origin/main at "),
+    ("git push origin HEAD:release", "no local record of its destination was found, which says nothing about the remote"),
+])
+def test_a_determined_push_from_a_repository_that_declares_nothing_is_locally_inactive(shim, tmp_path, command,
+                                                                                       records):
+    """With a URL remote, or with a destination this repository does not track, the push asked before owner choice 1
+    A of 2026-10-11 (D5). Its source is determined and the gate reads the whole history the push may send. For a URL
+    the remote is not one this repository names, so the records of every configured remote are read; for an untracked
+    destination there is none, which says nothing about the remote. Locally inactive, no decision."""
+    repo = _plain(tmp_path, remote=True)
+    answer = run_gate(shim, repo, command)
+    assert decision(answer) == "inactive"
+    assert reason(answer).startswith("NOT MEASURED: the gate checks nothing here.")
+    assert records in reason(answer), reason(answer)
 
 
 def test_a_declaration_only_in_the_working_tree_is_not_measured_and_asks(shim, tmp_path):
@@ -1170,10 +1188,11 @@ def test_a_command_that_moves_the_repository_is_resolved_or_not_measured(shim, t
 
 def test_an_unmodelled_git_env_var_is_not_measured_but_a_neutral_one_resolves(shim, tmp_path):
     """Befund 1: only a narrow list of GIT_* names is target-neutral; every other is unresolved, like a
-    push option. GIT_TERMINAL_PROMPT=0 still resolves, up to the destination check (R9-1); GIT_OBJECT_DIRECTORY
-    does not."""
+    push option. GIT_TERMINAL_PROMPT=0 still resolves, in this repository, which declares nothing, to the local
+    inactivity of owner choice 1 A of 2026-10-11 (D5); GIT_OBJECT_DIRECTORY does not."""
     _repo_with_remote(tmp_path, "r", stale=False)
-    assert at_destination(run_gate(shim, tmp_path / "r", "GIT_TERMINAL_PROMPT=0 git push origin main"))
+    neutral = run_gate(shim, tmp_path / "r", "GIT_TERMINAL_PROMPT=0 git push origin main")
+    assert decision(neutral) == "inactive" and reason(neutral).startswith("NOT MEASURED: the gate checks nothing here.")
     answer = run_gate(shim, tmp_path / "r", "GIT_OBJECT_DIRECTORY=/tmp/x git push origin main")
     assert decision(answer) == "ask" and "cannot tell which repository" in reason(answer)
     assert not at_destination(answer, clean=False)

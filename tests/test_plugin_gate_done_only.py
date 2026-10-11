@@ -141,12 +141,15 @@ def test_a_declaration_only_in_the_working_tree_still_asks_as_uncommitted(tmp_pa
 
 
 def test_a_repository_that_declares_nothing_is_still_inactive(tmp_path):
-    """The pre-push hook and the CI mode find nothing declared (D5). Level 1 asks since R9-1, as it did since R8-2 for a
-    clone with the standard fetch rule alone: the destination of the push is NOT MEASURED."""
+    """The pre-push hook and the CI mode find nothing declared (D5). Level 1 asked from R9-1 on, its destination NOT
+    MEASURED; since owner choice 1 A of 2026-10-11 (D5) it is locally inactive, with no decision, as nothing stands at
+    the declaration at HEAD, in the working tree, in the history the push may send or at a local record of its
+    destination."""
     repo = _repo(tmp_path, None)
     outcome = gate.decide("git push origin main", str(repo), _deadline())
-    assert outcome is not None and outcome.decision == "ask"
-    assert {v.reason_id for v in outcome.verdicts} == {"push_not_measured"} and "git push also matches" in outcome.text
+    assert outcome is not None and outcome.decision == "inactive"
+    assert {v.reason_id for v in outcome.verdicts} == {"nothing_declared_locally"}
+    assert outcome.text.startswith("NOT MEASURED: the gate checks nothing here."), outcome.text
     verdict = gate.pre_push_verdict(str(repo), _pre_push_lines(repo), _deadline())
     assert (verdict.decision, verdict.reason_id) == ("inactive", "nothing_declared"), verdict.text()
     assert gate.evaluate_repository(str(repo), _deadline()).reason_id == "nothing_declared"

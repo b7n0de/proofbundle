@@ -150,9 +150,21 @@ def test_a_structural_keyword_with_an_expansion_is_deliberately_not_measured(tmp
     _gated(_repo(tmp_path), tmp_path / "logs", command)
 
 
-@pytest.mark.parametrize("command", ["git status", "git push origin main"])
+@pytest.mark.parametrize("command", ["git status"])
 def test_the_literal_controls_are_still_gated(tmp_path, command):
+    """The literal push has a control of its own below (owner choice 1 A)."""
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason=None)
+
+
+def test_the_literal_push_control_is_resolved_by_the_gate(tmp_path):
+    """Control: the literal push is one call the gate resolves itself, not the net. The repository declares nothing,
+    so since owner choice 1 A of 2026-10-11 (D5) it is locally inactive under Claude Code (no decision); under Codex
+    it warns with the unbound push context (Karte 5 A). The hidden spellings above stay NOT MEASURED: a form the gate
+    does not model is not exempted."""
+    repo = _repo(tmp_path)
+    assert _hook(repo, tmp_path / "logs" / "claude", "claude", "git push origin main") == (
+        None, ["nothing_declared_locally"])
+    assert _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main") == (None, ["codex_context_unbound"])
 
 
 # --- the net sees every git/gh bash, zsh or dash actually runs (differential, not only decoder values) -------------

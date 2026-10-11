@@ -150,12 +150,14 @@ def test_r11_2_zsh_runs_the_commented_git_only_with_changed_histchars(tmp_path):
 @pytest.mark.parametrize("command", ["GIT push origin main", "gIt push origin main"])
 def test_r11_3_a_case_variant_of_git_is_gated_by_the_net(tmp_path, command):
     """R11-3: a program name in a different ASCII case reaches the net; it asks under Claude Code and denies under
-    Codex. The lowercase control resolves as a push (not the net). At 44530e53 the case variant got no answer."""
+    Codex. The lowercase control resolves as a push (not the net); in this repository, which declares nothing, that
+    push is locally inactive under Claude Code since owner choice 1 A of 2026-10-11 (D5), and warns under Codex. At
+    44530e53 the case variant got no answer."""
     repo = _repo(tmp_path)
     cids = _both_gate(repo, tmp_path / "up", command)
     assert cids == ["net_unmodeled_git"], cids
-    control = _both_gate(repo, tmp_path / "low", command.lower())
-    assert "net_unmodeled_git" not in control, control
+    assert _hook(repo, tmp_path / "low" / "c", "claude", command.lower()) == (None, ["nothing_declared_locally"])
+    assert _hook(repo, tmp_path / "low" / "x", "codex", command.lower()) == (None, ["codex_context_unbound"])
 
 
 # --- R11-4: invalid verifier replies ------------------------------------------------------------------------------

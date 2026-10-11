@@ -134,9 +134,21 @@ def test_r13_4_an_argument_expansion_stays_free(tmp_path, command):
     assert "net_unmodeled_git" not in ids, ids
 
 
-@pytest.mark.parametrize("command", ["git status", "git push origin main"])
+@pytest.mark.parametrize("command", ["git status"])
 def test_the_literal_controls_are_still_gated(tmp_path, command):
+    """The literal push has a control of its own below (owner choice 1 A)."""
     _gated(_repo(tmp_path), tmp_path / "logs", command, reason=None)
+
+
+def test_the_literal_push_control_is_resolved_by_the_gate(tmp_path):
+    """Control: the literal push is one call the gate resolves itself, not the net. The repository declares nothing,
+    so since owner choice 1 A of 2026-10-11 (D5) it is locally inactive under Claude Code (no decision); under Codex
+    it warns with the unbound push context (Karte 5 A). The hidden spellings above stay NOT MEASURED: a form the gate
+    does not model is not exempted."""
+    repo = _repo(tmp_path)
+    assert _hook(repo, tmp_path / "logs" / "claude", "claude", "git push origin main") == (
+        None, ["nothing_declared_locally"])
+    assert _hook(repo, tmp_path / "logs" / "codex", "codex", "git push origin main") == (None, ["codex_context_unbound"])
 
 
 # --- the net sees every git/gh bash and zsh actually run (differential, not only decoder values) -------------------

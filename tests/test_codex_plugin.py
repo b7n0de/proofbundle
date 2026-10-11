@@ -328,16 +328,16 @@ def _rev(repo: pathlib.Path, rev: str) -> str:
 def test_a_nothing_declared_push_is_inactive_under_claude_but_not_measured_under_codex(shim, tmp_path):
     # Owner choice A (R5-2): under Codex a push is NOT MEASURED, because the hook cannot bind the execution workdir,
     # and since Karte 5 A it warns with that reason instead of denying. Under Claude a nothing-declared push was
-    # inactive with no decision (D5, C) while its target resolved; since R9-1 (R8-2 for a clone with the standard
-    # fetch rule alone) Level 1 asks, because the destination is NOT MEASURED, and the pre-push hook still finds
-    # nothing declared.
+    # inactive with no decision (D5, C) while its target resolved; from R9-1 on Level 1 asked, the destination NOT
+    # MEASURED; since owner choice 1 A of 2026-10-11 (D5) it is locally inactive again, with no decision, and the
+    # pre-push hook still finds nothing declared.
     repo = _repo(tmp_path, declare=False)
     (repo / "README.md").write_text("y\n", encoding="utf-8")
     _git(repo, "commit", "-q", "-am", "d")
     claude = _run(shim, repo)
-    assert claude["hookSpecificOutput"]["permissionDecision"] == "ask"
-    assert claude["systemMessage"].startswith("NOT MEASURED:") and "git push also matches" in claude["systemMessage"]
-    assert INACTIVE not in claude["systemMessage"]
+    assert "permissionDecision" not in claude["hookSpecificOutput"], claude
+    assert claude["systemMessage"].startswith("NOT MEASURED: the gate checks nothing here.")
+    assert INACTIVE in claude["systemMessage"]
     line = [("refs/heads/main", _rev(repo, "HEAD"), "refs/heads/main", _rev(repo, "origin/main"))]
     verdict = gate.pre_push_verdict(str(repo), line, gate.time.monotonic() + 60)
     assert (verdict.decision, verdict.reason_id) == ("inactive", "nothing_declared"), verdict.text()

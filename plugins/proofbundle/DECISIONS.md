@@ -123,7 +123,9 @@ MEASURED. The remote itself is not read.
       a state check" below). The separate push path remains. Under Claude Code it denies an evidenced failure
       at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED
       whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the
-      destination's state is Level 2's, on git's own ref lines (review round 10, R10-5); under Codex every push
+      destination's state is Level 2's, on git's own ref lines (review round 10, R10-5); a repository that declares
+      nothing stays outside Level 1, as local inactivity with no decision, where the four conditions of owner choice
+      1 A of 2026-10-11 hold (D5); under Codex every push
       is NOT MEASURED because its execution context is unbound, and since owner choice Karte 5 A of 2026-10-08
       it warns instead of being denied (D12).
       The free
@@ -323,9 +325,10 @@ MEASURED. The remote itself is not read.
   so NOT MEASURED).
 - A `gh pr create` or `gh release create` is judged as a push of the current branch to its upstream.
 - An unresolved push is asked under Claude Code; under Codex every push is NOT MEASURED and, since Karte 5 A,
-  warned about rather than denied (D12). The D5 inactive shortcut
-  applies only when the push resolves and every sent commit and the target's state declare nothing; an
-  unresolved push never switches the gate off (N2).
+  warned about rather than denied (D12). Since R9-1 no Level 1 push resolves, and HEAD declaring nothing never
+  switches the gate off on its own (N2); the one exception is owner choice 1 A of 2026-10-11 (D5): a push from a
+  repository that declares nothing, whose sources are determined and in whose whole source history and local
+  destination records nothing is declared, is locally inactive.
 
 Options:
 - A. HEAD only, refspec not read (the pre-review behaviour; a push of another branch was judged at HEAD).
@@ -338,7 +341,7 @@ Options:
 Chosen (owner, 2026-10-03): option B, remove the free list. The former free list for local git commands has
 been removed. Those forms are NOT MEASURED, asked under Claude Code and denied under Codex (D12). Only the
 exact bare command text `git --version` is exempt from judgment as a git form. The separate push path remains.
-Under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the destination's state is Level 2's, on git's own ref lines; under Codex every push is denied because
+Under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the destination's state is Level 2's, on git's own ref lines; a repository that declares nothing stays outside Level 1 where the four conditions of owner choice 1 A hold (D5); under Codex every push is denied because
 its execution context is unbound (wording of review Runde 10, R10-3; since owner choice Karte 5 A of 2026-10-08 a
 `git push` under Codex warns instead, D12). The one free form, the bare
 `git --version`, is exactly that command text: no program path, no wrapper,
@@ -506,20 +509,42 @@ Chosen (owner, 2026-09-30): C. The gate acts only where a repository declares ev
   - a HEAD or a working tree where the gate cannot measure the absence, such as a failing `git ls-tree`,
     a file where the `.proofbundle/` folder should be, or a dangling link at the declaration's path.
 - Failures stay `deny` (D6).
-- A push under Level 1 asks even where nothing is declared at HEAD or in the working tree: its destination is NOT
-  MEASURED (D3), and so is what the remote holds there, such as a declaration the push would remove. Level 2 finds
-  nothing declared and blocks nothing. Measured: a clone with the standard fetch rule alone since review round 8
-  (R8-2), every clone since round 9 (R9-1, 2026-10-11).
+- A push under Level 1 (owner choice 1 A, 2026-10-11, with the review's four conditions as part of the choice): a
+  repository without a declaration stays outside Level 1. This is local inactivity, never a pass and never a check
+  presumed at Level 2. The answer carries no permission decision, so the host's normal approval decides; it starts
+  with `NOT MEASURED: the gate checks nothing here.`, says that the gate is not active in this repository because
+  nothing is declared, and that the push's destination and its current state remain NOT MEASURED. It holds only
+  where all four conditions hold; otherwise the push is asked as before (NOT MEASURED at the destination, D3) and
+  the answer names the condition that failed:
+  - a. the repository, the work tree, the git environment and every source of a `git push` are determined; an
+    unresolved source is never replaced by HEAD; a configuration that adds ref updates the command does not name
+    (`remote.<name>.push`, `remote.<name>.mirror`, `push.followTags`) or a submodule push, an option the gate does not
+    model, a wrapper and a `gh` call are not exempted; the deny of a hook-disabling form stays;
+  - b. nothing stands at `.proofbundle/evidence.json`, or in place of the `.proofbundle/` folder, at HEAD, in the
+    actual working tree and at every commit the push may send: an empty, broken or done-only declaration, a folder or
+    a link at the path, or a file or a link where the folder belongs is no absence;
+  - c. those commits are the whole history of every source, with no tracking ref subtracted, since without a bound
+    target state the commits a push newly sends are unknown; a shallow repository, a history git does not list or
+    give whole, and one longer than 20000 commits are asked. The review's case, measured with git 2.43.0 and 2.51.1:
+    A without a declaration, B with one, C without; HEAD and the tracking ref at C, the remote reset to A; the range
+    against the tracking ref is empty, while git sends C and B;
+  - d. every local record of a remote ref the push may write is read with its commit: the refs each remote's fetch
+    rules map a destination candidate to, and `refs/remotes/<remote>/<branch>`; for a URL or path every configured
+    remote's records, as the choice is unclear. A declaration there blocks the exception, a broken or dangling record
+    is no empty state, and a missing record says nothing about the remote.
+  Level 2 finds nothing declared and blocks nothing. Under Codex the hook cannot bind a push to its directory (D12),
+  so condition a never holds there.
 
 The reason starts with `NOT MEASURED:` and says that nothing was verified. In a non-interactive run
 (`claude -p`) an `ask` is a refusal.
 
-The price of C: whoever deletes the declaration switches the gate off. After a commit that deletes it,
-the next push runs without a decision of the gate. The deletion stays visible in the diff of the pushed
-range, and tests/test_claude_code_plugin_gate.py measures both. Since D20 the price is smaller: when a
-remote-tracking ref shows that the remote holds a declaration, a push that removes it is a change of the
-evidence rules and is asked, or denied under Codex. Without any remote-tracking ref the gate cannot see
-the removal and stays inactive.
+The price of C: whoever deletes the declaration switches the gate off at HEAD. Under owner choice 1 A a removal
+does not switch it off for a push while the declaration still stands in the history the push may send (condition c)
+or at a local record of its destination (condition d); the push is then asked. The price of 1 A, named by the owner:
+a declaration that only the remote holds, standing neither in the checked source history nor in a local record, and
+its removal can go unnoticed at Level 1, above all with a push that only deletes a ref. In the other direction a
+declaration removed long ago from the source history still blocks the exception, and every push from such a history
+is asked. Level 2 sees the remote's state of each ref on git's own ref lines and compares the rules there (D20).
 
 Options:
 - A. `ask` (chosen until 2026-09-30).
@@ -895,7 +920,8 @@ GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7; review Runde 9)
   a literal `-C` on such a local form does not change that decision (it never frees it). Only the exact bare
   command text `git --version` is exempt (review Runde 7, question 5: "every git form" was too broad; wording
   of review Runde 11, R11-5). The separate push path remains: under Claude Code it denies an evidenced failure at
-  the commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1); under Codex every push is
+  the commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1), except the local inactivity
+  of owner choice 1 A for a repository that declares nothing (D5); under Codex every push is
   NOT MEASURED because its execution context is unbound,
   and warns since Karte 5 A (above) — the `-C` sentence above is about the freed local forms, not that push path. A bare `git` without a subcommand is
   no longer free.
@@ -1082,12 +1108,18 @@ on 2026-10-01):
 - A difference is asked under Claude Code and denied under Codex at Level 2, with the change named and the note
   that changes to the evidence rules need a review. Once the remote's ref holds the change, a push to that ref is
   plain; the same change held by another branch or another remote is still a change for this ref.
-- An unresolved push never switches the gate off at Level 1, even when HEAD declares nothing, because it may send
-  another branch the gate did not see (N2); since R9-1 every Level 1 push is unresolved at the destination check.
+- An unresolved push never switches the gate off at Level 1 because HEAD declares nothing (N2); since R9-1 every
+  Level 1 push is unresolved at the destination check. The one exception is owner choice 1 A (D5, 2026-10-11): a
+  push from a repository that declares nothing, whose sources are determined and in whose whole source history and
+  local destination records nothing is declared, is locally inactive (no decision, no check, no pass).
 - A deny for failed evidence at any sent commit comes first; the rules are compared only after the evidence
   verified.
 
-Price: every Level 1 push is asked under Claude Code (D3, D5); the rules comparison happens where Level 2 runs.
+Price: every Level 1 push is asked under Claude Code (D3) except the local inactivity of owner choice 1 A (D5); the
+rules comparison happens where Level 2 runs. The price of 1 A: a declaration that only the remote holds, standing
+neither in the checked source history nor in a local record, and its removal can go unnoticed at Level 1, above all
+with a push that only deletes a ref; a declaration removed long ago from the source history still blocks the
+exception (D5).
 
 Options:
 - A. Compare `git rev-list HEAD --not --remotes` against every remote-tracking ref (the pre-review

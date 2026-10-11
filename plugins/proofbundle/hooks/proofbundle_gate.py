@@ -474,7 +474,8 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: exempt, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms after a state check of their repository
 #: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem). The separate push path remains:
 #: under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks, its destination NOT
-#: MEASURED (D3, R9-1); under Codex every push is NOT MEASURED because its execution context is unbound (review Runde
+#: MEASURED (D3, R9-1), except the local inactivity of owner choice 1 A for a repository that declares nothing
+#: (_local_inactivity, D5); under Codex every push is NOT MEASURED because its execution context is unbound (review Runde
 #: 11, R11-5), and a `git push` warns since Karte 5 A. The two
 #: readers below remain for the write gate.
 
@@ -3724,6 +3725,320 @@ def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | 
                    repo=repo, head=head)
 
 
+# --- a push from a repository that declares nothing (owner choice 1 A of 2026-10-11, DECISIONS.md D5) ------
+
+#: The most commits owner choice 1 A reads for one push: the whole history every source of the push reaches. Without a
+#: bound target state the commits a push newly sends are unknown, so no tracking ref is subtracted; a longer history is
+#: not read, and the push is asked.
+MAX_HISTORY_COMMITS = 20000
+#: What owner choice 1 A says where it does not apply in a repository whose HEAD and working tree declare nothing.
+_LOCAL_EXCEPTION = ("The gate's exception for a repository without a declaration (owner choice 1 A of 2026-10-11, "
+                    "DECISIONS.md D5) does not apply: ")
+
+
+def _push_words(args: list[str]) -> tuple[str | None, list[str], list[str], str | None]:
+    """The remote word, the refspecs and the push options (-o, --push-option) of `git push` arguments, read like
+    _push_sources reads them, and the first option the gate does not model (None where every option is modelled)."""
+    remote, refspecs, options, i, options_done = None, [], [], 0, False
+    while i < len(args):
+        word = args[i]
+        if not options_done and word == "--":
+            options_done, i = True, i + 1
+            continue
+        if not options_done and word.startswith("-") and word != "-":
+            opt, eq, _ = word.partition("=")
+            if word in _PUSH_FLAGS_NEUTRAL or (eq and opt in _PUSH_OPTS_NEUTRAL_INLINE):
+                if eq and opt == "--push-option":
+                    options.append(word[len(opt) + 1:])
+                i += 1
+                continue
+            if not eq and word in _PUSH_OPTS_NEUTRAL_VALUE and i + 1 < len(args):
+                options.append(args[i + 1])
+                i += 2
+                continue
+            return remote, refspecs, options, word
+        if remote is None:
+            remote = word
+        else:
+            refspecs.append(word)
+        i += 1
+    return remote, refspecs, options, None
+
+
+def _objects(repo: str, oids: list[str], deadline: float) -> dict[str, tuple[bytes, bytes] | None]:
+    """The type and bytes of each object through one `git cat-file --batch`; None for an object git does not give. A
+    name git cannot resolve and an object it does not hold print the same `missing` line, so a tree entry is read from
+    its tree here and never from a lookup of `<commit>:<path>` (measured with git 2.43.0 and 2.51.1)."""
+    _refuse_partial_clone(repo, deadline)
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise GateError("the gate ran out of time")
+    try:
+        proc = subprocess.Popen(["git", *_READ_ONLY_GIT, "-C", repo, "cat-file", "--batch"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                env=_read_env(repo))
+    except FileNotFoundError as exc:
+        raise GateError("git is not on PATH") from exc
+    timer = threading.Timer(left, proc.kill)
+    timer.start()
+    writer = threading.Thread(target=_feed, args=(proc.stdin, "".join(o + "\n" for o in oids).encode()))
+    writer.start()
+    found: dict[str, tuple[bytes, bytes] | None] = {}
+    try:
+        for oid in oids:
+            header = proc.stdout.readline().split()
+            if len(header) == 2 and header[0] == oid.encode() and header[1] == b"missing":
+                found[oid] = None
+                continue
+            if len(header) != 3 or header[0] != oid.encode():
+                raise GateError(f"git gave no readable answer for the object {oid[:12]}")
+            remaining, chunks = int(header[2]), []
+            while remaining:
+                chunk = proc.stdout.read(min(remaining, 1 << 20))
+                if not chunk:
+                    raise GateError("git stopped while the gate read an object")
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            if proc.stdout.read(1) != b"\n":
+                raise GateError("git gave an object the gate cannot read")
+            found[oid] = (header[1], b"".join(chunks))
+    finally:
+        timer.cancel()
+        if proc.poll() is None:
+            proc.kill()
+        writer.join()
+        proc.stdout.close()
+        proc.wait()
+    if time.monotonic() >= deadline:
+        raise GateError("the gate ran out of time while it read objects")
+    return found
+
+
+def _tree_entries(raw: bytes, oid_length: int) -> dict[bytes, tuple[bytes, str]] | None:
+    """The entries of a raw tree object, name to (mode, object id), or None where the bytes are no tree."""
+    entries, i = {}, 0
+    while i < len(raw):
+        space = raw.find(b" ", i)
+        nul = raw.find(b"\0", space + 1) if space >= 0 else -1
+        if space < 0 or nul < 0 or nul + 1 + oid_length > len(raw):
+            return None
+        entries[raw[space + 1:nul]] = (raw[i:space], raw[nul + 1:nul + 1 + oid_length].hex())
+        i = nul + 1 + oid_length
+    return entries
+
+
+def _declaration_at(repo: str, commits: list[tuple[str, str]], deadline: float) -> tuple[str, str | None]:
+    """Whether anything stands at DECLARATION, or in place of the EVIDENCE_DIR folder, in each (commit, root tree):
+    ("absent", None) where every tree was read and holds neither, ("present", commit) for the first commit whose tree
+    holds something there (an empty, broken or done-only declaration, a folder or a link at the path, a file or a link
+    where the folder belongs), ("unread", commit) for the first commit whose tree git does not give whole."""
+    folder, name = EVIDENCE_DIR.rstrip("/").encode(), DECLARATION[len(EVIDENCE_DIR):].encode()
+    roots = _objects(repo, sorted({tree for _commit, tree in commits}), deadline)
+    subtrees: dict[str, str] = {}
+    for commit, tree in commits:
+        read = roots.get(tree)
+        entries = None if read is None or read[0] != b"tree" else _tree_entries(read[1], len(tree) // 2)
+        if entries is None:
+            return "unread", commit
+        if folder in entries:
+            mode, oid = entries[folder]
+            if mode != b"40000":
+                return "present", commit
+            subtrees[commit] = oid
+    inner = _objects(repo, sorted(set(subtrees.values())), deadline) if subtrees else {}
+    for commit, oid in subtrees.items():
+        read = inner.get(oid)
+        entries = None if read is None or read[0] != b"tree" else _tree_entries(read[1], len(oid) // 2)
+        if entries is None:
+            return "unread", commit
+        if name in entries:
+            return "present", commit
+    return "absent", None
+
+
+def _commit_trees(repo: str, revs: list[str], deadline: float, walk: bool) -> list[tuple[str, str]] | None:
+    """(commit, root tree) for each of `revs` (walk False) or for every commit they reach (walk True, at most
+    MAX_HISTORY_COMMITS + 1), newest first; None where git cannot list them."""
+    if not revs:
+        return []
+    listing = _git(repo, "rev-list", "--no-commit-header", "--format=%H %T",
+                   *(("--max-count=%d" % (MAX_HISTORY_COMMITS + 1),) if walk else ("--no-walk",)), *revs, "--",
+                   deadline=deadline)
+    if listing.returncode != 0:   # stderr may carry git's hint on the emptied graft file (_read_env)
+        return None
+    pairs = [tuple(line.split()) for line in listing.stdout.decode("ascii", "replace").splitlines()]
+    return pairs if all(len(pair) == 2 for pair in pairs) else None
+
+
+def _working_tree_declares(repo: str) -> bool:
+    """Whether the actual working tree holds anything at DECLARATION, or something other than a folder where
+    EVIDENCE_DIR belongs; an answer git or the filesystem does not give counts as holding something."""
+    try:
+        if not stat.S_ISDIR(os.lstat(os.path.join(repo, EVIDENCE_DIR.rstrip("/"))).st_mode):
+            return True   # a file or a link (also a dangling one) where the folder belongs
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return not _absent_in_working_tree(repo)
+
+
+def _destination_records(repo: str, remote: str | None, values: list[str],
+                         deadline: float) -> tuple[list[tuple[str, str, str]] | None, str | None]:
+    """Every local ref that records a remote ref git push may write for one of `values`, as (local ref, remote ref,
+    commit), or (None, why) where a record cannot be read. The remote refs are the candidates of each value
+    (_dest_candidates), since the gate does not know which one git writes; the records are the local refs each
+    remote's fetch rules map a candidate to, and refs/remotes/<remote>/<branch> for a branch candidate. For a remote
+    word that names no configured remote (a URL or a path) every configured remote's records are read. A dangling or
+    broken ref is no missing one; a missing record says nothing about the remote."""
+    remotes = _remote_names(repo, deadline)
+    rules = _fetch_rules(repo, deadline)
+    if remotes is None or rules is None:
+        return None, ("git cannot read the remotes or their fetch rules, so the local records of the destination are "
+                      "not known")
+    chosen = [remote] if remote in remotes else sorted(remotes)
+    wanted: dict[str, str] = {}
+    for value in values:
+        for name, _strong in _dest_candidates(value):
+            for each in chosen:
+                if name.startswith("refs/heads/"):
+                    wanted.setdefault(f"refs/remotes/{each}/{name[len('refs/heads/'):]}", name)
+                for negative, src, dst, pattern in rules.get(each, []):
+                    if negative or not dst:
+                        continue
+                    if pattern:
+                        local = _refspec_map(src, dst, True, name)
+                    elif src in ("", "HEAD", name) or any(name == known for known, _s in _dest_candidates(src)):
+                        local = _local_ref(dst, False)
+                    else:
+                        local = None
+                    if local is not None:
+                        wanted.setdefault(local, name)
+    listing = _git(repo, "for-each-ref", "--format=%(refname)%00%(objectname)", deadline=deadline)
+    if listing.returncode != 0:
+        return None, "git cannot list this repository's refs, so the local records of the destination are not known"
+    broken = set()
+    for line in listing.stderr.decode("utf-8", "replace").splitlines():
+        if line.startswith("hint: "):
+            continue   # git's hint on the emptied graft file (_read_env)
+        if not line.startswith("warning: ignoring broken ref "):
+            return None, ("git warns while it lists this repository's refs, so a record of the destination may be "
+                          "unread")
+        broken.add(line[len("warning: ignoring broken ref "):])
+    present = {}
+    for line in listing.stdout.split(b"\n"):
+        refname, nul, oid = line.partition(b"\0")
+        if nul:
+            present[_git_text(refname)] = oid.decode("ascii", "replace")
+    records = []
+    for local, name in sorted(wanted.items()):
+        if local in broken:
+            return None, f"the local record {local} of the destination is a broken ref"
+        if local not in present:
+            continue
+        commit = _git(repo, "rev-parse", "--verify", "--quiet", f"{present[local]}^{{commit}}", deadline=deadline)
+        if commit.returncode != 0 or not commit.stdout.strip():
+            return None, f"the local record {local} of the destination names no commit this repository holds"
+        records.append((local, name, commit.stdout.decode().strip()))
+    return records, None
+
+
+def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources: list[str] | None,
+                      deadline: float) -> tuple[Verdict | None, str | None]:
+    """Owner choice 1 A of 2026-10-11 (D5 C of 2026-09-30): a repository that declares nothing stays outside Level 1.
+    This is local inactivity, never a pass and never a check presumed at Level 2: the host's normal approval decides,
+    and the push's destination stays NOT MEASURED. It holds only where (a) the repository, its work tree, the git
+    environment (_work_tree) and every source of a `git push` are determined, no unresolved source is replaced by HEAD,
+    and no configuration adds ref updates or a submodule push the command does not name; (b) nothing stands at
+    DECLARATION, or in place of its folder, at HEAD, in the working tree and at every commit the push may send; (c)
+    those commits are the whole history of every source, with no tracking ref subtracted, read whole and within
+    MAX_HISTORY_COMMITS; (d) no local record of a remote ref the push may write holds anything there, every such record
+    is readable, and a missing one is no evidence about the remote. Returns (the inactive verdict, None), or (None, why
+    the exception does not apply), with why None where HEAD itself declares, so the repository is not one without a
+    declaration. A ref git refuses or a hook-disabling form never reaches this (_evaluate_call, _judge)."""
+    try:
+        heads = _commit_trees(repo, [head], deadline, walk=False)
+        if heads is None:
+            return None, "git could not list the tree of HEAD"
+        if _declaration_at(repo, heads, deadline)[0] != "absent":
+            return None, None
+        if _working_tree_declares(repo):
+            return None, (f"the working tree holds something at {DECLARATION} or in place of its folder, or the gate "
+                          "cannot tell that it does not")
+        if push_args is None:
+            return None, "a gh call sends through steps of its own, and the exception covers a `git push` only"
+        if sources is None:
+            return None, "the commits the push sends are not all determined"
+        remote, refspecs, options, unmodeled = _push_words(push_args)
+        if unmodeled is not None:
+            return None, f"the option {unmodeled} is not one the gate models"
+        remotes = _remote_names(repo, deadline)
+        if remotes is None:
+            return None, "git cannot list the remotes"
+        values: list[str | None] = []
+        if refspecs:
+            for spec in refspecs:
+                src, sep, dst = (spec[1:] if spec.startswith("+") else spec).partition(":")
+                values.append((dst or None) if sep else _source_full_name(repo, src, deadline))
+        else:
+            chosen = _default_push(repo, deadline, remotes, remote)
+            if chosen is None:
+                return None, "git pushes no single branch for this push"
+            remote, dest = chosen
+            values.append(dest)
+        problem = _push_config_problem(repo, deadline, options)
+        if problem is not None:
+            return None, problem.rstrip(".")
+        if remote is None or _push_adds_unnamed_refs(repo, remote, deadline):
+            return None, ("the configuration adds ref updates the command does not name (remote.<name>.push, "
+                          "remote.<name>.mirror or push.followTags)")
+        shallow = _git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline)
+        if shallow.returncode != 0 or shallow.stdout.decode().strip() != "false":
+            return None, ("the repository is shallow, or git does not say that it is not, so the history the push may "
+                          "send is not whole here")
+        history = _commit_trees(repo, list(dict.fromkeys(sources)), deadline, walk=True)
+        if history is None:
+            return None, "git could not list the history the push may send"
+        if len(history) > MAX_HISTORY_COMMITS:
+            return None, (f"the history the push may send holds more than {MAX_HISTORY_COMMITS} commits, more than the "
+                          "gate reads")
+        state, at = _declaration_at(repo, history, deadline)
+        if state == "present":
+            return None, (f"something stands at {DECLARATION} or in place of its folder at {at[:12]}, a commit the "
+                          "push may send")
+        if state == "unread":
+            return None, f"git does not give the whole tree of {at[:12]}, a commit the push may send"
+        if any(value is None for value in values):
+            return None, ("which ref the push writes on the remote cannot be named here, so its local records cannot "
+                          "be read")
+        records, why = _destination_records(repo, remote, [v for v in values if v is not None], deadline)
+        if records is None:
+            return None, why
+        record_trees = _commit_trees(repo, list(dict.fromkeys(c for _l, _n, c in records)), deadline, walk=False)
+        if record_trees is None:
+            return None, "git could not list the commits of the destination's local records"
+        state, at = _declaration_at(repo, record_trees, deadline)
+        if state != "absent":
+            local = next(local for local, _name, commit in records if commit == at)
+            return None, (f"the local record {local} of the destination holds something at {DECLARATION} or in place "
+                          f"of its folder at {at[:12]}" if state == "present" else
+                          f"git does not give the whole tree of {at[:12]}, the commit of the local record {local}")
+    except GateError as exc:
+        return None, f"the gate could not finish its reading ({exc})"
+    tips = ", ".join(c[:12] for c in dict.fromkeys(sources)) or "none, the push only deletes"
+    found = ("; the local record(s) of its destination: " + ", ".join(f"{local} at {commit[:12]}"
+                                                                       for local, _name, commit in records)
+             if records else "; no local record of its destination was found, which says nothing about the remote")
+    text = (f"NOT MEASURED: the gate checks nothing here. {repo} declares no evidence: nothing stands at {DECLARATION} "
+            f"at HEAD {head[:12]}, in the working tree, at the {len(history)} commit(s) the push may send (the whole "
+            f"history of {tips}) or at a local record of its destination{found}. The gate is not active in this "
+            "repository, because nothing is declared. This is local inactivity (owner choice 1 A of 2026-10-11, "
+            "DECISIONS.md D5), not a check and not a pass, and the host's normal approval decides. The push's "
+            "destination and its current state remain NOT MEASURED; a declaration that only the remote holds is not "
+            "seen here.")
+    return Verdict("inactive", text, "nothing_declared_locally", repo=repo, head=head), None
+
+
 # --- one tree ----------------------------------------------------------------------------------------
 
 def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tail: str) -> Verdict:
@@ -3963,14 +4278,23 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
             why = _then(why, "a URL rewrite applies to this remote (" + "; ".join(rewrites) + "), and equal "
                              "effective fetch and push URLs do not prove where the existing tracking ref came from")
         if sources is None:
-            return _unresolved_verdict(repo, head_commit, _then(why, "the gate cannot tell which commits the push "
-                                       "sends, so it checked no evidence, and no check of HEAD stands in for that"),
-                                       next_step)
+            _none, note = _local_inactivity(repo, head_commit, push_args, None, deadline)
+            return _unresolved_verdict(repo, head_commit, _with_note(_then(why, "the gate cannot tell which commits "
+                                       "the push sends, so it checked no evidence, and no check of HEAD stands in for "
+                                       "that"), note), next_step)
         denial = _source_denial(repo, head_commit, sources, deadline, why)
         if denial is not None:
             return denial
-        return _unresolved_verdict(repo, head_commit, _then(why, _sources_clean(sources)), next_step)
+        local, note = _local_inactivity(repo, head_commit, push_args, sources, deadline)
+        if local is not None:
+            return local   # owner choice 1 A: a repository that declares nothing, local inactivity and no check
+        return _unresolved_verdict(repo, head_commit, _with_note(_then(why, _sources_clean(sources)), note), next_step)
     return _evaluate_targets(repo, head_commit, targets, deadline)
+
+
+def _with_note(why: str, note: str | None) -> str:
+    """`why`, then why owner choice 1 A does not apply where it was asked of a repository that declares nothing."""
+    return why if note is None else f"{why.rstrip('.')}. {_LOCAL_EXCEPTION}{note}"
 
 
 def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: float,
@@ -4556,7 +4880,8 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
     judgment as a git form. The separate push path remains. Under Claude Code it denies an evidenced failure at the
-    commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1); under Codex every push is NOT
+    commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1), except the local inactivity of
+    owner choice 1 A for a repository that declares nothing (_local_inactivity, D5); under Codex every push is NOT
     MEASURED because its execution context is unbound
     (review Runde 9, owner choice B; wording of review Runde 10, R10-3), and a `git push` warns (Karte 5 A, D12).
 
