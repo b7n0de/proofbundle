@@ -3,6 +3,19 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 20 (card DRAFTS-01-INHALT-01, owner choices of 2026-10-11): Section 5.2 has two profiles. The key profile is
+unchanged; the certificate profile has exactly the protected labels 1, 4, 15, 33, 258 and 259, alg -7, an iss of the
+form did:x509:0:sha256:F::eku:O and an x5chain of a P-256 leaf and an RSA trust anchor; 5.2.2 selects the profile by
+the label set and checks each exactly. Appendix A.8 gives X1 in full and X2 to X6 as a change of X1 with their own
+signature; R20-* read the certificates, F and O, rebuild X2 to X6 from X1 and the change the text names, and compute
+every status with status20, which adds to status19 a DER reader, RSASSA-PKCS1-v1_5 with SHA-256 and ECDSA P-256 with
+SHA-256, all written here (from memory of X.690, RFC 8017 and FIPS 186), each held to the library in a SELF check.
+Section 5.1 takes proposals P1 and P2 of the CPB comparison; Appendix A.7 gives R1 to R6, whose state and matching
+result R20-R* compute. Two defects of this script were found and fixed in this round: the absolute-URI grammar knew
+only the "//" authority form of hier-part (a did:x509 identifier was wrongly no absolute URI), and match_rule took the
+union of the carriers' names for SHA-256, so a typed digest reference with sha-256 gave MATCH where the text gives
+INDETERMINATE (R3; check R20-CARRIER). Neither changed the result of an earlier vector.
+
 Round 19 (card DRAFTS-01-VORARBEIT-01, preparation of the -01): Draft 2 has a new Appendix A.6, Status
 Vectors: S1 to S8, each a Signed Statement with a candidate receipt of Draft 1, and a table that with M2 names
 one statement for each status of Section 5.2.2. R19-* read the table, the foreign test key and every hex block
@@ -742,6 +755,17 @@ def match_rule(alg, value, rb):
     return ("MATCH" if sha256(B).hex() == vhex else "NO_MATCH"), "rule step 3"
 
 
+#: Round 20: "each name counts only in its own carrier" (3.3 step 1). match_rule above takes the union of the
+#: names, which is right for the cases of A.3 (all in the examples' carrier) but too wide for one carrier alone.
+CARRIER_NAME = {"digest set": "sha256", "cose": -16, "examples": "sha-256", "typed reference": "SHA-256"}
+
+
+def match_rule_in(carrier, alg, value, rb):
+    if isinstance(alg, bool) or alg != CARRIER_NAME[carrier]:
+        return "INDETERMINATE", "rule step 1 (not the name of SHA-256 in this carrier)"
+    return match_rule(alg, value, rb)
+
+
 def match_digest_set(ds, rb):
     """Draft 2 3.3 step 1: a digest set with several entries is matched on its sha256 entry alone."""
     if "sha256" not in ds:
@@ -971,7 +995,7 @@ def parse_verif(s):
 # ===========================================================================
 # Checks
 # ===========================================================================
-print("Independent check of draft-gruszka-evaluation-receipt-mappings-00 from its text")
+print("Independent check of draft-gruszka-evaluation-receipt-mappings-01 from its text")
 print("Python %s, cbor2 %s, cryptography %s" % (sys.version.split()[0], version("cbor2"), version("cryptography")))
 print("Draft 1 vectors extracted: %d" % len(VEC))
 print()
@@ -1697,8 +1721,8 @@ s1b = ["two keys are duplicates only when they are equal under the key equivalen
        "COSE_Sign1 without a tag goes on to step 2 and is outside_profile there.",
        "The protected-header byte string is decoded as a CBOR map, with the empty byte string treated as an empty "
        "map ([RFC9052] Section 3), which fails in step 2. CBOR validity and deterministic encoding are checked "
-       "before step 2. Header label types are checked only in step 2; a header label that is not one of the five "
-       "required integer labels gives outside_profile if step 1 succeeds."]
+       "before step 2. Header label types are checked only in step 2; a header label that is not a label of either "
+       "profile gives outside_profile if step 1 succeeds."]
 gone_1 = ["A data item that is well-formed but not valid ([RFC8949] Section 5.3)",
           "A resource-limit error in step 5 is not a failing step",
           "only when they are the same data item",
@@ -1749,13 +1773,17 @@ check("D2", "S522-1T", well_formed and not inner_valid
       "malformed, whether or not a decoder knows tag 1",
       "well-formed: %s; inner text UTF-8: %s" % (well_formed, inner_valid))
 # RFC 3986 Section 3 (absolute-URI = scheme ":" hier-part [ "?" query ]), 3.2 (authority), 3.2.2 (host, with
-# "[" and "]" only around an IP-literal), 3.3 (path-abempty = *( "/" segment ), segment = *pchar), 2.1 to 2.3.
+# "[" and "]" only around an IP-literal), 3.3 (path-abempty = *( "/" segment ), path-absolute, path-rootless =
+# segment-nz *( "/" segment ), path-empty; segment = *pchar, segment-nz = 1*pchar), 2.1 to 2.3. Round 20: the
+# hier-part has all four forms; before, only "//" authority path-abempty was written here, so an absolute URI such
+# as a did:x509 identifier (path-rootless) was wrongly no absolute URI.
 _unres, _sub = r"A-Za-z0-9\-._~", r"!$&'()*+,;="
 _pct = r"%[0-9A-Fa-f]{2}"
 _pchar = rf"(?:[{_unres}{_sub}:@]|{_pct})"
 _host = rf"(?:\[[0-9A-Fa-f:.vV{_unres}{_sub}]+\]|(?:[{_unres}{_sub}]|{_pct})*)"
-_abs_uri = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.\-]*://(?:(?:[{_unres}{_sub}:]|{_pct})*@)?{_host}(?::[0-9]*)?"
-                      rf"(?:/{_pchar}*)*(?:\?(?:{_pchar}|[/?])*)?\Z")
+_hier = (rf"(?://(?:(?:[{_unres}{_sub}:]|{_pct})*@)?{_host}(?::[0-9]*)?(?:/{_pchar}*)*"
+         rf"|/(?:{_pchar}+(?:/{_pchar}*)*)?|{_pchar}+(?:/{_pchar}*)*|)")
+_abs_uri = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.\-]*:{_hier}(?:\?(?:{_pchar}|[/?])*)?\Z")
 b49_iss, m2_iss = "https://issuer.example/e[val", "https://issuer.example/eval"
 check("D2", "S522-ISS", _abs_uri.match(b49_iss) is None and _abs_uri.match(m2_iss) is not None
       and "an absolute URI ([RFC3986] Section 4.3)" in d2flat8,
@@ -1834,7 +1862,8 @@ a521 = ("1 (alg): -19, Ed25519 as fully specified in [RFC9864], or -8, EdDSA [RF
         "5.2.2 to either; under the Ed25519 statement keys that step 3 selects, both values select the same "
         "signature algorithm. Changing alg changes the protected header bytes and requires a new signature "
         "(Section 5.2.4);")
-a524 = ("Value -19 is the fully specified Ed25519 identifier of [RFC9864], which sets the polymorphic EdDSA "
+a524 = ("In the key profile, value -19 is the fully specified Ed25519 identifier of [RFC9864], which sets the "
+        "polymorphic EdDSA "
         "identifier -8 of [RFC9053] to Deprecated. A party that makes a statement therefore writes -19 only. Every "
         "Receiver accepts -8 as well, for statements made before a producer moved to -19 and for general COSE "
         "verifiers that implement -8 but not -19 (Section 12), so that one statement gives one status. -8 names "
@@ -1843,8 +1872,8 @@ a524 = ("Value -19 is the fully specified Ed25519 identifier of [RFC9864], which
 old17 = ["A Receiver MAY also accept -8", "for a Receiver that does not accept it", "and may accept them",
          "A Receiver may meet statements with -8"]
 check("D2", "R17-ALG", a521 in d2flat16 and a524 in d2flat16 and not any(o in d2flat16 for o in old17)
-      and "the protected header does not hold exactly the five parameters above with the types and values given "
-          "there" in d2flat16,
+      and "the labels select neither profile, a parameter does not have the type and value that the selected profile "
+          "gives" in d2flat16,
       "5.2.1, 5.2.2 step 2 and 5.2.4 give one alg rule: every Receiver accepts -19 and -8; any other alg value is "
       "still outside_profile under step 2",
       "old sentences left: " + (", ".join(o for o in old17 if o in d2flat16) or "none"))
@@ -1985,7 +2014,8 @@ check("D2", "R19-A8", sha256(SV19["S1"][1]).hex() == sha256(_cs17).hex() and s1_
 s19_txt = ["Vector M2 with vector P1 of [RECEIPTS] is accepted, and Appendix A.6 gives a statement for each other "
            "status.",
            "Vector S1 (Appendix A.6) is M2 with alg -8, signed again under the same key; it is accepted.",
-           "and the status of M2 and of every status vector, with its own implementation of the steps of Section 5.2.2.",
+           "the status of M2, of every status vector and of every certificate-profile vector, with its own "
+           "implementation of the steps of Section 5.2.2 in both profiles;",
            "M2 and the status vectors of Appendix A.6 are, byte for byte, statements of that set, made independently "
            "by the generator of Appendix A."]
 check("D2", "R19-TEXT", all(x in d2flat19 for x in s19_txt),
@@ -1998,6 +2028,477 @@ check("SELF", "N19", status19(bytes(_s5x), VEC["P1"]["R"], ISSUER_PK, pairs19) =
       and status19(SV19["S8"][1], VEC["P1"]["R"], ISSUER_PK, []) == ("untrusted_key", 3),
       "negative control: S8 with its last signature bit flipped is signature_invalid at step 4, and S8 under no "
       "configured pair is untrusted_key at step 3")
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 20: the certificate profile (5.2, 5.2.2, A.8) and typed digest references (5.1, A.7) ===")
+d2flat20 = norm_ws(" ".join(d2))
+
+
+# DER (X.690) as remembered: tag, length, contents; only what a certificate needs here.
+class DerErr(Exception):
+    pass
+
+
+def der_tlv(b, i):
+    """(tag, contents start, contents end, end) of the TLV at offset i; definite lengths only."""
+    if i + 2 > len(b):
+        raise DerErr("short")
+    tag = b[i]
+    if tag & 0x1F == 0x1F:
+        raise DerErr("high tag number")
+    n = b[i + 1]
+    j = i + 2
+    if n & 0x80:
+        k = n & 0x7F
+        if k == 0 or k > 4 or j + k > len(b) or b[j] == 0:
+            raise DerErr("length form")
+        n = int.from_bytes(b[j:j + k], "big")
+        if n < 128:
+            raise DerErr("length not minimal")
+        j += k
+    if j + n > len(b):
+        raise DerErr("overrun")
+    return tag, j, j + n, j + n
+
+
+def der_children(b, start, end):
+    out, i = [], start
+    while i < end:
+        t, cs, ce, i = der_tlv(b, i)
+        out.append((t, cs, ce))
+    if i != end:
+        raise DerErr("children overrun")
+    return out
+
+
+def der_oid(content):
+    first, rest, val = content[0], [], 0
+    arcs = [min(first // 40, 2), first - 40 * min(first // 40, 2)]
+    for c in content[1:]:
+        val = (val << 7) | (c & 0x7F)
+        if not c & 0x80:
+            rest.append(val)
+            val = 0
+    return ".".join(str(a) for a in arcs + rest)
+
+
+def der_uint(content):
+    if not content or (content[0] & 0x80):
+        raise DerErr("negative or empty INTEGER")
+    return int.from_bytes(content, "big")
+
+
+def parse_cert(c):
+    """The parts of an X.509 certificate (RFC 5280 Section 4.1) that step 3 of the certificate profile reads."""
+    t, cs, ce, end = der_tlv(c, 0)
+    if t != 0x30 or end != len(c):
+        raise DerErr("not one SEQUENCE")
+    top = der_children(c, cs, ce)
+    if len(top) != 3 or top[0][0] != 0x30 or top[1][0] != 0x30 or top[2][0] != 0x03:
+        raise DerErr("Certificate shape")
+    tbs_raw = c[top[0][1] - (2 if top[0][2] - top[0][1] < 128 else (2 + len((top[0][2] - top[0][1]).to_bytes(4, 'big').lstrip(b'\0')))):top[0][2]]
+    sig_alg = der_children(c, top[1][1], top[1][2])
+    sig_oid = der_oid(c[sig_alg[0][1]:sig_alg[0][2]])
+    bits = c[top[2][1]:top[2][2]]
+    if bits[0] != 0:
+        raise DerErr("unused bits")
+    tbs = der_children(c, top[0][1], top[0][2])
+    k = 1 if tbs[0][0] == 0xA0 else 0
+    issuer = c[tbs[k + 2][1] - _hdr_len(tbs[k + 2]):tbs[k + 2][2]]
+    subject = c[tbs[k + 4][1] - _hdr_len(tbs[k + 4]):tbs[k + 4][2]]
+    spki_t = tbs[k + 5]
+    spki = c[spki_t[1] - _hdr_len(spki_t):spki_t[2]]
+    spki_parts = der_children(c, spki_t[1], spki_t[2])
+    alg = der_children(c, spki_parts[0][1], spki_parts[0][2])
+    key_oid = der_oid(c[alg[0][1]:alg[0][2]])
+    key_param = der_oid(c[alg[1][1]:alg[1][2]]) if len(alg) > 1 and alg[1][0] == 0x06 else None
+    key_bits = c[spki_parts[1][1]:spki_parts[1][2]]
+    if key_bits[0] != 0:
+        raise DerErr("key unused bits")
+    ekus = None
+    for t_, s_, e_ in tbs[k + 6:]:
+        if t_ != 0xA3:
+            continue
+        (seq_t, seq_s, seq_e), = der_children(c, s_, e_)
+        for _t, xs, xe in der_children(c, seq_s, seq_e):
+            parts = der_children(c, xs, xe)
+            if der_oid(c[parts[0][1]:parts[0][2]]) == "2.5.29.37":
+                octets = parts[-1]
+                (_ot, os_, oe_), = der_children(c, octets[1], octets[2])
+                ekus = [der_oid(c[a:b]) for _x, a, b in der_children(c, os_, oe_)]
+    return {"tbs": tbs_raw, "sig_oid": sig_oid, "sig": bits[1:], "issuer": issuer, "subject": subject,
+            "spki": spki, "key_oid": key_oid, "key_param": key_param, "key": key_bits[1:], "eku": ekus}
+
+
+def _hdr_len(t):
+    n = t[2] - t[1]
+    return 2 if n < 128 else 2 + len(n.to_bytes(4, "big").lstrip(b"\0"))
+
+
+def rsa_key(raw):
+    (_t, cs, ce), = [der_tlv(raw, 0)[:3]]
+    n_t, e_t = der_children(raw, cs, ce)
+    return der_uint(raw[n_t[1]:n_t[2]]), der_uint(raw[e_t[1]:e_t[2]])
+
+
+DIGESTINFO_SHA256 = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def rsa_pkcs1v15_sha256_ok(n, e, msg, sig):
+    """RFC 8017 Section 8.2.2 with EMSA-PKCS1-v1_5 (Section 9.2) and SHA-256, as remembered."""
+    k = (n.bit_length() + 7) // 8
+    if len(sig) != k:
+        return False
+    s = int.from_bytes(sig, "big")
+    if s >= n:
+        return False
+    em = pow(s, e, n).to_bytes(k, "big")
+    t = DIGESTINFO_SHA256 + hashlib.sha256(msg).digest()
+    return em == b"\x00\x01" + b"\xff" * (k - len(t) - 3) + b"\x00" + t
+
+
+# P-256 (SEC 2 / FIPS 186), constants as remembered; affine arithmetic.
+EC_P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+EC_A = EC_P - 3
+EC_B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
+EC_G = (0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+        0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5)
+EC_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def ec_on(pt):
+    x, y = pt
+    return (y * y - (x * x * x + EC_A * x + EC_B)) % EC_P == 0
+
+
+def ec_add(p1, p2):
+    if p1 is None:
+        return p2
+    if p2 is None:
+        return p1
+    if p1[0] == p2[0] and (p1[1] + p2[1]) % EC_P == 0:
+        return None
+    if p1 == p2:
+        lam = (3 * p1[0] * p1[0] + EC_A) * pow(2 * p1[1], -1, EC_P) % EC_P
+    else:
+        lam = (p2[1] - p1[1]) * pow(p2[0] - p1[0], -1, EC_P) % EC_P
+    x = (lam * lam - p1[0] - p2[0]) % EC_P
+    return (x, (lam * (p1[0] - x) - p1[1]) % EC_P)
+
+
+def ec_mul(k, pt):
+    acc = None
+    while k:
+        if k & 1:
+            acc = ec_add(acc, pt)
+        pt = ec_add(pt, pt)
+        k >>= 1
+    return acc
+
+
+def es256_ok(point, msg, sig):
+    """ECDSA verification with SHA-256 (FIPS 186), r and s from the two halves of the signature (RFC 9053 2.1)."""
+    if len(sig) != 64 or point is None or not ec_on(point):
+        return False
+    r, s = int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big")
+    if not (1 <= r < EC_N and 1 <= s < EC_N):
+        return False
+    e = int.from_bytes(hashlib.sha256(msg).digest(), "big")
+    w = pow(s, -1, EC_N)
+    pt = ec_add(ec_mul(e * w % EC_N, EC_G), ec_mul(r * w % EC_N, point))
+    return pt is not None and pt[0] % EC_N == r
+
+
+def es256_lib(point, msg, sig):
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec  # noqa: PLC0415
+    from cryptography.hazmat.primitives import hashes as _h  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature as _enc  # noqa: PLC0415
+    try:
+        k = _ec.EllipticCurvePublicNumbers(point[0], point[1], _ec.SECP256R1()).public_key()
+        k.verify(_enc(int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big")), msg, _ec.ECDSA(_h.SHA256()))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def b64url_nopad(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+
+DID_RX = re.compile(r"\Adid:x509:0:sha256:([A-Za-z0-9_-]{43})::eku:([0-2](?:\.(?:0|[1-9][0-9]*))+)\Z")
+
+
+def cert_pair_counts(iss_, kid_, chain, pair):
+    """Section 5.2.2 step 3, certificate profile, as written."""
+    p_iss, anchor = pair
+    m = DID_RX.match(iss_)
+    if p_iss != iss_ or chain[1] != anchor or b64url_nopad(sha256(anchor)) != m.group(1):
+        return False
+    try:
+        leaf, root = parse_cert(chain[0]), parse_cert(chain[1])
+        if root["key_oid"] != "1.2.840.113549.1.1.1":
+            return False
+        n_, e_ = rsa_key(root["key"])
+        if n_.bit_length() < 2048 or leaf["sig_oid"] != "1.2.840.113549.1.1.11":
+            return False
+        if not rsa_pkcs1v15_sha256_ok(n_, e_, leaf["tbs"], leaf["sig"]):
+            return False
+        if leaf["issuer"] != root["subject"] or leaf["eku"] is None or m.group(2) not in leaf["eku"]:
+            return False
+        if leaf["key_oid"] != "1.2.840.10045.2.1" or leaf["key_param"] != "1.2.840.10045.3.1.7":
+            return False
+    except (DerErr, IndexError, ValueError):
+        return False
+    return sha256(leaf["spki"]) == kid_
+
+
+def leaf_point(cert):
+    k = parse_cert(cert)["key"]
+    if len(k) != 65 or k[0] != 4:
+        return None
+    return int.from_bytes(k[1:33], "big"), int.from_bytes(k[33:], "big")
+
+
+def status20(stmt, rb, rkey, pairs, cert_pairs):
+    """Section 5.2.2 steps 1 to 7 with both profiles, as written in round 20."""
+    try:
+        item = cbor2.loads(stmt)
+        det = cenc(item) == stmt
+    except Exception:  # noqa: BLE001
+        return ("malformed", 1)
+    if not det:
+        return ("malformed", 1)
+    tagged = isinstance(item, cbor2.CBORTag)
+    if tagged and item.tag != 18:
+        return ("malformed", 1)
+    arr = item.value if tagged else item
+    if not (isinstance(arr, (list, tuple)) and len(arr) == 4 and isinstance(arr[0], bytes)
+            and isinstance(arr[1], Mapping) and isinstance(arr[2], (bytes, type(None))) and isinstance(arr[3], bytes)):
+        return ("malformed", 1)
+    ph_, uh_, pl_, sg_ = arr
+    try:
+        prot_ = cbor2.loads(ph_) if ph_ else {}
+        pdet = (not ph_) or cenc(prot_) == ph_
+    except Exception:  # noqa: BLE001
+        return ("malformed", 1)
+    if not isinstance(prot_, Mapping) or not pdet:
+        return ("malformed", 1)
+    cwt_ = prot_.get(15)
+    shared = (tagged and len(uh_) == 0 and isinstance(prot_.get(4), bytes) and len(prot_[4]) == 32
+              and isinstance(cwt_, Mapping) and set(cwt_) == {1, 2} and isinstance(cwt_[1], str)
+              and isinstance(cwt_[2], str) and re.fullmatch(r"sha256:[0-9a-f]{64}", cwt_[2]) is not None
+              and prot_.get(258) == -16 and prot_.get(259) == D2_TYPE and isinstance(pl_, bytes) and len(pl_) == 32
+              and len(sg_) == 64)
+    labels = set(prot_)
+    if shared and labels == {1, 4, 15, 258, 259} and prot_[1] in (-19, -8) and _abs_uri.match(cwt_[1]):
+        prof = "key"
+    elif (shared and labels == {1, 4, 15, 33, 258, 259} and prot_[1] == -7 and DID_RX.match(cwt_[1])
+          and isinstance(prot_[33], (list, tuple)) and len(prot_[33]) == 2 and all(isinstance(c, bytes) for c in prot_[33])):
+        prof = "certificate"
+    else:
+        return ("outside_profile", 2)
+    ss_ = cenc(["Signature1", ph_, b"", pl_])
+    if prof == "key":
+        sel = [k for iss_, k in pairs if iss_ == cwt_[1] and key_counts(k) and thumb19(k) == prot_[4]]
+        if not sel:
+            return ("untrusted_key", 3)
+        good = any(profile_verify(k, sg_, ss_) is None for k in sel)
+    else:
+        chain = list(prot_[33])
+        if not any(cert_pair_counts(cwt_[1], prot_[4], chain, pr) for pr in cert_pairs):
+            return ("untrusted_key", 3)
+        good = es256_ok(leaf_point(chain[0]), ss_, sg_)
+    if not good:
+        return ("signature_invalid", 4)
+    st_ = statement_steps_5_to_7(pl_, cwt_[2], rb, rkey)
+    return (st_, None if st_ == "accepted" else {"receipt_not_verified": 5, "digest_mismatch": 6,
+                                                 "subject_mismatch": 7}[st_])
+
+
+# self-tests of the primitives written above
+check("SELF", "R20-EC", ec_on(EC_G) and ec_mul(EC_N, EC_G) is None and ec_mul(EC_N - 1, EC_G) == (EC_G[0], EC_P - EC_G[1]),
+      "P-256 as written: G is on the curve, n*G is the point at infinity and (n-1)*G is -G")
+check("SELF", "R20-OID", der_oid(bytes.fromhex("2a864886f70d01010b")) == "1.2.840.113549.1.1.11"
+      and der_oid(bytes.fromhex("2b06010505070303")) == "1.3.6.1.5.5.7.3.3",
+      "the OID reader gives sha256WithRSAEncryption and code signing for their DER contents")
+
+# Appendix A.8 read from the text
+a8 = find_line(d2, r"^A\.8\.\s+Certificate-Profile Vectors")
+a8_end = find_line(d2, r"^Open Items", a8)
+lf = find_line(d2, r"^\s+F [A-Za-z0-9_-]{43}$", a8, a8_end)
+F20 = d2[lf].split()[1]
+O20 = d2[lf + 1].split()[1]
+ISS20 = "did:x509:0:sha256:%s::eku:%s" % (F20, O20)
+ll = find_line(d2, r"Test leaf certificate, \d+ bytes \(hex\):", a8, a8_end)
+LEAF20 = hex_block(d2, ll)
+lr = find_line(d2, r"Test root certificate, the trust anchor", a8, a8_end)
+ROOT20 = hex_block(d2, lr)
+lsh = find_line(d2, r"SHA-256 over the test leaf and over the test root certificate:", a8, a8_end)
+SH20 = [next_text(d2, lsh)[0]]
+SH20.append(next_text(d2, next_text(d2, lsh)[1])[0])
+KID20 = hex_block(d2, find_line(d2, r"kid of X1, SHA-256 over the SubjectPublicKeyInfo", a8, a8_end))
+lx1 = find_line(d2, r"^\s+X1, \d+ bytes \(hex\):", a8, a8_end)
+X1 = hex_block(d2, lx1)
+SIG20 = {}
+for xid in ("X2", "X3", "X4", "X5", "X6"):
+    lxs = find_line(d2, r"^\s+%s: .*" % xid, a8, a8_end)
+    SIG20[xid] = hex_block(d2, lxs)
+TAB20 = {}
+t20s = find_line(d2, r"^\s+\| Vector \| Bytes", a8, a8_end)
+t20e = find_line(d2, r"Table \d+: Certificate-profile vectors", a8, a8_end)
+t20b = find_line(d2, r"^\s+\+=", t20s + 1, t20e)   # the rule under the (wrapped) heading
+for line in d2[t20b:t20e]:
+    s_ = line.strip()
+    if s_.startswith("|"):
+        c_ = [x.strip() for x in s_.split("|")[1:-1]]
+        TAB20[c_[0]] = (int(c_[1]), c_[2], c_[3], None if c_[4] == "(none)" else int(c_[4]))
+XSHA20 = {}
+for line in d2[t20e:a8_end]:
+    mm20 = re.match(r"^\s+(X\d)\s+([0-9a-f]{64})$", line)
+    if mm20:
+        XSHA20[mm20.group(1)] = mm20.group(2)
+x1t = cbor2.loads(X1)
+x1p = dict(cbor2.loads(x1t.value[0]))
+leaf20, root20 = parse_cert(LEAF20), parse_cert(ROOT20)
+check("D2", "R20-CERTS", sha256(LEAF20).hex() == SH20[0] and sha256(ROOT20).hex() == SH20[1]
+      and b64url_nopad(sha256(ROOT20)) == F20 and sha256(leaf20["spki"]) == KID20
+      and list(x1p.get(33, [])) == [LEAF20, ROOT20],
+      "A.8: the two certificates match their SHA-256, F is SHA-256 over the test root in base64url without padding, "
+      "kid is SHA-256 over the SubjectPublicKeyInfo of the test leaf (read with this script's DER reader), and "
+      "x5chain of X1 is the leaf and the root", "F %s, O %s" % (F20, O20))
+check("D2", "R20-X1FORM", list(x1p) == [1, 4, 15, 33, 258, 259] and x1p[1] == -7 and x1p[4] == KID20
+      and dict(x1p[15]) == {1: ISS20, 2: x1p[15][2]} and x1p[15][2] == D2_SUB and x1p[258] == -16
+      and x1p[259] == D2_TYPE and len(x1t.value[1]) == 0 and x1t.value[2] == D2_DIGEST and len(X1) == TAB20["X1"][0],
+      "X1 has exactly the six parameters of the certificate profile in the order the text lists, iss F and O as "
+      "given, sub of M2, the receipt digest as payload and the length of the table")
+
+
+def build_x(prot_map, sig_):
+    return cenc(cbor2.CBORTag(18, [cenc(prot_map), {}, D2_DIGEST, sig_]))
+
+
+_iss_leaf = "did:x509:0:sha256:%s::eku:%s" % (b64url_nopad(sha256(LEAF20)), O20)
+X20 = {"X1": X1,
+       "X2": build_x({**x1p, 1: -9}, SIG20["X2"]),
+       "X3": build_x({k: v for k, v in x1p.items() if k != 33}, SIG20["X3"]),
+       "X4": build_x({**x1p, 15: {1: _iss_leaf, 2: x1p[15][2]}}, SIG20["X4"]),
+       "X5": build_x({**x1p, 16: "application/cose"}, SIG20["X5"]),
+       "X6": build_x(x1p, SIG20["X6"])}
+x_desc = ["X2: X1 with 1 (alg) -9 in place of -7.", "X3: X1 without parameter 33 (x5chain).",
+          "X4: X1 with iss in the form of Section 5.2, whose F is SHA-256 over the test leaf certificate.",
+          "X5: X1 with one more parameter, 16 (typ), the text string \"application/cose\".",
+          "X6: X1's protected header unchanged."]
+check("D2", "R20-REBUILD", all(x in d2flat20 for x in x_desc) and set(XSHA20) == set(X20)
+      and all(sha256(X20[k]).hex() == XSHA20[k] and len(X20[k]) == TAB20[k][0] for k in X20),
+      "X2 to X6 rebuilt from X1 with the change the text names and the signature it gives: each has the SHA-256 and "
+      "the length the text lists", ", ".join("%s %d" % (k, len(v)) for k, v in sorted(X20.items())))
+pairs20 = [(D2_ISS, ISSUER_PK)]
+cpairs20 = [(ISS20, ROOT20)]
+in_text20 = "configured certificate pair is the did:x509 identifier below with the test root certificate" in d2flat20
+for k_ in sorted(X20):
+    _n, cand_, st_exp, step_exp = TAB20[k_]
+    got = status20(X20[k_], VEC[cand_]["R"], ISSUER_PK, pairs20, cpairs20)
+    check("D2", "R20-" + k_, got == (st_exp, step_exp) and in_text20,
+          "%s with %s under the certificate pair of A.8: status computed from the text (%s, step %s), table says (%s, "
+          "step %s)" % (k_, cand_, got[0], got[1], st_exp, step_exp))
+x1_ss = cenc(["Signature1", x1t.value[0], b"", D2_DIGEST])
+lp = leaf_point(LEAF20)
+check("SELF", "R20-ECLIB", es256_ok(lp, x1_ss, x1t.value[3]) and es256_lib(lp, x1_ss, x1t.value[3])
+      and not es256_ok(lp, cenc(["Signature1", cbor2.loads(X20["X6"]).value[0], b"", D2_DIGEST]), SIG20["X6"])
+      and not es256_lib(lp, cenc(["Signature1", cbor2.loads(X20["X6"]).value[0], b"", D2_DIGEST]), SIG20["X6"]),
+      "this script's ECDSA P-256 and the library agree: X1's signature verifies under the leaf key, X6's does not")
+_rn, _re_ = rsa_key(root20["key"])
+check("SELF", "R20-RSA", rsa_pkcs1v15_sha256_ok(_rn, _re_, leaf20["tbs"], leaf20["sig"])
+      and not rsa_pkcs1v15_sha256_ok(_rn, _re_, leaf20["tbs"][:-1] + bytes([leaf20["tbs"][-1] ^ 1]), leaf20["sig"])
+      and _rn.bit_length() == 3072 and root20["sig_oid"] == "1.2.840.113549.1.1.11"
+      and rsa_pkcs1v15_sha256_ok(_rn, _re_, root20["tbs"], root20["sig"]),
+      "RSASSA-PKCS1-v1_5 with SHA-256 as written: the leaf's signature verifies under the 3072-bit root key, fails "
+      "with one bit of the TBSCertificate changed, and the root's self-signature verifies")
+# controls that the steps of the certificate profile, not only the vectors, are computed
+_root_bad = bytearray(ROOT20)
+_root_bad[-1] ^= 1
+check("SELF", "N20", status20(X1, VEC["P1"]["R"], ISSUER_PK, pairs20, []) == ("untrusted_key", 3)
+      and status20(X1, VEC["P1"]["R"], ISSUER_PK, pairs20, [(ISS20, bytes(_root_bad))]) == ("untrusted_key", 3)
+      and status20(X1, VEC["N7"]["R"], ISSUER_PK, pairs20, cpairs20) == ("receipt_not_verified", 5)
+      and status20(D2_CS, VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20) == ("accepted", None)
+      and all(status20(b_, VEC[TAB19[k_][0]]["R"], ISSUER_PK, pairs20, cpairs20) == TAB19[k_][1:]
+              for k_, (_n2, b_) in SV19.items()),
+      "negative controls: X1 under no certificate pair, or under a pair whose anchor has one bit changed, is "
+      "untrusted_key at step 3; X1 with N7 is receipt_not_verified; M2 and S1 to S8 keep their status with the "
+      "certificate pair configured too")
+check("DEMO", "R20-URI", _abs_uri.match(ISS20) is not None and _abs_uri.match("https://issuer.example/e[val") is None
+      and _abs_uri.match("did:") is not None and _abs_uri.match("did:x509:0#frag") is None,
+      "RFC 3986 absolute-URI with all forms of hier-part: the did:x509 identifier of X1 (path-rootless) is one, "
+      "https://issuer.example/e[val is not, an empty path is one, a fragment is not")
+s20_txt = ["The labels of the protected header select the profile: exactly 1, 4, 15, 258 and 259 select the key "
+           "profile, and exactly 1, 4, 15, 33, 258 and 259 the certificate profile.",
+           "This step is not certification path validation ([RFC5280] Section 6) and does not resolve iss as a DID",
+           "[RFC9864] also sets -7 to Deprecated and registers -9 (ESP256) for ECDSA with SHA-256 on P-256.",
+           "The steps of Section 5.2.2, applied on 2026-10-11 to the registered statement under the certificate pair "
+           "of its test root, give accepted.",
+           "054f1f6e364580c42fad862747903f2a6ee19976", "[RFC9360]", "[RFC5280]", "[RFC8017]", "[RFC6979]"]
+check("D2", "R20-TEXT", all(x in d2flat20 for x in s20_txt),
+      "5.2.2 names the two label sets, says that step 3 is not path validation, 5.2.4 says that RFC 9864 deprecates "
+      "-7, Section 12 gives the registration measurement, and the new references stand",
+      "missing: " + (", ".join(x[:40] for x in s20_txt if x not in d2flat20) or "none"))
+
+# Appendix A.7, typed digest references, and Section 5.1
+a7 = find_line(d2, r"^A\.7\.\s+Typed Digest References")
+t7s = find_line(d2, r"^\s+\| Vector \| Change to", a7, a8)
+t7e = find_line(d2, r"Table \d+: Typed digest references", a7, a8)
+t7b = find_line(d2, r"^\s+\+=", t7s + 1, t7e)   # the rule under the (wrapped) heading
+TAB7, _row = {}, None
+for line in d2[t7b:t7e]:
+    s_ = line.strip()
+    if s_.startswith("|"):
+        c_ = [x.strip() for x in s_.split("|")[1:-1]]
+        if c_[0]:
+            _row = c_[0]
+            TAB7[_row] = c_
+        else:
+            TAB7[_row] = [(a + " " + b).strip() for a, b in zip(TAB7[_row], c_)]
+_p2b = steps_1_to_3(VEC["P2"]["R"])[0]
+REF1 = {"type": D2_TYPE, "digest_alg": "SHA-256", "digest": D2_DIGEST.hex()}
+CHANGES7 = {"(none)": {}, "purpose evaluation added": {"purpose": "evaluation"},
+            "digest_alg sha-256": {"digest_alg": "sha-256"}, "digest in uppercase": {"digest": D2_DIGEST.hex().upper()},
+            "digest names B of P2": {"digest": sha256(_p2b).hex()}}
+
+
+def ref_state(ref, rb):
+    """Section 5.1 with CPB Section 8.1 as Section 5.1 cites it: (state, matching rule)."""
+    mr = match_rule_in("typed reference", ref.get("digest_alg"), ref.get("digest"), rb)[0]
+    B_, fail_, _ = steps_1_to_3(rb)
+    if ref.get("type") != D2_TYPE or "purpose" in ref:
+        return "Unresolved", mr
+    if ref.get("digest_alg") != "SHA-256" or re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is None:
+        return "Failed", mr
+    if fail_:
+        return "Unresolved", mr
+    return ("Verified" if sha256(B_).hex() == ref["digest"] else "Failed"), mr
+
+
+s51 = ["the context has no purpose label, so a reference that carries purpose is Unresolved ([CPB] Section 8.1);",
+       "a digest_alg other than SHA-256, a digest that is not a text value of 64 lowercase hexadecimal digits, and a "
+       "digest that differs from SHA-256 over B are Failed ([CPB] Section 8.1); the matching rule of Section 3.3 gives "
+       "INDETERMINATE for the first two and NO_MATCH for the third, because it also reads citations outside a typed "
+       "digest reference."]
+check("SELF", "R20-CARRIER", match_rule("sha-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "MATCH"
+      and match_rule_in("typed reference", "sha-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "INDETERMINATE"
+      and match_rule_in("typed reference", "SHA-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "MATCH"
+      and "each name counts only in its own carrier" in d2flat20,
+      "3.3 step 1 per carrier: sha-256 matches in the examples' carrier and gives INDETERMINATE in a typed digest "
+      "reference, where only SHA-256 names the algorithm; the union of the names (match_rule) is too wide there")
+check("D2", "R20-51", all(x in d2flat20 for x in s51) and set(TAB7) == {"R%d" % i for i in range(1, 7)},
+      "5.1 holds the two sentences of the CPB comparison (P1 and P2), and A.7 lists R1 to R6",
+      "found %d of %d; rows %s" % (sum(x in d2flat20 for x in s51), len(s51), sorted(TAB7)))
+for rid in sorted(TAB7):
+    _v, change, cand_, state_exp, match_exp = TAB7[rid]
+    ref = {**REF1, **CHANGES7[change.replace("`", "")]}
+    got = ref_state(ref, VEC[cand_]["R"])
+    check("D2", "R20-" + rid, got == (state_exp, match_exp),
+          "%s (%s) with %s: state and matching rule computed from the text %s, table says %s"
+          % (rid, change, cand_, got, (state_exp, match_exp)))
 print()
 
 # ---------------------------------------------------------------------------

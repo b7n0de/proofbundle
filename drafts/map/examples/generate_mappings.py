@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Examples for draft-gruszka-evaluation-receipt-mappings-01.
 
-Input: the positive vector P1 of draft-gruszka-signed-evaluation-receipts-00 (its exact receipt bytes,
+Input: the positive vector P1 of draft-gruszka-signed-evaluation-receipts-01 (its exact receipt bytes,
 read from that draft's vectors.json). Output, all bytes deterministic:
 
   * the receipt digest: SHA-256 over B, the receipt's payload bytes;
@@ -15,14 +15,21 @@ read from that draft's vectors.json). Output, all bytes deterministic:
   * S1 to S8, status vectors: Signed Statements, each presented with a candidate receipt of the receipts
     draft, one for every status of the checking procedure besides accepted (M2 with P1), and S1, a
     statement with alg -8 that every Receiver accepts. The foreign key that signs S4 and S5 is a pure test
-    key whose seed is SHA-256 over FOREIGN_SEED_LABEL.
+    key whose seed is SHA-256 over FOREIGN_SEED_LABEL;
+  * X1 to X6, certificate-profile vectors: X1 a statement in the certificate profile (alg -7, x5chain of a P-256
+    test leaf and an RSA-3072 test root, iss a did:x509 identifier that names the root), each other vector X1 with
+    one change; the chain and the ES256 signatures are deterministic test material of test_chain.py;
+  * R1 to R6, typed digest references under the declaration of the mappings draft, Section 5.1, each with a
+    candidate receipt, its state in the terms of CPB Section 8.1 and the result of the matching rule.
 
-The test key is the pure test key of the receipts draft; it MUST NOT be used for anything real.
+The test key is the pure test key of the receipts draft; it MUST NOT be used for anything real. The same holds for
+the test certificates and P-256 test keys of test_chain.py.
 """
 import base64
 import hashlib
 import json
 import os
+import re as _re
 import sys
 
 import cbor2
@@ -32,6 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RECEIPT_VECTORS = os.path.join(HERE, "..", "..", "ser", "examples", "vectors.json")
 sys.path.insert(0, os.path.join(HERE, "..", "..", "ser", "examples"))
 import check_receipts  # noqa: E402  the receipts draft's own checker, used for the verdict column only
+import test_chain  # noqa: E402  deterministic test certificates and ES256 (RFC 6979) for the X vectors
 
 #: (case, candidate vector of the receipts draft, citation algorithm, what the case shows)
 CASES = [
@@ -54,6 +62,38 @@ ALG_ED25519, ALG_SHA256 = -19, -16
 TAG_COSE_SIGN1 = 18
 ISS = "https://issuer.example/eval"
 FOREIGN_SEED_LABEL = "receipt-cose foreign statement key, PURE TEST KEY"
+H_X5CHAIN, ALG_ES256, ALG_ESP256 = 33, -7, -9
+ROOT_LABEL = "eval-receipt mappings test root, PURE TEST MATERIAL"
+LEAF_LABEL = "eval-receipt mappings test statement signer, PURE TEST MATERIAL"
+OTHER_LEAF_LABEL = "eval-receipt mappings other P-256 key, PURE TEST MATERIAL"
+ROOT_CN = "eval-receipt mappings test root (PURE TEST MATERIAL)"
+LEAF_CN = "eval-receipt mappings test statement signer (PURE TEST MATERIAL)"
+
+#: (vector, candidate receipt, expected status, first failing step or None, what it shows)
+CERT = [
+    ("X1", "P1", "accepted", None, "the certificate profile: alg -7, x5chain of the test leaf and the test root, "
+     "iss a did:x509 identifier that names the test root"),
+    ("X2", "P1", "outside_profile", 2, "X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf"),
+    ("X3", "P1", "outside_profile", 2, "X1 without x5chain, signed again under the test leaf: its labels are those "
+     "of the key profile, and -7 is not an alg value of that profile"),
+    ("X4", "P1", "untrusted_key", 3, "X1 with an iss whose fingerprint names the test leaf certificate and not the "
+     "test root, signed again under the test leaf"),
+    ("X5", "P1", "outside_profile", 2, "X1 with one more protected parameter, 16 (typ), signed again under the test "
+     "leaf"),
+    ("X6", "P1", "signature_invalid", 4, "X1 signed by another P-256 test key; kid and x5chain still name the test "
+     "leaf"),
+]
+
+#: (vector, candidate receipt, change to the reference, CPB state, what it shows)
+REFS = [
+    ("R1", "P1", {}, "Verified", "a reference under the declaration, with the receipt it names"),
+    ("R2", "P1", {"purpose": "evaluation"}, "Unresolved", "R1 with a purpose member; the context has no purpose "
+     "label"),
+    ("R3", "P1", {"digest_alg": "sha-256"}, "Failed", "R1 with digest_alg sha-256, not the exact token SHA-256"),
+    ("R4", "P1", {"digest": "UPPER"}, "Failed", "R1 with the digest in uppercase hexadecimal digits"),
+    ("R5", "P1", {"digest": "P2"}, "Failed", "a reference that names B of P2, presented with P1"),
+    ("R6", "N13", {}, "Unresolved", "R1 presented with N13, from which B is not obtained"),
+]
 
 #: (vector, candidate receipt, expected status, first failing step or None, what it shows)
 STATUS = [
@@ -192,6 +232,78 @@ def main():
          "statement_hex": made[sid].hex(), "statement_sha256": hashlib.sha256(made[sid]).hexdigest(),
          "expected_status": status, "step": step, "shows": shows}
         for sid, vid, status, step, shows in STATUS]
+
+    # Certificate profile: an RSA-3072 test root, a P-256 test leaf it certifies, ES256 with the RFC 6979 nonce.
+    if not test_chain.self_test():
+        raise SystemExit("RFC 6979 self-test failed")
+    root_key = test_chain.rsa_test_key(ROOT_LABEL)
+    leaf_key = test_chain.p256_test_key(LEAF_LABEL)
+    other_key = test_chain.p256_test_key(OTHER_LEAF_LABEL)
+    root_der = test_chain.certificate(root_key, root_key, ROOT_CN, ROOT_CN, 1, True)
+    leaf_der = test_chain.certificate(leaf_key, root_key, LEAF_CN, ROOT_CN, 2, False, test_chain.EKU_CODE_SIGNING)
+    leaf_spki = test_chain.spki_der(leaf_key.public_key())
+
+    def did(cert_der):
+        fp = base64.urlsafe_b64encode(hashlib.sha256(cert_der).digest()).rstrip(b"=").decode("ascii")
+        return "did:x509:0:sha256:%s::eku:%s" % (fp, test_chain.EKU_CODE_SIGNING)
+
+    iss_x = did(root_der)
+    sub = payload["model_id_commit"]
+    x_prot = {H_ALG: ALG_ES256, H_KID: hashlib.sha256(leaf_spki).digest(), H_CWT: {CWT_ISS: iss_x, CWT_SUB: sub},
+              H_X5CHAIN: [leaf_der, root_der], H_PAYLOAD_HASH_ALG: ALG_SHA256, H_PREIMAGE_CT: TYPE}
+
+    def es256_sign1(prot_map, signer=leaf_key):
+        raw = cbor2.dumps(prot_map, canonical=True)
+        tbs = cbor2.dumps(["Signature1", raw, b"", digest], canonical=True)
+        return cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [raw, {}, digest, test_chain.es256_sign(signer, tbs)]),
+                           canonical=True)
+
+    x_made = {
+        "X1": es256_sign1(x_prot),
+        "X2": es256_sign1({**x_prot, H_ALG: ALG_ESP256}),
+        "X3": es256_sign1({k: v for k, v in x_prot.items() if k != H_X5CHAIN}),
+        "X4": es256_sign1({**x_prot, H_CWT: {CWT_ISS: did(leaf_der), CWT_SUB: sub}}),
+        "X5": es256_sign1({**x_prot, 16: "application/cose"}),
+        "X6": es256_sign1(x_prot, signer=other_key),
+    }
+    doc["certificate_profile"] = {
+        "root_certificate_hex": root_der.hex(), "root_certificate_sha256": hashlib.sha256(root_der).hexdigest(),
+        "leaf_certificate_hex": leaf_der.hex(), "leaf_certificate_sha256": hashlib.sha256(leaf_der).hexdigest(),
+        "leaf_spki_hex": leaf_spki.hex(), "kid_hex": hashlib.sha256(leaf_spki).hexdigest(),
+        "iss": iss_x, "eku": test_chain.EKU_CODE_SIGNING,
+        "other_p256_public_key_spki_hex": test_chain.spki_der(other_key.public_key()).hex(),
+        "labels": {"root": ROOT_LABEL, "leaf": LEAF_LABEL, "other": OTHER_LEAF_LABEL},
+        "test_material_notice": "PURE TEST MATERIAL. These certificates and keys MUST NOT be used for anything real.",
+    }
+    doc["receiver_certificate_pairs"] = [[iss_x, "test root certificate"]]
+    doc["certificate_vectors"] = [
+        {"id": xid, "candidate": vid, "candidate_receipt_sha256": by_id[vid]["receipt_sha256"],
+         "statement_hex": x_made[xid].hex(), "statement_sha256": hashlib.sha256(x_made[xid]).hexdigest(),
+         "expected_status": status, "step": step, "shows": shows}
+        for xid, vid, status, step, shows in CERT]
+
+    # Typed digest references under the declaration of Section 5.1 (CPB Section 8), as JSON text.
+    ref1 = {"type": TYPE, "digest_alg": "SHA-256", "digest": digest.hex()}
+    refs = []
+    for rid, vid, change, state, shows in REFS:
+        ref = dict(ref1)
+        for k, v in change.items():
+            ref[k] = {"UPPER": digest.hex().upper(), "P2": hashlib.sha256(p2_b).hexdigest()}.get(v, v)
+        cand = bytes.fromhex(by_id[vid]["receipt_hex"])
+        verdict, step, _ = check_receipts.verify(cand, base64.b64decode(by_id[vid]["verification_key_b64"]))
+        first = int(str(step).split()[0]) if verdict == "FAIL" else None
+        if ref["digest_alg"] != "SHA-256" or not _re.fullmatch(r"[0-9a-f]{64}", ref["digest"]):
+            match = "INDETERMINATE"
+        elif first is not None and first <= 3:
+            match = "INDETERMINATE"
+        else:
+            cb = base64.b64decode(json.loads(cand)["payload_b64"])
+            match = "MATCH" if hashlib.sha256(cb).hexdigest() == ref["digest"] else "NO_MATCH"
+        text = jcs(ref)
+        refs.append({"id": rid, "candidate": vid, "candidate_receipt_sha256": by_id[vid]["receipt_sha256"],
+                     "reference_json": text.decode("utf-8"), "expected_state": state, "expected_match": match,
+                     "shows": shows})
+    doc["reference_vectors"] = refs
 
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "mappings.json")
     with open(out, "w", encoding="utf-8") as fh:

@@ -2,6 +2,7 @@
 title: Citing Signed Evaluation Receipts from Existing Envelopes
 abbrev: Evaluation Receipt Mappings
 docname: draft-gruszka-evaluation-receipt-mappings-01
+v: 3
 category: info
 submissiontype: IETF
 ipr: trust200902
@@ -20,6 +21,7 @@ author:
     name: Konrad Gruszka
     organization: b7n0de
     email: kontakt@b7n0de.com
+    country: Germany
 normative:
   RFC2119:
     title: "Key words for use in RFCs to Indicate Requirement Levels"
@@ -131,6 +133,46 @@ normative:
       STD: "94"
       RFC: "8949"
     target: https://www.rfc-editor.org/info/rfc8949
+  RFC9360:
+    title: "CBOR Object Signing and Encryption (COSE): Header Parameters for Carrying and Referencing X.509 Certificates"
+    author:
+      - ins: J. Schaad
+    date: 2023-02
+    seriesinfo:
+      RFC: "9360"
+    target: https://www.rfc-editor.org/info/rfc9360
+  RFC5280:
+    title: "Internet X.509 Public Key Infrastructure Certificate and Certificate Revocation List (CRL) Profile"
+    author:
+      - ins: D. Cooper
+      - ins: S. Santesson
+      - ins: S. Farrell
+      - ins: S. Boeyen
+      - ins: R. Housley
+      - ins: W. Polk
+    date: 2008-05
+    seriesinfo:
+      RFC: "5280"
+    target: https://www.rfc-editor.org/info/rfc5280
+  RFC8017:
+    title: "PKCS #1: RSA Cryptography Specifications Version 2.2"
+    author:
+      - ins: K. Moriarty
+        role: editor
+      - ins: B. Kaliski
+      - ins: J. Jonsson
+      - ins: A. Rusch
+    date: 2016-11
+    seriesinfo:
+      RFC: "8017"
+    target: https://www.rfc-editor.org/info/rfc8017
+  DIDX509:
+    title: "did:x509 Method Specification, method version 0 (status: draft)"
+    author:
+      - ins: M. Riechert
+      - ins: A. Delignat-Lavaud
+    date: 2026-10-06
+    target: https://github.com/microsoft/did-x509/blob/054f1f6e364580c42fad862747903f2a6ee19976/specification.md
   CPB:
     title: "Canonicalization Declaration for SCITT Signed Statements"
     author:
@@ -171,6 +213,14 @@ normative:
       - org: OpenSSF SLSA project
     target: https://slsa.dev/spec/v1.2/verification_summary
 informative:
+  RFC6979:
+    title: "Deterministic Usage of the Digital Signature Algorithm (DSA) and Elliptic Curve Digital Signature Algorithm (ECDSA)"
+    author:
+      - ins: T. Pornin
+    date: 2013-08
+    seriesinfo:
+      RFC: "6979"
+    target: https://www.rfc-editor.org/info/rfc6979
   RFC3552:
     title: "Guidelines for Writing RFC Text on Security Considerations"
     author:
@@ -268,8 +318,8 @@ with the receipt's own signature. It fixes those bytes and a
 matching rule, maps the parts of a receipt onto DSSE, the in-toto Statement
 with the test-result predicate and the SLSA Verification Summary
 Attestation, shows that the signature of a receipt is already a valid DSSE
-signature, gives an example of a SCITT Signed Statement that names a
-receipt only by its digest, declares the receipt digest as an artifact type
+signature, gives a SCITT Signed Statement that names a receipt only by its
+digest, in a key profile and a certificate profile, declares the receipt digest as an artifact type
 for typed digest references, and relates a receipt to a pre-run criteria set
 written in PRML. It defines no new format and no new predicate.
 
@@ -581,6 +631,8 @@ declares one artifact type for the receipt digest:
 * `type` is `application/vnd.signed-evidence.eval-receipt+json`, the type,
   which identifies B;
 * there is one digest context, so `purpose` is absent;
+* the context has no purpose label, so a reference that carries `purpose` is
+  Unresolved ({{CPB}} Section 8.1);
 * the canonicalization algorithm is `as-transmitted` ({{CPB}} Section 4.4),
   with the byte-boundary selector {{RECEIPTS}} Section 3.4, "The Bytes B";
 * the hash function is SHA-256, and `digest_alg` is exactly `SHA-256`;
@@ -594,7 +646,13 @@ its own serialization, for example in the `references` of {{CAPSULE}}. A
 verifier obtains B by steps 1 to 3 of {{RECEIPTS}} Section 5, computes
 SHA-256 over it and compares the hexadecimal text. A candidate without B
 cannot be obtained as the cited artifact, which {{CPB}} Section 8.1 calls
-Unresolved; it corresponds to INDETERMINATE in {{matching}}. A consuming
+Unresolved; it corresponds to INDETERMINATE in {{matching}}. For a reference
+under this declaration, a `digest_alg` other than `SHA-256`, a `digest` that is
+not a text value of 64 lowercase hexadecimal digits, and a `digest` that differs
+from SHA-256 over B are Failed ({{CPB}} Section 8.1); the matching rule of
+{{matching}} gives INDETERMINATE for the first two and NO_MATCH for the third,
+because it also reads citations outside a typed digest reference. Vectors R1 to
+R6 ({{reference-vectors}}) give a reference in each of these states. A consuming
 profile that does not name this declaration by normative reference leaves
 every such reference Unresolved ({{CPB}} Section 8.1); no profile names it at
 the time of writing.
@@ -607,24 +665,23 @@ Section 8.5).
 ## A Signed Statement that Cites a Receipt {#signed-statement}
 
 A Signed Statement that cites a receipt is a COSE_Sign1 {{RFC9052}} with CBOR
-tag 18 in the form of a COSE Hash Envelope {{RFC9995}}. Its form is fixed, so
-that one receipt digest, one statement key, one issuer and one algorithm value
-give one byte string. Vector M2 ({{examples}}) is such a statement.
+tag 18 in the form of a COSE Hash Envelope {{RFC9995}}. It has one of two
+profiles, which differ in how the statement names its signer. In the key
+profile, `kid` names an Ed25519 statement key that the Receiver has configured
+for the issuer. In the certificate profile, the protected header carries an
+X.509 certificate chain {{RFC9360}} whose last certificate is a trust anchor
+that the Receiver has configured for a did:x509 issuer {{DIDX509}}. The labels
+of the protected header select the profile (step 2 of {{check-statement}}).
+Vector M2 ({{examples}}) is a statement in the key profile, vector X1 one in the
+certificate profile.
 
-* The protected header holds exactly these five parameters and no other:
-  * 1 (alg): -19, Ed25519 as fully specified in {{RFC9864}}, or -8, EdDSA
-    {{RFC9053}}. A party that makes a statement MUST write -19. A Receiver MUST
-    accept both values and applies every other check of {{check-statement}} to
-    either; under the Ed25519 statement keys that step 3 selects, both values
-    select the same signature algorithm. Changing alg changes the protected
-    header bytes and requires a new signature ({{alg-choice}});
-  * 4 (kid): the COSE Key Thumbprint {{RFC9679}} with SHA-256 of the statement
-    key, a byte string of 32 bytes. For an Ed25519 public key x, kid is SHA-256
-    over the core-deterministically encoded COSE_Key map `{1: 1, -1: 6, -2: x}`;
-    no optional COSE_Key parameter enters the thumbprint;
-  * 15 (CWT Claims) {{RFC9597}}: a map with exactly 1 (`iss`), an absolute URI
-    ({{RFC3986}} Section 4.3) that names the party that makes the statement, and
-    2 (`sub`), the text value of `model_id_commit` of B;
+Both profiles share these rules:
+
+* The protected header holds exactly the parameters of its profile, given
+  below, and no other. Three of them are the same in both profiles:
+  * 15 (CWT Claims) {{RFC9597}}: a map with exactly 1 (`iss`), whose form
+    each profile gives, and 2 (`sub`), the text value of `model_id_commit` of
+    B;
   * 258 (payload hash algorithm): -16 (SHA-256);
   * 259 (preimage content type): the type, as a text string.
 * The unprotected header is the empty map.
@@ -632,12 +689,56 @@ give one byte string. Vector M2 ({{examples}}) is such a statement.
 * The COSE_Sign1, its protected header included, is encoded with the core
   deterministic encoding of {{RFC8949}} Section 4.2.1.
 
+Key profile. The protected header holds exactly the five parameters 1, 4, 15,
+258 and 259:
+
+* 1 (alg): -19, Ed25519 as fully specified in {{RFC9864}}, or -8, EdDSA
+  {{RFC9053}}. A party that makes a statement MUST write -19. A Receiver MUST
+  accept both values and applies every other check of {{check-statement}} to
+  either; under the Ed25519 statement keys that step 3 selects, both values
+  select the same signature algorithm. Changing alg changes the protected
+  header bytes and requires a new signature ({{alg-choice}});
+* 4 (kid): the COSE Key Thumbprint {{RFC9679}} with SHA-256 of the statement
+  key, a byte string of 32 bytes. For an Ed25519 public key x, kid is SHA-256
+  over the core-deterministically encoded COSE_Key map `{1: 1, -1: 6, -2: x}`;
+  no optional COSE_Key parameter enters the thumbprint;
+* 15 (CWT Claims): `iss` is an absolute URI ({{RFC3986}} Section 4.3) that
+  names the party that makes the statement.
+
+Its form is fixed, so that one receipt digest, one statement key, one issuer
+and one algorithm value give one byte string.
+
+Certificate profile. The protected header holds exactly the six parameters 1,
+4, 15, 33, 258 and 259:
+
+* 1 (alg): -7, ECDSA with SHA-256 ({{RFC9053}} Section 2.1); the signature is
+  r and s, 32 bytes each, under the P-256 public key of the leaf certificate
+  ({{alg-choice}});
+* 4 (kid): SHA-256 over the DER encoding of the SubjectPublicKeyInfo
+  {{RFC5280}} of the leaf certificate, a byte string of 32 bytes;
+* 15 (CWT Claims): `iss` is a did:x509 identifier {{DIDX509}} of exactly the
+  form `did:x509:0:sha256:` F `::eku:` O, where F is SHA-256 over the DER bytes
+  of the last certificate of x5chain, encoded in base64url without padding (43
+  characters), and O is an object identifier in dotted decimal form;
+* 33 (x5chain) {{RFC9360}}: an array of exactly two byte strings, each a
+  DER-encoded X.509 certificate {{RFC5280}}: first the leaf certificate, whose
+  P-256 public key verifies the statement signature, then the trust anchor
+  certificate, whose RSA public key signed the leaf certificate with
+  sha256WithRSAEncryption (RSASSA-PKCS1-v1_5 with SHA-256, {{RFC8017}}).
+
+This profile names one trust anchor and no intermediate certificate. A chain
+with an intermediate certificate, an x5chain that is a single byte string, an
+anchor key that is not an RSA key, and an `iss` with a predicate other than one
+`eku` are outside it. An ECDSA signature depends on a per-signature nonce, so
+one statement in this profile can have more than one byte string; the vectors
+use the deterministic nonce of {{RFC6979}}, which a Receiver does not check.
+
 The value of `sub` is a choice of this example; the receipt digest does not
-depend on it. The statement key and the receipt key can be the same key or
-different keys. The statement carries its own signature over its own
+depend on it. The key that signs a statement and the receipt key can be the
+same key or different keys. The statement carries its own signature over its own
 Sig_structure; it is not the receipt's signature, even when one key makes both.
-Registering M2 with a Transparency Service yields a COSE Receipt for M2, not
-for the evaluation receipt.
+Registering M2 or X1 with a Transparency Service yields a COSE Receipt for that
+statement, not for the evaluation receipt.
 
 ### Making a Statement {#make-statement}
 
@@ -645,15 +746,18 @@ A party makes a statement for a receipt only after the receipt has passed the
 verification procedure of {{RECEIPTS}} Section 5 under a key that party fixed.
 A receipt that fails it gives no statement. The party computes the receipt
 digest over B, takes `sub` from the `model_id_commit` of B, writes the
-protected header above, signs the Sig_structure of {{RFC9052}} Section 4.4 with
-an empty external_aad under the statement key, and encodes the COSE_Sign1.
+protected header of one profile, signs the Sig_structure of {{RFC9052}} Section
+4.4 with an empty external_aad, under the statement key in the key profile and
+under the private key of the leaf certificate in the certificate profile, and
+encodes the COSE_Sign1.
 
 ### Checking a Statement {#check-statement}
 
 The Receiver holds the statement, a candidate receipt, its independently
-selected receipt verification key, and configured pairs of an issuer URI and an
-Ed25519 statement key. The received iss value does not establish that
-association. It applies the following steps in order. The first step that fails gives the status named in
+selected receipt verification key, and configured pairs. A pair for the key
+profile is an issuer URI with an Ed25519 statement key; a pair for the
+certificate profile is a did:x509 identifier with a trust anchor certificate.
+The received iss value does not establish either association. It applies the following steps in order. The first step that fails gives the status named in
 it, and the statement is refused; only a statement that passes every step is
 accepted. A Receiver that stops because it reached a resource limit, in any
 step, reports a resource-limit error; that is no status, and the statement is
@@ -677,27 +781,53 @@ not accepted.
    CBOR map, with the empty byte string treated as an empty map ({{RFC9052}}
    Section 3), which fails in step 2. CBOR validity and deterministic encoding
    are checked before step 2. Header label types are checked only in step 2; a
-   header label that is not one of the five required integer labels gives
-   outside_profile if step 1 succeeds.
-2. If the item is not tagged 18, the unprotected header is not empty, the
-   protected header does not hold exactly the five parameters above with the
-   types and values given there, the payload is detached or is not 32 bytes,
-   or the signature is not 64 bytes, the status is outside_profile. `sub` MUST be
-   a text string matching `sha256:` followed by exactly 64 lowercase
-   hexadecimal digits; otherwise the status is outside_profile. Step 7 then
-   compares that string byte for byte with `model_id_commit` of B.
-3. A configured pair counts only if its statement key is 32 octets and its
-   point A meets rules 1 and 2 of {{RECEIPTS}} Section 4.4: A is a canonical
-   encoding of a point of order L. A point of small order or of mixed order does
-   not count. If no configured
-   pair that counts has both an issuer URI exactly equal to iss and a statement
-   key whose SHA-256 COSE Key Thumbprint equals kid, the status is
-   untrusted_key. Subsequent signature verification uses only keys selected by
-   this pairwise match.
-4. If the signature does not meet the four rules of {{RECEIPTS}} Section 4.4
-   under a key that step 3 selected, with the Sig_structure of {{RFC9052}}
-   Section 4.4 in place of PAE(type, B) in rule 4, the status is
+   header label that is not a label of either profile gives outside_profile if
+   step 1 succeeds.
+2. The labels of the protected header select the profile: exactly 1, 4, 15,
+   258 and 259 select the key profile, and exactly 1, 4, 15, 33, 258 and 259
+   the certificate profile. If the item is not tagged 18, the unprotected
+   header is not empty, the labels select neither profile, a parameter does
+   not have the type and value that the selected profile gives, the payload is
+   detached or is not 32 bytes, or the signature is not 64 bytes, the status
+   is outside_profile. `sub` MUST be a text string matching `sha256:` followed
+   by exactly 64 lowercase hexadecimal digits; otherwise the status is
+   outside_profile. Step 7 then compares that string byte for byte with
+   `model_id_commit` of B.
+3. Key profile. A configured pair counts only if its statement key is 32
+   octets and its point A meets rules 1 and 2 of {{RECEIPTS}} Section 4.4: A
+   is a canonical encoding of a point of order L. A point of small order or of
+   mixed order does not count. If no configured pair that counts has both an
+   issuer URI exactly equal to iss and a statement key whose SHA-256 COSE Key
+   Thumbprint equals kid, the status is untrusted_key. Subsequent signature
+   verification uses only keys selected by this pairwise match.
+
+   Certificate profile. A configured pair counts only if its identifier is
+   exactly equal to iss, its trust anchor certificate is byte for byte the
+   second certificate of x5chain, and F of iss is SHA-256 over that
+   certificate. The status is untrusted_key if no configured pair counts, or if
+   any of the following does not hold: both certificates are DER-encoded X.509
+   certificates; the public key of the trust anchor is an RSA key with a
+   modulus of at least 2048 bits; the leaf certificate is signed by that key
+   with sha256WithRSAEncryption; the issuer name of the leaf certificate is
+   byte for byte the subject name of the trust anchor; the extended key usage
+   of the leaf certificate contains O of iss; the public key of the leaf
+   certificate is a P-256 key; and kid is SHA-256 over its
+   SubjectPublicKeyInfo. This step is not certification path validation
+   ({{RFC5280}} Section 6) and does not resolve iss as a DID: it evaluates no
+   validity period, revocation status, name constraint, certificate policy or
+   other extension. {{DIDX509}} requires path validation for resolution; a
+   Receiver that applies it in addition, at a validation time it chooses,
+   gives untrusted_key when it fails.
+4. Key profile. If the signature does not meet the four rules of {{RECEIPTS}}
+   Section 4.4 under a key that step 3 selected, with the Sig_structure of
+   {{RFC9052}} Section 4.4 in place of PAE(type, B) in rule 4, the status is
    signature_invalid.
+
+   Certificate profile. Read r and s as unsigned big-endian integers from the
+   first and the last 32 bytes of the signature. If r or s is not in the range
+   1 to n-1, where n is the order of the P-256 base point, or the signature is
+   not a valid ECDSA signature with SHA-256 over the Sig_structure under the
+   public key of the leaf certificate, the status is signature_invalid.
 5. Run the verification procedure of {{RECEIPTS}} Section 5 under the
    Receiver's receipt key. Continue to step 6 only if it returns PASS. If it
    returns FAIL, the status is receipt_not_verified. If it stops with a
@@ -709,7 +839,9 @@ not accepted.
 
 If every step passes, the status is accepted. Vector M2 with vector P1 of
 {{RECEIPTS}} is accepted, and {{status-vectors}} gives a statement for each
-other status.
+other status. Vector X1 with P1 is accepted under the certificate pair of
+{{certificate-vectors}}, and X2 to X6 fail at steps 2, 3 and 4 in the
+certificate profile.
 
 Steps 1 to 4 do not use the receipt. A general COSE verifier that implements
 the statement's alg value checks the signature under the rules of its own
@@ -726,7 +858,7 @@ and its success does not show that the statement cites a receipt that verifies.
 | the type | parameter 259 |
 | the other members of B (`schema`, `suite`, `suite_version`, `metric`, `comparator`, `threshold`, `score`, `passed`, `n`, `dataset_id_commit`, `commit_alg`, `timestamp`), including `criteria_digest` when present | not carried; named only through the digest |
 | the receipt's signature and its key hint | not carried |
-| (none) | `iss`, `kid` and `alg`, the statement of the party that signs it |
+| (none) | `iss`, `kid`, `alg` and, in the certificate profile, `x5chain`: the statement of the party that signs it |
 {: #crossing-table title="What a Signed Statement carries of a receipt"}
 
 A Receiver that relies on the assertion of a receipt needs the receipt itself;
@@ -734,8 +866,9 @@ the statement only names it.
 
 ### Choice of alg {#alg-choice}
 
-Value -19 is the fully specified Ed25519 identifier of {{RFC9864}}, which sets
-the polymorphic EdDSA identifier -8 of {{RFC9053}} to Deprecated. A party that
+In the key profile, value -19 is the fully specified Ed25519 identifier of
+{{RFC9864}}, which sets the polymorphic EdDSA identifier -8 of {{RFC9053}} to
+Deprecated. A party that
 makes a statement therefore writes -19 only. Every Receiver accepts -8 as well,
 for statements made before a producer moved to -19 and for general COSE
 verifiers that implement -8 but not -19 ({{impl}}), so that one statement gives
@@ -743,6 +876,13 @@ one status. -8 names EdDSA for any curve; step 3 of {{check-statement}} counts
 only Ed25519 statement keys, so a statement with -8 under any other key is
 untrusted_key. Vector S1 ({{status-vectors}}) is M2 with alg -8, signed again
 under the same key; it is accepted.
+
+The certificate profile fixes -7. {{RFC9864}} also sets -7 to Deprecated and
+registers -9 (ESP256) for ECDSA with SHA-256 on P-256. The certificate profile
+describes the form that was registered and verified in the measurements of
+{{impl}}, and that form carries -7; a statement with -9 is outside the
+certificate profile (vector X2). -7 does not name a curve; step 3 counts only a
+P-256 leaf key, so -7 selects one signature algorithm here.
 
 The payload follows the pattern of the hash-only mode of {{PRML-PROFILE}}: the
 32 raw octets of a SHA-256, carried as a byte string and not as hexadecimal
@@ -889,6 +1029,15 @@ compares the digest of that B, never the digest of the object.
 Algorithm. Only SHA-256 is defined. A citation with another algorithm gives
 INDETERMINATE (case C8), so it cannot be satisfied by a weaker digest.
 
+Configured trust. A Receiver trusts a statement key or a trust anchor because
+it configured it. In the certificate profile, a configured anchor vouches for
+every leaf certificate it signed: step 3 of {{check-statement}} evaluates no
+validity period and no revocation, so a leaf key that is compromised stays
+usable until the Receiver removes the anchor from its configuration, unless the
+Receiver applies path validation in addition. A Receiver that removes a
+configured pair changes the status of every statement under it to
+untrusted_key.
+
 # Privacy Considerations
 
 The receipt digest lets anyone who holds a candidate B confirm it. B carries
@@ -911,10 +1060,14 @@ writing, following {{RFC7942}}, and is to be removed before publication.
 
 The examples of {{examples}} were produced by a generator script whose two runs
 are byte-identical, and checked by a separate script that re-derives every
-value of {{examples}} from the bytes, including the match result of every case, with its own implementation of steps 1 to 3 of {{RECEIPTS}} Section 5, and the status of M2 and of every status vector, with its own implementation of the steps of {{check-statement}}.
+value of {{examples}} from the bytes: the match result of every case, with its
+own implementation of steps 1 to 3 of {{RECEIPTS}} Section 5; the status of M2,
+of every status vector and of every certificate-profile vector, with its own
+implementation of the steps of {{check-statement}} in both profiles; and the
+state of every typed digest reference.
 
-An implementation of both directions of {{signed-statement}}, the open-source
-package proofbundle (module `receipt_cose`, experimental), reproduces M2 byte
+An implementation of both directions of the key profile of
+{{signed-statement}}, the open-source package proofbundle (module `receipt_cose`, experimental), reproduces M2 byte
 for byte from vector P1 of {{RECEIPTS}} and returns each status of
 {{check-statement}} for a set of 49 statements and 6 receipts. M2 and the
 status vectors of {{status-vectors}} are, byte for byte, statements of that set,
@@ -925,7 +1078,24 @@ verified the statement with alg -8, refused the same statement with one
 signature bit changed, and reported alg -19 (vector M2) as an unknown
 algorithm; microsoft/scitt-verifier 0.4.0 evaluated the signature of neither
 statement (its result for both was cannot-evaluate, with the statement
-signature not evaluated).
+signature not evaluated). The certificate profile and the typed digest
+references of {{typed-reference}} are implemented only by the scripts of
+{{examples}}.
+
+Registration with a Transparency Service was measured on 2026-10-10 with a
+local instance of microsoft/scitt-ccf-ledger at commit 00101f76 (CCF 7.0.17,
+virtual mode); no hosted service took part. No statement in the exact form of
+the key profile was registered: the service refused its https issuer
+("CWT_Claims issuer is unsupported") with alg -19 and with alg -8, and, under a
+did:x509 issuer with x5chain, refused alg -19 ("COSE algorithm -19 is not
+supported") and an Ed25519 key with alg -8 ("Unsupported key type"). A
+statement in the form of the certificate profile, with an RSA-3072 test root, a
+P-256 test leaf and alg -7, was registered, and microsoft/scitt-verifier 0.4.0
+verified the Transparent Statement it returned offline, with the network
+unavailable, under a policy that fixed the receipt issuer, the statement issuer
+and the statement subject and compared the payload with SHA-256 over B. The
+steps of {{check-statement}}, applied on 2026-10-11 to the registered statement
+under the certificate pair of its test root, give accepted.
 
 The signature of M2 (alg -19) is checked from the text alone, without a COSE
 library: a script written from the texts of this document and of {{RECEIPTS}}
@@ -947,3 +1117,6 @@ general Ed25519 implementation (its checks M2-17 and M2-18).
   those documents are published.
 * The artifact-type declaration of {{typed-reference}} is named by no
   consuming profile yet.
+* Whether the certificate profile also admits alg -9 (ESP256) of {{RFC9864}}
+  ({{alg-choice}}), and whether it admits an intermediate certificate or an
+  anchor key other than RSA.

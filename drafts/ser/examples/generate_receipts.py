@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test vectors for draft-gruszka-signed-evaluation-receipts-00 (Signed Evaluation Receipts).
+"""Test vectors for draft-gruszka-signed-evaluation-receipts-01 (Signed Evaluation Receipts).
 
 A Signed Evaluation Receipt is one JSON object
 
@@ -585,7 +585,7 @@ def build():
 def main():
     build()
     doc = {
-        "draft": "draft-gruszka-signed-evaluation-receipts-00",
+        "draft": "draft-gruszka-signed-evaluation-receipts-01",
         "format": {
             "media_type": MEDIA_TYPE,
             "receipt_schema": RECEIPT_SCHEMA,

@@ -20,7 +20,7 @@ MAP = HERE + "/../examples/mappings.json"
 RECEIPTS_BODY = HERE + "/../../ser/draft/draft_body.md"
 OUT = HERE + "/draft-gruszka-evaluation-receipt-mappings-01.md"
 
-LABELS = {1: "1 (alg)", 4: "4 (kid)", 15: "15 (CWT Claims)", 258: "258 (payload hash algorithm)",
+LABELS = {1: "1 (alg)", 4: "4 (kid)", 15: "15 (CWT Claims)", 33: "33 (x5chain)", 258: "258 (payload hash algorithm)",
           259: "259 (preimage content type)"}
 
 
@@ -108,6 +108,117 @@ def status_section(d):
     return out
 
 
+REF_CHANGE = {"R1": "(none)", "R2": "`purpose` `evaluation` added",
+              "R3": "`digest_alg` `sha-256`", "R4": "`digest` in uppercase",
+              "R5": "`digest` names B of P2", "R6": "(none)"}
+
+
+def reference_section(d):
+    """Typed digest references under the declaration of Section 5.1, one per state."""
+    ref1 = json.loads(d["reference_vectors"][0]["reference_json"])
+    if ref1 != {"type": d["M1_dsse"]["payloadType"], "digest_alg": "SHA-256", "digest": d["receipt_digest"]["hex"]}:
+        raise SystemExit("R1 is not the reference the text describes")
+    rows = ["| Vector | Change to R1 | Candidate | State | Matching rule |",
+            "|--------|--------------|-----------|-------|---------------|"]
+    for r in d["reference_vectors"]:
+        rows.append(f"| {r['id']} | {REF_CHANGE[r['id']]} | {r['candidate']} | {r['expected_state']} "
+                    f"| {r['expected_match']} |")
+    rows.append('{: #reference-table title="Typed digest references"}')
+    out = ["## Typed Digest References {#reference-vectors}", "",
+           "Each vector is a typed digest reference under the declaration of {{typed-reference}}, written as a "
+           "JSON object. R1 has exactly three members: `type`, the type; `digest_alg`, `SHA-256`; and `digest`, "
+           "the receipt digest of {{p1-digests}} as 64 lowercase hexadecimal digits. Each other vector is R1 "
+           "with the change in {{reference-table}}; \"names B of P2\" means SHA-256 over B of vector P2 of "
+           "{{RECEIPTS}}, as 64 lowercase hexadecimal digits. The candidate is the vector of {{RECEIPTS}} named "
+           "in the table. State is the state of the reference in the terms of {{CPB}} Section 8.1, and Matching "
+           "rule is the result of {{matching}} for the reference's `digest_alg` and `digest`.", ""] + rows + [
+           "", "What each vector shows:", ""]
+    out += [f"* {r['id']}: {r['shows']}." for r in d["reference_vectors"]]
+    out += ["", "The matching rule reads only the algorithm and the digest, so for R2 it gives MATCH while the "
+            "reference is Unresolved.", ""]
+    return out
+
+
+CERT_CHANGE = {"X2": "X1 with 1 (alg) -9 in place of -7",
+               "X3": "X1 without parameter 33 (x5chain)",
+               "X4": "X1 with `iss` in the form of {{signed-statement}}, whose F is SHA-256 over the test leaf "
+                     "certificate",
+               "X5": "X1 with one more parameter, 16 (typ), the text string \"application/cose\"",
+               "X6": "X1's protected header unchanged"}
+
+
+def did_parts(iss):
+    """F and O of a did:x509 identifier of the form did:x509:0:sha256:F::eku:O, one per line."""
+    head, rest = iss.split("did:x509:0:sha256:", 1)
+    f, o = rest.split("::eku:", 1)
+    if head or "did:x509:0:sha256:%s::eku:%s" % (f, o) != iss:
+        raise SystemExit("iss is not of the form of the certificate profile")
+    return ["F " + f, "O " + o]
+
+
+def certificate_section(d):
+    """The certificate profile: X1 in full, X2 to X6 as a change of X1 with their own signature."""
+    cp = d["certificate_profile"]
+    xv = d["certificate_vectors"]
+    x1 = bytes.fromhex(xv[0]["statement_hex"])
+    tag = cbor2.loads(x1)
+    prot = cbor2.loads(tag.value[0])
+    rows = ["| Vector | Bytes | Candidate | Status | First failing step |",
+            "|--------|-------|-----------|--------|--------------------|"]
+    for s in xv:
+        step = "(none)" if s["step"] is None else str(s["step"])
+        rows.append(f"| {s['id']} | {len(s['statement_hex']) // 2} | {s['candidate']} | {s['expected_status']} "
+                    f"| {step} |")
+    rows.append('{: #certificate-table title="Certificate-profile vectors"}')
+    out = ["## Certificate-Profile Vectors {#certificate-vectors}", "",
+           "Each vector is a Signed Statement in the form of the certificate profile, or one change away from "
+           "it, presented with vector P1 of {{RECEIPTS}}. The Receiver's receipt key is the issuer test key, "
+           "and its one configured certificate pair is the did:x509 identifier below with the test root "
+           "certificate. The test root holds an RSA-3072 key and the test leaf a P-256 key; both "
+           "certificates, and the other P-256 key that signs X6, are test material made by the generator of "
+           "{{examples}}, and they MUST NOT be used for anything real. The signatures use the deterministic "
+           "nonce of {{RFC6979}}.", "",
+           "`iss` of X1, the identifier of the configured pair, is `did:x509:0:sha256:` F `::eku:` O with F, "
+           "SHA-256 over the test root certificate in base64url without padding, and O, the object identifier "
+           "of code signing:", ""] + artwork(*did_parts(cp["iss"])) + [
+           f"Test leaf certificate, {len(cp['leaf_certificate_hex']) // 2} bytes (hex):", ""] + artwork(
+           wrap_hex(cp["leaf_certificate_hex"])) + [
+           f"Test root certificate, the trust anchor of the configured pair, "
+           f"{len(cp['root_certificate_hex']) // 2} bytes (hex):", ""] + artwork(
+           wrap_hex(cp["root_certificate_hex"])) + [
+           "SHA-256 over the test leaf and over the test root certificate:", ""] + artwork(
+           cp["leaf_certificate_sha256"], cp["root_certificate_sha256"]) + [
+           "kid of X1, SHA-256 over the SubjectPublicKeyInfo of the test leaf (hex):", ""] + artwork(cp["kid_hex"])
+    out += ["The protected header of X1 holds these parameters, in this order:", ""]
+    for k in prot:
+        v = prot[k]
+        if k == 15:
+            out += [f"* {LABELS[k]}: a map with 1 (iss), the identifier above, and 2 (sub), the `sub` of {{{{m2}}}}"]
+        elif k == 33:
+            out += [f"* {LABELS[k]}: an array of the test leaf and the test root certificate"]
+        elif isinstance(v, bytes):
+            out += [f"* {LABELS[k]}: the kid above"]
+        elif isinstance(v, str):
+            out += [f"* {LABELS[k]}: the type, as a text string"]
+        else:
+            out += [f"* {LABELS[k]}: {v}"]
+    out += ["", "The unprotected header is the empty map, and the payload is the receipt digest of "
+            "{{p1-digests}}.", "",
+            f"X1, {len(x1)} bytes (hex):", ""] + artwork(wrap_hex(x1.hex()))
+    out += ["Each of X2 to X6 is a COSE_Sign1 with tag 18 whose protected header is the deterministic encoding "
+            "of the protected header of X1 with the change below, whose unprotected header is the empty map, "
+            "whose payload is that of X1, and whose signature is given below, ECDSA with SHA-256 over its own "
+            "Sig_structure, under the test leaf key except for X6, which the other P-256 test key signs.", ""]
+    for s in xv[1:]:
+        sig = cbor2.loads(bytes.fromhex(s["statement_hex"])).value[3]
+        out += [f"{s['id']}: {CERT_CHANGE[s['id']]}. Signature (hex):", ""] + artwork(wrap_hex(sig.hex()))
+    out += rows + ["", "What each vector shows:", ""]
+    out += [f"* {s['id']}: {s['shows']}." for s in xv]
+    out += ["", "Vector and SHA-256 over its bytes:", ""] + artwork(
+        *[f"{s['id']} {s['statement_sha256']}" for s in xv])
+    return out
+
+
 def appendix(d):
     m1, m2 = d["M1_dsse"], d["M2_scitt_hash_envelope"]
     pub = base64.b64decode(d["issuer_public_key_b64"])
@@ -177,6 +288,8 @@ def appendix(d):
             wrap_hex(m2["cose_sign1_hex"])) + [
             "SHA-256 over the COSE_Sign1 bytes:", ""] + artwork(m2["cose_sign1_sha256"])
     out += status_section(d)
+    out += reference_section(d)
+    out += certificate_section(d)
     return "\n".join(out).rstrip("\n")
 
 

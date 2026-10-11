@@ -2,6 +2,7 @@
 title: Signed Evaluation Receipts
 abbrev: Signed Evaluation Receipts
 docname: draft-gruszka-signed-evaluation-receipts-01
+v: 3
 category: info
 submissiontype: IETF
 ipr: trust200902
@@ -18,6 +19,7 @@ author:
     name: Konrad Gruszka
     organization: b7n0de
     email: kontakt@b7n0de.com
+    country: Germany
 normative:
   RFC2119:
     title: "Key words for use in RFCs to Indicate Requirement Levels"
@@ -802,8 +804,8 @@ Additional information:
 : Deprecated alias names for this type: N/A. Magic number(s): N/A. File
   extension(s): N/A. Macintosh file type code(s): N/A.
 
-Person and email address to contact for further information:
-: The author of this document, see the Author's Address section.
+Person & email address to contact for further information:
+: Konrad Gruszka <kontakt@b7n0de.com>
 
 Intended usage:
 : COMMON
@@ -812,10 +814,10 @@ Restrictions on usage:
 : N/A
 
 Author:
-: The author of this document, see the Author's Address section.
+: Konrad Gruszka
 
 Change controller:
-: The author of this document, see the Author's Address section.
+: Konrad Gruszka <kontakt@b7n0de.com>
 
 # Implementation Status {#impl}
 

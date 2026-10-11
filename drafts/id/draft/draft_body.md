@@ -2,6 +2,7 @@
 title: Requirements and Test Cases for Identifying SCITT Signed Statements
 abbrev: Identifying SCITT Signed Statements
 docname: draft-gruszka-scitt-statement-identification-01
+v: 3
 category: info
 submissiontype: IETF
 ipr: trust200902
@@ -19,6 +20,7 @@ author:
     name: Konrad Gruszka
     organization: b7n0de
     email: kontakt@b7n0de.com
+    country: Germany
 normative:
   RFC2119:
     title: "Key words for use in RFCs to Indicate Requirement Levels"
@@ -367,9 +369,11 @@ context, not offline capability in general (Section 5.2).
 
 Under the same identification scheme, registration in either of two Transparency
 Services preserves the identity A1 defines. The test must distinguish
-identity-bearing changes from changes the scheme explicitly excludes. No
-two-service registration is measured in this document (Section 6 and Section 11);
-the illustrative cases instead apply local transformations that a registration may
+identity-bearing changes from changes the scheme explicitly excludes. Section 11
+reports one local measurement with two implementations; one of them is an
+archived emulator whose receipts are not COSE Receipts, so it is not a test of two
+Transparency Services in the sense of A4. The illustrative cases of Section 6
+apply local transformations that a registration may
 cause (an added unprotected parameter; a changed outer encoding) and show which
 leave the chosen identity unchanged. The tag-removal case (C9) is a negative format
 control, not evidence of successful registration in two services.
@@ -637,6 +641,25 @@ c5ff0a72e28aa087eecd3e2b426577be3cf2a80f) and the replay at
 tools/scitt_ccf_external/replay_earlier_build/results_table.md (commit
 3ca368164b68a09a863f7ec12b2f9fa1b21123ec). Only the repository evidence is cited
 here.
+
+A second local measurement, on 2026-10-11, follows use case 4 with two
+implementations and no hosted service: the ledger above, and
+scitt-community/scitt-api-emulator at commit
+6e6776070a1adf7298c9427871f15a8f087be73d, an archived emulator run in its CCF
+tree mode. Its dependency rkvst-archivist is no longer published; only its
+unused RKVST mode needs it, and the measurement replaced that import by a stub.
+The test statements were S, a COSE Hash Envelope with an X.509 chain and alg -7;
+S2, the ToBeSigned of S signed again; and S3, S with another `sub`. The ledger
+registered all three, and S a second time under another entry identifier. Each
+returned Transparent Statement kept the protected header, payload and signature
+of what was submitted, while its bytes differed. The ToBeSigned reference of
+Section 6 matched S, S2 and the second registration of S, and did not match
+S3. The emulator refused S, S2 and S3, because it requires a content type
+parameter (label 3) and a CWT Claims parameter under label 14. With both added,
+and the statements signed again, it registered them and returned the submitted
+bytes unchanged; the ToBeSigned matches were the same, and its receipts are not
+COSE Receipts. For one statement registered at both implementations, the
+ToBeSigned reference was equal and the entry identifiers differed.
 
 This information is given per {{RFC7942}} and does not constitute endorsement.
 
