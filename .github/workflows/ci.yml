@@ -452,6 +452,35 @@ jobs:
       - name: Gate qualification (all classes detected, all positive controls green)
         run: PYTHONPATH=src python scripts/gate_qualification_harness.py
 
+  core-layer-gate:
+    # ADVISORY FIRST (owner order Z376, step S1 of the verification core split, point 7): it becomes
+    # required only by an owner decision after the report on its first runs. The gate measures the
+    # boundary of the future verification core: the static import closure of verify_bundle and of
+    # the decision verification must equal the fixed list in scripts/core_layer_modules.json, and
+    # every forbidden operation inside it (file, network, clock, environment, subprocess,
+    # randomness, eval and exec, dynamic import and access) must be an entry of the approved
+    # baseline in scripts/core_layer_exceptions.json. Red means a new finding, a new core edge, or
+    # a baseline entry that no longer occurs; the baseline only shrinks by a reviewed edit.
+    #
+    # Standard library only and no install: the gate reads source files, it imports nothing of the
+    # package. It is a static check of agreed boundaries, not a sandbox (see its docstring).
+    name: Core layer gate (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Core layer gate (verdict and every difference to the baseline)
+        run: python scripts/core_layer_gate.py
+      # The JSON carries the number of exceptions per rule, the figure S2 measures its progress
+      # against. `always()`: a red verdict above must not hide the counts that explain it.
+      - name: Exceptions per rule as JSON
+        if: always()
+        run: python scripts/core_layer_gate.py --json
+
   coverage:
     # Coverage ratchet (comparable to python-tuf's --fail-under in tox / sigstore-python's Makefile):
     # a floor that prevents a silent coverage regression. Conservative (below the current ~84%) to avoid

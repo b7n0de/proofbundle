@@ -168,6 +168,8 @@ include Makefile
 # from the sdist with FileNotFoundError. It reads a lock file and cargo-audit's JSON and holds no key.
 include scripts/demo.sh
 include scripts/demo_tamper.sh
+include scripts/core_layer_exceptions.json
+include scripts/core_layer_modules.json
 include scripts/mutation_baseline_allowlist.json
 include scripts/mutation_shard_weights.json
 include scripts/rust_parity_registry.json
@@ -181,6 +183,7 @@ include scripts/build_reproducible.py
 include scripts/cargo_audit_gate.py
 include scripts/check_version_and_changelog.py
 include scripts/claims_hygiene_check.py
+include scripts/core_layer_gate.py
 include scripts/doc_link_check.py
 include scripts/finding_base_drift.py
 include scripts/findings_register.py

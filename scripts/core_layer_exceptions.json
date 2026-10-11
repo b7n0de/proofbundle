@@ -1,0 +1,162 @@
+{
+  "schema": "proofbundle.core_layer_exceptions.v1",
+  "note": "Every finding of scripts/core_layer_gate.py inside the core, bound to rule, module and operation. Approved baseline of S1, measured at main 53d9210f (tag v6.2.1). The set only shrinks: a finding outside it is red even when another entry disappeared, and an entry that no longer occurs is red until it is removed here. Entries without a reason are the state S2 starts from, not approvals.",
+  "entries": [
+    {
+      "rule": "clock",
+      "module": "proofbundle.decision",
+      "operation": "datetime.datetime.now"
+    },
+    {
+      "rule": "clock",
+      "module": "proofbundle.decision",
+      "operation": "time.time"
+    },
+    {
+      "rule": "clock",
+      "module": "proofbundle.evalclaim",
+      "operation": "datetime.datetime.now"
+    },
+    {
+      "rule": "clock",
+      "module": "proofbundle.policy",
+      "operation": "datetime.datetime.now"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle",
+      "operation": "getattr(computed name)"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle._membership",
+      "operation": ".__dict__"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.budget",
+      "operation": "getattr(computed name)"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": ".__dict__"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": "builtins.vars"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": "sys.modules"
+    },
+    {
+      "rule": "dynamic_access",
+      "module": "proofbundle.canonical",
+      "operation": "sys.modules.items"
+    },
+    {
+      "rule": "dynamic_import",
+      "module": "proofbundle",
+      "operation": "import importlib"
+    },
+    {
+      "rule": "dynamic_import",
+      "module": "proofbundle",
+      "operation": "importlib.import_module"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": ".read"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.bundle",
+      "operation": ".read"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.bundle",
+      "operation": "builtins.open"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.bundle",
+      "operation": "os.stat"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": ".read"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": ".write"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "builtins.open"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.fdopen"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.open"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.policy",
+      "operation": ".read"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.policy",
+      "operation": "builtins.open"
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.policy",
+      "operation": "os.stat"
+    },
+    {
+      "rule": "network",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": "import urllib.request"
+    },
+    {
+      "rule": "network",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": "urllib.request.Request"
+    },
+    {
+      "rule": "network",
+      "module": "proofbundle.anchors_rfc3161",
+      "operation": "urllib.request.urlopen"
+    },
+    {
+      "rule": "randomness",
+      "module": "proofbundle.errors",
+      "operation": "os.urandom",
+      "reason": "named exception, owner order Z376: the per-process origin key (_ORIGIN_KEY) stamps every VerificationResult so that policy.evaluate_policy can refuse a hand-built result; it protects a binding and stays until S2 replaces it with an equivalent"
+    },
+    {
+      "rule": "randomness",
+      "module": "proofbundle.evalclaim",
+      "operation": "os.urandom"
+    },
+    {
+      "rule": "randomness",
+      "module": "proofbundle.sdjwt_issue",
+      "operation": "os.urandom"
+    }
+  ]
+}
