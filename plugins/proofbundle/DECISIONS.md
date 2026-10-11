@@ -329,6 +329,12 @@ MEASURED. The remote itself is not read.
   switches the gate off on its own (N2); the one exception is owner choice 1 A of 2026-10-11 (D5): a push from a
   repository that declares nothing, whose sources are determined and in whose whole source history and local
   destination records nothing is declared, is locally inactive.
+- Where neither the source nor the destination of a push is resolved, the answer names both reasons, the source's
+  first, each found on its own (owner choice 2 A of 2026-10-11). A source that matches two strong refs here is named
+  as one git push refuses (measured with git 2.43.0 and 2.51.1: a branch and a tag `main`); a source that answers to
+  a strong and a weak ref is named as not determined (measured: git pushed refs/heads/main beside
+  refs/remotes/main/HEAD). A destination whose resolution is unknown is never named as an ambiguity on the remote,
+  and no commit is checked in place of an unresolved source.
 
 Options:
 - A. HEAD only, refspec not read (the pre-review behaviour; a push of another branch was judged at HEAD).

@@ -4261,27 +4261,39 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
     reasons: list = []
     targets = resolve_push_targets(repo, push_args, deadline, reasons)
     if targets is None:
-        why, next_step = reasons[0] if reasons else (
-            "the remote, a refspec, or the push configuration names updates the gate cannot map to a locally "
-            "tracked target (a URL or path remote, --all/--mirror/--tags, a wildcard refspec, a configured "
-            "remote push list, or a branch this repository does not track)", None)
-        if _git_namespace() is not None:
-            why = _then(why, f"GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on "
-                             "the remote, a ref no tracking ref of this repository records")
+        found, next_step = reasons[0] if reasons else (None, None)
         try:
             sources, remote = _push_sources(repo, push_args, deadline)
             rewrites = (_applicable_rewrites(repo, remote, deadline)
                         if remote is not None and remote in (_remote_names(repo, deadline) or ()) else [])
         except GateError:
             sources, rewrites = None, []
+        if found is None and sources is None:
+            try:   # owner choice 2 A: the destination's reason is found apart from the source's
+                found = _destination_reason(repo, push_args, deadline)
+            except GateError:
+                found = None
+        why = found or ("the remote, a refspec, or the push configuration names updates the gate cannot map to a "
+                        "locally tracked target (a URL or path remote, --all/--mirror/--tags, a wildcard refspec, a "
+                        "configured remote push list, or a branch this repository does not track)")
+        if _git_namespace() is not None:
+            why = _then(why, f"GIT_NAMESPACE={_git_namespace()} makes git write the push under refs/namespaces/ on "
+                             "the remote, a ref no tracking ref of this repository records")
         if rewrites:
             why = _then(why, "a URL rewrite applies to this remote (" + "; ".join(rewrites) + "), and equal "
                              "effective fetch and push URLs do not prove where the existing tracking ref came from")
         if sources is None:
+            # Owner choice 2 A of 2026-10-11: both reasons, the source's first, each found on its own; no commit is
+            # checked in place of the unresolved source.
             _none, note = _local_inactivity(repo, head_commit, push_args, None, deadline)
-            return _unresolved_verdict(repo, head_commit, _with_note(_then(why, "the gate cannot tell which commits "
-                                       "the push sends, so it checked no evidence, and no check of HEAD stands in for "
-                                       "that"), note), next_step)
+            try:
+                source_why = _source_reason(repo, push_args, deadline)
+            except GateError:
+                source_why = "the gate cannot name the commits this push sends"
+            told = _then(source_why, "the gate cannot tell which commits the push sends, so it checked no evidence, "
+                                     "and no check of HEAD stands in for that")
+            return _unresolved_verdict(repo, head_commit, _with_note(_then(told, f"for the destination, {why}"), note),
+                                       next_step)
         denial = _source_denial(repo, head_commit, sources, deadline, why)
         if denial is not None:
             return denial
@@ -4290,6 +4302,70 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
             return local   # owner choice 1 A: a repository that declares nothing, local inactivity and no check
         return _unresolved_verdict(repo, head_commit, _with_note(_then(why, _sources_clean(sources)), note), next_step)
     return _evaluate_targets(repo, head_commit, targets, deadline)
+
+
+def _source_reason(repo: str, args: list[str] | None, deadline: float) -> str:
+    """Why the commits a push sends are not determined (_push_sources named none), found apart from its destination
+    (owner choice 2 A of 2026-10-11). A source that matches two strong refs here is named as one git push refuses
+    (measured with git 2.43.0 and 2.51.1: a branch and a tag `main`, "src refspec main matches more than one"); a
+    source that answers to a strong and a weak ref is named as not determined, never as a refusal (measured: beside
+    refs/remotes/main/HEAD git pushed refs/heads/main with exit 0, while rev-parse warned that `main` is ambiguous)."""
+    remote, refspecs, _options, unmodeled = _push_words(args or [])
+    if unmodeled is not None:
+        return f"the option {unmodeled} is not one the gate models as naming no further ref, commit or receiver"
+    for spec in refspecs:
+        bare = spec[1:] if spec.startswith("+") else spec
+        if "*" in bare or bare.startswith("^"):
+            return f"the refspec {spec} is a pattern or a negative refspec, which names no single source"
+        src = bare.partition(":")[0]
+        if src and _push_source(repo, src, deadline) is None:
+            found = [(name, strong) for name, strong in _dest_candidates(src)
+                     if _git(repo, "show-ref", "--verify", "--quiet", name, deadline=deadline).returncode == 0]
+            strong = [name for name, is_strong in found if is_strong]
+            if len(strong) > 1:
+                return (f"the source {src} matches {', '.join(strong)} in this repository, and git push refuses a "
+                        "source that matches more than one ref")
+            if len(found) > 1:
+                return (f"the source {src} answers to {', '.join(name for name, _s in found)} in this repository by "
+                        "git's rules, and which of them git push takes is not determined here")
+            return f"git names no single commit for the source {src} here"
+    if not refspecs:
+        if _git(repo, "symbolic-ref", "--quiet", "HEAD", deadline=deadline).returncode != 0:
+            return "HEAD is detached, so a push that names no refspec names no branch"
+        return ("git pushes no single branch from the current branch for this push (push.default, the remote's push "
+                "list or the branch's upstream)")
+    return "the gate cannot name the commits this push sends"
+
+
+def _destination_reason(repo: str, args: list[str] | None, deadline: float) -> str | None:
+    """Why git push's resolution of the destination is not evidenced, found apart from the source (owner choice 2 A
+    of 2026-10-11), for the first refspec or the branch a push without one sends; None where no destination can be
+    named. A destination whose value rests on an undetermined source is named as not known, and no reason claims that
+    the remote holds a second match (_dest_resolution_problem)."""
+    remote, refspecs, _options, unmodeled = _push_words(args or [])
+    if unmodeled is not None or remote is None:
+        return None
+    if refspecs:
+        bare = refspecs[0][1:] if refspecs[0].startswith("+") else refspecs[0]
+        if "*" in bare or bare.startswith("^"):
+            return None
+        src, sep, dst = bare.partition(":")
+        value = (dst or None) if sep else _source_full_name(repo, src, deadline)
+        if value is None:
+            return (f"which ref the push writes on the remote for {bare} is not known: a refspec without `:` writes "
+                    "the full name of its source, which is not determined here, and the gate does not read the remote "
+                    "(D3)") if not sep else None
+    else:
+        remotes = _remote_names(repo, deadline)
+        chosen = None if remotes is None else _default_push(repo, deadline, remotes, remote)
+        if chosen is None:
+            return None
+        remote, value = chosen
+    dest = _qualify_dest(value)
+    if dest is None:
+        return f"the destination {value} is not a literal branch or tag the gate resolves"
+    problem = _dest_resolution_problem(repo, remote, value, dest, deadline)
+    return None if problem is None else problem[0]
 
 
 def _with_note(why: str, note: str | None) -> str:
