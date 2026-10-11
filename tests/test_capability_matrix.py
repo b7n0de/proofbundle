@@ -422,6 +422,35 @@ class ATagIsATagAsWritten(unittest.TestCase):
                     self.assertIsNone(modul._tag_ref(ausdruck))
 
 
+class TheTreeAtARefIsWrittenByGit(unittest.TestCase):
+    """CodeQL py/tarslip on pull request 304: the console subcommands at a ref were read from a tar archive of src/ that
+    was unpacked here. git writes that tree itself now, through an index of its own, so nothing is unpacked; what runs
+    is the tree at the ref, never the checkout, and the repository's own index is left as it was."""
+
+    def test_the_subcommands_are_those_of_the_ref(self) -> None:
+        import subprocess
+        modul = _load()
+        with tempfile.TemporaryDirectory() as d:
+            git = ["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", d], check=True)
+            paket = Path(d) / "src" / "proofbundle"
+            paket.mkdir(parents=True)
+            (paket / "__init__.py").write_text("", encoding="utf-8")
+            (paket / "cli.py").write_text(_cli('    sub.add_parser("verify")\n'), encoding="utf-8")
+            (Path(d) / "pyproject.toml").write_text('[project]\nname = "x"\n\n[project.scripts]\n'
+                                                    'proofbundle = "proofbundle.cli:main"\n', encoding="utf-8")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "one"], check=True)
+            kopf = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+            (paket / "cli.py").write_text(_cli('    sub.add_parser("other")\n'), encoding="utf-8")
+            subprocess.run(git + ["add", "src/proofbundle/cli.py"], check=True)
+            modul.REPO = Path(d)
+            self.assertEqual(modul._subcommands_at(kopf), {"verify"})
+            gestaget = subprocess.run(git + ["diff", "--cached", "--name-only"], capture_output=True, text=True,
+                                      check=True).stdout
+            self.assertEqual(gestaget, "src/proofbundle/cli.py\n", "the repository's index is the one it had")
+
+
 class WhatIsReadIsReadByItsMeaning(unittest.TestCase):
     """Round seven of Codex on pull request 304: a value read from the docs or the source was used by its spelling."""
 
@@ -755,6 +784,23 @@ class TheDocsAreReadAsTheyRender(unittest.TestCase):
                          ._documented_tag("r", cap), "v1")
         with self.assertRaisesRegex(SystemExit, "pins no tag"):
             self._modul("the x capability\n\n<div>\nother\n</div>\n\n```\n- uses: x@v1\n```\n")._documented_tag("r", cap)
+
+    def test_a_comment_ends_where_html_ends_it(self) -> None:
+        """CodeQL py/bad-tag-filter on pull request 304: a comment was read to the first `-->`, and an HTML parser ends
+        one at `--!>` too, and `<!-->` and `<!--->` at once, so the text after that end renders. A block that runs on
+        past the end is no comment and ends a passage; inline, the text stops the measurement."""
+        cap = {"id": "x", "git_tag_from": r"uses: x@(\S+)", "label": [("NOTES.md", r"^(the x capability[^\n]*)")]}
+        pin = "\n\n```\n- uses: x@v1\n```\n"
+        for block in ("<!-- a --!> uses: x@v9 -->", "<!--> uses: x@v9 -->", "<!---> uses: x@v9 -->"):
+            with self.subTest(block=block), self.assertRaisesRegex(SystemExit, "pins no tag"):
+                self._modul(f"the x capability\n\n{block}{pin}")._documented_tag("r", cap)
+        for block in ("<!-- note\nover two lines -->", "<!---->", "<!-->", "<!-- a --> <!-- b -->"):
+            with self.subTest(control=block):
+                self.assertEqual(self._modul(f"the x capability\n\n{block}{pin}")._documented_tag("r", cap), "v1")
+        with self.assertRaisesRegex(SystemExit, "HTML element"):
+            self._modul("the x capability <!-- a --!> stable -->\n")._label_at("r", cap["label"])
+        self.assertEqual(self._modul("the x capability <!-- note --> stable\n")._label_at("r", cap["label"])[0],
+                         "the x capability stable", "control: an inline comment renders nothing")
 
     def test_every_recorded_label_is_what_the_reader_reads_at_the_recorded_refs(self) -> None:
         """The labels in matrix.json are re-read here at the commits the file names, so a reader change that alters a

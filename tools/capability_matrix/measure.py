@@ -35,7 +35,6 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import hashlib
-import io
 import json
 import os
 import re
@@ -220,11 +219,13 @@ def _subcommands_at(ref: str) -> set:
         if "proofbundle" not in punkte:
             _SUBCOMMANDS_AT[ref] = set()
         else:
-            archiv = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar", ref, "--", "src"],
-                                    capture_output=True, check=True).stdout
+            # git writes the tree of src/ at `ref` itself, through an index of its own in the temporary directory, so
+            # no archive is unpacked here and no path is written that git would not write (CodeQL py/tarslip on the
+            # tar extraction this replaced).
             with tempfile.TemporaryDirectory() as tmp:
-                with tarfile.open(fileobj=io.BytesIO(archiv)) as tar:
-                    tar.extractall(tmp)  # noqa: S202 - this repository's own tree at a ref
+                umgebung = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
+                for befehl in (["read-tree", f"{ref}:src"], ["checkout-index", "--all", f"--prefix={tmp}/src/"]):
+                    subprocess.run(["git", "-C", str(REPO), *befehl], env=umgebung, capture_output=True, check=True)
                 _SUBCOMMANDS_AT[ref] = _subcommands_in_tree(Path(tmp) / "src", punkte["proofbundle"])
     return _SUBCOMMANDS_AT[ref]
 
@@ -346,10 +347,18 @@ def _markdown():
 #: hide, what a struck word means and what an image shows are not decided here (`_ohne_element`).
 _ELEMENT = "\x00"
 
+#: HTML comments and nothing else, each ended where an HTML parser ends it: `<!-->` and `<!--->` are whole comments, any
+#: other ends at the first `-->` or `--!>`. What follows that end renders, so a text that runs on past it is not comments
+#: only. CommonMark lets a comment run to `-->` across a `--!>`, an HTML parser does not (CodeQL py/bad-tag-filter on the
+#: pattern this replaced, which also took `<!-- a --!> text -->` for one comment). Both readers below use it, the block
+#: and the inline.
+_NUR_KOMMENTARE = re.compile(r"\s*(?:<!--(?:-?>|(?!-?>)(?:(?!--!?>)[\s\S])*--!?>)\s*)+")
+
 
 def _inline_text(token) -> str:
     """The text an inline token renders: entities and escapes decoded, emphasis and link marks gone, a code span's
-    content as written, a soft line break a space and a hard one a line break. An HTML comment renders nothing."""
+    content as written, a soft line break a space and a hard one a line break. An HTML comment renders nothing, and
+    inline HTML that is not comments only is an element (`_NUR_KOMMENTARE`)."""
     teile = []
     for kind in token.children or ():
         if kind.type in ("text", "text_special", "code_inline"):
@@ -359,7 +368,7 @@ def _inline_text(token) -> str:
         elif kind.type == "hardbreak":
             teile.append("\n")
         elif kind.type == "html_inline":
-            if not kind.content.startswith("<!--"):
+            if not _NUR_KOMMENTARE.fullmatch(kind.content):
                 teile.append(_ELEMENT)
         elif kind.type in ("s_open", "s_close", "image"):
             teile.append(_ELEMENT)
@@ -393,7 +402,7 @@ def _bloecke(ref: str, datei: str) -> list:
                     zellen.append(_inline_text(tokens[j]))
                 j += 1
             bloecke.append(("row", tok.level, "", tuple(zellen)))
-        elif tok.type == "html_block" and not re.fullmatch(r"\s*(?:<!--.*?-->\s*)+", tok.content, re.S):
+        elif tok.type == "html_block" and not _NUR_KOMMENTARE.fullmatch(tok.content):
             bloecke.append(("html", tok.level, "", ()))
     return bloecke
 
