@@ -108,6 +108,8 @@ def main(argv=None) -> int:
     predicate["limitationCodes"] = AR.derive_limitation_codes(predicate)
     # The visible block is rendered before the receipt exists, with a placeholder digest that the
     # self-reference substitution replaces, so its core digest is the one of the final block.
+    # legacy_v01=True because disclosureCoreDigest is not in the predicate yet at this point; the
+    # final block below and the offline check both run under v0.2.
     block = AR.render_disclosure_block(predicate, receipt_digest="0" * 64, legacy_v01=True)
     body = AR.replace_disclosure_block(prepared, block)
     predicate["subjectContext"]["disclosureCoreDigest"] = AR.disclosure_core_digest(body)

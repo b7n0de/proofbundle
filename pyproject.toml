@@ -263,12 +263,6 @@ line-length = 100
 # decision we make, at a time we choose, instead of one a `pip install` makes for us.
 select = ["E4", "E7", "E9", "F"]
 
-# examples/verdict_contract/ keeps its files byte for byte as they were reviewed and linked from a
-# third-party issue, so a lint fix there would change the published bytes. Its case runner names a
-# loop variable `l` (E741); the rule is waived for that one file and nowhere else.
-[tool.ruff.lint.per-file-ignores]
-"examples/verdict_contract/measure_cases.py" = ["E741"]
-
 [tool.mypy]
 python_version = "3.10"
 files = ["src"]

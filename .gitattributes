@@ -16,3 +16,11 @@ audit_artifacts/600/register_evidence/*.md -text
 # tests/test_jede_digestgebundene_datei_ist_gepinnt.py.
 RESTRISIKO_600.md -text
 RESTRISIKO_600_OBJEKTKLASSEN.json -text
+
+# examples/verdict_contract/ (2026-10-11): the receipt binds the reply, the record and the vendored
+# parser by their sha256, so a checkout that rewrote line ends would fail the example's offline check.
+# tests/test_jede_digestgebundene_datei_ist_gepinnt.py derives its set from the findings register
+# and does not see these files; the rules stand here by name.
+examples/verdict_contract/out/* -text
+examples/verdict_contract/reply.txt -text
+examples/verdict_contract/verdict_contract.py -text

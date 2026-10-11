@@ -40,8 +40,8 @@ def _crlf_to_lf(b):
 
 
 def _strip_line_ends(b):
-    return b"".join(l.rstrip(b" \t\r\n") + (b"\n" if l.endswith(b"\n") else b"")
-                    for l in b.splitlines(keepends=True))
+    return b"".join(line.rstrip(b" \t\r\n") + (b"\n" if line.endswith(b"\n") else b"")
+                    for line in b.splitlines(keepends=True))
 
 
 def _strip_trailing_blank_lines(b):
@@ -91,7 +91,7 @@ def main() -> int:
         shutil.copytree(baseline, cross, ignore=shutil.ignore_patterns("toyrepo"))
         (cross / "reply.txt").write_bytes(raw)
         rc_cross, out_cross = quiet(check_example.main, cross)
-        failed = [l[6:] for l in out_cross.splitlines() if l.startswith("FAIL")]
+        failed = [line[6:] for line in out_cross.splitlines() if line.startswith("FAIL")]
         norm = []
         for nname, fn in NORMALIZATIONS:
             nb = fn(raw)
