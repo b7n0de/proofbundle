@@ -374,7 +374,7 @@ reports one local measurement with two implementations; one of them is an
 archived emulator whose receipts are not COSE Receipts, so it is not a test of two
 Transparency Services in the sense of A4. The illustrative cases of Section 6
 apply local transformations that a registration may
-cause (an added unprotected parameter; a changed outer encoding) and show which
+cause (an added unprotected parameter, C5; a changed outer encoding, C12) and show which
 leave the chosen identity unchanged. The tag-removal case (C9) is a negative format
 control, not evidence of successful registration in two services.
 
@@ -512,7 +512,11 @@ package uses EdDSA (-8). Identification is independent of the signature algorith
 The following cases illustrate the scope and limits of the chosen identity rule. Case C5 adds one unprotected parameter
 after signing: the ToBeSigned digest and the signature are unchanged while the
 whole-object digest changes, so a whole-bytes identifier and a ToBeSigned
-identifier disagree exactly where a registration may rewrite the envelope. C9
+identifier disagree exactly where a registration may rewrite the envelope. Case
+C12 keeps tag 18 and every element of statement 01 and writes the head of the
+four-element array with a one-byte length argument (98 04 in place of 84), which
+is well-formed but not the preferred encoding: as in C5, the ToBeSigned reference
+matches and the signature verifies while the whole-object digest changes. C9
 reports MATCH under the illustrative ToBeSigned rule and is_scitt = False because
 tag 18 is absent; it is a negative format control, not evidence of successful
 registration in two services. Case C8 withholds a detached payload: a missing

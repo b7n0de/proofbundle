@@ -480,6 +480,17 @@ def build_cases():
         "cofactorless": sig_valid_rule(pk, sig11, TBS01, rule2=False),
         "cofactored": sig_valid_rule(pk, sig11, TBS01, cofactored=True, rule2=False)}
 
+    # C12 changed outer encoding, tag 18 kept: statement 01 with the head of its four-element array written
+    # with a one-byte argument (98 04) in place of 84. Well-formed, not the preferred encoding; the protected
+    # header, payload and signature are the same bytes, so ToBeSigned and the signature are unchanged.
+    assert STMT01[:2] == b"\xd2\x84"
+    c12 = b"\xd2\x98\x04" + STMT01[2:]
+    assert len(c12) == len(STMT01) + 1
+    case("C12", "A4", "Statement 01 with the head of its four-element array written with a one-byte length "
+                      "argument (98 04 in place of 84), tag 18 kept and every element unchanged: the outer "
+                      "encoding changes, ToBeSigned and signature do not, and the whole-object digest changes.",
+         c12, {"ref_usable": True, "match": "MATCH", "is_scitt": True, "sig_valid": True})
+
 
 def expected_ok(c):
     return all(c["result"].get(k) == v for k, v in c["expected"].items())

@@ -36,6 +36,11 @@ INDETERMINATE under an unusable one. The sentences are found in the text and the
 The reader below checks the structure as the paragraph states it. Probes from the bytes of Appendix A:
 statement 01 with one byte of iss replaced by 0xff, under the scheme SHA-512 (-44) and under the reference's
 own scheme; arrays of two, three and five elements; the four elements of statement 01 without the tag.
+
+Review point 9 of 2026-10-08 (revision -01): case C12 keeps tag 18 and changes the outer encoding. Its sentence in
+Section 6 and the names C5 and C12 in A4 are found in the text; C12 is rebuilt from the bytes of statement 01 as
+the sentence states (the array head 84 written as 98 04) and compared with the bytes of Appendix A; the head is
+read byte by byte, ToBeSigned is compared with that of 01, and the preferred re-encoding gives statement 01 again.
 """
 import hashlib
 import re
@@ -445,4 +450,29 @@ for what, b, readable in (("[1, 2]", b"\xd2\x82\x01\x02", False), ("three elemen
     print(f"probe {what}: read as a COSE_Sign1: {got} {'OK' if got == readable else 'DIFF'}")
     fails += got != readable
 print("deviations after the closing-round probes:", fails)
+
+# Review point 9 of 2026-10-08: C12 is rebuilt from statement 01 and the sentence of Section 6
+c12_text = ("Case C12 keeps tag 18 and every element of statement 01 and writes the head of the four-element array "
+            "with a one-byte length argument (98 04 in place of 84), which is well-formed but not the preferred "
+            "encoding: as in C5, the ToBeSigned reference matches and the signature verifies while the "
+            "whole-object digest changes.")
+a4_text = "(an added unprotected parameter, C5; a changed outer encoding, C12)"
+print(f"C12 sentence of Section 6 found: {c12_text in body}; A4 names C5 and C12: {a4_text in body}")
+fails += c12_text not in body or a4_text not in body
+c12_seg = next(a3[k: cidx[n + 1] if n + 1 < len(cidx) else len(a3)] for n, k in enumerate(cidx)
+               if re.match(r"^A\.3\.\d+\.  C12 ", a3[k]))
+c12_stated = hexblock(c12_seg)
+c12_built = stm["01"][:1] + b"\x98\x04" + stm["01"][2:] if stm["01"][:2] == b"\xd2\x84" else b""
+head = (c12_built[0], c12_built[1] >> 5, c12_built[1] & 31, c12_built[2]) if c12_built else ()
+a12, sc12 = decode(c12_built) if c12_built else (None, False)
+same_tbs = a12 is not None and tbs(a12) == tbs(a01)
+renc = cbor2.dumps(cbor2.CBORTag(18, a12)) == stm["01"] if a12 is not None else False
+print(f"C12 built from statement 01 equals the bytes of Appendix A: {c12_built == c12_stated}; tag byte d2 kept, "
+      f"array head major {head[1] if head else '-'} with additional information {head[2] if head else '-'} and "
+      f"argument {head[3] if head else '-'}; ToBeSigned equal to that of 01: {same_tbs}; whole-object SHA-256 "
+      f"differs: {hashlib.sha256(c12_built).digest() != hashlib.sha256(stm['01']).digest()}; re-encoded in "
+      f"preferred form it is statement 01 again: {renc}")
+fails += not (c12_built == c12_stated and head == (0xD2, 4, 24, 4) and sc12 and same_tbs and renc
+              and hashlib.sha256(c12_built).digest() != hashlib.sha256(stm["01"]).digest())
+print("deviations after the C12 round:", fails)
 sys.exit(1 if fails else 0)

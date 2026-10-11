@@ -6,6 +6,11 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 19 (card DRAFTS-01-INHALT-01, review point 5 of 2026-10-08): the paragraph of 3.2 on the version also
+says that the test vectors of this version are those of Appendix A and are maintained in this document, and that
+a later version comes with its own test vectors; the check of round 14 reads the whole paragraph and finds the
+heading "Appendix A.  Test Vectors".
+
 Round 18 (card DRAFTS-01-VORARBEIT-01, preparation of the -01): 10.1 begins with the sentence that the template
 is the one for the registration of the type in the vendor tree and is given for information, and its field
 "Security considerations" states what RFC 6838 Section 4.6 asks every registration to state: no active
@@ -1642,12 +1647,17 @@ def main():
            "DSSE envelope would carry as payloadType.")
     chk("4.2 (round 14): the type is a media type name in the vendor tree, and it MUST NOT change for this format",
         v42 in flat12 and "standards tree" not in flat12 and "requests its registration" not in flat12)
-    v32 = ("The version of the format lives in the schema identifier. A later version uses a different identifier "
-           "under https://signed-evidence.org/eval-receipt/ 3.3.")
+    # Revision -01, review point 5 of 2026-10-08: the paragraph also says where the vectors of this version are
+    # maintained and that a later version comes with its own vectors; {{vectors}} is Appendix A, Test Vectors.
+    v32 = ("The version of the format lives in the schema identifier. The test vectors of this version are those "
+           "of Appendix A; they are maintained in this document. A later version uses a different identifier "
+           "under https://signed-evidence.org/eval-receipt/ and comes with its own test vectors. The identifier "
+           "above keeps naming the format of this document. 3.3.")
     chk("3.2 (round 14): a later version uses a different identifier under https://signed-evidence.org/eval-receipt/ "
         "(on a line of its own), and the payload schema of this version stands under it", v32 in flat12
         and any(line.strip() == "https://signed-evidence.org/eval-receipt/" for line in dtext.splitlines())
-        and PAYLOAD_SCHEMA.startswith("https://signed-evidence.org/eval-receipt/") and "sub-namespace" not in flat12)
+        and PAYLOAD_SCHEMA.startswith("https://signed-evidence.org/eval-receipt/") and "sub-namespace" not in flat12
+        and any(line.rstrip() == "Appendix A.  Test Vectors" for line in dtext.splitlines()))
     m_sub = re.search(r"Subtype name: (\S+)", flat12)
     m_typ = re.search(r"Type name: (\S+)", flat12)
     chk("10.1 (round 14): the template's type and subtype name give the type of 4.2",
