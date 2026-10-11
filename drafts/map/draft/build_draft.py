@@ -219,6 +219,40 @@ def certificate_section(d):
     return out
 
 
+TS_FORM = {"T1": "the protected header, payload and signature of M2; unprotected header {394: [R]}",
+           "T2": "the protected header, payload and signature of X1; unprotected header {394: [R]}",
+           "T3": "as T2; unprotected header {4: the kid of X1, 394: [R]}",
+           "T4": "as T2; unprotected header {394: R}, the byte string not in an array",
+           "T5": "as T2; unprotected header {394: []}"}
+
+
+def transparent_section(d):
+    """Transparent Statements: R in full, each vector as its form and the SHA-256 over its bytes."""
+    tv = d["transparent_vectors"]
+    reg = d["registered_x1"]
+    rows = ["| Vector | Bytes | Candidate | Status | First failing step |",
+            "|--------|-------|-----------|--------|--------------------|"]
+    for t in tv:
+        step = "(none)" if t["step"] is None else str(t["step"])
+        rows.append(f"| {t['id']} | {len(t['statement_hex']) // 2} | {t['candidate']} | {t['expected_status']} "
+                    f"| {step} |")
+    rows.append('{: #transparent-table title="Transparent Statements"}')
+    out = ["## Transparent Statements {#transparent-vectors}", "",
+           "T2 is the Transparent Statement that a local instance of a Transparency Service returned on "
+           f"{reg['registered_on']} when X1 was registered (see {{{{impl}}}}). It is X1 with one COSE Receipt R "
+           "under unprotected label 394; nothing else differs from X1. R was made by the service with the key of "
+           "that test instance and is given here as recorded. Each vector below is a COSE_Sign1 with tag 18 in "
+           "the deterministic encoding, made of the parts named, and is presented with vector P1 of "
+           "{{RECEIPTS}}. The Receiver's configured pairs are the pair of {{status-vectors}} and the certificate "
+           "pair of {{certificate-vectors}}. The steps of {{check-statement}} do not read R.", "",
+           f"R, {len(d['receipt_of_t2_hex']) // 2} bytes (hex):", ""] + artwork(wrap_hex(d["receipt_of_t2_hex"]))
+    out += [f"* {t['id']}: {TS_FORM[t['id']]}." for t in tv]
+    out += [""] + rows + ["", "What each vector shows:", ""]
+    out += [f"* {t['id']}: {t['shows']}." for t in tv]
+    out += ["", "Vector and SHA-256 over its bytes:", ""] + artwork(*[f"{t['id']} {t['statement_sha256']}" for t in tv])
+    return out
+
+
 def appendix(d):
     m1, m2 = d["M1_dsse"], d["M2_scitt_hash_envelope"]
     pub = base64.b64decode(d["issuer_public_key_b64"])
@@ -290,6 +324,7 @@ def appendix(d):
     out += status_section(d)
     out += reference_section(d)
     out += certificate_section(d)
+    out += transparent_section(d)
     return "\n".join(out).rstrip("\n")
 
 

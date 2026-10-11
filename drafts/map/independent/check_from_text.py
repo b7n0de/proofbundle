@@ -3,6 +3,13 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 21 (card DRAFTS-01-INHALT-01, lab-chain findings): Section 5.2.2 step 2 removes unprotected label 394 when
+it is the only label and holds an array of one or more byte strings (the receipts of a Transparent Statement), and
+does not read the receipts. Appendix A.9 gives R, the receipt in the Transparent Statement that a local Transparency
+Service returned for X1, and T1 to T5 as their parts; R21-* rebuild them from M2, X1 and R, compare the SHA-256 the
+text lists and compute each status with status20, which now applies that rule. R21-TEXT finds the sentences of the
+lab-chain findings in Sections 5.2.2, 9 and 12 and the limit on where B came from in the copied non-claims list.
+
 Round 20 (card DRAFTS-01-INHALT-01, owner choices of 2026-10-11): Section 5.2 has two profiles. The key profile is
 unchanged; the certificate profile has exactly the protected labels 1, 4, 15, 33, 258 and 259, alg -7, an iss of the
 form did:x509:0:sha256:F::eku:O and an x5chain of a P-256 leaf and an RSA trust anchor; 5.2.2 selects the profile by
@@ -2284,6 +2291,10 @@ def status20(stmt, rb, rkey, pairs, cert_pairs):
         return ("malformed", 1)
     if not isinstance(prot_, Mapping) or not pdet:
         return ("malformed", 1)
+    # round 21, 5.2.2 step 2: label 394 alone, an array of one or more byte strings, is removed; not read
+    if (set(uh_) == {394} and isinstance(uh_[394], (list, tuple)) and len(uh_[394]) >= 1
+            and all(isinstance(r_, bytes) for r_ in uh_[394])):
+        uh_ = {}
     cwt_ = prot_.get(15)
     shared = (tagged and len(uh_) == 0 and isinstance(prot_.get(4), bytes) and len(prot_[4]) == 32
               and isinstance(cwt_, Mapping) and set(cwt_) == {1, 2} and isinstance(cwt_[1], str)
@@ -2436,7 +2447,7 @@ s20_txt = ["The labels of the protected header select the profile: exactly 1, 4,
            "This step is not certification path validation ([RFC5280] Section 6) and does not resolve iss as a DID",
            "[RFC9864] also sets -7 to Deprecated and registers -9 (ESP256) for ECDSA with SHA-256 on P-256.",
            "The steps of Section 5.2.2, applied on 2026-10-11 to the registered statement under the certificate pair "
-           "of its test root, give accepted.",
+           "of its test root, give accepted",
            "054f1f6e364580c42fad862747903f2a6ee19976", "[RFC9360]", "[RFC5280]", "[RFC8017]", "[RFC6979]"]
 check("D2", "R20-TEXT", all(x in d2flat20 for x in s20_txt),
       "5.2.2 names the two label sets, says that step 3 is not path validation, 5.2.4 says that RFC 9864 deprecates "
@@ -2499,6 +2510,78 @@ for rid in sorted(TAB7):
     check("D2", "R20-" + rid, got == (state_exp, match_exp),
           "%s (%s) with %s: state and matching rule computed from the text %s, table says %s"
           % (rid, change, cand_, got, (state_exp, match_exp)))
+print()
+
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 21: Transparent Statements (5.2.2 step 2, A.9) and the lab-chain sentences ===")
+d2flat21 = norm_ws(" ".join(d2))
+a9 = find_line(d2, r"^A\.9\.\s+Transparent Statements")
+a9_end = find_line(d2, r"^Open Items", a9)
+R21 = hex_block(d2, find_line(d2, r"^\s+R, \d+ bytes \(hex\):", a9, a9_end))
+FORM21 = {"T1": "T1: the protected header, payload and signature of M2; unprotected header {394: [R]}.",
+          "T2": "T2: the protected header, payload and signature of X1; unprotected header {394: [R]}.",
+          "T3": "T3: as T2; unprotected header {4: the kid of X1, 394: [R]}.",
+          "T4": "T4: as T2; unprotected header {394: R}, the byte string not in an array.",
+          "T5": "T5: as T2; unprotected header {394: []}."}
+_m2v, _x1v = cbor2.loads(D2_CS).value, cbor2.loads(X20["X1"]).value
+
+
+def ts21(v, unprotected):
+    return cenc(cbor2.CBORTag(18, [v[0], unprotected, v[2], v[3]]))
+
+
+T21 = {"T1": ts21(_m2v, {394: [R21]}), "T2": ts21(_x1v, {394: [R21]}),
+       "T3": ts21(_x1v, {4: KID20, 394: [R21]}), "T4": ts21(_x1v, {394: R21}), "T5": ts21(_x1v, {394: []})}
+t21s = find_line(d2, r"^\s+\| Vector \| Bytes", a9, a9_end)
+t21e = find_line(d2, r"Table \d+: Transparent Statements", a9, a9_end)
+t21b = find_line(d2, r"^\s+\+=", t21s + 1, t21e)
+TAB21 = {}
+for line in d2[t21b:t21e]:
+    s_ = line.strip()
+    if s_.startswith("|"):
+        c_ = [x.strip() for x in s_.split("|")[1:-1]]
+        TAB21[c_[0]] = (int(c_[1]), c_[2], c_[3], None if c_[4] == "(none)" else int(c_[4]))
+TSHA21 = {}
+for line in d2[t21e:a9_end]:
+    mm21 = re.match(r"^\s+(T\d)\s+([0-9a-f]{64})$", line)
+    if mm21:
+        TSHA21[mm21.group(1)] = mm21.group(2)
+check("D2", "R21-REBUILD", all(f in d2flat21 for f in FORM21.values()) and set(TSHA21) == set(T21) == set(TAB21)
+      and all(sha256(T21[k]).hex() == TSHA21[k] and len(T21[k]) == TAB21[k][0] for k in T21),
+      "T1 to T5 rebuilt from M2, X1 and R as A.9 names them: each has the SHA-256 and the length the text lists",
+      ", ".join("%s %d" % (k, len(v)) for k, v in sorted(T21.items())))
+for k_ in sorted(T21):
+    _n, cand_, st_exp, step_exp = TAB21[k_]
+    got = status20(T21[k_], VEC[cand_]["R"], ISSUER_PK, pairs20, cpairs20)
+    check("D2", "R21-" + k_, got == (st_exp, step_exp),
+          "%s with %s under both configured pairs: status computed from the text (%s, step %s), table says (%s, step "
+          "%s)" % (k_, cand_, got[0], got[1], st_exp, step_exp))
+_rcpt = cbor2.loads(R21)
+check("DEMO", "R21-NOREAD", isinstance(_rcpt, cbor2.CBORTag) and _rcpt.tag == 18
+      and status20(ts21(_x1v, {394: [b"\x00"]}), VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20) == ("accepted", None)
+      and status20(ts21(_x1v, {394: [R21, R21]}), VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20) == ("accepted", None)
+      and status20(ts21(_x1v, {395: [R21]}), VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20) == ("outside_profile", 2),
+      "the steps do not read the receipts: X1 with a one-byte string or with R twice under 394 is accepted, X1 with R "
+      "under 395 is outside_profile; R itself is a tagged COSE_Sign1, which the steps never open")
+s21_txt = [
+    "If the unprotected header holds label 394 and no other label, and the value of 394 is an array of one or more "
+    "byte strings, the Receiver removes label 394",
+    "These steps do not read the receipts.",
+    "Receipts not read. Step 2 of Section 5.2.2 removes the receipts of a Transparent Statement without reading them;",
+    "It fixes the key, not the issuer name in the receipt: two instances of a Transparency Service can carry the same "
+    "issuer name and differ only in their keys (Section 12).",
+    "Digest not checked at registration.", "Only the Receiver recomputes the receipt digest",
+    "as cannot-evaluate (exit status 3), not as untrusted (exit status 1); this document maps no verdict of another "
+    "tool to a status of Section 5.2.2.",
+    "did not anchor a chain whose leaf certificate was signed with ECDSA (exit status 3) and verified the chain with "
+    "an RSA root.",
+    "Vector T2 is the Transparent Statement that a local instance of the same service returned on 2026-10-11 for X1",
+    "A receipt does not show where B came from."]
+check("D2", "R21-TEXT", all(x in d2flat21 for x in s21_txt),
+      "5.2.2 step 2 has the rule for Transparent Statements, Section 9 the paragraphs on receipts and on the digest at "
+      "registration, Section 12 the lab-chain measurements, and the copied non-claims list the limit on where B came "
+      "from", "missing: " + (", ".join(x[:40] for x in s21_txt if x not in d2flat21) or "none"))
 print()
 
 # ---------------------------------------------------------------------------

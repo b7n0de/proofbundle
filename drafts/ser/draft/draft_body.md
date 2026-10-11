@@ -632,6 +632,10 @@ In particular:
   equal those in the receipt.
 * Even with salt and identifier disclosed, the receipt does not show that the
   named model or dataset was the one actually evaluated.
+* A receipt does not show where B came from. B carries no reference to another
+  receipt or record that it was made from, for example when an Issuer
+  translates the result of another format into a receipt; this format has no
+  member for it.
 
 # Related Work {#related}
 
@@ -721,6 +725,15 @@ resource-limit error, not as a completed format or signature verdict under
 Commitments. A commitment with a short or guessable salt can be tested against
 candidate identifiers. The salt is therefore 16 bytes from a cryptographically
 secure source and stays with the Issuer.
+
+Criteria digest. `criteria_digest` binds the bytes of a criteria set, not a
+time. Whoever wants to show that the criteria set existed before the run needs
+an anchor outside the receipt, for example the digest of the criteria set
+registered with a Transparency Service before the run began. The member also
+carries weight only when the Receiver compares it with bytes of the criteria
+set that it obtained independently of the state it checks: criteria bytes
+taken from the same place as the result can have been changed together with
+it, and their digest then matches.
 
 Replay. A receipt is a static statement, not an authentication token. Showing a
 valid receipt proves nothing about the party that shows it.
@@ -841,6 +854,11 @@ pyca/cryptography 41.0.7 accepted the signatures of vectors N12 (small-order
 key), N16 (small-order R), N18 (non-canonical key) and N61 (mixed-order key),
 and rejected those of N6 (S not below L), N17 (non-canonical R) and N59
 (mixed-order R).
+
+In a local measurement on 2026-10-10, a receipt made from the result of a test
+run was checked by the implementation named above and by the verifier written
+from the text of this document alone. Both passed it, and both refused the
+same receipt with one byte of B changed, at step 11.
 
 --- back
 
