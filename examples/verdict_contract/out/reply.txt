@@ -1,0 +1,5 @@
+Reviewed calc.py.
+
+No MED or HIGH issues: sub mirrors add and has no side effects.
+
+===VERDICT=== APPROVE

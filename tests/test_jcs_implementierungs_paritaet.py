@@ -33,9 +33,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from proofbundle.canonical import statement_content_root
+
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
 
 REPO = Path(__file__).resolve().parents[1]
 BIN = REPO / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
@@ -50,7 +54,7 @@ def _rust_content_root(v) -> tuple[str | None, str]:
         json.dump(v, fh, ensure_ascii=False)
         pfad = fh.name
     try:
-        p = subprocess.run([str(BIN), "content-root", pfad],
+        p = subprocess.run([str(_pb_verify_rs.binary_or_skip()), "content-root", pfad],
                            capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, f"{type(exc).__name__}: {exc}"
@@ -112,11 +116,9 @@ def _korpus() -> list[tuple[str, object]]:
     return faelle
 
 
-@pytest.mark.skipif(not BIN.is_file(),
-                    reason=(f"der zweite Verifizierer ist nicht gebaut ({BIN}); ohne ihn ist die "
-                            "Uebereinstimmung NICHT MESSBAR — das ist keine Zusicherung. In CI "
-                            "baut ihn der Schritt vor dem Differential."))
-def test_beide_implementierungen_kanonisieren_gleich():
+# The binary comes from the session fixture `pb_verify_rs` (tests/conftest.py): pinned, or built once
+# under a lock, or a skip that names why; where CI requires the binary, its absence fails the test.
+def test_beide_implementierungen_kanonisieren_gleich(pb_verify_rs):
     """DIE ZUSICHERUNG: fuer JEDEN Wert des Korpus ist die Wurzel beider Seiten dieselbe.
 
     Ein abweichender Wert ist ein FEHLSCHLAG, unabhaengig davon, welche Seite RFC-konform ist — die
@@ -168,7 +170,6 @@ def test_META_der_generator_deckt_die_benannten_achsen_ab():
     assert len(namen) == len(set(namen)), "doppelte Fallnamen — dann verdeckt ein Fall den anderen"
 
 
-@pytest.mark.skipif(not BIN.is_file(), reason=f"der zweite Verifizierer ist nicht gebaut ({BIN})")
 # DAS `xfail(strict=True)` IST HIER ENTFERNT, UND DAS IST DER VOLLZUG, NICHT DAS AUFRAEUMEN.
 #
 # Es stand hier, solange die Karte `jcs-integer-domain-600` offen war: Python wies Ganzzahlen
@@ -183,7 +184,7 @@ def test_META_der_generator_deckt_die_benannten_achsen_ab():
 # Owner-Anordnung OA-8da988f0bc, Option A (11.09.2026 06:55:09Z): "Fix committen, xfail strict
 # entfernen". Ab jetzt ist dieser Fall ein gewoehnlicher Regressionstest: faellt die Paritaet
 # je wieder, faellt er rot und nicht gruen.
-def test_die_ganzzahl_achse_stimmt_ueberein():
+def test_die_ganzzahl_achse_stimmt_ueberein(pb_verify_rs):
     """Der Fall, der rot sein MUSS, solange die Karte offen ist — und der auffaellt, wenn sie faellt.
 
     `xfail(strict=True)` ist hier die ganze Aussage: wird die Divergenz behoben, meldet pytest

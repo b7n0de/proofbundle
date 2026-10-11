@@ -7,12 +7,14 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import stat
 import tempfile
 import textwrap
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
@@ -219,12 +221,35 @@ class TestEvaluateGoodPath(unittest.TestCase):
                         "crosscheck_refs": ["CALL_THING_CHECK"], "notes": "",
                     },
                 })
-                result = tree.evaluate(rust_bin=Path(d) / "does-not-exist")
+                # CI pins a real binary for the whole job (tests/_pb_verify_rs.py); the case must not depend on
+                # whether the job that runs it does. A pinned binary that works is set here on purpose.
+                pin = _fake_binary(Path(d), ["thing-check"])
+                with mock.patch.dict(os.environ, {"PROOFBUNDLE_PB_VERIFY_RS": str(pin)}):
+                    result = tree.evaluate(rust_bin=Path(d) / "does-not-exist")
                 self.assertFalse(result["binary_available"])
                 self.assertEqual(result["covered"], 1)
                 self.assertTrue(result["registry_integrity_ok"])
             finally:
                 rpg.RUST_BIN_DEBUG, rpg.RUST_BIN_RELEASE = orig_debug, orig_release
+
+    def test_a_named_binary_is_never_replaced_by_another(self):
+        """Codex thread 4218670619: with the job-level pin set, a test that named a missing binary measured the
+        pin. The binary measured is the first one named, the caller's, then the pin, then the target lookup;
+        a named one that is missing is DATA_BLOCKED, whatever else exists."""
+        with tempfile.TemporaryDirectory() as d:
+            pin = _fake_binary(Path(d), ["thing-check"])
+            vorhanden = Path(d) / "lookup"
+            vorhanden.mkdir()
+            ziel = _fake_binary(vorhanden, ["thing-check"])
+            with mock.patch.object(rpg, "RUST_BIN_DEBUG", ziel), mock.patch.object(rpg, "RUST_BIN_RELEASE", ziel):
+                with mock.patch.dict(os.environ, {"PROOFBUNDLE_PB_VERIFY_RS": str(pin)}):
+                    self.assertIsNone(rpg.rust_coverage_report(Path(d) / "missing"), "the pin replaced a named binary")
+                    self.assertEqual(rpg.rust_coverage_report(None), {"verify_subcommands": ["thing-check"]})
+                with mock.patch.dict(os.environ, {"PROOFBUNDLE_PB_VERIFY_RS": str(Path(d) / "pinned-missing")}):
+                    self.assertIsNone(rpg.rust_coverage_report(None), "the lookup replaced a pinned binary")
+                with mock.patch.dict(os.environ, {"PROOFBUNDLE_PB_VERIFY_RS": ""}):
+                    self.assertEqual(rpg.rust_coverage_report(None), {"verify_subcommands": ["thing-check"]},
+                                     "control: with nothing named, the target lookup is measured")
 
 
 class TestEvaluateCatchesLies(unittest.TestCase):
