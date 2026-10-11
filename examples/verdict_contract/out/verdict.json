@@ -1,0 +1,17 @@
+{
+  "exitCode": 0,
+  "parser": {
+    "commit": "73561ee356fc01d6c976a93fb9110d2df2a2df4e",
+    "function": "find_verdict",
+    "path": "verdict_contract.py",
+    "repository": "https://github.com/tonydzi/verdict-contract",
+    "sha256": "ff5884d5be7520e08054b484456ce0c38fe4fdf99818fed3925b925bc3309a8f"
+  },
+  "reply": {
+    "decoding": "strict UTF-8, no newline translation",
+    "length": 106,
+    "path": "reply.txt",
+    "sha256": "09fe7420b596984384f1c7f0c61c36a3cc76cb9b5a42c18c5ff8bf518ab3f52f"
+  },
+  "verdict": "APPROVE"
+}
