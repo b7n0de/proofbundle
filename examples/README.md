@@ -17,6 +17,7 @@ examples/<file>` (or `make examples` to run all that need no optional extras). E
 | `inspect_receipt.py` | inspect_ai `.eval` log → signed receipt via the stable API | `[inspect]` + the binary fixture |
 | `inspect_hook_example.py` | The opt-in end-of-task hook auto-emitting a receipt | `[inspect]` |
 | `pytest_plugin_example.py` | The opt-in pytest plugin emitting a run receipt | `pytest` |
+| `verdict_contract/` | A reviewer reply bound by its exact bytes and the verdict of `verdict_contract.find_verdict`, vendored unchanged under MIT; offline check with `python check_example.py out` from that directory, see its README. Not part of the sdist | none |
 
 For the whole trust story with no checkout at all: `pip install proofbundle && proofbundle demo`
 (honest receipt verifies, six tampers fail, a swapped sample is caught — see `docs/DEMO.md`).
