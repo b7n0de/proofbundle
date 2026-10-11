@@ -42,10 +42,10 @@ average of the machine was below 0.5.
 
 | what | value |
 |---|---|
-| commit measured | `f10092c232ec4ff9c059f0b84ce59e4dd9a3b9e6` |
+| commit measured | `9b7beab975cb94283b0ecc000a104384c7c3ad44` |
 | CPU | Intel(R) Xeon(R) Processor @ 2.10GHz, 4 logical CPUs, x86_64 |
-| memory | 16481900 kB total |
-| operating system | Ubuntu 24.04.4 LTS, kernel 6.18.44-fc-v42 |
+| memory | 16479424 kB total |
+| operating system | Ubuntu 24.04.4 LTS, kernel 6.18.44-fc-v114 |
 | Python | CPython 3.11.15 |
 | dependencies | cffi 2.1.1, cryptography 50.0.1, rfc8785 0.1.4 |
 | disk of the durable write | ext4 on /dev/vda, mounted at `/` |
@@ -54,9 +54,9 @@ average of the machine was below 0.5.
 
 | run | measured at (end) | load average at start (1, 5, 15 min) | at end | tree clean |
 |---|---|---|---|---|
-| 2026-09-28-cloud-vm-run1 | 2026-09-28T00:43:58Z | 0.30, 1.16, 2.19 | 0.67, 1.13, 2.14 | yes |
-| 2026-09-28-cloud-vm-run2 | 2026-09-28T00:45:01Z | 0.48, 1.06, 2.09 | 0.74, 1.05, 2.04 | yes |
-| 2026-09-28-cloud-vm-run3 | 2026-09-28T00:46:08Z | 0.48, 0.97, 1.99 | 0.76, 0.97, 1.94 | yes |
+| 2026-10-11-cloud-vm-run1 | 2026-10-11T13:32:47Z | 0.17, 0.12, 0.05 | 0.70, 0.28, 0.11 | yes |
+| 2026-10-11-cloud-vm-run2 | 2026-10-11T13:34:15Z | 0.49, 0.27, 0.11 | 0.80, 0.40, 0.16 | yes |
+| 2026-10-11-cloud-vm-run3 | 2026-10-11T13:35:39Z | 0.48, 0.36, 0.16 | 0.80, 0.47, 0.21 | yes |
 
 <!-- end of machine -->
 
@@ -68,15 +68,15 @@ Microseconds.
 
 | stage | p50, runs 1 to 3 | p95, run 1 | p99, runs 1 to 3 | max, run 1 |
 |---|---|---|---|---|
-| capture | 7.3 / 7.3 / 7.2 | 12.3 | 20.6 / 15.0 / 23.0 | 48.9 |
-| canonicalize | 20.4 / 20.3 / 20.5 | 26.1 | 58.4 / 42.0 / 50.7 | 88.3 |
-| hash_sha256 | 0.9 / 0.9 / 0.9 | 1.1 | 3.8 / 1.4 / 1.2 | 13.8 |
-| hash_leaf | 0.9 / 1.0 / 0.9 | 1.0 | 1.3 / 1.9 / 1.3 | 5.7 |
-| sign | 37.3 / 37.2 / 37.3 | 53.9 | 69.8 / 58.1 / 63.3 | 75.2 |
-| emit_empty_history | 61.5 / 43.9 / 44.2 | 77.1 | 87.8 / 68.2 / 86.2 | 101.9 |
-| durable_write | 345.9 / 277.5 / 363.8 | 491.7 | 605.3 / 430.6 / 563.6 | 666.0 |
-| policy | 220.2 / 218.1 / 218.8 | 336.6 | 399.1 / 291.3 / 316.5 | 474.2 |
-| verify | 160.0 / 155.5 / 156.5 | 224.1 | 248.4 / 220.8 / 250.1 | 259.4 |
+| capture | 43.9 / 38.5 / 63.5 | 83.5 | 99.5 / 71.3 / 99.5 | 117.0 |
+| canonicalize | 19.4 / 19.4 / 35.2 | 38.3 | 56.2 / 51.4 / 59.8 | 78.1 |
+| hash_sha256 | 0.7 / 0.8 / 1.2 | 0.8 | 0.9 / 1.1 / 1.5 | 0.9 |
+| hash_leaf | 1.4 / 1.6 / 2.8 | 2.6 | 3.7 / 1.8 / 3.2 | 17.9 |
+| sign | 31.9 / 35.7 / 57.6 | 46.9 | 62.0 / 72.1 / 88.3 | 87.2 |
+| emit_empty_history | 69.4 / 69.1 / 104.5 | 90.1 | 106.1 / 97.2 / 147.2 | 117.5 |
+| durable_write | 761.2 / 1065.7 / 528.9 | 1230.4 | 1578.7 / 2652.5 / 1131.9 | 2390.0 |
+| policy | 481.2 / 814.0 / 425.1 | 620.1 | 664.4 / 963.5 / 802.8 | 730.1 |
+| verify | 239.2 / 226.9 / 222.9 | 293.9 | 355.1 / 434.2 / 404.5 | 377.3 |
 
 <!-- end of stages -->
 
@@ -88,22 +88,22 @@ Microseconds, except the count.
 
 | prior leaves n | SHA-256 calls per emit | emit p50, runs 1 to 3 | emit p99, run 1 | Merkle part p50, run 1 | signature p50, run 1 |
 |---|---|---|---|---|---|
-| 0 | 1 | 51.1 / 44.0 / 43.9 | 93.5 | 1.2 | 37.4 |
-| 1 | 4 | 53.0 / 47.4 / 47.1 | 93.1 | 3.4 | 37.3 |
-| 2 | 8 | 62.6 / 49.9 / 50.3 | 107.7 | 6.2 | 37.4 |
-| 4 | 16 | 57.3 / 55.7 / 56.1 | 101.6 | 11.8 | 48.2 |
-| 8 | 32 | 67.4 / 66.6 / 67.1 | 102.4 | 22.7 | 37.1 |
-| 16 | 64 | 90.5 / 88.2 / 88.7 | 143.8 | 44.9 | 38.4 |
-| 32 | 128 | 139.5 / 130.6 / 133.3 | 256.4 | 89.4 | 37.4 |
-| 64 | 256 | 232.1 / 219.0 / 223.0 | 428.7 | 178.8 | 38.7 |
-| 128 | 512 | 437.2 / 402.8 / 420.0 | 962.0 | 375.3 | 37.9 |
-| 256 | 1024 | 793.1 / 765.6 / 790.6 | 963.4 | 735.2 | 36.8 |
-| 512 | 2048 | 1521.4 / 1485.4 / 1501.5 | 2173.6 | 1466.4 | 37.2 |
-| 1024 | 4096 | 3034.8 / 2905.7 / 2992.7 | 4451.5 | 2954.6 | 37.2 |
-| 2048 | 8192 | 5910.2 / 5846.1 / 5951.1 | 7340.4 | 5841.4 | 37.4 |
-| 4096 | 16384 | 11932.5 / 11690.6 / 11657.8 | 16352.4 | 11690.6 | 36.8 |
-| 8192 | 32768 | 24077.2 / 23626.2 / 23680.5 | 45431.7 | 23711.9 | 37.5 |
-| 16384 | 65536 | 47184.2 / 46477.3 / 47196.6 | 62415.3 | 47131.8 | 36.8 |
+| 0 | 1 | 73.0 / 71.1 / 76.1 | 114.6 | 24.1 | 35.4 |
+| 1 | 4 | 80.5 / 82.7 / 81.4 | 123.9 | 29.8 | 34.5 |
+| 2 | 8 | 85.7 / 85.9 / 86.1 | 146.4 | 35.0 | 31.8 |
+| 4 | 16 | 90.5 / 95.5 / 92.1 | 129.8 | 42.6 | 31.8 |
+| 8 | 32 | 98.4 / 109.3 / 109.0 | 169.6 | 61.7 | 35.6 |
+| 16 | 64 | 134.6 / 127.2 / 224.8 | 224.8 | 81.1 | 36.2 |
+| 32 | 128 | 189.0 / 194.4 / 313.1 | 275.1 | 142.2 | 35.5 |
+| 64 | 256 | 289.4 / 295.2 / 277.9 | 460.8 | 251.1 | 36.6 |
+| 128 | 512 | 536.7 / 527.7 / 494.7 | 1085.9 | 484.1 | 34.4 |
+| 256 | 1024 | 961.4 / 986.0 / 944.9 | 1627.9 | 921.5 | 35.6 |
+| 512 | 2048 | 1897.0 / 2037.1 / 1831.1 | 3728.4 | 1806.8 | 34.4 |
+| 1024 | 4096 | 3606.2 / 3800.2 / 3471.7 | 6291.3 | 4697.3 | 51.8 |
+| 2048 | 8192 | 7148.7 / 10915.6 / 6958.9 | 14689.8 | 7479.5 | 35.1 |
+| 4096 | 16384 | 14595.0 / 14754.1 / 14334.2 | 26384.2 | 15274.2 | 34.4 |
+| 8192 | 32768 | 29277.4 / 29369.9 / 27739.0 | 61848.6 | 29395.5 | 34.9 |
+| 16384 | 65536 | 55979.9 / 59030.9 / 57902.0 | 115261.0 | 59995.6 | 32.2 |
 
 <!-- end of history -->
 
@@ -113,18 +113,19 @@ Read off the tables above; each line names where it comes from.
 
 - An emit makes 1 SHA-256 call with no history and 4n calls with n prior leaves, at every size measured
   (the count column; the same in all three runs).
-- The signature's p50 is between 36.8 and 38.7 microseconds at every n except n = 4, where it is 48.2
-  (run 1). The Merkle part is below it at n = 8 and above it from n = 16 on; at n = 16384 it is 47131.8 of
-  the emit's 47184.2 (run 1).
-- The p50 of most stages differs by a few percent between the runs. Two differ more: the empty-history
-  emit, where run 1 is higher than runs 2 and 3, and the durable write, whose fsync varies from run to
-  run. What else ran on the machine during each run was not recorded, so the cause is not known.
+- The signature's p50 is between 31.8 and 51.8 microseconds in run 1, the highest at n = 1024, and between
+  31.3 and 54.6 over all three runs. The Merkle part is below it at n = 0 and n = 1 and above it from n = 2
+  on, in all three runs. At n = 16384 the Merkle part's p50 is 59995.6 and the emit's 55979.9 (run 1): each
+  p50 is the median of its own samples, so the p50 of a part can exceed the p50 of the whole.
+- The p50 of a stage differs between the runs by up to a factor of 2.01, for the durable write; for verify
+  by 1.07, for every other stage by 1.51 to 1.91. Run 3 is the highest in capture, canonicalize, both hashes,
+  the signature and the empty-history emit, run 2 in the durable write and the policy. What else ran in the
+  machine during the runs was not recorded, so the cause of that spread is not known.
 
 ## Not measured
 
 - Any other machine. This is a virtual machine of a cloud provider; its neighbours are not visible from
-  inside. A local ledger process (in a container) was running during the runs; its CPU share during the
-  runs was not measured.
+  inside, and what else ran in it during the runs was not recorded.
 - The command-line process: interpreter start and imports are not in any stage.
 - A verify with a long inclusion path, a policy with more rules, or any write other than one fsync'd file.
 - The incremental accumulator. The harness measures it when `tools/merkle_accumulator/accumulator.py` is
@@ -135,7 +136,18 @@ Read off the tables above; each line names where it comes from.
 A first set of three runs at `a986c7f1` is not kept. Its runs 2 and 3 recorded the tree as not clean: the
 check asked `git status` over all of `benchmarks/`, so run 1's result files counted as a changed tree,
 although the code was the same. The check now leaves out `results/` and still reports any other change
-under `src/`, `benchmarks/` and `tools/` (`f10092c2`), and all three runs were retaken at that commit.
+under `src/`, `benchmarks/` and `tools/` (`f10092c2`), and three runs were taken again at that commit.
+
+Those three runs at `f10092c2` are not kept either. The harness changed after them (`851fca4a`: the hash
+counter follows the path the tree takes, and the durable write fsyncs the directory), and
+`tests/test_runtime_baseline.py` holds the runs to the harness this page carries. The runs above were taken at
+`9b7beab9`, where `run.py` is the same as at `851fca4a`, on a virtual machine of the same kind: the same CPU
+model and the same Python build, each run started below a one-minute load of 0.5. Three things differ from
+the runs at `f10092c2` at once: the code (289 commits, 67 files under `src/`), the kernel (`6.18.44-fc-v42`
+then, `6.18.44-fc-v114` now) and the machine instance with its neighbours. Taking the median of the three
+runs' p50, six of the nine stages are higher now and canonicalize, hash_sha256 and sign lower, and the emit
+over a growing history is higher at all 16 sizes. Which of the three changes carries which difference is not
+measured separately.
 
 ## Rerun
 
