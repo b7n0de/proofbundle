@@ -234,6 +234,7 @@ THIRD_PARTY = {
     "yaml": "a YAML parser; it verifies no signature",
     "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
     "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
+    "markdown_it": "a CommonMark parser, for reading what a Markdown text renders; it verifies no signature",
 }
 
 _LOCAL_BASES = ("scripts", "tools", "tests", "conformance", "src")
