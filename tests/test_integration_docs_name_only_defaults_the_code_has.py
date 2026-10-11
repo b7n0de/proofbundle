@@ -36,17 +36,38 @@ def _measured_defaults() -> dict:
             "PROOFBUNDLE_THRESHOLD": cfg["threshold"]}
 
 
+#: Where a sentence ends inside a paragraph: a full stop followed by white space. A semicolon does not end it.
+_SATZENDE = re.compile(r"\.\s")
+
+
 def _stated_defaults(text: str) -> list:
-    """(variable, stated value) for every stated default in `text`, each attributed to the nearest
-    PROOFBUNDLE_* variable named before it in the same paragraph; a default with none before it is not
-    about a variable and is left out."""
+    """(variable, stated value) for every stated default in `text`. A default belongs to the nearest
+    PROOFBUNDLE_* variable named in ITS OWN SENTENCE, before or after it; only a sentence that names none
+    falls back to the nearest variable named before it in the same paragraph. A default with no variable in
+    reach is not about a variable and is left out.
+
+    The sentence comes first because a sentence may name the variable after its default: README.md says
+    "The comparison defaults to `>=`; set `PROOFBUNDLE_COMPARATOR` to change it." Reading only backwards
+    gave that default to the `PROOFBUNDLE_METRIC` of the sentence before (measured 2026-10-11 at main
+    13423bae)."""
     gefunden = []
     for absatz in re.split(r"\n\s*\n", text):
         for treffer in _DEFAULT.finditer(absatz):
+            anfang = max((m.end() for m in _SATZENDE.finditer(absatz, 0, treffer.start())), default=0)
+            ende_m = _SATZENDE.search(absatz, treffer.end())
+            ende = ende_m.start() + 1 if ende_m else len(absatz)
+            im_satz = [(abs(m.start() - treffer.start()) if m.start() > treffer.start()
+                        else treffer.start() - m.end(), m.group())
+                       for m in _VARIABLE.finditer(absatz, anfang, ende)]
             davor = _VARIABLE.findall(absatz[:treffer.start()])
-            if davor:
-                wert = next(g for g in treffer.groups() if g is not None)
-                gefunden.append((davor[-1], wert.strip()))
+            if im_satz:
+                variable = min(im_satz)[1]
+            elif davor:
+                variable = davor[-1]
+            else:
+                continue
+            wert = next(g for g in treffer.groups() if g is not None)
+            gefunden.append((variable, wert.strip()))
     return gefunden
 
 
@@ -64,6 +85,16 @@ class TheReaderOfStatedDefaults(unittest.TestCase):
                          [("PROOFBUNDLE_COMPARATOR", ">=")])
         self.assertEqual(_stated_defaults("PROOFBUNDLE_THRESHOLD, default 0.5"), [("PROOFBUNDLE_THRESHOLD", "0.5")])
         self.assertEqual(_stated_defaults("a default `x` before any variable"), [])
+
+    def test_a_variable_named_after_its_default_in_the_same_sentence(self) -> None:
+        """README.md since 6.2.1: the default comes first, the variable after it, and the metric is named in the
+        sentence before. Read backwards only, the default went to the metric."""
+        readme = ("Inspect selects the first available metric unless you set `PROOFBUNDLE_METRIC`. The comparison "
+                  "defaults to `>=`; set `PROOFBUNDLE_COMPARATOR` to change it.")
+        self.assertEqual(_stated_defaults(readme), [("PROOFBUNDLE_COMPARATOR", ">=")])
+        integrations = ("`PROOFBUNDLE_METRIC` selects the metric,\n`PROOFBUNDLE_COMPARATOR` defaults to `>=`, and "
+                        "`PROOFBUNDLE_THRESHOLD` is required for receipt emission since\n5.0.0, with no default.")
+        self.assertEqual(_stated_defaults(integrations), [("PROOFBUNDLE_COMPARATOR", ">=")])
 
     def test_the_measured_defaults(self) -> None:
         self.assertEqual(_measured_defaults(), {"PROOFBUNDLE_METRIC": None, "PROOFBUNDLE_COMPARATOR": ">=",
@@ -132,6 +163,7 @@ CURRENT = {
     "INTEGRATIONS.md": "the integration guide; tells a user how to configure emission",
     "docs/INSPECT_HAPPY_PATH.md": "the walkthrough; a reader follows it command by command",
     "COMPATIBILITY.md": "the compatibility policy; its worked example names the 5.0.0 threshold change",
+    "README.md": "the front page since 6.2.1; shows the pytest and Inspect commands with the threshold",
 }
 #: Documents that record a past state and are not rewritten when the code moves on. Each names why.
 HISTORIC = {
