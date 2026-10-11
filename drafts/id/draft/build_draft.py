@@ -25,6 +25,7 @@ SHORT = {
     "C9": "tag 18 removed",
     "C10": "scheme/algorithm mismatch",
     "C11": "R of mixed order",
+    "C12": "outer encoding changed, tag 18 kept",
 }
 
 

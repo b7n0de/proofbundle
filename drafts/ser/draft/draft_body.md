@@ -395,12 +395,16 @@ this format does not represent a leap second. `passed` MUST equal the result of 
 carries one assertion, and a Receiver can check that its parts agree with each
 other; it cannot check that they agree with any evaluation.
 
-The version of the format lives in the `schema` identifier. A later version
-uses a different identifier under
+The version of the format lives in the `schema` identifier. The test vectors
+of this version are those of {{vectors}}; they are maintained in this document.
+A later version uses a different identifier under
 
 ~~~
 https://signed-evidence.org/eval-receipt/
 ~~~
+
+and comes with its own test vectors. The identifier above keeps naming the
+format of this document.
 
 ## Salted Commitments {#commitments}
 
