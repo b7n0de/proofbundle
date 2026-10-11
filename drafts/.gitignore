@@ -6,6 +6,8 @@ draft-gruszka-*.html
 kramdown.err
 xml2rfc.err
 xml2rfc.out
+v2v3.out
+v2v3.err
 idnits.out
 idnits.err
 __pycache__/

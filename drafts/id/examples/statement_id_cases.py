@@ -488,7 +488,7 @@ def expected_ok(c):
 def main():
     build_cases()
     doc = {
-        "package": "draft-gruszka-scitt-statement-identification-00 illustrative test cases",
+        "package": "draft-gruszka-scitt-statement-identification-01 illustrative test cases",
         "scheme": "SHA-256 over ToBeSigned (RFC 9052 Sections 4.4 and 9), external_aad empty unless stated",
         "reference_label": REF,
         "algorithm": "fully-specified Ed25519 (COSE algorithm -19, RFC 9864); the source package uses EdDSA "

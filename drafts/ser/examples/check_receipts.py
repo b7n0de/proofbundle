@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verifier for Signed Evaluation Receipts (draft-gruszka-signed-evaluation-receipts-00), second
+"""Verifier for Signed Evaluation Receipts (draft-gruszka-signed-evaluation-receipts-01), second
 implementation by the generator's author. It does not import the generator. It verifies the receipt
 BYTES with the procedure of the draft, step by step in order, and reports the first failing step; the
 Ed25519 profile is pure Python (RFC 8032 Section 5.1 decoding, A and R of order L, S < L, cofactorless

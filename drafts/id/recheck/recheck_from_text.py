@@ -1,4 +1,4 @@
-"""Recompute Appendix A of draft-gruszka-scitt-statement-identification-00 from the .txt alone.
+"""Recompute Appendix A of draft-gruszka-scitt-statement-identification-01 from the .txt alone.
 
 Reads only the rendered text: statement bytes, case bytes, seeds, digests and expected axes.
 No generator, no cases.json, no source package is used.

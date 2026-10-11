@@ -1,5 +1,5 @@
 {
-  "draft": "draft-gruszka-signed-evaluation-receipts-00",
+  "draft": "draft-gruszka-signed-evaluation-receipts-01",
   "format": {
     "media_type": "application/vnd.signed-evidence.eval-receipt+json",
     "receipt_schema": "application/vnd.signed-evidence.eval-receipt+json",

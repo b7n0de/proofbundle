@@ -18,6 +18,12 @@ generator; it re-derives every claim from the bytes in mappings.json:
       URI and the issuer test key), equals the expected status; the candidate is read from the receipts
       draft's vectors.json and checked against the SHA-256 in mappings.json, and step 5 runs the receipts
       draft's own checker.
+  X   for each certificate-profile vector, the status computed by the same steps under the one configured
+      certificate pair of the examples (the did:x509 issuer of X1 and the test root certificate) equals the
+      expected status; the certificates are read with the cryptography library, the chain signature is checked
+      as RSASSA-PKCS1-v1_5 with SHA-256 and the statement signature as ECDSA P-256 with SHA-256.
+  R   for each typed digest reference, the state under the declaration of Section 5.1 (Verified, Failed or
+      Unresolved, in the terms of CPB Section 8.1) and the result of the matching rule equal the expected ones.
 Exit 0 when all hold.
 """
 import base64
@@ -29,7 +35,13 @@ import sys
 from collections.abc import Mapping
 
 import cbor2
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.x509.oid import ExtensionOID, SignatureAlgorithmOID
 
 TYPE = "application/vnd.signed-evidence.eval-receipt+json"
 RECEIPT_VECTORS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ser", "examples",
@@ -102,7 +114,14 @@ def match(citation, receipt: bytes) -> str:
     return "MATCH" if hashlib.sha256(b).hexdigest() == citation["hex"] else "NO_MATCH"
 
 
-ISS_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.-]*:[^#\s\[\]]+\Z")
+# RFC 3986 absolute-URI = scheme ":" hier-part [ "?" query ], with the four forms of hier-part (Section 3) and "["
+# "]" only around an IP-literal (Section 3.2.2).
+_U, _SD, _PCT = r"A-Za-z0-9\-._~", r"!$&'()*+,;=", r"%[0-9A-Fa-f]{2}"
+_PCH = rf"(?:[{_U}{_SD}:@]|{_PCT})"
+_HOST = rf"(?:\[[0-9A-Fa-f:.vV{_U}{_SD}]+\]|(?:[{_U}{_SD}]|{_PCT})*)"
+_HIER = (rf"(?://(?:(?:[{_U}{_SD}:]|{_PCT})*@)?{_HOST}(?::[0-9]*)?(?:/{_PCH}*)*"
+         rf"|/(?:{_PCH}+(?:/{_PCH}*)*)?|{_PCH}+(?:/{_PCH}*)*|)")
+ISS_RE = re.compile(rf"\A[A-Za-z][A-Za-z0-9+.\-]*:{_HIER}(?:\?(?:{_PCH}|[/?])*)?\Z")
 SUB_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 L_ORDER = 2 ** 252 + 27742317777372353535851937790883648493
 
@@ -120,8 +139,48 @@ def deterministic(b: bytes):
     return item, again == b
 
 
-def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs):
-    """Steps 1 to 7; returns (status, step) with step None for accepted."""
+KEY_LABELS = {1, 4, 15, 258, 259}
+CERT_LABELS = {1, 4, 15, 33, 258, 259}
+DID_RE = re.compile(r"\Adid:x509:0:sha256:([A-Za-z0-9_-]{43})::eku:([0-2](?:\.(?:0|[1-9][0-9]*))+)\Z")
+P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def b64url(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+
+def _cert_pair_counts(iss, kid, chain, pair):
+    """Step 3, certificate profile: does this configured pair (did:x509 issuer, trust anchor certificate) count?"""
+    p_iss, anchor = pair
+    m = DID_RE.match(iss)
+    if p_iss != iss or chain[1] != anchor or b64url(hashlib.sha256(anchor).digest()) != m.group(1):
+        return False
+    try:
+        leaf = x509.load_der_x509_certificate(chain[0])
+        root = x509.load_der_x509_certificate(chain[1])
+        rkey = root.public_key()
+        if not isinstance(rkey, rsa.RSAPublicKey) or rkey.key_size < 2048:
+            return False
+        if leaf.signature_algorithm_oid != SignatureAlgorithmOID.RSA_WITH_SHA256:
+            return False
+        rkey.verify(leaf.signature, leaf.tbs_certificate_bytes, padding.PKCS1v15(), hashes.SHA256())
+        if leaf.issuer.public_bytes() != root.subject.public_bytes():
+            return False
+        eku = leaf.extensions.get_extension_for_oid(ExtensionOID.EXTENDED_KEY_USAGE).value
+        if m.group(2) not in [o.dotted_string for o in eku]:
+            return False
+        lkey = leaf.public_key()
+        if not isinstance(lkey, ec.EllipticCurvePublicKey) or lkey.curve.name != "secp256r1":
+            return False
+        spki = lkey.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    except Exception:  # noqa: BLE001  not a certificate, no EKU, signature invalid
+        return False
+    return hashlib.sha256(spki).digest() == kid
+
+
+def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, cert_pairs=()):
+    """Steps 1 to 7; returns (status, step) with step None for accepted. The protected-header labels select the
+    key profile (1, 4, 15, 258, 259) or the certificate profile (1, 4, 15, 33, 258, 259)."""
     import check_receipts  # noqa: PLC0415  the receipts draft's own checker, for step 5 only
     item, det = deterministic(stmt)
     if item is None or not det:
@@ -141,26 +200,47 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs):
     if not isinstance(prot, Mapping) or not pdet:
         return "malformed", 1
     cwt = prot.get(15)
-    if (not tagged or unprot != {} or set(prot) != {1, 4, 15, 258, 259} or prot[1] not in (-19, -8)
-            or not (isinstance(prot[4], bytes) and len(prot[4]) == 32) or not isinstance(cwt, Mapping)
-            or set(cwt) != {1, 2} or not isinstance(cwt[1], str) or not ISS_RE.match(cwt[1])
-            or not isinstance(cwt[2], str) or not SUB_RE.match(cwt[2]) or prot[258] != -16 or prot[259] != TYPE
-            or not isinstance(payload, bytes) or len(payload) != 32 or len(sig) != 64):
+    common = (tagged and unprot == {} and isinstance(prot.get(4), bytes) and len(prot[4]) == 32
+              and isinstance(cwt, Mapping) and set(cwt) == {1, 2} and isinstance(cwt[1], str)
+              and isinstance(cwt[2], str) and SUB_RE.match(cwt[2]) is not None and prot.get(258) == -16
+              and prot.get(259) == TYPE and isinstance(payload, bytes) and len(payload) == 32 and len(sig) == 64)
+    labels = set(prot)
+    if common and labels == KEY_LABELS and prot[1] in (-19, -8) and ISS_RE.match(cwt[1]):
+        profile = "key"
+    elif (common and labels == CERT_LABELS and prot[1] == -7 and DID_RE.match(cwt[1])
+          and isinstance(prot[33], (list, tuple)) and len(prot[33]) == 2
+          and all(isinstance(c, bytes) for c in prot[33])):
+        profile = "certificate"
+    else:
         return "outside_profile", 2
-    selected = [k for iss, k in pairs if iss == cwt[1] and len(k) == 32
-                and hashlib.sha256(cbor2.dumps({1: 1, -1: 6, -2: k}, canonical=True)).digest() == prot[4]]
-    if not selected:
-        return "untrusted_key", 3
     tbs = cbor2.dumps(["Signature1", prot_b, b"", payload], canonical=True)
-    good = False
-    for k in selected:
-        if int.from_bytes(sig[32:], "little") >= L_ORDER:
-            continue
-        try:
-            Ed25519PublicKey.from_public_bytes(k).verify(sig, tbs)
-            good = True
-        except Exception:  # noqa: BLE001
-            pass
+    if profile == "key":
+        selected = [k for iss, k in pairs if iss == cwt[1] and len(k) == 32
+                    and hashlib.sha256(cbor2.dumps({1: 1, -1: 6, -2: k}, canonical=True)).digest() == prot[4]]
+        if not selected:
+            return "untrusted_key", 3
+        good = False
+        for k in selected:
+            if int.from_bytes(sig[32:], "little") >= L_ORDER:
+                continue
+            try:
+                Ed25519PublicKey.from_public_bytes(k).verify(sig, tbs)
+                good = True
+            except Exception:  # noqa: BLE001
+                pass
+    else:
+        chain = list(prot[33])
+        if not any(_cert_pair_counts(cwt[1], prot[4], chain, pr) for pr in cert_pairs):
+            return "untrusted_key", 3
+        r, s_ = int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big")
+        good = False
+        if 1 <= r < P256_N and 1 <= s_ < P256_N:
+            try:
+                x509.load_der_x509_certificate(chain[0]).public_key().verify(
+                    encode_dss_signature(r, s_), tbs, ec.ECDSA(hashes.SHA256()))
+                good = True
+            except Exception:  # noqa: BLE001
+                pass
     if not good:
         return "signature_invalid", 4
     verdict, _step, _ = check_receipts.verify(candidate, receipt_key)
@@ -172,6 +252,27 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs):
     if cwt[2] != json.loads(cb)["model_id_commit"]:
         return "subject_mismatch", 7
     return "accepted", None
+
+
+def reference_state(ref_text: str, receipt: bytes):
+    """A typed digest reference under the declaration of Section 5.1: (CPB state, matching-rule result)."""
+    ref = json.loads(ref_text, object_pairs_hook=_pairs)
+    ok_form = ref.get("digest_alg") == "SHA-256" and re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is not None
+    try:
+        b = b_of(receipt)
+    except NoB:
+        b = None
+    if not ok_form or b is None:
+        match_ = "INDETERMINATE"
+    else:
+        match_ = "MATCH" if hashlib.sha256(b).hexdigest() == ref["digest"] else "NO_MATCH"
+    if ref.get("type") != TYPE or "purpose" in ref:
+        return "Unresolved", match_
+    if not ok_form:
+        return "Failed", match_
+    if b is None:
+        return "Unresolved", match_
+    return ("Verified" if match_ == "MATCH" else "Failed"), match_
 
 
 def pae(typ, body):
@@ -275,6 +376,47 @@ def main():
     ok &= check("S S1 carries alg -8 and is accepted",
                 cbor2.loads(cbor2.loads(bytes.fromhex(s1["statement_hex"])).value[0])[1] == -8
                 and s1["expected_status"] == "accepted")
+    cp = d["certificate_profile"]
+    root = bytes.fromhex(cp["root_certificate_hex"])
+    leaf = bytes.fromhex(cp["leaf_certificate_hex"])
+    cert_pairs = [(d["receiver_certificate_pairs"][0][0], root)]
+    ok &= check("X the examples configure one certificate pair: the did:x509 issuer of X1 and the test root",
+                d["receiver_certificate_pairs"] == [[cp["iss"], "test root certificate"]])
+    ok &= check("X the iss of X1 names SHA-256 over the test root certificate, base64url without padding",
+                DID_RE.match(cp["iss"]).group(1) == b64url(hashlib.sha256(root).digest()))
+    x1 = cbor2.loads(bytes.fromhex(d["certificate_vectors"][0]["statement_hex"]))
+    x1p = cbor2.loads(x1.value[0])
+    ok &= check("X X1 protected labels are exactly 1, 4, 15, 33, 258, 259 (the labels of the registered form)",
+                set(x1p) == CERT_LABELS and x1p[1] == -7 and list(x1p[33]) == [leaf, root])
+    ok &= check("X X1 kid = SHA-256 over the DER SubjectPublicKeyInfo of the test leaf",
+                x1p[4].hex() == cp["kid_hex"] == hashlib.sha256(bytes.fromhex(cp["leaf_spki_hex"])).hexdigest())
+    ok &= check("X X1 payload is the receipt digest", x1.value[2] == hashlib.sha256(B).digest())
+    xseen = set()
+    for s in d["certificate_vectors"]:
+        stmt = bytes.fromhex(s["statement_hex"])
+        cand = bytes.fromhex(by_id[s["candidate"]]["receipt_hex"])
+        ok &= check("%s statement bytes match their SHA-256" % s["id"],
+                    hashlib.sha256(stmt).hexdigest() == s["statement_sha256"])
+        got = check_statement(stmt, cand, pub, pairs, cert_pairs)
+        ok &= check("%s status %s at step %s (expected %s at step %s)" % (s["id"], got[0], got[1],
+                    s["expected_status"], s["step"]), got == (s["expected_status"], s["step"]))
+        xseen.add(s["id"])
+    ok &= check("X without the certificate pair X1 is untrusted_key at step 3",
+                check_statement(bytes.fromhex(d["certificate_vectors"][0]["statement_hex"]), p1, pub, pairs, ())
+                == ("untrusted_key", 3))
+    ok &= check("X M2 and the status vectors keep their status when the certificate pair is configured too",
+                check_statement(bytes.fromhex(d["M2_scitt_hash_envelope"]["cose_sign1_hex"]), p1, pub, pairs,
+                                cert_pairs) == ("accepted", None)
+                and all(check_statement(bytes.fromhex(s["statement_hex"]),
+                                        bytes.fromhex(by_id[s["candidate"]]["receipt_hex"]), pub, pairs, cert_pairs)
+                        == (s["expected_status"], s["step"]) for s in d["status_vectors"]))
+    for r in d["reference_vectors"]:
+        cand = bytes.fromhex(by_id[r["candidate"]]["receipt_hex"])
+        ok &= check("%s candidate bytes are %s of the receipts draft" % (r["id"], r["candidate"]),
+                    hashlib.sha256(cand).hexdigest() == r["candidate_receipt_sha256"])
+        got = reference_state(r["reference_json"], cand)
+        ok &= check("%s state %s, matching rule %s (expected %s, %s)" % (r["id"], got[0], got[1], r["expected_state"],
+                    r["expected_match"]), got == (r["expected_state"], r["expected_match"]))
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
