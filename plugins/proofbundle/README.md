@@ -99,8 +99,7 @@ Claude Code and denied under Codex. Only the exact bare command text `git --vers
 judgment as a git form, and, since owner choice K-NW-2 B (2026-10-08), the plain `git add` and `git commit -m`
 after a check of the repository's state finds no filter, hook, fsmonitor, signature program or include onto one,
 and every configuration key, hook and `GIT_*` setting it reads is one it knows to start no program for that form
-(D3). The separate push path remains. Under Claude Code it may return `pass` or
-`inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound, and
+(D3). The separate push path remains. Under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the destination's state is Level 2's, on git's own ref lines; under Codex every push is NOT MEASURED because its execution context is unbound, and
 the plain `git push` warns rather than being denied (owner choices Karte 5 A and K5-1 C, D12).
 git starts programs through options, configuration values, attribute-selected drivers, hooks and automatic
 maintenance, and a list of what frees a form did not close that class, so the free list, its option tables

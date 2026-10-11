@@ -473,8 +473,9 @@ _GIT_LOCAL_SUBCOMMANDS = frozenset({
 #: under Codex; a literal `-C` does not change that decision. Only the exact bare command text `git --version` is
 #: exempt, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms after a state check of their repository
 #: (`git add` and `git commit -m`, _plain_add_commit and _add_commit_state_problem). The separate push path remains:
-#: under Claude Code it may return `pass` or `inactive` after its checks; under Codex every push is NOT MEASURED
-#: because its execution context is unbound (review Runde 11, R11-5), and a `git push` warns since Karte 5 A. The two
+#: under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks, its destination NOT
+#: MEASURED (D3, R9-1); under Codex every push is NOT MEASURED because its execution context is unbound (review Runde
+#: 11, R11-5), and a `git push` warns since Karte 5 A. The two
 #: readers below remain for the write gate.
 
 
@@ -2838,8 +2839,8 @@ def _rules_difference(base: tuple, head: tuple) -> str:
 MAX_RANGE_COMMITS = 64
 
 #: One ref update a `git push` performs: the pushed commit (None for a deletion), the ref it writes on the
-#: remote, and the local remote-tracking ref that records that ref's last known state (None when there is
-#: none, which makes the whole push NOT MEASURED, N1). remote_absent is True only when the absence of the
+#: remote, and the remote's state of that ref as git hands it to the pre-push hook (None for a ref the remote does not
+#: have). Level 1 builds no targets since R9-1 (resolve_push_targets returns None for every push). remote_absent is True only when the absence of the
 #: target ref is MEASURED — a null object id for the remote side of a pre-push line — and False when merely
 #: no local tracking ref is known (review Runde 6, Befund 2).
 PushTarget = collections.namedtuple("PushTarget", "source dest tracking remote_absent", defaults=(False,))
@@ -3917,10 +3918,13 @@ def evaluate_repository(directory: str, deadline: float, check_range: bool = Fal
 # --- a push, resolved to its targets and the commits it sends (DECISIONS.md, D3 option B, D20) --------
 
 def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) -> Verdict:
-    """The verdict for a `git push` (push_args) or a `gh pr/release create` (push_args None, the current
-    branch to its upstream): the evidence at every commit the push newly sends to each target, and whether
-    those commits change the evidence rules against the target's locally known state. An unresolved push,
-    or one whose range or comparison state the gate cannot determine, is NOT MEASURED (N1, N2, N3)."""
+    """The Level 1 verdict for a `git push` (push_args) or a `gh pr/release create` (push_args None, the current
+    branch to its upstream). Since review round 9 of 2026-10-11 (R9-1) every push whose earlier steps resolve ends
+    NOT MEASURED at the destination check, because git resolves the destination against refs of the remote the gate
+    does not read, and no fetch rule changes that. The evidence at the commits the push sends (the uniquely
+    determined source commits) is still checked: an evidenced failure there is a deny, and otherwise the answer is
+    an ask that says what was checked. The comparison with the destination's state, and the range of newly sent
+    commits, are Level 2's (pre_push_verdict), on git's own ref lines (review round 10, R10-5)."""
     repo, unreadable = _work_tree(directory, deadline)
     if unreadable:
         return Verdict("ask", f"NOT MEASURED: {unreadable}, so no evidence was checked.", "not_a_work_tree",
@@ -3972,12 +3976,11 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
 def _evaluate_targets(repo: str, head_commit: str, targets: list, deadline: float,
                       remote_state: bool = False) -> Verdict:
     """The verdict for a resolved set of push targets: the evidence at every commit the push newly sends to
-    each target, and whether those commits change the evidence rules against the target's known state. Both
-    the shell-command path (evaluate_push, targets from resolve_push_targets) and the prototype pre-push
-    hook (pre_push_verdict, targets from git's own stdin) share this core. remote_state is True on Ebene 2,
-    where the comparison state is the remote's as git reported it, and False on Ebene 1, where it is this
-    repository's last known state of the target; every comparison verdict says which (review Runde 6,
-    Punkt 5, R4-7K)."""
+    each target, and whether those commits change the evidence rules against the target's state. Level 1 resolves
+    no target since R9-1 (resolve_push_targets returns None for every push), so this core runs for the pre-push hook
+    (pre_push_verdict, targets from git's own stdin) with remote_state True, where the comparison state is the
+    remote's as git reported it. The branch for remote_state False is not reached from Level 1 any more (review
+    round 10 of 2026-10-11, R10-5)."""
     def where(commit: str) -> str:
         return f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
 
@@ -4552,8 +4555,9 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review Runde 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
     Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
-    judgment as a git form. The separate push path remains. Under Claude Code it may return `pass` or
-    `inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound
+    judgment as a git form. The separate push path remains. Under Claude Code it denies an evidenced failure at the
+    commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1); under Codex every push is NOT
+    MEASURED because its execution context is unbound
     (review Runde 9, owner choice B; wording of review Runde 10, R10-3), and a `git push` warns (Karte 5 A, D12).
 
     After the structured scan, a safety net always runs (review Runde 12, R12-1 and R12-2): it builds a normal

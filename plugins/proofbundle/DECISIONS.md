@@ -120,9 +120,12 @@ MEASURED. The remote itself is not read.
       asked under Claude Code and denied under Codex. Only the exact bare command text `git --version` is
       exempt from judgment as a git form, and, since owner choice K-NW-2 B of 2026-10-08, exactly two forms
       after a state check of their repository (`git add` and `git commit -m`, the subsection "two forms after
-      a state check" below). The separate push path remains. Under Claude Code it may return
-      `pass` or `inactive` after its checks; under Codex every push is NOT MEASURED because its execution
-      context is unbound, and since owner choice Karte 5 A of 2026-10-08 it warns instead of being denied (D12).
+      a state check" below). The separate push path remains. Under Claude Code it denies an evidenced failure
+      at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED
+      whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the
+      destination's state is Level 2's, on git's own ref lines (review round 10, R10-5); under Codex every push
+      is NOT MEASURED because its execution context is unbound, and since owner choice Karte 5 A of 2026-10-08
+      it warns instead of being denied (D12).
       The free
       list of Nachtrag 19b, its per-entry option tables and its read of the
       repository state are removed. The subcommand list in the gate (`_GIT_LOCAL_SUBCOMMANDS`) now only picks
@@ -239,8 +242,9 @@ MEASURED. The remote itself is not read.
   2026-10-10, R8-5: the gate had said git pushes the submodules' commits where a later false and
   `push.recurseSubmodules=false` kept the transport off, measured by the reviewer with git 2.43.0 and 2.51.1). The
   answer carries the reason the gate found, this one verbatim, with a next step for it; so does the answer for a
-  newline in a push option and for a destination whose resolution is not evidenced, whose next step names the two
-  fetch rules below (found in the milestone runs of round 8: the reason had stayed inside the gate, and the answer
+  newline in a push option and for a destination whose resolution is not evidenced, whose next step is a person's
+  review of the push, since no fetch rule makes that resolution evidenced (R9-1; round 8 had named two fetch rules
+  there; found in the milestone runs of round 8: the reason had stayed inside the gate, and the answer
   had listed other causes, a URL remote, --all, a wildcard, and told the user to name the refspec they had named). The
   gate had read `push.autoSetupRemote` only for a branch without an upstream. The source
   check of an unresolved bare push takes the same choice, so it no longer names HEAD where git pushes a configured
@@ -268,13 +272,12 @@ MEASURED. The remote itself is not read.
   global rule for another host no longer turns every push NOT MEASURED. A rule that does apply keeps the
   comparison NOT MEASURED even when the effective fetch and push URLs are equal: equal URLs do not prove
   where the existing tracking ref came from (a rule configured after the last fetch rewrites both), and
-  how common a rule is (an SSH rewrite, say) is no reason to release a comparison it applies to. A stale
-  remote-tracking ref without any rewrite stays possible (POSSIBLE) on Level 1, as an expressly limited
-  verdict: the push is still resolved and compared, but every comparison verdict (pass, inactive, a
-  rules change, a deletion) says it is against the last known state of the target in this repository,
-  not a state read from the remote, never the actual rule change on the remote (R4-7K); Level 2 makes the
-  authoritative comparison when it runs and can read the objects, and its verdicts say they compare
-  against the remote's state as git reported it.
+  how common a rule is (an SSH rewrite, say) is no reason to release a comparison it applies to. Since round 9
+  (R9-1) Level 1 compares nothing against a remote-tracking ref: every push ends NOT MEASURED at the destination
+  check, whatever the rewrites and the fetch rules, and the comparison with the destination's state is Level 2's,
+  on git's own ref lines, whose verdicts say they compare against the remote's state as git reported it (review
+  round 10 of 2026-10-11, R10-5: this paragraph had still described a Level 1 comparison against the last known
+  state of the target, with pass and inactive among its verdicts).
 - A NOT MEASURED target comparison does not hide a measurable failure at the source (Runde 6, Befund 1).
   When the commits a push sends are uniquely determined from the command and the local branch (each
   literal refspec source, or the current branch of a bare push git pushes alone) in the uniquely bound
@@ -335,7 +338,7 @@ Options:
 Chosen (owner, 2026-10-03): option B, remove the free list. The former free list for local git commands has
 been removed. Those forms are NOT MEASURED, asked under Claude Code and denied under Codex (D12). Only the
 exact bare command text `git --version` is exempt from judgment as a git form. The separate push path remains.
-Under Claude Code it may return `pass` or `inactive` after its checks; under Codex every push is denied because
+Under Claude Code it denies an evidenced failure at the commits a push sends and otherwise asks: the resolution of the push's destination is NOT MEASURED whatever the fetch rules (D3, review round 9 of 2026-10-11, R9-1), and the comparison with the destination's state is Level 2's, on git's own ref lines; under Codex every push is denied because
 its execution context is unbound (wording of review Runde 10, R10-3; since owner choice Karte 5 A of 2026-10-08 a
 `git push` under Codex warns instead, D12). The one free form, the bare
 `git --version`, is exactly that command text: no program path, no wrapper,
@@ -891,8 +894,9 @@ GIT FORMS AND FILE WRITES UNDER CODEX (Nachtrag 19b, Punkt 7; review Runde 9)
   the same reason id `git_form_not_free`;
   a literal `-C` on such a local form does not change that decision (it never frees it). Only the exact bare
   command text `git --version` is exempt (review Runde 7, question 5: "every git form" was too broad; wording
-  of review Runde 11, R11-5). The separate push path remains: under Claude Code it may return `pass` or
-  `inactive` after its checks; under Codex every push is NOT MEASURED because its execution context is unbound,
+  of review Runde 11, R11-5). The separate push path remains: under Claude Code it denies an evidenced failure at
+  the commits a push sends and otherwise asks, its destination NOT MEASURED (D3, R9-1); under Codex every push is
+  NOT MEASURED because its execution context is unbound,
   and warns since Karte 5 A (above) — the `-C` sentence above is about the freed local forms, not that push path. A bare `git` without a subcommand is
   no longer free.
 - MEASURED in the Codex source at 14a477ea89712071944244022e8a10142845456e (read, not run): the dispatcher
@@ -1068,24 +1072,22 @@ on 2026-10-01):
   policy, whose bytes are compared at both commits. Outside these rules stand the plugin's hook
   configuration, the settings of the host and of the user (a setting that turns hooks off, for example),
   the proofbundle version the plugin pins, and the programs on PATH that run the check (git, uv, python).
-- The gate compares the evidence rules of each commit a push sends to a branch or tag with the rules at
-  that target's remote-tracking ref (`refs/remotes/<remote>/<branch>`), resolved by D3. A deletion compares
-  an absent declaration with the target. A push whose targets the gate cannot resolve, or a target without
-  such a ref, is NOT MEASURED (there is no default-branch fallback, N1). The gate reads local refs only; a
-  fetch updates its view of the remote and proves no rules check.
-- A difference is asked under Claude Code and denied under Codex, with the change named and the note that
-  changes to the evidence rules need a review. Once the target's remote-tracking ref holds the change, a
-  push to that target is plain; the same change held by another branch or another remote is still a change
-  for this target.
-- The D5 inactive shortcut (a repository that declares nothing) applies only to a resolved push whose sent
-  commits and target all declare nothing. An unresolved push never switches the gate off, even when HEAD
-  declares nothing, because it may send another branch the gate did not see (N2).
+- Level 2 (the pre-push hook) compares the evidence rules of each commit a push sends to a branch or tag
+  with the rules at the remote's state of that ref, as git hands it to the hook on the ref line. A deletion
+  compares an absent declaration with the target. A ref the remote does not have yet is NOT MEASURED (the
+  creation of a ref is not checked). Since review round 9 of 2026-10-11 (R9-1) Level 1 makes no such
+  comparison: every Level 1 push ends NOT MEASURED at the destination check (D3), whatever the fetch rules, so
+  no remote-tracking ref and no fetch stands in for the remote's state (review round 10, R10-5: this section had
+  still described the comparison against `refs/remotes/<remote>/<branch>` at Level 1).
+- A difference is asked under Claude Code and denied under Codex at Level 2, with the change named and the note
+  that changes to the evidence rules need a review. Once the remote's ref holds the change, a push to that ref is
+  plain; the same change held by another branch or another remote is still a change for this ref.
+- An unresolved push never switches the gate off at Level 1, even when HEAD declares nothing, because it may send
+  another branch the gate did not see (N2); since R9-1 every Level 1 push is unresolved at the destination check.
 - A deny for failed evidence at any sent commit comes first; the rules are compared only after the evidence
   verified.
 
-Price: a push to a target for which this repository has no remote-tracking ref (a remote given as a URL, a
-remote never fetched, a brand-new branch or tag) is asked (denied under Codex). An ordinary fresh clone has
-these refs for the branches it tracks and is not affected.
+Price: every Level 1 push is asked under Claude Code (D3, D5); the rules comparison happens where Level 2 runs.
 
 Options:
 - A. Compare `git rev-list HEAD --not --remotes` against every remote-tracking ref (the pre-review
