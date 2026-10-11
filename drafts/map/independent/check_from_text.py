@@ -3,6 +3,13 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 26 (owner choice A of 2026-10-11, review of round 4, blocks G' and H'): G' adds that the second arc of O is at
+most 39 when the first arc is 0 or 1 (X.660 7.6, RFC 9090 Section 2); H' ends with "no tag, the bignum tags 2 and 3
+included, adds a rule of its own" and no longer repeats the sentence on tag validity. iss of the certificate profile
+is now checked by did_form and o_form, arc by arc. The step 1 reader stops at DEPTH_LIMIT (64) with a resource-limit
+error, which Section 5.2.2 says is no status; before, a nesting past the interpreter's limit was malformed. R26-G and
+R26-H replace R25-G and R25-H, R26-OID replaces R25-OID; R26-DEPTH holds the limit.
+
 Round 25 (owner choice A of 2026-10-11, blocks G and H): Section 5.2 says what dotted decimal form is for O of a
 did:x509 iss (first arc 0, 1 or 2, one or more further arcs, no leading zeros); step 1 of 5.2.2 fixes the choices
 that RFC 8949 Section 4.2.2 leaves to a protocol: a NaN only as f9 7e00, and no tag with a rule of its own. Step 1 of
@@ -852,6 +859,15 @@ class NotDet(Exception):
     pass
 
 
+# Round 26: the deepest nesting of arrays, maps and tags the reader goes into (the item itself at depth 0). Deeper,
+# the Receiver stops at its limit: Section 5.2.2 calls that a resource-limit error, no status.
+DEPTH_LIMIT = 64
+
+
+class ResLimit(Exception):
+    """A resource-limit error of Section 5.2.2: no status, and the statement is not accepted."""
+
+
 class CTag:
     """A tag: number and content, no rule of its own (block H)."""
     def __init__(self, tag, value):
@@ -913,7 +929,8 @@ def _shorter(x, fmt):
 
 
 def det_item(b):
-    """The data item of b, or None if b is not one well-formed, valid data item in the deterministic encoding."""
+    """The data item of b, or None if b is not one well-formed, valid data item in the deterministic encoding;
+    ResLimit when the nesting goes past DEPTH_LIMIT."""
     pos = [0]
 
     def take(n):
@@ -922,7 +939,9 @@ def det_item(b):
         pos[0] += n
         return b[pos[0] - n:pos[0]]
 
-    def item():
+    def item(depth=0):
+        if depth > DEPTH_LIMIT:
+            raise ResLimit("deeper than %d" % DEPTH_LIMIT)
         start = pos[0]
         ib = take(1)[0]
         major, info = ib >> 5, ib & 31
@@ -943,12 +962,12 @@ def det_item(b):
             except UnicodeDecodeError:
                 raise NotDet("text not UTF-8") from None
         if major == 4:
-            return [item() for _ in range(arg)]
+            return [item(depth + 1) for _ in range(arg)]
         if major == 5:
             m, eqs, prev = {}, set(), None
             for _ in range(arg):
                 ks = pos[0]
-                k = item()
+                k = item(depth + 1)
                 kb = b[ks:pos[0]]
                 if prev is not None and not prev < kb:
                     raise NotDet("keys not in bytewise order")
@@ -956,10 +975,10 @@ def det_item(b):
                 if e in eqs:
                     raise NotDet("duplicate key under RFC 8949 Section 5.6.1")
                 eqs.add(e)
-                m[k if isinstance(k, (int, str, bytes)) or k is None else CKey(e)] = item()
+                m[k if isinstance(k, (int, str, bytes)) or k is None else CKey(e)] = item(depth + 1)
             return m
         if major == 6:
-            return CTag(arg, item())
+            return CTag(arg, item(depth + 1))
         if info < 24:
             return None if arg == 22 else CSimple(arg)
         if info == 24:
@@ -976,7 +995,7 @@ def det_item(b):
 
     try:
         it = item()
-    except Exception:  # noqa: BLE001  NotDet, and a nesting deeper than the interpreter allows
+    except NotDet:
         return None
     return it if pos[0] == len(b) else None
 
@@ -1883,7 +1902,7 @@ check("D2", "S522-1V", s1v in d2flat8 and ph_b.count(chead(3, len(iss_b)) + iss_
       "sentence found: %s; iss content at offset %d of %d, replaced byte at %d; still UTF-8: %s; cbor2 refuses: %s"
       % (s1v in d2flat8, iss_content, len(ph_b), bad_at, bad_is_utf8, refused))
 # Round 11: Section 5.2.2 step 1 and its line to step 2, Section 6 step 1, the DSSE date
-# round 25: block H stands between "are one." and "Step 1 does not check"; R25-H checks that place
+# round 25: block H (round 26: H') stands between "are one." and "Step 1 does not check"; R26-H checks that place
 s1b = ["two keys are duplicates only when they are equal under the key equivalence of [RFC8949] Section 5.6.1, so "
        "the integer 1 and true are two keys and 0.0 and -0.0 are one.",
        "Step 1 does not check whether the content of a "
@@ -2392,7 +2411,22 @@ def b64url_nopad(b):
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
 
 
-DID_RX = re.compile(r"\Adid:x509:0:sha256:([A-Za-z0-9_-]{43})::eku:([0-2](?:\.(?:0|[1-9][0-9]*))+)\Z")
+DID_RX = re.compile(r"\Adid:x509:0:sha256:([A-Za-z0-9_-]{43})::eku:([0-9][0-9.]*)\Z")
+
+
+def o_form(o):
+    """Section 5.2, label 15 (block G'): the first arc 0, 1 or 2, one or more further arcs, the second arc at most 39
+    when the first is 0 or 1, full stops between the arcs, each arc a decimal number without leading zeros."""
+    arcs = o.split(".")
+    if len(arcs) < 2 or any(re.fullmatch(r"0|[1-9][0-9]*", a) is None for a in arcs) or arcs[0] not in ("0", "1", "2"):
+        return False
+    return arcs[0] == "2" or int(arcs[1]) <= 39
+
+
+def did_form(iss_):
+    """iss of the certificate profile: did:x509:0:sha256: F ::eku: O, F of 43 base64url characters, O by o_form."""
+    m = DID_RX.match(iss_)
+    return m is not None and o_form(m.group(2))
 
 
 def cert_pair_counts(iss_, kid_, chain, pair):
@@ -2455,7 +2489,7 @@ def status20(stmt, rb, rkey, pairs, cert_pairs):
     labels = set(prot_)
     if shared and labels == {1, 4, 15, 258, 259} and prot_[1] in (-19, -8) and _abs_uri.match(cwt_[1]):
         prof = "key"
-    elif (shared and labels == {1, 4, 15, 33, 258, 259} and prot_[1] == -7 and DID_RX.match(cwt_[1])
+    elif (shared and labels == {1, 4, 15, 33, 258, 259} and prot_[1] == -7 and did_form(cwt_[1])
           and isinstance(prot_[33], (list, tuple)) and len(prot_[33]) == 2 and all(isinstance(c, bytes) for c in prot_[33])):
         prof = "certificate"
     else:
@@ -2912,23 +2946,7 @@ print()
 
 # ---------------------------------------------------------------------------
 print("=== D2 round 25: the form of O in iss (5.2, block G) and the choices of step 1 (5.2.2, block H) ===")
-d2flat25 = norm_ws(" ".join(d2))
-g25 = ("and O is an object identifier in dotted decimal form: the first arc is 0, 1 or 2, it is followed by one or "
-       "more further arcs, the arcs are separated by full stops, and each arc is a decimal number without leading "
-       "zeros;")
-h25 = ("For the choices that [RFC8949] Section 4.2.2 leaves to a protocol, step 1 uses these: a NaN is in the "
-       "deterministic encoding only as the half-precision quiet NaN 0xf97e00, and any other encoding of a NaN is "
-       "malformed; no tag adds a rule of its own, so the content of a tag, a bignum included, is checked like any "
-       "other data item.")
-check("D2", "R25-G", d2flat25.count(g25) == 1
-      and "and O is an object identifier in dotted decimal form;" not in d2flat25,
-      "Section 5.2, label 15 of the certificate profile: block G stands word for word and once, and the sentence no "
-      "longer ends after \"dotted decimal form\"", "found %d" % d2flat25.count(g25))
-check("D2", "R25-H", d2flat25.count(h25) == 1
-      and ("so the integer 1 and true are two keys and 0.0 and -0.0 are one. " + h25 + " Step 1 does not check")
-      in d2flat25,
-      "Section 5.2.2 step 1: block H stands word for word and once, right after the sentence that ends with "
-      "\"and 0.0 and -0.0 are one.\"", "found %d" % d2flat25.count(h25))
+# R25-G and R25-H read blocks G and H as they stood in round 25; round 26 replaces them with R26-G and R26-H.
 
 
 def _r25(h_):
@@ -2993,20 +3011,76 @@ check("DEMO", "R25-STEP1", all(g_ == w_ for _, g_, w_ in _got25m),
       "and a tag of any number, a bignum included, pass step 1, and 1, 1.0 and true are three keys, so each of these "
       "M2 is outside_profile at step 2; a NaN other than f9 7e00 and a key out of bytewise order are malformed at "
       "step 1", *["M2, %s: %s (expected %s)" % (d_, g_, w_) for d_, g_, w_ in _got25m])
-# block G: X1 with O changed in one place, the signature of X1 kept (steps 2 and 3 come before step 4)
-_p25 = O20.split(".")
-_o25 = [("a leading zero in the last arc", ".".join(_p25[:-1] + ["0" + _p25[-1]]), ("outside_profile", 2)),
+# R25-OID: replaced in round 26 by R26-OID (block G' and the second arc).
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 26: the second arc of O (5.2, block G'), the tag sentence of step 1 (5.2.2, block H'), "
+      "the depth limit ===")
+d2flat26 = norm_ws(" ".join(d2))
+g26 = ("and O is an object identifier in dotted decimal form: the first arc is 0, 1 or 2, it is followed by one or "
+       "more further arcs, the second arc is at most 39 when the first arc is 0 or 1, the arcs are separated by full "
+       "stops, and each arc is a decimal number without leading zeros;")
+h26 = ("For the choices that [RFC8949] Section 4.2.2 leaves to a protocol, step 1 uses these: a NaN is in the "
+       "deterministic encoding only as the half-precision quiet NaN 0xf97e00, and any other encoding of a NaN is "
+       "malformed; no tag, the bignum tags 2 and 3 included, adds a rule of its own.")
+check("D2", "R26-G", d2flat26.count(g26) == 1
+      and "it is followed by one or more further arcs, the arcs are separated" not in d2flat26
+      and "and O is an object identifier in dotted decimal form;" not in d2flat26,
+      "Section 5.2, label 15 of the certificate profile: block G' stands word for word and once, and block G as it "
+      "stood in round 25 is gone", "found %d" % d2flat26.count(g26))
+check("D2", "R26-H", d2flat26.count(h26) == 1
+      and ("so the integer 1 and true are two keys and 0.0 and -0.0 are one. " + h26
+           + " Step 1 does not check whether the content of a tag inside the COSE_Sign1 is valid for that tag")
+      in d2flat26
+      and "the content of a tag, a bignum included" not in d2flat26,
+      "Section 5.2.2 step 1: block H' stands word for word and once, between the sentence on key equivalence and the "
+      "unchanged sentence on tag validity, and the half sentence \"the content of a tag, a bignum included\" is gone",
+      "found %d" % d2flat26.count(h26))
+# block G': X1 with O changed in one place, the signature of X1 kept (steps 2 and 3 come before step 4)
+_p26 = O20.split(".")
+_o26 = [("a leading zero in the last arc", ".".join(_p26[:-1] + ["0" + _p26[-1]]), ("outside_profile", 2)),
         ("a leading zero in the first arc", "0" + O20, ("outside_profile", 2)),
-        ("second arc 40, under the pair of A.8", ".".join(_p25[:1] + ["40"] + _p25[2:]), ("untrusted_key", 3))]
-_got25o = [(d_, o_, status20(build_x({**x1p, 15: {1: ISS20[:-len(O20)] + o_, 2: x1p[15][2]}}, _sig23), _p1r,
-                             ISSUER_PK, pairs20, cpairs20), w_) for d_, o_, w_ in _o25]
-check("DEMO", "R25-OID", ISS20.endswith("::eku:" + O20) and O20 == "1.3.6.1.5.5.7.3.3"
-      and [o_ for _, o_, _, _ in _got25o] == ["1.3.6.1.5.5.7.3.03", "01.3.6.1.5.5.7.3.3", "1.40.6.1.5.5.7.3.3"]
-      and all(g_ == w_ for _, _, g_, w_ in _got25o),
-      "block G computed from the text: O with a leading zero in its last or first arc has not the form of Section "
-      "5.2 (outside_profile, step 2); O 1.40.6.1.5.5.7.3.3 has it, and under the pair of A.8 the iss names no "
-      "configured pair (untrusted_key, step 3)",
-      *["X1, %s, O %s: %s (expected %s)" % (d_, o_, g_, w_) for d_, o_, g_, w_ in _got25o])
+        ("second arc 40 under first arc 1", ".".join(_p26[:1] + ["40"] + _p26[2:]), ("outside_profile", 2)),
+        ("second arc 40 under first arc 0", "0.40.1", ("outside_profile", 2)),
+        ("second arc 39 under first arc 1, under the pair of A.8", ".".join(_p26[:1] + ["39"] + _p26[2:]),
+         ("untrusted_key", 3)),
+        ("second arc 40 under first arc 2, under the pair of A.8", ".".join(["2", "40"] + _p26[2:]),
+         ("untrusted_key", 3))]
+_got26o = [(d_, o_, status20(build_x({**x1p, 15: {1: ISS20[:-len(O20)] + o_, 2: x1p[15][2]}}, _sig23), _p1r,
+                             ISSUER_PK, pairs20, cpairs20), w_) for d_, o_, w_ in _o26]
+check("DEMO", "R26-OID", ISS20.endswith("::eku:" + O20) and O20 == "1.3.6.1.5.5.7.3.3"
+      and [o_ for _, o_, _, _ in _got26o] == ["1.3.6.1.5.5.7.3.03", "01.3.6.1.5.5.7.3.3", "1.40.6.1.5.5.7.3.3",
+                                             "0.40.1", "1.39.6.1.5.5.7.3.3", "2.40.6.1.5.5.7.3.3"]
+      and all(g_ == w_ for _, _, g_, w_ in _got26o),
+      "block G' computed from the text: a leading zero in the last or first arc, or a second arc over 39 under a first "
+      "arc 0 or 1, is not the form of Section 5.2 (outside_profile, step 2); a second arc of 39 under 1 or of 40 under "
+      "2 is, and under the pair of A.8 the iss names no configured pair (untrusted_key, step 3)",
+      *["X1, %s, O %s: %s (expected %s)" % (d_, o_, g_, w_) for d_, o_, g_, w_ in _got26o])
+
+
+def status_or_limit(stmt):
+    try:
+        return status20(stmt, VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20)
+    except ResLimit:
+        return "resource-limit error"
+
+
+# Section 5.2.2: a Receiver that stops at a resource limit reports a resource-limit error, which is no status
+_d26 = [("arrays 60000 deep", bytes([0x81]) * 60000 + b"\x00"), ("maps 30000 deep", bytes([0xA1, 0x01]) * 30000 + b"\x00"),
+        ("tags 30000 deep", bytes([0xC6]) * 30000 + b"\x00")]
+_got26d = [(d_, status_or_limit(pair25(D2_CS, b"\x20", v_, None))) for d_, v_ in _d26]
+_edge26 = [det_item(bytes([0x81]) * DEPTH_LIMIT + b"\x00") is not None]
+try:
+    det_item(bytes([0x81]) * (DEPTH_LIMIT + 1) + b"\x00")
+    _edge26.append(False)
+except ResLimit:
+    _edge26.append(True)
+check("DEMO", "R26-DEPTH", all(g_ == "resource-limit error" for _, g_ in _got26d) and all(_edge26),
+      "Section 5.2.2, resource limits: M2 with a sixth label -1 holding arrays 60000 deep, maps 30000 deep or tags "
+      "30000 deep stops at this script's depth limit with a resource-limit error, no status; %d nested arrays are "
+      "read, %d are the limit" % (DEPTH_LIMIT, DEPTH_LIMIT + 1),
+      *["M2, key -1 holding %s: %s" % (d_, g_) for d_, g_ in _got26d])
 print()
 
 # ---------------------------------------------------------------------------
