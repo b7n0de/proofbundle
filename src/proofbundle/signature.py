@@ -65,10 +65,11 @@ def _reject_jws_crit(header: Any) -> "str | None":
     fail-closed verdict, never a silently-ignored header.
 
     Private (``_`` prefix): an internal shared decision site, imported by the four local JWS verifiers
-    (SD-JWT issuer, KB-JWT, Status List token, enclave EAT). Its ``header`` is always a dict those
-    verifiers have just parsed from already-snapshotted compact bytes, never a caller-supplied live
-    object — so it needs no ``canonical._ein_stand`` read-once wrapper, and its never-raise behaviour is
-    exercised through those four public verify surfaces (the never-raise denominator), not on its own."""
+    (SD-JWT issuer, KB-JWT, Status List token, enclave EAT) and by the SD-JWT VC profile check
+    (``sdjwt_vc.check_vc_profile``), which judges the issuer header on its own. Its ``header`` is always
+    a dict those surfaces have just parsed from already-snapshotted compact bytes, never a caller-supplied
+    live object — so it needs no ``canonical._ein_stand`` read-once wrapper, and its never-raise behaviour
+    is exercised through those public surfaces (the never-raise denominator), not on its own."""
     if not isinstance(header, dict) or "crit" not in header:
         return None
     crit = header["crit"]
