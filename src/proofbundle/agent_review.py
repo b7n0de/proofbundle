@@ -3297,8 +3297,9 @@ def load_policy(pfad=None) -> dict:
     """Die Policy LESEN, mit ihrem Digest. Ein Leser ohne Digest kann spaeter nicht sagen, welche
     Fassung entschieden hat — und eine Policy, deren Fassung offen ist, ist keine."""
     import hashlib as _h  # noqa: PLC0415
-    import json as _j  # noqa: PLC0415
     from pathlib import Path as _P  # noqa: PLC0415
+    from ._strict_json import loads_reject_duplicate_keys  # noqa: PLC0415
+    from .errors import BundleFormatError  # noqa: PLC0415
     # Eine oeffentliche Flaeche darf keine ROHE Ausnahme durchlassen — das ist eine Eigenschaft des
     # Projekts (tests/test_never_raise_surface_family_property.py), nicht Geschmack: wer einen
     # rohen TypeError faengt, faengt auch den aus einer ganz anderen Zeile mit. `_P(5)` wirft
@@ -3314,8 +3315,13 @@ def load_policy(pfad=None) -> dict:
         roh = p.read_bytes()
     except OSError as e:
         raise AgentReviewError(f"policy not readable: {p}: {e}") from e
+    # A key written twice has no one value: a last-wins reader would take `"blocking": []` after
+    # `"blocking": [...]` and lift the blocking list, while a first-wins reader would block. The digest
+    # binds the bytes, not one reading of them, so a policy with a duplicate key is refused.
     try:
-        d = _j.loads(roh.decode("utf-8"))
+        d = loads_reject_duplicate_keys(roh.decode("utf-8"))
+    except BundleFormatError as e:
+        raise AgentReviewError(f"policy carries a duplicate JSON key: {p}: {e}") from e
     except (UnicodeDecodeError, ValueError) as e:
         raise AgentReviewError(f"policy is not valid UTF-8 JSON: {p}: {e}") from e
     if not isinstance(d, dict):

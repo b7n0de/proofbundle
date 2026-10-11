@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -54,6 +55,27 @@ ERWARTETE_GRUPPEN = (
     "Audit and evidence",
     "Documentation and interoperability",
     "Dependencies",
+)
+
+#: The forms a source may declare in `form`. A source without the key is the grouped form of 6.1.0
+#: and 6.2.0. Owner decision of 2026-10-09: from 6.2.1 the release page reads in two levels, a short
+#: top for every reader and every fix as one line further down, and it names no internal process.
+FORMEN = ("gruppen", "zwei_ebenen")
+
+#: The fields that only the grouped form renders. A two-level source that carries one of them would
+#: render without it, so a reviewed text would be dropped with nothing refusing it.
+NUR_GRUPPEN = ("gruppen", "sicherheit", "was_sich_aenderte", "vor_dem_upgrade", "auditstatus", "danke")
+
+#: What a public two-level page must not name: the internal process behind a fix. Each entry is a
+#: shape and the reason it is refused, so a finding says what it found.
+INTERNE_MARKEN = (
+    (re.compile(r"\bZ\d{3}\b"), "an order line of the maintainer's process"),
+    (re.compile(r"\bOA-[0-9a-f]{10}\b"), "an owner card"),
+    (re.compile(r"\bCodex\b", re.IGNORECASE), "a named review tool"),
+    (re.compile(r"\b(?:R\d+[a-z]?|T\d|ZT|SI|CX|L\d-\d{3})-[0-9A-Za-z]+"), "a review finding id"),
+    (re.compile(r"\breview rounds?\b|\brounds? of (?:the )?(?:external )?review\b"
+                r"|\bclass search(?:es)?\b|\bcounter-reading\b", re.IGNORECASE),
+     "a review round or class search"),
 )
 
 
@@ -156,6 +178,12 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None,
     `kopf` is the commit of the tree being rendered IN. Pass it and the source's own
     `release_commit` is checked against it. See the block at that check for why.
     """
+    form = daten.get("form", "gruppen")
+    if form == "zwei_ebenen":
+        return (_pruefe_zwei_ebenen(daten) + _pruefe_bindung(daten, kopf, baum)
+                + (pruefe_verlinkte_dateien(daten, baum) if baum is not None else []))
+    if form != "gruppen":
+        return [f"the source declares the form {form!r}; this renderer knows {', '.join(FORMEN)}"]
     befunde: List[str] = []
     gruppen = daten.get("gruppen")
     if not isinstance(gruppen, list) or not gruppen:
@@ -181,32 +209,7 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None,
     if doppelt:
         befunde.append(f"group name(s) declared more than once: {', '.join(doppelt)}")
 
-    # THE SOURCE NAMED THE TREE AND NOTHING COMPARED IT. Codex, review of 2026-09-23 on PR 256:
-    # `release_commit` has always carried the commit the 48 entries describe, and the render bound
-    # the VERSION and never the TREE. Measured on this branch at the time of the finding: HEAD sat
-    # 12 commits beyond `dcac5aee`, including the first-parent merges #245, #247 and #253, the source
-    # names none of the three, and the render exited 0 all the same. The workflow triggers on a tag
-    # push, so a tag pushed from such a tree would ship those descendants while publishing "All
-    # changes" and detail links for the older one.
-    #
-    # It is the same class as the digest this pull request already fixed one layer up: a value was
-    # recorded and nothing checked it. A recorded commit nobody compares is not a binding.
-    erklaert = daten.get("release_commit")
-    if kopf is not None:
-        if not isinstance(erklaert, str) or len(erklaert) != 40:
-            befunde.append("the source declares no 40-character release_commit, so the notes cannot "
-                           "say which tree they describe")
-        elif erklaert != kopf:
-            # With the tree at hand, HEAD may be a descendant that differs only in paths the package
-            # does not ship (`liefert_dasselbe_paket`); a stated head without a tree keeps the exact
-            # comparison.
-            grund = (liefert_dasselbe_paket(baum, erklaert, kopf) if baum is not None
-                     else "no tree was given to read the commit between them")
-            if grund is not None:
-                befunde.append(
-                    f"the source describes tree {erklaert[:12]} but the render is running in "
-                    f"{kopf[:12]} — the notes would describe a different tree than the artefacts "
-                    f"({grund})")
+    befunde += _pruefe_bindung(daten, kopf, baum)
 
     s = daten.get("sicherheit")
     if s is not None:
@@ -244,12 +247,190 @@ def pruefe(daten: Dict[str, Any], kopf: str | None = None,
     return befunde
 
 
+def _pruefe_bindung(daten: Dict[str, Any], kopf: str | None, baum: Path | None) -> List[str]:
+    """The tree binding, shared by both forms: a note of either form describes one tree."""
+    befunde: List[str] = []
+    # THE SOURCE NAMED THE TREE AND NOTHING COMPARED IT. Codex, review of 2026-09-23 on PR 256:
+    # `release_commit` has always carried the commit the 48 entries describe, and the render bound
+    # the VERSION and never the TREE. Measured on this branch at the time of the finding: HEAD sat
+    # 12 commits beyond `dcac5aee`, including the first-parent merges #245, #247 and #253, the source
+    # names none of the three, and the render exited 0 all the same. The workflow triggers on a tag
+    # push, so a tag pushed from such a tree would ship those descendants while publishing "All
+    # changes" and detail links for the older one.
+    #
+    # It is the same class as the digest this pull request already fixed one layer up: a value was
+    # recorded and nothing checked it. A recorded commit nobody compares is not a binding.
+    erklaert = daten.get("release_commit")
+    if kopf is not None:
+        if not isinstance(erklaert, str) or len(erklaert) != 40:
+            befunde.append("the source declares no 40-character release_commit, so the notes cannot "
+                           "say which tree they describe")
+        elif erklaert != kopf:
+            # With the tree at hand, HEAD may be a descendant that differs only in paths the package
+            # does not ship (`liefert_dasselbe_paket`); a stated head without a tree keeps the exact
+            # comparison.
+            grund = (liefert_dasselbe_paket(baum, erklaert, kopf) if baum is not None
+                     else "no tree was given to read the commit between them")
+            if grund is not None:
+                befunde.append(
+                    f"the source describes tree {erklaert[:12]} but the render is running in "
+                    f"{kopf[:12]} — the notes would describe a different tree than the artefacts "
+                    f"({grund})")
+    return befunde
+
+
+def _text(daten: Dict[str, Any], feld: str) -> bool:
+    return isinstance(daten.get(feld), str) and bool(daten[feld].strip())
+
+
+def _pruefe_zwei_ebenen(daten: Dict[str, Any]) -> List[str]:
+    """Structural findings of a two-level source, all of them."""
+    befunde: List[str] = []
+    for feld in ("kopfsatz", "selbst_pruefen", "nicht_bewiesen", "restrisiko", "schlusssatz"):
+        if not _text(daten, feld):
+            befunde.append(f"the two-level source needs a non-empty {feld}")
+    hl = daten.get("highlights")
+    if not isinstance(hl, list) or not 3 <= len(hl) <= 4:
+        befunde.append("the two-level source needs three or four highlights")
+    else:
+        for i, h in enumerate(hl, 1):
+            for feld in ("kern", "text"):
+                if not (isinstance(h, dict) and _text(h, feld)):
+                    befunde.append(f"highlight {i} lacks {feld}")
+    fixes = daten.get("fixes")
+    if not isinstance(fixes, list) or not fixes:
+        befunde.append("the two-level source lists no fixes")
+    else:
+        for i, f in enumerate(fixes, 1):
+            if not (isinstance(f, str) and f.startswith("**") and "\n" not in f):
+                befunde.append(f"fix {i} is not one CHANGELOG line that opens with its bold sentence")
+    links = daten.get("weitere_links", [])
+    if not isinstance(links, list) or not all(
+            isinstance(x, dict) and _text(x, "text") and str(x.get("url", "")).startswith("https://")
+            for x in links):
+        befunde.append("weitere_links lists objects with a text and an https url")
+    fremd = [k for k in NUR_GRUPPEN if k in daten]
+    if fremd:
+        befunde.append(f"the two-level source carries fields only the grouped form renders, which "
+                       f"would be dropped: {', '.join(fremd)}")
+    if not befunde:
+        # THE RULE IS MEASURED ON THE RENDERED PAGE, not on the fields one by one, so a marker in any
+        # text of the source is found wherever it sits.
+        seite = _rendere_zwei_ebenen({**daten, "release_commit": daten.get("release_commit") or ""})
+        for muster, was in INTERNE_MARKEN:
+            for m in muster.finditer(seite):
+                befunde.append(f"the page names {was}: {m.group(0)!r}")
+    return befunde
+
+
+#: A markdown link whose target is a path. On a release page such a link resolves against the page,
+#: not the repository, so it would point nowhere; the renderer binds it to the described commit.
+_RELATIVER_LINK = re.compile(r"\]\((?!https?://|mailto:|#)([^)\s]+)\)")
+
+
+def _binde(text: str, basis: str) -> str:
+    return _RELATIVER_LINK.sub(lambda m: f"]({basis}/{m.group(1)})", text)
+
+
+def _restrisiko(q: Dict[str, Any]) -> str:
+    # The two-level source names its record (owner decision of 2026-10-09: RESTRISIKO_620.md for 6.2.1).
+    return q.get("restrisiko") or ("RESTRISIKO_" + q["version"].replace(".", "") + ".md")
+
+
+def verlinkte_ziele(daten: Dict[str, Any]) -> List[str]:
+    """Every target in the tree a two-level page links, `path` or `path#anchor`, in page order, once."""
+    ziele = ["CHANGELOG.md", _restrisiko(daten), f"docs/release_scope/{daten['version']}.md"]
+    texte = [daten.get("kopfsatz", ""), daten.get("selbst_pruefen", ""),
+             daten.get("nicht_bewiesen", ""), daten.get("schlusssatz", "")]
+    texte += [h.get("text", "") for h in daten.get("highlights") or [] if isinstance(h, dict)]
+    texte += [f for f in daten.get("fixes") or [] if isinstance(f, str)]
+    for t in texte:
+        ziele += [m.group(1) for m in _RELATIVER_LINK.finditer(str(t))]
+    return list(dict.fromkeys(z for z in ziele if z))
+
+
+def _anker(ueberschrift: str) -> str:
+    """The anchor GitHub gives a markdown heading: lower case, punctuation dropped, spaces to hyphens."""
+    s = ueberschrift.strip().lower()
+    s = re.sub(r"[^\w\- ]", "", s)
+    return s.replace(" ", "-")
+
+
+def _fixed_des_changelog(changelog: str, version: str) -> List[str] | None:
+    """The bullets under `### Fixed` of `## [version]`, each without its `- `, or None without the section."""
+    m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", changelog, re.M | re.S)
+    if m is None:
+        return None
+    f = re.search(r"^### Fixed\n\n(.*?)(?=^### |\Z)", m.group(1), re.M | re.S)
+    if f is None:
+        return None
+    return [z[2:] for z in f.group(1).splitlines() if z.startswith("- ")]
+
+
+def pruefe_verlinkte_dateien(daten: Dict[str, Any], baum: Path) -> List[str]:
+    """A LINK TO A FILE THE TREE LACKS IS A PROMISE NOBODY CHECKED. Every path a two-level page links
+    must exist in the commit the page describes, and every anchor must name a heading of that file;
+    the grouped form linked `RESTRISIKO_610.md` from every later body until a reader noticed.
+
+    THE DETAILS ARE THE CHANGELOG LINES, BYTE FOR BYTE (owner decision of 2026-10-09). The fixes of the
+    source must be the bullets under `### Fixed` of this version's CHANGELOG section in the described
+    tree, in the same order, so the page cannot say one thing and the CHANGELOG another."""
+    commit = daten.get("release_commit")
+    if not (isinstance(commit, str) and len(commit) == 40):
+        return []  # the binding check already names a missing or malformed release_commit
+    befunde: List[str] = []
+    for ziel in verlinkte_ziele(daten):
+        pfad, _, anker = ziel.partition("#")
+        inhalt = _git(baum, "show", f"{commit}:{pfad}")
+        if inhalt is None:
+            befunde.append(f"the page links {pfad}, which the described tree {commit[:12]} does not carry")
+            continue
+        if anker and anker not in {_anker(z.lstrip("#")) for z in inhalt.splitlines()
+                                   if re.match(r"^#{1,6} ", z)}:
+            befunde.append(f"the page links {ziel}, and {pfad} at {commit[:12]} has no heading with "
+                           f"that anchor")
+    changelog = _git(baum, "show", f"{commit}:CHANGELOG.md")
+    zeilen = _fixed_des_changelog(changelog or "", daten["version"])
+    if zeilen is None:
+        befunde.append(f"CHANGELOG.md at {commit[:12]} has no `### Fixed` under `## [{daten['version']}]`")
+    elif zeilen != list(daten.get("fixes") or []):
+        befunde.append(f"the fixes of the source are not the `### Fixed` lines of {daten['version']} in "
+                       f"CHANGELOG.md at {commit[:12]}, byte for byte and in order")
+    return befunde
+
+
+def _rendere_zwei_ebenen(q: Dict[str, Any]) -> str:
+    """The two-level page: what the release brings and how to install it, three or four highlights,
+    how to verify it and what a receipt does not prove, then every fix as its CHANGELOG line, then
+    the links and the closing sentence."""
+    basis = f"https://github.com/b7n0de/proofbundle/blob/{q['release_commit']}"
+    n = len(q["fixes"])
+    teile: List[str] = [_binde(q["kopfsatz"], basis), "", "```",
+                        f"python -m pip install --upgrade proofbundle=={q['version']}", "```", "",
+                        "## Highlights", ""]
+    teile += [f"- **{h['kern']}** {_binde(h['text'], basis)}" for h in q["highlights"]]
+    teile += ["", "## Verify this release yourself", "", _binde(q["selbst_pruefen"], basis), "",
+              "## What a receipt still does not prove", "", _binde(q["nicht_bewiesen"], basis), "",
+              "## Details", "", "<details>",
+              f"<summary>All {n} fix{'es' if n != 1 else ''}, one line each, as in the "
+              f"CHANGELOG</summary>", ""]
+    teile += [f"- {_binde(f, basis)}" for f in q["fixes"]]
+    links = [f"[Full changelog]({basis}/CHANGELOG.md)",
+             f"[Known limitations]({basis}/{_restrisiko(q)})",
+             f"[Release scope]({basis}/docs/release_scope/{q['version']}.md)"]
+    links += [f"[{x['text']}]({x['url']})" for x in q.get("weitere_links", [])]
+    teile += ["", "</details>", "", " · ".join(links), "", _binde(q["schlusssatz"], basis)]
+    return "\n".join(teile) + "\n"
+
+
 def _zeile(e: Dict[str, Any]) -> str:
     return f"- {e['kurz']}. [#{e['nr']}]({e['url']})."
 
 
 def rendere(daten: Dict[str, Any]) -> str:
     """The body. Order comes from the source; nothing here sorts or dedupes behind the reader."""
+    if daten.get("form") == "zwei_ebenen":
+        return _rendere_zwei_ebenen(daten)
     q = daten
     commit = q["release_commit"]
     basis = f"https://github.com/b7n0de/proofbundle/blob/{commit}"
@@ -335,8 +516,9 @@ def main(argv: List[str] | None = None) -> int:
     text = rendere(daten)
     if a.aus:
         a.aus.write_text(text, encoding="utf-8")
-        print(f"  {a.aus} · {len(text)} characters · "
-              f"{sum(len(g['eintraege']) for g in daten['gruppen'])} pull requests")
+        umfang = (f"{len(daten['fixes'])} fixes" if daten.get("form") == "zwei_ebenen" else
+                  f"{sum(len(g['eintraege']) for g in daten['gruppen'])} pull requests")
+        print(f"  {a.aus} · {len(text)} characters · {umfang}")
     else:
         sys.stdout.write(text)
     return 0
