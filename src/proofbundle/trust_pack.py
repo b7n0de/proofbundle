@@ -686,8 +686,13 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
             return verify_hybrid(classical_pub=pub, classical_sig=sig, pq_pub=pq_pub, pq_sig=sig_pq, message=msg)
         except PQUnavailable:
             return False
-    # default / "ed25519" (an unrecognised alg on prev_root_keys — caller-supplied trust material, outside
-    # the predicate's own schema gate — safely falls back to the classical check rather than raising).
+    # 6.2.1 R6b-3 (Z309): only the exact "ed25519" reaches the classical check. Any other value — an unknown
+    # algorithm such as "rsa4096" or "hybrid-ed25519-mldsa87", None, "", a number — vouches for nothing: an
+    # unrecognised alg was read as Ed25519 here, so a valid Ed25519 signature over the classical bytes counted
+    # for a key declared under an algorithm this verifier does not implement (an absent alg is the documented
+    # legacy Ed25519 case and is mapped to "ed25519" by the callers, not here).
+    if type(alg) is not str or alg != "ed25519":
+        return False
     if not isinstance(sig_b64, str):
         return False
     try:
@@ -912,14 +917,14 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 continue
             _ok = old_keys[kid]
             # backward compatible: a bare base64 string (legacy callers, ed25519-only) or a full key object
-            # ({"publicKey":, "alg":, "publicKeyPq":}) for crypto-agile rotation vouching. An unrecognised
-            # alg on this caller-supplied trust material defaults to ed25519 rather than raising.
+            # ({"publicKey":, "alg":, "publicKeyPq":}) for crypto-agile rotation vouching. Only an ABSENT alg
+            # is the legacy Ed25519 case; 6.2.1 R6b-3 (Z309): an explicit alg this verifier does not implement
+            # (or None, "", a number) is no longer read as ed25519 — it reaches _verify_signature_for_alg as
+            # given and vouches for nothing.
             if isinstance(_ok, str):
                 old_alg, pub_b64, pq_pub_b64 = "ed25519", _ok, None
             elif isinstance(_ok, dict):
                 old_alg = _ok.get("alg", "ed25519")
-                if old_alg not in _KEY_ALGS:
-                    old_alg = "ed25519"
                 pub_b64, pq_pub_b64 = _ok.get("publicKey"), _ok.get("publicKeyPq")
             else:
                 continue

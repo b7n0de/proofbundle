@@ -38,18 +38,14 @@ from proofbundle.emit import generate_signer
 from proofbundle.relation import CODE_RELATION_TARGET_MALFORMED, LINEAGE_FAIL, LINEAGE_VERIFIED
 from proofbundle.relation_statement import emit_relation_statement
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
-RUST = REPO / "tools" / "pb_verify_rs" / "target" / "release" / "pb_verify_rs"
-RUST_DEBUG = REPO / "tools" / "pb_verify_rs" / "target" / "debug" / "pb_verify_rs"
 INTOTO = "application/vnd.in-toto+json"
 HEX_A = "a" * 64
-
-
-def _rust_bin() -> pathlib.Path | None:
-    for b in (RUST, RUST_DEBUG):
-        if b.exists():
-            return b
-    return None
 
 
 def _edge(target_hex: str) -> dict:
@@ -159,7 +155,6 @@ class AttachedTargetPayloadOracle(unittest.TestCase):
         hop 2: the malformed target sits BETWEEN the receipt and a failing ancestor — the position the
                attacker chooses, and the one the walk used to skip.
         """
-        rust = _rust_bin()
         apath, aroot = self._ancestor_that_fails()
         for label, body in _payload_variants(_edge(aroot)).items():
             env = dsse.sign_envelope(body, self.signer, payload_type=INTOTO)
@@ -185,9 +180,10 @@ class AttachedTargetPayloadOracle(unittest.TestCase):
                     self.assertIn(CODE_RELATION_TARGET_MALFORMED,
                                   json.dumps(json.loads(out)["lineage"]["errors"]),
                                   f"{label}: the typed wire code is missing")
-            if rust is None:
-                continue
             with self.subTest(variant=label, verifier="rust"):
+                # Through the seam: a skip that names why, a failure where CI requires the binary; the Python half
+                # above runs either way. It was `if rust is None: continue`, a silent pass (pull request 309).
+                rust = _pb_verify_rs.binary_or_skip()
                 p = subprocess.run([str(rust), "verify-relation-statement", spath, self.pub64,
                                     "--with-related", tpath, "--with-related", apath],
                                    capture_output=True, text=True, timeout=60)

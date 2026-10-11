@@ -28,6 +28,7 @@ from typing import Any
 from ._strict_json import loads_strict
 from .canonical import _ein_stand, _plain_for_jcs, _pruefkopie, _zeichen_von
 from .errors import ProofBundleError
+from .signature import _reject_jws_crit
 from ._wire_b64 import decode_b64
 from ._membership import is_member, stored_str_items
 # LAUF 14 L2 F1 (11.09.2026): dieses Modul trug eine DRITTE Kopie von `_b64url_decode` — ohne den
@@ -156,6 +157,13 @@ def check_vc_profile(compact: str, policy: dict, *, offline_metadata: dict | Non
         header, payload = _issuer_header_payload(compact)
     except SdjwtVcError as exc:
         r["errors"].append(str(exc))
+        return r
+    # RFC 7515 §4.1.11 on the issuer header this profile judges, before any other header field: the
+    # profile is a verdict of its own, also where the caller opted out of the issuer signature, so it
+    # cannot leave the critical-header rule to sdjwt.verify_sd_jwt.
+    _crit_reason = _reject_jws_crit(header)
+    if _crit_reason is not None:
+        r["errors"].append(f"issuer JWT header: {_crit_reason}")
         return r
 
     r["typ_ok"] = header.get("typ") == SD_JWT_VC_TYP
