@@ -3,7 +3,9 @@
 # file), the own checker, build_draft twice, kramdown-rfc twice, the conversion to RFCXML version 3 (xml2rfc --v2v3)
 # twice, xml2rfc twice, each pair compared byte for byte; lines over 72 characters; idnits if IDNITS names it (it
 # needs network). kramdown-rfc 1.7.43 writes list, spanx and texttable even in v3 mode; the submitted XML is the
-# converted one, which has version="3" and none of them. The document date is set at build time:
+# converted one, which has version="3" and none of them; v3_submission.py then takes out the <?line?> marks and
+# submissionType and wraps the BCP 14 keywords in <bcp14>, without changing the rendered text. The document date is
+# set at build time:
 # DOC_DATE for kramdown-rfc (through fixdate.rb) and for xml2rfc (--date). Every exit code is the step's own.
 # usage: build.sh <ser|map|id> <DOC_DATE YYYY-MM-DD> <output dir>
 # environment: PYTHON (default python3), IDNITS (path of idnits 3; unset: idnits is skipped)
@@ -43,11 +45,14 @@ cmp "$B/md_run1.md" "$B/md_run2.md"; echo "cmp_md_runs_exit=$?"
 echo "== kramdown-rfc $(kramdown-rfc --version 2>&1 | head -1)"
 for i in 1 2; do (cd draft && RUBYOPT="-r$HERE/fixdate.rb" kramdown-rfc $N.md > $N.kd.xml 2> kramdown.err); echo "kramdown_$i exit=$?"; cp draft/$N.kd.xml "$B/kdxml_run$i.xml"; done
 cmp "$B/kdxml_run1.xml" "$B/kdxml_run2.xml"; echo "cmp_kramdown_xml_runs_exit=$?"
-for i in 1 2; do (cd draft && rm -f $N.xml && xml2rfc --v2v3 $N.kd.xml --out $N.xml > v2v3.out 2> v2v3.err); echo "v2v3_$i exit=$?"; cp draft/$N.xml "$B/xml_run$i.xml"; done
+for i in 1 2; do (cd draft && rm -f $N.xml && xml2rfc --v2v3 $N.kd.xml --out $N.xml > v2v3.out 2> v2v3.err); echo "v2v3_$i exit=$?"
+  (cd draft && $PY "$HERE/v3_submission.py" $N.xml > v3sub.out 2>&1); echo "v3_submission_$i exit=$?"; cp draft/$N.xml "$B/xml_run$i.xml"; done
 cmp "$B/xml_run1.xml" "$B/xml_run2.xml"; echo "cmp_xml_runs_exit=$?"
 grep -m1 -o '<rfc [^>]*version="[0-9]*"' draft/$N.xml | grep -o 'version="[0-9]*"' | sed 's/^/xml /'
 echo "v2_elements_in_xml (list, spanx, texttable): $(grep -c '<list[ >]\|<spanx[ >]\|<texttable[ >]' draft/$N.xml)"
 echo "v2v3_stderr_lines=$(grep -vc 'Created file' draft/v2v3.err)"
+echo "v3_submission: $(cat draft/v3sub.out)"
+echo "in xml: line PIs $(grep -c '<?line ' draft/$N.xml), submissionType $(grep -c 'submissionType=' draft/$N.xml), bcp14 $(grep -o '<bcp14>' draft/$N.xml | wc -l)"
 grep -m1 -o '<date year="[0-9]*" month="[A-Za-z]*" day="[0-9]*"/>' draft/$N.xml
 echo "kramdown_stderr_other_lines=$(grep -vc 'explicit settings completely override' draft/kramdown.err)"
 echo "== xml2rfc $(xml2rfc --version 2>&1 | head -1)"
