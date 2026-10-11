@@ -8,7 +8,7 @@ A worked example for [tonydzi/verdict-contract#1](https://github.com/tonydzi/ver
 |---|---|
 | `verdict_contract.py` | The parser, vendored unchanged from tonydzi/verdict-contract at commit `73561ee356fc01d6c976a93fb9110d2df2a2df4e`, sha256 `ff5884d5be7520e08054b484456ce0c38fe4fdf99818fed3925b925bc3309a8f`. MIT, Copyright Anton Dziatkovskii / Palo Alto AI Research Lab; the licence text of that repository is in `LICENSE.verdict_contract`, unchanged. |
 | `reply.txt` | The reviewer reply, written for this example. |
-| `make_example.py` | The producer side. It hashes the reply bytes, runs `find_verdict`, writes `out/verdict.json` and a signed receipt that binds it. |
+| `make_example.py` | The producer side. It hashes the reply bytes, runs `find_verdict`, writes `out/verdict.json` and a signed receipt that binds it. It renders the first disclosure block with `legacy_v01=True`, because `disclosureCoreDigest` is not in the predicate yet at that point; the final block and the offline check both run under v0.2. |
 | `check_example.py` | The offline check of `out/`. |
 | `toy_repo.py` | Rebuilds the toy pull request the receipt points at, byte for byte. |
 | `measure_cases.py` | Runs the byte-binding cases: LF against CRLF, a blank line and spaces at the end, a sentinel in a fence, two sentinels, a quoted REQUEST_CHANGES, a lone CR and U+2028 before the sentinel. |
@@ -18,16 +18,16 @@ A worked example for [tonydzi/verdict-contract#1](https://github.com/tonydzi/ver
 ## Check it offline
 
 ```
-pip install proofbundle
+pip install "proofbundle>=6.2.1"
 cd examples/verdict_contract
 python check_example.py out
 ```
 
 The files in `out/` were produced and checked with proofbundle 6.2.1. `git` must be on the path, because the check rebuilds the toy repository with it.
 
-The check exits 0 only when the receipt verifies against the public key in `out/publickey.hex` and against the pull request context the checker computes itself, `verdict.json` is the record the receipt binds, `reply.txt` and `verdict_contract.py` are the bytes the record names, and `find_verdict` on the reply gives the recorded verdict. The verdict is printed and is not the exit status.
+The check exits 0 only when the receipt verifies against the public key in `out/publickey.hex` at the commit you checked out and against the pull request context the checker computes itself, `verdict.json` is the record the receipt binds, `reply.txt` and `verdict_contract.py` are the bytes the record names, and `find_verdict` on the reply gives the recorded verdict. The verdict is printed and is not the exit status.
 
-The check takes the public key from this folder, so it carries only as much as the source the reader takes that key from. Here that source is this folder at a fixed commit.
+The check takes the public key from this folder, so it is only as strong as the source the reader takes that key from. Here that source is this folder at a fixed commit.
 
 ## Byte binding
 
