@@ -260,6 +260,18 @@ commitments. The assertion is serialized with the JSON Canonicalization Scheme
 {{RFC8785}}, and the resulting bytes are signed with Ed25519 {{RFC8032}} over a
 pre-authentication encoding that binds a fixed type.
 
+Two parties that share no infrastructure can use this format: an Issuer that
+ran an evaluation, such as the provider of a model or a test laboratory, and a
+Receiver that decides on the result, such as an operator that admits a model
+into service or an auditor. The Issuer hands over one receipt; the Receiver
+checks it under a key it fixed beforehand, without access to the Issuer's
+systems, and learns which result the Issuer reports for which committed model
+and dataset, under which threshold and comparator. The receipt object exists
+next to the DSSE-compatible signature because it carries, together with B, the
+fixed type and the payload schema identifier and is verified by one procedure
+({{verification}}), so that every Receiver reaches the same verdict on the same
+bytes. A DSSE signature check alone is not that verdict.
+
 A receipt establishes integrity and origin: the holder of the signing key
 signed exactly these bytes. It does not establish truth. {{non-claims}} lists
 what a receipt does not prove, and that list is part of the definition. A
