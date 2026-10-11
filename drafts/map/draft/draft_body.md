@@ -1157,5 +1157,9 @@ general Ed25519 implementation (its checks M2-17 and M2-18).
 * The artifact-type declaration of {{typed-reference}} is named by no
   consuming profile yet.
 * Whether the certificate profile also admits alg -9 (ESP256) of {{RFC9864}}
-  ({{alg-choice}}), and whether it admits an intermediate certificate or an
-  anchor key other than RSA.
+  ({{alg-choice}}).
+* Whether the certificate profile admits an intermediate certificate or an
+  anchor key other than RSA. It requires exactly two certificates and an RSA
+  root because that is the form measured to work: the offline verifier named in
+  {{impl}} did not anchor a chain whose leaf certificate was signed with ECDSA,
+  and verified the chain with an RSA root.

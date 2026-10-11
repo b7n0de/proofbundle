@@ -3,6 +3,10 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 22 (card DRAFTS-01-INHALT-02, owner choice 3 of 2026-10-11): Open Items ask, besides alg -9, whether the
+certificate profile admits an intermediate certificate or a root other than RSA, with the measured reason; R22-OI finds
+the item and the measurement in Section 12 that it cites.
+
 Round 21 (card DRAFTS-01-INHALT-01, lab-chain findings): Section 5.2.2 step 2 removes unprotected label 394 when
 it is the only label and holds an array of one or more byte strings (the receipts of a Transparent Statement), and
 does not read the receipts. Appendix A.9 gives R, the receipt in the Transparent Statement that a local Transparency
@@ -2584,6 +2588,26 @@ check("D2", "R21-TEXT", all(x in d2flat21 for x in s21_txt),
       "5.2.2 step 2 has the rule for Transparent Statements, Section 9 the paragraphs on receipts and on the digest at "
       "registration, Section 12 the lab-chain measurements, and the copied non-claims list the limit on where B came "
       "from", "missing: " + (", ".join(x[:40] for x in s21_txt if x not in d2flat21) or "none"))
+print()
+
+print("=== D2 round 22: Open Items, the question on intermediate certificates and other roots ===")
+oi22_i = find_line(d2, r"^Open Items")
+oi22 = norm_ws(" ".join(d2[oi22_i:find_line(d2, r"^Author's Address", oi22_i)]))
+s12_i = find_line(d2, r"^12\.  Implementation Status")
+s12_22 = norm_ws(" ".join(d2[s12_i:find_line(d2, r"^13\.  ", s12_i)]))
+oi22_txt = ("Whether the certificate profile admits an intermediate certificate or an anchor key other than RSA. It "
+            "requires exactly two certificates and an RSA root because that is the form measured to work: the offline "
+            "verifier named in Section 12 did not anchor a chain whose leaf certificate was signed with ECDSA, and "
+            "verified the chain with an RSA root.")
+oi22_alg = "Whether the certificate profile also admits alg -9 (ESP256) of [RFC9864] (Section 5.2.4)."
+s12_22_txt = ("did not anchor a chain whose leaf certificate was signed with ECDSA (exit status 3) and verified the "
+              "chain with an RSA root.")
+check("D2", "R22-OI", oi22_txt in oi22 and oi22_alg in oi22 and s12_22_txt in s12_22
+      and "verified the Transparent Statement it returned offline" in s12_22,
+      "Open Items keep the question on alg -9 and ask about intermediate certificates and other roots with the "
+      "measured reason; Section 12, which that item cites, holds the measurement and names the offline verifier",
+      "item found: %s; alg -9 item: %s; Section 12 sentence: %s" % (oi22_txt in oi22, oi22_alg in oi22,
+                                                                   s12_22_txt in s12_22))
 print()
 
 # ---------------------------------------------------------------------------
