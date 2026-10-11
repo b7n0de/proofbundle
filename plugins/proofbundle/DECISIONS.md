@@ -1114,8 +1114,8 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   variable, so the server cannot read the log and says NOT MEASURED; the `gate_note` stays.
 - The self-test (skill `selftest`, tools `gate_selftest_prepare` and `gate_selftest_check`) makes a
   throwaway repository and a bare remote in a temporary folder. The repository declares a stale subject and
-  tracks a named branch on the bare remote (so the push resolves, D3); the model runs one `git push` to
-  that branch, which the gate is expected to deny. The check reports, observation-near, whether the gate
+  tracks a named branch on the bare remote; the model runs one `git push` to that branch, which the gate is
+  expected to deny at the commit it sends (its destination stays NOT MEASURED, D3). The check reports, observation-near, whether the gate
   logged that deny and whether the throwaway remote's target still equals the OID it stored at prepare:
   "Expected denial logged; test target unchanged.", "Expected denial logged; test target changed.", "Test
   target changed; no matching gate event observed.", or NOT MEASURABLE. A missing, empty or invalid stored
@@ -1130,7 +1130,12 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   tree, index and object store and pushes origin to the throwaway remote; where git answers otherwise the self-test
   is NOT MEASURABLE and removes its folder (review round 8 of 2026-10-10, the class of R8-1: an exported `GIT_DIR`
   had made prepare commit twice onto that repository's branch and add a remote to it, measured with git 2.43.0 and
-  2.51.1). The shell the host runs the command in may carry another environment than the server. The
+  2.51.1). Prepare also refuses a namespace (GIT_NAMESPACE) and a push mapping of origin (remote.origin.push) in the
+  server's environment, both of which send the offered push to another ref than the throwaway remote's main; the
+  shell the host runs the command in may carry another environment than the server, so the check compares every
+  ref of the throwaway remote with the state prepare recorded, and a ref beside main that appeared, moved or went
+  is a changed target too (review round 9 of 2026-10-11, R9-2: under GIT_NAMESPACE the push had written
+  refs/namespaces/selftest-ns/refs/heads/main and the check had reported the target unchanged). The
   check refuses any folder it did not create, and takes no special path for the self-test in the gate. The
   skill runs only when the user invokes it. The time window gate_status reports where there is no host
   session id is labelled as a window since the server started, not a session.

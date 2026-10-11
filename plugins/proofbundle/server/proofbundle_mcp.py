@@ -363,10 +363,17 @@ def _run_git(*args: str, cwd: str | None = None) -> None:
 
 
 def _selftest_command_problem(work: str, bare: str) -> str | None:
-    """Why the command the self-test hands out would not push from `work` to `bare` in the server's environment, or
-    None. Asked of git in that environment, as the command runs: the git directory, common directory, work tree, index
-    and object store a call in `work` takes, and the URL its push to origin goes to. The shell the host runs the
-    command in may carry another environment than the server; that is not visible here."""
+    """Why the command the self-test hands out would not push from `work` to refs/heads/main of `bare` in the server's
+    environment, or None. Asked of git in that environment, as the command runs: the git directory, common directory,
+    work tree, index and object store a call in `work` takes, the URL its push to origin goes to, and the ref it
+    writes there: a namespace (GIT_NAMESPACE, which git reads as none where empty) writes refs/namespaces/<ns>/...,
+    and a push mapping of origin (remote.origin.push) sends `push origin main` to the ref it names (review round 9
+    of 2026-10-11, R9-2: under GIT_NAMESPACE the push wrote refs/namespaces/selftest-ns/refs/heads/main, the check
+    read refs/heads/main and reported the target unchanged). The shell the host runs the command in may carry
+    another environment than the server; that is not visible here, and the check compares every ref of the
+    throwaway remote for it."""
+    if os.environ.get("GIT_NAMESPACE"):
+        return "git writes the push under refs/namespaces/ on the throwaway remote (GIT_NAMESPACE), not to its main"
     query = subprocess.run(["git", "-C", work, "rev-parse", "--path-format=absolute", "--absolute-git-dir",
                             "--git-common-dir", "--show-toplevel", "--git-path", "index", "--git-path", "objects"],
                            capture_output=True, text=True, timeout=60, check=False)
@@ -379,7 +386,24 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
                          capture_output=True, text=True, timeout=60, check=False)
     if url.returncode != 0 or url.stdout.splitlines() != [bare]:
         return "git pushes the self-test's origin to another URL than its throwaway remote"
+    mapping = subprocess.run(["git", "-C", work, "config", "--get-all", "remote.origin.push"],
+                             capture_output=True, text=True, timeout=60, check=False)
+    if mapping.returncode != 1 or mapping.stdout or mapping.stderr:
+        return "a push mapping of origin (remote.origin.push) sends `push origin main` to another ref than its main"
     return None
+
+
+def _remote_refs(bare: str) -> str | None:
+    """Every ref of the throwaway remote with its object, one per line and sorted, refs/namespaces/ included; None
+    where git cannot list them."""
+    listing = subprocess.run(["git", "--git-dir", bare, "for-each-ref", "--format=%(refname) %(objectname)"],
+                             capture_output=True, text=True, timeout=60, check=False, env=_selftest_git_env())
+    return "".join(sorted(listing.stdout.splitlines(keepends=True))) if listing.returncode == 0 else None
+
+
+def _without_main(listing: str) -> set:
+    """The lines of every ref but refs/heads/main, so an added, removed or moved ref beside it shows."""
+    return {line for line in listing.splitlines() if line and not line.startswith("refs/heads/main ")}
 
 
 #: Every self-test result carries this. The first four sentences are the reviewer's limit (review R3-6),
@@ -432,6 +456,8 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
                               capture_output=True, text=True, check=True, env=_selftest_git_env()).stdout.strip()
     with open(os.path.join(root, "base_oid"), "w", encoding="utf-8") as handle:
         handle.write(base_oid + "\n")
+    with open(os.path.join(root, "remote_refs"), "w", encoding="utf-8") as handle:
+        handle.write(_remote_refs(bare) or "")
     # One more commit with the identical evidence rules and a changed tree, so its declared subject is now
     # stale. Pushing it to main is what the gate must deny.
     with open(os.path.join(work, "CHANGES.md"), "w", encoding="utf-8") as handle:
@@ -441,8 +467,9 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
     if problem is not None:
         shutil.rmtree(root, ignore_errors=True)
         raise ToolInputError(f"NOT MEASURABLE: {problem} in the server's environment, so the self-test's command "
-                             "would not act on its throwaway repository. Start the host without GIT_DIR, "
-                             "GIT_WORK_TREE and the other GIT_ names that select a repository.")
+                             "would not act on its throwaway repository and its main. Start the host without "
+                             "GIT_DIR, GIT_WORK_TREE, GIT_NAMESPACE and the other GIT_ names that select a "
+                             "repository or a ref, and without a configuration that rewrites the push.")
     command = f"git -C {shlex.quote(work)} push origin main"
     return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -473,10 +500,20 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
                              "--quiet", "refs/heads/main"], capture_output=True, text=True, check=False,
                             env=_selftest_git_env())
     remote_main = remote.stdout.strip()
-    target_changed = (remote_main != base_oid) if (valid_base and remote.returncode in (0, 1)) else None
+    # Every ref of the throwaway remote against the state prepare recorded, not main alone: a push the host's shell
+    # sends under a namespace or a push mapping writes another ref, and main stays as it was (R9-2).
+    try:
+        with open(os.path.join(parent, "remote_refs"), encoding="utf-8") as handle:
+            recorded = handle.read()
+    except OSError:
+        recorded = None
+    now = _remote_refs(os.path.join(parent, "remote.git"))
+    other_changed = None if recorded is None or now is None else _without_main(now) != _without_main(recorded)
+    target_changed = ((remote_main != base_oid or other_changed)
+                      if valid_base and remote.returncode in (0, 1) and other_changed is not None else None)
     path, source = _log_path()
     result: dict = {"plugin_version": SERVER_VERSION, "work": work, "target_changed": target_changed,
-                    "base_oid": base_oid, "remote_main": remote_main or None,
+                    "base_oid": base_oid, "remote_main": remote_main or None, "other_refs_changed": other_changed,
                     "log_path": path, "log_source": source, "limit": SELFTEST_LIMIT}
     if not valid_base:
         result.update(result="NOT MEASURABLE",
@@ -505,14 +542,16 @@ def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
     elif denied and target_changed is True:
         result.update(result="Expected denial logged; test target changed.",
                       reason="an expected deny for this push was found in the log, and the target no longer "
-                             "equals the recorded base OID")
+                             "equals the recorded base OID" + (", or another ref of the throwaway remote changed"
+                                                               if other_changed else ""))
     elif denied:
         result.update(result="NOT MEASURABLE",
                       reason="an expected deny was found, but the target state could not be read")
     elif target_changed is True:
         result.update(result="Test target changed; no matching gate event observed.",
-                      reason="the target no longer equals the recorded base OID, and no matching deny for "
-                             "this push was found in the log")
+                      reason="the target no longer equals the recorded base OID"
+                             + (", or another ref of the throwaway remote changed" if other_changed else "")
+                             + ", and no matching deny for this push was found in the log")
     else:
         result.update(result="NOT MEASURABLE",
                       reason="no matching deny for this push was found in the log, and the target still "
