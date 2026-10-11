@@ -27,13 +27,19 @@ generator; it re-derives every claim from the bytes in mappings.json:
   T   for each Transparent Statement, the status under both configured pairs equals the expected one: an
       unprotected header with label 394 alone, holding an array of one or more byte strings, is removed before
       step 2, and the receipts are not read; T2 is X1 with one receipt under 394, byte for byte.
+  K   for M2, S1, X1 and T2 (the registered Transparent Statement of X1) with the head byte of key 15 in the
+      protected header replaced by 0x2f (-16), nothing reordered and not signed again, the status is malformed at
+      step 1: in the deterministic encoding of RFC 8949 Section 4.2.1 the keys are sorted bytewise by their
+      encodings, so -16 (0x2f) belongs after 33 (0x18 0x21), 258 and 259 (0x19 0x01 ...).
 Exit 0 when all hold.
 """
 import base64
 import hashlib
 import json
+import math
 import os
 import re
+import struct
 import sys
 from collections.abc import Mapping
 
@@ -129,15 +135,81 @@ SUB_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 L_ORDER = 2 ** 252 + 27742317777372353535851937790883648493
 
 
+def cbor_head(major: int, n: int) -> bytes:
+    """The head of a data item with its argument as short as possible (RFC 8949 Section 4.2.1)."""
+    if n < 24:
+        return bytes([major << 5 | n])
+    for ai, size in ((24, 1), (25, 2), (26, 4), (27, 8)):
+        if n < 1 << 8 * size:
+            return bytes([major << 5 | ai]) + n.to_bytes(size, "big")
+    raise ValueError("argument over 64 bits")
+
+
+def cbor_float(x: float) -> bytes:
+    """The shortest of half, single and double precision that keeps the value; every NaN as f9 7e00."""
+    if math.isnan(x):
+        return b"\xf9\x7e\x00"
+    for fmt, ib in ((">e", 0xF9), (">f", 0xFA)):
+        try:
+            b = struct.pack(fmt, x)
+        except OverflowError:
+            continue
+        if struct.unpack(fmt, b)[0] == x:
+            return bytes([ib]) + b
+    return b"\xfb" + struct.pack(">d", x)
+
+
+def cbor_encode(v) -> bytes:
+    """The deterministic encoding of RFC 8949 Section 4.2.1: arguments as short as possible, definite lengths,
+    floating-point values in their shortest form, and the keys of every map, at any depth, sorted bytewise
+    lexicographically by their own encodings. cbor2 canonical sorts by length first, so it puts -16 (0x2f)
+    before 33 (0x18 0x21) and 258 (0x19 0x01 0x02); this order puts it after them."""
+    if v is False:
+        return b"\xf4"
+    if v is True:
+        return b"\xf5"
+    if v is None:
+        return b"\xf6"
+    if v is cbor2.undefined:
+        return b"\xf7"
+    if isinstance(v, int):
+        if -(1 << 64) <= v < 1 << 64:
+            return cbor_head(0, v) if v >= 0 else cbor_head(1, -1 - v)
+        n = v if v >= 0 else -1 - v   # a bignum, tag 2 or 3 (RFC 8949 Section 3.4.3)
+        return cbor_encode(cbor2.CBORTag(2 if v >= 0 else 3, n.to_bytes((n.bit_length() + 7) // 8, "big")))
+    if isinstance(v, float):
+        return cbor_float(v)
+    if isinstance(v, bytes):
+        return cbor_head(2, len(v)) + v
+    if isinstance(v, str):
+        b = v.encode("utf-8")
+        return cbor_head(3, len(b)) + b
+    # cbor2 5 decodes an array as list and a map as dict, cbor2 6 inside an array as tuple and frozendict
+    if isinstance(v, (list, tuple)):
+        return cbor_head(4, len(v)) + b"".join(cbor_encode(x) for x in v)
+    if isinstance(v, Mapping):
+        pairs = sorted((cbor_encode(k), cbor_encode(x)) for k, x in v.items())
+        return cbor_head(5, len(pairs)) + b"".join(k + x for k, x in pairs)
+    if isinstance(v, cbor2.CBORTag):
+        return cbor_head(6, v.tag) + cbor_encode(v.value)
+    if isinstance(v, cbor2.CBORSimpleValue):
+        return cbor_head(7, v.value)
+    # cbor2 decodes some tags into objects of its own (datetime, Decimal, Fraction, UUID, regular expression, MIME
+    # message, IP address, set); only cbor2 encodes them back, and they keep the status they had before this
+    # encoder. A map inside a set (tag 258) is then still sorted length first.
+    return cbor2.dumps(v, canonical=True)
+
+
 def deterministic(b: bytes):
-    """One CBOR data item in the core deterministic encoding: decoded, then re-encoded byte for byte."""
+    """One CBOR data item in the deterministic encoding of RFC 8949 Section 4.2.1: decoded, then re-encoded byte
+    for byte by cbor_encode."""
     try:
         item = cbor2.loads(b)
     except Exception:  # noqa: BLE001  not well-formed, trailing bytes, invalid UTF-8
         return None, False
     try:
-        again = cbor2.dumps(item, canonical=True)
-    except Exception:  # noqa: BLE001
+        again = cbor_encode(item)
+    except Exception:  # noqa: BLE001  a value that cannot be encoded again
         return item, False
     return item, again == b
 
@@ -222,10 +294,10 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, ce
         profile = "certificate"
     else:
         return "outside_profile", 2
-    tbs = cbor2.dumps(["Signature1", prot_b, b"", payload], canonical=True)
+    tbs = cbor_encode(["Signature1", prot_b, b"", payload])
     if profile == "key":
         selected = [k for iss, k in pairs if iss == cwt[1] and len(k) == 32
-                    and hashlib.sha256(cbor2.dumps({1: 1, -1: 6, -2: k}, canonical=True)).digest() == prot[4]]
+                    and hashlib.sha256(cbor_encode({1: 1, -1: 6, -2: k})).digest() == prot[4]]
         if not selected:
             return "untrusted_key", 3
         good = False
@@ -284,6 +356,29 @@ def reference_state(ref_text: str, receipt: bytes):
     return ("Verified" if match_ == "MATCH" else "Failed"), match_
 
 
+#: (statement, SHA-256 of the statement with the head byte of key 15 in its protected header replaced by 0x2f)
+KEY_ORDER_CASES = [
+    ("M2", "9bd318276dcb426a761e45fadeb3a3114e0b3ef539931fe88a5c062116f25bf6"),
+    ("S1", "a97822327f64be340787ea32477ef21581ac7de557a4a07f343a44cd4c81c803"),
+    ("X1", "af072b12520559c2401c9aaa11a89d17b19570b1ac6f4a50bb6e64b2418aebba"),
+    ("T2", "42473a340cc1ad0ac968fce03683acabe84871936ab3578a08c2e098775f07fa"),
+]
+
+
+def key_byte_replaced(stmt: bytes, label: int, new: int) -> bytes:
+    """The tagged COSE_Sign1 with the head byte of one protected-header label replaced; nothing is reordered and
+    nothing is signed again. The offset is that of the label in the protected header as it stands."""
+    prot_b = cbor2.loads(stmt).value[0]
+    prot = cbor2.loads(prot_b)
+    keys = list(prot)
+    start = 2 + len(cbor_head(2, len(prot_b)))   # tag 18 (0xd2) and the array head (0x84) are one byte each
+    at = start + len(cbor_head(5, len(prot))) + sum(len(cbor_encode(k)) + len(cbor_encode(prot[k]))
+                                                    for k in keys[:keys.index(label)])
+    if stmt[start:start + len(prot_b)] != prot_b or stmt[at:at + 1] != cbor_encode(label):
+        raise ValueError("label %d not where its encoding puts it" % label)
+    return stmt[:at] + bytes([new]) + stmt[at + 1:]
+
+
 def pae(typ, body):
     t = typ.encode("utf-8")
     return b"DSSEv1 %d %s %d %s" % (len(t), t, len(body), body)
@@ -325,7 +420,7 @@ def main():
     ok &= check("M2 CBOR tag 18 (COSE_Sign1)", isinstance(tag, cbor2.CBORTag) and tag.tag == 18)
     prot_b, unprot, payload, sig = tag.value
     prot = cbor2.loads(prot_b)
-    thumb = hashlib.sha256(cbor2.dumps({1: 1, -1: 6, -2: pub}, canonical=True)).digest()
+    thumb = hashlib.sha256(cbor_encode({1: 1, -1: 6, -2: pub})).digest()
     ok &= check("M2 unprotected header is empty", unprot == {})
     keys_sorted = sorted(prot, key=lambda k: cbor2.dumps(k))
     ok &= check("M2 protected header keys in bytewise order of their encodings (RFC 8949 Section 4.2.1)",
@@ -339,7 +434,7 @@ def main():
     ok &= check("M2 258 = -16 (SHA-256)", prot.get(258) == -16)
     ok &= check("M2 259 = the receipt type", prot.get(259) == TYPE)
     ok &= check("M2 payload = receipt digest", payload == hashlib.sha256(B).digest())
-    tbs = cbor2.dumps(["Signature1", prot_b, b"", payload], canonical=True)
+    tbs = cbor_encode(["Signature1", prot_b, b"", payload])
     try:
         vk.verify(sig, tbs)
         cose_ok = True
@@ -441,6 +536,16 @@ def main():
         got = check_statement(stmt, cand, pub, pairs, cert_pairs)
         ok &= check("%s status %s at step %s (expected %s at step %s)" % (s["id"], got[0], got[1],
                     s["expected_status"], s["step"]), got == (s["expected_status"], s["step"]))
+    # Reverse cases of the key order: a check that sorts by length first (cbor2 canonical) reads these as
+    # deterministic and stops in step 2 with outside_profile.
+    stmts = {"M2": d["M2_scitt_hash_envelope"]["cose_sign1_hex"], "S1": s1["statement_hex"],
+             "X1": d["certificate_vectors"][0]["statement_hex"], "T2": t2["statement_hex"]}
+    for name, want_sha in KEY_ORDER_CASES:
+        bad = key_byte_replaced(bytes.fromhex(stmts[name]), 15, 0x2F)
+        got = check_statement(bad, p1, pub, pairs, cert_pairs)
+        ok &= check("K %s with key 15 of the protected header written as -16 (0x2f), not reordered: %s at step %s "
+                    "(expected malformed at step 1)" % (name, got[0], got[1]),
+                    got == ("malformed", 1) and hashlib.sha256(bad).hexdigest() == want_sha)
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
