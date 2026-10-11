@@ -1142,6 +1142,13 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   decision sent to the host (deny, ask or none), the gate's verdict, the reason ids, and per repository its
   path, HEAD, verdict and the sha256 of every evidence and policy file read. No evidence content, no
   environment variable and no key is written. Above 1 MiB the file is moved once to `gate-log.jsonl.1`.
+- The entry of a push whose source check ran carries, per repository, `evidence`: each evidence or policy file
+  the check read at a source commit, as its `commit`, `path`, the `sha256` of the bytes read and `check`, the
+  outcome of the check of that commit (`passed`, or `failed: <reason id>` for a check that failed or stopped part
+  way, which lists only what it read before it stopped). A digest alone attests no verification. The verdict stays
+  NOT MEASURED, or deny for an evidenced failure; no working-tree file is hashed for the entry, and an unresolved
+  source, whose candidates the check did not read, leaves no digest (owner choice 3 A of 2026-10-11). Done
+  receipts, which the done check reads from the working tree, are not listed.
 - The place is the first named plugin data directory the host gives the hook that is, or can be made, a
   writable directory, given as an absolute path. Measured: Claude Code 2.1.285 gives a PreToolUse hook
   `CLAUDE_PLUGIN_DATA` (a run of a probe hook, the directory existed and was writable). Codex 0.159.2

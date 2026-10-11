@@ -2715,13 +2715,16 @@ class Verdict:
     for the case, and digests are the sha256 of every evidence and policy file the gate read.
     """
 
-    __slots__ = ("decision", "detail", "reason_id", "evidence", "failed", "next_step", "digests", "repo", "head")
+    __slots__ = ("decision", "detail", "reason_id", "evidence", "failed", "next_step", "digests", "repo", "head",
+                 "reads")
 
     def __init__(self, decision: str, detail: str, reason_id: str, evidence: str = "", failed: str = "",
-                 next_step: str = "", digests: tuple = (), repo: str | None = None, head: str | None = None):
+                 next_step: str = "", digests: tuple = (), repo: str | None = None, head: str | None = None,
+                 reads: tuple = ()):
         self.decision, self.detail, self.reason_id = decision, detail, reason_id
         self.evidence, self.failed, self.next_step = evidence, failed, next_step
         self.digests, self.repo, self.head = tuple(digests), repo, head
+        self.reads = tuple(reads)   # owner choice 3 A: the evidence bytes a push's source check read (_source_reads)
 
     def text(self) -> str:
         if self.decision in ("pass", "inactive"):
@@ -3659,24 +3662,45 @@ def _push_sources(repo: str, args: list[str] | None, deadline: float) -> tuple[l
     return [head.stdout.decode().strip()], remote
 
 
-def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: float, why: str) -> Verdict | None:
+def _source_reads(commit: str, verdict: Verdict) -> list[dict]:
+    """The evidence bytes the check of one source commit read, for the gate log (owner choice 3 A of 2026-10-11): each
+    file _evaluate_tree read from the commit's tree, with the commit, its path, the sha256 of the bytes read and the
+    outcome of that commit's check. A digest is no verification by itself: `passed` only where every declared item
+    verified and named the tree; a check that failed or stopped part way carries its reason, and lists only what it
+    read before it stopped. No file of the working tree is hashed here, and no commit the check did not read."""
+    check = ("passed" if verdict.decision == "pass" else
+             f"failed: {verdict.reason_id}" if verdict.decision == "deny" else f"not completed: {verdict.reason_id}")
+    reads = []
+    for digest in verdict.digests:
+        path, _sep, value = digest.rpartition(" sha256:")
+        reads.append({"commit": commit, "path": path, "sha256": value, "check": check})
+    return reads
+
+
+def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: float, why: str,
+                   reads: list | None = None) -> Verdict | None:
     """Befund 1 (review Runde 6): the evidence at uniquely determined source commits is checked even when the
     comparison with the target is NOT MEASURED. A proven evidence failure stays a deny, and the comparison
     that was not measured is named separately in it; anything else returns None, so the caller's NOT
-    MEASURED stands — a pass at a source is never a verdict on a push whose comparison is unknown."""
+    MEASURED stands — a pass at a source is never a verdict on a push whose comparison is unknown. `reads` receives
+    the evidence bytes each checked commit read (_source_reads), up to and including a commit that denies; the deny
+    carries them too (owner choice 3 A of 2026-10-11)."""
+    reads = [] if reads is None else reads
     for commit in dict.fromkeys(sources):
         where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
         verdict = _evaluate_tree(repo, commit, deadline, where, "")
+        reads.extend(_source_reads(commit, verdict))
         if verdict.decision == "deny":
             return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
                                   f"MEASURED: {why.rstrip('.')}.", verdict.reason_id, evidence=verdict.evidence,
                            failed=verdict.failed, next_step=verdict.next_step, digests=verdict.digests,
-                           repo=verdict.repo or repo, head=verdict.head or commit)
+                           repo=verdict.repo or repo, head=verdict.head or commit, reads=tuple(reads))
     denial, _passes = _push_done(repo, sources, deadline)  # owner choice N2 C: a failed done check is proven too
     if denial is not None:
         return Verdict("deny", denial.detail.rstrip() + " Separately, the comparison with the target was NOT "
                               f"MEASURED: {why.rstrip('.')}.", denial.reason_id, evidence=denial.evidence,
-                       failed=denial.failed, next_step=denial.next_step, repo=repo, head=denial.head)
+                       failed=denial.failed, next_step=denial.next_step, repo=repo, head=denial.head,
+                       reads=tuple(reads))
     return None
 
 
@@ -3714,7 +3738,8 @@ def _sources_clean(sources: list[str]) -> str:
     return f"the evidence at the sent source commit(s) {checked} showed no failure, which is not a verdict on the push"
 
 
-def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | None = None) -> Verdict:
+def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | None = None,
+                        reads: tuple = ()) -> Verdict:
     """NOT MEASURED for a push whose targets or range the gate cannot resolve. `why` names the reason and what was
     checked; the text claims nothing beyond it (review round 9 of 2026-10-11, R9-3: "so it checked nothing" had stood
     beside a reason that named the evidence check at the sent commit)."""
@@ -3722,7 +3747,7 @@ def _unresolved_verdict(repo: str, head: str | None, why: str, next_step: str | 
                           f"{why.rstrip('.')}.", "push_not_measured",
                    evidence="the commits and refs this push would send",
                    failed=why, next_step=next_step or "have a person review the push",
-                   repo=repo, head=head)
+                   repo=repo, head=head, reads=reads)
 
 
 # --- a push from a repository that declares nothing (owner choice 1 A of 2026-10-11, DECISIONS.md D5) ------
@@ -4294,13 +4319,15 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
                                      "and no check of HEAD stands in for that")
             return _unresolved_verdict(repo, head_commit, _with_note(_then(told, f"for the destination, {why}"), note),
                                        next_step)
-        denial = _source_denial(repo, head_commit, sources, deadline, why)
+        reads: list = []
+        denial = _source_denial(repo, head_commit, sources, deadline, why, reads)
         if denial is not None:
             return denial
         local, note = _local_inactivity(repo, head_commit, push_args, sources, deadline)
         if local is not None:
             return local   # owner choice 1 A: a repository that declares nothing, local inactivity and no check
-        return _unresolved_verdict(repo, head_commit, _with_note(_then(why, _sources_clean(sources)), note), next_step)
+        return _unresolved_verdict(repo, head_commit, _with_note(_then(why, _sources_clean(sources)), note), next_step,
+                                   reads=tuple(reads))
     return _evaluate_targets(repo, head_commit, targets, deadline)
 
 
@@ -5601,7 +5628,8 @@ def log_entry(host: str, event: object, outcome: "Outcome | None", actions: list
     verdict = outcome.decision if outcome is not None else "not_gated"
     sent = "none" if verdict in ("pass", "inactive", "warn", "not_gated") else ("deny" if host == "codex" else verdict)
     repos = [] if outcome is None else [
-        {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests)}
+        {"path": v.repo, "head": v.head, "verdict": v.decision, "reason_id": v.reason_id, "digests": list(v.digests),
+         **({"evidence": list(v.reads)} if v.reads else {})}
         for v in outcome.verdicts]
     entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "host": host, "gate_version": GATE_VERSION,
              "session_id": session if isinstance(session, str) else None,
