@@ -29,6 +29,14 @@ TOR = REPO / "scripts" / "neue_zeilen_sind_englisch.py"
 sys.path.insert(0, str(REPO / "scripts"))
 
 
+def _probenordner():
+    """A directory for a probe file outside the checkout. The reader takes a path relative to the repository root,
+    and an absolute one joins to itself, so the probe is read where it lies. It used to be created under the root,
+    where every test that walks the tree on another worker could meet it (the class of Codex thread 4222137675 on
+    pull request 309: a test writes into the checkout that others read)."""
+    return tempfile.TemporaryDirectory()
+
+
 def _laden():
     import importlib.util
     spec = importlib.util.spec_from_file_location("_nze", TOR)
@@ -49,8 +57,8 @@ class TestMarkdownIsRead(unittest.TestCase):
 
     def test_prose_outside_a_fence_counts_and_inside_it_does_not(self):
         mod = _laden()
-        with tempfile.TemporaryDirectory(dir=REPO) as d:
-            rel = pathlib.Path(d).name
+        with _probenordner() as d:
+            ort = pathlib.Path(d).resolve()
             p = pathlib.Path(d) / "probe.md"
             p.write_text(
                 "# Titel\n"
@@ -63,7 +71,7 @@ class TestMarkdownIsRead(unittest.TestCase):
                 "\n"
                 "Auch dieser Satz steht nach dem Zaun und ist nicht Englisch.\n",
                 encoding="utf-8")
-            prosa = mod._md_prosazeilen(f"{rel}/probe.md")
+            prosa = mod._md_prosazeilen(str(ort / "probe.md"))
             self.assertIsNotNone(prosa)
             self.assertIn(3, prosa, "prose before the fence must count")
             self.assertIn(9, prosa, "prose after the fence must count")
@@ -75,29 +83,29 @@ class TestMarkdownIsRead(unittest.TestCase):
         # CommonMark: the closer is at least as long as the opener and the same character. A
         # toggle would end the block on the first marker it meets and call the rest prose.
         mod = _laden()
-        with tempfile.TemporaryDirectory(dir=REPO) as d:
-            rel = pathlib.Path(d).name
+        with _probenordner() as d:
+            ort = pathlib.Path(d).resolve()
             (pathlib.Path(d) / "probe.md").write_text(
                 "````\n"
                 "``` immer noch im Zaun und deutsch\n"
                 "````\n"
                 "Jetzt ist es wieder deutsche Prosa hier.\n",
                 encoding="utf-8")
-            prosa = mod._md_prosazeilen(f"{rel}/probe.md")
+            prosa = mod._md_prosazeilen(str(ort / "probe.md"))
             self.assertNotIn(2, prosa, "a shorter marker must not close a longer fence")
             self.assertIn(4, prosa, "after the real closer the file is prose again")
 
     def test_a_tilde_fence_is_not_closed_by_backticks(self):
         mod = _laden()
-        with tempfile.TemporaryDirectory(dir=REPO) as d:
-            rel = pathlib.Path(d).name
+        with _probenordner() as d:
+            ort = pathlib.Path(d).resolve()
             (pathlib.Path(d) / "probe.md").write_text(
                 "~~~\n"
                 "``` immer noch im Zaun und auf Deutsch\n"
                 "~~~\n"
                 "Und danach ist es wieder deutsche Prosa.\n",
                 encoding="utf-8")
-            prosa = mod._md_prosazeilen(f"{rel}/probe.md")
+            prosa = mod._md_prosazeilen(str(ort / "probe.md"))
             self.assertNotIn(2, prosa, "a backtick marker must not close a tilde fence")
             self.assertIn(4, prosa)
 
@@ -143,13 +151,13 @@ class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
     """
 
     def _schreibe(self, d, text):
-        rel = pathlib.Path(d).name
-        (pathlib.Path(d) / "probe.md").write_text(text, encoding="utf-8")
-        return f"{rel}/probe.md"
+        ort = pathlib.Path(d).resolve()
+        (ort / "probe.md").write_text(text, encoding="utf-8")
+        return str(ort / "probe.md")
 
     def test_marked_material_is_not_judged_and_everything_else_still_is(self):
         mod = _laden()
-        with tempfile.TemporaryDirectory(dir=REPO) as d:
+        with _probenordner() as d:
             rel = self._schreibe(d,
                 "Eine deutsche Zeile vor der Klammer und sie soll gefunden werden.\n"
                 "<!-- proofbundle:verbatim-quote:begin -->\n"
@@ -167,7 +175,7 @@ class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
         # in silence. None means not measurable, and the caller treats that as not-prose, so the
         # FILE never reads as clean on the strength of a broken bracket.
         mod = _laden()
-        with tempfile.TemporaryDirectory(dir=REPO) as d:
+        with _probenordner() as d:
             rel = self._schreibe(d,
                 "<!-- proofbundle:verbatim-quote:begin -->\n"
                 "Alles was hier folgt waere sonst stillschweigend ausgenommen.\n")
@@ -175,7 +183,7 @@ class TestAVerbatimQuotationIsMarkedAndNarrow(unittest.TestCase):
 
     def test_a_closer_before_its_opener_is_not_measurable(self):
         mod = _laden()
-        with tempfile.TemporaryDirectory(dir=REPO) as d:
+        with _probenordner() as d:
             rel = self._schreibe(d,
                 "<!-- proofbundle:verbatim-quote:end -->\n"
                 "Eine deutsche Zeile die sonst ausgenommen waere ohne je geklammert zu sein.\n"
