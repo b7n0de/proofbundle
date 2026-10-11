@@ -2519,9 +2519,11 @@ d2flat21 = norm_ws(" ".join(d2))
 a9 = find_line(d2, r"^A\.9\.\s+Transparent Statements")
 a9_end = find_line(d2, r"^Open Items", a9)
 R21 = hex_block(d2, find_line(d2, r"^\s+R, \d+ bytes \(hex\):", a9, a9_end))
-FORM21 = {"T1": "T1: the protected header, payload and signature of M2; unprotected header {394: [R]}.",
-          "T2": "T2: the protected header, payload and signature of X1; unprotected header {394: [R]}.",
-          "T3": "T3: as T2; unprotected header {4: the kid of X1, 394: [R]}.",
+# Revision -01, build of 2026-10-11: the array is written [ R ] with spaces, so that idnits does not read [R] as a
+# citation; the CBOR diagnostic notation allows the spaces.
+FORM21 = {"T1": "T1: the protected header, payload and signature of M2; unprotected header {394: [ R ]}.",
+          "T2": "T2: the protected header, payload and signature of X1; unprotected header {394: [ R ]}.",
+          "T3": "T3: as T2; unprotected header {4: the kid of X1, 394: [ R ]}.",
           "T4": "T4: as T2; unprotected header {394: R}, the byte string not in an array.",
           "T5": "T5: as T2; unprotected header {394: []}."}
 _m2v, _x1v = cbor2.loads(D2_CS).value, cbor2.loads(X20["X1"]).value
