@@ -1125,7 +1125,10 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   equals the recorded base OID. They do not establish why an observation is missing. NOT MEASURABLE means
   the observations do not support another result. The limit applies to every result." (review R3-6), and
   the round-2 caution that the log is local, so this is a local diagnosis, not an independent proof of the
-  host's hook. It never pushes to a real remote. Its own git calls run without any `GIT_` name the host set, and
+  host's hook. It never pushes to a real remote. Its own git calls run without any `GIT_` name the host set, with
+  the global and the system configuration switched off and no hook (core.hooksPath names no folder; review round
+  9 of 2026-10-11, R9-6: a host's GIT_CONFIG_GLOBAL=/dev/null had been dropped with the other names, and prepare
+  ran the hooks of the global configuration), and
   prepare asks git, in the server's environment, whether a call in its folder takes that folder's repository, work
   tree, index and object store and pushes origin to the throwaway remote; where git answers otherwise the self-test
   is NOT MEASURABLE and removes its folder (review round 8 of 2026-10-10, the class of R8-1: an exported `GIT_DIR`

@@ -353,9 +353,14 @@ def _selftest_git_env() -> dict:
     read only the self-test's throwaway repositories, which a GIT_DIR, GIT_COMMON_DIR, GIT_WORK_TREE, GIT_INDEX_FILE,
     GIT_OBJECT_DIRECTORY or other GIT_ name replaces with another repository's (review round 8 of 2026-10-10, the class
     of R8-1: with GIT_DIR exported, gate_selftest_prepare committed twice onto that repository's branch and added a
-    remote to it, measured with git 2.43.0 and 2.51.1)."""
+    remote to it, measured with git 2.43.0 and 2.51.1). The global and the system configuration are switched off
+    explicitly and no hook runs (core.hooksPath names no folder): dropping every GIT_ name had dropped a host's
+    GIT_CONFIG_GLOBAL=/dev/null as well, and prepare then read the global configuration's core.hooksPath and ran two
+    post-commit hooks and a pre-push hook from it (review round 9 of 2026-10-11, R9-6). The check of the command the
+    self-test hands out keeps the server's real environment (_selftest_command_problem)."""
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    return dict(env, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+    return dict(env, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0",
+                GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath", GIT_CONFIG_VALUE_0=os.devnull)
 
 
 def _run_git(*args: str, cwd: str | None = None) -> None:
