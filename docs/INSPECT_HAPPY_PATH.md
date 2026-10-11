@@ -1,11 +1,11 @@
 # From an Inspect AI run to a verifiable receipt — the happy path
 
-You run an eval with [Inspect AI](https://inspect.aisi.org.uk/), get a signed receipt next to the
-log, attach the receipt to your paper or model card, and any reader verifies it offline in one
-command. Nothing here is a claim about *truth* — a receipt proves who signed the reported bytes and
-that nothing changed since, and that is exactly what a self-reported eval number lacks today.
+You run an eval with [Inspect AI](https://inspect.aisi.org.uk/), get a signed receipt in the current directory
+by default, attach the receipt to your paper or model card, and any reader verifies it offline in one
+command. Nothing here is a claim about truth. A receipt proves which key signed the reported bytes and
+that those bytes have not changed.
 
-Every command below was run against this version; the output is copied from a real run.
+The commands below show the setup. Output depends on your task and results.
 
 ## Why this exists
 
@@ -37,8 +37,9 @@ you publish out of band (repo, ORCID, model card) so a reader can pin it.
 ## 2. Run the eval with the receipt hook
 
     export PROOFBUNDLE_EMIT=1              # master opt-in — nothing is emitted without it
+    export PROOFBUNDLE_THRESHOLD=0.9       # required, without it the hook writes no receipt and prints why
     export PROOFBUNDLE_KEY=./signer.key    # omit for an ephemeral key
-    # optional: PROOFBUNDLE_OUT=<file-or-dir>, PROOFBUNDLE_METRIC, PROOFBUNDLE_COMPARATOR, PROOFBUNDLE_THRESHOLD
+    # optional: PROOFBUNDLE_OUT=<file-or-dir>, PROOFBUNDLE_METRIC, PROOFBUNDLE_COMPARATOR
     inspect eval my_task.py --model <model>
     # → your usual eval log, plus proofbundle_receipt_<eval_id>.json
 
@@ -59,15 +60,9 @@ Exit code: `0` OK · `1` a check failed · `2` malformed bundle. No network, no 
 ## 4. Read the claim and pin the key
 
     proofbundle show-eval proofbundle_receipt_<eval_id>.json
-    suite      safety-refusal (v1)
-    metric     refusal_rate >= 0.80
-    passed     True   (n=500)
-    assurance  self_attested
-    ...
-    issuer     ed25519:yDouLPyFaxciug2eSswzHCLbOEMhJO5sg8OKzhlkjQg=
-    timestamp  2026-07-05T12:00:00Z
-    WARNING    self_attested with no prereg_sha256 — the weakest assurance ...
-    => OK
+
+Check `metric`, `passed` and `issuer` in your own receipt. With the command in step 2, the threshold is `0.9`.
+The metric, sample count and verdict depend on your task and its results.
 
 The `issuer` line is the signing key the receipt is bound to. Pin it: a reader compares this string
 to the public key you published. `show-eval` is deliberately honest — it prints the assurance level

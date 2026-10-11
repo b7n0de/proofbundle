@@ -33,6 +33,7 @@ from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
 from .kbjwt import verify_key_binding
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
+from .merkle import _inclusion_context_digest
 
 __all__ = ["POLICY_SCHEMA", "POLICY_PURPOSES", "PolicyError", "load_policy", "evaluate_policy",
            "explain_policy", "lint_policy", "policy_warnings", "policy_expired",
@@ -811,6 +812,10 @@ def _gemeinsame_fehler(policy: dict, zweck: "str | None", now=None) -> list:
     `outcome verify` and `relation-statement verify` passed an expired policy, one not yet valid, one for another
     path and a raw template, where `verify` and `decision verify` fail each."""
     fehler = []
+    # 6.2.1 ZT-01 (Z309): one wall-clock reading for the whole lifecycle, so valid_from and valid_until are judged
+    # at the same instant (each helper read its own clock, and two readings could straddle valid_until).
+    if now is None:
+        now = datetime.now(timezone.utc)
     if policy.get("requiresIdentityOverlay") is True:
         fehler.append("policy is a raw template (requiresIdentityOverlay:true) — instantiate it before using it "
                       "to authorise anything")
@@ -932,7 +937,8 @@ def evaluate_decision_policy(statement: dict, verify_result: dict, policy: dict,
     if _uhr is KEIN_ZEITPUNKT:
         return {"policy_ok": False, "signer_trusted": False,
                 "errors": [f"now must be a datetime, got {type(now).__name__} (fail-closed)"]}
-    now = _uhr
+    # 6.2.1 ZT-01 (Z309): without an explicit instant the wall clock is read once, here, for every lifecycle check.
+    now = _uhr if _uhr is not None else datetime.now(timezone.utc)
     # LAUF 14 L4 F1: die HUELLE wird hier geprueft, nicht nur in load_policy — ein Tippfehler in
     # einem require_*/reject_*-Schalter darf auf der Bibliotheks-Flaeche nicht lautlos zum laxen
     # Pfad werden (Begruendung und Klasse bei _huelle_pruefen).
@@ -1252,7 +1258,9 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         grund = f"now must be a datetime, got {type(now).__name__} (fail-closed)"
         return {"policy_ok": False, "checks": [{"name": "policy:clock", "ok": False, "detail": grund}],
                 "reason": grund}
-    now = _uhr
+    # 6.2.1 ZT-01 (Z309): without an explicit instant the wall clock is read once, here: the lifecycle, every
+    # trusted checkpoint and the freshness rule below are judged at that one instant, not at 2 + N + 1 readings.
+    now = _uhr if _uhr is not None else datetime.now(timezone.utc)
     try:
         if not issubclass(type(bundle), dict):
             raise PolicyError("the bundle must be a JSON object")
@@ -1417,10 +1425,29 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     # covered, set only on a passing signature AND a passing inclusion); every root-authentication path below
     # requires the stated root to equal it.
     _vir = getattr(result, "verified_inclusion_root", None)
+    # 6.2.1 R6b-1/R6b-2 (Z309): an equal root does not name one inclusion. The same root holds under another
+    # leaf index or another audit path, and a checkpoint for (root, tree_size) says nothing about either, so
+    # the result's inclusion verdict is adopted only for the inclusion context it verified: the digest of this
+    # bundle's stated (hash_alg, leaf_index, tree_size, inclusion_proof_b64, root_b64) must equal the
+    # origin-covered digest the result recorded. A context that does not decode has no digest and is not proved.
+    _vic = getattr(result, "verified_inclusion_context", None)
+    _stated_mk = _as_dict(bundle.get("merkle"))
+    try:
+        _stated_proof = [decode_b64(p) for p in _stated_mk.get("inclusion_proof_b64")] \
+            if isinstance(_stated_mk.get("inclusion_proof_b64"), list) else None
+        _stated_root = decode_b64(_stated_mk.get("root_b64")) \
+            if isinstance(_stated_mk.get("root_b64"), str) else None
+    except (ValueError, TypeError):
+        _stated_proof, _stated_root = None, None
+    _stated_context = _inclusion_context_digest(
+        _stated_mk.get("hash_alg"), _stated_mk.get("leaf_index"), _stated_mk.get("tree_size"),
+        _stated_proof, _stated_root)
+    _context_proved = (isinstance(_vic, (bytes, bytearray)) and isinstance(_stated_context, bytes)
+                       and hmac.compare_digest(bytes(_vic), _stated_context))
 
     def _proved_inclusion_under(stated: bytes) -> bool:
         return (isinstance(_vir, (bytes, bytearray)) and bool(stated)
-                and hmac.compare_digest(bytes(_vir), stated))
+                and hmac.compare_digest(bytes(_vir), stated) and _context_proved)
 
     # 4b. A-P0-1 §5: trusted CHECKPOINTS — root and tree size authenticated ATOMICALLY from one signed
     # source. A naked root pin (4c) can never tell a (index, tree_size) relabel apart (the relabelled
@@ -1467,17 +1494,27 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
         # checkpoint_authenticity reports whether a checkpoint authenticated AND MATCHED this bundle —
         # NOT merely that some pinned checkpoint's signature verified (Lens-3/4 review: a verified but
         # NON-matching checkpoint must not read PASS, else rootTrustLevel would overclaim CHECKPOINT).
-        checkpoint_authenticity = "PASS" if matched else "FAIL"
-        tree_context_authenticated = matched
+        # 6.2.1 R6b-1/R6b-2 (Z309): a checkpoint authenticates (root, tree_size), not an inclusion. The match
+        # counts for THIS bundle only when the authentic result proved inclusion of its payload in exactly the
+        # stated context (leaf index, tree size, audit path, root); otherwise the check, the tree-context field
+        # and checkpoint_authenticity stay negative, also under a checkpoint-only policy.
+        proved = matched and _proved_inclusion_under(stated_root)
+        checkpoint_authenticity = "PASS" if proved else "FAIL"
+        tree_context_authenticated = proved
         _cp_matched = matched
-        add("policy:trusted_checkpoint", matched,
-            "stated (root, tree_size) atomically authenticated by a pinned signed checkpoint" if matched
+        add("policy:trusted_checkpoint", proved,
+            "stated (root, tree_size) atomically authenticated by a pinned signed checkpoint, and the result "
+            "proved this bundle's inclusion in exactly that context" if proved
+            else "a pinned signed checkpoint authenticates the stated (root, tree_size), but the verification "
+                 "result did not prove this bundle's inclusion in that context (leaf index, tree size, audit "
+                 "path, root); a checkpoint authenticates a root, not an inclusion" if matched
             else "no pinned trusted checkpoint atomically authenticates this bundle's "
                  f"(root, tree_size): {'; '.join(reasons) or 'no entries'}")
         if matched:
             # R6a-2: the checkpoint authenticates the root BYTES, but this bundle's payload is authenticated
-            # under it only if the authentic result proved inclusion under exactly this stated root.
-            root_authenticated = _proved_inclusion_under(stated_root)
+            # under it only if the authentic result proved inclusion under exactly this stated root (6.2.1:
+            # and in exactly the stated inclusion context).
+            root_authenticated = proved
 
     # 4c. merkle root AUTHENTICATION (P0-A §6.2): the stated root is not signed, so a coherent one-leaf
     # rewrap re-anchors the same payload under a different root. Require the root be authenticated —
@@ -1888,7 +1925,8 @@ def _gelesene_richtlinie(policy):
 def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     """AP-2 §6.4: True iff the policy carries a ``valid_until`` in the PAST, False iff it carries one still
     in the future, None iff it carries none (nothing to expire). ``now`` is an aware datetime for tests
-    (defaults to the current UTC time). An unparseable value is treated as None here — load_policy already
+    (defaults to the current UTC time); an explicit ``now`` that is no datetime reads as expired, never as the
+    current time. An unparseable value is treated as None here — load_policy already
     rejects a malformed ``valid_until`` fail-closed, so this projection never sees one from a loaded policy."""
     vu = policy.get("valid_until")
     if vu is None:
@@ -1896,7 +1934,12 @@ def policy_expired(policy: dict, *, now=None) -> Union[bool, None]:
     parsed = _parse_iso_utc(vu)
     if parsed is None:
         return None
-    current = now or datetime.now(timezone.utc)
+    # 6.2.1 ZT-02 (Z309): an explicit value is the caller's instant and is never replaced by the wall clock; one
+    # that is no datetime (0, False, "") is a malformed clock and reads as expired (fail-closed).
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        return True
+    current = _uhr if _uhr is not None else datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     return current > parsed
@@ -1913,7 +1956,11 @@ def policy_not_yet_valid(policy: dict, *, now=None) -> Union[bool, None]:
     parsed = _parse_iso_utc(vf)
     if parsed is None:
         return None
-    current = now or datetime.now(timezone.utc)
+    # 6.2.1 ZT-02 (Z309): as in policy_expired, a malformed explicit clock reads as not yet valid (fail-closed).
+    _uhr = _zeitpunkt_von(now)
+    if _uhr is KEIN_ZEITPUNKT:
+        return True
+    current = _uhr if _uhr is not None else datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     return current < parsed
@@ -1946,7 +1993,12 @@ def _authenticate_trusted_checkpoint(entry: dict, *, now=None) -> tuple[bool, st
     vu = entry.get("validUntil")
     if vu is not None:
         parsed = _parse_iso_utc(vu)
-        current = now or datetime.now(timezone.utc)
+        # 6.2.1 ZT-02 (Z309): an explicit value is never replaced by the wall clock; one that is no datetime is a
+        # malformed clock and the entry is not authenticated (fail-closed).
+        _uhr = _zeitpunkt_von(now)
+        if _uhr is KEIN_ZEITPUNKT:
+            return False, "trusted checkpoint judged at a malformed evaluation time (now is no datetime)"
+        current = _uhr if _uhr is not None else datetime.now(timezone.utc)
         if current.tzinfo is None:
             current = current.replace(tzinfo=timezone.utc)
         if parsed is not None and current > parsed:
