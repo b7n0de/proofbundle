@@ -4326,8 +4326,15 @@ def evaluate_push(directory: str, push_args: list[str] | None, deadline: float) 
         local, note = _local_inactivity(repo, head_commit, push_args, sources, deadline)
         if local is not None:
             return local   # owner choice 1 A: a repository that declares nothing, local inactivity and no check
-        return _unresolved_verdict(repo, head_commit, _with_note(_then(why, _sources_clean(sources)), note), next_step,
-                                   reads=tuple(reads))
+        told = _with_note(_then(why, _sources_clean(sources)), note)
+        try:
+            hints = _rules_hints(repo, push_args, deadline) if note is None else []
+        except GateError as exc:
+            hints = [f"The evidence rules were not compared with a local record of the destination ({exc}); a "
+                     "comparison that was not made is no equality."]
+        if hints:
+            told = f"{told.rstrip('.')}. " + " ".join(hints)
+        return _unresolved_verdict(repo, head_commit, told, next_step, reads=tuple(reads))
     return _evaluate_targets(repo, head_commit, targets, deadline)
 
 
@@ -4393,6 +4400,89 @@ def _destination_reason(repo: str, args: list[str] | None, deadline: float) -> s
         return f"the destination {value} is not a literal branch or tag the gate resolves"
     problem = _dest_resolution_problem(repo, remote, value, dest, deadline)
     return None if problem is None else problem[0]
+
+
+def _rules_hint_difference(record: tuple, source: tuple) -> str:
+    """What differs between the evidence rules at a local record and at a source commit, without saying that a push
+    changes them (owner choice 4 A of 2026-10-11: "the push changes the evidence rules" is too strong for a hint)."""
+    if record[0] != source[0]:
+        return f"the declaration is {source[0]} at the source commit and {record[0]} at the local ref"
+    if source[0] != "declared":
+        return "the declaration differs"
+    parts = []
+    if record[1] != source[1]:
+        parts.append("the declared items differ (kind, path, policy or public_key)")
+    before, after = dict(record[2]), dict(source[2])
+    parts += [f"the policy {path} differs" for path in sorted(set(before) | set(after))
+              if before.get(path) != after.get(path)]
+    if record[3] != source[3]:
+        if not record[3] or not source[3]:
+            parts.append(f"a done check is declared at the {'source commit' if source[3] else 'local ref'} only")
+        elif record[3][0] != source[3][0]:
+            parts.append("the done check differs (its policy, checks, receipts, paths or max_blocks)")
+        else:
+            parts.append(f"the done policy {source[3][0][0]} differs")
+    return "; ".join(parts)
+
+
+def _rules_hints(repo: str, args: list[str] | None, deadline: float) -> list[str]:
+    """Owner choice 4 A of 2026-10-11: Level 1 names a difference of the evidence rules (_rules_at, the done check
+    included; a subject or a receipt is no rule) between a source commit of the push and a local record of its
+    destination, as a hint and never as a verdict. Each hint names the source commit, the record and its commit, and
+    the two trees read; a record of another candidate than the destination itself, or one of several records, is named
+    a locally recorded candidate ref. Only the two tips are compared, no commit between them. A comparison that could
+    not be made, because a side is unreadable or no record exists, is named and is no equality. A refspec that only
+    deletes, or whose source or destination cannot be named, gets no hint."""
+    remote, refspecs, _options, unmodeled = _push_words(args or [])
+    if unmodeled is not None or remote is None and refspecs:
+        return []
+    pairs: list[tuple[str, str]] = []
+    if refspecs:
+        for spec in refspecs:
+            src, sep, dst = (spec[1:] if spec.startswith("+") else spec).partition(":")
+            commit = _push_source(repo, src, deadline) if src else None
+            value = (dst or None) if sep else _source_full_name(repo, src, deadline)
+            if commit is not None and value is not None:
+                pairs.append((commit, value))
+    else:
+        remotes = _remote_names(repo, deadline)
+        chosen = None if remotes is None else _default_push(repo, deadline, remotes, remote)
+        head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", deadline=deadline)
+        if chosen is None or head.returncode != 0:
+            return []
+        remote, value = chosen
+        pairs.append((head.stdout.decode().strip(), value))
+    hints = []
+    for source, value in pairs:
+        records, why = _destination_records(repo, remote, [value], deadline)
+        if records is None:
+            hints.append(f"The evidence rules at source commit {source[:12]} were not compared with a local record of "
+                         f"{value}: {why}; a comparison that was not made is no equality.")
+            continue
+        if not records:
+            hints.append(f"No local record of {value} was found, so the evidence rules at source commit {source[:12]} "
+                         "were compared with none; that is no equality.")
+            continue
+        dest = _qualify_dest(value)
+        unclear = len(records) > 1 or any(name != dest for _local, name, _commit in records)
+        trees = dict(_commit_trees(repo, list(dict.fromkeys([source, *(c for _l, _n, c in records)])), deadline,
+                                   walk=False) or [])
+        source_rules = _rules_at(repo, source, deadline)
+        for local, _name, commit in records:
+            label = "locally recorded candidate ref" if unclear else "local ref"
+            record_rules = _rules_at(repo, commit, deadline)
+            if "unreadable" in (source_rules[0], record_rules[0]):
+                hints.append(f"The evidence rules at source commit {source[:12]} could not be compared with {label} "
+                             f"{local} at {commit[:12]}: git does not give one side whole; a comparison that could not "
+                             "be made is no equality.")
+            elif source_rules != record_rules:
+                hints.append(f"The evidence rules at source commit {source[:12]} differ from {label} {local} at "
+                             f"{commit[:12]}. This is a local comparison. The actual push destination and its current "
+                             f"state remain NOT MEASURED. (Trees read: {trees.get(source, '?')[:12]} at {source[:12]} "
+                             f"and {trees.get(commit, '?')[:12]} at {commit[:12]}; "
+                             f"{_rules_hint_difference(record_rules, source_rules)}; only these two tips were "
+                             "compared, no commit between them.)")
+    return hints
 
 
 def _with_note(why: str, note: str | None) -> str:

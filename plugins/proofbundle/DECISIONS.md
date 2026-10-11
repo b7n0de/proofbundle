@@ -1111,6 +1111,16 @@ on 2026-10-01):
   comparison: every Level 1 push ends NOT MEASURED at the destination check (D3), whatever the fetch rules, so
   no remote-tracking ref and no fetch stands in for the remote's state (review round 10, R10-5: this section had
   still described the comparison against `refs/remotes/<remote>/<branch>` at Level 1).
+- Level 1 names a difference of the evidence rules against a local record as a hint, never as a verdict (owner
+  choice 4 A of 2026-10-11). For each source commit of a push and each local record of a ref the push may write
+  (the records of D5, condition d), it compares the rules of this section at the two tips: "The evidence rules at
+  source commit <source> differ from local ref <ref> at <recorded commit>. This is a local comparison. The actual
+  push destination and its current state remain NOT MEASURED.", with the two trees read and what differs; a record
+  of another candidate than the destination itself, or one of several records, is called a locally recorded
+  candidate ref. Only the two tips are compared, no commit between them. A side git does not give whole, and a
+  destination without any local record, are named as a comparison not made, which is no equality. A subject or a
+  receipt is no rule. The answer stays NOT MEASURED (`push_not_measured`); a push that only deletes a ref, or whose
+  source or destination is not named, gets no hint.
 - A difference is asked under Claude Code and denied under Codex at Level 2, with the change named and the note
   that changes to the evidence rules need a review. Once the remote's ref holds the change, a push to that ref is
   plain; the same change held by another branch or another remote is still a change for this ref.
