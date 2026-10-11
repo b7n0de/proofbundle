@@ -166,7 +166,8 @@ MEASURED. The remote itself is not read.
   `--no-single-branch` git writes the pattern rule; as long as the clone stays shallow, the check of the newly
   reachable commits is NOT MEASURED all the same (measured with git 2.43.0 and 2.51.1: `--depth 1` wrote
   `+refs/heads/main:refs/remotes/origin/main`, `--depth 1 --no-single-branch` wrote `+refs/heads/*:refs/remotes/origin/*`,
-  both clones shallow). A full clone with the pattern rule, or `git fetch --unshallow`, leaves both conditions behind. The
+  both clones shallow). A full clone with a pattern fetch rule avoids both restrictions. git fetch --unshallow removes
+  the shallow-history restriction but leaves the fetch rules unchanged. The
   gate had read `^other` as excluding `+other:refs/remotes/origin/main` and passed. The gate had skipped every fetch refspec without a colon and every `*` not at the end.
   There is no default-branch fallback: a new
   branch or tag, or any branch this repository does not track, has no known earlier state and is NOT
