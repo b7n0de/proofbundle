@@ -1,0 +1,1718 @@
+{
+ "draft": "draft-abak-agent-control-delivery-evidence-01",
+ "form": "txt",
+ "sha256": "2f0356fcb834ba6b80970721273cd8e2e0b2cc19ef1f89a0205a78991653fabf",
+ "line_count": 2576,
+ "requirement_count": 130,
+ "requirements": [
+  {
+   "id": "S4-1",
+   "section": "4",
+   "section_title": "Logical Evidence Model",
+   "lines": [
+    529,
+    531
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "An implementation MAY carry the required facts in one artifact, in several artifacts, in protocol fields, in telemetry, or through external references."
+  },
+  {
+   "id": "S4.3-1",
+   "section": "4.3",
+   "section_title": "Receiver-Side Observation",
+   "lines": [
+    586,
+    589
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "It MUST NOT be labeled as enforcement-point receipt unless the applicable profile defines the endpoint binding, delivery semantics, persistence point, and failure behavior that make the equivalence valid."
+  },
+  {
+   "id": "S4.4-1",
+   "section": "4.4",
+   "section_title": "Enforcement Outcome",
+   "lines": [
+    594,
+    595
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "At minimum, a profile that reports enforcement MUST be able to distinguish:"
+  },
+  {
+   "id": "S4.5-1",
+   "section": "4.5",
+   "section_title": "Control-Effect Observation",
+   "lines": [
+    638,
+    640
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Where independent corroboration is claimed, the observer MUST be independent of both the issuer and the enforcement point under the stated trust model."
+  },
+  {
+   "id": "S4.5-2",
+   "section": "4.5",
+   "section_title": "Control-Effect Observation",
+   "lines": [
+    640,
+    641
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "An implementation MUST NOT infer independence from a different process name, service label, or signing key alone."
+  },
+  {
+   "id": "S4.5-3",
+   "section": "4.5",
+   "section_title": "Control-Effect Observation",
+   "lines": [
+    642,
+    643
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A scoped effect observation for one target or one operation MUST NOT be generalized to every target or every dispatch path."
+  },
+  {
+   "id": "S5.1-1",
+   "section": "5.1",
+   "section_title": "R-CD-1: Stable Instruction Identity",
+   "lines": [
+    649,
+    651
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Each control instruction crossing a control boundary MUST have an identifier that remains stable across issuer, transport, receiver, enforcement, and reconciliation observations."
+  },
+  {
+   "id": "S5.1-2",
+   "section": "5.1",
+   "section_title": "R-CD-1: Stable Instruction Identity",
+   "lines": [
+    651,
+    652
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The identifier's uniqueness scope and reuse rules MUST be defined."
+  },
+  {
+   "id": "S5.1-3",
+   "section": "5.1",
+   "section_title": "R-CD-1: Stable Instruction Identity",
+   "lines": [
+    652,
+    655
+   ],
+   "keywords": [
+    "MAY",
+    "MUST NOT"
+   ],
+   "text": "A decision, task, session, action, or delegation reference MAY also be carried, but it MUST NOT replace the instruction identifier unless the protocol defines identical uniqueness and lifecycle semantics."
+  },
+  {
+   "id": "S5.1-4",
+   "section": "5.1",
+   "section_title": "R-CD-1: Stable Instruction Identity",
+   "lines": [
+    657,
+    659
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "If retries create distinct delivery attempts, the profile MUST define an attempt identifier or equivalent rule that prevents observations from different attempts from being silently merged."
+  },
+  {
+   "id": "S5.2-1",
+   "section": "5.2",
+   "section_title": "R-CD-2: Content Binding",
+   "lines": [
+    663,
+    665
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Every observation used to correlate a control instruction MUST bind the instruction identifier to a digest of either the exact instruction or a declared canonical projection of it."
+  },
+  {
+   "id": "S5.2-2",
+   "section": "5.2",
+   "section_title": "R-CD-2: Content Binding",
+   "lines": [
+    665,
+    668
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The projection, digest algorithm, canonicalization rule, and domain-separation rule, if any, MUST be identified by the applicable protocol or profile."
+  },
+  {
+   "id": "S5.3-1",
+   "section": "5.3",
+   "section_title": "R-CD-3: Boundary Attribution",
+   "lines": [
+    683,
+    684
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Each observation MUST identify the observer, the boundary side observed, and the event being asserted."
+  },
+  {
+   "id": "S5.3-2",
+   "section": "5.3",
+   "section_title": "R-CD-3: Boundary Attribution",
+   "lines": [
+    684,
+    685
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The evidence profile MUST state how the observer identity and its authority are verified."
+  },
+  {
+   "id": "S5.3-3",
+   "section": "5.3",
+   "section_title": "R-CD-3: Boundary Attribution",
+   "lines": [
+    685,
+    687
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "If the producer is able to rewrite the purported corroborating record, the record MUST NOT be described as independent evidence."
+  },
+  {
+   "id": "S5.3-4",
+   "section": "5.3",
+   "section_title": "R-CD-3: Boundary Attribution",
+   "lines": [
+    689,
+    691
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "If a profile permits structural processing when an external trust or authority binding is absent, it MUST expose that limitation through the claim-support qualification defined in Section 6.6."
+  },
+  {
+   "id": "S5.3-5",
+   "section": "5.3",
+   "section_title": "R-CD-3: Boundary Attribution",
+   "lines": [
+    691,
+    693
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A self-declared key, role, or observer label MUST NOT silently become fully supported attribution."
+  },
+  {
+   "id": "S5.4-1",
+   "section": "5.4",
+   "section_title": "R-CD-4: Issuer-Side Emission",
+   "lines": [
+    697,
+    699
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "When an implementation claims that a control was dispatched, it MUST emit or preserve an issuer-side observation at the last declared issuer-controlled boundary."
+  },
+  {
+   "id": "S5.4-2",
+   "section": "5.4",
+   "section_title": "R-CD-4: Issuer-Side Emission",
+   "lines": [
+    699,
+    701
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The observation MUST include the stable identifier, content binding, target, target-set reference, or resolution input, observed time, and boundary description."
+  },
+  {
+   "id": "S5.4-3",
+   "section": "5.4",
+   "section_title": "R-CD-4: Issuer-Side Emission",
+   "lines": [
+    703,
+    706
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Where one instruction resolves to multiple required targets, the profile MUST preserve a stable binding to the Required Target Set, or to a verifiable resolution rule and inputs from which the same set can be reconstructed at the reconciliation cutoff."
+  },
+  {
+   "id": "S5.4-4",
+   "section": "5.4",
+   "section_title": "R-CD-4: Issuer-Side Emission",
+   "lines": [
+    708,
+    709
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "If emission fails before that boundary, the implementation MUST NOT report the instruction as dispatched."
+  },
+  {
+   "id": "S5.4-5",
+   "section": "5.4",
+   "section_title": "R-CD-4: Issuer-Side Emission",
+   "lines": [
+    709,
+    710
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "It SHOULD record the failed emission attempt as a positive failure event."
+  },
+  {
+   "id": "S5.5-1",
+   "section": "5.5",
+   "section_title": "R-CD-5: Receiver-Side Observation",
+   "lines": [
+    714,
+    716
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "An implementation MUST NOT report delivery to a required target unless it has a matching receiver-side observation or a receipt whose endpoint semantics satisfy Section 4.3."
+  },
+  {
+   "id": "S5.5-2",
+   "section": "5.5",
+   "section_title": "R-CD-5: Receiver-Side Observation",
+   "lines": [
+    716,
+    720
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The observation MUST carry the stable identifier, content binding, receiver identity, required target identity, receiving boundary, observed time, verification result, and an attempt identifier or equivalent retry binding where the profile distinguishes delivery attempts."
+  },
+  {
+   "id": "S5.5-3",
+   "section": "5.5",
+   "section_title": "R-CD-5: Receiver-Side Observation",
+   "lines": [
+    733,
+    734
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "A receiver observation MAY satisfy only the Delivery Obligation whose target identity and boundary it is verified to represent."
+  },
+  {
+   "id": "S5.5-4",
+   "section": "5.5",
+   "section_title": "R-CD-5: Receiver-Side Observation",
+   "lines": [
+    734,
+    736
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "An observation for target A MUST NOT be used to confirm target B merely because the parent instruction identifier and content digest match."
+  },
+  {
+   "id": "S5.5-5",
+   "section": "5.5",
+   "section_title": "R-CD-5: Receiver-Side Observation",
+   "lines": [
+    738,
+    739
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A receiver MUST NOT acknowledge a digest or instruction identifier it did not read and match."
+  },
+  {
+   "id": "S5.5-6",
+   "section": "5.5",
+   "section_title": "R-CD-5: Receiver-Side Observation",
+   "lines": [
+    739,
+    741
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "If verification or content matching fails, the receiver SHOULD preserve a scoped failure observation rather than emitting a successful acknowledgement."
+  },
+  {
+   "id": "S5.6-1",
+   "section": "5.6",
+   "section_title": "R-CD-6: Separate Enforcement Outcome",
+   "lines": [
+    745,
+    745
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Receipt and enforcement MUST be represented as separate facts."
+  },
+  {
+   "id": "S5.6-2",
+   "section": "5.6",
+   "section_title": "R-CD-6: Separate Enforcement Outcome",
+   "lines": [
+    745,
+    748
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "An implementation that reports an enforcement result MUST distinguish at least APPLIED, REFUSED, NO_EFFECT, and UNKNOWN, or define a lossless mapping from its native states to those meanings."
+  },
+  {
+   "id": "S5.6-3",
+   "section": "5.6",
+   "section_title": "R-CD-6: Separate Enforcement Outcome",
+   "lines": [
+    748,
+    749
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Missing enforcement evidence MUST NOT default to APPLIED."
+  },
+  {
+   "id": "S5.7-1",
+   "section": "5.7",
+   "section_title": "R-CD-7: Separate Control-Effect Observation",
+   "lines": [
+    753,
+    754
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "An observed control effect MUST be represented separately from both delivery and enforcement."
+  },
+  {
+   "id": "S5.7-2",
+   "section": "5.7",
+   "section_title": "R-CD-7: Separate Control-Effect Observation",
+   "lines": [
+    754,
+    756
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The observation MUST name its predicate, target, method, observer relationship, start and end conditions, and result."
+  },
+  {
+   "id": "S5.7-3",
+   "section": "5.7",
+   "section_title": "R-CD-7: Separate Control-Effect Observation",
+   "lines": [
+    756,
+    758
+   ],
+   "keywords": [
+    "MUST",
+    "MUST NOT"
+   ],
+   "text": "A claim that no effect occurred MUST be bounded by an observation window and predicate; silence alone MUST NOT be reported as NO_EFFECT."
+  },
+  {
+   "id": "S5.8-1",
+   "section": "5.8",
+   "section_title": "R-CD-8: Negative Observations",
+   "lines": [
+    762,
+    763
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A negative observation MUST record what was positively observed, from which boundary, and as of which cutoff."
+  },
+  {
+   "id": "S5.8-2",
+   "section": "5.8",
+   "section_title": "R-CD-8: Negative Observations",
+   "lines": [
+    763,
+    764
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "Profiles SHOULD support at least the following conceptual conditions where applicable:"
+  },
+  {
+   "id": "S5.9-1",
+   "section": "5.9",
+   "section_title": "R-CD-9: Time and Ordering",
+   "lines": [
+    791,
+    792
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Each timed observation MUST identify its time value and the relevant clock or trust basis."
+  },
+  {
+   "id": "S5.9-2",
+   "section": "5.9",
+   "section_title": "R-CD-9: Time and Ordering",
+   "lines": [
+    792,
+    795
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A profile that reports cross-observer latency or precedence MUST state how clock synchronization, trusted timestamping, causal linkage, or another ordering mechanism supports that claim."
+  },
+  {
+   "id": "S5.9-3",
+   "section": "5.9",
+   "section_title": "R-CD-9: Time and Ordering",
+   "lines": [
+    799,
+    800
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Unsupported ordering claims MUST be omitted or reported as indeterminate."
+  },
+  {
+   "id": "S5.10-1",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    804,
+    806
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A reconciler MUST produce a deterministic disposition for every Delivery Obligation and every input record presented under a declared profile."
+  },
+  {
+   "id": "S5.10-2",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    806,
+    807
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Malformed, unverifiable, duplicate, conflicting, and unmatched records MUST NOT be silently discarded."
+  },
+  {
+   "id": "S5.10-3",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    807,
+    809
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A reconciler MUST NOT produce a successful delivery verdict solely because no failure record exists."
+  },
+  {
+   "id": "S5.10-4",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    811,
+    813
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The expected obligation population MUST be constructed from the declared issuer-side inclusion and target-resolution rules rather than solely from the receiver evidence that happens to be present."
+  },
+  {
+   "id": "S5.10-5",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    818,
+    820
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "A profile MAY add more specific states, provided that it defines a lossless mapping to the minimum set and does not weaken UNCONFIRMED, INVALID, CONFLICT, or INDETERMINATE into success."
+  },
+  {
+   "id": "S5.10-6",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    822,
+    824
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "If several applicable observations or diagnostics are reduced to one primary per-obligation disposition, the reduction rule MUST be deterministic and reviewable."
+  },
+  {
+   "id": "S5.10-7",
+   "section": "5.10",
+   "section_title": "R-CD-10: Total Reconciliation",
+   "lines": [
+    824,
+    827
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "All applicable diagnostics, including diagnostics not selected as the primary disposition-driving diagnostic, MUST remain visible in the report or in an explicitly linked diagnostic collection."
+  },
+  {
+   "id": "S5.11-1",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    847,
+    850
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "An implementation claiming completeness over a set of controls MUST declare a reproducible issuer inclusion rule, Required Target Set or target-resolution rule for each instruction, observation window, reconciliation cutoff, and expected population counts."
+  },
+  {
+   "id": "S5.11-2",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    850,
+    852
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Each expected Delivery Obligation MUST appear in exactly one per-obligation disposition."
+  },
+  {
+   "id": "S5.11-3",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    852,
+    854
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Each receiver-side input record MUST also be accounted for as matched, orphaned, duplicated, conflicting where the profile uses a separate record class, or invalid."
+  },
+  {
+   "id": "S5.11-4",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    856,
+    859
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Every instruction in the bounded issuer population MUST remain accounted for during target-set construction, including an instruction whose target resolution succeeds and yields an empty Required Target Set."
+  },
+  {
+   "id": "S5.11-5",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    859,
+    863
+   ],
+   "keywords": [
+    "MUST",
+    "MUST",
+    "MUST"
+   ],
+   "text": "Where the Required Target Set for an instruction is empty, the instruction MUST remain in the report, the report MUST state that the instruction contributed zero Delivery Obligations, and the report MUST state the rule or condition under which target resolution produced the empty set."
+  },
+  {
+   "id": "S5.11-6",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    863,
+    865
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "An instruction MUST NOT disappear from reconciliation solely because no Delivery Obligation tuple was added for it."
+  },
+  {
+   "id": "S5.11-7",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    865,
+    868
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "text": "The report MUST publish |I| alongside |O| and MUST publish counts sufficient to distinguish instructions that contributed one or more Delivery Obligations from instructions that contributed zero, as required by Section 6.4."
+  },
+  {
+   "id": "S5.11-8",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    870,
+    871
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A profile MUST define whether an empty Required Target Set is a valid terminal resolution."
+  },
+  {
+   "id": "S5.11-9",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    874,
+    877
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Where the profile does not permit it, an empty Required Target Set MUST prevent a structural PASS for the affected instruction and for any parent or aggregate scope that depends on it."
+  },
+  {
+   "id": "S5.11-10",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    877,
+    880
+   ],
+   "keywords": [
+    "MUST NOT",
+    "MUST NOT"
+   ],
+   "text": "An empty Required Target Set MUST NOT be recorded by inventing a synthetic enforcement target or a synthetic Delivery Obligation, and MUST NOT be classified as EXPLICIT_FAILURE unless a positive, attributable failing condition applies under Section 6.1."
+  },
+  {
+   "id": "S5.11-11",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    882,
+    884
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "If the implementation cannot define a closed Required Target Set for an instruction, it MUST NOT claim complete delivery for that instruction over an unspecified target population."
+  },
+  {
+   "id": "S5.11-12",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    884,
+    886
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "It MAY report per-record or per-known-target results with an explicit open-population scope."
+  },
+  {
+   "id": "S5.11-13",
+   "section": "5.11",
+   "section_title": "R-CD-11: Bounded-Population Accounting",
+   "lines": [
+    902,
+    906
+   ],
+   "keywords": [
+    "MAY",
+    "MUST NOT"
+   ],
+   "text": "A report MAY state that every member of a declared target set is confirmed when the evidence supports that scoped statement; it MUST NOT promote that statement into \"every possible enforcement path was covered\" unless the target-set coverage basis separately supports that stronger claim."
+  },
+  {
+   "id": "S5.12-1",
+   "section": "5.12",
+   "section_title": "R-CD-12: Resolution Failure",
+   "lines": [
+    910,
+    914
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "If a control instruction refers to an external decision, policy, action, task, target, target set, key, or evidence binding, the applicable protocol or profile MUST define behavior when that reference cannot be resolved, is stale, resolves ambiguously, or resolves to inconsistent content."
+  },
+  {
+   "id": "S5.12-2",
+   "section": "5.12",
+   "section_title": "R-CD-12: Resolution Failure",
+   "lines": [
+    914,
+    915
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Unresolved or ambiguous bindings MUST NOT be treated as verified delivery or successful enforcement."
+  },
+  {
+   "id": "S5.13-1",
+   "section": "5.13",
+   "section_title": "R-CD-13: Scope, Qualification, and Non-Claims",
+   "lines": [
+    919,
+    920
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Evidence producers and reconcilers MUST state what each result covers and what it does not cover."
+  },
+  {
+   "id": "S5.13-2",
+   "section": "5.13",
+   "section_title": "R-CD-13: Scope, Qualification, and Non-Claims",
+   "lines": [
+    920,
+    924
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "At minimum, integrity, attribution, delivery, enforcement, observed control effect, ordering, population closure, complete mediation, and independent corroboration MUST NOT be implied unless each is separately supported under the declared trust model."
+  },
+  {
+   "id": "S5.13-3",
+   "section": "5.13",
+   "section_title": "R-CD-13: Scope, Qualification, and Non-Claims",
+   "lines": [
+    926,
+    928
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "text": "Where an aggregate result is used to support a relying-party claim, the report MUST identify the claim scope and MUST expose the claim-support qualification defined in Section 6.6."
+  },
+  {
+   "id": "S5.13-4",
+   "section": "5.13",
+   "section_title": "R-CD-13: Scope, Qualification, and Non-Claims",
+   "lines": [
+    928,
+    932
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A structural PASS MUST NOT be rendered or consumed as an unqualified end-to-end success statement when attribution, target-set coverage, ordering, independence, or another claim predicate remains only declared, unverified, or indeterminate."
+  },
+  {
+   "id": "S5.13-5",
+   "section": "5.13",
+   "section_title": "R-CD-13: Scope, Qualification, and Non-Claims",
+   "lines": [
+    937,
+    940
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Evidence that a governance-relevant distinction was preserved at one boundary MUST NOT, by itself, be consumed as evidence that the distinction survived unchanged through later intermediaries to the relying party."
+  },
+  {
+   "id": "S5.14-1",
+   "section": "5.14",
+   "section_title": "R-CD-14: Consumption and Fail-Safe Handling",
+   "lines": [
+    959,
+    960
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "An unacknowledged or unresolved safety-relevant Delivery Obligation MUST NOT be consumed as delivered."
+  },
+  {
+   "id": "S5.14-2",
+   "section": "5.14",
+   "section_title": "R-CD-14: Consumption and Fail-Safe Handling",
+   "lines": [
+    960,
+    963
+   ],
+   "keywords": [
+    "SHOULD",
+    "SHOULD"
+   ],
+   "text": "A relying system SHOULD expose UNCONFIRMED, CONFLICT, INVALID, and INDETERMINATE results to operational policy and SHOULD define a fail-safe, retry, escalation, or human notification behavior appropriate to the controlled risk."
+  },
+  {
+   "id": "S5.15-1",
+   "section": "5.15",
+   "section_title": "R-CD-15: Target-Set Closure and Coverage Qualification",
+   "lines": [
+    971,
+    973
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "For each Required Target Set used in a bounded reconciliation, the profile MUST state the set identifier or reproducible resolution rule and the basis on which the set is treated as closed."
+  },
+  {
+   "id": "S5.15-2",
+   "section": "5.15",
+   "section_title": "R-CD-15: Target-Set Closure and Coverage Qualification",
+   "lines": [
+    973,
+    976
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The report MUST also state whether the completeness of that enumeration for a stronger deployment-level mediation claim is verified under the trust model, merely declared by a source, or indeterminate."
+  },
+  {
+   "id": "S5.15-3",
+   "section": "5.15",
+   "section_title": "R-CD-15: Target-Set Closure and Coverage Qualification",
+   "lines": [
+    978,
+    979
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "text": "A profile MAY use different vocabulary, but it MUST preserve the distinction among at least the following conceptual conditions:"
+  },
+  {
+   "id": "S5.15-4",
+   "section": "5.15",
+   "section_title": "R-CD-15: Target-Set Closure and Coverage Qualification",
+   "lines": [
+    996,
+    998
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "It MUST NOT, by itself, support a fully qualified claim of complete mediation across every relevant path."
+  },
+  {
+   "id": "S5.16-1",
+   "section": "5.16",
+   "section_title": "R-CD-16: Semantic Preservation Across Intermediaries",
+   "lines": [
+    1015,
+    1020
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "When a profile claims that a source-attributable disposition, outcome, target identity, or other governance-relevant state is preserved across one or more protocol intermediaries, the evidence available to the relying party MUST preserve enough source and transformation information to determine whether the relevant distinction survived the path."
+  },
+  {
+   "id": "S5.16-2",
+   "section": "5.16",
+   "section_title": "R-CD-16: Semantic Preservation Across Intermediaries",
+   "lines": [
+    1020,
+    1024
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "text": "Where a gateway, broker, adapter, or other intermediary transforms the native representation, the applicable profile MUST define a lossless mapping for every governance-relevant state used by the claim or MUST expose that the mapping is incomplete, ambiguous, or unavailable."
+  },
+  {
+   "id": "S5.16-3",
+   "section": "5.16",
+   "section_title": "R-CD-16: Semantic Preservation Across Intermediaries",
+   "lines": [
+    1026,
+    1029
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "An intermediary MUST NOT silently collapse distinct applicable states such as deny, defer, reject, timeout, unresolved, or indeterminate into a representation that a relying party can consume as a stronger or different state."
+  },
+  {
+   "id": "S5.16-4",
+   "section": "5.16",
+   "section_title": "R-CD-16: Semantic Preservation Across Intermediaries",
+   "lines": [
+    1029,
+    1031
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "If lossless preservation cannot be established, the resulting state MUST remain explicitly qualified or INDETERMINATE according to the profile."
+  },
+  {
+   "id": "S6.1-1",
+   "section": "6.1",
+   "section_title": "Per-Obligation Delivery Dispositions",
+   "lines": [
+    1042,
+    1043
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A conforming reconciliation profile MUST preserve at least the following meanings:"
+  },
+  {
+   "id": "S6.1-2",
+   "section": "6.1",
+   "section_title": "Per-Obligation Delivery Dispositions",
+   "lines": [
+    1053,
+    1055
+   ],
+   "keywords": [
+    "MUST",
+    "MUST NOT"
+   ],
+   "text": "The result MUST state its scope and MUST NOT be generalized to other targets or delivery paths."
+  },
+  {
+   "id": "S6.2-1",
+   "section": "6.2",
+   "section_title": "Parent Instruction Aggregation",
+   "lines": [
+    1104,
+    1105
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The report MUST retain the per-target dispositions used to derive that parent result."
+  },
+  {
+   "id": "S6.2-2",
+   "section": "6.2",
+   "section_title": "Parent Instruction Aggregation",
+   "lines": [
+    1107,
+    1109
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "If any required obligation is EXPLICIT_FAILURE, UNCONFIRMED, SUBSTITUTION, CONFLICT, INVALID, or INDETERMINATE, the parent instruction MUST NOT be reported as fully confirmed."
+  },
+  {
+   "id": "S6.3-1",
+   "section": "6.3",
+   "section_title": "Minimum Reconciliation Procedure",
+   "lines": [
+    1181,
+    1183
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "text": "Profile-specific conflict resolution MAY select among duplicate or superseding records, but the discarded alternatives and the selection rule MUST remain reviewable."
+  },
+  {
+   "id": "S6.4-1",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1194,
+    1195
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A reconciliation report that claims complete obligation accounting MUST satisfy:"
+  },
+  {
+   "id": "S6.4-2",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1200,
+    1201
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "T_i MAY be empty when the declared target-resolution rule terminates with no required enforcement target for instruction i."
+  },
+  {
+   "id": "S6.4-3",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1203,
+    1205
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "text": "A report that claims complete accounting MUST therefore also publish |I| and MUST satisfy the separate instruction-level conservation equation:"
+  },
+  {
+   "id": "S6.4-4",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1212,
+    1214
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Each zero-obligation instruction MUST be reported individually with the rule or condition that produced the empty set, as required by Section 5.11."
+  },
+  {
+   "id": "S6.4-5",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1219,
+    1220
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Complete receiver-record accounting MUST separately satisfy:"
+  },
+  {
+   "id": "S6.4-6",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1224,
+    1226
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "Profiles MAY retain additional record-side classes, including a distinct conflict class, provided that every input record remains accounted for exactly once under a published conservation equation."
+  },
+  {
+   "id": "S6.4-7",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1238,
+    1239
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "text": "Profiles MAY subdivide a class, but the sum of its subdivisions MUST preserve the parent count."
+  },
+  {
+   "id": "S6.4-8",
+   "section": "6.4",
+   "section_title": "Population Conservation",
+   "lines": [
+    1239,
+    1242
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Records or targets excluded before population construction MUST be reported with the exclusion rule and count; otherwise the completeness claim is not reproducible."
+  },
+  {
+   "id": "S6.5-1",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1246,
+    1247
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "A profile MAY define a structural aggregate result such as PASS, FAIL, or INCONCLUSIVE."
+  },
+  {
+   "id": "S6.5-2",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1254,
+    1256
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "* PASS MUST require a closed obligation population, successful population conservation, and every expected Delivery Obligation to meet the profile's successful structural conditions;"
+  },
+  {
+   "id": "S6.5-3",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1258,
+    1259
+   ],
+   "keywords": [
+    "MUST",
+    "MUST NOT"
+   ],
+   "text": "* FAIL MUST identify at least one positive failing condition and MUST NOT be inferred solely from missing evidence;"
+  },
+  {
+   "id": "S6.5-4",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1261,
+    1263
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "* UNCONFIRMED, CONFLICT, INVALID, or INDETERMINATE obligation input MUST prevent PASS unless the profile explicitly excluded that obligation before population construction under a published rule;"
+  },
+  {
+   "id": "S6.5-5",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1265,
+    1265
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "* a population-conservation failure MUST prevent PASS; and"
+  },
+  {
+   "id": "S6.5-6",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1267,
+    1268
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "* the report MUST publish the complete class counts rather than only the aggregate label."
+  },
+  {
+   "id": "S6.5-7",
+   "section": "6.5",
+   "section_title": "Structural Aggregate Results",
+   "lines": [
+    1273,
+    1274
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Implementations MUST NOT collapse those two dimensions into a bare PASS."
+  },
+  {
+   "id": "S6.6-1",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1278,
+    1281
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "For each aggregate claim exposed to a relying party, a report MUST identify the claim scope, including the target set or population, relevant boundaries, observation window or cutoff, and the fact being claimed."
+  },
+  {
+   "id": "S6.6-2",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1281,
+    1282
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The report MUST then preserve a claim-support qualification separate from the structural result."
+  },
+  {
+   "id": "S6.6-3",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1293,
+    1296
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Wherever a structural aggregate result is rendered, returned, exported, or otherwise exposed to a relying party, the corresponding claim scope and claim-support qualification MUST be exposed in the same result context."
+  },
+  {
+   "id": "S6.6-4",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1297,
+    1298
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A profile MUST NOT expose a bare structural result that can be consumed as the complete result without that qualification."
+  },
+  {
+   "id": "S6.6-5",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1306,
+    1307
+   ],
+   "keywords": [
+    "MAY",
+    "MUST"
+   ],
+   "text": "A profile MAY use different vocabulary, but it MUST define a lossless mapping to at least the following conceptual meanings:"
+  },
+  {
+   "id": "S6.6-6",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1317,
+    1318
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The report MUST name each condition or missing predicate."
+  },
+  {
+   "id": "S6.6-7",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1322,
+    1323
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "The claim MUST NOT be rendered as true."
+  },
+  {
+   "id": "S6.6-8",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1332,
+    1333
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Profiles MUST state which missing predicates may produce CONDITIONALLY_SUPPORTED rather than NOT_SUPPORTED."
+  },
+  {
+   "id": "S6.6-9",
+   "section": "6.6",
+   "section_title": "Claim-Support Qualification",
+   "lines": [
+    1333,
+    1335
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "They MUST NOT use conditional support as a silent fallback for a predicate that the profile declares mandatory for the requested claim."
+  },
+  {
+   "id": "S7-1",
+   "section": "7",
+   "section_title": "Protocol Attachment Points",
+   "lines": [
+    1352,
+    1355
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "When a governance-relevant transition crosses a protocol or administrative boundary, the protocol or its implementation profile SHOULD provide attachment points for:"
+  },
+  {
+   "id": "S7-2",
+   "section": "7",
+   "section_title": "Protocol Attachment Points",
+   "lines": [
+    1390,
+    1394
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A protocol or profile that maps native states through an intermediary SHOULD preserve source attribution and lossless distinguishability; if it cannot, the mapping and resulting uncertainty need to remain visible under Section 5.16."
+  },
+  {
+   "id": "S8.1-1",
+   "section": "8.1",
+   "section_title": "Native Verification First",
+   "lines": [
+    1426,
+    1428
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "A reconciler MUST perform or consume the result of the native verification before treating the artifact as evidence for a control-delivery claim."
+  },
+  {
+   "id": "S8.1-2",
+   "section": "8.1",
+   "section_title": "Native Verification First",
+   "lines": [
+    1430,
+    1433
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "A self-declared algorithm, key identifier, role, observer label, or target-set coverage claim MUST NOT drive trust without an externally configured or otherwise verified binding when the requested claim requires that trust."
+  },
+  {
+   "id": "S8.1-3",
+   "section": "8.1",
+   "section_title": "Native Verification First",
+   "lines": [
+    1433,
+    1434
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Composition MUST NOT strengthen the weakest input beyond its verified meaning."
+  },
+  {
+   "id": "S8.1-4",
+   "section": "8.1",
+   "section_title": "Native Verification First",
+   "lines": [
+    1434,
+    1436
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Where structural processing continues despite a missing trust predicate, the claim-support qualification MUST preserve that limitation."
+  },
+  {
+   "id": "S8.3-1",
+   "section": "8.3",
+   "section_title": "Telemetry and Trace Composition",
+   "lines": [
+    1473,
+    1475
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Profiles using telemetry MUST state which required bindings are native, derived, declared-only, or absent."
+  },
+  {
+   "id": "S9.1-1",
+   "section": "9.1",
+   "section_title": "Deadlines, Retries, and Late Evidence",
+   "lines": [
+    1481,
+    1482
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "Deployments SHOULD define acknowledgement and reconciliation deadlines based on the controlled risk and transport characteristics."
+  },
+  {
+   "id": "S9.1-2",
+   "section": "9.1",
+   "section_title": "Deadlines, Retries, and Late Evidence",
+   "lines": [
+    1484,
+    1486
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A late receiver observation can change UNCONFIRMED to CONFIRMED in a later reconciliation run, but the earlier report and its cutoff SHOULD remain available."
+  },
+  {
+   "id": "S9.1-3",
+   "section": "9.1",
+   "section_title": "Deadlines, Retries, and Late Evidence",
+   "lines": [
+    1488,
+    1489
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "Retries SHOULD reuse or relate identifiers according to a declared rule."
+  },
+  {
+   "id": "S9.2-1",
+   "section": "9.2",
+   "section_title": "Durability and Acknowledgement Point",
+   "lines": [
+    1496,
+    1498
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A profile SHOULD state whether receiver acknowledgement occurs after parsing, verification, durable persistence, admission to an enforcement queue, or completed enforcement."
+  },
+  {
+   "id": "S9.2-2",
+   "section": "9.2",
+   "section_title": "Durability and Acknowledgement Point",
+   "lines": [
+    1498,
+    1501
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "Implementations MUST NOT use the same acknowledgement value for several of those points unless the profile defines the combined semantics and residual failure window."
+  },
+  {
+   "id": "S9.3-1",
+   "section": "9.3",
+   "section_title": "Multiple Enforcement Paths",
+   "lines": [
+    1520,
+    1523
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A deployment claiming delivery across multiple required enforcement paths SHOULD bind those paths into a Required Target Set and reconcile each resulting Delivery Obligation separately."
+  },
+  {
+   "id": "S9.3-2",
+   "section": "9.3",
+   "section_title": "Multiple Enforcement Paths",
+   "lines": [
+    1525,
+    1527
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A deployment claiming complete control mediation SHOULD identify the deployment scope and the evidence by which the Required Target Set is considered to cover all relevant paths."
+  },
+  {
+   "id": "S9.4-1",
+   "section": "9.4",
+   "section_title": "Control Activation and In-Flight Operations",
+   "lines": [
+    1533,
+    1537
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A profile that reports APPLIED for a freeze, revoke, cancel, or similar control SHOULD define the local effective boundary and the relationship between the control and operations that were already admitted, consumed, dispatched, or in flight when the control took effect."
+  },
+  {
+   "id": "S9.4-2",
+   "section": "9.4",
+   "section_title": "Control Activation and In-Flight Operations",
+   "lines": [
+    1539,
+    1542
+   ],
+   "keywords": [
+    "MUST NOT",
+    "MUST NOT"
+   ],
+   "text": "A reconciler MUST NOT retroactively relabel a boundary transition that occurred before control activation, and MUST NOT relabel an operation as blocked merely because a later control was APPLIED."
+  },
+  {
+   "id": "S9.4-3",
+   "section": "9.4",
+   "section_title": "Control Activation and In-Flight Operations",
+   "lines": [
+    1547,
+    1550
+   ],
+   "keywords": [
+    "MAY"
+   ],
+   "text": "If an operation was admitted before control activation but had not yet crossed a later provider-entry or other enforcement boundary, a subsequently applied control MAY still prevent that later transition under the applicable local semantics."
+  },
+  {
+   "id": "S9.4-4",
+   "section": "9.4",
+   "section_title": "Control Activation and In-Flight Operations",
+   "lines": [
+    1551,
+    1552
+   ],
+   "keywords": [
+    "MUST",
+    "MUST"
+   ],
+   "text": "The report MUST preserve the earlier admission fact and MUST separately preserve the later refusal or blocked transition."
+  },
+  {
+   "id": "S9.4-5",
+   "section": "9.4",
+   "section_title": "Control Activation and In-Flight Operations",
+   "lines": [
+    1560,
+    1562
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "Missing authenticated outcome evidence for that operation MUST remain unresolved or indeterminate according to the applicable outcome profile."
+  },
+  {
+   "id": "S10.4-1",
+   "section": "10.4",
+   "section_title": "Availability and Fail-Safe Policy",
+   "lines": [
+    1635,
+    1636
+   ],
+   "keywords": [
+    "MUST"
+   ],
+   "text": "The evidence layer MUST preserve the uncertain state even when local policy chooses to continue operation."
+  },
+  {
+   "id": "S11-1",
+   "section": "11",
+   "section_title": "Privacy Considerations",
+   "lines": [
+    1662,
+    1665
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "Implementations SHOULD minimize payloads, use scoped or pseudonymous identifiers where possible, separate identity resolution from routine evidence exchange, apply access controls and retention limits, and support selective disclosure."
+  },
+  {
+   "id": "S11-2",
+   "section": "11",
+   "section_title": "Privacy Considerations",
+   "lines": [
+    1665,
+    1667
+   ],
+   "keywords": [
+    "SHOULD NOT"
+   ],
+   "text": "Raw prompts, chain-of-thought, model context, personal data, and proprietary policy SHOULD NOT be included by default."
+  },
+  {
+   "id": "S11-3",
+   "section": "11",
+   "section_title": "Privacy Considerations",
+   "lines": [
+    1671,
+    1672
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "Profiles SHOULD use commitments, nonces, or access-controlled references where dictionary attacks are relevant."
+  },
+  {
+   "id": "SA.MCC-1",
+   "section": "A.MCC",
+   "section_title": "Minimum Conformance Cases",
+   "lines": [
+    2415,
+    2416
+   ],
+   "keywords": [
+    "SHOULD"
+   ],
+   "text": "A profile claiming conformance to the reconciliation requirements SHOULD publish machine-readable test vectors for at least:"
+  },
+  {
+   "id": "SA.MCC-2",
+   "section": "A.MCC",
+   "section_title": "Minimum Conformance Cases",
+   "lines": [
+    2509,
+    2512
+   ],
+   "keywords": [
+    "MUST NOT"
+   ],
+   "text": "26. a stable instruction identifier survives an intermediary while the governed instruction content changes: identifier continuity alone does not satisfy content binding and MUST NOT produce CONFIRMED;"
+  }
+ ]
+}

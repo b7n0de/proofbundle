@@ -8,17 +8,15 @@ via each framework's native plugin API. Both are **opt-in**: they emit only when
 
 ```bash
 pip install "proofbundle[inspect,eval]"
-PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.8 inspect eval task.py --model mockllm/model
+PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval task.py --model mockllm/model
 ```
 
-Installed via the `inspect_ai` entry-point group; the hook fires at end of task and writes a receipt. Needs
-`inspect_ai>=0.3.112` (the generic lifecycle hooks). Config via env: `PROOFBUNDLE_KEY` (a 32-byte Ed25519
-seed; else an ephemeral key, with a warning), `PROOFBUNDLE_OUT` (file or directory), `PROOFBUNDLE_METRIC`
-(else the log's first metric) and the pass/fail assertion, `PROOFBUNDLE_COMPARATOR` (default `>=`) with
-`PROOFBUNDLE_THRESHOLD`. The threshold is required and has no default since 5.0.0: without it the hook
-skips the receipt and prints why. A default of 0 would make every non-negative score read as passed; set
-it explicitly, `0` included when you want the score bound without asserting a bar. The model and dataset
-stay salted commitments.
+Installed via the `inspect_ai` entry-point group; when enabled, the hook can write a receipt at the end of a task.
+The `inspect` extra installs `inspect_ai>=0.3.112,<=0.3.266`. Configure it through environment variables.
+`PROOFBUNDLE_KEY` is a path to a file containing a 32-byte raw Ed25519 seed; when unset, signing uses an ephemeral
+key with a warning. `PROOFBUNDLE_OUT` selects a file or directory. `PROOFBUNDLE_METRIC` selects the metric,
+`PROOFBUNDLE_COMPARATOR` defaults to `>=`, and `PROOFBUNDLE_THRESHOLD` is required for receipt emission since
+5.0.0, with no default. The model and dataset stay salted commitments.
 
 ## pytest (pytest11 plugin)
 
@@ -27,12 +25,12 @@ pip install "proofbundle[pytest,eval]"
 PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 pytest     # or: PROOFBUNDLE_THRESHOLD=0.9 pytest --proofbundle
 ```
 
-Installed via the `pytest11` entry-point; `pytest_terminal_summary` emits a receipt of the run (metric
-`pass_rate`, with the per-outcome counts and exit status in provenance) from `terminalreporter.stats`.
-`PROOFBUNDLE_KEY`, `PROOFBUNDLE_OUT` and `PROOFBUNDLE_COMPARATOR` apply as above, and `PROOFBUNDLE_THRESHOLD` is
-required here too: without it the plugin skips the receipt and prints why. The metric is always `pass_rate`:
-`PROOFBUNDLE_METRIC` set to any other value skips the receipt and prints why, so no receipt names a metric the
-plugin did not compute.
+Installed via the `pytest11` entry-point; when enabled, `pytest_terminal_summary` can emit a receipt of the run
+(metric `pass_rate`, with the per-outcome counts and exit status in provenance) from `terminalreporter.stats`.
+`PROOFBUNDLE_THRESHOLD` is required for receipt emission, with no default. If `PROOFBUNDLE_KEY` is unset,
+signing uses an ephemeral key with a warning.
+The metric is always `pass_rate`: `PROOFBUNDLE_METRIC` set to any other value skips the receipt and prints
+why, so no receipt names a metric the plugin did not compute.
 
 ## GitHub Action
 

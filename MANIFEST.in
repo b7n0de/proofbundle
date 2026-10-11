@@ -214,6 +214,12 @@ prune tools
 prune audit_artifacts
 prune .github
 prune target
+# OUT, and deliberately decided (2026-10-11): examples/verdict_contract/. It is a worked example for an
+# issue in a third-party repository, linked there commit-pinned from this repository, and its files stay
+# byte for byte as they were reviewed. Its producer make_example.py loads an Ed25519 private key from a
+# file, which tests/test_sdist_ohne_signierwerkzeug.py refuses in the sdist, and the directory vendors a
+# third-party file under its own MIT licence. The package does not need either, so the directory stays out.
+prune examples/verdict_contract
 global-exclude __pycache__
 global-exclude *.py[cod]
 global-exclude *.so
