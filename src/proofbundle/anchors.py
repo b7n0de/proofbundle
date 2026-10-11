@@ -327,7 +327,9 @@ def verify_anchor(anchor: dict, *, target_roots: dict, now: Optional[int] = None
     """Verify ONE anchor entry, fail-closed. ``target_roots`` maps a target name to its canonical root
     bytes (only the targets that exist for this receipt). ``rp_trust`` (WP-A1) is the relying-party trust
     material (TSA roots, Bitcoin block headers) — the ONLY source of trust for a confirmed time anchor;
-    the bundle's own ``frozen`` block is evidence, never trust. Returns ``{ok, type, target, detail}``.
+    the bundle's own ``frozen`` block is evidence, never trust. ``now`` is the relying party's clock as an exact
+    POSIX-seconds ``int`` or None; any other value fails the anchor before a verifier sees it. Returns
+    ``{ok, type, target, detail}``.
 
     A malformed entry raises ``BundleFormatError``, and so does an entry whose keys or values run code of
     their own that raises while they are read (:func:`_refuse_unreadable_input`); a registered verifier
@@ -398,6 +400,15 @@ def _eintrag_pruefen(anchor: dict, *, wurzeln: dict, now: Optional[int], rp_trus
     atype = anchor.get("type")
     target = anchor.get("target")
     out = {"ok": False, "warn": False, "status": "fail", "type": atype, "target": target, "detail": ""}
+    # 6.2.1 Codex P3 (Z309): the relying party's clock is checked here, once, for every verifier, built-in or
+    # registered: an exact POSIX-seconds int or None (the one rule for a caller's number, _plain_value.plain_int).
+    # A bool, a float or a string reached each verifier as given, and the contract was each verifier's own.
+    if now is not None:
+        from ._plain_value import plain_int  # noqa: PLC0415
+        if plain_int(now) is None:
+            out["detail"] = "anchor now (relying-party clock) must be a POSIX-seconds integer (fail-closed)"
+            return out
+        now = plain_int(now)
     if target not in ANCHOR_TARGETS:
         out["detail"] = f"anchor target must be one of {ANCHOR_TARGETS}"
         return out
