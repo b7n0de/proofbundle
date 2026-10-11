@@ -3300,6 +3300,7 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
         return None
     rules = _fetch_rules(repo, deadline)
     specs = [] if rules is None else rules.get(remote, [])
+    strength = dict(candidates)
     for name in others:
         if _fetch_excluded(specs, name):
             continue
@@ -3309,9 +3310,15 @@ def _dest_resolution_problem(repo: str, remote: str, value: str, dest: str,
                 continue
             shown = _git(repo, "show-ref", "--verify", "--quiet", local, deadline=deadline)
             if shown.returncode == 0:
+                # A weak match is no refusal: beside a strong one git ignores it, and it counts only where the remote
+                # holds no strong match (review round 10 of 2026-10-11, R10-3: refs/remotes/refs/heads/main beside
+                # main, git moved main with exit 0; without main git wrote the weak candidate; git 2.43.0 and 2.51.1).
+                match = (f"git push also matches {name} for {value} and refuses the push where the remote holds it "
+                         f"beside {dest}" if strength.get(name) else
+                         f"git push matches {name} for {value} only weakly: beside {dest} on the remote git writes "
+                         f"{dest}, and where {dest} is missing there it writes {name} instead")
                 return (f"this repository records {name} of {remote} as {local}, from a fetch at a time the gate does "
-                        f"not know; git push also matches {name} for {value} and refuses the push where the remote "
-                        "holds it, and what the remote holds now is not known here", review)
+                        f"not know; {match}, and what the remote holds now is not known here", review)
     strong = [name for name, is_strong in candidates if is_strong and name != dest]
     return (f"git push also matches {', '.join(strong or others)} for {value}, and whether the remote holds one of "
             "them is not known here: the gate does not read the remote, and a ref this repository does not record "
