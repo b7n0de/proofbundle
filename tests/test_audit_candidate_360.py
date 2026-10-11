@@ -62,8 +62,8 @@ _PUBLISHED_GATE_YML = (
     "      - run: pip install dist/proofbundle.tar.gz\n")
 
 
-def _load(name: str, rel: str):
-    spec = importlib.util.spec_from_file_location(name, REPO / rel)
+def _load(name: str, rel: str, wurzel: Path = REPO):
+    spec = importlib.util.spec_from_file_location(name, wurzel / rel)
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(mod)
@@ -230,7 +230,10 @@ class TestTestManifestGate(unittest.TestCase):
 
 class TestAuditCandidateMatrix(unittest.TestCase):
     def setUp(self):
-        self.m = _load("acm_matrix", "scripts/audit_candidate_matrix.py")
+        # evaluate() runs the sdist checks, which build the package in the matrix's own tree: a private tree of the
+        # checkout, never the checkout other workers read (tests/_private_build_tree.py).
+        from _private_build_tree import private_build_tree  # noqa: PLC0415 - tests/ is on sys.path
+        self.m = _load("acm_matrix", "scripts/audit_candidate_matrix.py", wurzel=private_build_tree())
 
     def test_matrix_is_ready_and_has_33_checks(self):
         """The 33 obligations hold — and readiness is now conditional on the version binding.
