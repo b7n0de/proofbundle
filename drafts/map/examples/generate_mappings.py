@@ -41,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RECEIPT_VECTORS = os.path.join(HERE, "..", "..", "ser", "examples", "vectors.json")
 sys.path.insert(0, os.path.join(HERE, "..", "..", "ser", "examples"))
 import check_receipts  # noqa: E402  the receipts draft's own checker, used for the verdict column only
+from check_mappings import cbor_encode  # noqa: E402  the deterministic encoding of RFC 8949 Section 4.2.1
 import test_chain  # noqa: E402  deterministic test certificates and ES256 (RFC 6979) for the X vectors
 
 #: (case, candidate vector of the receipts draft, citation algorithm, what the case shows)
@@ -133,7 +134,7 @@ def pae(typ: str, body: bytes) -> bytes:
 
 def kid_thumbprint(pub: bytes) -> bytes:
     """COSE Key Thumbprint (RFC 9679), SHA-256, of the OKP Ed25519 key {1: 1, -1: 6, -2: x}."""
-    return hashlib.sha256(cbor2.dumps({1: 1, -1: 6, -2: pub}, canonical=True)).digest()
+    return hashlib.sha256(cbor_encode({1: 1, -1: 6, -2: pub})).digest()
 
 
 def main():
@@ -158,11 +159,10 @@ def main():
     protected = {H_ALG: ALG_ED25519, H_KID: kid_thumbprint(pub),
                  H_CWT: {CWT_ISS: ISS, CWT_SUB: payload["model_id_commit"]},
                  H_PAYLOAD_HASH_ALG: ALG_SHA256, H_PREIMAGE_CT: TYPE}
-    protected_bstr = cbor2.dumps(protected, canonical=True)
-    to_be_signed = cbor2.dumps(["Signature1", protected_bstr, b"", digest], canonical=True)
+    protected_bstr = cbor_encode(protected)
+    to_be_signed = cbor_encode(["Signature1", protected_bstr, b"", digest])
     cose_sig = key.sign(to_be_signed)
-    statement = cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [protected_bstr, {}, digest, cose_sig]),
-                            canonical=True)
+    statement = cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [protected_bstr, {}, digest, cose_sig]))
 
     doc = {
         "draft": "draft-gruszka-evaluation-receipt-mappings-01",
@@ -219,10 +219,9 @@ def main():
         return p
 
     def sign1(prot_map, signer=key, payload_digest=digest):
-        raw = cbor2.dumps(prot_map, canonical=True)
-        tbs = cbor2.dumps(["Signature1", raw, b"", payload_digest], canonical=True)
-        return cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [raw, {}, payload_digest, signer.sign(tbs)]),
-                           canonical=True)
+        raw = cbor_encode(prot_map)
+        tbs = cbor_encode(["Signature1", raw, b"", payload_digest])
+        return cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [raw, {}, payload_digest, signer.sign(tbs)]))
 
     p2 = by_id["P2"]
     p2_b = base64.b64decode(json.loads(bytes.fromhex(p2["receipt_hex"]))["payload_b64"])
@@ -267,10 +266,9 @@ def main():
               H_X5CHAIN: [leaf_der, root_der], H_PAYLOAD_HASH_ALG: ALG_SHA256, H_PREIMAGE_CT: TYPE}
 
     def es256_sign1(prot_map, signer=leaf_key):
-        raw = cbor2.dumps(prot_map, canonical=True)
-        tbs = cbor2.dumps(["Signature1", raw, b"", digest], canonical=True)
-        return cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [raw, {}, digest, test_chain.es256_sign(signer, tbs)]),
-                           canonical=True)
+        raw = cbor_encode(prot_map)
+        tbs = cbor_encode(["Signature1", raw, b"", digest])
+        return cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [raw, {}, digest, test_chain.es256_sign(signer, tbs)]))
 
     x_made = {
         "X1": es256_sign1(x_prot),
@@ -325,13 +323,13 @@ def main():
     t2v = cbor2.loads(t2).value
     receipt = t2v[1][H_RECEIPTS][0]
     x1v = cbor2.loads(x_made["X1"]).value
-    if (cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [x1v[0], {H_RECEIPTS: [receipt]}, x1v[2], x1v[3]]), canonical=True)
+    if (cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [x1v[0], {H_RECEIPTS: [receipt]}, x1v[2], x1v[3]]))
             != t2 or hashlib.sha256(t2).hexdigest() != reg["transparent_statement_sha256"]):
         raise SystemExit("the recorded Transparent Statement is not X1 with one receipt under 394")
     m2v = cbor2.loads(statement).value
 
     def with_unprotected(v, unprotected):
-        return cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [v[0], unprotected, v[2], v[3]]), canonical=True)
+        return cbor_encode(cbor2.CBORTag(TAG_COSE_SIGN1, [v[0], unprotected, v[2], v[3]]))
 
     t_made = {"T1": with_unprotected(m2v, {H_RECEIPTS: [receipt]}), "T2": t2,
               "T3": with_unprotected(x1v, {H_KID: cbor2.loads(x1v[0])[H_KID], H_RECEIPTS: [receipt]}),

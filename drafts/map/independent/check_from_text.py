@@ -3,6 +3,11 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 24 (key order of the deterministic encoding, no change to the text): the examples' own checker sorted map keys
+by length first, as cbor2 canonical does, and so read a protected header with -16 before 33 or 258 as deterministic.
+R24-ORDER holds this script's encoder to the bytewise order of RFC 8949 Section 4.2.1; R24-KEYORDER computes, with
+status20, malformed at step 1 for M2, S1, X1 and T2 with the head byte of key 15 written as -16 (2f) in place.
+
 Round 23 (card DRAFTS-01-INHALT-03, review blocks A to F of 2026-10-11): 3.4, 5.2, steps 2 and 3 of 5.2.2, its
 closing paragraph and two paragraphs of Section 9 carry the reviewer's wording. R23-A to R23-F find each block word
 for word and once; R23-OLD finds none of the replaced sentences; R23-REFS finds [RFC5280] and [DIDX509] among the
@@ -2726,6 +2731,49 @@ check("DEMO", "R23-STEP23", all(g_ == w_ for _, g_, w_ in _got23),
       "the boundary of B1, B2 and C1 computed from the text: the container form of x5chain and the syntax of iss "
       "give outside_profile in step 2, certificate contents and keys untrusted_key in step 3",
       *["%s: %s (expected %s)" % (d_, g_, w_) for d_, g_, w_ in _got23])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 24: the key order of the deterministic encoding (5.2, 5.2.2 step 1, RFC 8949 Section 4.2.1) ===")
+
+
+def key_byte24(stmt, label, new):
+    """stmt with the head byte of one protected-header label replaced; nothing reordered, nothing signed again."""
+    ph24 = cbor2.loads(stmt).value[0]
+    pm24 = cbor2.loads(ph24)
+    ks24 = list(pm24)
+    start = 2 + len(chead(2, len(ph24)))   # tag 18 (d2) and the array head (84), one byte each
+    at = start + len(chead(5, len(pm24))) + sum(len(cenc(k)) + len(cenc(pm24[k])) for k in ks24[:ks24.index(label)])
+    if stmt[start:start + len(ph24)] != ph24 or stmt[at:at + 1] != cenc(label):
+        return None
+    return stmt[:at] + bytes([new]) + stmt[at + 1:]
+
+
+s24 = "The COSE_Sign1, its protected header included, is encoded with the core deterministic encoding of [RFC8949] " \
+      "Section 4.2.1."
+check("SELF", "R24-ORDER", cenc({33: 0, -16: 0}) == bytes.fromhex("a21821002f00")
+      and cenc({258: 0, -16: 0}) == bytes.fromhex("a2190102002f00"),
+      "this script's encoder sorts the keys of a map bytewise by their encodings (RFC 8949 Section 4.2.1), not by "
+      "length first: -16 (2f) after 33 (18 21) and after 258 (19 01 02)",
+      "{33: 0, -16: 0} %s; {258: 0, -16: 0} %s" % (cenc({33: 0, -16: 0}).hex(), cenc({258: 0, -16: 0}).hex()))
+# M2, S1, X1 and T2 (the registered Transparent Statement of X1) with key 15 (0f) written as -16 (2f) in place
+_sha24 = {"M2": "9bd318276dcb426a761e45fadeb3a3114e0b3ef539931fe88a5c062116f25bf6",
+          "S1": "a97822327f64be340787ea32477ef21581ac7de557a4a07f343a44cd4c81c803",
+          "X1": "af072b12520559c2401c9aaa11a89d17b19570b1ac6f4a50bb6e64b2418aebba",
+          "T2": "42473a340cc1ad0ac968fce03683acabe84871936ab3578a08c2e098775f07fa"}
+_src24 = {"M2": D2_CS, "S1": SV19["S1"][1], "X1": X1, "T2": T21["T2"]}
+_got24 = []
+for k_ in sorted(_src24):
+    b24 = key_byte24(_src24[k_], 15, 0x2F)
+    _got24.append((k_, status20(b24, VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20) if b24 else None,
+                   sha256(b24).hex() if b24 else None))
+check("DEMO", "R24-KEYORDER", s24 in d2flat21 and all(g_ == ("malformed", 1) and h_ == _sha24[k_]
+                                                       for k_, g_, h_ in _got24),
+      "Section 5.2 and step 1 of 5.2.2: in M2, S1, X1 and T2 the head byte of key 15 in the protected header written "
+      "as -16 (2f), nothing reordered and not signed again, puts -16 before 258 and 259 (and before 33 in X1 and T2) "
+      "where the bytewise order puts it after them, so the protected header is not in the deterministic encoding "
+      "and the status is malformed at step 1",
+      *["%s: %s, sha256 %s" % (k_, g_, h_) for k_, g_, h_ in _got24])
 print()
 
 # ---------------------------------------------------------------------------
