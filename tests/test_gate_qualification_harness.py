@@ -89,8 +89,6 @@ def _assert_each_run_compiles_what_is_on_disk(path, orig, anker, strip, neutral,
         f"and mtime; only red then green says each run compiled what was on disk")
 
 
-@pytest.mark.skipif(not _HAS_OTS, reason="needs proofbundle[anchors] (opentimestamps): the gate's "
-                    "full surface population includes anchor OTS surfaces that only import with it")
 def test_the_strip_loops_leave_the_checkout_untouched(tmp_path, monkeypatch):
     """Codex thread 4221653623, the property itself: while the strip loops run, no file of scripts/ in this checkout
     changes. Every write the loops make is recorded and must land under the private tree."""
@@ -111,6 +109,8 @@ def test_the_strip_loops_leave_the_checkout_untouched(tmp_path, monkeypatch):
     assert {p: p.read_bytes() for p in (repo / "scripts").glob("*.py")} == vorher
 
 
+@pytest.mark.skipif(not _HAS_OTS, reason="needs proofbundle[anchors] (opentimestamps): the gate's "
+                    "full surface population includes anchor OTS surfaces that only import with it")
 def test_15_of_15_counterproofs_detected_with_green_positive_controls():
     r = h.run()
     missed = [x["class"] for x in r["results"] if not x["detected"]]
