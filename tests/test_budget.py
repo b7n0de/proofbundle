@@ -12,7 +12,7 @@ import unittest
 from proofbundle.budget import DEFAULT_BUDGET, BudgetExceeded, VerificationBudget
 from proofbundle.emit import generate_signer
 from proofbundle.errors import BundleFormatError, ProofBundleError
-from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
 
 #: OBERGRENZE FUER JEDE LAST, DIE EIN TEST AUS EINEM BUDGETFELD ABLEITET.
 #:
@@ -121,7 +121,7 @@ class TestBudgetLimitsUntrustedCollections(unittest.TestCase):
     def test_renewal_ats_chain_length_capped(self):
         from proofbundle.renewal import ArchiveTimeStamp
         from proofbundle.renewal import verify_sequence as _verify_sequence
-        over = gedeckelt(DEFAULT_BUDGET.renewal_ats_chain, bytes_je_element=256) + 1
+        over = gedeckelt(DEFAULT_BUDGET.renewal_ats_chain, bytes_je_element=KOSTEN_JE_ELEMENT["renewal_ats_chain"]) + 1
         # a synthetic (not necessarily chain-consistent) sequence — the budget check runs BEFORE the
         # covering-consistency walk, so this fires purely on count.
         chain = [ArchiveTimeStamp("sha256", "a" * 64, i) for i in range(over)]
