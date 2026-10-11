@@ -1187,6 +1187,8 @@ _SWEEP = {
     ("scripts/codex_threads_check.py", "measure"): "not affected: reports a verdict over review data; writes "
         "no value it checked",
     ("scripts/codex_threads_check.py", "measure_at_origin"): "not affected: queries a remote and reports",
+    ("scripts/core_layer_gate.py", "measure"): "not affected: reads source files and reports findings; "
+        "writes no value it checked",
     ("scripts/gen_findings_register.py", "canonical_bytes"): "not affected: the canonical form; `assemble` "
         "hands it the copy read once, the verify side a parsed file",
     ("scripts/pre_tag_receipt_lib.py", "canonical_bytes"): "not affected: the canonical form; "
