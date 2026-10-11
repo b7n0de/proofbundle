@@ -571,6 +571,31 @@ class TestKeineUngedeckelteTestlast(unittest.TestCase):
             "mehr Speicher zu, als er verspricht (Faktor Wirklichkeit/Tabelle):\n  "
             + "\n  ".join(zu_niedrig))
 
+    def test_die_tabelle_traegt_auch_ungeteilte_instanz_dicts(self):
+        """Measured 2026-10-08 on pull request 309: under `--dist=worksteal` the test ran in a worker where an
+        instance of ArchiveTimeStamp had broken the key sharing of the instance dicts before, and every further
+        instance cost 572.8 B instead of 356.6 B. That is memory the suite really holds, so the table must carry it.
+        Measured in a FRESH process, because the break changes the class state for the rest of the process and must
+        touch nothing else here."""
+        import subprocess  # noqa: PLC0415
+        programm = (
+            "import importlib.util, sys\n"
+            f"sys.path[:0] = [{str(TESTS)!r}, {str(TESTS.parent / 'src')!r}]\n"
+            f"s = importlib.util.spec_from_file_location('t', {str(Path(__file__))!r})\n"
+            "t = importlib.util.module_from_spec(s); s.loader.exec_module(t)\n"
+            "from proofbundle.renewal import ArchiveTimeStamp\n"
+            "x = ArchiveTimeStamp('sha256', 'a' * 64, 0)\n"
+            "geteilt = t.gemessene_bytes_je_element('renewal_ats_chain')\n"
+            "object.__delattr__(x, 'time')\n"
+            "print(geteilt, t.gemessene_bytes_je_element('renewal_ats_chain'))\n")
+        lauf = subprocess.run([sys.executable, "-c", programm], capture_output=True, text=True, timeout=600)
+        self.assertEqual(lauf.returncode, 0, lauf.stderr[-2000:])
+        geteilt, ungeteilt = (float(z) for z in lauf.stdout.split())
+        self.assertGreater(ungeteilt, geteilt, "control: breaking the key sharing costs memory")
+        sys.path.insert(0, str(TESTS))
+        from _lastdeckel import KOSTEN_JE_ELEMENT  # noqa: PLC0415
+        self.assertGreaterEqual(KOSTEN_JE_ELEMENT["renewal_ats_chain"], ungeteilt)
+
     def test_jede_lastachse_hat_eine_messform(self):
         """Eine Achse, aus der der Baum eine Last baut, aber die niemand misst, hat in der Tabelle
         wieder nur eine Behauptung."""

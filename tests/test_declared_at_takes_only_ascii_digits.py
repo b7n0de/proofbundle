@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import base64
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,9 +29,12 @@ from pathlib import Path
 
 from proofbundle.relation import validate_relationships
 
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
+
 REPO = Path(__file__).resolve().parents[1]
-RUST_DIR = REPO / "tools" / "pb_verify_rs"
-RUST_BIN = RUST_DIR / "target" / "release" / "pb_verify_rs"
 
 ARABISCH_INDISCH = "".join(chr(0x0660 + d) for d in (2, 0, 2, 6))    # the year 2026 in U+0660..U+0669
 VOLLBREITE = "".join(chr(0xFF10 + d) for d in (2, 0, 2, 6))          # the year 2026 in U+FF10..U+FF19
@@ -119,25 +121,14 @@ class ADeclaredAtTakesOnlyAsciiDigits(unittest.TestCase):
         self.assertIs(verify_decision_receipt(env, pub)["ok"], True)
 
 
-def _rust_binary():
-    """Same lookup as tests/test_rust_policy_reader_judges_the_relations_section.py."""
-    if RUST_BIN.exists():
-        return RUST_BIN
-    if not RUST_DIR.is_dir() or shutil.which("cargo") is None:
-        return None
-    b = subprocess.run(["cargo", "build", "--release"], cwd=RUST_DIR,  # noqa: S603,S607
-                       capture_output=True, text=True, timeout=1800)
-    return RUST_BIN if b.returncode == 0 and RUST_BIN.exists() else None
-
-
 class BothVerifiersGiveTheSameExitCode(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.rust = _rust_binary()
-        if cls.rust is None:
-            raise unittest.SkipTest("NOT MEASURABLE: tools/pb_verify_rs is missing or cargo is absent — "
-                                    "the parity cases did NOT run (env_blocked, never green)")
+        # Through tests/_pb_verify_rs.py, as every test that needs the binary (tests/test_pb_verify_rs_seam.py):
+        # pinned, or built once per process under a lock; a skip names why it is absent, and where CI requires
+        # the binary its absence fails instead.
+        cls.rust = _pb_verify_rs.binary_or_skip()
 
     def _both(self, declared_at: str):
         env, pub = _signed_without_the_emitter(declared_at)
