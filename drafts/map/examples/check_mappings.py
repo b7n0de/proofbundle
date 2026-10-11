@@ -43,6 +43,11 @@ generator; it re-derives every claim from the bytes in mappings.json:
       MAX_DEPTH (64) with a resource-limit error, which Section 5.2.2 says is no status.
       For M2 with a candidate receipt of arrays 60000 deep, step 5 ends the same way: the receipts draft's checker
       reports RESOURCE_LIMIT, and the error is passed on, not turned into receipt_not_verified.
+      The JSON of a candidate and of a typed digest reference has the same limit: a candidate that nests deeper has
+      no B, so the C1 citation gives INDETERMINATE (Section 3.3 step 2, "including when processing stops at a
+      resource limit") and R1 is Unresolved (Section 5.1); a reference that nests deeper is not read, a resource-limit
+      error and no state. P1 with a key member nesting 64 deep in all is read (MATCH, Verified, receipt_not_verified
+      at step 5), 65 deep is not.
 Exit 0 when all hold.
 """
 import base64
@@ -71,7 +76,8 @@ B64_RE = re.compile(r"\A(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]
 
 
 class NoB(Exception):
-    """B cannot be obtained from the candidate (a step from 1 to 3 of the receipts draft fails)."""
+    """B cannot be obtained from the candidate (a step from 1 to 3 of the receipts draft fails, or reading the
+    candidate stops at MAX_DEPTH; Section 3.3 step 2 gives INDETERMINATE for both)."""
 
 
 def _pairs(pairs):
@@ -93,12 +99,33 @@ def _strings(v):
             yield from _strings(x)
 
 
+_JSON_STRUCTURE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.S)
+
+
+def json_depth_ok(text: str) -> bool:
+    """True if arrays and objects in text nest at most MAX_DEPTH deep: a top-level array or object is depth 1, and
+    brackets inside strings do not count. Measured before the text is parsed, as the receipts draft's checker does."""
+    depth = 0
+    for m in _JSON_STRUCTURE.finditer(text):
+        c = m.group()
+        if c in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return False
+        elif c in "]}":
+            depth -= 1
+    return True
+
+
 def b_of(receipt: bytes) -> bytes:
-    """Steps 1 to 3 of the receipts draft: strict parse, member sets, schema, canonical base64."""
+    """Steps 1 to 3 of the receipts draft: strict parse, member sets, schema, canonical base64. A candidate that
+    nests deeper than MAX_DEPTH is not read: processing stops at a resource limit, and B is not obtained."""
     if receipt.startswith(b"\xef\xbb\xbf"):
         raise NoB("byte order mark")
     try:
         text = receipt.decode("utf-8")
+        if not json_depth_ok(text):
+            raise NoB("processing stops at a resource limit: arrays and objects nested deeper than %d" % MAX_DEPTH)
         obj = json.loads(text, object_pairs_hook=_pairs)
     except NoB:
         raise
@@ -276,7 +303,8 @@ def key_rep(v):
 
 
 #: The deepest nesting of arrays, maps and tags that step 1 reads (the item itself at depth 0). A deeper item meets a
-#: limit of this Receiver: a resource-limit error, which Section 5.2.2 says is no status, not malformed.
+#: limit of this Receiver: a resource-limit error, which Section 5.2.2 says is no status, not malformed. The same number
+#: bounds the JSON of a candidate receipt and of a typed digest reference (json_depth_ok).
 MAX_DEPTH = 64
 
 
@@ -504,8 +532,26 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, ce
     return "accepted", None
 
 
+def p1_with_key(p1: bytes, total: int) -> bytes:
+    """P1 with a key member of nested arrays in its signature object, so that the receipt nests total deep."""
+    r = json.loads(p1)
+    r["signature"]["key"] = json.loads("[" * (total - 2) + "]" * (total - 2))
+    return json.dumps(r, separators=(",", ":")).encode()
+
+
+def ref_with_member(ref_text: str, total: int) -> str:
+    """A reference with one more member of nested arrays, so that it nests total deep."""
+    r = json.loads(ref_text)
+    r["x"] = json.loads("[" * (total - 1) + "]" * (total - 1))
+    return json.dumps(r, separators=(",", ":"))
+
+
 def reference_state(ref_text: str, receipt: bytes):
-    """A typed digest reference under the declaration of Section 5.1: (CPB state, matching-rule result)."""
+    """A typed digest reference under the declaration of Section 5.1: (CPB state, matching-rule result). A reference
+    that nests deeper than MAX_DEPTH is not read: ResourceLimit, a resource-limit error and no state. A candidate that
+    does is one without B (Unresolved, INDETERMINATE), as Section 5.1 and Section 3.3 step 2 say."""
+    if not json_depth_ok(ref_text):
+        raise ResourceLimit("the reference nests arrays and objects deeper than %d" % MAX_DEPTH)
     ref = json.loads(ref_text, object_pairs_hook=_pairs)
     ok_form = ref.get("digest_alg") == "SHA-256" and re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is not None
     try:
@@ -791,6 +837,39 @@ def main():
         got = "resource-limit error"
     ok &= check("L M2 with a candidate receipt of arrays 60000 deep: %s (expected a resource-limit error in step 5, "
                 "no status; the receipts draft's checker reports RESOURCE_LIMIT)" % got, got == "resource-limit error")
+    # The matching rule and the typed digest reference under the same limit. A candidate whose reading stops at it has
+    # no B (Section 3.3 step 2: INDETERMINATE; Section 5.1: Unresolved); a reference that nests deeper is not read.
+    cit, r1 = d["citation_cases"][0]["citation"], d["reference_vectors"][0]["reference_json"]
+    for what, cand, want_m, want_r, want_s in (
+            ("arrays 60000 deep", ("[" * 60000 + "]" * 60000).encode(), "INDETERMINATE",
+             ("Unresolved", "INDETERMINATE"), None),
+            ("objects 30000 deep", ('{"a":' * 29999 + "{}" + "}" * 29999).encode(), "INDETERMINATE",
+             ("Unresolved", "INDETERMINATE"), None),
+            ("P1 with a key member of arrays, %d deep in all" % MAX_DEPTH, p1_with_key(p1, MAX_DEPTH), "MATCH",
+             ("Verified", "MATCH"), ("receipt_not_verified", 5)),
+            ("P1 with a key member of arrays, %d deep in all" % (MAX_DEPTH + 1), p1_with_key(p1, MAX_DEPTH + 1),
+             "INDETERMINATE", ("Unresolved", "INDETERMINATE"), "resource-limit error")):
+        got_m, got_r = match(cit, cand), reference_state(r1, cand)
+        ok &= check("L C1 citation, candidate %s: match %s, R1 %s (expected %s, %s)" % (what, got_m, got_r, want_m,
+                    want_r), got_m == want_m and got_r == want_r)
+        if want_s is not None:
+            try:
+                got_s = check_statement(m2, cand, pub, pairs, cert_pairs)
+            except ResourceLimit:
+                got_s = "resource-limit error"
+            ok &= check("L M2 with the candidate %s: %s (expected %s)" % (what, got_s, want_s), got_s == want_s)
+    for what, ref_text, want in (
+            ("arrays 60000 deep", "[" * 60000 + "]" * 60000, "resource-limit error"),
+            ("objects 30000 deep", '{"a":' * 29999 + "{}" + "}" * 29999, "resource-limit error"),
+            ("R1 with a member of arrays, %d deep in all" % MAX_DEPTH, ref_with_member(r1, MAX_DEPTH),
+             ("Verified", "MATCH")),
+            ("R1 with a member of arrays, %d deep in all" % (MAX_DEPTH + 1), ref_with_member(r1, MAX_DEPTH + 1),
+             "resource-limit error")):
+        try:
+            got = reference_state(ref_text, p1)
+        except ResourceLimit:
+            got = "resource-limit error"
+        ok &= check("L reference %s with P1: %s (expected %s)" % (what, got, want), got == want)
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 

@@ -3,6 +3,15 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 27 (owner choice B of 2026-10-12, the depth siblings, no change to the text): the JSON reader parse_ijson stops
+at JSON_DEPTH_LIMIT (64, a top-level array or object at depth 1), measured after the byte order mark and UTF-8 checks
+and before parsing, as the receipts draft's own checker does; before, a deep candidate crashed match_rule, ref_state,
+status19 and status20 with RecursionError. The limit is a resource-limit error of Draft 1 Section 5. The matching rule
+gives INDETERMINATE for it (3.3 step 2, "including when processing stops at a resource limit"), a typed digest
+reference is Unresolved (5.1, a candidate without B), and status19 and status20 propagate it from step 5 (5.2.2), no
+status. R27-DEPTH holds 60000 nested arrays, 30000 nested objects and the limit itself (P1 with a key member of
+arrays, 64 deep in all, is read; 65 deep is not).
+
 Round 26 (owner choice A of 2026-10-11, review of round 4, blocks G' and H'): G' adds that the second arc of O is at
 most 39 when the first arc is 0 or 1 (X.660 7.6, RFC 9090 Section 2); H' ends with "no tag, the bignum tags 2 and 3
 included, adds a rule of its own" and no longer repeats the sentence on tag validity. iss of the certificate profile
@@ -410,6 +419,37 @@ class JErr(Exception):
     pass
 
 
+class JLimit(Exception):
+    """Round 27: the JSON reader stopped at JSON_DEPTH_LIMIT, a resource-limit error of Draft 1 Section 5."""
+
+
+#: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1; the
+#: same number as DEPTH_LIMIT of the step 1 reader below.
+JSON_DEPTH_LIMIT = 64
+
+
+def json_depth_ok(s):
+    """True if arrays and objects in s nest at most JSON_DEPTH_LIMIT deep; brackets inside strings do not count."""
+    depth, in_string, escaped = 0, False, False
+    for ch in s:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > JSON_DEPTH_LIMIT:
+                return False
+        elif ch in "]}":
+            depth -= 1
+    return True
+
+
 class JObj:
     def __init__(self, pairs):
         self.pairs = pairs
@@ -561,6 +601,8 @@ def parse_ijson(b):
         s = b.decode("utf-8", "strict")
     except UnicodeDecodeError as e:
         raise JErr("not UTF-8: %s" % e)
+    if not json_depth_ok(s):
+        raise JLimit("arrays and objects nested deeper than %d" % JSON_DEPTH_LIMIT)
     p = Parser(s)
     p.ws()
     v = p.value()
@@ -789,7 +831,10 @@ def match_rule(alg, value, rb):
         vhex = value
     if alg not in SHA256_IDS or isinstance(alg, bool) or not ok_form:
         return "INDETERMINATE", "rule step 1 (algorithm or value form)"
-    B, fail, _ = steps_1_to_3(rb)
+    try:
+        B, fail, _ = steps_1_to_3(rb)
+    except JLimit as e:   # round 27: "including when processing stops at a resource limit"
+        return "INDETERMINATE", "rule step 2 (resource limit: %s)" % e
     if fail:
         return "INDETERMINATE", "rule step 2 (Draft 1 step %d fails: %s)" % fail
     return ("MATCH" if sha256(B).hex() == vhex else "NO_MATCH"), "rule step 3"
@@ -1749,7 +1794,7 @@ def statement_steps_5_to_7(payload_, sub_, rb, rkey, **lim):
     Returns a status, or the string 'resource-limit error' for the propagated error (no status)."""
     try:
         r = run_limited(verify_receipt, rb, rkey, **lim)
-    except ResourceLimit:
+    except (ResourceLimit, JLimit):   # round 27: the depth limit of parse_ijson too
         return "resource-limit error"
     if r[0] != "PASS":
         return "receipt_not_verified"
@@ -2164,6 +2209,8 @@ def status19(stmt, rb, rkey, pairs):
     if not any(profile_verify(k, sg_, ss_) is None for k in sel):
         return ("signature_invalid", 4)
     st_ = statement_steps_5_to_7(pl_, cwt_[2], rb, rkey)
+    if st_ == "resource-limit error":   # round 27, 5.2.2 step 5: propagate that error, no status
+        raise ResLimit("step 5: the procedure of Draft 1 stopped at a resource limit")
     return (st_, None if st_ == "accepted" else {"receipt_not_verified": 5, "digest_mismatch": 6,
                                                  "subject_mismatch": 7}[st_])
 
@@ -2508,6 +2555,8 @@ def status20(stmt, rb, rkey, pairs, cert_pairs):
     if not good:
         return ("signature_invalid", 4)
     st_ = statement_steps_5_to_7(pl_, cwt_[2], rb, rkey)
+    if st_ == "resource-limit error":   # round 27, 5.2.2 step 5: propagate that error, no status
+        raise ResLimit("step 5: the procedure of Draft 1 stopped at a resource limit")
     return (st_, None if st_ == "accepted" else {"receipt_not_verified": 5, "digest_mismatch": 6,
                                                  "subject_mismatch": 7}[st_])
 
@@ -2665,7 +2714,10 @@ CHANGES7 = {"(none)": {}, "purpose evaluation added": {"purpose": "evaluation"},
 def ref_state(ref, rb):
     """Section 5.1 with CPB Section 8.1 as Section 5.1 cites it: (state, matching rule)."""
     mr = match_rule_in("typed reference", ref.get("digest_alg"), ref.get("digest"), rb)[0]
-    B_, fail_, _ = steps_1_to_3(rb)
+    try:
+        B_, fail_, _ = steps_1_to_3(rb)
+    except JLimit as e:   # round 27: a candidate whose reading stops at the limit has no B
+        B_, fail_ = None, (1, "resource limit: %s" % e)
     if ref.get("type") != D2_TYPE or "purpose" in ref:
         return "Unresolved", mr
     if ref.get("digest_alg") != "SHA-256" or re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is None:
@@ -3081,6 +3133,52 @@ check("DEMO", "R26-DEPTH", all(g_ == "resource-limit error" for _, g_ in _got26d
       "30000 deep stops at this script's depth limit with a resource-limit error, no status; %d nested arrays are "
       "read, %d are the limit" % (DEPTH_LIMIT, DEPTH_LIMIT + 1),
       *["M2, key -1 holding %s: %s" % (d_, g_) for d_, g_ in _got26d])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 27: the depth limit of the JSON reader (3.3 step 2, 5.1, 5.2.2 step 5; Draft 1 Section 5) ===")
+
+
+def _p1_key27(total):
+    """P1 with a key member of nested arrays in its signature object, the receipt nesting total deep."""
+    r_ = _json.loads(VEC["P1"]["R"])
+    r_["signature"]["key"] = _json.loads("[" * (total - 2) + "]" * (total - 2))
+    return _json.dumps(r_, separators=(",", ":")).encode()
+
+
+def _limit27(fn):
+    try:
+        return fn()
+    except ResLimit:
+        return "resource-limit error"
+
+
+_c27 = [("arrays 60000 deep", b"[" * 60000 + b"]" * 60000, "INDETERMINATE", ("Unresolved", "INDETERMINATE"),
+         "resource-limit error"),
+        ("objects 30000 deep", b'{"a":' * 29999 + b"{}" + b"}" * 29999, "INDETERMINATE",
+         ("Unresolved", "INDETERMINATE"), "resource-limit error"),
+        ("P1 with a key member of arrays, %d deep in all" % JSON_DEPTH_LIMIT, _p1_key27(JSON_DEPTH_LIMIT), "MATCH",
+         ("Verified", "MATCH"), ("receipt_not_verified", 5)),
+        ("P1 with a key member of arrays, %d deep in all" % (JSON_DEPTH_LIMIT + 1), _p1_key27(JSON_DEPTH_LIMIT + 1),
+         "INDETERMINATE", ("Unresolved", "INDETERMINATE"), "resource-limit error")]
+_got27 = [(d_, match_rule("sha-256", D2_DIGEST.hex(), b_)[0], ref_state(REF1, b_),
+           _limit27(lambda: status20(D2_CS, b_, ISSUER_PK, pairs20, cpairs20)),
+           _limit27(lambda: status19(D2_CS, b_, ISSUER_PK, pairs19)), (wm_, wr_, ws_))
+          for d_, b_, wm_, wr_, ws_ in _c27]
+_edge27 = [isinstance(parse_ijson(b"[" * JSON_DEPTH_LIMIT + b"]" * JSON_DEPTH_LIMIT), list)]
+try:
+    parse_ijson(b"[" * (JSON_DEPTH_LIMIT + 1) + b"]" * (JSON_DEPTH_LIMIT + 1))
+    _edge27.append(False)
+except JLimit:
+    _edge27.append(True)
+check("DEMO", "R27-DEPTH", all((m_, r_, s20_, s19_) == (w_[0], w_[1], w_[2], w_[2])
+                               for _, m_, r_, s20_, s19_, w_ in _got27) and all(_edge27),
+      "3.3 step 2, 5.1 and 5.2.2 step 5 with the depth limit of the JSON reader: a candidate that nests deeper than "
+      "%d has no B, so the matching rule gives INDETERMINATE and a typed digest reference is Unresolved, and step 5 "
+      "propagates a resource-limit error, no status; %d nested arrays are read, %d are the limit"
+      % (JSON_DEPTH_LIMIT, JSON_DEPTH_LIMIT, JSON_DEPTH_LIMIT + 1),
+      *["candidate %s: match %s, reference %s, status20 %s, status19 %s" % (d_, m_, r_, s20_, s19_)
+        for d_, m_, r_, s20_, s19_, _ in _got27])
 print()
 
 # ---------------------------------------------------------------------------

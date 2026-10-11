@@ -41,6 +41,13 @@ Review point 9 of 2026-10-08 (revision -01): case C12 keeps tag 18 and changes t
 Section 6 and the names C5 and C12 in A4 are found in the text; C12 is rebuilt from the bytes of statement 01 as
 the sentence states (the array head 84 written as 98 04) and compared with the bytes of Appendix A; the head is
 read byte by byte, ToBeSigned is compared with that of 01, and the preferred re-encoding gives statement 01 again.
+
+Depth limit (2026-10-12, no change to the text): Section 7 asks an implementation to bound the nesting it processes,
+and Section 6 names no number. Every CBOR read of this script, the candidate and its protected header on their own,
+first walks the heads and stops at MAX_DEPTH (64, the item itself at depth 0) with ResourceLimit, a resource-limit
+error with no value on any axis; before, a candidate of 60000 nested arrays crashed decode with RecursionError, and
+read_strict turned the RecursionError into "not a statement" (NO_MATCH), also for statement 01 with such an item in
+its unprotected header, whose ToBeSigned is that of 01. The depth round at the end holds the limit.
 """
 import hashlib
 import re
@@ -49,6 +56,63 @@ import sys
 import cbor2
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+#: The deepest data item read (the item itself at depth 0, an item inside an array, map, tag or indefinite-length
+#: string one deeper than its container); the limit of the checkers of the two companion drafts.
+MAX_DEPTH = 64
+
+
+class ResourceLimit(Exception):
+    """A read stopped at MAX_DEPTH: a resource-limit error, no value on any axis."""
+
+
+def depth_ok(b):
+    """False if a data item of b lies deeper than MAX_DEPTH. Only the heads are walked, in the order of the bytes; the
+    walk stops without a verdict where the first data item ends or a head is not well-formed, and cbor2 decides."""
+    stack, i = [], 0   # per open container: items still to come, or -1 for an indefinite length
+    while i < len(b):
+        if stack and stack[-1] == -1 and b[i] == 0xFF:
+            stack.pop()
+            i += 1
+        else:
+            if len(stack) > MAX_DEPTH:
+                return False
+            major, ai = b[i] >> 5, b[i] & 31
+            i += 1
+            if ai >= 28 and not (ai == 31 and major in (2, 3, 4, 5)):
+                return True
+            if ai == 31:
+                n = -1
+            elif ai < 24:
+                n = ai
+            else:
+                if i + (1 << (ai - 24)) > len(b):
+                    return True
+                n = int.from_bytes(b[i:i + (1 << (ai - 24))], "big")
+                i += 1 << (ai - 24)
+            if stack and stack[-1] > 0:
+                stack[-1] -= 1
+            if major in (2, 3) and n >= 0:
+                i += n
+            elif major in (2, 3, 4):
+                stack.append(n)
+            elif major == 5:
+                stack.append(n if n < 0 else 2 * n)
+            elif major == 6:
+                stack.append(1)
+        while stack and stack[-1] == 0:
+            stack.pop()
+        if not stack:
+            return True
+    return True
+
+
+def loads(b):
+    """cbor2.loads after the depth walk."""
+    if not depth_ok(b):
+        raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
+    return cbor2.loads(b)
+
 
 raw = open(sys.argv[1], encoding="utf-8").read().split("\n")
 lines = [
@@ -103,7 +167,7 @@ for who, seed, kid in re.findall(r"(issuer|auditor):\s+\*  Ed25519 seed \(hex, 3
 
 
 def decode(b):
-    obj = cbor2.loads(b)
+    obj = loads(b)
     tagged = isinstance(obj, cbor2.CBORTag)
     arr = obj.value if tagged else obj
     is_scitt = tagged and obj.tag == 18 and b[0] == 0xD2
@@ -242,7 +306,7 @@ for who, seed, kid in re.findall(r"(issuer|auditor):\s+\*  Ed25519 seed \(hex, 3
 def lib_ok(arr, aad=b""):
     if arr[2] is None:
         return None
-    pk = keys.get(cbor2.loads(arr[0]).get(4))
+    pk = keys.get(loads(arr[0]).get(4))
     if pk is None:
         return False
     try:
@@ -259,7 +323,7 @@ def sig_ok(arr, aad=b"", cofactored=False, rule2=True):
         return False
     if arr[2] is None:
         return None
-    a_enc = A_OF.get(cbor2.loads(arr[0]).get(4))
+    a_enc = A_OF.get(loads(arr[0]).get(4))
     if a_enc is None:
         return False
     return rule_sig_valid(a_enc, arr[3], tbs(arr, aad), cofactored, rule2)
@@ -270,7 +334,7 @@ a01, _ = decode(stm["01"])
 d01 = hashlib.sha256(tbs(a01)).hexdigest()
 for n in ("02", "03"):
     arr, sc = decode(stm[n])
-    refs = cbor2.loads(arr[0]).get(-70001)
+    refs = loads(arr[0]).get(-70001)
     print(f"statement {n}: refs {[(r[0], r[1], r[2].hex()[:16]) for r in refs]}, is_scitt {sc}, sig_valid {sig_ok(arr)}")
     assert refs == [[-16, "ToBeSigned", bytes.fromhex(ref_stated)]] and sc and sig_ok(arr)
 print(f"01 ToBeSigned sha256 == reference digest: {d01 == ref_stated}; 01 sig_valid {sig_ok(a01)}")
@@ -365,7 +429,7 @@ def read_strict(b):
     exactly four elements, a protected header that is empty or encodes one map, an unprotected map, a payload
     that is a byte string or nil, a signature that is a byte string."""
     try:
-        obj = cbor2.loads(b)
+        obj = loads(b)
         if isinstance(obj, cbor2.CBORTag):
             if obj.tag != 18:
                 return None
@@ -376,9 +440,11 @@ def read_strict(b):
         if not isinstance(prot, bytes) or not isinstance(unprot, dict) or not isinstance(sig, bytes) \
                 or not (payload is None or isinstance(payload, bytes)):
             return None
-        if prot and not isinstance(cbor2.loads(prot), dict):
+        if prot and not isinstance(loads(prot), dict):
             return None
         return obj
+    except ResourceLimit:
+        raise
     except Exception:  # noqa: BLE001
         return None
 
@@ -475,4 +541,56 @@ print(f"C12 built from statement 01 equals the bytes of Appendix A: {c12_built =
 fails += not (c12_built == c12_stated and head == (0xD2, 4, 24, 4) and sc12 and same_tbs and renc
               and hashlib.sha256(c12_built).digest() != hashlib.sha256(stm["01"]).digest())
 print("deviations after the C12 round:", fails)
+
+# Depth limit (2026-10-12): the candidate and its protected header, each read on its own, stop at MAX_DEPTH
+a01_at = 2 + len(cbor2.dumps(a01[0]))   # the offset of the empty unprotected map of statement 01
+assert stm["01"][:2] == b"\xd2\x84" and stm["01"][a01_at] == 0xA0
+rest01 = stm["01"][a01_at + 1:]
+
+
+def deep(kind, n):
+    return {"a": b"\x81", "m": b"\xa1\x01", "t": b"\xc6"}[kind] * n + b"\x00"
+
+
+def unprot01(inner):
+    return stm["01"][:a01_at] + b"\xa1\x20" + inner + rest01
+
+
+def prot01(inner):
+    return b"\xd2\x84" + cbor2.dumps(b"\xa1\x20" + inner) + b"\xa0" + rest01
+
+
+def axes_or_limit(b):
+    try:
+        if read_strict(b) is None:
+            return axes_of_no_statement(-16)
+        arr, is_scitt = decode(b)
+        match = "INDETERMINATE" if arr[2] is None else \
+            ("MATCH" if hashlib.sha256(tbs(arr)).hexdigest() == ref_stated else "NO_MATCH")
+        return ("True", match, str(is_scitt), str(sig_ok(arr)))
+    except ResourceLimit:
+        return "resource-limit error"
+
+
+rl = "resource-limit error"
+for what, b, expect in (
+        ("the candidate: arrays 60000 deep", deep("a", 60000), rl),
+        ("the candidate: maps 30000 deep", deep("m", 30000), rl),
+        ("the candidate: tags 30000 deep", deep("t", 30000), rl),
+        ("01, unprotected {-1: arrays 60000 deep}", unprot01(deep("a", 60000)), rl),
+        ("01, unprotected {-1: maps 30000 deep}", unprot01(deep("m", 30000)), rl),
+        ("01, unprotected {-1: tags 30000 deep}", unprot01(deep("t", 30000)), rl),
+        ("the candidate: arrays, deepest item at %d" % MAX_DEPTH, deep("a", MAX_DEPTH),
+         ("True", "NO_MATCH", "False", "None")),
+        ("the candidate: arrays, deepest item at %d" % (MAX_DEPTH + 1), deep("a", MAX_DEPTH + 1), rl),
+        ("01, unprotected, deepest item at %d" % MAX_DEPTH, unprot01(deep("a", MAX_DEPTH - 3)),
+         ("True", "MATCH", "True", "True")),
+        ("01, unprotected, deepest item at %d" % (MAX_DEPTH + 1), unprot01(deep("a", MAX_DEPTH - 2)), rl),
+        ("01, protected header, deepest item at %d" % MAX_DEPTH, prot01(deep("a", MAX_DEPTH - 1)),
+         ("True", "NO_MATCH", "True", "False")),
+        ("01, protected header, deepest item at %d" % (MAX_DEPTH + 1), prot01(deep("a", MAX_DEPTH)), rl)):
+    got = axes_or_limit(b)
+    print(f"depth probe {what}: {got} {'OK' if got == expect else 'DIFF, expected ' + str(expect)}")
+    fails += got != expect
+print("deviations after the depth round:", fails)
 sys.exit(1 if fails else 0)
