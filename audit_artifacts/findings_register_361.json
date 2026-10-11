@@ -1,7 +1,7 @@
 {
   "schema": "proofbundle.findings_register.v1",
-  "version": "6.2.0",
-  "generated_at": "2026-09-29T18:02:55Z",
+  "version": "6.2.1",
+  "generated_at": "2026-10-10T02:26:28Z",
   "findings": [
     {
       "id": "N1",
@@ -163,6 +163,6 @@
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "4Jv3dgYn2f/RYEVPsHpkDuRGXSIbXJEjRh4CDxCKW8ASJEuUG6gY0149p7+R3op3puDc+uueyVg9Zg3yQXCwCA=="
+    "sig_b64": "KO4nHuoxUsif1giOOn5wsDa0tO4Ltmii6VBeQQPnJb5o0YKWqPz0B7ToDxmGS+Q6+SAY79WoUgbEWuzQoewjBQ=="
   }
 }

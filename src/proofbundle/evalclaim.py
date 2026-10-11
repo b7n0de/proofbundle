@@ -1119,7 +1119,8 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     verify never judged it — an old receipt could be replayed as new. Returns
     {"parsed": bool, "age_seconds": int|None, "fresh": bool|None, "reason": str}. ``fresh`` is None when no
     ``max_age_seconds`` bound is given (age reported, not judged). ISO parsing (normalizes a trailing Z)."""
-    from datetime import datetime, timezone  # noqa: PLC0415
+    import math  # noqa: PLC0415
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
     from .canonical import _zahl_von  # noqa: PLC0415
     # One reading of each caller value, by what it holds (round 12): the claim as the plain copy of what
     # it stores, the clock by its own type, the bound as an exact number (a subclass of int or float is
@@ -1165,13 +1166,17 @@ def check_freshness(claim: dict, max_age_seconds: Optional[int] = None, now=None
     # OverflowError in the SUBTRACTION — reachable from show-eval (age line) and from a policy
     # max_iat_age_seconds. Out of range is "not parsed", never a crash on a never-raise surface.
     try:
-        age = int((ref - dt).total_seconds())
+        delta = ref - dt
     except OverflowError:
         return {"parsed": False, "age_seconds": None, "fresh": None,
                 "reason": f"timestamp {ts!r} is out of the representable range"}
+    # 6.2.1 Codex P2 (Z309): the bound is judged on the exact age, and the reported whole seconds round down.
+    # `int()` truncated toward zero, so a claim 0.4 s in the future read as age 0 (fresh) and one 60.5 s old
+    # read as 60 within a bound of 60.
+    age = math.floor(delta.total_seconds())
     if max_age_seconds is None:
         return {"parsed": True, "age_seconds": age, "fresh": None, "reason": f"age {age}s (no bound given)"}
-    fresh = 0 <= age <= max_age_seconds
+    fresh = delta >= timedelta(0) and delta.total_seconds() <= max_age_seconds
     return {"parsed": True, "age_seconds": age, "fresh": fresh,
             "reason": (f"age {age}s within {max_age_seconds}s" if fresh
                        else f"age {age}s outside [0, {max_age_seconds}]s — possible replay or clock skew")}

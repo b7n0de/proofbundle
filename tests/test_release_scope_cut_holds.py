@@ -1252,7 +1252,10 @@ def _der_standard_im_baum(root: pathlib.Path, capsys, monkeypatch, git) -> str |
     _rc, d = _gate_without_version(root, capsys)
     v = d["version"]
     herkunft = str(d.get("version_herkunft") or "")
-    if v is None and "has its own scope file" in herkunft:
+    # The bump state is named by the gate's reason, whatever version a branch judgement then reached:
+    # since a next scope can be readable without a branch, the gate may name it here (see the case
+    # `test_between_the_bump_and_the_tag_a_readable_next_scope_is_NOT_MEASURED_either`).
+    if "has its own scope file" in herkunft:
         return f"between the bump and its tag the release being built is not decided here ({herkunft})"
     assert v, d["gruende"]
     assert (root / "docs" / "release_scope" / f"{v}.md").is_file(), v
@@ -1717,3 +1720,54 @@ def test_RED_the_card_does_not_count_a_scope_whose_branches_it_cannot_read(tmp_p
         p.write_text(p.read_text(encoding="utf-8").replace("`fix/a1`", cell), encoding="utf-8")
         card = _card_without_version(root, monkeypatch)
         assert card["zustand"] == expected, (cell, card)
+
+
+# -- 9. after the tag v6.2.0: the next scope has not started (order Z361) --
+#
+# Measured on 2026-10-09 at 621bca9e with the tag v6.2.0 in the clone: a run without `--version`
+# judges 6.3.0, whose scope file says "(not started)" and has no branch column, and the gate and the
+# card both answered NOT MEASURABLE for it, so every pull request on main went red. The case in
+# section 4 above plants a declared file WITHOUT `## Out` and keeps its NOT MEASURABLE; this one
+# plants the shape the real file has, with `## Out`.
+
+_NOT_STARTED = ("# Release scope — 6.3.0 (not started)\n\n## In\n\n"
+                "| Item | Why it carries no outward outcome |\n|---|---|\n"
+                "| P30 | something for later |\n\n## Out — what was already out stays out\n")
+
+
+def test_after_the_tag_a_declared_unstarted_next_scope_is_measured_with_zero_branches(
+        tmp_path, capsys, monkeypatch):
+    """Red before the fix, for both. After it, without `--version`: the gate judges 6.3.0, finds
+    every branch outside its scope, names why, and ends with 0; the card counts 6.3.0 as measured,
+    nought of nought, and names why. The changelog does not record 6.3.0 as released, so the
+    default asserted in section 4 holds here as well."""
+    root = _tree(tmp_path, "6.2.0", ("6.1.0", "6.2.0", "6.3.0"), ("v6.0.0", "v6.1.0", "v6.2.0"))
+    (root / "docs" / "release_scope" / "6.3.0.md").write_text(_NOT_STARTED, encoding="utf-8")
+    (root / "CHANGELOG.md").write_text("## [6.2.0] - 2026-09-28\n", encoding="utf-8")
+    rc, d = _gate_without_version(root, capsys)
+    assert (rc, d["version"], d["ausserhalb_des_umfangs"], d["umfang_nicht_begonnen"]) == (
+        0, "6.3.0", True, True), d
+    card = _card_without_version(root, monkeypatch)
+    assert (card["zustand"], card["version"], card["umfang_nicht_begonnen"],
+            card["zeilen_zaehlbar"]) == ("gemessen", "6.3.0", True, 0), card
+    assert _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root)) is None
+
+
+def test_between_the_bump_and_the_tag_a_readable_next_scope_is_NOT_MEASURED_either(tmp_path, capsys,
+                                                                                   monkeypatch):
+    """THE BUMP STATE HAD A SECOND SHAPE, and the helper knew only the first. Since pull request 327
+    a next scope that declares itself not started is readable, so between the bump and its tag the
+    gate no longer answers no version for a branch that no scope names: it judges that branch by the
+    scope files and names the next one. The helper's exit asked for `v is None` and asserted on, and
+    the landing card, which counts one release and cannot choose by a branch, said NOT MEASURABLE in
+    a wording the helper's card exit did not read. Measured in the tree of 6.2.1 before its tag,
+    with the release tags this clone shows: red. The state is the same one the first exit names."""
+    root = _tree(tmp_path, "6.2.1", ("6.2.0", "6.2.1", "6.3.0"), ("v6.0.0", "v6.1.0", "v6.2.0"),
+                 branches={"6.2.0": "fix/old", "6.2.1": "release/6.2.1"})
+    (root / "docs" / "release_scope" / "6.3.0.md").write_text(
+        "# Release scope - 6.3.0 (not started)\n\n## In\n\n| Item | What it is |\n|---|---|\n"
+        "| P30 | something |\n\n## Out\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text("## [6.2.1] - 2026-10-09\n\n## [6.2.0] - 2026-09-28\n",
+                                       encoding="utf-8")
+    grund = _der_standard_im_baum(root, capsys, monkeypatch, _git_in(root))
+    assert grund and "between the bump and its tag" in grund, grund
