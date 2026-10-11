@@ -3,6 +3,16 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 25 (owner choice A of 2026-10-11, blocks G and H): Section 5.2 says what dotted decimal form is for O of a
+did:x509 iss (first arc 0, 1 or 2, one or more further arcs, no leading zeros); step 1 of 5.2.2 fixes the choices
+that RFC 8949 Section 4.2.2 leaves to a protocol: a NaN only as f9 7e00, and no tag with a rule of its own. Step 1 of
+status19 and status20 now reads the bytes with det_item instead of cbor2 and cenc: a float in its shortest form is
+deterministic (before, cenc had no float and every float was malformed), keys compare under RFC 8949 Section 5.6.1
+(1, 1.0 and true are three keys; Python made them one), and a tag is its number and content (cbor2 made a date, an
+integer or a UUID of it). R25-G and R25-H find each block word for word and once; R25-READ holds the reader;
+R25-STEP1 and R25-OID compute M2 with a sixth pair and X1 with O changed in one place. S522-1B reads the two
+sentences around H separately.
+
 Round 24 (key order of the deterministic encoding, no change to the text): the examples' own checker sorted map keys
 by length first, as cbor2 canonical does, and so read a protected header with -16 before 33 or 258 as deterministic.
 R24-ORDER holds this script's encoder to the bytewise order of RFC 8949 Section 4.2.1; R24-KEYORDER computes, with
@@ -831,6 +841,144 @@ def cenc(v):
     if isinstance(v, cbor2.CBORTag):
         return chead(6, v.tag) + cenc(v.value)
     raise TypeError(type(v))
+
+
+# ---------------------------------------------------------------------------
+# Step 1 reader (round 25): RFC 8949 Sections 3, 4.2.1, 5.3.1 and 5.6.1 as remembered, with the choices of Draft 2
+# Section 5.2.2 step 1 (block H). It reads the bytes itself; cbor2 would give a tag a meaning (a date, an integer from
+# a bignum, a UUID) and would let 1 and true, or 1 and 1.0, fall together as Python dict keys.
+# ---------------------------------------------------------------------------
+class NotDet(Exception):
+    pass
+
+
+class CTag:
+    """A tag: number and content, no rule of its own (block H)."""
+    def __init__(self, tag, value):
+        self.tag, self.value = tag, value
+
+
+class CFloat:
+    def __init__(self, x):
+        self.x = x
+
+
+class CSimple:
+    """A simple value other than null (false 20, true 21, undefined 23, ...); equal to no integer."""
+    def __init__(self, n):
+        self.n = n
+
+
+class CKey:
+    """A map key of a kind that Python would compare wrongly, held by its RFC 8949 Section 5.6.1 form."""
+    def __init__(self, eq):
+        self.eq = eq
+
+    def __eq__(self, other):
+        return isinstance(other, CKey) and other.eq == self.eq
+
+    def __hash__(self):
+        return hash(self.eq)
+
+
+def keq(v):
+    """Key equivalence of RFC 8949 Section 5.6.1: integers, floats, simple values, byte strings, text strings,
+    arrays, maps and tags are separate groups; within the floats 0.0 equals -0.0; step 1 admits one NaN only."""
+    if isinstance(v, int):
+        return ("int", v)
+    if isinstance(v, bytes):
+        return ("bstr", v)
+    if isinstance(v, str):
+        return ("tstr", v)
+    if v is None:
+        return ("simple", 22)
+    if isinstance(v, CSimple):
+        return ("simple", v.n)
+    if isinstance(v, CFloat):
+        return ("float", v.x) if v.x == v.x else ("nan",)
+    if isinstance(v, list):
+        return ("array",) + tuple(keq(x) for x in v)
+    if isinstance(v, dict):
+        return ("map", frozenset(((k.eq if isinstance(k, CKey) else keq(k)), keq(x)) for k, x in v.items()))
+    if isinstance(v, CTag):
+        return ("tag", v.tag, keq(v.value))
+    raise TypeError(type(v))
+
+
+def _shorter(x, fmt):
+    try:
+        return _struct.unpack(fmt, _struct.pack(fmt, x))[0] == x
+    except OverflowError:
+        return False
+
+
+def det_item(b):
+    """The data item of b, or None if b is not one well-formed, valid data item in the deterministic encoding."""
+    pos = [0]
+
+    def take(n):
+        if pos[0] + n > len(b):
+            raise NotDet("short")
+        pos[0] += n
+        return b[pos[0] - n:pos[0]]
+
+    def item():
+        start = pos[0]
+        ib = take(1)[0]
+        major, info = ib >> 5, ib & 31
+        if info > 27:
+            raise NotDet("indefinite length or reserved")
+        arg = info if info < 24 else int.from_bytes(take(1 << (info - 24)), "big")
+        if major != 7 and info >= 24 and arg < {24: 24, 25: 1 << 8, 26: 1 << 16, 27: 1 << 32}[info]:
+            raise NotDet("argument longer than needed")
+        if major == 0:
+            return arg
+        if major == 1:
+            return -1 - arg
+        if major == 2:
+            return take(arg)
+        if major == 3:
+            try:
+                return take(arg).decode("utf-8")
+            except UnicodeDecodeError:
+                raise NotDet("text not UTF-8") from None
+        if major == 4:
+            return [item() for _ in range(arg)]
+        if major == 5:
+            m, eqs, prev = {}, set(), None
+            for _ in range(arg):
+                ks = pos[0]
+                k = item()
+                kb = b[ks:pos[0]]
+                if prev is not None and not prev < kb:
+                    raise NotDet("keys not in bytewise order")
+                prev, e = kb, keq(k)
+                if e in eqs:
+                    raise NotDet("duplicate key under RFC 8949 Section 5.6.1")
+                eqs.add(e)
+                m[k if isinstance(k, (int, str, bytes)) or k is None else CKey(e)] = item()
+            return m
+        if major == 6:
+            return CTag(arg, item())
+        if info < 24:
+            return None if arg == 22 else CSimple(arg)
+        if info == 24:
+            if arg < 32:
+                raise NotDet("simple value below 32 in two bytes")
+            return CSimple(arg)
+        x = _struct.unpack({25: ">e", 26: ">f", 27: ">d"}[info], b[start + 1:pos[0]])[0]
+        if x != x:
+            if b[start:pos[0]] != b"\xf9\x7e\x00":
+                raise NotDet("NaN other than f9 7e00 (block H)")
+        elif info > 25 and _shorter(x, ">e" if info == 26 else ">f"):
+            raise NotDet("float with a shorter form")
+        return CFloat(x)
+
+    try:
+        it = item()
+    except Exception:  # noqa: BLE001  NotDet, and a nesting deeper than the interpreter allows
+        return None
+    return it if pos[0] == len(b) else None
 
 
 # ===========================================================================
@@ -1735,8 +1883,10 @@ check("D2", "S522-1V", s1v in d2flat8 and ph_b.count(chead(3, len(iss_b)) + iss_
       "sentence found: %s; iss content at offset %d of %d, replaced byte at %d; still UTF-8: %s; cbor2 refuses: %s"
       % (s1v in d2flat8, iss_content, len(ph_b), bad_at, bad_is_utf8, refused))
 # Round 11: Section 5.2.2 step 1 and its line to step 2, Section 6 step 1, the DSSE date
+# round 25: block H stands between "are one." and "Step 1 does not check"; R25-H checks that place
 s1b = ["two keys are duplicates only when they are equal under the key equivalence of [RFC8949] Section 5.6.1, so "
-       "the integer 1 and true are two keys and 0.0 and -0.0 are one. Step 1 does not check whether the content of a "
+       "the integer 1 and true are two keys and 0.0 and -0.0 are one.",
+       "Step 1 does not check whether the content of a "
        "tag inside the COSE_Sign1 is valid for that tag ([RFC8949] Section 5.3.2); the data items inside a tag are "
        "checked like any other data item.",
        "For step 1, the COSE_Sign1 check concerns only the outer tag, the four-element array and its element types: "
@@ -1966,14 +2116,10 @@ def thumb19(k):
 
 def status19(stmt, rb, rkey, pairs):
     """Section 5.2.2 steps 1 to 7 as written; returns (status, first failing step or None)."""
-    try:
-        item = cbor2.loads(stmt)
-        det = cenc(item) == stmt
-    except Exception:  # noqa: BLE001  not one well-formed, valid data item
+    item = det_item(stmt)   # round 25: the step 1 reader, no longer cbor2 and cenc
+    if item is None:
         return ("malformed", 1)
-    if not det:
-        return ("malformed", 1)
-    tagged = isinstance(item, cbor2.CBORTag)
+    tagged = isinstance(item, CTag)
     if tagged and item.tag != 18:
         return ("malformed", 1)
     arr = item.value if tagged else item
@@ -1981,12 +2127,8 @@ def status19(stmt, rb, rkey, pairs):
             and isinstance(arr[1], Mapping) and isinstance(arr[2], (bytes, type(None))) and isinstance(arr[3], bytes)):
         return ("malformed", 1)
     ph_, uh_, pl_, sg_ = arr
-    try:
-        prot_ = cbor2.loads(ph_) if ph_ else {}
-        pdet = (not ph_) or cenc(prot_) == ph_
-    except Exception:  # noqa: BLE001
-        return ("malformed", 1)
-    if not isinstance(prot_, Mapping) or not pdet:
+    prot_ = det_item(ph_) if ph_ else {}
+    if not isinstance(prot_, Mapping):
         return ("malformed", 1)
     cwt_ = prot_.get(15)
     if (not tagged or len(uh_) != 0 or set(prot_) != {1, 4, 15, 258, 259} or prot_[1] not in (-19, -8)
@@ -2286,14 +2428,10 @@ def leaf_point(cert):
 
 def status20(stmt, rb, rkey, pairs, cert_pairs):
     """Section 5.2.2 steps 1 to 7 with both profiles, as written in round 20."""
-    try:
-        item = cbor2.loads(stmt)
-        det = cenc(item) == stmt
-    except Exception:  # noqa: BLE001
+    item = det_item(stmt)   # round 25: the step 1 reader, no longer cbor2 and cenc
+    if item is None:
         return ("malformed", 1)
-    if not det:
-        return ("malformed", 1)
-    tagged = isinstance(item, cbor2.CBORTag)
+    tagged = isinstance(item, CTag)
     if tagged and item.tag != 18:
         return ("malformed", 1)
     arr = item.value if tagged else item
@@ -2301,12 +2439,8 @@ def status20(stmt, rb, rkey, pairs, cert_pairs):
             and isinstance(arr[1], Mapping) and isinstance(arr[2], (bytes, type(None))) and isinstance(arr[3], bytes)):
         return ("malformed", 1)
     ph_, uh_, pl_, sg_ = arr
-    try:
-        prot_ = cbor2.loads(ph_) if ph_ else {}
-        pdet = (not ph_) or cenc(prot_) == ph_
-    except Exception:  # noqa: BLE001
-        return ("malformed", 1)
-    if not isinstance(prot_, Mapping) or not pdet:
+    prot_ = det_item(ph_) if ph_ else {}
+    if not isinstance(prot_, Mapping):
         return ("malformed", 1)
     # round 21, 5.2.2 step 2: label 394 alone, an array of one or more byte strings, is removed; not read
     if (set(uh_) == {394} and isinstance(uh_[394], (list, tuple)) and len(uh_[394]) >= 1
@@ -2774,6 +2908,105 @@ check("DEMO", "R24-KEYORDER", s24 in d2flat21 and all(g_ == ("malformed", 1) and
       "where the bytewise order puts it after them, so the protected header is not in the deterministic encoding "
       "and the status is malformed at step 1",
       *["%s: %s, sha256 %s" % (k_, g_, h_) for k_, g_, h_ in _got24])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 25: the form of O in iss (5.2, block G) and the choices of step 1 (5.2.2, block H) ===")
+d2flat25 = norm_ws(" ".join(d2))
+g25 = ("and O is an object identifier in dotted decimal form: the first arc is 0, 1 or 2, it is followed by one or "
+       "more further arcs, the arcs are separated by full stops, and each arc is a decimal number without leading "
+       "zeros;")
+h25 = ("For the choices that [RFC8949] Section 4.2.2 leaves to a protocol, step 1 uses these: a NaN is in the "
+       "deterministic encoding only as the half-precision quiet NaN 0xf97e00, and any other encoding of a NaN is "
+       "malformed; no tag adds a rule of its own, so the content of a tag, a bignum included, is checked like any "
+       "other data item.")
+check("D2", "R25-G", d2flat25.count(g25) == 1
+      and "and O is an object identifier in dotted decimal form;" not in d2flat25,
+      "Section 5.2, label 15 of the certificate profile: block G stands word for word and once, and the sentence no "
+      "longer ends after \"dotted decimal form\"", "found %d" % d2flat25.count(g25))
+check("D2", "R25-H", d2flat25.count(h25) == 1
+      and ("so the integer 1 and true are two keys and 0.0 and -0.0 are one. " + h25 + " Step 1 does not check")
+      in d2flat25,
+      "Section 5.2.2 step 1: block H stands word for word and once, right after the sentence that ends with "
+      "\"and 0.0 and -0.0 are one.\"", "found %d" % d2flat25.count(h25))
+
+
+def _r25(h_):
+    it_ = det_item(bytes.fromhex(h_))
+    if it_ is None:
+        return "not deterministic"
+    if isinstance(it_, dict):
+        return "map of %d keys" % len(it_)
+    if isinstance(it_, CTag):
+        return "tag %d around %r" % (it_.tag, it_.value)
+    if isinstance(it_, CFloat):
+        return "float %r" % it_.x
+    return repr(it_)
+
+
+_read25 = [("a20100f500", "map of 2 keys"), ("a20100f93c0000", "map of 2 keys"),
+           ("a2f9000000f9800000", "not deterministic"), ("f97e00", "float nan"), ("f97e01", "not deterministic"),
+           ("fa7fc00000", "not deterministic"), ("fb7ff8000000000001", "not deterministic"), ("f93e00", "float 1.5"),
+           ("fa3fc00000", "not deterministic"), ("c24101", "tag 2 around b'\\x01'"), ("c100", "tag 1 around 0"),
+           ("1817", "not deterministic"), ("9fff", "not deterministic"), ("61ff", "not deterministic"),
+           ("0000", "not deterministic")]
+check("SELF", "R25-READ", all(_r25(h_) == w_ for h_, w_ in _read25),
+      "this script's step 1 reader: 1 and true, 1 and 1.0 are two keys, 0.0 and -0.0 one; a NaN only as f9 7e00; a "
+      "float only in its shortest form; a tag is its number and content (tag 2 around h'01' is no integer, tag 1 no "
+      "date); a long head, an indefinite length, text that is not UTF-8 and trailing bytes are not deterministic",
+      *["%s: %s (expected %s)" % (h_, _r25(h_), w_) for h_, w_ in _read25])
+
+
+def pair25(stmt, key, value, before):
+    """stmt with one more protected-header pair, key and value as given bytes, before the pair of label `before` or
+    at the end; the rest and the signature as they are."""
+    t_ = cbor2.loads(stmt)
+    pm_ = cbor2.loads(t_.value[0])
+    enc = [(k, cenc(k) + cenc(x)) for k, x in pm_.items()]
+    if chead(5, len(enc)) + b"".join(e for _, e in enc) != t_.value[0]:
+        return None
+    es = [e for _, e in enc]
+    es.insert(len(es) if before is None else [k for k, _ in enc].index(before), key + value)
+    return cenc(cbor2.CBORTag(18, [chead(5, len(es)) + b"".join(es), t_.value[1], t_.value[2], t_.value[3]]))
+
+
+# block H and RFC 8949 Section 5.6.1: M2 with a sixth pair, the signature of M2 kept (steps 1 and 2 come first)
+_m25 = [("key 1.5 (f9 3e00) at the end", "f93e00", "00", None, ("outside_profile", 2)),
+        ("key true (f5) at the end, next to 1", "f5", "00", None, ("outside_profile", 2)),
+        ("key 1.0 (f9 3c00) at the end, next to 1", "f93c00", "00", None, ("outside_profile", 2)),
+        ("key -1 at the end, tag 37 and 16 zero bytes", "20", "d82550" + "00" * 16, None, ("outside_profile", 2)),
+        ("key -1 at the end, tag 1 and 0", "20", "c100", None, ("outside_profile", 2)),
+        ("key -1 at the end, tag 2 and h'01'", "20", "c24101", None, ("outside_profile", 2)),
+        ("key -1 before 258, 0", "20", "00", 258, ("malformed", 1)),
+        ("key 16 before 258, tag 0 and '2026-10-11T00:00:00Z'", "10", "c074" + b"2026-10-11T00:00:00Z".hex(), 258,
+         ("outside_profile", 2)),
+        ("key 16 before 258, 1.5 (f9 3e00)", "10", "f93e00", 258, ("outside_profile", 2)),
+        ("key 16 before 258, f9 7e00", "10", "f97e00", 258, ("outside_profile", 2)),
+        ("key 16 before 258, f9 7e01", "10", "f97e01", 258, ("malformed", 1)),
+        ("key 16 before 258, fb 7ff8000000000001", "10", "fb7ff8000000000001", 258, ("malformed", 1))]
+_got25m = []
+for d_, k_, v_, at_, w_ in _m25:
+    b25 = pair25(D2_CS, bytes.fromhex(k_), bytes.fromhex(v_), at_)
+    _got25m.append((d_, status20(b25, VEC["P1"]["R"], ISSUER_PK, pairs20, cpairs20) if b25 else None, w_))
+check("DEMO", "R25-STEP1", all(g_ == w_ for _, g_, w_ in _got25m),
+      "block H and the key equivalence of step 1 computed from the text: a float in its shortest form, the NaN f9 7e00 "
+      "and a tag of any number, a bignum included, pass step 1, and 1, 1.0 and true are three keys, so each of these "
+      "M2 is outside_profile at step 2; a NaN other than f9 7e00 and a key out of bytewise order are malformed at "
+      "step 1", *["M2, %s: %s (expected %s)" % (d_, g_, w_) for d_, g_, w_ in _got25m])
+# block G: X1 with O changed in one place, the signature of X1 kept (steps 2 and 3 come before step 4)
+_p25 = O20.split(".")
+_o25 = [("a leading zero in the last arc", ".".join(_p25[:-1] + ["0" + _p25[-1]]), ("outside_profile", 2)),
+        ("a leading zero in the first arc", "0" + O20, ("outside_profile", 2)),
+        ("second arc 40, under the pair of A.8", ".".join(_p25[:1] + ["40"] + _p25[2:]), ("untrusted_key", 3))]
+_got25o = [(d_, o_, status20(build_x({**x1p, 15: {1: ISS20[:-len(O20)] + o_, 2: x1p[15][2]}}, _sig23), _p1r,
+                             ISSUER_PK, pairs20, cpairs20), w_) for d_, o_, w_ in _o25]
+check("DEMO", "R25-OID", ISS20.endswith("::eku:" + O20) and O20 == "1.3.6.1.5.5.7.3.3"
+      and [o_ for _, o_, _, _ in _got25o] == ["1.3.6.1.5.5.7.3.03", "01.3.6.1.5.5.7.3.3", "1.40.6.1.5.5.7.3.3"]
+      and all(g_ == w_ for _, _, g_, w_ in _got25o),
+      "block G computed from the text: O with a leading zero in its last or first arc has not the form of Section "
+      "5.2 (outside_profile, step 2); O 1.40.6.1.5.5.7.3.3 has it, and under the pair of A.8 the iss names no "
+      "configured pair (untrusted_key, step 3)",
+      *["X1, %s, O %s: %s (expected %s)" % (d_, o_, g_, w_) for d_, o_, g_, w_ in _got25o])
 print()
 
 # ---------------------------------------------------------------------------
