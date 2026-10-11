@@ -24,6 +24,9 @@ generator; it re-derives every claim from the bytes in mappings.json:
       as RSASSA-PKCS1-v1_5 with SHA-256 and the statement signature as ECDSA P-256 with SHA-256.
   R   for each typed digest reference, the state under the declaration of Section 5.1 (Verified, Failed or
       Unresolved, in the terms of CPB Section 8.1) and the result of the matching rule equal the expected ones.
+  T   for each Transparent Statement, the status under both configured pairs equals the expected one: an
+      unprotected header with label 394 alone, holding an array of one or more byte strings, is removed before
+      step 2, and the receipts are not read; T2 is X1 with one receipt under 394, byte for byte.
 Exit 0 when all hold.
 """
 import base64
@@ -199,6 +202,12 @@ def check_statement(stmt: bytes, candidate: bytes, receipt_key: bytes, pairs, ce
     prot, pdet = deterministic(prot_b) if prot_b else ({}, True)
     if not isinstance(prot, Mapping) or not pdet:
         return "malformed", 1
+    # A Transparent Statement: label 394 alone, an array of one or more byte strings (COSE Receipts), is removed
+    # and the steps go on with the empty unprotected header; the receipts are not read. Anything else that is not
+    # the empty map stays and is outside_profile in step 2.
+    if (isinstance(unprot, Mapping) and set(unprot) == {394} and isinstance(unprot[394], (list, tuple))
+            and len(unprot[394]) >= 1 and all(isinstance(r, bytes) for r in unprot[394])):
+        unprot = {}
     cwt = prot.get(15)
     common = (tagged and unprot == {} and isinstance(prot.get(4), bytes) and len(prot[4]) == 32
               and isinstance(cwt, Mapping) and set(cwt) == {1, 2} and isinstance(cwt[1], str)
@@ -417,6 +426,21 @@ def main():
         got = reference_state(r["reference_json"], cand)
         ok &= check("%s state %s, matching rule %s (expected %s, %s)" % (r["id"], got[0], got[1], r["expected_state"],
                     r["expected_match"]), got == (r["expected_state"], r["expected_match"]))
+    t2 = next(t for t in d["transparent_vectors"] if t["id"] == "T2")
+    t2v = cbor2.loads(bytes.fromhex(t2["statement_hex"])).value
+    x1v = cbor2.loads(bytes.fromhex(d["certificate_vectors"][0]["statement_hex"])).value
+    ok &= check("T T2 is X1 with one receipt under unprotected label 394, nothing else changed",
+                list(t2v[1]) == [394] and t2v[0] == x1v[0] and t2v[2] == x1v[2] and t2v[3] == x1v[3]
+                and list(t2v[1][394]) == [bytes.fromhex(d["receipt_of_t2_hex"])]
+                and t2["statement_sha256"] == d["registered_x1"]["transparent_statement_sha256"])
+    for s in d["transparent_vectors"]:
+        stmt = bytes.fromhex(s["statement_hex"])
+        cand = bytes.fromhex(by_id[s["candidate"]]["receipt_hex"])
+        ok &= check("%s statement bytes match their SHA-256" % s["id"],
+                    hashlib.sha256(stmt).hexdigest() == s["statement_sha256"])
+        got = check_statement(stmt, cand, pub, pairs, cert_pairs)
+        ok &= check("%s status %s at step %s (expected %s at step %s)" % (s["id"], got[0], got[1],
+                    s["expected_status"], s["step"]), got == (s["expected_status"], s["step"]))
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 

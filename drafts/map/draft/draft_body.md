@@ -783,10 +783,16 @@ not accepted.
    are checked before step 2. Header label types are checked only in step 2; a
    header label that is not a label of either profile gives outside_profile if
    step 1 succeeds.
-2. The labels of the protected header select the profile: exactly 1, 4, 15,
-   258 and 259 select the key profile, and exactly 1, 4, 15, 33, 258 and 259
-   the certificate profile. If the item is not tagged 18, the unprotected
-   header is not empty, the labels select neither profile, a parameter does
+2. A Transparent Statement {{RFC9943}} carries COSE Receipts {{RFC9942}} in
+   its unprotected header under label 394. If the unprotected header holds
+   label 394 and no other label, and the value of 394 is an array of one or
+   more byte strings, the Receiver removes label 394 and applies the rest of
+   this step and the following steps with the empty unprotected header; the
+   protected header, the payload and the signature stay as they are. These
+   steps do not read the receipts. The labels of the protected header select
+   the profile: exactly 1, 4, 15, 258 and 259 select the key profile, and
+   exactly 1, 4, 15, 33, 258 and 259 the certificate profile. If the item is
+   not tagged 18, the unprotected header is not empty, the labels select neither profile, a parameter does
    not have the type and value that the selected profile gives, the payload is
    detached or is not 32 bytes, or the signature is not 64 bytes, the status
    is outside_profile. `sub` MUST be a text string matching `sha256:` followed
@@ -841,7 +847,10 @@ If every step passes, the status is accepted. Vector M2 with vector P1 of
 {{RECEIPTS}} is accepted, and {{status-vectors}} gives a statement for each
 other status. Vector X1 with P1 is accepted under the certificate pair of
 {{certificate-vectors}}, and X2 to X6 fail at steps 2, 3 and 4 in the
-certificate profile.
+certificate profile. Vectors T1 to T5 ({{transparent-vectors}}) are
+Transparent Statements: T1 and T2 are accepted, and T3 to T5, whose
+unprotected headers hold more than the receipts or the receipts in another
+form, are outside_profile.
 
 Steps 1 to 4 do not use the receipt. A general COSE verifier that implements
 the statement's alg value checks the signature under the rules of its own
@@ -1029,6 +1038,22 @@ compares the digest of that B, never the digest of the object.
 Algorithm. Only SHA-256 is defined. A citation with another algorithm gives
 INDETERMINATE (case C8), so it cannot be satisfied by a weaker digest.
 
+Receipts not read. Step 2 of {{check-statement}} removes the receipts of a
+Transparent Statement without reading them; vector T1 carries a receipt made
+for another statement and is accepted. An accepted status therefore says
+nothing about registration. A Receiver that relies on registration verifies
+each receipt under {{RFC9942}} with a Transparency Service key that it fixed
+itself. It fixes the key, not the issuer name in the receipt: two instances of
+a Transparency Service can carry the same issuer name and differ only in their
+keys ({{impl}}).
+
+Digest not checked at registration. A Transparency Service registers a Signed
+Statement under its Registration Policy and does not hold B; nothing in this
+document requires it to compare the payload with SHA-256 over B, and {{impl}}
+records the registration of a statement whose payload was not that digest.
+Only the Receiver recomputes the receipt digest (step 6 of
+{{check-statement}}).
+
 Configured trust. A Receiver trusts a statement key or a trust anchor because
 it configured it. In the certificate profile, a configured anchor vouches for
 every leaf certificate it signed: step 3 of {{check-statement}} evaluates no
@@ -1095,7 +1120,21 @@ verified the Transparent Statement it returned offline, with the network
 unavailable, under a policy that fixed the receipt issuer, the statement issuer
 and the statement subject and compared the payload with SHA-256 over B. The
 steps of {{check-statement}}, applied on 2026-10-11 to the registered statement
-under the certificate pair of its test root, give accepted.
+under the certificate pair of its test root, give accepted, and so they do for
+the Transparent Statement that the service returned for it.
+
+In the same measurement the service registered a statement whose payload was
+not SHA-256 over the B it named, and two local instances of the service carried
+the same receipt issuer name (127.0.0.1:8000) and differed only in their
+service keys. microsoft/scitt-verifier 0.4.0 reported a receipt taken from
+another entry, a receipt with one byte changed and a receipt of the other
+instance as cannot-evaluate (exit status 3), not as untrusted (exit status 1);
+this document maps no verdict of another tool to a status of
+{{check-statement}}. scitt-verifier 0.4.0 did not anchor a chain whose leaf
+certificate was signed with ECDSA (exit status 3) and verified the chain with
+an RSA root. Vector T2 is the Transparent Statement that a local instance of
+the same service returned on 2026-10-11 for X1: X1 with one receipt under label
+394, byte for byte.
 
 The signature of M2 (alg -19) is checked from the text alone, without a COSE
 library: a script written from the texts of this document and of {{RECEIPTS}}

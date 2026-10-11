@@ -20,7 +20,9 @@ read from that draft's vectors.json). Output, all bytes deterministic:
     test leaf and an RSA-3072 test root, iss a did:x509 identifier that names the root), each other vector X1 with
     one change; the chain and the ES256 signatures are deterministic test material of test_chain.py;
   * R1 to R6, typed digest references under the declaration of the mappings draft, Section 5.1, each with a
-    candidate receipt, its state in the terms of CPB Section 8.1 and the result of the matching rule.
+    candidate receipt, its state in the terms of CPB Section 8.1 and the result of the matching rule;
+  * T1 to T5, Transparent Statements: T2 is the recorded statement that a local Transparency Service returned for
+    X1 (registered_x1.json, X1 with one COSE Receipt under unprotected label 394), the others are made from it.
 
 The test key is the pure test key of the receipts draft; it MUST NOT be used for anything real. The same holds for
 the test certificates and P-256 test keys of test_chain.py.
@@ -83,6 +85,18 @@ CERT = [
     ("X6", "P1", "signature_invalid", 4, "X1 signed by another P-256 test key; kid and x5chain still name the test "
      "leaf"),
 ]
+
+#: (vector, candidate receipt, expected status, first failing step or None, what it shows)
+TRANSPARENT = [
+    ("T1", "P1", "accepted", None, "M2 with the receipt of T2 under unprotected label 394; that receipt is one for X1, "
+     "and the steps of the checking procedure do not read it"),
+    ("T2", "P1", "accepted", None, "the Transparent Statement that a local Transparency Service returned for X1: X1 "
+     "with one receipt under unprotected label 394"),
+    ("T3", "P1", "outside_profile", 2, "T2 with one more unprotected parameter, 4 (kid), the kid of X1"),
+    ("T4", "P1", "outside_profile", 2, "T2 with the receipt under label 394 as a byte string and not in an array"),
+    ("T5", "P1", "outside_profile", 2, "T2 with an empty array under label 394"),
+]
+H_RECEIPTS = 394
 
 #: (vector, candidate receipt, change to the reference, CPB state, what it shows)
 REFS = [
@@ -304,6 +318,31 @@ def main():
                      "reference_json": text.decode("utf-8"), "expected_state": state, "expected_match": match,
                      "shows": shows})
     doc["reference_vectors"] = refs
+
+    # Transparent Statements: the recorded statement of a local Transparency Service for X1, and four made from it.
+    reg = json.load(open(os.path.join(HERE, "registered_x1.json"), encoding="utf-8"))
+    t2 = bytes.fromhex(reg["transparent_statement_hex"])
+    t2v = cbor2.loads(t2).value
+    receipt = t2v[1][H_RECEIPTS][0]
+    x1v = cbor2.loads(x_made["X1"]).value
+    if (cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [x1v[0], {H_RECEIPTS: [receipt]}, x1v[2], x1v[3]]), canonical=True)
+            != t2 or hashlib.sha256(t2).hexdigest() != reg["transparent_statement_sha256"]):
+        raise SystemExit("the recorded Transparent Statement is not X1 with one receipt under 394")
+    m2v = cbor2.loads(statement).value
+
+    def with_unprotected(v, unprotected):
+        return cbor2.dumps(cbor2.CBORTag(TAG_COSE_SIGN1, [v[0], unprotected, v[2], v[3]]), canonical=True)
+
+    t_made = {"T1": with_unprotected(m2v, {H_RECEIPTS: [receipt]}), "T2": t2,
+              "T3": with_unprotected(x1v, {H_KID: cbor2.loads(x1v[0])[H_KID], H_RECEIPTS: [receipt]}),
+              "T4": with_unprotected(x1v, {H_RECEIPTS: receipt}), "T5": with_unprotected(x1v, {H_RECEIPTS: []})}
+    doc["registered_x1"] = {k: v for k, v in reg.items() if k != "transparent_statement_hex"}
+    doc["receipt_of_t2_hex"] = receipt.hex()
+    doc["transparent_vectors"] = [
+        {"id": tid, "candidate": vid, "candidate_receipt_sha256": by_id[vid]["receipt_sha256"],
+         "statement_hex": t_made[tid].hex(), "statement_sha256": hashlib.sha256(t_made[tid]).hexdigest(),
+         "expected_status": status, "step": step, "shows": shows}
+        for tid, vid, status, step, shows in TRANSPARENT]
 
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "mappings.json")
     with open(out, "w", encoding="utf-8") as fh:
