@@ -114,7 +114,8 @@ REF_CHANGE = {"R1": "(none)", "R2": "`purpose` `evaluation` added",
               "R7": "member `x` added, value `1`", "R8": "second `digest` member, names B of P2",
               "R9": "`digest_alg` removed", "R10": "R1 as the only element of a JSON array",
               "R11": "`purpose` added, value `null`", "R12": "sole `digest` name written as `\"\\u0064igest\"`",
-              "R13": "second name `\"\\u0064igest\"`, same value"}
+              "R13": "second name `\"\\u0064igest\"`, same value",
+              "R14": "R1 preceded by the UTF-8 byte order mark"}
 
 
 def reference_section(d):

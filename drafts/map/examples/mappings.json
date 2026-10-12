@@ -447,6 +447,15 @@
       "expected_state": "Malformed",
       "expected_match": "INDETERMINATE",
       "shows": "R1 with an additional member named \"\\u0064igest\" whose value equals the original digest. The decoded names are equal; equal values do not make a repeated name acceptable"
+    },
+    {
+      "id": "R14",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "﻿{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest_alg\":\"SHA-256\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}",
+      "expected_state": "Malformed",
+      "expected_match": "INDETERMINATE",
+      "shows": "R1 with the UTF-8 byte order mark EF BB BF before the JSON text; this representation does not ignore it"
     }
   ],
   "registered_x1": {

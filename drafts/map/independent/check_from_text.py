@@ -3,6 +3,14 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 33 (owner choice A of 2026-10-12, review of the -03, card REVIEW-01): 5.1 says that a byte order mark before
+the JSON text is Malformed (block E), Table 6 has R14, R1 preceded by the UTF-8 byte order mark (block F), with its
+bullet (block G), and 5.1 and Section 12 name R1 to R14 (block H, step 4). bytes7 builds R14 as the bytes EF BB BF and
+then the bytes of R1, not as text; read_8259 keeps the byte order mark, so R14 is Malformed with INDETERMINATE.
+Section 12 names the commits of the measurement of 2026-10-12 and calls the earlier one by its kind (blocks A and
+B); the appendix of changes since -02 has blocks C and I. R20-51, R31-TEXT, R32-E3 and R32-CHANGES read the new
+words; R33-TEXT and R33-R14 are new. R1 to R13 and every other vector keep their result.
+
 Round 32 (owner choice A of 2026-10-12, the text round of the -03, owner choice E3): Draft 2 is now revision -03. The
 certificate profile does not admit -9 and says why (5.2.4, Section 12, the description of X2 in A.8); the Open Items
 are gone, and a scope sentence in 5.2 takes the place of the item on intermediate certificates and other roots; an
@@ -2858,7 +2866,7 @@ s51 = ["the context has no purpose label, so a well-formed reference that carrie
        "Once this digest context has been selected, a digest_alg other than SHA-256 or a digest outside the declared "
        "text representation of 64 lowercase hexadecimal digits makes the reference Failed. Section 3.3 gives "
        "INDETERMINATE for either case.",
-       "equality gives Verified and MATCH, and inequality gives Failed and NO_MATCH. Vectors R1 to R13 (Appendix A.7) "
+       "equality gives Verified and MATCH, and inequality gives Failed and NO_MATCH. Vectors R1 to R14 (Appendix A.7) "
        "illustrate these states and Malformed."]
 check("SELF", "R20-CARRIER", match_rule("sha-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "MATCH"
       and match_rule_in("typed reference", "sha-256", D2_DIGEST.hex(), VEC["P1"]["R"])[0] == "INDETERMINATE"
@@ -2866,9 +2874,10 @@ check("SELF", "R20-CARRIER", match_rule("sha-256", D2_DIGEST.hex(), VEC["P1"]["R
       and "each name counts only in its own carrier" in d2flat20,
       "3.3 step 1 per carrier: sha-256 matches in the examples' carrier and gives INDETERMINATE in a typed digest "
       "reference, where only SHA-256 names the algorithm; the union of the names (match_rule) is too wide there")
-check("D2", "R20-51", all(x in d2flat20 for x in s51) and set(TAB7) == {"R%d" % i for i in range(1, 14)},
+check("D2", "R20-51", all(x in d2flat20 for x in s51) and set(TAB7) == {"R%d" % i for i in range(1, 15)},
       "round 31: 5.1 of the -02 holds the purpose bullet for a well-formed reference, the Malformed sentence, the "
-      "extraction rule without a chosen occurrence, the Failed sentence and the order of B, and A.7 lists R1 to R13",
+      "extraction rule without a chosen occurrence, the Failed sentence and the order of B, and A.7 lists R1 to R14 "
+      "(round 33)",
       "found %d of %d; rows %s" % (sum(x in d2flat20 for x in s51), len(s51), sorted(TAB7, key=lambda r: int(r[1:]))))
 
 
@@ -2910,13 +2919,30 @@ def build7(change):
     raise KeyError(change)
 
 
+#: Round 33: the UTF-8 byte order mark, as bytes (5.1, block E; A.7, R14).
+BOM8 = bytes.fromhex("efbbbf")
+
+
+def bytes7(change):
+    """Round 33: the bytes of a vector of Table 6. R14, "R1 preceded by the UTF-8 byte order mark", is the bytes EF BB
+    BF and then the bytes of R1, not a text that spells them; every other vector is its JSON text in UTF-8."""
+    if norm_ws(change) == "R1 preceded by the UTF-8 byte order mark":
+        return BOM8 + build7("(none)").encode("utf-8")
+    return build7(change).encode("utf-8")
+
+
+def show7(b):
+    return ("bytes EF BB BF, then the JSON text: " + b[3:100].decode("utf-8") if b.startswith(BOM8)
+            else "JSON text: " + b[:100].decode("utf-8"))
+
+
 for rid in sorted(TAB7, key=lambda r: int(r[1:])):
     _v, change, cand_, state_exp, match_exp = TAB7[rid]
-    text7 = build7(change.replace("`", ""))
-    got = ref_state_json(text7.encode("utf-8"), VEC[cand_]["R"])
+    b7 = bytes7(change.replace("`", ""))
+    got = ref_state_json(b7, VEC[cand_]["R"])
     check("D2", "R20-" + rid, got == (state_exp, match_exp),
           "%s (%s) with %s: state and matching rule computed from the text %s, table says %s"
-          % (rid, change, cand_, got, (state_exp, match_exp)), "JSON text: " + text7[:100])
+          % (rid, change, cand_, got, (state_exp, match_exp)), show7(b7))
 print()
 
 
@@ -3494,7 +3520,7 @@ s31t = ["For the JSON representation in Section 5.1, first apply that section's 
         "resolved.",
         "Reference parsing. For the JSON representation in Section 5.1, duplicate detection precedes any conversion "
         "that could discard member names.",
-        "and the state and the matching result of each of R1 to R13, with its own implementation of the form rules of "
+        "and the state and the matching result of each of R1 to R14, with its own implementation of the form rules of "
         "Section 5.1.",
         '[RFC8259] Bray, T., Ed., "The JavaScript Object Notation (JSON) Data Interchange Format", STD 90, RFC 8259, '
         "December 2017,",
@@ -3502,7 +3528,7 @@ s31t = ["For the JSON representation in Section 5.1, first apply that section's 
 _refs31 = [re.search(r"Internet-Draft, draft-gruszka-%s- ?%s, October 2026" % (a_, b_), d2flat20) is not None
            for a_, b_ in (("signed-evaluation", "receipts-01"), ("scitt-statement", "identification-01"))]
 check("D2", "R31-TEXT", all(x in d2flat20 for x in s31t) and all(_refs31),
-      "the -02 holds blocks A, E, H, I, J and L of the review, Section 12 names R1 to R13 and the form rules, its name "
+      "the -02 holds blocks A, E, H, I, J and L of the review, Section 12 names R1 to R14 (round 33) and the form rules, its name "
       "is -03 (round 32), and [RECEIPTS] and [STATEMENT-ID] stay -01",
       "missing: " + (", ".join(x[:40] for x in s31t if x not in d2flat20) or "none"),
       "[RECEIPTS] -01: %s, [STATEMENT-ID] -01: %s" % tuple(_refs31))
@@ -3515,24 +3541,32 @@ s32_e3 = ["The certificate profile does not admit -9: the Transparency Service m
           "statement with -9 at registration, also when its configuration names ESP256, and neither the offline "
           "verifier nor the two general COSE libraries named there implement -9. A statement with -9 is outside the "
           "certificate profile (vector X2).",
-          "On 2026-10-12 the same service, built again at that commit and configured for the test root, registered X1 "
-          "again and refused X2, which is X1 with alg -9 signed again under the test leaf, with \"COSE algorithm -9 is "
-          "not supported\", also when ESP256 was named among its accepted algorithms; its source at that commit and at "
-          "the head of its main branch maps no -9. pycose 1.1.0 and go-cose v1.3.0 refused -9 as an unknown algorithm "
-          "before verifying, and the source of microsoft/scitt-verifier 0.4.0 maps no -9 for the statement signature.",
+          # round 33, block A of the review: the commits of the service and of the verifier
+          "On 2026-10-12 the same service, built again at commit 00101f76 and configured for the test root, registered "
+          "X1 again and refused X2, which is X1 with alg -9 signed again under the test leaf, with \"COSE algorithm -9 "
+          "is not supported\", also when ESP256 was named among its accepted algorithms; its source at that commit and "
+          "at commit d68579b5, the head of its main branch inspected that day, maps no -9. pycose 1.1.0 and go-cose "
+          "v1.3.0 refused -9 as an unknown algorithm before verifying, and the source of microsoft/scitt-verifier at "
+          "commit bd6fb8ba (package version 0.4.0) maps no -9 for the statement signature.",
           "X2: X1 with alg -9 (ESP256) in place of -7, signed again under the test leaf; the Transparency Service of "
           "Section 12 refuses it at registration."]
 check("D2", "R32-E3", all(x in d2flat32 for x in s32_e3) and "describes the form that was registered and verified"
       not in d2flat32 and "also admits alg -9" not in d2flat32,
       "E3: 5.2.4 says why the certificate profile does not admit -9, Section 12 holds the measurement of "
-      "2026-10-12, A.8 says that the service refuses X2, and no open item asks about -9 any more",
+      "2026-10-12 with the commits of block A (round 33), A.8 says that the service refuses X2, and no open item asks "
+      "about -9 any more",
       "missing: " + (", ".join(x[:40] for x in s32_e3 if x not in d2flat32) or "none"))
 ch32_i = find_line(d2, APPX_END)
 ch32 = norm_ws(" ".join(d2[ch32_i:find_line(d2, r"^Author's Address", ch32_i)]))
 s32_ch = ["Since draft-gruszka-evaluation-receipt-mappings-02",
           "The certificate profile does not admit alg -9 (ESP256). Section 5.2.4 gives the measured reason, Section 12 "
           "the measurement, and vector X2 (Appendix A.8) is the statement that was refused.",
-          "The open items are resolved and removed.", "This appendix is added.",
+          # round 33, blocks C and I of the review
+          "The Open Items section is removed. The in-toto references stay pinned to release v1.2.0, the draft names of "
+          "[RECEIPTS] and [STATEMENT-ID] stay as cited, Section 5.1 already says that no profile names its declaration, "
+          "and Section 5.2 now states the measured reason for retaining the certificate profile's existing limits.",
+          "Section 5.1 makes explicit that a byte order mark is not ignored in this JSON representation, and vector R14 "
+          "illustrates the resulting Malformed state and INDETERMINATE matching result.", "This appendix is added.",
           "Since draft-gruszka-evaluation-receipt-mappings-01",
           "Section 5.1 defines the JSON representation of a typed digest reference.",
           "Vectors R7 to R13 (Appendix A.7) give Malformed inputs and an escaped member name.",
@@ -3554,11 +3588,47 @@ s32_ch = ["Since draft-gruszka-evaluation-receipt-mappings-02",
           "Section 12 records the registration of a statement in the certificate profile with a local Transparency "
           "Service and the offline verification of the Transparent Statement it returned."]
 _order32 = [ch32.find("Since draft-gruszka-evaluation-receipt-mappings-%s" % v) for v in ("02", "01", "00")]
+_order33 = [ch32.find(x) for x in ("The Open Items section is removed.", "Section 5.1 makes explicit that a byte order "
+                                   "mark", "This appendix is added.", "Since draft-gruszka-evaluation-receipt-mappings-01")]
 check("D2", "R32-CHANGES", all(x in ch32 for x in s32_ch) and ch32_i > aend - 1 and -1 < _order32[0] < _order32[1]
-      < _order32[2],
-      "the unnumbered appendix of changes follows the examples, with the changes since -02, since -01 and since -00, "
-      "in that order",
+      < _order32[2] and "The open items are resolved and removed." not in ch32
+      and -1 < _order33[0] < _order33[1] < _order33[2] < _order33[3],
+      "the unnumbered appendix of changes follows the examples, with the changes since -02 (blocks C and I of round "
+      "33), since -01 and since -00, in that order",
       "missing: " + (", ".join(x[:40] for x in s32_ch if x not in ch32) or "none"))
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 33: review of the -03, the byte order mark (5.1, R14) and Section 12 ===")
+d2flat33 = norm_ws(" ".join(d2))
+s33 = ["or has another member is Malformed ([CPB] Section 3). A byte order mark before the JSON text is not part of the "
+       "JSON grammar, so such input is Malformed, although [RFC8259] Section 8.1 allows a parser to ignore it. This "
+       "form check precedes reference resolution and verification.",
+       "Vectors R1 to R14 (Appendix A.7) illustrate these states and Malformed.",
+       "R14: R1 with the UTF-8 byte order mark EF BB BF before the JSON text; this representation does not ignore it.",
+       "In the earlier registration and offline-verification measurement, the service registered a statement whose "
+       "payload was not SHA-256 over the B it named, and two local instances of the service carried the same receipt "
+       "issuer name (127.0.0.1:8000) and differed only in their service keys."]
+s33_old = ["In the same measurement the service registered", "Vectors R1 to R13 (Appendix A.7) illustrate",
+           "each of R1 to R13, with its own"]
+check("D2", "R33-TEXT", all(x in d2flat33 for x in s33) and not any(x in d2flat33 for x in s33_old),
+      "5.1 holds block E right after the Malformed sentence and block H, A.7 the bullet of R14 (block G), Section 12 "
+      "block B; the replaced words are gone",
+      "missing: " + (", ".join(x[:40] for x in s33 if x not in d2flat33) or "none"),
+      "still there: " + (", ".join(x for x in s33_old if x in d2flat33) or "none"))
+_r14 = TAB7.get("R14")
+_b14 = bytes7(_r14[1]) if _r14 else b""
+_b1 = bytes7("(none)")
+_got33 = ref_state_json(_b14, VEC["P1"]["R"]) if _r14 else None
+_drop33 = ref_state_json(_b14[3:], VEC["P1"]["R"]) if _r14 else None
+check("D2", "R33-R14", _r14 is not None and norm_ws(_r14[1]) == "R1 preceded by the UTF-8 byte order mark"
+      and _r14[2:] == ["P1", "Malformed", "INDETERMINATE"] and _b14 == BOM8 + _b1 and _got33 == ("Malformed",
+      "INDETERMINATE") and _drop33 == ("Verified", "MATCH"),
+      "Table 6 has R14 (block F): the bytes EF BB BF and then the bytes of R1 are Malformed with INDETERMINATE, "
+      "computed from the bytes; with the byte order mark dropped, as a parser may under RFC 8259 Section 8.1, they "
+      "are R1, Verified with MATCH",
+      "row: %s" % (_r14,), "R14 %d bytes, R1 %d bytes; R14: %s; without the mark: %s" % (len(_b14), len(_b1), _got33,
+                                                                                      _drop33))
 print()
 
 # ---------------------------------------------------------------------------
