@@ -3,6 +3,13 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 30 (owner word of 2026-10-12, no change to the text): a digest counts only as a text value and an algorithm name
+only as a text or an integer. ref_state checks the form of 5.1 with typed_digest_form, which no longer reads the
+digest through str(): before, a digest of 10**63 passed the form check and failed only at the comparison. The matching
+rule gives INDETERMINATE for a typed reference whose digest is a byte string (5.1: "a text value"; before, MATCH, and
+the reference Failed with MATCH), for -16.0 in the COSE carrier (before, MATCH) and for an algorithm that is a list or
+a map (before, TypeError). R30-DIGEST and R30-ALG hold it.
+
 Round 29 (owner choice A of 2026-10-12, size limits, no change to the text): parse_ijson and det_item read at most
 INPUT_LIMIT (1 MiB) and stop above it before anything else, with the same resource-limit error as for the depth; the
 limits of this script now stand together in one block at the top. A candidate over the limit has no B (3.3 step 2:
@@ -849,7 +856,7 @@ def match_rule(alg, value, rb):
     else:
         ok_form = isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
         vhex = value
-    if alg not in SHA256_IDS or isinstance(alg, bool) or not ok_form:
+    if type(alg) not in (str, int) or alg not in SHA256_IDS or not ok_form:   # round 30: not true, -16.0 or a list
         return "INDETERMINATE", "rule step 1 (algorithm or value form)"
     try:
         B, fail, _ = steps_1_to_3(rb)
@@ -868,6 +875,8 @@ CARRIER_NAME = {"digest set": "sha256", "cose": -16, "examples": "sha-256", "typ
 def match_rule_in(carrier, alg, value, rb):
     if isinstance(alg, bool) or alg != CARRIER_NAME[carrier]:
         return "INDETERMINATE", "rule step 1 (not the name of SHA-256 in this carrier)"
+    if carrier == "typed reference" and not isinstance(value, str):   # round 30: 5.1, digest is a text value
+        return "INDETERMINATE", "rule step 1 (the digest of a typed reference is a text value)"
     return match_rule(alg, value, rb)
 
 
@@ -2731,6 +2740,13 @@ CHANGES7 = {"(none)": {}, "purpose evaluation added": {"purpose": "evaluation"},
             "digest names B of P2": {"digest": sha256(_p2b).hex()}}
 
 
+def typed_digest_form(ref):
+    """Round 30, Section 5.1: digest_alg is exactly SHA-256 and digest is a text value of 64 lowercase hexadecimal
+    digits. A number, true, a list or a byte string is no text value, whatever str() makes of it."""
+    d_ = ref.get("digest")
+    return ref.get("digest_alg") == "SHA-256" and isinstance(d_, str) and re.fullmatch(r"[0-9a-f]{64}", d_) is not None
+
+
 def ref_state(ref, rb):
     """Section 5.1 with CPB Section 8.1 as Section 5.1 cites it: (state, matching rule)."""
     if not isinstance(ref, Mapping):   # round 28: no type, so the declaration does not apply; no algorithm, no digest
@@ -2742,7 +2758,7 @@ def ref_state(ref, rb):
         B_, fail_ = None, (1, "resource limit: %s" % e)
     if ref.get("type") != D2_TYPE or "purpose" in ref:
         return "Unresolved", mr
-    if ref.get("digest_alg") != "SHA-256" or re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is None:
+    if not typed_digest_form(ref):
         return "Failed", mr
     if fail_:
         return "Unresolved", mr
@@ -3255,6 +3271,32 @@ check("DEMO", "R29-SIZE", [g_ for _, g_ in _got29] == _want29,
       "size is read (outside_profile at step 2, its unprotected header not empty) and one byte more is a "
       "resource-limit error, no status" % INPUT_LIMIT,
       *["%s: %s" % (d_, g_) for d_, g_ in _got29])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 30: a digest is a text value, an algorithm name a text or an integer (3.3 step 1, 5.1) ===")
+_p1r30 = VEC["P1"]["R"]
+_got30 = [(d_, ref_state(dict(REF1, **c_), _p1r30), typed_digest_form(dict(REF1, **c_))) for d_, c_ in (
+    ("no member changed", {}), ("digest 10**63", {"digest": 10 ** 63}), ("digest 1e63", {"digest": 1e63}),
+    ("digest true", {"digest": True}), ("digest a list with the right text", {"digest": [D2_DIGEST.hex()]}),
+    ("digest the 32 bytes", {"digest": D2_DIGEST}), ("digest_alg a list", {"digest_alg": ["SHA-256"]}))]
+check("DEMO", "R30-DIGEST", [(s_, f_) for _, s_, f_ in _got30] == [(("Verified", "MATCH"), True)]
+      + [(("Failed", "INDETERMINATE"), False)] * 6,
+      "5.1: digest is a text value of 64 lowercase hexadecimal digits and digest_alg exactly SHA-256; a number (also "
+      "one whose str() gives 64 hexadecimal digits), true, a list holding the right text or the 32 bytes themselves, "
+      "and a digest_alg that is a list, are Failed, and the matching rule gives INDETERMINATE",
+      *["REF1 with %s, P1: %s, form of 5.1 %s" % (d_, s_, f_) for d_, s_, f_ in _got30])
+_got30a = [(d_, f_()[0]) for d_, f_ in (
+    ("COSE carrier, -16, the 32 bytes", lambda: match_rule_in("cose", -16, D2_DIGEST, _p1r30)),
+    ("COSE carrier, -16.0, the 32 bytes", lambda: match_rule_in("cose", -16.0, D2_DIGEST, _p1r30)),
+    ("union of names, -16.0, the 32 bytes", lambda: match_rule(-16.0, D2_DIGEST, _p1r30)),
+    ("union of names, true, the 32 bytes", lambda: match_rule(True, D2_DIGEST, _p1r30)),
+    ("union of names, a list [SHA-256], the text", lambda: match_rule(["SHA-256"], D2_DIGEST.hex(), _p1r30)),
+    ("union of names, a map, the text", lambda: match_rule({"SHA-256": 1}, D2_DIGEST.hex(), _p1r30)))]
+check("DEMO", "R30-ALG", [g_ for _, g_ in _got30a] == ["MATCH"] + ["INDETERMINATE"] * 5,
+      "3.3 step 1: names are compared exactly, so -16.0 and true are not -16, and an algorithm that is a list or a "
+      "map is no name; each gives INDETERMINATE",
+      *["%s, P1: %s" % (d_, g_) for d_, g_ in _got30a])
 print()
 
 # ---------------------------------------------------------------------------
