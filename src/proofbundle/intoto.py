@@ -12,14 +12,18 @@ exists (deferred, see the roadmap).
 """
 from __future__ import annotations
 
+import binascii
+import copy
 import hashlib
 import hmac
 import json
+import re
 from collections import Counter
 from typing import Any, Optional
 
 from ._membership import require_switch, type_name
 from ._verdict import require_bool_verdict, require_eval_claim
+from ._wire_b64 import decode_b64
 from ._strict_json import loads_strict
 from .budget import render_safe
 from .canonical import (CONTENT_ROOT_ALG, CanonicalizerUnavailable, _ein_stand, _plain_for_jcs,
@@ -40,6 +44,13 @@ DATASET_COMMIT_DIGEST_KEY = "proofbundleDatasetCommitV1"
 # namespace is documented in docs/IN_TOTO_PROFILE.md and needs a redirect PR only there. Status: PROPOSED
 # — under discussion at in-toto/attestation#565, NOT standardized.
 EVAL_RESULT_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.1"
+# The revised #575 draft (2026-09-28: `evaluator` in place of `verifier`, one identification each for model
+# and dataset, `evidence[]` in place of `receipt`) under ITS OWN type version. v0.1 above was emitted and
+# signed by released versions; a consumer that keys on the type must never read those bytes under the
+# revised rules, nor revised bytes under the old ones. So v0.1 keeps its contract unchanged (signature,
+# content root, type) and v0.2 adds the shape of the revised draft to the verdict (gate G2).
+EVAL_RESULT_V02_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.2"
+EVAL_RESULT_PREDICATE_TYPES = (EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_V02_PREDICATE_TYPE)
 # DSSE payloadType for an in-toto Statement is the canonical Statement media type (in-toto spec v1
 # envelope.md), NOT a predicate-specific subtype. Pinned so sign and verify agree.
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
@@ -604,8 +615,9 @@ def _eval_result_claim_fields(predicate: dict) -> list:
 
 def _descriptor_claim_fields(bezeichnung: str, eintrag: Any) -> tuple[list, list]:
     """(teile, urteile) for one resource descriptor, wherever it stands in a statement of the
-    verifier's own type: an entry of a test-result `configuration`, or an entry of the `subject` of
-    either statement.
+    verifier's own type: an entry of a test-result `configuration`, an entry of the `subject` of
+    either statement, or, in an eval-result v0.2 predicate, the `model`, the `dataset`, the `harness`
+    and an `evidence` entry (`_eval_result_v02_statement_claim_fields`).
 
     THE OWNERSHIP RULE, one function for every place a descriptor stands. A descriptor is ours when
     its digest carries `proofbundleModelCommitV1` or `proofbundleDatasetCommitV1`; the claim rule
@@ -679,6 +691,21 @@ def _eval_result_statement_claim_fields(statement: dict, predicate: dict) -> lis
     """What `verify_eval_result_dsse` judges: the predicate's claim fields and the subject."""
     return ([(f"predicate {b}", f) for b, f in _eval_result_claim_fields(predicate)]
             + _subject_claim_fields(statement)[0])
+
+
+def _eval_result_v02_statement_claim_fields(statement: dict, predicate: dict) -> list:
+    """`_eval_result_statement_claim_fields`, and the places eval-result v0.2 adds for a descriptor: the
+    predicate's top-level `model`, `dataset` and `harness`, and each `evidence` entry. Codex thread 4218003341
+    on pull request 301: a signed v0.2 statement whose top-level model descriptor carried our commitment key
+    with `passed` "false" verified ok=True, because the ownership rule never reached that location. v0.1 has
+    none of these fields and keeps its walk, so an unknown field there stays unread (G2)."""
+    teile = []
+    for name in ("model", "dataset", "harness"):
+        if name in predicate:
+            teile += _descriptor_claim_fields(name, predicate[name])[0]
+    if "evidence" in predicate:
+        teile += _descriptor_list_claim_fields("evidence", predicate["evidence"])[0]
+    return _eval_result_statement_claim_fields(statement, predicate) + [(f"predicate {b}", f) for b, f in teile]
 
 
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
@@ -1124,20 +1151,27 @@ def export_eval_result_dsse(claim: dict, signer, *, subject_profile: str = "rece
 
 @_ein_stand(fehler=BundleFormatError)
 def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
-                            expected_predicate_type: str = EVAL_RESULT_PREDICATE_TYPE) -> dict:
+                            expected_predicate_type: Optional[str] = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type,
-    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail}. `ok` is True iff the
-    Ed25519 signature over the DSSE PAE verifies, payloadType is the pinned in-toto Statement media type,
-    the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), AND the
-    statement's `predicateType` equals `expected_predicate_type` (WP-I1: predicate-confusion defense —
-    the type was previously only returned, so a swapped SVR/test-result envelope was accepted as an
-    eval-result). Pass `expected_predicate_type=None` to opt out.
+    predicate_type_ok, content_root_alg, content_root_ok, content_root_detail, predicate_claim_ok,
+    predicate_shape_ok, predicate_shape_detail}. `ok` is True iff the Ed25519 signature over the DSSE PAE
+    verifies, payloadType is the pinned in-toto Statement media type, the payload is canonical for its
+    DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002), the statement's `predicateType` equals
+    `expected_predicate_type` (WP-I1: predicate-confusion defense — the type was previously only returned,
+    so a swapped SVR/test-result envelope was accepted as an eval-result), AND, for a statement that
+    declares `EVAL_RESULT_V02_PREDICATE_TYPE`, its predicate has the v0.2 shape
+    (`classify_eval_result_v02_predicate`).
 
     `ok` also requires that every eval-claim field the predicate carries (claims[], sampleSize,
     commitments, suite, evaluatedAt, assuranceLevel, preRegistration) passes the claim rule, and so
     does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
-    `_judge_claim_fields`). An absent field is not judged. ``expected_predicate_type`` must be a
-    string or None, and the envelope is read once, as for `verify_intoto_dsse`."""
+    `_judge_claim_fields`). An absent field is not judged.
+
+    The default still expects v0.1, and a v0.1 statement is judged exactly as before (no shape check,
+    `predicate_shape_ok` None). To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
+    Pass `expected_predicate_type=None` to opt out of the type check; the shape of a v0.2 statement is
+    checked all the same. ``expected_predicate_type`` must be a string or None, and the envelope is read
+    once, as for `verify_intoto_dsse`."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -1149,14 +1183,429 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
         ok, body = dsse._verify_and_load(envelope, public_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         statement = loads_strict(body.decode("utf-8"))   # WP-C1: duplicate keys rejected fail-closed
     except (ProofBundleError, ValueError, UnicodeDecodeError) as exc:
-        return _judge_claim_fields(_intoto_verify_result(False, False, None, None,
-                                                         f"DSSE payload rejected (fail-closed): {exc}",
-                                                         erwartet),
-                                   EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
+        res = _judge_claim_fields(_intoto_verify_result(False, False, None, None,
+                                                        f"DSSE payload rejected (fail-closed): {exc}",
+                                                        erwartet),
+                                  EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
+        res["predicate_shape_ok"], res["predicate_shape_detail"] = None, ""
+        return res
     binding_ok, alg, detail = _content_root_binding(statement, body)
-    return _judge_claim_fields(
+    # The claim rule judges both versions: v0.2 carries claims[], sampleSize, commitments, suite, evaluatedAt,
+    # assuranceLevel and preRegistration under the names v0.1 uses. Measured after the merge of main into pull
+    # request 301: a signed v0.2 statement whose model commitment was "ab" verified ok=True, where v0.1 gives False.
+    eigener_typ = (EVAL_RESULT_V02_PREDICATE_TYPE if isinstance(statement, dict)
+                   and statement.get("predicateType") == EVAL_RESULT_V02_PREDICATE_TYPE else EVAL_RESULT_PREDICATE_TYPE)
+    res = _judge_claim_fields(
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
-        EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
+        eigener_typ, (_eval_result_v02_statement_claim_fields if eigener_typ == EVAL_RESULT_V02_PREDICATE_TYPE
+                      else _eval_result_statement_claim_fields))
+    # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
+    # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
+    # statement is never judged under v0.2. v0.1 has no shape contract and gets none now (G2: old
+    # evidence stays verifiable under its old contract); `None` says that no shape was checked.
+    if res["predicate_type"] == EVAL_RESULT_V02_PREDICATE_TYPE:
+        shape_ok, shape_detail = classify_eval_result_v02_predicate(statement)
+        res["predicate_shape_ok"], res["predicate_shape_detail"] = shape_ok, shape_detail
+        if not shape_ok:
+            res["ok"] = False
+            res["content_root_detail"] = (
+                (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + shape_detail)
+    else:
+        res["predicate_shape_ok"], res["predicate_shape_detail"] = None, ""
+    return res
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# eval-result v0.2 — the revised in-toto/attestation#575 draft (docs/upstream/eval-result.md).
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+# A URI with a scheme and no whitespace or control character (RFC 3986 shape, not a registry lookup).
+_URI_RE = re.compile(r"\A[A-Za-z][A-Za-z0-9+.\-]*:[^\s\x00-\x1f\x7f]+\Z")
+_RFC3339_RE = re.compile(
+    r"\A(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))\Z")
+_LOWER_HEX_RE = re.compile(r"\A[0-9a-f]+\Z")
+# The claim builder's grammar for a decimal string (evalclaim._DECIMAL_RE): the draft says "decimal
+# string" and gives no grammar, so this is the reading implemented (ambiguity A3, docs/IN_TOTO_PROFILE.md).
+_DECIMAL_STRING_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
+# Fixed output lengths of the hash functions: a digest under one of these names that has another length,
+# or is not lowercase hex, names no content. Every other algorithm name only needs a non-empty string.
+_HEX_DIGEST_LENGTHS = (("md5", 32), ("sha1", 40), ("sha224", 56), ("sha256", 64), ("sha384", 96),
+                       ("sha512", 128), ("sha512_224", 56), ("sha512_256", 64), ("sha3_224", 56),
+                       ("sha3_256", 64), ("sha3_384", 96), ("sha3_512", 128))
+_V02_COMPARATORS = (">=", ">", "<=", "<")
+_V02_ASSURANCE_LEVELS = ("self_attested", "third_party", "reproduced", "enclave_attested")
+_RD_STRING_FIELDS = ("name", "uri", "mediaType", "downloadLocation", "content")
+# The algorithms whose digest over an inline `content` this verifier can recompute. A DigestSet may name
+# others; for those the content is not compared, and that is stated, not hidden.
+_CONTENT_DIGESTS = (("sha256", hashlib.sha256), ("sha384", hashlib.sha384), ("sha512", hashlib.sha512),
+                    ("sha224", hashlib.sha224), ("sha1", hashlib.sha1), ("sha3_256", hashlib.sha3_256),
+                    ("sha3_384", hashlib.sha3_384), ("sha3_512", hashlib.sha3_512))
+_MAX_SAFE_INT = 2 ** 53 - 1
+
+
+def _nonempty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _is_rfc3339(value: Any) -> bool:
+    """An RFC 3339 date-time with an offset, and a real calendar date (no month 13, no 30 February)."""
+    if not isinstance(value, str):
+        return False
+    m = _RFC3339_RE.match(value)
+    if not m:
+        return False
+    year, month, day, hour, minute, second = (int(m.group(i)) for i in range(1, 7))
+    if not 1 <= month <= 12:
+        return False
+    leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    days = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)[month - 1]
+    if not (1 <= day <= days and hour <= 23 and minute <= 59 and second <= 60):
+        return False
+    if m.group(8) is not None and (int(m.group(8)) > 23 or int(m.group(9)) > 59):
+        return False
+    return True
+
+
+def _digest_set_problem(value: Any) -> str:
+    """'' for a usable DigestSet, else what is wrong with it."""
+    if not isinstance(value, dict):
+        return f"digest must be a DigestSet object, got {type(value).__name__}"
+    if not value:
+        return "digest is empty"
+    for alg, hexval in value.items():
+        if not _nonempty_str(alg):
+            return "digest has an empty algorithm name"
+        if not _nonempty_str(hexval):
+            return f"digest {alg[:40]!r} must be a non-empty string"
+        for name, length in _HEX_DIGEST_LENGTHS:
+            if alg == name and (len(hexval) != length or not _LOWER_HEX_RE.match(hexval)):
+                return f"digest {alg!r} must be {length} lowercase hex characters"
+    return ""
+
+
+def _descriptor_problem(value: Any, where: str) -> str:
+    """'' for a ResourceDescriptor that MUST carry `digest` (model, dataset, evidence entries)."""
+    if not isinstance(value, dict):
+        return f"{where} must be a ResourceDescriptor object, got {type(value).__name__}"
+    if "digest" not in value:
+        return f"{where} MUST carry digest"
+    problem = _digest_set_problem(value["digest"])
+    if problem:
+        return f"{where}: {problem}"
+    for field in _RD_STRING_FIELDS:
+        if field in value and not isinstance(value[field], str):
+            return f"{where}.{field} must be a string"
+    if "annotations" in value and not isinstance(value["annotations"], dict):
+        return f"{where}.annotations must be an object"
+    if "content" in value:
+        # The digest identifies the decoded bytes of `content` (draft, evidence field rules). `content` is
+        # bytes in the ResourceDescriptor, carried in JSON as standard base64 (the house's one strict
+        # decoder: canonical, padded); a digest that names other bytes contradicts its descriptor.
+        try:
+            decoded = decode_b64(value["content"])
+        except (binascii.Error, ValueError):
+            return f"{where}.content must be canonical standard base64 (the descriptor's bytes)"
+        for name, function in _CONTENT_DIGESTS:
+            if name in value["digest"] and function(decoded).hexdigest() != value["digest"][name]:
+                return f"{where}: digest {name!r} does not identify the decoded content"
+    return ""
+
+
+def _commitment_problem(value: Any, where: str) -> str:
+    """'' for a commitment entry `{alg, value, salted}`. A present entry that is not usable (null, a
+    list, a missing field) is refused, never read as absent."""
+    if not isinstance(value, dict):
+        return f"{where} must be an object {{alg, value, salted}}, got {type(value).__name__}"
+    if not _nonempty_str(value.get("alg")):
+        return f"{where}.alg must be a non-empty string"
+    hexval = value.get("value")
+    if not (isinstance(hexval, str) and _LOWER_HEX_RE.match(hexval)):
+        return f"{where}.value must be a non-empty lowercase hex string"
+    if value.get("salted") is not True:
+        return f"{where}.salted must be true (each commitment entry MUST set it to true)"
+    return ""
+
+
+def _claim_problems(claim: Any, where: str) -> list:
+    if not isinstance(claim, dict):
+        return [f"{where} must be an object {{metric, comparator, threshold, passed}}"]
+    out = []
+    if not _nonempty_str(claim.get("metric")):
+        out.append(f"{where}.metric must be a non-empty string")
+    comparator = claim.get("comparator")
+    if not (isinstance(comparator, str) and comparator in _V02_COMPARATORS):
+        out.append(f"{where}.comparator must be one of >=, >, <=, <")
+    threshold = claim.get("threshold")
+    if not (isinstance(threshold, str) and _DECIMAL_STRING_RE.match(threshold)):
+        out.append(f"{where}.threshold must be a decimal string, never a JSON number")
+    if not isinstance(claim.get("passed"), bool):
+        out.append(f"{where}.passed must be a boolean")
+    return out
+
+
+def _eval_result_v02_predicate_problems(pred: Any) -> list:
+    """Every way `pred` departs from the v0.2 predicate. Unknown fields are ignored at every level (in-toto
+    parsing rules); a KNOWN field that is present must be usable, and a present-but-unusable value is
+    refused rather than read as absent."""
+    if not isinstance(pred, dict):
+        return [f"predicate must be an object, got {type(pred).__name__}"]
+    out = []
+    evaluator = pred.get("evaluator")
+    if not isinstance(evaluator, dict):
+        hint = " (found `verifier`, the v0.1 role name)" if "verifier" in pred else ""
+        out.append(f"evaluator is required: an object with id, the URI of the party that ran the evaluation{hint}")
+    elif not (isinstance(evaluator.get("id"), str) and _URI_RE.match(evaluator["id"])):
+        out.append("evaluator.id is required and must be a URI (TypeURI)")
+    if not _is_rfc3339(pred.get("evaluatedAt")):
+        out.append("evaluatedAt is required and must be an RFC 3339 date-time with an offset")
+    suite = pred.get("suite")
+    if not (isinstance(suite, dict) and _nonempty_str(suite.get("name")) and _nonempty_str(suite.get("version"))):
+        out.append("suite is required: {name, version}, both non-empty strings")
+    claims = pred.get("claims")
+    if not isinstance(claims, list) or not claims:
+        out.append("claims is required: one or more {metric, comparator, threshold, passed}")
+    else:
+        for i, claim in enumerate(claims):
+            out.extend(_claim_problems(claim, f"claims[{i}]"))
+    size = pred.get("sampleSize")
+    if not (isinstance(size, int) and not isinstance(size, bool) and 0 <= size <= _MAX_SAFE_INT):
+        out.append("sampleSize is required: a non-negative integer")
+    commitments: Any = pred.get("commitments", {})
+    if not isinstance(commitments, dict):
+        out.append(f"commitments must be an object, got {type(commitments).__name__}")
+        commitments = {}
+    for identity in ("model", "dataset"):
+        forms = [form for form, present in ((f"commitments.{identity}", identity in commitments),
+                                            (f"a top-level {identity} descriptor", identity in pred)) if present]
+        if len(forms) != 1:
+            found = " and ".join(forms) if forms else "neither"
+            out.append(f"{identity} must be identified exactly once, by commitments.{identity} or by a "
+                       f"top-level {identity} ResourceDescriptor; found {found}")
+        elif identity in pred:
+            problem = _descriptor_problem(pred[identity], identity)
+            if problem:
+                out.append(problem)
+        else:
+            problem = _commitment_problem(commitments[identity], f"commitments.{identity}")
+            if problem:
+                out.append(problem)
+    level = pred.get("assuranceLevel")
+    if not (isinstance(level, str) and level in _V02_ASSURANCE_LEVELS):
+        out.append("assuranceLevel must be one of " + ", ".join(_V02_ASSURANCE_LEVELS))
+    profile = pred.get("subjectProfile")
+    if not (isinstance(profile, str) and profile in SUBJECT_PROFILES):
+        out.append("subjectProfile must be one of " + ", ".join(SUBJECT_PROFILES))
+    if "preRegistration" in pred:
+        prereg = pred["preRegistration"]
+        if not (isinstance(prereg, dict) and _nonempty_str(prereg.get("alg"))
+                and isinstance(prereg.get("value"), str) and _LOWER_HEX_RE.match(prereg["value"])):
+            out.append("preRegistration must be {alg, value} with a lowercase hex value")
+    if "evidence" in pred:
+        evidence = pred["evidence"]
+        if not isinstance(evidence, list):
+            out.append(f"evidence must be an array of ResourceDescriptors, got {type(evidence).__name__}")
+        else:
+            for i, entry in enumerate(evidence):
+                problem = _descriptor_problem(entry, f"evidence[{i}]")
+                if problem:
+                    out.append(problem)
+    if "harness" in pred:
+        harness = pred["harness"]
+        if not (isinstance(harness, dict) and _nonempty_str(harness.get("name"))
+                and _nonempty_str(harness.get("version"))):
+            out.append("harness must carry name and version as non-empty strings")
+        elif "digest" in harness:
+            problem = _digest_set_problem(harness["digest"])
+            if problem:
+                out.append(f"harness: {problem}")
+    return out
+
+
+@_ein_stand
+def classify_eval_result_v02_predicate(statement: Any) -> tuple[bool, str]:
+    """Judge a Statement against eval-result v0.2 (the revised #575 draft). Returns ``(ok, detail)``;
+    ``detail`` names every violation, joined by "; ", and is empty when ok. Never raises: the input is
+    the content of a signed envelope, which is untrusted however valid the signature is.
+
+    Refused: an absent or non-URI ``evaluator.id``; a model or dataset identified twice or not at all
+    (``commitments.<x>`` against a predicate-level ResourceDescriptor, both locations inspected, subject
+    and evidence never counted); a present representation that fails its own rules (a commitment whose
+    ``salted`` is not ``true``, a descriptor without a usable ``digest``); an evidence entry without a
+    usable ``digest``, or whose ``content`` is not the bytes its digest names; a required field that is
+    absent or of the wrong type; a Statement whose ``_type`` is not Statement v1 or whose subject carries
+    no digest. Ignored: every unknown field, at every level, including the v0.1 ``receipt`` block,
+    ``anchors`` and ``subjectDigestNote``. Not refused: an evidence entry without ``mediaType``, ``uri`` or
+    ``downloadLocation`` (the draft says SHOULD), and an evaluator that is also the signer (the same party
+    MAY hold more than one role)."""
+    if not isinstance(statement, dict):
+        return False, f"statement must be a JSON object, got {type(statement).__name__}"
+    out = []
+    if statement.get("_type") != STATEMENT_TYPE:
+        out.append(f"_type must be {STATEMENT_TYPE}")
+    subject = statement.get("subject")
+    if not isinstance(subject, list) or not subject:
+        out.append("subject must be a non-empty array")
+    else:
+        for i, entry in enumerate(subject):
+            problem = _descriptor_problem(entry, f"subject[{i}]")
+            if problem:
+                out.append(problem)
+    out.extend(_eval_result_v02_predicate_problems(statement.get("predicate")))
+    return (not out), "; ".join(out)
+
+
+@_ein_stand(fehler=BundleFormatError)
+def receipt_evidence(receipt_bytes: bytes, *, uri: Optional[str] = None) -> dict:
+    """The `evidence[]` entry for an eval receipt: a ResourceDescriptor whose digest is the SHA-256 of the
+    receipt file's exact bytes, so a generic consumer can fetch the file and compare.
+
+    WHICH BYTES. A proofbundle receipt is one JSON file that carries the signed payload, the signature and
+    the Merkle tree together, so the digest over the file covers the signature as the draft requires
+    for a signed receipt whose envelope is part of what is supplied. The Merkle root that v0.1 carried in
+    its `receipt` block is NOT written here, neither as the digest nor beside it: an internal root is not
+    a substitute for the digest of the artifact. A caller that cannot hash the receipt it refers to
+    writes no evidence entry for it. `uri` is where the receipt can be fetched (the draft's SHOULD)."""
+    if not isinstance(receipt_bytes, (bytes, bytearray)):
+        raise BundleFormatError(
+            f"receipt_evidence needs the receipt file's bytes, got {type(receipt_bytes).__name__}")
+    descriptor: dict[str, Any] = {
+        "name": "eval-receipt",
+        "digest": {"sha256": hashlib.sha256(bytes(receipt_bytes)).hexdigest()},
+        "mediaType": "application/json",
+    }
+    if uri is not None:
+        if not (isinstance(uri, str) and _URI_RE.match(uri)):
+            raise BundleFormatError("receipt_evidence: uri must be a URI")
+        descriptor["uri"] = uri
+    return descriptor
+
+
+@_ein_stand(fehler=BundleFormatError)
+def to_eval_result_v02_predicate(claim: dict, *, evaluator_id: str, subject_profile: str = "receipt",
+                                 model: Optional[dict] = None, dataset: Optional[dict] = None,
+                                 evidence: Optional[list] = None, harness: Optional[dict] = None) -> dict:
+    """Build the eval-result v0.2 predicate from a receipt claim.
+
+    * ``evaluator_id``: the URI of the party that ran the evaluation. Required, no default: proofbundle
+      records a result, it does not run the evaluation, so its own URI would name the wrong party.
+    * ``model`` / ``dataset``: a ResourceDescriptor with a real ``digest`` for a PUBLIC identity. When given,
+      it replaces the salted commitment for that identity; when not, the commitment is written. Each
+      identity is therefore identified exactly once.
+    * ``evidence``: ResourceDescriptors, each with a ``digest`` of the artifact it names (see
+      ``receipt_evidence``). None writes no evidence: nothing is derived from ``root_b64`` here.
+
+    ``subjectDigestNote`` stays for the receipt profile: its subject digest is a binder that names no file,
+    and the note says so. ``anchors`` is not written: the draft scoped it out, and an external anchor is
+    carried as an ``evidence`` entry with its own digest. Refuses a claim that carries a plaintext
+    identifier or a salt, and a claim without ``suite_version`` (the draft requires ``suite.version``)."""
+    _require_export_fields(claim)
+    _forbid_plaintext_in_export(claim)
+    # The one claim rule, as at to_eval_result_predicate; the verdict written below is read from the claim it
+    # returns (main, 6.2.0: every exporter checks the whole claim, not only `passed`).
+    claim = require_eval_claim(claim, wo="to_eval_result_v02_predicate")
+    verdikt = _require_export_fields(claim)
+    if not (isinstance(evaluator_id, str) and _URI_RE.match(evaluator_id)):
+        raise BundleFormatError(
+            "eval-result v0.2 needs evaluator_id, the URI of the party that ran the evaluation; there is no "
+            "default, because the tool that records a result is not the party that produced it")
+    suite_version = claim.get("suite_version")
+    if not _nonempty_str(suite_version):
+        raise BundleFormatError("eval-result v0.2 needs the claim's suite_version: suite is {name, version}")
+    predicate: dict[str, Any] = {
+        "evaluator": {"id": evaluator_id},
+        "evaluatedAt": claim["timestamp"],
+        "suite": {"name": claim["suite"], "version": suite_version},
+        # `verdikt`, the validated value, never a second read of claim["passed"] (see to_eval_result_predicate).
+        "claims": [{"metric": claim["metric"], "comparator": claim["comparator"],
+                    "threshold": claim["threshold"], "passed": verdikt}],
+        "sampleSize": claim["n"],
+    }
+    commitments: dict[str, Any] = {}
+    if model is None:
+        commitments["model"] = _commitment(claim["model_id_commit"], claim.get("commit_alg"))
+    else:
+        predicate["model"] = copy.deepcopy(model)
+    if dataset is None:
+        commitments["dataset"] = _commitment(claim["dataset_id_commit"], claim.get("commit_alg"))
+    else:
+        predicate["dataset"] = copy.deepcopy(dataset)
+    if commitments:
+        predicate["commitments"] = commitments
+    predicate["assuranceLevel"] = claim.get("assurance_level", "self_attested")
+    predicate["subjectProfile"] = subject_profile
+    if subject_profile == "receipt":
+        predicate["subjectDigestNote"] = (
+            "subject.digest is a binder over the receipt commitments+root, not an artifact hash")
+    prereg = claim.get("prereg_sha256")
+    if prereg:
+        predicate["preRegistration"] = {"alg": "sha256", "value": prereg}
+    if evidence is not None:
+        predicate["evidence"] = copy.deepcopy(evidence)
+    if harness is not None:
+        predicate["harness"] = copy.deepcopy(harness)
+    problems = _eval_result_v02_predicate_problems(predicate)
+    if problems:
+        raise BundleFormatError(
+            "refusing to emit an eval-result v0.2 predicate its own verifier refuses: " + "; ".join(problems))
+    return predicate
+
+
+@_ein_stand(fehler=BundleFormatError)
+def to_eval_result_v02_statement(claim: dict, *, subject: list, evaluator_id: str,
+                                 subject_profile: str = "receipt", model: Optional[dict] = None,
+                                 dataset: Optional[dict] = None, evidence: Optional[list] = None,
+                                 harness: Optional[dict] = None,
+                                 content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
+    """A STANDARD in-toto Statement v1 carrying the eval-result v0.2 predicate, with its content-root
+    algorithm declared (default `jcs-sha256-v1`). Refuses to return a Statement that
+    `classify_eval_result_v02_predicate` would refuse."""
+    statement = _declare_content_root_alg({
+        "_type": STATEMENT_TYPE,
+        "subject": subject,
+        "predicateType": EVAL_RESULT_V02_PREDICATE_TYPE,
+        "predicate": to_eval_result_v02_predicate(
+            claim, evaluator_id=evaluator_id, subject_profile=subject_profile, model=model, dataset=dataset,
+            evidence=evidence, harness=harness),
+    }, content_root_alg)
+    ok, detail = classify_eval_result_v02_predicate(statement)
+    if not ok:
+        raise BundleFormatError(f"refusing to emit an eval-result v0.2 statement its own verifier refuses: {detail}")
+    return statement
+
+
+@_ein_stand(aussen={"signer": "signierer"}, fehler=BundleFormatError)
+def export_eval_result_v02_dsse(claim: dict, signer, *, evaluator_id: str, subject_profile: str = "receipt",
+                                subject_name: Optional[str] = None, subject_sha256: Optional[str] = None,
+                                root_b64: Optional[str] = None, model: Optional[dict] = None,
+                                dataset: Optional[dict] = None, evidence: Optional[list] = None,
+                                harness: Optional[dict] = None, keyid: Optional[str] = None,
+                                content_root_alg: str = CONTENT_ROOT_ALG) -> dict:
+    """Export a receipt claim as a DSSE-signed eval-result v0.2 Statement. `root_b64` feeds the receipt
+    profile's subject binder; the receipt itself is referenced through `evidence` (`receipt_evidence`).
+    Deterministic: identical inputs give byte-identical statement bytes. Verify with
+    `verify_eval_result_dsse(..., expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE)`."""
+    from . import dsse  # noqa: PLC0415 — lazy: keeps the verify core free of the DSSE module
+
+    wo = "export_eval_result_v02_dsse"
+    _require_export_fields(claim)          # fail-closed BEFORE building the (receipt-profile) subject binder
+    _forbid_plaintext_in_export(claim)
+    # As at export_eval_result_dsse. Measured after the merge of main into pull request 301: a claim whose issuer
+    # is the identity point was signed into a v0.2 envelope, and a NaN in harness escaped as rfc8785's raw
+    # FloatDomainError; the v0.1 exporter refuses both with BundleFormatError.
+    _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to export the eval-result v0.2 attestation")
+    claim = require_eval_claim(claim, wo=wo)
+    subject = resolve_subject(subject_profile, claim, root_b64=root_b64,
+                              subject_name=subject_name, subject_sha256=subject_sha256)
+    statement = to_eval_result_v02_statement(
+        claim, subject=subject, evaluator_id=evaluator_id, subject_profile=subject_profile, model=model,
+        dataset=dataset, evidence=evidence, harness=harness, content_root_alg=content_root_alg)
+    try:
+        body = _serialize_statement(statement, content_root_alg)
+    except (CanonicalizerUnavailable, BundleFormatError):
+        raise
+    except (ProofBundleError, ValueError, RecursionError) as exc:
+        raise _signed_body_refusal(wo, exc) from exc
+    return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────

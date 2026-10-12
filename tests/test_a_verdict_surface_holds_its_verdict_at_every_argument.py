@@ -224,7 +224,7 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
     from pathlib import Path
 
     from proofbundle import (agent_review as ar, anchors, assurance, automation_verdict as av, bundle as bm, cap1,
-                             checkpoint as cp, decision, emit, hf_evals, kbjwt, merkle, outcome, persample,
+                             checkpoint as cp, decision, emit, hf_evals, intoto, kbjwt, merkle, outcome, persample,
                              public_transparency as pt, relation, relation_statement as rs, run_ledger as rl, sdjwt,
                              sdjwt_issue, sdjwt_vc, signature, subject_binding as sb, trust_pack as tp,
                              verification_summary as vs, verifier_block as vb)
@@ -248,6 +248,10 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         return json.loads(base64.b64decode(umschlag["payload"]))
 
     ev_bundle = ec.emit_eval_receipt(_sweep._claim("0.10"), t)
+    # eval-result v0.2 (pull request 301): a statement its own builder writes from the receipt's claim.
+    v02_aussage = intoto.to_eval_result_v02_statement(
+        ec.decode_eval_claim(ev_bundle), subject=[{"name": "eval-receipt", "digest": {"sha256": "a" * 64}}],
+        evaluator_id="https://example.org/evaluator")
     halter = _sweep.Ed25519PrivateKey.from_private_bytes(b"\x05" * 32)
     kompakt = sdjwt_issue.issue_sd_jwt(ec.decode_eval_claim(ev_bundle), t, root_b64=ev_bundle["merkle"]["root_b64"],
                                        holder_public_key=_sweep._raw(halter))
@@ -434,6 +438,8 @@ def _flaechen_vier() -> "tuple[list, Callable[[], None]]":
         ("experimental.enclave.verify_enclave_attestation", lambda w: enclave.verify_enclave_attestation(
             w(eat), verifier_pubkey=w(_sweep._raw(pruefer)), expected_binding=w(enklave_bindung),
             now=w(1_780_000_100))),
+        ("intoto.classify_eval_result_v02_predicate",
+         lambda w: intoto.classify_eval_result_v02_predicate(w(v02_aussage))),
         ("hf_evals.receipt_token_identity", lambda w: hf_evals.receipt_token_identity(
             w(hf_evals.receipt_token(ev_bundle)))),
         ("kbjwt.holder_key_from_cnf", lambda w: kbjwt.holder_key_from_cnf(w(aussteller_nutzlast))),
