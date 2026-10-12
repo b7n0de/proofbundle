@@ -49,6 +49,10 @@ error with no value on any axis; before, a candidate of 60000 nested arrays cras
 read_strict turned the RecursionError into "not a statement" (NO_MATCH), also for statement 01 with such an item in
 its unprotected header, whose ToBeSigned is that of 01. The depth round at the end holds the limit.
 
+Size limit (owner choice A of 2026-10-12, no change to the text): read_item and loads read at most MAX_INPUT_BYTES
+(1 MiB) and stop above it with ResourceLimit, before anything is read; before, statement 01 with a byte string of
+64 MiB in its unprotected header was a statement with match MATCH. The depth round holds the limit itself.
+
 Tools round (owner choice A of 2026-10-12, points 5 to 7, no change to the text): read_strict no longer reads with
 cbor2. Measured on generated inputs (report of 2026-10-12), cbor2 5.4.6 and 6.1.5 read past the end of the first
 data item, which Section 6 refuses, and apply the meaning of a tag, which Section 6 does not check (cbor2 5.4.6
@@ -73,6 +77,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 #: The deepest data item read (the item itself at depth 0, an item inside an array, map, tag or indefinite-length
 #: string one deeper than its container); the limit of the checkers of the two companion drafts.
 MAX_DEPTH = 64
+#: The largest candidate, and protected header, read, in bytes; Section 7 asks to bound the input size. The largest
+#: candidate of Appendix A is 450 bytes; the same number in the checkers of the three drafts. Both limits are here.
+MAX_INPUT_BYTES = 1 << 20
 
 
 class ResourceLimit(Exception):
@@ -121,7 +128,9 @@ def depth_ok(b):
 
 
 def loads(b):
-    """cbor2.loads after the depth walk."""
+    """cbor2.loads after the size check and the depth walk."""
+    if len(b) > MAX_INPUT_BYTES:
+        raise ResourceLimit("%d bytes, more than %d" % (len(b), MAX_INPUT_BYTES))
     if not depth_ok(b):
         raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
     return cbor2.loads(b)
@@ -136,7 +145,9 @@ def read_item(b):
     (RFC 8949 Section 3), valid under Section 5.3.1 (text strings in UTF-8, each chunk on its own; no two map keys
     equivalent under Section 5.6.1, so the integer 1 and true are two keys and 0.0 and -0.0 are one), a tag as its
     number and content, the content not checked for its tag. NotRead otherwise; ResourceLimit, before anything is
-    read, past MAX_DEPTH."""
+    read, above MAX_INPUT_BYTES or past MAX_DEPTH."""
+    if len(b) > MAX_INPUT_BYTES:
+        raise ResourceLimit("%d bytes, more than %d" % (len(b), MAX_INPUT_BYTES))
     if not depth_ok(b):
         raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
     value, end = _rd(b, 0)
@@ -690,6 +701,16 @@ def prot01(inner):
     return b"\xd2\x84" + cbor2.dumps(b"\xa1\x20" + inner) + b"\xa0" + rest01
 
 
+def padded01(n):
+    """Statement 01 with its unprotected header {-1: a byte string}, n bytes in all (the size limit)."""
+    k = n - len(stm["01"])
+    while len(unprot01(cbor2.dumps(bytes(k)))) > n:
+        k -= 1
+    out = unprot01(cbor2.dumps(bytes(k)))
+    assert len(out) == n
+    return out
+
+
 def axes_or_limit(b):
     try:
         if read_strict(b) is None:
@@ -718,7 +739,11 @@ for what, b, expect in (
         ("01, unprotected, deepest item at %d" % (MAX_DEPTH + 1), unprot01(deep("a", MAX_DEPTH - 2)), rl),
         ("01, protected header, deepest item at %d" % MAX_DEPTH, prot01(deep("a", MAX_DEPTH - 1)),
          ("True", "NO_MATCH", "True", "False")),
-        ("01, protected header, deepest item at %d" % (MAX_DEPTH + 1), prot01(deep("a", MAX_DEPTH)), rl)):
+        ("01, protected header, deepest item at %d" % (MAX_DEPTH + 1), prot01(deep("a", MAX_DEPTH)), rl),
+        ("01, unprotected {-1: a byte string}, %d bytes in all" % MAX_INPUT_BYTES, padded01(MAX_INPUT_BYTES),
+         ("True", "MATCH", "True", "True")),
+        ("01, unprotected {-1: a byte string}, %d bytes in all" % (MAX_INPUT_BYTES + 1), padded01(MAX_INPUT_BYTES + 1),
+         rl)):
     got = axes_or_limit(b)
     print(f"depth probe {what}: {got} {'OK' if got == expect else 'DIFF, expected ' + str(expect)}")
     fails += got != expect
