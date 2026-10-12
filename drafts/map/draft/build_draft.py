@@ -5,11 +5,14 @@ Substitutes @@CASES_TABLE@@, @@NON_CLAIMS@@ and @@APPENDIX@@ in draft_body.md:
 
   * the citation cases and the examples come from ../examples/mappings.json, byte for byte;
   * the non-claims list is copied from the body of the receipts draft, word for word, and the copy is
-    checked against its source.
+    checked against its source. This -03 cites the receipts draft -01; the -02 of the receipts draft replaced
+    the paragraph before the list (review block B of 2026-10-12), so the copy keeps the paragraph of the -01 and
+    the build stops if the list is no longer that of the -01.
 
 Deterministic.
 """
 import base64
+import hashlib
 import json
 
 import cbor2
@@ -34,6 +37,12 @@ def artwork(*lines):
 
 #: The one cross-reference the list may carry, and how this document writes it.
 NON_CLAIMS_XREF = ("{{verification}}", "Section 5 of {{RECEIPTS}}")
+#: The paragraph before "In particular:" in the receipts draft -01, which this -03 cites and repeats, and the SHA-256
+#: of the list after it in the -01. The -02 of the receipts draft has review block B before the list.
+NON_CLAIMS_HEAD_01 = ("Verification establishes that the receipt passes the format, consistency and\n"
+                      "signature checks in {{verification}} under the Receiver's selected key. It does\n"
+                      "not establish that the Issuer's claims are true.\n")
+NON_CLAIMS_LIST_01_SHA256 = "e06dbe3cb8893effe9f5553ab426f5c0770bcb62ab394dd3ac9cdec19af854a0"
 
 
 def non_claims():
@@ -43,7 +52,11 @@ def non_claims():
     start = src.index("# What a Receipt Does Not Prove {#non-claims}\n") + len("# What a Receipt Does Not Prove {#non-claims}\n")
     end = src.index("\n# ", start)
     text = src[start:end].strip("\n")
-    if text not in src or text.count(NON_CLAIMS_XREF[0]) != 1:
+    _, sep, rest = text.partition("In particular:\n")
+    if not sep or hashlib.sha256(rest.encode("utf-8")).hexdigest() != NON_CLAIMS_LIST_01_SHA256:
+        raise SystemExit("the non-claims list of the receipts draft is not that of its -01, which this -03 repeats")
+    text = NON_CLAIMS_HEAD_01 + sep + rest
+    if sep + rest not in src or text.count(NON_CLAIMS_XREF[0]) != 1:
         raise SystemExit("non-claims copy is not verbatim or does not carry its one cross-reference")
     text = text.replace(*NON_CLAIMS_XREF)
     if text.count("{{") != 1:

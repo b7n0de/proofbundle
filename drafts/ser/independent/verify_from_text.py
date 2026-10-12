@@ -6,6 +6,10 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 26 (owner choice A of 2026-10-12, review of the -01, blocks A to C): the field 'Security considerations' of
+10.1 now ends "See Section 8 of this document and [RFC8259] Section 12." (block C), and round 18 reads it so; the
+sentences of Section 11 of round 25 name the measured scope, the verdict and the first failing step of each vector.
+
 Round 25 (owner choice A of 2026-10-12, revision -02): the text is now draft-gruszka-signed-evaluation-receipts-02;
 its vectors are those of the -01, byte for byte. Section 11 gives the conformance run of the implementation it names
 and the result of a further verifier written from the text, and the numbers it states for Appendix A (66 vectors, 56
@@ -1787,7 +1791,7 @@ def main():
              "of Section 5; a key named in the receipt is never used on its own. B gives no confidentiality: its "
              "members are readable by anyone who holds it, and model and dataset identifiers appear in it only as "
              "salted commitments (Section 3.3, Section 9). Parsing untrusted input needs documented resource "
-             "limits; reaching a limit is not a verdict. See Section 8 of this document.")
+             "limits; reaching a limit is not a verdict. See Section 8 of this document and [RFC8259] Section 12.")
     chk("10.1 (round 18): the field 'Security considerations' states active content (none), compression (none), "
         "integrity and origin only under a key fixed before verification, no confidentiality, resource limits "
         "(RFC 6838 Section 4.6), and the earlier two sentences are gone",
@@ -1874,12 +1878,14 @@ def main():
     # Appendix A are counted from the text. The Open Items are gone; an appendix of changes follows Appendix A.
     flat25 = re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(kept)))
     s25 = ["On 2026-10-12, the implementation named above, at commit de2a21086e42991dc3726c70c81779d6d41a953c of its "
-           "work branch, was run on the 66 vectors of Appendix A with the bytes given there; it follows revision -00 "
-           "of this document, whose receipt has a fourth member, inclusion, and it stopped at step 1 on every vector, "
-           "so it reached the expected verdict on the 56 vectors that expect FAIL and the expected first failing step "
-           "on 9 of them.",
+           "work branch, was run on the 66 vectors of Appendix A with the bytes given there, and for each vector its "
+           "verdict and first failing step were compared with the expected ones: it follows revision -00 of this "
+           "document, whose receipt has a fourth member, inclusion, and it stopped at step 1 on every vector, so it "
+           "reached the expected verdict on the 56 vectors that expect FAIL and the expected first failing step on 9 "
+           "of them.",
            "A further verifier, written from the published text of this document alone, agreed with the verifier "
-           "written by the author of the generator on all 66 vectors, on 23000 targeted inputs across all eleven "
+           "written by the author of the generator on the verdict and the first failing step of each of the 66 "
+           "vectors, on 23000 targeted inputs across all eleven "
            "steps and on 4002 serializations of numbers by [RFC8785], with no deviation on these inputs (measured "
            "on 2026-10-11)."]
     n_fail25 = sum(1 for v in app.values() if v["expected"] == "FAIL")

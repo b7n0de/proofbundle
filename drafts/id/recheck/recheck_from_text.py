@@ -7,7 +7,8 @@ Revision -02 (owner choice A of 2026-10-12): the text is now draft-gruszka-scitt
 cases are those of the -01, byte for byte. A2 writes "may" in lowercase, Section 11 gives the measurement of the
 package on proofbundle main and the result of a further checker written from the text, the Open Items are gone,
 Open Question 2 stays in Section 10, and an unnumbered appendix of changes follows the Provenance. The round
-"revision -02" at the end holds it.
+"revision -02" at the end holds it. After the review of the -01 (blocks D to F), Section 11 gives the package nine
+cases directly and C10 mirrored, never twelve; the round reads that sentence.
 
 Round 2 of the review (2026-10-07): sig_valid follows the four rules that Section 6 now states
 (canonical A and R per RFC 8032 Section 5.1.3, both of order L, S below L, the cofactorless
@@ -822,8 +823,8 @@ s02 = ["Recomputing a target digest may still require the target's payload bytes
        "On 2026-10-12, the checker of that package as merged into the main branch of proofbundle, at commit "
        "3611eb73fca16cf68ef47af00fd5193f733bc552, was applied to the twelve cases of Section 6 with the bytes of "
        "Appendix A: its own reading, ToBeSigned, signature and digest functions gave all four axes of the table for "
-       "ten cases, C10 with the scheme and the reference algorithm exchanged because the package takes no scheme as "
-       "input; it has no external_aad input and gives for C7 the result under the fixed empty external_aad rule that "
+       "nine cases directly and for C10 with the scheme and the reference algorithm exchanged, because the package "
+       "takes no scheme as input; it has no external_aad input and gives for C7 the result under the fixed empty external_aad rule that "
        "the case also records, and it refuses C8, whose payload is nil, as malformed.",
        "A further checker, written from the published text of this document alone, reproduced the four axes of 11 "
        "of the 12 cases directly and those of C10 in that mirrored form, as it also takes no scheme as input, and "
