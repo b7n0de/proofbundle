@@ -7,7 +7,8 @@ changes, not the text it renders; each step answers one idnits3 code:
      with no stream; RFCXML v3 has no value for "no stream". The text that xml2rfc renders stays byte for byte.
   3. MISSING_BCP14_TAGS: each BCP 14 keyword in all capitals is wrapped in <bcp14> where it stands in the sense of
      BCP 14, in the boilerplate and in the body, outside artwork and sourcecode. The places in NOT_BCP14 keep their
-     words as they are: quotations of another document and a "MAY" that states a possibility, not a permission.
+     words as they are: quotations of another document (until the -01 of the identification draft also a "MAY" that
+     stated a possibility, not a permission; the -02 writes it in lowercase).
      Each such place must be found exactly once, and the number of wrapped keywords must equal EXPECTED.
 
 INVALID_REFERENCES_NAME stays: idnits3 wants "Normative References" and "Informative References" directly in <back>
@@ -25,7 +26,7 @@ KEYWORD = re.compile(r"\b(MUST NOT|SHALL NOT|SHOULD NOT|NOT RECOMMENDED|MUST|SHA
 # docName without revision -> (the text that ends right before the keyword, whitespace collapsed; the keyword)
 NOT_BCP14 = {
     "draft-gruszka-scitt-statement-identification": [
-        ("Recomputing a target digest", "MAY"),             # a possibility ("may still require"), not a permission
+        # since the -02, A2 writes the possibility "may still require" in lowercase, so it needs no entry here
         ("Each VDS specification applying for inclusion in this registry", "MUST"),   # quoted from RFC 9942 4.4.1
         ("and that \"Each specification", "MUST"),           # quoted from RFC 9942 4.4.1
     ],

@@ -1,7 +1,13 @@
-"""Recompute Appendix A of draft-gruszka-scitt-statement-identification-01 from the .txt alone.
+"""Recompute Appendix A of draft-gruszka-scitt-statement-identification-02 from the .txt alone.
 
 Reads only the rendered text: statement bytes, case bytes, seeds, digests and expected axes.
 No generator, no cases.json, no source package is used.
+
+Revision -02 (owner choice A of 2026-10-12): the text is now draft-gruszka-scitt-statement-identification-02; its
+cases are those of the -01, byte for byte. A2 writes "may" in lowercase, Section 11 gives the measurement of the
+package on proofbundle main and the result of a further checker written from the text, the Open Items are gone,
+Open Question 2 stays in Section 10, and an unnumbered appendix of changes follows the Provenance. The round
+"revision -02" at the end holds it.
 
 Round 2 of the review (2026-10-07): sig_valid follows the four rules that Section 6 now states
 (canonical A and R per RFC 8032 Section 5.1.3, both of order L, S below L, the cofactorless
@@ -809,4 +815,42 @@ for injected in (RuntimeError("injected"), ValueError("injected"), KeyError("inj
           f"{'OK' if got == 'passes' else 'DIFF, expected passes'}")
     fails += got != "passes"
 print("deviations after the tools round:", fails)
+
+# Revision -02 (2026-10-12): the name, A2, Section 11, no Open Items, Open Question 2, the appendix of changes
+flat02 = re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines)))
+s02 = ["Recomputing a target digest may still require the target's payload bytes;",
+       "On 2026-10-12, the checker of that package as merged into the main branch of proofbundle, at commit "
+       "3611eb73fca16cf68ef47af00fd5193f733bc552, was applied to the twelve cases of Section 6 with the bytes of "
+       "Appendix A: its own reading, ToBeSigned, signature and digest functions gave all four axes of the table for "
+       "ten cases, C10 with the scheme and the reference algorithm exchanged because the package takes no scheme as "
+       "input; it has no external_aad input and gives for C7 the result under the fixed empty external_aad rule that "
+       "the case also records, and it refuses C8, whose payload is nil, as malformed.",
+       "A further checker, written from the published text of this document alone, reproduced the four axes of 11 "
+       "of the 12 cases directly and those of C10 in that mirrored form, as it also takes no scheme as input, and "
+       "showed no deviation over 30237 generated inputs (measured on 2026-10-12).",
+       "2. Registration derivation. That open question stands:"]
+i_ch02 = next((i for i, ln in enumerate(lines) if ln.rstrip() == "Changes (to be removed before publication)"), None)
+i_pv02 = next((i for i, ln in enumerate(lines) if ln.rstrip() == "Provenance"), None)
+i_aa02 = next((i for i, ln in enumerate(lines) if ln.rstrip() == "Author's Address"), None)
+ch02 = (re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines[i_ch02:i_aa02])))
+        if None not in (i_ch02, i_aa02) else "")
+s02c = ["Since draft-gruszka-scitt-statement-identification-01",
+        'In requirement A2, "may" is no longer written in capitals; recomputing a target digest is not a permission in '
+        "the sense of BCP 14.",
+        "Section 11 adds the measurement of the package on the main branch of proofbundle against the cases of "
+        "Section 6, and the result of a further checker written from the text.",
+        "The Open Items section is removed. The references were checked against the published documents on "
+        "2026-10-12; Open Question 2 stays in Section 10.",
+        "This appendix is added."]
+ok02 = (any(ln.strip() == "draft-gruszka-scitt-statement-identification-02" for ln in lines)
+        and all(x in flat02 for x in s02) and "MAY still require" not in flat02 and len(cidx) == 12
+        and not any(ln.strip().startswith("Open Items") for ln in lines)
+        and None not in (i_ch02, i_pv02, i_aa02) and i_pv02 < i_ch02 < i_aa02
+        and all(x in ch02 for x in s02c))
+print("revision -02: name -02, A2 'may' in lowercase, Section 11 and Open Question 2, no Open Items, the appendix of "
+      "changes after the Provenance: %s; cases %d; missing: %s" % (
+          "OK" if ok02 else "DIFF", len(cidx),
+          ", ".join(x[:40] for x in s02 + s02c if x not in flat02 + " " + ch02) or "none"))
+fails += not ok02
+print("deviations after the revision -02 round:", fails)
 sys.exit(1 if fails else 0)

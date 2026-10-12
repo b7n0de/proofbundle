@@ -1,7 +1,7 @@
 ---
 title: Requirements and Test Cases for Identifying SCITT Signed Statements
 abbrev: Identifying SCITT Signed Statements
-docname: draft-gruszka-scitt-statement-identification-01
+docname: draft-gruszka-scitt-statement-identification-02
 v: 3
 category: info
 submissiontype: IETF
@@ -346,7 +346,7 @@ payload.
 
 A verifier can locate and interpret a reference without interpreting the
 application payload of the Signed Statement that carries it. Recomputing a target
-digest MAY still require the target's payload bytes; that is a property of the
+digest may still require the target's payload bytes; that is a property of the
 target, not of reading the reference from the carrier. This is a proposed scope
 choice: without it, extracting a reference could require payload-specific parsing
 or decryption of the carrier.
@@ -630,6 +630,19 @@ COSE library was available, so whether a second COSE library decodes and verifie
 generated and checked in this work; the fixtures are synthetic and the keys are
 test keys.
 
+On 2026-10-12, the checker of that package as merged into the main branch of
+proofbundle, at commit 3611eb73fca16cf68ef47af00fd5193f733bc552, was applied to
+the twelve cases of Section 6 with the bytes of Appendix A: its own reading,
+ToBeSigned, signature and digest functions gave all four axes of the table for
+ten cases, C10 with the scheme and the reference algorithm exchanged because the
+package takes no scheme as input; it has no external_aad input and gives for C7
+the result under the fixed empty external_aad rule that the case also records,
+and it refuses C8, whose payload is nil, as malformed. A further checker,
+written from the published text of this document alone, reproduced the four
+axes of 11 of the 12 cases directly and those of C10 in that mirrored form, as
+it also takes no scheme as input, and showed no deviation over 30237 generated
+inputs (measured on 2026-10-12).
+
 One own measurement motivates the choice of hash input under A1 and is reported
 here as a measured fact, not an endorsement. Against a locally run transparency
 ledger (microsoft/scitt-ccf-ledger at commit 00101f76, CCF 7.0.17), of 62
@@ -697,12 +710,18 @@ The requirements in Section 4 are drawn from the requirements note at the commit
 Section 11. The illustrative cases in Appendix A were generated for this document; Section 11 separately
 identifies the sources of the reported measurement.
 
-# Open Items (to be removed before publication)
+# Changes (to be removed before publication)
 {:numbered="false"}
 
-* Reference verification. The references were checked against the published documents on 2026-10-10;
-  re-check at submission time, including whether {{I-D.ietf-scitt-scrapi}} has been published as an RFC,
-  and run idnits with network access.
-* List note. If the observation note behind Open Question 2 is published on the
-  SCITT list before submission, add its archive link to the Implementation Status
-  section.
+## Since draft-gruszka-scitt-statement-identification-01
+{:numbered="false"}
+
+* In requirement A2, "may" is no longer written in capitals; recomputing a
+  target digest is not a permission in the sense of BCP 14.
+* Section 11 adds the measurement of the package on the main branch of
+  proofbundle against the cases of Section 6, and the result of a further
+  checker written from the text.
+* The Open Items section is removed. The references were checked against
+  the published documents on 2026-10-12; Open Question 2 stays in
+  Section 10.
+* This appendix is added.
