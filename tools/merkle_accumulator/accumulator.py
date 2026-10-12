@@ -25,14 +25,15 @@ THE ARGUMENT IS LEAF DATA, as in merkle_tree_hash: `append(data)` applies the le
 section 2.1, the reading pinned in tests/test_merkle_zwei_lesarten_vektoren.py).
 
 PERSISTED STATE AND THE RESTART RULE
-`state(signer)` returns the frontier, the size and the root, signed with an Ed25519 key over STATE_SIGNATURE_PREFIX
-followed by the RFC 8785 form of the state (see ONE KEY, TWO KINDS OF SIGNATURE below); the signed content says
-what it is as well (`what_is_signed`). `MerkleAccumulator.restore(state, public_key)` refuses (raises
-AccumulatorStateError) a state whose signature does not verify under the pinned key over those bytes, whose format is
-another or whose fields are not spelled the way `state` writes them, whose frontier does not have one root
-per set bit of the size, whose root is not the fold of its frontier, or, when leaf hashes are given, whose
-leaf hashes are not 32 bytes each or do not reproduce the frontier and the size. It never rebuilds a
-refused state; rebuilding from the leaves is `from_leaves`, a separate and deliberate call.
+`state(signer, event_public_key=...)` returns the frontier, the size and the root, signed with the state key over
+STATE_SIGNATURE_PREFIX followed by the RFC 8785 form of the state (see A STATE KEY IS NOT THE EVENT KEY below); the
+signed content says what it is as well (`what_is_signed`). `MerkleAccumulator.restore(state, public_key,
+event_public_key=...)` refuses (raises AccumulatorStateError) a state whose pinned key is the event key, whose
+signature does not verify under the pinned key over those bytes, whose format is another or whose fields are not
+spelled the way `state` writes them, whose frontier does not have one root per set bit of the size, whose root is not
+the fold of its frontier, or, when leaf hashes are given, whose leaf hashes are not 32 bytes each or do not reproduce
+the frontier and the size. It never rebuilds a refused state; rebuilding from the leaves is `from_leaves`, a separate
+and deliberate call.
 
 A STATE IS ONE SNAPSHOT. restore checks a state against the pinned key and against itself, and knows no
 other state: it restores an older state the same key signed (a rollback) and cannot tell two states of
@@ -40,19 +41,20 @@ diverging histories apart (a fork). The signature says what one tree state was, 
 earlier one. A caller that needs continuity across restarts keeps the last size and root it accepted and
 compares the restored state with them; restore does not.
 
-ONE KEY, TWO KINDS OF SIGNATURE. emit_bundle signs the payload bytes as they are, whatever they are. A state signature
-over the RFC 8785 form of the state alone could therefore be had from the emitter by sending that form as an event,
-and the event's signature then restored a frontier of the sender's choice (Codex thread 4245187389 on pull request
-340). A field inside the signed content cannot separate the two, because the event path signs any content. So a state
-signature covers STATE_SIGNATURE_PREFIX first, the format name and a zero byte, and emit_bundle_incremental refuses a
-payload that begins with it, before it computes or writes anything and before it asks the signer. Through this tool
-one key signs events and states: an event's signature never verifies as a state's, and a state's signature covers
-bytes this tool never signs as an event. The other direction is a reading rule, not a check: a bundle built around a
-state signature, with the prefixed bytes as its payload, verifies with verify_bundle, which this tool does not change;
-a payload that begins with the prefix is a state, never an event of this tool. emit_bundle itself, also unchanged,
-signs any payload, that prefix included. A key that also signs events through emit_bundle, or through anything else
-that signs the bytes it is given, can be made to sign a state; states are then signed with a key that signs states
-and nothing else, and restore pins that key.
+A STATE KEY IS NOT THE EVENT KEY. emit_bundle signs the payload bytes as they are, whatever they are. Under the
+emitter's own key a state signature could therefore be had by sending the signed bytes of a state as an event, and
+the event's signature then restored a frontier of the sender's choice (Codex threads 4245187389 and 4246051732 on
+pull request 340). No spelling of the state prevents that while the library's emit_bundle, which this tool does not
+change, signs any payload under the same key. So a state is signed with a key of its own: state() and restore() take
+the event key as `event_public_key`, a sound Ed25519 key, and refuse a state key equal to it, and restore pins the
+state key. Two keys that pass the trust anchor check and differ as bytes are two different points, and an event
+signature made under one does not verify under the other. A state signature also covers STATE_SIGNATURE_PREFIX
+first, the format name and a zero byte, and emit_bundle_incremental refuses a payload that begins with it, before it
+computes or writes anything and before it asks the signer, so this tool's emitter signs those bytes under no key.
+The other direction is a reading rule, not a check: a bundle built around a state signature, with the prefixed bytes
+as its payload, verifies with verify_bundle under the state key; a payload that begins with the prefix is a state,
+never an event of this tool. What no check here can see is an event key the caller misnames, or a state key that
+also signs other bytes elsewhere: the state key signs states and nothing else.
 
 A FAILED EMISSION APPENDS NOTHING. emit_bundle_incremental computes the root and the path from the accumulator's
 fields without writing them, asks the signer in emit_bundle's order, builds the whole bundle, and only then writes the
@@ -63,9 +65,11 @@ the accumulator meanwhile, by an append or by an emission of its own whose bundl
 this bundle names: then nothing is written, the call raises RuntimeError, and the signer's change stays, so a bundle
 the signer's own emission handed out keeps its leaf (two copies of one state, or a restored older state, still give
 two bundles for one position, as A STATE IS ONE SNAPSHOT says). What a function cannot rule out in Python is an
-exception raised asynchronously, by a signal handler, during the writes at the end or after them: interrupted between
-two writes, the fields do not fit each other and every operation refuses them; after the last write and before the
-return, the leaf is written and its bundle is not returned.
+exception raised asynchronously, by a signal handler or by a trace function, during the writes at the end or after
+them: interrupted between two writes, the fields do not fit each other and every operation refuses them; after the
+last write, the return event of the call included, the leaf is written and its bundle is not returned (Codex thread
+4246051741 on pull request 340). No order of statements closes that window, since the return itself can raise; a
+caller that must know reads the size after an exception.
 
 NO SUBCLASS. The bundle and the restore checks rest on this class's own methods and attributes. A subclass of
 the caller can override any of them, `__getattribute__` included, and four review rounds found a further one
@@ -104,14 +108,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import merkle
 from proofbundle._wire_b64 import decode_b64
-from proofbundle.canonical import _folge_von, _puffer_von, canonicalize_statement
+from proofbundle.canonical import _bytes_von, _folge_von, _puffer_von, canonicalize_statement
 from proofbundle.emit import SCHEMA
 from proofbundle.errors import ProofBundleError
-from proofbundle.signature import verify_ed25519_pinned
+from proofbundle.signature import ed25519_trust_anchor_weakness, verify_ed25519_pinned
 
 STATE_FORMAT = "proofbundle-merkle-accumulator-state/1"
 #: What a state signature covers before the RFC 8785 form of the state, and what the emitter refuses at the start
-#: of a payload (ONE KEY, TWO KINDS OF SIGNATURE in the module docstring).
+#: of a payload (A STATE KEY IS NOT THE EVENT KEY in the module docstring).
 STATE_SIGNATURE_PREFIX = STATE_FORMAT.encode("ascii") + b"\x00"
 WHAT_IS_SIGNED = ("one state of an RFC 6962 tree (its size, frontier and root), not any event; this signature "
                   "does not say that the state extends an earlier one, and no receipt of an event may be read "
@@ -121,6 +125,13 @@ WHAT_IS_SIGNED = ("one state of an RFC 6962 tree (its size, frontier and root), 
 class AccumulatorStateError(ValueError):
     """A state that does not verify: a persisted one, or the one an accumulator holds after its fields were written
     from outside the class. It is refused, never rebuilt."""
+
+
+def _sound_key(wert) -> Optional[bytes]:
+    """The 32 bytes of an Ed25519 key read once by what it stores, or None when they are not a sound trust anchor
+    (malformed, non-canonical or low-order). Two keys that pass differ as bytes exactly when they are two points."""
+    roh = _bytes_von(wert)
+    return roh if roh is not None and ed25519_trust_anchor_weakness(roh) is None else None
 
 
 def _leaf(data: bytes) -> bytes:
@@ -286,16 +297,39 @@ class MerkleAccumulator:
                 "leaf_hashes_sha256": (hashlib.sha256(b"".join(self._leaf_hashes)).hexdigest()
                                        if self._leaf_hashes is not None else None)}
 
-    def state(self, signer: Ed25519PrivateKey) -> dict:
+    def state(self, signer: Ed25519PrivateKey, *, event_public_key: bytes) -> dict:
+        """The state, signed with the state key `signer`, which is not the event key `event_public_key` (A STATE KEY
+        IS NOT THE EVENT KEY in the module docstring). Refuses with ValueError before anything is signed."""
+        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
+
+        ereignis = _sound_key(event_public_key)
+        if ereignis is None:
+            raise ValueError("event_public_key is not a sound 32-byte Ed25519 key (malformed, non-canonical or "
+                             "low-order), so the state key cannot be told apart from it")
         inhalt = self._unsigned_state()
+        eigen = signer.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        if _bytes_von(eigen) == ereignis:
+            raise ValueError("the state would be signed with the event key, under which emit_bundle signs any "
+                             "payload; a state is signed with a key that signs states and nothing else")
         signatur = signer.sign(STATE_SIGNATURE_PREFIX + canonicalize_statement(inhalt))
         return {"state": inhalt, "signature": base64.b64encode(signatur).decode("ascii")}
 
     @classmethod
-    def restore(cls, gespeichert: dict, public_key: bytes, leaf_hashes: Optional[List[bytes]] = None
-                ) -> "MerkleAccumulator":
-        """Restart from a persisted state. Refuses, never rebuilds, and checks one snapshot, not that it is the
-        latest: see the module docstring."""
+    def restore(cls, gespeichert: dict, public_key: bytes, leaf_hashes: Optional[List[bytes]] = None, *,
+                event_public_key: bytes) -> "MerkleAccumulator":
+        """Restart from a persisted state signed with the state key `public_key`, which is not the event key
+        `event_public_key`. Refuses, never rebuilds, and checks one snapshot, not that it is the latest: see the
+        module docstring."""
+        # The two keys first, each read once: the pinned key compared with the event key is the key the signature is
+        # checked under (Codex thread 4246051732 on pull request 340: under the event key, emit_bundle signs a
+        # state's signed bytes sent as an event).
+        zustand_schluessel, ereignis = _bytes_von(public_key), _sound_key(event_public_key)
+        if ereignis is None:
+            raise AccumulatorStateError("event_public_key is not a sound 32-byte Ed25519 key, so the pinned state key "
+                                        "cannot be told apart from it")
+        if zustand_schluessel == ereignis:
+            raise AccumulatorStateError("the pinned state key is the event key, under which emit_bundle signs any "
+                                        "payload; a state is restored only under a key that signs states alone")
         # The signature is decoded by the house's strict decoder (one wire form per signature), the state
         # canonicalized as it was signed, and the pinned key checked as a trust anchor: a malformed,
         # non-canonical or low-order key refuses the state before any signature arithmetic.
@@ -307,7 +341,7 @@ class MerkleAccumulator:
                                         f"({type(exc).__name__})") from exc
         # The prefix first: a signature over the RFC 8785 form alone is an event's (Codex thread 4245187389 on pull
         # request 340), and it does not verify here.
-        if not verify_ed25519_pinned(public_key, signatur, STATE_SIGNATURE_PREFIX + nachricht):
+        if not verify_ed25519_pinned(zustand_schluessel, signatur, STATE_SIGNATURE_PREFIX + nachricht):
             raise AccumulatorStateError("the state's signature does not verify under the pinned key")
         # What restore reads is what the signature covers: the state is read back from the signed bytes. The
         # canonicalizer reads a mapping by what it stores, and `.get` or `[]` of a dict subclass could answer
@@ -425,9 +459,11 @@ def _subproof(m: int, hashes: List[bytes], b: bool) -> List[bytes]:
 
 def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulator: MerkleAccumulator) -> dict:
     """The bundle emit_bundle(payload, signer, prior_leaves=<the accumulator's leaves>) returns, built from
-    the accumulator: the same bytes, the same per-event signature over the payload. Appends the payload when, and only
-    when, it returns the bundle, onto the state it built the bundle from (A FAILED EMISSION APPENDS NOTHING). Refuses a
-    payload that begins with STATE_SIGNATURE_PREFIX, which emit_bundle would sign (ONE KEY, TWO KINDS OF SIGNATURE)."""
+    the accumulator: the same bytes, the same per-event signature over the payload. Writes the payload's leaf only after
+    the bundle is complete, onto the state it built the bundle from, so a call that raises before that has written
+    nothing; an exception raised asynchronously after the writes, at the return included, leaves the leaf without the
+    bundle (A FAILED EMISSION APPENDS NOTHING). Refuses a payload that begins with STATE_SIGNATURE_PREFIX, which
+    emit_bundle would sign (A STATE KEY IS NOT THE EVENT KEY)."""
     from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
 
     # One reading, before any code of the caller runs, as emit_bundle reads it: the bytes hashed, written and

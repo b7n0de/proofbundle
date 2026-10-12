@@ -38,6 +38,9 @@ def _load():
 #: tests/ ships in the sdist, whose guard refuses a key built from anything but a literal seed.
 _EMITTER_SEED = bytes(range(32))
 _OTHER_SEED = bytes(range(32, 64))
+#: The key events are signed with in the restart cases; the states there are signed with the emitter key above, which
+#: is a state key in those cases (A STATE KEY IS NOT THE EVENT KEY in the module docstring).
+_EVENT_SEED = bytes(range(64, 96))
 
 
 def _emitter_key():
@@ -48,6 +51,15 @@ def _emitter_key():
 def _other_key():
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     return Ed25519PrivateKey.from_private_bytes(_OTHER_SEED)
+
+
+def _event_key():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.from_private_bytes(_EVENT_SEED)
+
+
+def _event_pub() -> bytes:
+    return _pub(_event_key())
 
 
 def _pub(key) -> bytes:
@@ -437,7 +449,7 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
         def operationen(akku):
             return {"append": lambda: akku.append(b"d"), "root": akku.root, "size": lambda: akku.size,
                     "frontier": lambda: akku.frontier, "leaf_hashes": lambda: akku.leaf_hashes, "copy": akku.copy,
-                    "state": lambda: akku.state(echt), "inclusion_proof_at": lambda: akku.inclusion_proof_at(0),
+                    "state": lambda: akku.state(echt, event_public_key=_event_pub()), "inclusion_proof_at": lambda: akku.inclusion_proof_at(0),
                     "consistency_proof_from": lambda: akku.consistency_proof_from(1),
                     "emit_bundle_incremental": lambda: a.emit_bundle_incremental(b"payload", echt, akku)}
         lesen_die_blaetter = {"state", "inclusion_proof_at", "consistency_proof_from"}
@@ -561,7 +573,7 @@ class TheRestartRule(unittest.TestCase):
         akku = self.a.MerkleAccumulator(keep_leaf_hashes=keep)
         for blatt in _LEAVES[:groesse]:
             akku.append(blatt)
-        return akku, akku.state(self.signer)
+        return akku, akku.state(self.signer, event_public_key=_event_pub())
 
     def _signature_over(self, inhalt) -> str:
         """A state signature as state() makes one, for content changed here: over the prefix, then the RFC 8785 form."""
@@ -572,14 +584,14 @@ class TheRestartRule(unittest.TestCase):
     def test_a_restart_continues_exactly_as_without_one(self) -> None:
         for groesse in (0, 1, 2, 3, 7, 8, 9, 1023, 1024, 1025):
             akku, zustand = self._state_at(groesse)
-            wieder = self.a.MerkleAccumulator.restore(json.loads(json.dumps(zustand)), _pub(self.signer))
+            wieder = self.a.MerkleAccumulator.restore(json.loads(json.dumps(zustand)), _pub(self.signer), event_public_key=_event_pub())
             with self.subTest(size=groesse):
                 for blatt in _LEAVES[groesse:groesse + 5]:
                     self.assertEqual(wieder.append(blatt), akku.append(blatt))
 
     def test_a_restart_with_the_kept_leaf_hashes(self) -> None:
         akku, zustand = self._state_at(37, keep=True)
-        wieder = self.a.MerkleAccumulator.restore(zustand, _pub(self.signer), leaf_hashes=akku.leaf_hashes)
+        wieder = self.a.MerkleAccumulator.restore(zustand, _pub(self.signer), leaf_hashes=akku.leaf_hashes, event_public_key=_event_pub())
         self.assertEqual(wieder.consistency_proof_from(20), akku.consistency_proof_from(20))
 
     def test_a_tampered_state_is_refused_never_rebuilt(self) -> None:
@@ -608,15 +620,16 @@ class TheRestartRule(unittest.TestCase):
         for name, kaputt in faelle.items():
             with self.subTest(case=name):
                 with self.assertRaises(self.a.AccumulatorStateError):
-                    self.a.MerkleAccumulator.restore(kaputt, pub)
+                    self.a.MerkleAccumulator.restore(kaputt, pub, event_public_key=_event_pub())
         with self.subTest(case="signed by another key"):
             with self.assertRaises(self.a.AccumulatorStateError):
-                self.a.MerkleAccumulator.restore(akku.state(_other_key()), pub)
+                self.a.MerkleAccumulator.restore(akku.state(_other_key(), event_public_key=_event_pub()), pub,
+                                                 event_public_key=_event_pub())
         with self.subTest(case="leaf hashes other than the state's"):
             andere = list(akku.leaf_hashes)
             andere[3] = b"\x00" * 32
             with self.assertRaises(self.a.AccumulatorStateError):
-                self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=andere)
+                self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=andere, event_public_key=_event_pub())
         with self.subTest(case="re-signed with the right key, the frontier of other leaves beside these hashes"):
             fremd = self.a.MerkleAccumulator.from_leaves([b"other " + b for b in _LEAVES[:37]])
             gemischt = json.loads(json.dumps(zustand))
@@ -624,7 +637,7 @@ class TheRestartRule(unittest.TestCase):
             gemischt["state"]["root"] = fremd.root().hex()
             gemischt["signature"] = self._signature_over(gemischt["state"])
             with self.assertRaises(self.a.AccumulatorStateError):
-                self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
+                self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes, event_public_key=_event_pub())
 
     def test_restore_is_a_method_of_the_accumulator_alone(self) -> None:
         """The class of Codex thread 4220260056 at restore: with no subclass, restore is the accumulator's own
@@ -644,7 +657,7 @@ class TheRestartRule(unittest.TestCase):
                                        ("frontier of other leaves beside these hashes", signiert(fremde_front),
                                         akku.leaf_hashes)):
             with self.subTest(case=name), self.assertRaises(self.a.AccumulatorStateError):
-                self.a.MerkleAccumulator.restore(kaputt, pub, leaf_hashes=blaetter)
+                self.a.MerkleAccumulator.restore(kaputt, pub, leaf_hashes=blaetter, event_public_key=_event_pub())
         with self.assertRaisesRegex(TypeError, "cannot be subclassed"):
             type("Gefaellig", (self.a.MerkleAccumulator,), {"root": lambda self: b"\x22" * 32})
 
@@ -661,7 +674,7 @@ class TheRestartRule(unittest.TestCase):
         pub = _pub(self.signer)
         _akku, zustand = self._state_at(3)
         self.assertEqual([e["height"] for e in zustand["state"]["frontier"]], [1, 0])
-        self.a.MerkleAccumulator.restore(signiert(zustand["state"]), pub)   # re-signed as written: restored
+        self.a.MerkleAccumulator.restore(signiert(zustand["state"]), pub, event_public_key=_event_pub())   # re-signed as written: restored
 
         def feld(index, **neu):
             kopie = json.loads(json.dumps(zustand["state"]))
@@ -684,7 +697,7 @@ class TheRestartRule(unittest.TestCase):
         for name, kaputt in faelle.items():
             with self.subTest(case=name):
                 with self.assertRaises(self.a.AccumulatorStateError):
-                    self.a.MerkleAccumulator.restore(kaputt, pub)
+                    self.a.MerkleAccumulator.restore(kaputt, pub, event_public_key=_event_pub())
 
     def test_restored_leaf_hashes_are_32_bytes_each_not_pieces_of_one_joined_string(self) -> None:
         """The state commits to its leaf hashes by the SHA-256 of their concatenation, and the frontier check
@@ -715,9 +728,9 @@ class TheRestartRule(unittest.TestCase):
         for name, blaetter in faelle.items():
             with self.subTest(case=name):
                 with self.assertRaises(self.a.AccumulatorStateError):
-                    self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=blaetter)
+                    self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=blaetter, event_public_key=_event_pub())
         with self.subTest(case="the leaf hashes as written, as a tuple"):
-            wieder = self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=(h0, h1))
+            wieder = self.a.MerkleAccumulator.restore(zustand, pub, leaf_hashes=(h0, h1), event_public_key=_event_pub())
             self.assertEqual(wieder.inclusion_proof_at(0), [h1])
 
     def test_restored_leaf_hashes_are_read_once_and_kept_as_checked(self) -> None:
@@ -737,7 +750,7 @@ class TheRestartRule(unittest.TestCase):
             def __iter__(self):
                 self.lesungen += 1
                 return iter(echt) if self.lesungen <= 3 else iter(fremd)
-        wieder = self.a.MerkleAccumulator.restore(zustand, _pub(self.signer), leaf_hashes=Wechselnd(echt))
+        wieder = self.a.MerkleAccumulator.restore(zustand, _pub(self.signer), leaf_hashes=Wechselnd(echt), event_public_key=_event_pub())
         self.assertEqual(wieder.leaf_hashes, echt)
         self.assertEqual(wieder.inclusion_proof_at(1), akku.inclusion_proof_at(1))
 
@@ -752,10 +765,10 @@ class TheRestartRule(unittest.TestCase):
         pub = _pub(self.signer)
         akku = self.a.MerkleAccumulator()
         akku.append(_LEAVES[0])
-        eins = akku.state(self.signer)
+        eins = akku.state(self.signer, event_public_key=_event_pub())
         wurzel_zwei, _ = akku.append(_LEAVES[1])
-        self.assertEqual(akku.state(self.signer)["state"]["tree_size"], 2)
-        zurueck = self.a.MerkleAccumulator.restore(eins, pub)
+        self.assertEqual(akku.state(self.signer, event_public_key=_event_pub())["state"]["tree_size"], 2)
+        zurueck = self.a.MerkleAccumulator.restore(eins, pub, event_public_key=_event_pub())
         self.assertEqual(zurueck.size, 1)
         gabel, _ = zurueck.append(b"another second leaf")
         self.assertNotEqual(gabel, wurzel_zwei)
@@ -786,7 +799,7 @@ class TheRestartRule(unittest.TestCase):
 
             def __getitem__(self, key):
                 return anders[key] if key in anders else dict.__getitem__(self, key)
-        wieder = self.a.MerkleAccumulator.restore(dict(zustand, state=ZweiLesarten(zustand["state"])), _pub(self.signer))
+        wieder = self.a.MerkleAccumulator.restore(dict(zustand, state=ZweiLesarten(zustand["state"])), _pub(self.signer), event_public_key=_event_pub())
         self.assertEqual(wieder.root().hex(), zustand["state"]["root"])
         self.assertNotEqual(wieder.root(), fremd.root())
 
@@ -801,30 +814,33 @@ class TheRestartRule(unittest.TestCase):
                                  ("identity, x-sign bit set", b"\x01" + b"\x00" * 30 + b"\x80")):
             with self.subTest(key=name):
                 with self.assertRaises(self.a.AccumulatorStateError):
-                    self.a.MerkleAccumulator.restore(dict(zustand, signature=universell), schluessel)
+                    self.a.MerkleAccumulator.restore(dict(zustand, signature=universell), schluessel, event_public_key=_event_pub())
 
     def test_an_event_signature_is_not_a_state_signature(self) -> None:
         """Codex thread 4245187389 on pull request 340: state() signed the RFC 8785 form of the state alone, and
         emit_bundle signs the payload bytes as they are. So the RFC 8785 form of a state chosen by whoever sends
         events, sent as an event, came back with a signature restore accepted, and a frontier of the sender's choice
-        was restored under the emitter's key with no state ever signed. A state signature now covers a prefix of its
-        own first, and an event signature over a state's RFC 8785 form, from emit_bundle or from this tool, is
-        refused."""
+        was restored under the emitter's key with no state ever signed. A state is now signed with a key of its own
+        over a prefix of its own: the event signature over a state's RFC 8785 form, from emit_bundle or from this
+        tool, is refused under the state key, and under the event key pinned as the state key."""
         from proofbundle.canonical import canonicalize_statement
         from proofbundle.emit import emit_bundle
-        pub = _pub(self.signer)
+        ereignis = _event_key()
         gewaehlt = self.a.MerkleAccumulator.from_leaves([b"chosen " + b for b in _LEAVES[:37]])
-        inhalt = gewaehlt.state(_other_key())["state"]   # the content only; this signature is not used
+        inhalt = gewaehlt.state(_other_key(), event_public_key=_event_pub())["state"]   # content only
         roh = canonicalize_statement(inhalt)
-        for weg, bundle in (("emit_bundle", emit_bundle(roh, self.signer)),
+        for weg, bundle in (("emit_bundle", emit_bundle(roh, ereignis)),
                             ("emit_bundle_incremental",
-                             self.a.emit_bundle_incremental(roh, self.signer, self.a.MerkleAccumulator()))):
-            with self.subTest(event_through=weg):
-                with self.assertRaises(self.a.AccumulatorStateError):
-                    self.a.MerkleAccumulator.restore({"state": inhalt, "signature": bundle["signature"]["sig_b64"]},
-                                                     pub)
-        with self.subTest(case="control: the same content as state() signs it"):
-            wieder = self.a.MerkleAccumulator.restore(gewaehlt.state(self.signer), pub)
+                             self.a.emit_bundle_incremental(roh, ereignis, self.a.MerkleAccumulator()))):
+            gefaelscht = {"state": inhalt, "signature": bundle["signature"]["sig_b64"]}
+            for gepinnt in ("the state key", "the event key"):
+                schluessel = _pub(self.signer) if gepinnt == "the state key" else _event_pub()
+                with self.subTest(event_through=weg, pinned=gepinnt):
+                    with self.assertRaises(self.a.AccumulatorStateError):
+                        self.a.MerkleAccumulator.restore(gefaelscht, schluessel, event_public_key=_event_pub())
+        with self.subTest(case="control: the same content as state() signs it with the state key"):
+            wieder = self.a.MerkleAccumulator.restore(gewaehlt.state(self.signer, event_public_key=_event_pub()),
+                                                      _pub(self.signer), event_public_key=_event_pub())
             self.assertEqual(wieder.root(), gewaehlt.root())
 
     def test_a_state_signature_covers_the_prefix_then_the_rfc_8785_form(self) -> None:
@@ -876,19 +892,57 @@ class TheRestartRule(unittest.TestCase):
             alt = emit_bundle(b"x" + praefix, echt, prior_leaves=_LEAVES[:3])
             self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
 
-    def test_a_key_that_signs_events_through_emit_bundle_can_be_made_to_sign_a_state(self) -> None:
-        """The boundary, measured: emit_bundle, which this tool does not change, signs any payload, one that begins
-        with the state prefix included, so under a key that also signs events through it a state of the sender's
-        choice restores. The module says so and names the remedy, a key that signs states and nothing else."""
+    def test_a_state_signed_through_emit_bundle_under_the_event_key_is_refused(self) -> None:
+        """Codex thread 4246051732 on pull request 340: emit_bundle, which this tool does not change, signs any
+        payload, one that begins with the state prefix included, and with one key for events and states a state of the
+        sender's choice restored; the module only said so. Now the state key is not the event key, checked at both
+        ends. The prefixed bytes of a chosen state, sent as an event to emit_bundle under the event key, restore
+        neither under the state key, where the signature does not verify, nor under the event key pinned as the state
+        key, which restore refuses before any signature arithmetic."""
         from proofbundle.canonical import canonicalize_statement
         from proofbundle.emit import emit_bundle
         gewaehlt = self.a.MerkleAccumulator.from_leaves([b"chosen " + b for b in _LEAVES[:37]])
-        inhalt = gewaehlt.state(_other_key())["state"]
-        bundle = emit_bundle(self.a.STATE_SIGNATURE_PREFIX + canonicalize_statement(inhalt), self.signer)
-        wieder = self.a.MerkleAccumulator.restore({"state": inhalt, "signature": bundle["signature"]["sig_b64"]},
-                                                  _pub(self.signer))
-        self.assertEqual(wieder.root(), gewaehlt.root())
-        self.assertIn("a key that signs states and nothing else", " ".join(self.a.__doc__.split()))
+        inhalt = gewaehlt.state(_other_key(), event_public_key=_event_pub())["state"]
+        bundle = emit_bundle(self.a.STATE_SIGNATURE_PREFIX + canonicalize_statement(inhalt), _event_key())
+        gefaelscht = {"state": inhalt, "signature": bundle["signature"]["sig_b64"]}
+        with self.assertRaisesRegex(self.a.AccumulatorStateError, "does not verify under the pinned key"):
+            self.a.MerkleAccumulator.restore(gefaelscht, _pub(self.signer), event_public_key=_event_pub())
+        with self.assertRaisesRegex(self.a.AccumulatorStateError, "pinned state key is the event key"):
+            self.a.MerkleAccumulator.restore(gefaelscht, _event_pub(), event_public_key=_event_pub())
+        self.assertIn("the state key signs states and nothing else", " ".join(self.a.__doc__.split()))
+
+    def test_the_state_key_is_never_the_event_key(self) -> None:
+        """Both ends refuse the event key as the state key, and an event key that is no sound Ed25519 key, before
+        anything is signed or verified. The keys are compared as the bytes each is read as once, so a bytearray or a
+        bytes subclass of the event key is the event key; a low-order, non-canonical or malformed event key is
+        refused, since two such spellings could name one point."""
+        akku = self.a.MerkleAccumulator.from_leaves(_LEAVES[:5])
+        zustand = akku.state(self.signer, event_public_key=_event_pub())
+
+        class Anders(bytes):
+            def __eq__(self, other):
+                return False
+
+            __hash__ = bytes.__hash__
+        for name, wert in (("bytes", _event_pub()), ("bytearray", bytearray(_event_pub())),
+                           ("a bytes subclass that compares unequal", Anders(_event_pub()))):
+            with self.subTest(state_key_given_as=name):
+                with self.assertRaisesRegex(ValueError, "signed with the event key"):
+                    akku.state(_event_key(), event_public_key=wert)
+                with self.assertRaisesRegex(self.a.AccumulatorStateError, "pinned state key is the event key"):
+                    self.a.MerkleAccumulator.restore(zustand, wert, event_public_key=_event_pub())
+                with self.assertRaisesRegex(self.a.AccumulatorStateError, "pinned state key is the event key"):
+                    self.a.MerkleAccumulator.restore(zustand, _event_pub(), event_public_key=wert)
+        for name, schwach in (("the identity point", b"\x01" + b"\x00" * 31), ("31 bytes", b"\x02" * 31),
+                              ("non-canonical, y = p", (2 ** 255 - 19).to_bytes(32, "little")), ("None", None)):
+            with self.subTest(event_key=name):
+                with self.assertRaisesRegex(ValueError, "not a sound 32-byte Ed25519 key"):
+                    akku.state(self.signer, event_public_key=schwach)
+                with self.assertRaisesRegex(self.a.AccumulatorStateError, "not a sound 32-byte Ed25519 key"):
+                    self.a.MerkleAccumulator.restore(zustand, _pub(self.signer), event_public_key=schwach)
+        with self.subTest(case="control: separate keys"):
+            self.assertEqual(self.a.MerkleAccumulator.restore(zustand, _pub(self.signer),
+                                                              event_public_key=_event_pub()).root(), akku.root())
 
     def test_a_state_signature_read_as_an_event_has_a_payload_that_begins_with_the_prefix(self) -> None:
         """The other direction, measured: verify_bundle, which this tool does not change, accepts a bundle built
