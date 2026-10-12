@@ -77,7 +77,7 @@ fields are speaking RFC-3339):
 | `assuranceLevel` | an **issuer-declared** assurance claim: `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested`. The predicate does not corroborate it; external corroboration belongs in `evidence` |
 | `subjectProfile` | which subject profile produced the `subject` (below) |
 | `preRegistration` | optional `{alg, value}` — present only if the receipt carries a prereg hash |
-| `evidence[]` | optional ResourceDescriptors for supporting material. Each entry MUST carry `digest`, and SHOULD carry `mediaType` and one of `uri` or `downloadLocation`. The digest identifies the referenced artifact; with `content` present it identifies the decoded bytes, and the verifier refuses a `content` whose SHA-2 or SHA-3 digest differs from the one stated. An internal Merkle root is not a substitute for the digest of that artifact |
+| `evidence[]` | optional ResourceDescriptors for supporting material. Each entry MUST carry `digest`, and SHOULD carry `mediaType` and one of `uri` or `downloadLocation`. The digest identifies the referenced artifact; with `content` present it identifies the decoded bytes, and the verifier refuses a `content` whose MD5, SHA-1, SHA-2 or SHA-3 digest differs from the one stated, or that the running Python cannot recompute. An internal Merkle root is not a substitute for the digest of that artifact |
 | `harness` | optional `{name, version}` plus an optional `digest` ([DigestSet](https://github.com/in-toto/attestation/blob/main/spec/v1/digest_set.md)) for consumers that need to bind the exact artifact that produced the result. A `harness` carrying only `name` and `version` stays conforming. The digest binds **identity only** and asserts nothing about the harness's detection performance |
 
 **One identification each.** For each of the model and the dataset, exactly one of `commitments.<x>` and
@@ -296,8 +296,9 @@ seven lines further down).
 - **A9, the encoding of `content`** (lines 147-148). The digest identifies the decoded bytes; the JSON
   encoding of the bytes is the ResourceDescriptor's. Readings: standard base64 only; any alphabet or
   padding a protobuf JSON parser accepts. Implemented: canonical, padded standard base64, the house's one
-  strict decoder; digests under algorithms other than SHA-1, SHA-2 and SHA-3 are not compared with the
-  content.
+  strict decoder; a digest under one of the twelve MD5, SHA-1, SHA-2 and SHA-3 names whose form the verifier
+  checks is recomputed over the content, and refused when the running Python cannot compute it; digests
+  under other algorithm names are not compared with the content.
 - **A10, `uri` and `downloadLocation` describe the same artifact** (lines 148-149). Not checkable offline;
   the verifier does not fetch, so this is not verified.
 
