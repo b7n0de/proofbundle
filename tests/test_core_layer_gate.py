@@ -308,6 +308,78 @@ def test_a_trust_boundary_needs_a_reason(tmp_path, reason):
     assert rc == 2
 
 
+# ── Codex thread 4244048849 on pull request 337: the working and the home directory, read implicitly ──
+
+_CWD_CALLS = {
+    "os.path.abspath": ("import os\ndef f():\n    return os.path.abspath('x')\n", "os.path.abspath"),
+    "os.path.relpath": ("import os\ndef f(p):\n    return os.path.relpath(p)\n", "os.path.relpath"),
+    "os.chdir": ("import os\ndef f():\n    os.chdir('/tmp')\n", "os.chdir"),
+    "abspath from os.path": ("from os.path import abspath\ndef f():\n    return abspath('x')\n",
+                             "os.path.abspath"),
+    "Path.resolve on an instance": ("from pathlib import Path\ndef f():\n    return Path('x').resolve()\n",
+                                    ".resolve"),
+    "Path.absolute on an instance": ("from pathlib import Path\ndef f():\n    return Path('x').absolute()\n",
+                                     ".absolute"),
+    "Path.expanduser on an instance": ("from pathlib import Path\ndef f():\n    return Path('~').expanduser()\n",
+                                       ".expanduser"),
+    "Path.resolve through the class": ("from pathlib import Path\ndef f(p):\n    return Path.resolve(p)\n",
+                                       "pathlib.Path.resolve"),
+    "resolve through getattr with a literal": (
+        "from pathlib import Path\ndef f(p):\n    return getattr(Path(p), 'resolve')()\n", ".resolve"),
+    # Codex thread 4245077735 on pull request 339: the concrete Path classes and the real modules of os.path.
+    "PosixPath.resolve": ("from pathlib import PosixPath\ndef f(p):\n    return PosixPath.resolve(p)\n",
+                          "pathlib.PosixPath.resolve"),
+    "WindowsPath.absolute": ("from pathlib import WindowsPath\ndef f(p):\n    return WindowsPath.absolute(p)\n",
+                             "pathlib.WindowsPath.absolute"),
+    "PosixPath.expanduser": ("from pathlib import PosixPath\ndef f(p):\n    return PosixPath.expanduser(p)\n",
+                             "pathlib.PosixPath.expanduser"),
+    "posixpath.abspath": ("import posixpath\ndef f():\n    return posixpath.abspath('x')\n", "posixpath.abspath"),
+    "abspath from ntpath": ("from ntpath import abspath\ndef f():\n    return abspath('x')\n", "ntpath.abspath"),
+}
+
+
+# The same class on the file rule: a rule written for `pathlib.Path` or `os.path` binds the other spellings of the
+# same function too, because the gate makes a name canonical before it looks the rule up.
+_FILE_SPELLINGS = {
+    "PosixPath.read_bytes": ("from pathlib import PosixPath\ndef f(p):\n    return PosixPath.read_bytes(p)\n",
+                             "pathlib.PosixPath.read_bytes"),
+    "WindowsPath.write_text": ("from pathlib import WindowsPath\ndef f(p):\n    WindowsPath.write_text(p, 'x')\n",
+                               "pathlib.WindowsPath.write_text"),
+    "ntpath.exists": ("import ntpath\ndef f(p):\n    return ntpath.exists(p)\n", "ntpath.exists"),
+    "posixpath.getsize": ("import posixpath\ndef f(p):\n    return posixpath.getsize(p)\n", "posixpath.getsize"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(_FILE_SPELLINGS))
+def test_another_spelling_of_a_file_operation_is_a_file_finding(tmp_path, form):
+    source, operation = _FILE_SPELLINGS[form]
+    r = run(tmp_path, {"core.py": source})
+    assert ("file", "probepkg.core", operation) in found(r), (form, found(r))
+
+
+def test_a_pure_path_and_a_plain_pathlib_import_stay_clean(tmp_path):
+    """The canonical form must not turn harmless names into findings: PurePosixPath touches no file and no
+    directory, and importing PosixPath itself is no operation."""
+    r = run(tmp_path, {"core.py": "from pathlib import PosixPath, PurePosixPath\n"
+                                  "def f(p):\n    return PurePosixPath(p).name, PosixPath\n"},
+            listed=["probepkg", "probepkg.core"])
+    assert found(r) == set() and r["verdict"] == "GREEN", found(r)
+
+
+@pytest.mark.parametrize("form", sorted(_CWD_CALLS))
+def test_a_call_that_reads_or_changes_the_working_directory_is_an_environment_finding(tmp_path, form):
+    """Each form returned no finding before (measured at 0c1727fc with `findings_of`), while the explicit
+    `os.getcwd()` below did: the walk reached the call, and the rule list missed it."""
+    source, operation = _CWD_CALLS[form]
+    r = run(tmp_path, {"core.py": source})
+    assert ("environment", "probepkg.core", operation) in found(r), (form, found(r))
+
+
+def test_the_explicit_read_of_the_working_directory_is_the_control(tmp_path):
+    r = run(tmp_path, {"core.py": "import os\ndef f():\n    return os.getcwd()\n"})
+    assert ("environment", "probepkg.core", "os.getcwd") in found(r)
+
+
 # ── positive controls: the gate can say green ──────────────────────────────────────────────────
 
 def test_a_clean_core_is_green(tmp_path):

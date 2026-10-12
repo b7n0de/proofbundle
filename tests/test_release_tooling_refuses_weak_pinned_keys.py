@@ -232,11 +232,19 @@ THIRD_PARTY = {
     "pycose": "UNMODELLED",
     "cbor2": "a CBOR codec; it verifies no signature",
     "yaml": "a YAML parser; it verifies no signature",
+    "tomli": "a TOML parser, tomllib before Python 3.11; it verifies no signature",
     "opentimestamps": "checks timestamp attestations against block headers; no signature under a key",
     "_pytest": "pytest's internals, for a measurement script; it verifies no signature",
+    "markdown_it": "a CommonMark parser, for reading what a Markdown text renders; it verifies no signature",
 }
 
 _LOCAL_BASES = ("scripts", "tools", "tests", "conformance", "src")
+
+#: Standard library from a later Python than the oldest this repository runs on, with the version, for a file that
+#: imports it first and falls back to a library on the older one (tools/capability_matrix/measure.py: tomllib, then
+#: tomli). `sys.stdlib_module_names` knows such a module only from that version on, so on Python 3.10 it read as a
+#: library nobody classified, and as a table entry it would have read as stale on every later version.
+STDLIB_FROM_A_LATER_PYTHON = {"tomllib": (3, 11)}
 
 
 def _tooling_files():
@@ -326,11 +334,19 @@ class TheToolingSweep(unittest.TestCase):
         seen = {}
         for rel, path in _tooling_files():
             for root, line in _import_roots(path.read_text(encoding="utf-8")):
-                if root in sys.stdlib_module_names or root in local or root == "__future__":
+                if (root in sys.stdlib_module_names or root in STDLIB_FROM_A_LATER_PYTHON or root in local
+                        or root == "__future__"):
                     continue
                 seen.setdefault(root, f"{rel}:{line}")
         self.assertEqual(set(seen), set(THIRD_PARTY), seen)
         self.assertEqual(set(THIRD_PARTY) & local, set(), "a module of this repository shadows a library")
+
+    def test_a_later_standard_library_module_is_one_from_its_version_on(self):
+        """The list above names the version, and the interpreter running this case answers for it: before that
+        version the module is no standard library, from it on it is. A wrong entry fails on one side of the matrix."""
+        for name, ab in STDLIB_FROM_A_LATER_PYTHON.items():
+            with self.subTest(module=name):
+                self.assertEqual(name in sys.stdlib_module_names, sys.version_info >= ab)
 
     def test_an_unclassified_library_and_an_unmodelled_import_are_seen(self):
         planted = ("import nacl.signing\nfrom pycose.keys import OKPKey\nimport importlib\n"

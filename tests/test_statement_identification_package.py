@@ -214,6 +214,24 @@ class TestManifestFields:
         assert_failed_cleanly(rc, out, err)
         assert fails_naming(out, "references.json", "duplicate")
 
+    def test_a_second_row_for_one_slot_fails_and_the_first_is_still_checked(self, pkg):
+        """Codex thread 4244048854 on pull request 337: the rows were indexed by their slot, so a second row for a
+        slot replaced the first before any check read it. An invalid row in front of the true one went unchecked,
+        and the run ended ALL OK."""
+        def falsche_zeile_davor(d):
+            d["references"].insert(0, dict(d["references"][0], digest="00" * 32))
+        edit_manifest(pkg, falsche_zeile_davor)
+        rc, out, err = run(pkg)
+        assert_failed_cleanly(rc, out, err)
+        assert fails_naming(out, "reference 1", "slot of reference 0", "one row per slot")
+        assert fails_naming(out, "reference 0", "carries"), "the invalid first row is checked, not replaced"
+
+    def test_an_exact_copy_of_a_row_fails_too(self, pkg):
+        edit_manifest(pkg, lambda d: d["references"].append(dict(d["references"][0])))
+        rc, out, err = run(pkg)
+        assert_failed_cleanly(rc, out, err)
+        assert fails_naming(out, "reference 2", "slot of reference 0", "one row per slot")
+
     def test_an_unknown_manifest_field_fails(self, pkg):
         for where, change in (("reference", lambda d: d["references"][1].update(signature_covered=True)),
                               ("statement", lambda d: d["statements"][AUDIT].update(note="x")),

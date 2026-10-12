@@ -148,6 +148,45 @@ in-toto matches on the subject digest, so the subject must be chosen deliberatel
   deployment is gated on the passing eval — the "deploy only if the eval passed" hook, the natural
   attach point for SLSA/policy. You supply the artifact's `sha256`.
 
+## Reading the export with foreign tools
+
+Measured with the export of 6.1.0 against five foreign readers (Z225, `tools/intoto_external` on the
+branch `claude/intoto-external`, commit `13d8faaa60ec1f2d133d94bcea015965cb43a9c7`): the in-toto
+attestation bindings for Go (v1.2.0) and Python (0.9.3), go-securesystemslib 0.11.1, securesystemslib
+1.5.1, cosign 3.1.3 and GUAC 1.1.0. Every signature verified under a foreign DSSE verifier. Five
+findings followed; one was ours and is fixed, four are what a tool does with a conforming statement,
+and the format does not bend to them. The in-toto rules cited are from in-toto/attestation v1.2.0,
+`spec/v1/README.md` and `spec/v1/envelope.md`.
+
+- **F3, the DSSE keyid (fixed).** The envelope layer says a `keyid` SHOULD be included for each
+  signing key; the export wrote none, so securesystemslib raised `KeyError: 'keyid'` and GUAC could not
+  find a key. By default an envelope the package signs now carries the signer's OpenSSH SHA256 fingerprint
+  (`dsse.openssh_sha256_keyid`), the form go-securesystemslib's `dsse.SHA256KeyID` derives and
+  sigstore's key providers compare, when the signer exposes its Ed25519 public key. Pass `keyid=` to write
+  another, or `keyid=""` to write none. The keyid is not signed, and the single-key verifiers of the export
+  select no key by it, so among well-formed envelopes their verdict does not change with its value; the trust
+  pack selects each of its several keys by keyid, by design. A keyid that is not well-formed JSON text, a lone surrogate, makes the envelope
+  malformed, as any other field would.
+- **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
+  algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension
+  fields to any JSON object" and "Consumers MUST ignore unrecognized fields". The default strict parse
+  of both bindings refuses the statement, and cosign parses strictly and then says `could not parse
+  predicate`. Parsed with `DiscardUnknown` (Go) or `ignore_unknown_fields` (Python), the statement
+  passes `Validate`. A reader that needs cosign can verify the DSSE signature with any DSSE verifier
+  and parse the statement leniently.
+- **F2, the test-result `payloadType` (a tool limit).** The test-result export signs with
+  `application/vnd.in-toto.test-result+json`, the form `spec/v1/envelope.md` allows next to
+  `application/vnd.in-toto+json`; SPEC section 7b pins it, and the verifier refuses any other type,
+  as a type-confusion defense. cosign accepts only the second form. The eval-result and SVR exports
+  use the second form and pass that check.
+- **F4, GUAC ingests no attestation of these predicate types (a tool limit).** With a keyid, GUAC
+  verifies the signature and stops at `no document parser registered for type: ITE6`: it files every
+  in-toto statement of a predicate type it does not model as ITE6 and registers no parser for that.
+  A SLSA provenance statement under the same key was ingested in the same run.
+- **F5, `cosign verify-attestation` matches the subject against an image digest (a tool limit).**
+  Only the `release-gate` profile names an image. For `receipt` and `public-model` subjects, use
+  `cosign verify-blob-attestation` with the subject's own bytes or its digest.
+
 ## Policy questions (for a relying party)
 
 Before you trust an `eval-result` attestation for a decision, answer:
@@ -206,7 +245,9 @@ type, `https://b7n0de.com/attestation/eval-result/v0.2`.
   this version equals the verdict the released 6.1.0 verifier gives (recorded in the corpus, not
   recomputed); every entry is judged under the v0.1 rules (`predicate_shape_ok` is `None`) and returns
   its statement unchanged;
-- the v0.1 emitter still writes the five wheel envelopes byte for byte;
+- the v0.1 emitter still writes the statement and the signature of the five wheel envelopes byte for
+  byte; since the DSSE keyid default the envelope also names its signing key in an unsigned `keyid`,
+  the signer's OpenSSH SHA256 fingerprint, and without that field each envelope equals the wheel's;
 - the verifier dispatches on `predicateType`: the same predicate relabelled as v0.2 is refused by the
   revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which never checked
   the predicate's shape;
