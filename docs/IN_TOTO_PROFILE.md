@@ -166,7 +166,11 @@ and the format does not bend to them. The in-toto rules cited are from in-toto/a
   another, or `keyid=""` to write none. The keyid is not signed, and the single-key verifiers of the export
   select no key by it, so among well-formed envelopes their verdict does not change with its value; the trust
   pack selects each of its several keys by keyid, by design. A keyid that is not well-formed JSON text, a lone surrogate, makes the envelope
-  malformed, as any other field would.
+  malformed, as any other field would. Envelopes signed before this default keep the bytes they were
+  signed with and carry no keyid: the archived agent-review receipts under `receipts/agent_review`, the
+  fixture `tests/fixtures/kette_147/receipt.json` and the eval-result v0.1 statements that released
+  versions emitted, under `tests/fixtures/eval_result_v0_1`. The sdist ships all three as regression
+  inputs, and a reader that requires a keyid refuses them.
 - **F1, the top-level `contentRootAlg` (a tool limit).** The field declares the content-root
   algorithm inside the signed bytes (ADR 0002). The in-toto rules say "Producers MAY add extension
   fields to any JSON object" and "Consumers MUST ignore unrecognized fields". The default strict parse

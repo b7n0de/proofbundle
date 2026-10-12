@@ -119,7 +119,7 @@ class EveryEnvelopeCarriesIt(unittest.TestCase):
         for pfad in ("CHANGELOG.md", "docs/IN_TOTO_PROFILE.md", "src/proofbundle/dsse.py", "tests/test_dsse_keyid.py"):
             with self.subTest(file=pfad):
                 self.assertIsNone(satz.search(_prosa(pfad)), pfad)
-        for pfad, worte in (("CHANGELOG.md", "exposes no Ed25519 public key"),
+        for pfad, worte in (("CHANGELOG.md", "without an exposed Ed25519 public key omit it"),
                             ("src/proofbundle/dsse.py", "exposes no Ed25519 public key"),
                             ("docs/IN_TOTO_PROFILE.md", "when the signer exposes its Ed25519 public key")):
             with self.subTest(names=pfad):
@@ -333,8 +333,10 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
     def test_every_shipped_envelope_without_a_keyid_is_a_named_archive(self):
         """Codex thread 4218670842 on pull request 287: the headline said every DSSE envelope names its key, and the
         sdist ships the archived agent-review receipts, which do not. Every envelope without a keyid in the trees the
-        sdist ships lies in a named archive, and the changelog names both and scopes its headline to what this
-        package signs."""
+        sdist ships lies in a named archive. The changelog scopes its entry to the envelopes `dsse.sign_envelope`
+        creates, names the default and the opt-out, and says archived receipts and regression fixtures may omit
+        the keyid; the in-toto profile it points to names each archive (the review of the 6.3.0 changelog moved
+        the paths out of the entry)."""
         def huellen(x):
             if isinstance(x, dict):
                 if "payloadType" in x and isinstance(x.get("signatures"), list):
@@ -362,13 +364,18 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
         self.assertTrue(ohne, "control: the archived receipts are found by this walk")
         self.assertEqual([p for p in ohne if not p.startswith(self._ARCHIV)], [])
         text = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
-        eintrag = text[text.index("name their signing key by default") - 80:text.index("cosign's image-digest match")]
-        self.assertIn("DSSE envelopes name their signing key by default", eintrag)
-        # Codex thread 4219199107: keyid="" is the public opt-out, so the headline is about the default path, and
-        # the entry names the opt-out beside it.
-        self.assertIn('`keyid=""` writes none', eintrag)
+        anfang = text.index("DSSE envelopes created by `dsse.sign_envelope`")
+        eintrag = text[anfang:text.index("for interoperability notes", anfang)]
+        self.assertIn("as `keyid` by default", eintrag)
+        # Codex thread 4219199107: keyid="" is the public opt-out, so the entry is about the default path, and
+        # names the opt-out beside it.
+        self.assertIn('Use `keyid=""` to omit it', eintrag)
+        self.assertIn("Archived receipts and regression fixtures may still omit it", eintrag)
+        self.assertIn("See `docs/IN_TOTO_PROFILE.md`", text[anfang:anfang + len(eintrag) + 40])
+        profil = " ".join((REPO / "docs/IN_TOTO_PROFILE.md").read_text(encoding="utf-8").split())
+        f3 = profil[profil.index("**F3, the DSSE keyid"):profil.index("**F1, the top-level")]
         for archiv in self._ARCHIV:
-            self.assertIn(archiv.rstrip("/"), eintrag)
+            self.assertIn(archiv.rstrip("/"), f3)
 
 
 class BothVerifiersIgnoreIt(unittest.TestCase):
