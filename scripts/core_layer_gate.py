@@ -22,6 +22,8 @@ WHAT IT MEASURES, at the tree it runs in:
    `delattr` or `hasattr` with a computed name is a finding of its own, because the gate cannot say
    what it reaches. A method whose name is a file method (`read_bytes`, `open`, `read`, ...) on a
    receiver the gate cannot resolve is a file finding: the gate cannot prove the receiver is no file.
+   The same holds for the path methods that read the working or the home directory (`resolve`,
+   `absolute`, `expanduser`): on such a receiver they are an environment finding.
 
 3. IMPORT EDGES. Every module a core module imports is on the core list, in the standard library, or a
    named trust boundary, an external distribution listed with a reason in the core list file. A
@@ -78,10 +80,15 @@ _FORBIDDEN_NAMES: dict[str, tuple[str, ...]] = {
         "time.thread_time_ns", "time.clock_gettime", "time.clock_gettime_ns",
         "datetime.datetime.now", "datetime.datetime.utcnow", "datetime.datetime.today",
         "datetime.date.today"),
+    # The working directory and the home directory are environment too, read IMPLICITLY as well:
+    # `abspath` and `relpath` of a relative path and `Path.resolve`/`Path.absolute` read the working
+    # directory, `chdir` changes it, `expanduser` reads HOME (Codex thread 4244048849 on pull request 337).
     "environment": (
         "os.environ", "os.environb", "os.getenv", "os.getenvb", "os.putenv", "os.unsetenv",
         "os.getcwd", "os.getcwdb", "os.getlogin", "os.uname", "os.getpid", "os.path.expanduser",
-        "os.path.expandvars", "sys.argv", "pathlib.Path.home", "pathlib.Path.cwd", "platform"),
+        "os.path.expandvars", "sys.argv", "pathlib.Path.home", "pathlib.Path.cwd", "platform",
+        "os.path.abspath", "os.path.relpath", "os.chdir", "os.fchdir", "pathlib.Path.absolute",
+        "pathlib.Path.resolve", "pathlib.Path.expanduser"),
     "subprocess": (
         "subprocess", "multiprocessing", "pty", "os.system", "os.popen", "os.fork", "os.forkpty",
         "os.posix_spawn", "os.posix_spawnp", "os.kill", "os.killpg"),
@@ -112,6 +119,9 @@ _FILE_METHODS = frozenset((
     "glob", "rglob", "mkdir", "touch", "unlink", "rmdir", "exists", "is_file", "is_dir",
     "is_symlink", "read", "readline", "readlines", "readinto", "write", "writelines", "samefile",
     "chmod", "symlink_to", "hardlink_to"))
+# Path methods that read the working directory or the home directory, judged the same way on a receiver
+# the gate cannot resolve: `Path("x").resolve()` names no qualified receiver.
+_ENVIRONMENT_METHODS = frozenset(("absolute", "resolve", "expanduser"))
 _DYNAMIC_ATTRIBUTE_CALLS = ("builtins.getattr", "builtins.setattr", "builtins.delattr",
                             "builtins.hasattr")
 _BUILTIN_NAMES = frozenset(dir(builtins))
@@ -513,6 +523,8 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool) -> list[tuple[str, st
                         out.append((rule, full or attr, line))
                     elif target is None and attr in _FILE_METHODS:
                         out.append(("file", f".{attr}", line))
+                    elif target is None and attr in _ENVIRONMENT_METHODS:
+                        out.append(("environment", f".{attr}", line))
                 else:
                     out.append(("dynamic_access", f"{q.split('.')[-1]}(computed name)", line))
             if q in _CLOCK_WITHOUT_ARGUMENT and len(node.args) <= _CLOCK_WITHOUT_ARGUMENT[q] \
@@ -536,6 +548,8 @@ def findings_of(tree: ast.AST, modname: str, is_pkg: bool) -> list[tuple[str, st
                     out.append(("dynamic_access", ".__dict__", line))
                 elif node.attr in _FILE_METHODS and names.qual(node.value) is None:
                     out.append(("file", f".{node.attr}", line))
+                elif node.attr in _ENVIRONMENT_METHODS and names.qual(node.value) is None:
+                    out.append(("environment", f".{node.attr}", line))
     return out
 
 

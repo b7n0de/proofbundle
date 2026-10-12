@@ -308,6 +308,41 @@ def test_a_trust_boundary_needs_a_reason(tmp_path, reason):
     assert rc == 2
 
 
+# ── Codex thread 4244048849 on pull request 337: the working and the home directory, read implicitly ──
+
+_CWD_CALLS = {
+    "os.path.abspath": ("import os\ndef f():\n    return os.path.abspath('x')\n", "os.path.abspath"),
+    "os.path.relpath": ("import os\ndef f(p):\n    return os.path.relpath(p)\n", "os.path.relpath"),
+    "os.chdir": ("import os\ndef f():\n    os.chdir('/tmp')\n", "os.chdir"),
+    "abspath from os.path": ("from os.path import abspath\ndef f():\n    return abspath('x')\n",
+                             "os.path.abspath"),
+    "Path.resolve on an instance": ("from pathlib import Path\ndef f():\n    return Path('x').resolve()\n",
+                                    ".resolve"),
+    "Path.absolute on an instance": ("from pathlib import Path\ndef f():\n    return Path('x').absolute()\n",
+                                     ".absolute"),
+    "Path.expanduser on an instance": ("from pathlib import Path\ndef f():\n    return Path('~').expanduser()\n",
+                                       ".expanduser"),
+    "Path.resolve through the class": ("from pathlib import Path\ndef f(p):\n    return Path.resolve(p)\n",
+                                       "pathlib.Path.resolve"),
+    "resolve through getattr with a literal": (
+        "from pathlib import Path\ndef f(p):\n    return getattr(Path(p), 'resolve')()\n", ".resolve"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(_CWD_CALLS))
+def test_a_call_that_reads_or_changes_the_working_directory_is_an_environment_finding(tmp_path, form):
+    """Each form returned no finding before (measured at 0c1727fc with `findings_of`), while the explicit
+    `os.getcwd()` below did: the walk reached the call, and the rule list missed it."""
+    source, operation = _CWD_CALLS[form]
+    r = run(tmp_path, {"core.py": source})
+    assert ("environment", "probepkg.core", operation) in found(r), (form, found(r))
+
+
+def test_the_explicit_read_of_the_working_directory_is_the_control(tmp_path):
+    r = run(tmp_path, {"core.py": "import os\ndef f():\n    return os.getcwd()\n"})
+    assert ("environment", "probepkg.core", "os.getcwd") in found(r)
+
+
 # ── positive controls: the gate can say green ──────────────────────────────────────────────────
 
 def test_a_clean_core_is_green(tmp_path):
