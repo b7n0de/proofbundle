@@ -29,6 +29,8 @@ Installed via the `pytest11` entry-point; when enabled, `pytest_terminal_summary
 (metric `pass_rate`, with the per-outcome counts and exit status in provenance) from `terminalreporter.stats`.
 `PROOFBUNDLE_THRESHOLD` is required for receipt emission, with no default. If `PROOFBUNDLE_KEY` is unset,
 signing uses an ephemeral key with a warning.
+The metric is always `pass_rate`: `PROOFBUNDLE_METRIC` set to any other value skips the receipt and prints
+why, so no receipt names a metric the plugin did not compute.
 
 ## GitHub Action
 

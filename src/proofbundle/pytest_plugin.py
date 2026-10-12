@@ -59,12 +59,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             print("[proofbundle] PROOFBUNDLE_THRESHOLD not set — receipt skipped (a default "
                   "threshold of 0 would make `passed` vacuous; set it explicitly, e.g. 0.9).")
             return
+        if cfg["metric"] is not None and cfg["metric"] != "pass_rate":
+            # The plugin computes one metric, the pass rate. A receipt that wrote another name beside that value
+            # would sign, say, an "accuracy" verdict that is the pass rate (Codex thread 4217185750 on pull
+            # request 302: PROOFBUNDLE_METRIC=accuracy, one test passed, one failed, the receipt said accuracy).
+            print(f"[proofbundle] PROOFBUNDLE_METRIC={cfg['metric']!r} names a metric the pytest plugin does not "
+                  "compute; it computes pass_rate only. Receipt skipped (unset the variable or set it to pass_rate).")
+            return
         rootname = getattr(getattr(config, "rootpath", None), "name", None) or "pytest"
         provenance = {"harness": "pytest", "exit_status": int(exitstatus), "tests_ran": ran,
                       "tests_passed": len(clean_passed), **{f"n_{k}": v for k, v in counts.items()}}
         claim, _ = build_eval_claim(
             suite="pytest", suite_version=str(getattr(__import__("pytest"), "__version__", "unknown")),
-            metric=cfg["metric"] or "pass_rate", comparator=cfg["comparator"], threshold=cfg["threshold"],
+            metric="pass_rate", comparator=cfg["comparator"], threshold=cfg["threshold"],
             score=_fmt(pass_rate), n=ran, model_id=str(getattr(config, "rootpath", rootname)),
             dataset_id="pytest-suite", issuer="", timestamp=datetime.now(timezone.utc).isoformat(),
             provenance=provenance)
