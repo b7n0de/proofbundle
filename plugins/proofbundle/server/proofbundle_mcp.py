@@ -430,11 +430,15 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
             return f"a configured {key} {why}, a receiver the check does not read"
     for environ in (dict(os.environ), _receiver_env()):
         hooks = subprocess.run(["git", "-C", bare, "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
-                               capture_output=True, text=True, timeout=60, check=False, env=environ)
-        folder = hooks.stdout.strip()
-        if hooks.returncode != 0 or not folder:
-            return ("git does not name the hooks folder of the throwaway remote, so its receive-pack may run hook "
-                    "programs")
+                               capture_output=True, timeout=60, check=False, env=environ)
+        # The folder exactly as git names it: only the line end of the answer is removed, so a blank at the end of the
+        # path stays (review round 11 of 2026-10-12, R11-2: str.strip() had checked "/hk" where git took "/hk ").
+        # An answer that is not one line names no folder that can be told apart.
+        answer = hooks.stdout
+        if hooks.returncode != 0 or not answer.endswith(b"\n") or len(answer) < 2 or b"\n" in answer[:-1]:
+            return ("git does not name one hooks folder of the throwaway remote, so its receive-pack may run hook "
+                    "programs the check does not read")
+        folder = os.fsdecode(answer[:-1])
         for name in _RECEIVE_HOOKS:
             try:
                 os.lstat(os.path.join(folder, name))
