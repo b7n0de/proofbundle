@@ -870,11 +870,12 @@ the generator, and one written from the text of this document alone, without
 access to the generator. Both verifiers reach the expected verdict and the expected first failing step
 on every vector. An implementation of this format in the proofbundle project, behind an
 explicit option and with these vectors as conformance tests, is under way on a
-work branch and not released. That implementation refuses a verification key
-that rule 1 of {{profile}} rejects or that is a point of small order, as in
-vectors N12, N18, N53 and N54, already when the Receiver fixes it and before it
-reads any receipt; the verdict stays FAIL. A key of mixed order, as in N61, it
-refuses at step 11.
+work branch and not released. The show-eval command of that implementation
+with \-\-expect-issuer refuses a verification key that rule 1 of {{profile}}
+rejects or that is a point of small order, as in vectors N12, N18, N53 and N54,
+before reading any receipt, with exit status 2. The receipt verification
+function reads the receipt first. It refuses a key of mixed order, as in N61,
+at step 11.
 
 On 2026-10-12, the implementation named above, at commit
 a339424e07fd58fa261d8ca3f41af5de4dcbf751 of its work branch, was run on the 66
@@ -921,7 +922,8 @@ and gaps in the numbering carry no meaning.
   {{RFC8259}} Section 12.
 * {{impl}} adds the conformance run of the implementation named there, at
   commit a339424e, on the vectors of {{vectors}}, and the result of a
-  further verifier written from the text.
+  further verifier written from the text. It also limits the description
+  of key rejection before reading a receipt to the command-line interface.
 * The Open Items section is removed. The references were checked against
   the published documents on 2026-10-12, and {{impl}} now gives the
   conformance result it asked for.
