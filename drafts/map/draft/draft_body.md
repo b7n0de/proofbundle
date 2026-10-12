@@ -1265,3 +1265,27 @@ general Ed25519 implementation (its checks M2-17 and M2-18).
 * Step 1 of {{matching}} names the form of the value in each carrier.
 * {{non-claims}} and {{security}} say that a MATCH is not a Verified
   reference, and {{RFC8259}} is a normative reference.
+
+## Since draft-gruszka-evaluation-receipt-mappings-00
+{:numbered="false"}
+
+* {{signed-statement}} adds a certificate profile next to the key profile.
+  Its statement carries an X.509 chain in x5chain and a did:x509
+  issuer and is signed with alg -7, and step 3 of {{check-statement}}
+  checks it against a did:x509 identifier and trust anchor that the
+  Receiver configured. Vectors X1 to X6 ({{certificate-vectors}}) cover it.
+* {{check-statement}} checks a Transparent Statement after removing its
+  receipts under label 394 unread, and step 1 fixes the encoding
+  choices that {{RFC8949}} Section 4.2.2 leaves to a protocol. Vectors
+  T1 to T5 ({{transparent-vectors}}) are Transparent Statements, and
+  {{status-vectors}} gives a statement for each status other than accepted.
+* {{typed-reference}} assigns the states Unresolved and Failed of {{CPB}}
+  Section 8.1 to typed digest references, with vectors R1 to R6
+  ({{reference-vectors}}).
+* {{non-claims}} adds that a receipt does not show where B came from, and
+  {{security}} adds that an accepted status says nothing about
+  registration and that registration alone does not establish that
+  the payload is the receipt digest.
+* {{impl}} records the registration of a statement in the
+  certificate profile with a local Transparency Service and the
+  offline verification of the Transparent Statement it returned.

@@ -8,7 +8,8 @@ certificate profile does not admit -9 and says why (5.2.4, Section 12, the descr
 are gone, and a scope sentence in 5.2 takes the place of the item on intermediate certificates and other roots; an
 unnumbered appendix "Changes (to be removed before publication)" follows the examples and is now where they end
 (APPX_END). R17-OI reads the in-toto pin in the references, R22-OI the scope sentence and the measurement of Section 12,
-R31-TEXT the name -03; R32-E3 and R32-CHANGES hold the new sentences. No vector changes its result.
+R31-TEXT the name -03; R32-E3 and R32-CHANGES hold the new sentences, R32-CHANGES also the changes since -00
+(card SEIT-00-01). No vector changes its result.
 
 Round 31 (owner choice A of 2026-10-12, the text round of the -02): Draft 2 is now revision -02. A typed digest
 reference is read as JSON text under RFC 8259 by Parser8259, which keeps a repeated member name and does not apply the
@@ -3536,9 +3537,27 @@ s32_ch = ["Since draft-gruszka-evaluation-receipt-mappings-02",
           "Section 5.1 defines the JSON representation of a typed digest reference.",
           "Vectors R7 to R13 (Appendix A.7) give Malformed inputs and an escaped member name.",
           "Step 1 of Section 3.3 names the form of the value in each carrier.",
-          "Section 8 and Section 9 say that a MATCH is not a Verified reference, and [RFC8259] is a normative reference."]
-check("D2", "R32-CHANGES", all(x in ch32 for x in s32_ch) and ch32_i > aend - 1,
-      "the unnumbered appendix of changes follows the examples, with the changes since -02 and since -01",
+          "Section 8 and Section 9 say that a MATCH is not a Verified reference, and [RFC8259] is a normative reference.",
+          # the changes since -00, from the comparison of -00 and -01 that the owner's reviewer gave (card SEIT-00-01)
+          "Since draft-gruszka-evaluation-receipt-mappings-00",
+          "Section 5.2 adds a certificate profile next to the key profile. Its statement carries an X.509 chain in "
+          "x5chain and a did:x509 issuer and is signed with alg -7, and step 3 of Section 5.2.2 checks it against a "
+          "did:x509 identifier and trust anchor that the Receiver configured. Vectors X1 to X6 (Appendix A.8) cover it.",
+          "Section 5.2.2 checks a Transparent Statement after removing its receipts under label 394 unread, and step 1 "
+          "fixes the encoding choices that [RFC8949] Section 4.2.2 leaves to a protocol. Vectors T1 to T5 (Appendix "
+          "A.9) are Transparent Statements, and Appendix A.6 gives a statement for each status other than accepted.",
+          "Section 5.1 assigns the states Unresolved and Failed of [CPB] Section 8.1 to typed digest references, with "
+          "vectors R1 to R6 (Appendix A.7).",
+          "Section 8 adds that a receipt does not show where B came from, and Section 9 adds that an accepted status "
+          "says nothing about registration and that registration alone does not establish that the payload is the "
+          "receipt digest.",
+          "Section 12 records the registration of a statement in the certificate profile with a local Transparency "
+          "Service and the offline verification of the Transparent Statement it returned."]
+_order32 = [ch32.find("Since draft-gruszka-evaluation-receipt-mappings-%s" % v) for v in ("02", "01", "00")]
+check("D2", "R32-CHANGES", all(x in ch32 for x in s32_ch) and ch32_i > aend - 1 and -1 < _order32[0] < _order32[1]
+      < _order32[2],
+      "the unnumbered appendix of changes follows the examples, with the changes since -02, since -01 and since -00, "
+      "in that order",
       "missing: " + (", ".join(x[:40] for x in s32_ch if x not in ch32) or "none"))
 print()
 
