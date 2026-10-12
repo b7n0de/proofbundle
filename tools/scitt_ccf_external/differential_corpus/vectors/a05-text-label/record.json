@@ -1,0 +1,61 @@
+{
+ "id": "a05-text-label",
+ "class": "a",
+ "base": "control",
+ "mutation": "unprotected text label 'x' added",
+ "pins": {
+  "service": {
+   "repository": "https://github.com/microsoft/scitt-ccf-ledger",
+   "commit": "00101f769d872711356e080fbb089ac48589c60a",
+   "image_id": "sha256:1bdd60edc1b8cfc1fb02ed516b5a5ea60d75a3ca4b5d59f128e3c61e23680380",
+   "url": "https://127.0.0.1:8000",
+   "node_version": {
+    "ccf_version": "ccf-7.0.17",
+    "quickjs_version": "2026-06-04",
+    "unsafe": false
+   },
+   "configuration": {
+    "authentication": {
+     "allowUnauthenticated": true
+    },
+    "policy": {
+     "policyScript": "export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"
+    }
+   },
+   "attestation_format": "Insecure_Virtual",
+   "mode": "virtual (no TEE), single node, opened with `scitt governance local_development`",
+   "image_build_inputs_sha256": "ca1b6d4f3c3b51dfd62ce2d79b40d6b013a1ad2bdbc97ca7b23945eccf538e28"
+  },
+  "verifier": {
+   "repository": "https://github.com/b7n0de/proofbundle",
+   "commit": "9142fa4b7e167b03ebfd231e7de6df388b421672",
+   "tree_clean": true,
+   "package_version": "6.1.0",
+   "reader": "proofbundle.scitt_ccf (scitt-ccf/v1)",
+   "tool": "tools/scitt_ccf_external/differential_corpus.py",
+   "python": "3.11.15",
+   "cbor2": "6.1.4",
+   "cryptography": "50.0.1"
+  }
+ },
+ "service": {
+  "post_status": 202,
+  "accepted": true,
+  "txid": "2.82",
+  "error": null
+ },
+ "files": {
+  "request.hex": {
+   "sha256": "bf35ab0703e8120920734d95bd8bc8bf190c613741bf60b2cfbcd9b70098d8bd",
+   "length": 1143
+  },
+  "receipt.hex": {
+   "sha256": "4e9dfd87174898d512b0c7800ea4baa9e156d10b672e09890736d96f3809a114",
+   "length": 508
+  },
+  "statement.hex": {
+   "sha256": "d2b7a268ea87d6c574b6c1c85ffc2373b7c52129411d6fa3cd6fafe67e488679",
+   "length": 1655
+  }
+ }
+}
