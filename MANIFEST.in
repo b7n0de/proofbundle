@@ -139,6 +139,13 @@ include Makefile
 # outside a checkout the file is absent and not in SOURCES.txt, so `tests/conftest.py` reports the
 # module as a skip that names the file instead of aborting collection.
 #
+# OUT, and deliberately decided (2026-09-28): scripts/landung_waits_for_ci.py. It asks the GitHub API
+# for the ci.yml runs and jobs of one pull request head, and `.github/workflows/landung.yml` runs it
+# before the mutation layer. An installed package has no pull request and no workflow run to ask, the
+# same reason `codex_threads_check.py` stands outside, above. Its contract
+# `tests/test_ein_label_startet_keine_ci.py` also reads `.github/workflows/`, which this list prunes,
+# so `tests/conftest.py` skips that module outside a checkout.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der
