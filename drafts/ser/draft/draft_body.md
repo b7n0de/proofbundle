@@ -871,8 +871,8 @@ access to the generator. Both verifiers reach the expected verdict and the expec
 on every vector. An implementation of this format in the proofbundle project, behind an
 explicit option and with these vectors as conformance tests, is under way on a
 work branch and not released. The show-eval command of that implementation
-with \-\-expect-issuer refuses a verification key that rule 1 of {{profile}}
-rejects or that is a point of small order, as in vectors N12, N18, N53 and N54,
+with \-\-expect-issuer refuses a verification key whose y-coordinate is not
+below p or that is a point of small order, as in vectors N12, N18, N53 and N54,
 before reading any receipt, with exit status 2. The receipt verification
 function reads the receipt first. It refuses a key of mixed order, as in N61,
 at step 11.

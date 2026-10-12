@@ -11,7 +11,10 @@ a key before any receipt is read to the show-eval command with --expect-issuer, 
 receipt verification function reads the receipt first and refuses a key of mixed order, as in N61, at step 11; the
 earlier wording ("already when the Receiver fixes it", "the verdict stays FAIL") is gone, and the five vectors named
 there expect FAIL at step 11 in Appendix A. The point on Section 11 since -01 says that this description is limited
-to the command-line interface. Rounds 25 and 27 read it so.
+to the command-line interface. Rounds 25 and 27 read it so. Owner choice A of 2026-10-12 (card
+SER-02-BLOCK1-SCHLUESSELKLASSE-01): the keys that command refuses are those whose y-coordinate is not below p or that
+are points of small order; "that rule 1 of Section 4.4 rejects" is gone from that sentence, and the keys of N12, N18,
+N53 and N54 are counted here as of that class, the key of N61 as of neither.
 
 Round 27 (owner choices A of 2026-10-12, card SER-ID-02-SEIT-00-01): Section 11 names the implementation at
 a339424e, which reaches the expected verdict and first failing step on all 66 vectors; the appendix of changes has the
@@ -1899,22 +1902,38 @@ def main():
            "steps and on 4002 serializations of numbers by [RFC8785], with no deviation on these inputs (measured "
            "on 2026-10-11).",
            # Round 28: the refusal of a key before any receipt is read is that of the command-line interface
-           "The show-eval command of that implementation with --expect-issuer refuses a verification key that rule 1 "
-           "of Section 4.4 rejects or that is a point of small order, as in vectors N12, N18, N53 and N54, before "
-           "reading any receipt, with exit status 2.",
+           "The show-eval command of that implementation with --expect-issuer refuses a verification key whose "
+           "y-coordinate is not below p or that is a point of small order, as in vectors N12, N18, N53 and N54, "
+           "before reading any receipt, with exit status 2.",
            "The receipt verification function reads the receipt first.",
            "It refuses a key of mixed order, as in N61, at step 11."]
-    gone28 = ["already when the Receiver fixes it", "the verdict stays FAIL"]
+    gone28 = ["already when the Receiver fixes it", "the verdict stays FAIL", "that rule 1 of Section 4.4 rejects"]
     named28 = {v: app.get(v) for v in ("N12", "N18", "N53", "N54", "N61")}
-    keys28 = all(r is not None and r["expected"] == "FAIL" and r["step"].split()[0] == "11"
-                 and (("mixed-order" in (r["vk_desc"] or "")) == (v == "N61")) for v, r in named28.items())
+
+    def class28(k):
+        # the key class of that sentence: y-coordinate not below p, or a point of small order (8*A is the neutral
+        # element); any other key is of neither
+        if k is None or len(k) != 32:
+            return "no key"
+        if int.from_bytes(k, "little") & ((1 << 255) - 1) >= P:
+            return "y not below p"
+        pt, _ = decode_point(k)
+        return "small order" if pt is not None and is_neutral(scalar_mult(8, pt)) else "neither"
+    cls28 = {v: class28(key_from_description(r["vk_desc"], issuer_pub, mixed_pub)) if r is not None else "no vector"
+             for v, r in named28.items()}
+    keys28 = (all(r is not None and r["expected"] == "FAIL" and r["step"].split()[0] == "11"
+                  for r in named28.values())
+              and all(cls28[v] in ("y not below p", "small order") for v in ("N12", "N18", "N53", "N54"))
+              and cls28["N61"] == "neither")
     chk("Section 11 (rounds 25, 27 and 28): the conformance run of the implementation and the further verifier stand, "
         "the number of vectors they give is that of Appendix A (%d), and the refusal of a key before any receipt is "
-        "read is that of the show-eval command; the vectors it names expect FAIL at step 11" % len(app),
+        "read is that of the show-eval command, for a key whose y-coordinate is not below p or that is a point of "
+        "small order; the vectors it names expect FAIL at step 11, and their keys are of the class it says"
+        % len(app),
         all(x in flat25 for x in s25) and len(app) == 66 and not any(x in flat25 for x in gone28) and keys28,
         "missing: " + (", ".join(x[:40] for x in s25 if x not in flat25) or "none")
         + "; still standing: " + (", ".join(x for x in gone28 if x in flat25) or "none")
-        + "; named vectors at step 11 with their keys: " + ("yes" if keys28 else "no"))
+        + "; keys: " + ", ".join("%s %s" % kv for kv in cls28.items()))
     lines25 = [ln.rstrip() for ln in kept]
     i_ch25 = next((i for i, ln in enumerate(lines25) if ln == "Changes (to be removed before publication)"), None)
     i_last25 = max((i for i, ln in enumerate(lines25) if re.match(r"^A\.2\.\d+\.  ", ln)), default=None)
