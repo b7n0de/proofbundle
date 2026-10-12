@@ -3,6 +3,11 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 34 (owner choice A of 2026-10-12, review of the receipts draft -01, block B): Draft 1 is read in its -02, whose
+paragraph before "In particular:" in Section 6 is review block B; Section 8 of Draft 2 repeats the -01, which it cites.
+T1 compares the two lists after "In particular:" word for word and finds each paragraph before them as its revision
+has it. No vector changes its result.
+
 Round 33 (owner choice A of 2026-10-12, review of the -03, card REVIEW-01): 5.1 says that a byte order mark before
 the JSON text is Malformed (block E), Table 6 has R14, R1 preceded by the UTF-8 byte order mark (block F), with its
 bullet (block G), and 5.1 and Section 12 name R1 to R14 (block H, step 4). bytes7 builds R14 as the bytes EF BB BF and
@@ -1548,10 +1553,23 @@ _end = re.search(r"Each (citing )?envelope adds", d2s).start()  # round 3: "Each
 # written as a reference to Section 5 of [RECEIPTS], which Draft 1 writes as its own "Section 5".
 q2 = d2s[d2s.index("Verification establishes that the receipt passes"):_end].strip()
 q1 = d1s[d1s.index("Verification establishes that the receipt passes"):].strip()
-check("D2", "T1", q2.count("Section 5 of [RECEIPTS]") == 1 and q1 == q2.replace("Section 5 of [RECEIPTS]", "Section 5"),
+# Round 34: the paragraph before the list, in the -01 that Draft 2 repeats and in the -02 of Draft 1 (block B)
+T1_HEAD_01 = ("Verification establishes that the receipt passes the format, consistency and signature checks in Section 5 "
+              "of [RECEIPTS] under the Receiver's selected key. It does not establish that the Issuer's claims are true.")
+T1_HEAD_02 = ("Verification establishes that the receipt passes the format, consistency and signature checks in Section 5 "
+              "under the Receiver's selected key. PASS does not mean that passed is true or that the result meets the "
+              "Receiver's requirements for its intended use. Establishing who controls that key and whether that party "
+              "is authorized to make the claim is outside this procedure. Verification does not establish that the "
+              "Issuer's claims are true.")
+h2, _, l2 = q2.partition(" In particular: ")
+h1, _, l1 = q1.partition(" In particular: ")
+check("D2", "T1", q2.count("Section 5 of [RECEIPTS]") == 1 and l1 == l2 and l1 != "" and h2 == T1_HEAD_01
+      and h1 == T1_HEAD_02,
       "Section 8: the list of Draft 1 Section 6 is repeated word for word, its one cross-reference written "
-      "as Section 5 of [RECEIPTS]",
-      "Draft 1 %d chars, Draft 2 %d chars (whitespace-normalized)" % (len(q1), len(q2)))
+      "as Section 5 of [RECEIPTS]; the paragraph before the list is that of the -01, which Draft 2 cites, and Draft 1 "
+      "-02 has review block B there (round 34)",
+      "lists %d and %d chars (whitespace-normalized), equal: %s; paragraph of Draft 2 the -01's: %s; of Draft 1 "
+      "block B: %s" % (len(l1), len(l2), l1 == l2, h2 == T1_HEAD_01, h1 == T1_HEAD_02))
 d2flat = norm_ws(" ".join(d2))
 refs = re.findall(r"\[RECEIPTS\] Section (\d+(?:\.\d+)?)", d2flat) + re.findall(r"Section (\d+(?:\.\d+)?) of \[RECEIPTS\]", d2flat)
 expected_titles = {"3.1": "The Receipt Object", "3.4": "The Bytes B", "3.5": "The Criteria Digest",

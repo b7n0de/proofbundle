@@ -90,6 +90,11 @@ normative:
       RFC: "9864"
     target: https://www.rfc-editor.org/info/rfc9864
 informative:
+  CCF-DATA-HASH:
+    title: "Define data-hash preimage and require inclusion proof validation"
+    refcontent: "pull request 31 in ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile, revision d04ddffe, Work in Progress, accessed 12 October 2026, &lt;https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/pull/31&gt;"
+    date: false
+    target: https://github.com/ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/commit/d04ddffe
   SCITT-CHAIRS-20260922:
     title: "[SCITT] Re: SCITT WG: IETF 127 Agenda Planning"
     author:
@@ -392,7 +397,8 @@ consume the supported Proof Types"; its Section 5.2.1 is the Receipt of Inclusio
 of the specific RFC9162_SHA256 construction, which begins "In a signed proof, the
 payload is the Merkle Tree root that corresponds to the log at size tree-size".
 Different VDS constructions differ in their leaf and node hashing (for example the 0x00/0x01 prefixes of {{RFC9162}} Section 2.1.1); that difference does not make either
-construction ambiguous. This document does not test leaf hashing or Receipts.
+construction ambiguous. The illustrative cases in Section 6 do not test leaf hashing or
+Receipts.
 
 # Design Alternatives and Trade-offs
 
@@ -634,8 +640,8 @@ On 2026-10-12, the checker of that package as merged into the main branch of
 proofbundle, at commit 3611eb73fca16cf68ef47af00fd5193f733bc552, was applied to
 the twelve cases of Section 6 with the bytes of Appendix A: its own reading,
 ToBeSigned, signature and digest functions gave all four axes of the table for
-ten cases, C10 with the scheme and the reference algorithm exchanged because the
-package takes no scheme as input; it has no external_aad input and gives for C7
+nine cases directly and for C10 with the scheme and the reference algorithm
+exchanged, because the package takes no scheme as input; it has no external_aad input and gives for C7
 the result under the fixed empty external_aad rule that the case also records,
 and it refuses C8, whose payload is nil, as malformed. A further checker,
 written from the published text of this document alone, reproduced the four
@@ -658,6 +664,21 @@ c5ff0a72e28aa087eecd3e2b426577be3cf2a80f) and the replay at
 tools/scitt_ccf_external/replay_earlier_build/results_table.md (commit
 3ca368164b68a09a863f7ec12b2f9fa1b21123ec). Only the repository evidence is cited
 here.
+
+A local check on 2026-10-12 used seven inclusion receipts and their
+Transparent Statements from three instances of the same ledger.
+Each receipt signature verified over the recomputed root with its
+corresponding service key and failed with the other two keys. In
+these inputs, data-hash was SHA-256 over the tagged COSE_Sign1 bytes
+with the unprotected header replaced by an empty map and the
+remaining bytes unchanged. It differed from the digest of the
+Transparent Statement and from that of the corresponding encoding
+without tag 18. Pull request 31 for the CCF Receipt profile, at
+revision d04ddffe {{CCF-DATA-HASH}}, proposes this hash input and a
+comparison against the data-hash in each inclusion proof. That
+proposal is work in progress. These observations illustrate A1;
+they do not establish registration-independent identification or
+satisfy the two-service acceptance test of A4.
 
 A second local measurement, on 2026-10-11, follows use case 4 with two
 implementations and no hosted service: the ledger above, and

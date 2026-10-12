@@ -283,10 +283,14 @@ digest with a Transparency Service and verifying the resulting SCITT Receipt.
 Registration and verification of the resulting SCITT Receipt are outside this
 document.
 
-The receipt is the smallest unit in a line of work: one document asks how a
-signed statement is named unambiguously, this document fixes the bytes of a
-receipt, and a companion document describes how existing envelopes cite such a
-receipt by digest. This document defines no envelope mapping and no transport.
+This document defines an application payload and a receipt that
+carries it with a signature. Its interoperability target is that
+independent Receivers reach the same format, consistency and signature verdict
+on the same receipt bytes and verification key, provided verification
+completes. It does not define an evaluation method or decide whether
+a reported result is sufficient for an application. A separate
+profile can specify how this format is carried or cited in SCITT.
+This document defines no envelope mapping and no transport.
 
 # Conventions and Terminology
 
@@ -613,10 +617,13 @@ admits.
 
 # What a Receipt Does Not Prove {#non-claims}
 
-Verification establishes that the receipt passes the format, consistency and
-signature checks in {{verification}} under the Receiver's selected key. It does
-not establish that the Issuer's claims are true.
-In particular:
+Verification establishes that the receipt passes the format,
+consistency and signature checks in {{verification}} under the Receiver's
+selected key. PASS does not mean that `passed` is true or that the
+result meets the Receiver's requirements for its intended use.
+Establishing who controls that key and whether that party is
+authorized to make the claim is outside this procedure. Verification
+does not establish that the Issuer's claims are true. In particular:
 
 * The score can be false. The evaluation can be wrong, badly designed or not
   run at all; the receipt records what the Issuer states.
@@ -803,15 +810,18 @@ Encoding considerations:
   defined in {{bytes}}, without a byte order mark.
 
 Security considerations:
-: B is data and contains no active content: it carries no directive and
-  nothing a recipient executes. B is not compressed. A receipt that carries B
-  gives integrity and origin of B only under a key the Receiver fixed before
-  verification, and only with the procedure of {{verification}}; a key named
-  in the receipt is never used on its own. B gives no confidentiality: its
-  members are readable by anyone who holds it, and model and dataset
-  identifiers appear in it only as salted commitments ({{commitments}},
-  {{privacy}}). Parsing untrusted input needs documented resource limits;
-  reaching a limit is not a verdict. See {{security}} of this document.
+: B is data and contains no active content:
+  it carries no directive and nothing a recipient executes. B is
+  not compressed. A receipt that carries B gives integrity and
+  origin of B only under a key the Receiver fixed before
+  verification, and only with the procedure of {{verification}}; a key
+  named in the receipt is never used on its own. B gives no
+  confidentiality: its members are readable by anyone who holds
+  it, and model and dataset identifiers appear in it only as
+  salted commitments ({{commitments}}, {{privacy}}). Parsing untrusted
+  input needs documented resource limits; reaching a limit is
+  not a verdict. See {{security}} of this document and {{RFC8259}}
+  Section 12.
 
 Interoperability considerations:
 : When processing completes without a resource-limit error, the procedure of
@@ -868,12 +878,14 @@ refuses at step 11.
 
 On 2026-10-12, the implementation named above, at commit
 de2a21086e42991dc3726c70c81779d6d41a953c of its work branch, was run on the 66
-vectors of {{vectors}} with the bytes given there; it follows revision -00 of
-this document, whose receipt has a fourth member, inclusion, and it stopped at
-step 1 on every vector, so it reached the expected verdict on the 56 vectors
-that expect FAIL and the expected first failing step on 9 of them. A further
-verifier, written from the published text of this document alone, agreed with
-the verifier written by the author of the generator on all 66 vectors, on 23000
+vectors of {{vectors}} with the bytes given there, and for each vector its
+verdict and first failing step were compared with the expected ones: it follows
+revision -00 of this document, whose receipt has a fourth member, inclusion, and
+it stopped at step 1 on every vector, so it reached the expected verdict on the
+56 vectors that expect FAIL and the expected first failing step on 9 of them. A
+further verifier, written from the published text of this document alone,
+agreed with the verifier written by the author of the generator on the verdict
+and the first failing step of each of the 66 vectors, on 23000
 targeted inputs across all eleven steps and on 4002 serializations of numbers
 by {{RFC8785}}, with no deviation on these inputs (measured on 2026-10-11).
 
