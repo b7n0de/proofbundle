@@ -1,5 +1,5 @@
 {
-  "draft": "draft-gruszka-evaluation-receipt-mappings-01",
+  "draft": "draft-gruszka-evaluation-receipt-mappings-02",
   "source": {
     "draft": "draft-gruszka-signed-evaluation-receipts-01",
     "vector": "P1",
@@ -384,6 +384,69 @@
       "expected_state": "Unresolved",
       "expected_match": "INDETERMINATE",
       "shows": "R1 presented with N13, from which B is not obtained"
+    },
+    {
+      "id": "R7",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest_alg\":\"SHA-256\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\",\"x\":1}",
+      "expected_state": "Malformed",
+      "expected_match": "MATCH",
+      "shows": "R1 with a member that the declaration does not name"
+    },
+    {
+      "id": "R8",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest\":\"07182e9bff69baa8ab9a5646d69b5118ccf3780b903b9a9d5b4bd0d9c9d70b87\",\"digest_alg\":\"SHA-256\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}",
+      "expected_state": "Malformed",
+      "expected_match": "INDETERMINATE",
+      "shows": "R1 with a second digest member that names B of P2; neither value is chosen"
+    },
+    {
+      "id": "R9",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}",
+      "expected_state": "Malformed",
+      "expected_match": "INDETERMINATE",
+      "shows": "R1 without digest_alg"
+    },
+    {
+      "id": "R10",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "[{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest_alg\":\"SHA-256\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}]",
+      "expected_state": "Malformed",
+      "expected_match": "INDETERMINATE",
+      "shows": "R1 inside a JSON array, which is not a JSON object"
+    },
+    {
+      "id": "R11",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest_alg\":\"SHA-256\",\"purpose\":null,\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}",
+      "expected_state": "Malformed",
+      "expected_match": "MATCH",
+      "shows": "R1 with purpose set to null, not a JSON string. Unlike R2, this is a form error before context selection"
+    },
+    {
+      "id": "R12",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "{\"\\u0064igest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest_alg\":\"SHA-256\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}",
+      "expected_state": "Verified",
+      "expected_match": "MATCH",
+      "shows": "R1 with the sole digest member name written as \"\\u0064igest\" in the JSON text; the decoded name is unchanged"
+    },
+    {
+      "id": "R13",
+      "candidate": "P1",
+      "candidate_receipt_sha256": "02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7",
+      "reference_json": "{\"digest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"\\u0064igest\":\"8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c\",\"digest_alg\":\"SHA-256\",\"type\":\"application/vnd.signed-evidence.eval-receipt+json\"}",
+      "expected_state": "Malformed",
+      "expected_match": "INDETERMINATE",
+      "shows": "R1 with an additional member named \"\\u0064igest\" whose value equals the original digest. The decoded names are equal; equal values do not make a repeated name acceptable"
     }
   ],
   "registered_x1": {

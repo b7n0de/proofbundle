@@ -1,7 +1,7 @@
 ---
 title: Citing Signed Evaluation Receipts from Existing Envelopes
 abbrev: Evaluation Receipt Mappings
-docname: draft-gruszka-evaluation-receipt-mappings-01
+docname: draft-gruszka-evaluation-receipt-mappings-02
 v: 3
 category: info
 submissiontype: IETF
@@ -41,6 +41,16 @@ normative:
       BCP: "14"
       RFC: "8174"
     target: https://www.rfc-editor.org/info/rfc8174
+  RFC8259:
+    title: "The JavaScript Object Notation (JSON) Data Interchange Format"
+    author:
+      - ins: T. Bray
+        role: editor
+    date: 2017-12
+    seriesinfo:
+      STD: "90"
+      RFC: "8259"
+    target: https://www.rfc-editor.org/info/rfc8259
   RECEIPTS:
     title: "Signed Evaluation Receipts"
     author:
@@ -420,6 +430,10 @@ independently.
 ## Matching Rule {#matching}
 
 Given a citation and a candidate receipt, the result is computed as follows.
+For the JSON representation in {{typed-reference}}, first apply that section's
+extraction rule; it either gives INDETERMINATE or supplies the algorithm and
+value for the steps below. The matching result is independent of the typed
+reference's processing state.
 
 1. If the citation's algorithm is not SHA-256, or its value is not 32 bytes (64
    lowercase hexadecimal digits in text form), the result is INDETERMINATE.
@@ -427,7 +441,11 @@ Given a citation and a candidate receipt, the result is computed as follows.
    value of COSE header parameter 258, and `sha-256` as the algorithm label of
    the examples ({{examples}}); each name counts only in its own carrier, and
    names are compared exactly, so `SHA256` is none of them. A typed digest
-   reference names it `SHA-256` ({{typed-reference}}). A digest set with several
+   reference names it `SHA-256` ({{typed-reference}}). The value is 64 lowercase
+   hexadecimal digits in text form in a digest set ({{vsa}}), in a typed digest
+   reference ({{typed-reference}}) and in the examples ({{p1-digests}}), and 32
+   bytes as the payload of a statement whose parameter 258 is -16
+   ({{signed-statement}}). A digest set with several
    entries is matched on its `sha256` entry alone; this document does not judge
    the other entries. This is narrower than the matching guidance of
    {{INTOTO-DIGESTSET}}, under which two digest sets match if any acceptable
@@ -630,8 +648,8 @@ declares one artifact type for the receipt digest:
 * `type` is `application/vnd.signed-evidence.eval-receipt+json`, the type,
   which identifies B;
 * there is one digest context, so `purpose` is absent;
-* the context has no purpose label, so a reference that carries `purpose` is
-  Unresolved ({{CPB}} Section 8.1);
+* the context has no purpose label, so a well-formed reference that carries
+  `purpose` is Unresolved ({{CPB}} Section 8.1);
 * the canonicalization algorithm is `as-transmitted` ({{CPB}} Section 4.4),
   with the byte-boundary selector {{RECEIPTS}} Section 3.4, "The Bytes B";
 * the hash function is SHA-256, and `digest_alg` is exactly `SHA-256`;
@@ -639,22 +657,52 @@ declares one artifact type for the receipt digest:
   text value; in the `cpb-refs` header parameter of {{CPB}} Section 8.3 it is
   a text string.
 
+For the JSON representation defined here and used in {{reference-vectors}},
+a reference is one JSON object {{RFC8259}} with the required members
+`type`, `digest_alg` and `digest`, and the optional member `purpose`. Each
+of these members, when present, has a JSON string value. No other
+member is allowed. Member names of this object are compared after
+JSON string unescaping, without case folding or Unicode
+normalization; repeated names are detected before any conversion
+that could discard them. Input that violates the JSON grammar, is
+not an object, has a repeated member name, lacks a required member,
+has a non-string value for one of the named members, or has another
+member is Malformed ({{CPB}} Section 3). This form check precedes
+reference resolution and verification. The rules assigning
+Unresolved, Failed or Verified apply only to well-formed references.
+These form requirements define this JSON representation; they do
+not replace the rules for `cpb-refs` or another profile's own
+serialization.
+
+For this JSON representation, the independent matching result of
+{{matching}} is INDETERMINATE unless the input conforms to the JSON
+grammar, its top-level value is an object, and that object contains
+exactly one `digest_alg` member and exactly one `digest` member, both
+with string values. Otherwise {{matching}} applies to those two
+values regardless of the reference state. No occurrence is chosen
+from repeated `digest_alg` or `digest` members, even if their values
+agree, and non-string values are not converted to strings. A
+matching result does not change the reference state or make a
+Malformed reference Verified.
+
 A reference under this declaration can stand in the `cpb-refs` header
-parameter of a Signed Statement, or in a payload that carries references in
-its own serialization, for example in the `references` of {{CAPSULE}}. A
-verifier obtains B by steps 1 to 3 of {{RECEIPTS}} Section 5, computes
-SHA-256 over it and compares the hexadecimal text. A candidate without B
-cannot be obtained as the cited artifact, which {{CPB}} Section 8.1 calls
-Unresolved; it corresponds to INDETERMINATE in {{matching}}. For a reference
-under this declaration, a `digest_alg` other than `SHA-256`, a `digest` that is
-not a text value of 64 lowercase hexadecimal digits, and a `digest` that differs
-from SHA-256 over B are Failed ({{CPB}} Section 8.1); the matching rule of
-{{matching}} gives INDETERMINATE for the first two and NO_MATCH for the third,
-because it also reads citations outside a typed digest reference. Vectors R1 to
-R6 ({{reference-vectors}}) give a reference in each of these states. A consuming
-profile that does not name this declaration by normative reference leaves
-every such reference Unresolved ({{CPB}} Section 8.1); no profile names it at
-the time of writing.
+parameter of a Signed Statement, or in a payload that carries
+references in its own serialization, for example in the `references`
+of {{CAPSULE}}. For a well-formed reference, context selection and
+verification follow {{CPB}} Section 8.1. A consuming profile that does
+not name this declaration by normative reference leaves a
+well-formed reference to it Unresolved; no profile names it at the
+time of writing. Once this digest context has been selected, a
+`digest_alg` other than `SHA-256` or a `digest` outside the declared text
+representation of 64 lowercase hexadecimal digits makes the
+reference Failed. {{matching}} gives INDETERMINATE for either case.
+After those checks, a verifier obtains B by steps 1 to 3 of
+{{RECEIPTS}} Section 5. If B is not obtained, the reference is
+Unresolved and the matching result is INDETERMINATE. Otherwise the
+verifier computes SHA-256 over B and compares its hexadecimal text
+with `digest`: equality gives Verified and MATCH, and inequality
+gives Failed and NO_MATCH. Vectors R1 to R13 ({{reference-vectors}})
+illustrate these states and Malformed.
 
 Only the digest crosses, as for the Signed Statement below. A reference that
 is Verified shows that the cited bytes are B; it does not show that the
@@ -1021,7 +1069,9 @@ Each envelope adds what it does not prove:
   that a receipt with that B exists or that it verifies, and `sub` binds
   nothing beyond the commitment it repeats.
 * Typed digest reference. A Verified reference shows that the cited bytes are
-  B, nothing about the signature, the key or the assertion.
+  B, nothing about the signature, the key or the assertion. A MATCH alone does
+  not establish that the reference is well formed or that its digest context
+  has been resolved.
 * PRML. BOUND and AGREE ({{prml}}) do not show that the criteria were fixed
   before the run.
 
@@ -1059,6 +1109,13 @@ compares the digest of that B, never the digest of the object.
 
 Algorithm. Only SHA-256 is defined. A citation with another algorithm gives
 INDETERMINATE (case C8), so it cannot be satisfied by a weaker digest.
+
+Reference parsing. For the JSON representation in {{typed-reference}},
+duplicate detection precedes any conversion that could discard member names.
+Selecting a first or last occurrence can change the reference state or
+matching result. A MATCH is not a substitute for Verified: a Malformed,
+Unresolved or Failed reference is not relied on as evidence of a content
+binding ({{CPB}} Section 8.1).
 
 Receipts not read. Step 2 of {{check-statement}} removes the receipts of a
 Transparent Statement without reading them; vector T1 carries a receipt made
@@ -1110,7 +1167,8 @@ value of {{examples}} from the bytes: the match result of every case, with its
 own implementation of steps 1 to 3 of {{RECEIPTS}} Section 5; the status of M2,
 of every status vector and of every certificate-profile vector, with its own
 implementation of the steps of {{check-statement}} in both profiles; and the
-state of every typed digest reference.
+state and the matching result of each of R1 to R13, with its own
+implementation of the form rules of {{typed-reference}}.
 
 An implementation of both directions of the key profile of
 {{signed-statement}}, the open-source package proofbundle (module `receipt_cose`, experimental), reproduces M2 byte

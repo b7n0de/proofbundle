@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks for the examples of draft-gruszka-evaluation-receipt-mappings-01. It does not import the
+"""Checks for the examples of draft-gruszka-evaluation-receipt-mappings-02. It does not import the
 generator; it re-derives every claim from the bytes in mappings.json:
 
   D1  the receipt digest is SHA-256 over B, and B is the payload of the receipt bytes;
@@ -22,8 +22,10 @@ generator; it re-derives every claim from the bytes in mappings.json:
       certificate pair of the examples (the did:x509 issuer of X1 and the test root certificate) equals the
       expected status; the certificates are read with the cryptography library, the chain signature is checked
       as RSASSA-PKCS1-v1_5 with SHA-256 and the statement signature as ECDSA P-256 with SHA-256.
-  R   for each typed digest reference, the state under the declaration of Section 5.1 (Verified, Failed or
-      Unresolved, in the terms of CPB Section 8.1) and the result of the matching rule equal the expected ones.
+  R   for each of R1 to R13, the state under the declaration of Section 5.1 (Malformed in the terms of CPB Section
+      3; Verified, Failed or Unresolved in the terms of CPB Section 8.1) and the result of the matching rule with the
+      JSON extraction rule of Section 5.1 equal the expected ones. The reference is read as RFC 8259 JSON with its
+      member pairs in order, a repeated name kept and names compared after unescaping; no value is converted.
   T   for each Transparent Statement, the status under both configured pairs equals the expected one: an
       unprotected header with label 394 alone, holding an array of one or more byte strings, is removed before
       step 2, and the receipts are not read; T2 is X1 with one receipt under 394, byte for byte.
@@ -47,17 +49,24 @@ generator; it re-derives every claim from the bytes in mappings.json:
       no B, so the C1 citation gives INDETERMINATE (Section 3.3 step 2, "including when processing stops at a
       resource limit") and R1 is Unresolved (Section 5.1); a reference that nests deeper is not read, a resource-limit
       error and no state. P1 with a key member nesting 64 deep in all is read (MATCH, Verified, receipt_not_verified
-      at step 5), 65 deep is not.
-  F   a reference that is not a JSON object (not JSON, a member name twice, an array, a number, a text, null) is
-      Unresolved with INDETERMINATE, as {} is; Section 5.1 names no state for it, and the -02 is asked.
+      at step 5), 65 deep is not; R1 with a member nesting 64 deep in all is read (Malformed, for the member, with
+      MATCH), 65 deep is not.
+  F   a reference that is not a JSON object (not JSON, an array, a number, a text, null), an object with a member
+      name twice and no digest, and {} are Malformed with INDETERMINATE (Section 5.1).
   Z   every input is read up to MAX_INPUT_BYTES (1 MiB) and not above: a candidate receipt over it has no B (C1
       INDETERMINATE, R1 Unresolved), a reference or a statement over it is a resource-limit error, and step 5 passes on
       the receipts draft's checker's RESOURCE_LIMIT. A number is kept as its token, so a number of 5000 digits in a
-      candidate or in a reference reads as one of 5 digits does.
+      candidate or in a reference reads as one of 5 digits does (in a reference a member x, so Malformed with MATCH).
   V   a digest counts only as a text value: R1 with its digest written as a JSON number (64 digits, or 64 characters
-      with an exponent), as true or as an array holding the right text, or with digest_alg as an array, is Failed with
-      INDETERMINATE (Section 5.1); C1 with its value as a number, true or an array is INDETERMINATE (Section 3.3
+      with an exponent), as true or as an array holding the right text, or with digest_alg as an array, is Malformed
+      with INDETERMINATE (Section 5.1); C1 with its value as a number, true or an array is INDETERMINATE (Section 3.3
       step 1).
+  W   the reverse cases of the review of Section 5.1: R1 with a byte order mark, with a member NaN, or cut short is
+      not JSON, Malformed with INDETERMINATE; without type or with type 1, Malformed with MATCH; without digest,
+      Malformed with INDETERMINATE; with digest_alg twice, also with the same value, Malformed with INDETERMINATE;
+      with type or purpose twice and one digest pair, Malformed with MATCH; with purpose evaluation, the one optional
+      member, Unresolved with MATCH, also when it is a lone surrogate escape (RFC 8259, not I-JSON), and with type
+      written as "\u0074ype", Verified with MATCH.
 Exit 0 when all hold.
 """
 import base64
@@ -590,29 +599,45 @@ def ref_with_member(ref_text: str, total: int) -> str:
     return json.dumps(r, separators=(",", ":"))
 
 
+class _Members(list):
+    """The member pairs of one JSON object, in order, with a repeated name kept: Section 5.1 detects repeated names
+    before any conversion that could discard them."""
+
+
+def _not_json(name):
+    raise ValueError("%s is not in the JSON grammar" % name)
+
+
+#: Section 5.1: the required members and the one optional member of the JSON representation, all JSON strings.
+REF_REQUIRED, REF_MEMBERS = {"type", "digest_alg", "digest"}, {"type", "purpose", "digest_alg", "digest"}
+
+
 def reference_state(ref_text: str, receipt: bytes):
-    """A typed digest reference under the declaration of Section 5.1: (CPB state, matching-rule result). A reference
-    that nests deeper than MAX_DEPTH is not read: ResourceLimit, a resource-limit error and no state. A candidate that
-    does is one without B (Unresolved, INDETERMINATE), as Section 5.1 and Section 3.3 step 2 say. The same holds for
-    MAX_INPUT_BYTES, counted in bytes of UTF-8."""
+    """A typed digest reference in the JSON representation of Section 5.1: (state, matching-rule result). The state is
+    Malformed (CPB Section 3) for input outside that form, before anything else; Unresolved, Failed or Verified (CPB
+    Section 8.1) only for a well-formed reference. The matching rule takes the one digest_alg and the one digest,
+    both strings, by the extraction rule of Section 5.1, whatever the state. A reference that nests deeper than
+    MAX_DEPTH is not read: ResourceLimit, a resource-limit error and no state. A candidate that does is one without B
+    (Unresolved, INDETERMINATE), as Section 5.1 and Section 3.3 step 2 say. The same holds for MAX_INPUT_BYTES, counted
+    in bytes of UTF-8."""
     size = len(ref_text.encode("utf-8", "surrogatepass"))
     if size > MAX_INPUT_BYTES:
         raise ResourceLimit("the reference is %d bytes, more than %d" % (size, MAX_INPUT_BYTES))
     if not json_depth_ok(ref_text):
         raise ResourceLimit("the reference nests arrays and objects deeper than %d" % MAX_DEPTH)
-    try:
-        ref = json.loads(ref_text, object_pairs_hook=_pairs, parse_int=Num, parse_float=Num)
-    except (ValueError, NoB):   # not one JSON text, or a member name twice
-        ref = None
-    if not isinstance(ref, dict):
-        # Section 5.1 and A.7 name no state for a reference that is not a JSON object (an open question for the -02).
-        # It carries no type, so the declaration does not apply, as for {}: Unresolved; and the matching rule finds
-        # no SHA-256 and no digest (Section 3.3 step 1): INDETERMINATE.
-        return "Unresolved", "INDETERMINATE"
-    # digest is a text value (Section 5.1); a JSON number is not one, even when its token is 64 hexadecimal characters
-    digest = ref.get("digest")
-    ok_form = (ref.get("digest_alg") == "SHA-256" and isinstance(digest, str)
-               and re.fullmatch(r"[0-9a-f]{64}", digest) is not None)
+    try:   # RFC 8259: no NaN or Infinity, no byte order mark; a number is kept as its token
+        top = json.loads(ref_text, object_pairs_hook=_Members, parse_int=Num, parse_float=Num,
+                         parse_constant=_not_json)
+    except ValueError:
+        top = None
+    members = top if isinstance(top, _Members) else _Members()
+    # the extraction rule: exactly one digest_alg and exactly one digest, both strings; no occurrence is chosen and
+    # no value converted
+    algs = [v for k, v in members if k == "digest_alg"]
+    digests = [v for k, v in members if k == "digest"]
+    unique = len(algs) == 1 and len(digests) == 1 and isinstance(algs[0], str) and isinstance(digests[0], str)
+    digest = digests[0] if unique else None
+    ok_form = unique and algs[0] == "SHA-256" and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
     try:
         b = b_of(receipt)
     except NoB:
@@ -621,7 +646,12 @@ def reference_state(ref_text: str, receipt: bytes):
         match_ = "INDETERMINATE"
     else:
         match_ = "MATCH" if hashlib.sha256(b).hexdigest() == digest else "NO_MATCH"
-    if ref.get("type") != TYPE or "purpose" in ref:
+    names = [k for k, _ in members]
+    if (not isinstance(top, _Members) or len(names) != len(set(names)) or not REF_REQUIRED <= set(names)
+            or not set(names) <= REF_MEMBERS or not all(isinstance(v, str) for _, v in members)):
+        return "Malformed", match_
+    ref = dict(members)
+    if ref["type"] != TYPE or "purpose" in ref:
         return "Unresolved", match_
     if not ok_form:
         return "Failed", match_
@@ -921,7 +951,7 @@ def main():
             ("arrays 60000 deep", "[" * 60000 + "]" * 60000, "resource-limit error"),
             ("objects 30000 deep", '{"a":' * 29999 + "{}" + "}" * 29999, "resource-limit error"),
             ("R1 with a member of arrays, %d deep in all" % MAX_DEPTH, ref_with_member(r1, MAX_DEPTH),
-             ("Verified", "MATCH")),
+             ("Malformed", "MATCH")),
             ("R1 with a member of arrays, %d deep in all" % (MAX_DEPTH + 1), ref_with_member(r1, MAX_DEPTH + 1),
              "resource-limit error")):
         try:
@@ -933,8 +963,8 @@ def main():
                            ("an array", "[]"), ("a number", "1"), ("a text", '"%s"' % TYPE), ("null", "null"),
                            ("an object without members", "{}")):
         got = reference_state(ref_text, p1)
-        ok &= check("F reference that is %s with P1: %s (expected Unresolved, INDETERMINATE)" % (what, got),
-                    got == ("Unresolved", "INDETERMINATE"))
+        ok &= check("F reference that is %s with P1: %s (expected Malformed, INDETERMINATE)" % (what, got),
+                    got == ("Malformed", "INDETERMINATE"))
     lim = MAX_INPUT_BYTES
 
     def padded(b, n):   # b followed by spaces up to n bytes
@@ -977,7 +1007,7 @@ def main():
             ("C1 citation, P1 with its key as a number of 5000 digits",
              match(cit, re.sub(rb'"key":"[^"]*"', b'"key":1' + b"0" * 4999, p1, count=1)), "MATCH"),
             ("R1 with a member of 5000 digits, P1", reference_state(r1[:-1] + ',"x":1' + "0" * 4999 + "}", p1),
-             ("Verified", "MATCH"))):
+             ("Malformed", "MATCH"))):
         ok &= check("Z %s: %s (expected %s)" % (what, got, want), got == want)
     hex1 = json.loads(r1)["digest"]
     assert r1.count('"%s"' % hex1) == 1 and r1.count('"SHA-256"') == 1
@@ -988,11 +1018,33 @@ def main():
             ("digest an array with the right text", r1.replace('"%s"' % hex1, '["%s"]' % hex1)),
             ("digest_alg an array", r1.replace('"SHA-256"', '["SHA-256"]'))):
         got = reference_state(ref_text, p1)
-        ok &= check("V R1 with %s, P1: %s (expected Failed, INDETERMINATE)" % (what, got),
-                    got == ("Failed", "INDETERMINATE"))
+        ok &= check("V R1 with %s, P1: %s (expected Malformed, INDETERMINATE)" % (what, got),
+                    got == ("Malformed", "INDETERMINATE"))
     for what, value in (("1 and 63 zeros", 10 ** 63), ("1e63", 1e63), ("true", True), ("an array", [hex1])):
         got = match(dict(cit, hex=value), p1)
         ok &= check("V C1 with its value %s, P1: %s (expected INDETERMINATE)" % (what, got), got == "INDETERMINATE")
+    t_ = '"type":"%s"' % TYPE
+    assert r1.count(t_) == 1 and r1.endswith(t_ + "}")
+    for what, ref_text, want in (
+            ("a byte order mark", "\ufeff" + r1, ("Malformed", "INDETERMINATE")),
+            ("a member NaN", r1[:-1] + ',"x":NaN}', ("Malformed", "INDETERMINATE")),
+            ("its last byte cut off", r1[:-1], ("Malformed", "INDETERMINATE")),
+            ("no type", r1.replace("," + t_, ""), ("Malformed", "MATCH")),
+            ("type 1", r1.replace(t_, '"type":1'), ("Malformed", "MATCH")),
+            ("no digest", r1.replace('"digest":"%s",' % hex1, ""), ("Malformed", "INDETERMINATE")),
+            ("digest_alg twice, the same value", r1.replace('"SHA-256"', '"SHA-256","digest_alg":"SHA-256"'),
+             ("Malformed", "INDETERMINATE")),
+            ("digest_alg twice, sha-256 first", r1.replace('"digest_alg"', '"digest_alg":"sha-256","digest_alg"'),
+             ("Malformed", "INDETERMINATE")),
+            ("type twice", r1[:-1] + "," + t_ + "}", ("Malformed", "MATCH")),
+            ("purpose twice", r1.replace(t_, '"purpose":"evaluation","purpose":"evaluation",' + t_),
+             ("Malformed", "MATCH")),
+            ("purpose evaluation, the one optional member", r1.replace(t_, '"purpose":"evaluation",' + t_),
+             ("Unresolved", "MATCH")),
+            ("purpose a lone surrogate escape", r1.replace(t_, '"purpose":"\\ud800",' + t_), ("Unresolved", "MATCH")),
+            ("type written as \"\\u0074ype\"", r1.replace('"type"', '"\\u0074ype"'), ("Verified", "MATCH"))):
+        got = reference_state(ref_text, p1)
+        ok &= check("W R1 with %s, P1: %s (expected %s)" % (what, got, want), got == want)
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 
