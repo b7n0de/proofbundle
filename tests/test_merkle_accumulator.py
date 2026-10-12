@@ -6,9 +6,10 @@ for the same ordered leaves, the root, the new leaf's inclusion path, later incl
 consistency proofs are byte-identical, and verify_inclusion and verify_consistency accept them, at the
 sizes 0 to 3 and around every power of two up to 2^12; a bundle emitted through it is byte-identical to
 emit_bundle's; a restart from a persisted state continues identically; a tampered state is refused, never
-rebuilt, while an older state the same key signed is restored, as the module says; what restore reads and
-what the bundle signs is one reading of what the caller passed; and one append makes at most
-2 * floor(log2(n)) + 2 hash calls, counted, whatever the history.
+rebuilt, while an older state the same key signed is restored, as the module says; an event's signature from
+emit_bundle or this tool does not restore as a state's, and a failed emission leaves the accumulator as it was;
+what restore reads and what the bundle signs is one reading of what the caller passed; and one append makes at
+most 2 * floor(log2(n)) + 2 hash calls, counted, whatever the history.
 """
 from __future__ import annotations
 
@@ -175,35 +176,151 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                 self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
                 self.assertTrue(verify_bundle(neu).ok)
 
-    def test_no_value_of_the_bundle_is_read_after_the_signer_runs(self) -> None:
+    def test_a_field_written_from_outside_while_the_signer_runs_stops_the_write(self) -> None:
+        """The write at the end goes onto exactly the state the bundle was computed from, not onto one of the same
+        size. A signer that writes the frontier of another tree of the same shape with object.__setattr__, or replaces
+        the kept leaf hashes with a list of the same length, leaves the size as it was and the fields fitting each
+        other; the emission still writes nothing, raises RuntimeError, and the signer's write stays. A leaf hash
+        appended to the list from outside breaks the fit, and the field check before the write refuses it."""
+        a = _load()
+        echt = _emitter_key()
+        leaves = [f"event {i}".encode() for i in range(5)]
+        anders = a.MerkleAccumulator.from_leaves([b"other " + b for b in leaves], keep_leaf_hashes=True)
+        faelle = {
+            "another frontier of the same shape": (
+                lambda akku: object.__setattr__(akku, "_frontier", anders._frontier), RuntimeError),
+            "another list of leaf hashes": (
+                lambda akku: object.__setattr__(akku, "_leaf_hashes", anders.leaf_hashes), RuntimeError),
+            "a leaf hash appended from outside": (
+                lambda akku: akku._leaf_hashes.append(b"\x22" * 32), a.AccumulatorStateError),
+        }
+        for name, (schreiben, fehler) in faelle.items():
+            akku = a.MerkleAccumulator.from_leaves(leaves, keep_leaf_hashes=True)
+
+            class Schreibend:
+                def sign(self, data, akku=akku, schreiben=schreiben):
+                    schreiben(akku)
+                    return echt.sign(data)
+
+                def public_key(self):
+                    return echt.public_key()
+            with self.subTest(writes=name):
+                with self.assertRaises(fehler):
+                    a.emit_bundle_incremental(b"payload", Schreibend(), akku)
+                self.assertEqual(akku._size, 5)
+                self.assertNotIn(a._leaf(b"payload"), akku._leaf_hashes)
+
+    def test_an_interrupt_at_any_line_leaves_the_state_before_a_refused_one_or_the_whole_leaf(self) -> None:
+        """The boundary the module names, measured at every line it runs. An adversarial lens raised KeyboardInterrupt
+        from a signal handler while emit_bundle_incremental ran; with the leaf appended before the signer, an interrupt
+        between the append and the guard after it left a leaf without a bundle. Here the interrupt is raised at the
+        k-th line the module runs during one call, for every k until the call returns. Before the writes at the end
+        the accumulator is as it was, between two of them every operation refuses it, and only at the return, after
+        the last write, is the leaf written without its bundle being returned. The tracer that ran before (a coverage
+        run's) is set again afterwards."""
+        import sys
+        from collections import Counter
+        a = _load()
+        echt = _emitter_key()
+        datei = str(_TOOL)
+        zeilen = _TOOL.read_text(encoding="utf-8").splitlines()
+        for behalten in (False, True):
+            for vorher in (0, 3, 6):
+                leaves = [f"event {i}".encode() for i in range(vorher)]
+                ergebnisse: Counter = Counter()
+                k = 0
+                while True:
+                    k += 1
+                    akku = a.MerkleAccumulator.from_leaves(leaves, keep_leaf_hashes=behalten)
+                    davor = (akku._size, akku._frontier, akku.leaf_hashes)
+                    stand = {"zeilen": 0, "zeile": None}
+
+                    def lokal(frame, event, arg, k=k, stand=stand):
+                        if event == "line":
+                            stand["zeilen"] += 1
+                            if stand["zeilen"] == k:
+                                stand["zeile"] = frame.f_lineno
+                                raise KeyboardInterrupt
+                        return lokal
+
+                    def global_(frame, event, arg, lokal=lokal):
+                        return lokal if frame.f_code.co_filename == datei else None
+                    vorheriger = sys.gettrace()
+                    sys.settrace(global_)
+                    try:
+                        bundle = a.emit_bundle_incremental(b"payload", echt, akku)
+                    except KeyboardInterrupt:
+                        bundle = None
+                    finally:
+                        sys.settrace(vorheriger)
+                    if bundle is not None:
+                        break       # the call ran fewer than k lines: every line has had its interrupt
+                    if (akku._size, akku._frontier) == davor[:2] and (
+                            akku._leaf_hashes is None or list(akku._leaf_hashes) == davor[2]):
+                        ergebnisse["as before"] += 1
+                        continue
+                    try:
+                        groesse = akku.size
+                    except a.AccumulatorStateError:
+                        ergebnisse["refused"] += 1
+                        continue
+                    with self.subTest(keep_leaf_hashes=behalten, history=vorher, line=stand["zeile"]):
+                        self.assertEqual(zeilen[stand["zeile"] - 1].strip(), "return bundle")
+                        self.assertEqual((groesse, akku.root()),
+                                         (vorher + 1, a.MerkleAccumulator.from_leaves(leaves + [b"payload"]).root()))
+                    ergebnisse["whole leaf, no bundle"] += 1
+                with self.subTest(keep_leaf_hashes=behalten, history=vorher, counts=dict(ergebnisse)):
+                    self.assertGreater(ergebnisse["as before"], 20)
+                    self.assertGreaterEqual(ergebnisse["refused"], 1)
+                    self.assertEqual(ergebnisse["whole leaf, no bundle"], 1)
+                    self.assertEqual(sum(ergebnisse.values()), k - 1)
+
+    def test_a_signer_that_changes_the_accumulator_gets_no_bundle_for_a_taken_position(self) -> None:
         """Codex thread 4218672721 on pull request 307: tree_size was read from the accumulator after the signer's
-        public_key and sign had run, and a signer holding the accumulator could append before it was read. The
-        bundle is emit_bundle's for the history before the call, whichever of the two appends."""
+        public_key and sign had run, and a signer holding the accumulator could append before it was read. Since
+        thread 4245187393 on pull request 340 the leaf is written only after the bundle is built, so such a signer's
+        append now takes the position the bundle would name. Nothing is written, RuntimeError is raised, and the
+        signer's change stays: an append, or an emission of its own, whose bundle then matches the accumulator. An
+        adversarial lens found the alternative, setting everything back, withdrew the leaf of a bundle the signer
+        already held, and a later bundle named the same position with another root."""
         from proofbundle.bundle import verify_bundle
         from proofbundle.emit import emit_bundle
         a = _load()
         echt = _emitter_key()
-        for methode in ("public_key", "sign"):
+        for art in ("append in public_key", "append in sign", "append in sign, then raises", "emission in sign",
+                    "emission in sign, then raises"):
             for vorher in (0, 1, 5):
                 leaves = [f"event {i}".encode() for i in range(vorher)]
                 akku = a.MerkleAccumulator.from_leaves(leaves)
+                gehalten = {}
 
-                class Anhaenger:
-                    def public_key(self, m=methode, akku=akku):
-                        if m == "public_key":
+                class Aendernd:
+                    def public_key(self, art=art, akku=akku):
+                        if art == "append in public_key":
                             akku.append(b"extra")
                         return echt.public_key()
 
-                    def sign(self, data, m=methode, akku=akku):
-                        if m == "sign":
+                    def sign(self, data, art=art, akku=akku):
+                        if art.startswith("append in sign"):
                             akku.append(b"extra")
+                        if art.startswith("emission in sign"):
+                            gehalten["innen"] = a.emit_bundle_incremental(b"extra", echt, akku)
+                        if art.endswith("then raises"):
+                            raise KeyError("the signer fails after its own emission")
                         return echt.sign(data)
-                neu = a.emit_bundle_incremental(b"payload", Anhaenger(), akku)
-                alt = emit_bundle(b"payload", echt, prior_leaves=leaves)
-                with self.subTest(appends_in=methode, history=vorher):
-                    self.assertEqual(akku.size, vorher + 2, "the signer ran and appended")
-                    self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
-                    self.assertTrue(verify_bundle(neu).ok)
+                with self.subTest(changes=art, history=vorher):
+                    with self.assertRaises(KeyError if art.endswith("then raises") else RuntimeError):
+                        a.emit_bundle_incremental(b"payload", Aendernd(), akku)
+                    self.assertEqual(akku.size, vorher + 1, "the signer's change stays, and nothing else")
+                    self.assertEqual(akku.root(), a.MerkleAccumulator.from_leaves(leaves + [b"extra"]).root())
+                    if "innen" in gehalten:
+                        innen = emit_bundle(b"extra", echt, prior_leaves=leaves)
+                        self.assertEqual(json.dumps(gehalten["innen"], sort_keys=True),
+                                         json.dumps(innen, sort_keys=True))
+                    danach = a.emit_bundle_incremental(b"payload", echt, akku)
+                    alt = emit_bundle(b"payload", echt, prior_leaves=leaves + [b"extra"])
+                    self.assertEqual(json.dumps(danach, sort_keys=True), json.dumps(alt, sort_keys=True))
+                    self.assertTrue(verify_bundle(danach).ok)
 
     def test_the_accumulator_cannot_be_subclassed_and_the_emitter_takes_only_it(self) -> None:
         """Codex threads 4219691072, 4220260056, 4220260071 and 4220260074 on pull request 307: a subclass of the
@@ -388,6 +505,51 @@ class TheSameBundleAsEmitBundle(unittest.TestCase):
                 self.assertTrue(verify_bundle(alt).ok, "control: emit_bundle's bundle verifies")
                 self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
 
+    def test_a_failed_emission_appends_nothing(self) -> None:
+        """Codex thread 4245187393 on pull request 340: the payload was appended before the signer ran, and a signer
+        that raised left the accumulator one leaf larger with no bundle for that leaf; the next emission got the
+        index after it and a root over the failed payload. Whatever raises in the signer, in the key's serialization or
+        in the encoding of what the signer returned, the accumulator is as it was before the call, and the next emission
+        is emit_bundle's. A signer that changes the accumulator and then raises is the case of the next test."""
+        from proofbundle.bundle import verify_bundle
+        from proofbundle.emit import emit_bundle
+        a = _load()
+        echt = _emitter_key()
+
+        class Abbruch(Exception):
+            pass
+
+        class OhneRohform:
+            def public_bytes(self, *args):
+                raise Abbruch("public_bytes")
+
+        def signierer(art, akku):
+            class Signierer:
+                def sign(self, data):
+                    if art == "sign raises":
+                        raise Abbruch(art)
+                    return "not bytes" if art == "sign returns a str" else echt.sign(data)
+
+                def public_key(self):
+                    if art == "public_key raises":
+                        raise Abbruch(art)
+                    return OhneRohform() if art == "public_bytes raises" else echt.public_key()
+            return Signierer()
+        for art in ("sign raises", "public_key raises", "public_bytes raises", "sign returns a str"):
+            for vorher in (0, 1, 5):
+                for behalten in (False, True):
+                    leaves = [f"event {i}".encode() for i in range(vorher)]
+                    akku = a.MerkleAccumulator.from_leaves(leaves, keep_leaf_hashes=behalten)
+                    davor = (akku.size, akku.frontier, akku.leaf_hashes, akku.root())
+                    with self.subTest(fails=art, history=vorher, keep_leaf_hashes=behalten):
+                        with self.assertRaises((Abbruch, TypeError)):
+                            a.emit_bundle_incremental(b"failed", signierer(art, akku), akku)
+                        self.assertEqual((akku.size, akku.frontier, akku.leaf_hashes, akku.root()), davor)
+                        neu = a.emit_bundle_incremental(b"payload", echt, akku)
+                        alt = emit_bundle(b"payload", echt, prior_leaves=leaves)
+                        self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+                        self.assertTrue(verify_bundle(neu).ok)
+
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")
 class TheRestartRule(unittest.TestCase):
@@ -400,6 +562,12 @@ class TheRestartRule(unittest.TestCase):
         for blatt in _LEAVES[:groesse]:
             akku.append(blatt)
         return akku, akku.state(self.signer)
+
+    def _signature_over(self, inhalt) -> str:
+        """A state signature as state() makes one, for content changed here: over the prefix, then the RFC 8785 form."""
+        import base64
+        import rfc8785
+        return base64.b64encode(self.signer.sign(self.a.STATE_SIGNATURE_PREFIX + rfc8785.dumps(inhalt))).decode()
 
     def test_a_restart_continues_exactly_as_without_one(self) -> None:
         for groesse in (0, 1, 2, 3, 7, 8, 9, 1023, 1024, 1025):
@@ -422,9 +590,7 @@ class TheRestartRule(unittest.TestCase):
             kopie = json.loads(json.dumps(zustand))
             f(kopie["state"])
             if neu_signieren:
-                import base64
-                import rfc8785
-                kopie["signature"] = base64.b64encode(self.signer.sign(rfc8785.dumps(kopie["state"]))).decode()
+                kopie["signature"] = self._signature_over(kopie["state"])
             return kopie
 
         faelle = {
@@ -456,23 +622,19 @@ class TheRestartRule(unittest.TestCase):
             gemischt = json.loads(json.dumps(zustand))
             gemischt["state"]["frontier"] = [{"height": h, "root": r.hex()} for h, r in fremd.frontier]
             gemischt["state"]["root"] = fremd.root().hex()
-            import base64
-            import rfc8785
-            gemischt["signature"] = base64.b64encode(self.signer.sign(rfc8785.dumps(gemischt["state"]))).decode()
+            gemischt["signature"] = self._signature_over(gemischt["state"])
             with self.assertRaises(self.a.AccumulatorStateError):
                 self.a.MerkleAccumulator.restore(gemischt, pub, leaf_hashes=akku.leaf_hashes)
 
     def test_restore_is_a_method_of_the_accumulator_alone(self) -> None:
         """The class of Codex thread 4220260056 at restore: with no subclass, restore is the accumulator's own
         classmethod, and the two re-signed tampered states it must refuse are refused through it."""
-        import base64
-        import rfc8785
         akku, zustand = self._state_at(37, keep=True)
         pub = _pub(self.signer)
         fremd = self.a.MerkleAccumulator.from_leaves([b"other " + b for b in _LEAVES[:37]])
 
         def signiert(inhalt):
-            return {"state": inhalt, "signature": base64.b64encode(self.signer.sign(rfc8785.dumps(inhalt))).decode()}
+            return {"state": inhalt, "signature": self._signature_over(inhalt)}
         falsche_wurzel = json.loads(json.dumps(zustand["state"]))
         falsche_wurzel["root"] = "22" * 32
         fremde_front = json.loads(json.dumps(zustand["state"]))
@@ -492,12 +654,9 @@ class TheRestartRule(unittest.TestCase):
         frontier field went through int() and bytes.fromhex, which read "1", true, upper case and spaces
         as the value state() writes, so one state restored from several signed spellings. Each is refused
         as an AccumulatorStateError, the form the restart rule names."""
-        import base64
-        import rfc8785
 
         def signiert(inhalt):
-            return {"state": inhalt,
-                    "signature": base64.b64encode(self.signer.sign(rfc8785.dumps(inhalt))).decode()}
+            return {"state": inhalt, "signature": self._signature_over(inhalt)}
 
         pub = _pub(self.signer)
         _akku, zustand = self._state_at(3)
@@ -643,6 +802,115 @@ class TheRestartRule(unittest.TestCase):
             with self.subTest(key=name):
                 with self.assertRaises(self.a.AccumulatorStateError):
                     self.a.MerkleAccumulator.restore(dict(zustand, signature=universell), schluessel)
+
+    def test_an_event_signature_is_not_a_state_signature(self) -> None:
+        """Codex thread 4245187389 on pull request 340: state() signed the RFC 8785 form of the state alone, and
+        emit_bundle signs the payload bytes as they are. So the RFC 8785 form of a state chosen by whoever sends
+        events, sent as an event, came back with a signature restore accepted, and a frontier of the sender's choice
+        was restored under the emitter's key with no state ever signed. A state signature now covers a prefix of its
+        own first, and an event signature over a state's RFC 8785 form, from emit_bundle or from this tool, is
+        refused."""
+        from proofbundle.canonical import canonicalize_statement
+        from proofbundle.emit import emit_bundle
+        pub = _pub(self.signer)
+        gewaehlt = self.a.MerkleAccumulator.from_leaves([b"chosen " + b for b in _LEAVES[:37]])
+        inhalt = gewaehlt.state(_other_key())["state"]   # the content only; this signature is not used
+        roh = canonicalize_statement(inhalt)
+        for weg, bundle in (("emit_bundle", emit_bundle(roh, self.signer)),
+                            ("emit_bundle_incremental",
+                             self.a.emit_bundle_incremental(roh, self.signer, self.a.MerkleAccumulator()))):
+            with self.subTest(event_through=weg):
+                with self.assertRaises(self.a.AccumulatorStateError):
+                    self.a.MerkleAccumulator.restore({"state": inhalt, "signature": bundle["signature"]["sig_b64"]},
+                                                     pub)
+        with self.subTest(case="control: the same content as state() signs it"):
+            wieder = self.a.MerkleAccumulator.restore(gewaehlt.state(self.signer), pub)
+            self.assertEqual(wieder.root(), gewaehlt.root())
+
+    def test_a_state_signature_covers_the_prefix_then_the_rfc_8785_form(self) -> None:
+        """The bytes a state signature covers, checked with the bare Ed25519 verification and a prefix written out here
+        rather than read from the module: the format name, a zero byte, then the RFC 8785 form of the state."""
+        import base64
+        import rfc8785
+        _akku, zustand = self._state_at(5)
+        praefix = b"proofbundle-merkle-accumulator-state/1\x00"
+        self.assertEqual(self.a.STATE_SIGNATURE_PREFIX, praefix)
+        signatur = base64.b64decode(zustand["signature"])
+        self.signer.public_key().verify(signatur, praefix + rfc8785.dumps(zustand["state"]))   # raises if not
+
+    def test_the_emitter_refuses_a_payload_that_begins_with_the_state_prefix(self) -> None:
+        """The other half of the separation: through this tool one key signs events and states, so its emitter never
+        signs bytes that begin with the state prefix. Such a payload is refused before the append and before the
+        signer is asked, in each form the payload is read in, and the accumulator is unchanged. The prefix later than
+        at the start is an event like any other."""
+        import rfc8785
+        from proofbundle.emit import emit_bundle
+        echt = self.signer
+        praefix = self.a.STATE_SIGNATURE_PREFIX
+        _akku, zustand = self._state_at(5)
+
+        class Gefragt:
+            def __init__(self):
+                self.anzahl = 0
+
+            def sign(self, data):
+                self.anzahl += 1
+                return echt.sign(data)
+
+            def public_key(self):
+                self.anzahl += 1
+                return echt.public_key()
+        akku = self.a.MerkleAccumulator.from_leaves(_LEAVES[:3])
+        davor = (akku.size, akku.frontier)
+        for name, payload in (("a state's signed bytes", praefix + rfc8785.dumps(zustand["state"])),
+                              ("the prefix alone", praefix), ("a bytearray", bytearray(praefix + b"{}")),
+                              ("a memoryview", memoryview(praefix + b"{}"))):
+            gefragt = Gefragt()
+            with self.subTest(payload=name):
+                with self.assertRaisesRegex(ValueError, "state signature prefix"):
+                    self.a.emit_bundle_incremental(payload, gefragt, akku)
+                self.assertEqual(gefragt.anzahl, 0)
+                self.assertEqual((akku.size, akku.frontier), davor)
+        with self.subTest(payload="the prefix after the first byte"):
+            neu = self.a.emit_bundle_incremental(b"x" + praefix, echt, akku)
+            alt = emit_bundle(b"x" + praefix, echt, prior_leaves=_LEAVES[:3])
+            self.assertEqual(json.dumps(neu, sort_keys=True), json.dumps(alt, sort_keys=True))
+
+    def test_a_key_that_signs_events_through_emit_bundle_can_be_made_to_sign_a_state(self) -> None:
+        """The boundary, measured: emit_bundle, which this tool does not change, signs any payload, one that begins
+        with the state prefix included, so under a key that also signs events through it a state of the sender's
+        choice restores. The module says so and names the remedy, a key that signs states and nothing else."""
+        from proofbundle.canonical import canonicalize_statement
+        from proofbundle.emit import emit_bundle
+        gewaehlt = self.a.MerkleAccumulator.from_leaves([b"chosen " + b for b in _LEAVES[:37]])
+        inhalt = gewaehlt.state(_other_key())["state"]
+        bundle = emit_bundle(self.a.STATE_SIGNATURE_PREFIX + canonicalize_statement(inhalt), self.signer)
+        wieder = self.a.MerkleAccumulator.restore({"state": inhalt, "signature": bundle["signature"]["sig_b64"]},
+                                                  _pub(self.signer))
+        self.assertEqual(wieder.root(), gewaehlt.root())
+        self.assertIn("a key that signs states and nothing else", " ".join(self.a.__doc__.split()))
+
+    def test_a_state_signature_read_as_an_event_has_a_payload_that_begins_with_the_prefix(self) -> None:
+        """The other direction, measured: verify_bundle, which this tool does not change, accepts a bundle built
+        around a state signature, its payload the prefixed bytes the signature covers, in a tree of one leaf. What
+        tells it apart is the payload's first bytes, which this tool never emits as an event, and the module names
+        that as a reading rule rather than a check."""
+        import base64
+        import rfc8785
+        from proofbundle.bundle import SCHEMA, verify_bundle
+        from proofbundle.merkle import leaf_hash
+        _akku, zustand = self._state_at(5)
+        payload = self.a.STATE_SIGNATURE_PREFIX + rfc8785.dumps(zustand["state"])
+        b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731
+        bundle = {"schema": SCHEMA, "payload_b64": b64(payload),
+                  "signature": {"alg": "ed25519", "public_key_b64": b64(_pub(self.signer)),
+                                "sig_b64": zustand["signature"]},
+                  "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": 0, "tree_size": 1,
+                             "inclusion_proof_b64": [], "root_b64": b64(leaf_hash(payload))}}
+        self.assertTrue(verify_bundle(bundle).ok)
+        self.assertTrue(base64.b64decode(bundle["payload_b64"]).startswith(self.a.STATE_SIGNATURE_PREFIX))
+        self.assertIn("a payload that begins with the prefix is a state, never an event of this tool",
+                      " ".join(self.a.__doc__.split()))
 
 
 @unittest.skipUnless(_RFC8785, "the persisted state is signed over its RFC 8785 form (the [eval] extra)")

@@ -25,10 +25,10 @@ THE ARGUMENT IS LEAF DATA, as in merkle_tree_hash: `append(data)` applies the le
 section 2.1, the reading pinned in tests/test_merkle_zwei_lesarten_vektoren.py).
 
 PERSISTED STATE AND THE RESTART RULE
-`state(signer)` returns the frontier, the size and the root, signed by the emitter's Ed25519 key over the
-RFC 8785 form of the state; the signed content says what it is (`what_is_signed`), so a state signature can
-never be read as a receipt of an event. `MerkleAccumulator.restore(state, public_key)` refuses (raises
-AccumulatorStateError) a state whose signature does not verify under the pinned key, whose format is
+`state(signer)` returns the frontier, the size and the root, signed with an Ed25519 key over STATE_SIGNATURE_PREFIX
+followed by the RFC 8785 form of the state (see ONE KEY, TWO KINDS OF SIGNATURE below); the signed content says
+what it is as well (`what_is_signed`). `MerkleAccumulator.restore(state, public_key)` refuses (raises
+AccumulatorStateError) a state whose signature does not verify under the pinned key over those bytes, whose format is
 another or whose fields are not spelled the way `state` writes them, whose frontier does not have one root
 per set bit of the size, whose root is not the fold of its frontier, or, when leaf hashes are given, whose
 leaf hashes are not 32 bytes each or do not reproduce the frontier and the size. It never rebuilds a
@@ -39,6 +39,33 @@ other state: it restores an older state the same key signed (a rollback) and can
 diverging histories apart (a fork). The signature says what one tree state was, not that it extends an
 earlier one. A caller that needs continuity across restarts keeps the last size and root it accepted and
 compares the restored state with them; restore does not.
+
+ONE KEY, TWO KINDS OF SIGNATURE. emit_bundle signs the payload bytes as they are, whatever they are. A state signature
+over the RFC 8785 form of the state alone could therefore be had from the emitter by sending that form as an event,
+and the event's signature then restored a frontier of the sender's choice (Codex thread 4245187389 on pull request
+340). A field inside the signed content cannot separate the two, because the event path signs any content. So a state
+signature covers STATE_SIGNATURE_PREFIX first, the format name and a zero byte, and emit_bundle_incremental refuses a
+payload that begins with it, before it computes or writes anything and before it asks the signer. Through this tool
+one key signs events and states: an event's signature never verifies as a state's, and a state's signature covers
+bytes this tool never signs as an event. The other direction is a reading rule, not a check: a bundle built around a
+state signature, with the prefixed bytes as its payload, verifies with verify_bundle, which this tool does not change;
+a payload that begins with the prefix is a state, never an event of this tool. emit_bundle itself, also unchanged,
+signs any payload, that prefix included. A key that also signs events through emit_bundle, or through anything else
+that signs the bytes it is given, can be made to sign a state; states are then signed with a key that signs states
+and nothing else, and restore pins that key.
+
+A FAILED EMISSION APPENDS NOTHING. emit_bundle_incremental computes the root and the path from the accumulator's
+fields without writing them, asks the signer in emit_bundle's order, builds the whole bundle, and only then writes the
+new leaf, onto exactly the state it computed from (Codex thread 4245187393 on pull request 340: the leaf was appended
+before the signer ran, and a signer that raised left a leaf no bundle records). So a call that raises, in the signer,
+in the key's serialization or in the encoding of what the signer returned, has written nothing. A signer that changed
+the accumulator meanwhile, by an append or by an emission of its own whose bundle it holds, has taken the position
+this bundle names: then nothing is written, the call raises RuntimeError, and the signer's change stays, so a bundle
+the signer's own emission handed out keeps its leaf (two copies of one state, or a restored older state, still give
+two bundles for one position, as A STATE IS ONE SNAPSHOT says). What a function cannot rule out in Python is an
+exception raised asynchronously, by a signal handler, during the writes at the end or after them: interrupted between
+two writes, the fields do not fit each other and every operation refuses them; after the last write and before the
+return, the leaf is written and its bundle is not returned.
 
 NO SUBCLASS. The bundle and the restore checks rest on this class's own methods and attributes. A subclass of
 the caller can override any of them, `__getattribute__` included, and four review rounds found a further one
@@ -63,8 +90,8 @@ with a size and leaf hashes to match: that is the state of another tree, one the
 of it signed with `state` is a statement of the key that signs it.
 
 A BATCH ROOT IS ANOTHER STATEMENT. emit_bundle signs each event's payload; the tree root in the bundle is
-not signed. The state signature signs a tree state, not an event, and says so in its content. Nothing here
-turns one into the other.
+not signed. The state signature signs a tree state, not an event, and says so in its prefix and its content.
+Nothing here turns one into the other.
 """
 from __future__ import annotations
 
@@ -83,6 +110,9 @@ from proofbundle.errors import ProofBundleError
 from proofbundle.signature import verify_ed25519_pinned
 
 STATE_FORMAT = "proofbundle-merkle-accumulator-state/1"
+#: What a state signature covers before the RFC 8785 form of the state, and what the emitter refuses at the start
+#: of a payload (ONE KEY, TWO KINDS OF SIGNATURE in the module docstring).
+STATE_SIGNATURE_PREFIX = STATE_FORMAT.encode("ascii") + b"\x00"
 WHAT_IS_SIGNED = ("one state of an RFC 6962 tree (its size, frontier and root), not any event; this signature "
                   "does not say that the state extends an earlier one, and no receipt of an event may be read "
                   "from it")
@@ -194,9 +224,17 @@ class MerkleAccumulator:
         inclusion_proof over the whole list would give."""
         self._check_fields()
         wert = _leaf(data)
+        front, wurzel, pfad = MerkleAccumulator._after_one_more(self._frontier, wert)
         if self._leaf_hashes is not None:
             self._leaf_hashes.append(wert)
-        front = list(self._frontier)
+        object.__setattr__(self, "_frontier", front)
+        object.__setattr__(self, "_size", self._size + 1)
+        return wurzel, pfad
+
+    @staticmethod
+    def _after_one_more(frontier: tuple, wert: bytes) -> tuple:
+        """The frontier after one more leaf hash, the new root and that leaf's inclusion path, written nowhere."""
+        front = list(frontier)
         hoehe, pfad = 0, []
         while front and front[-1][0] == hoehe:
             links = front.pop()[1]
@@ -204,13 +242,11 @@ class MerkleAccumulator:
             wert = _node(links, wert)
             hoehe += 1
         front.append((hoehe, wert))
-        object.__setattr__(self, "_frontier", tuple(front))
-        object.__setattr__(self, "_size", self._size + 1)
         wurzel = wert
         for _, links in reversed(front[:-1]):
             pfad.append(links)
             wurzel = _node(links, wurzel)
-        return wurzel, pfad
+        return tuple(front), wurzel, pfad
 
     def root(self) -> bytes:
         self._check_fields()
@@ -252,7 +288,7 @@ class MerkleAccumulator:
 
     def state(self, signer: Ed25519PrivateKey) -> dict:
         inhalt = self._unsigned_state()
-        signatur = signer.sign(canonicalize_statement(inhalt))
+        signatur = signer.sign(STATE_SIGNATURE_PREFIX + canonicalize_statement(inhalt))
         return {"state": inhalt, "signature": base64.b64encode(signatur).decode("ascii")}
 
     @classmethod
@@ -269,7 +305,9 @@ class MerkleAccumulator:
         except (KeyError, TypeError, ValueError, ProofBundleError) as exc:
             raise AccumulatorStateError(f"the state's signature does not verify under the pinned key "
                                         f"({type(exc).__name__})") from exc
-        if not verify_ed25519_pinned(public_key, signatur, nachricht):
+        # The prefix first: a signature over the RFC 8785 form alone is an event's (Codex thread 4245187389 on pull
+        # request 340), and it does not verify here.
+        if not verify_ed25519_pinned(public_key, signatur, STATE_SIGNATURE_PREFIX + nachricht):
             raise AccumulatorStateError("the state's signature does not verify under the pinned key")
         # What restore reads is what the signature covers: the state is read back from the signed bytes. The
         # canonicalizer reads a mapping by what it stores, and `.get` or `[]` of a dict subclass could answer
@@ -387,7 +425,9 @@ def _subproof(m: int, hashes: List[bytes], b: bool) -> List[bytes]:
 
 def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulator: MerkleAccumulator) -> dict:
     """The bundle emit_bundle(payload, signer, prior_leaves=<the accumulator's leaves>) returns, built from
-    the accumulator: the same bytes, the same per-event signature over the payload. Appends the payload."""
+    the accumulator: the same bytes, the same per-event signature over the payload. Appends the payload when, and only
+    when, it returns the bundle, onto the state it built the bundle from (A FAILED EMISSION APPENDS NOTHING). Refuses a
+    payload that begins with STATE_SIGNATURE_PREFIX, which emit_bundle would sign (ONE KEY, TWO KINDS OF SIGNATURE)."""
     from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
 
     # One reading, before any code of the caller runs, as emit_bundle reads it: the bytes hashed, written and
@@ -397,25 +437,47 @@ def emit_bundle_incremental(payload: bytes, signer: Ed25519PrivateKey, accumulat
         raise TypeError("emit_bundle_incremental takes a MerkleAccumulator, not another object with its methods "
                         "(see NO SUBCLASS in the module docstring)")
     # The fields are checked against each other before the size is read (Codex thread 4222117574 on pull request
-    # 307: a size written from outside gave leaf_index 5 and tree_size 6 with an empty path); the append checks again.
+    # 307: a size written from outside gave leaf_index 5 and tree_size 6 with an empty path), and again before the
+    # write at the end.
     MerkleAccumulator._check_fields(accumulator)
     if _puffer_von(payload) is not None:
         payload = _puffer_von(payload)
-    index = accumulator.size
-    wurzel, pfad = MerkleAccumulator.append(accumulator, payload)   # the class's method, never an instance's
-    # The size the root and the path describe is the one after this append, index + 1, and it is not read back
-    # from the accumulator: the signer's public_key and sign could append to it (Codex thread 4218672721 on pull
-    # request 307), and so could an append a subclass overrides, before it returns (thread 4219691072).
-    groesse = index + 1
+    # A payload that is not bytes by now is refused by the leaf hash below, before anything is written or signed.
+    if type(payload) is bytes and payload.startswith(STATE_SIGNATURE_PREFIX):
+        raise ValueError("emit_bundle_incremental does not sign a payload that begins with the state signature prefix: "
+                         "its signature would verify as one of a state (Codex thread 4245187389 on pull request 340)")
+    # The state the bundle describes, read once, and the root and the path computed from it with the class's own
+    # functions, written nowhere yet. The size the bundle names is index + 1 of this state, never read back after
+    # the signer has run: its public_key and sign could append to the accumulator (Codex thread 4218672721 on pull
+    # request 307).
+    index, front_vorher, blaetter = accumulator._size, accumulator._frontier, accumulator._leaf_hashes
+    anzahl = None if blaetter is None else len(blaetter)
+    blatt = _leaf(payload)
+    front, wurzel, pfad = MerkleAccumulator._after_one_more(front_vorher, blatt)
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731 - the encoding emit.py uses
     # The signer's methods in emit_bundle's order, sign first and the public key after it: a caller's object may
     # answer by the order it is asked in (Codex thread 4219203464 on pull request 307: public_key came first here).
     signatur = signer.sign(payload)
     oeffentlich = signer.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-    return {
+    bundle = {
         "schema": SCHEMA,
         "payload_b64": b64(payload),
         "signature": {"alg": "ed25519", "public_key_b64": b64(oeffentlich), "sig_b64": b64(signatur)},
-        "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": index, "tree_size": groesse,
+        "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": index, "tree_size": index + 1,
                    "inclusion_proof_b64": [b64(p) for p in pfad], "root_b64": b64(wurzel)},
     }
+    # The bundle is complete, and only now is the leaf written, onto exactly the state it was computed from. A signer
+    # that changed the accumulator meanwhile (an append, or an emission of its own whose bundle it now holds) has
+    # moved the position this bundle names, so nothing is written and no bundle is returned; the signer's change
+    # stays. Codex thread 4245187393 on pull request 340: the leaf was appended before the signer ran, and a signer
+    # that raised left a leaf no bundle records. Written inline, as the class writes its fields.
+    MerkleAccumulator._check_fields(accumulator)
+    if (accumulator._size != index or accumulator._frontier is not front_vorher
+            or accumulator._leaf_hashes is not blaetter or (blaetter is not None and len(blaetter) != anzahl)):
+        raise RuntimeError("the accumulator changed while the signer ran, so the position this bundle names is "
+                           "taken; nothing was appended and no bundle is returned")
+    if blaetter is not None:
+        blaetter.append(blatt)
+    object.__setattr__(accumulator, "_frontier", front)
+    object.__setattr__(accumulator, "_size", index + 1)
+    return bundle
