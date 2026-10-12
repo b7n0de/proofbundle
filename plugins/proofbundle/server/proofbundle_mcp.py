@@ -386,9 +386,15 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
     and a post-receive, post-update or reference-transaction hook can move the ref back, so any of them in the hooks
     folder git names for that remote (core.hooksPath, a relative value taken from its git directory) is refused (the
     class of R10-1, measured at bf10fa6a with git 2.43.0: a post-receive hook from the HOME configuration moved main
-    back after a push that exited 0, and the check reported the target unchanged). The shell the host runs the
-    command in may carry another environment than the server; that is not visible here, and the check reads the
-    throwaway remote's refs only."""
+    back after a push that exited 0, and the check reported the target unchanged). Each setting is read where the
+    push or the receiver reads it: a `git config` query leaves out GIT_CONFIG, a file only `git config` itself reads,
+    and the hooks folder is asked for both in the server's environment and in the one git gives a local receive-pack,
+    which clears the configuration the environment carries (review round 11 of 2026-10-12, R11-1: a core.hooksPath
+    given through GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS hid the global hooks folder from prepare while the
+    receiver ran its post-receive; and, measured at 3bbbf66f with git 2.43.0, GIT_CONFIG=/dev/null hid a receivepack
+    of the HOME configuration from prepare while the push took it). The shell the host runs the command in may carry
+    another environment than the server; that is not visible here, and the check reads the throwaway remote's refs
+    only."""
     if os.environ.get("GIT_NAMESPACE"):
         return "git writes the push under refs/namespaces/ on the throwaway remote (GIT_NAMESPACE), not to its main"
     exec_path = os.environ.get("GIT_EXEC_PATH")
@@ -411,7 +417,7 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
     if url.returncode != 0 or url.stdout.splitlines() != [bare]:
         return "git pushes the self-test's origin to another URL than its throwaway remote"
     mapping = subprocess.run(["git", "-C", work, "config", "--get-all", "remote.origin.push"],
-                             capture_output=True, text=True, timeout=60, check=False)
+                             capture_output=True, text=True, timeout=60, check=False, env=_config_env())
     if mapping.returncode != 1 or mapping.stdout or mapping.stderr:
         return "a push mapping of origin (remote.origin.push) sends `push origin main` to another ref than its main"
     for where, key, why in ((["-C", work], "remote.origin.receivepack", "names another receive program for origin"),
@@ -419,24 +425,45 @@ def _selftest_command_problem(work: str, bare: str) -> str | None:
                             (["--git-dir", bare], "receive.procReceiveRefs",
                              "hands refs to a proc-receive program on the throwaway remote")):
         value = subprocess.run(["git", *where, "config", "--get-all", key], capture_output=True, text=True,
-                               timeout=60, check=False)
+                               timeout=60, check=False, env=_config_env())
         if value.returncode != 1 or value.stdout or value.stderr:
             return f"a configured {key} {why}, a receiver the check does not read"
-    hooks = subprocess.run(["git", "-C", bare, "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
-                           capture_output=True, text=True, timeout=60, check=False)
-    folder = hooks.stdout.strip()
-    if hooks.returncode != 0 or not folder:
-        return "git does not name the hooks folder of the throwaway remote, so its receive-pack may run hook programs"
-    for name in _RECEIVE_HOOKS:
-        try:
-            os.lstat(os.path.join(folder, name))
-        except FileNotFoundError:
-            continue
-        except OSError:
-            return f"the hooks folder {folder} of the throwaway remote cannot be read for a {name} hook"
-        return (f"the hooks folder {folder} of the throwaway remote holds a {name} hook (core.hooksPath), a program "
-                "its receive-pack runs that can refuse, change or undo the write the check reads")
+    for environ in (dict(os.environ), _receiver_env()):
+        hooks = subprocess.run(["git", "-C", bare, "rev-parse", "--path-format=absolute", "--git-path", "hooks"],
+                               capture_output=True, text=True, timeout=60, check=False, env=environ)
+        folder = hooks.stdout.strip()
+        if hooks.returncode != 0 or not folder:
+            return ("git does not name the hooks folder of the throwaway remote, so its receive-pack may run hook "
+                    "programs")
+        for name in _RECEIVE_HOOKS:
+            try:
+                os.lstat(os.path.join(folder, name))
+            except FileNotFoundError:
+                continue
+            except OSError:
+                return f"the hooks folder {folder} of the throwaway remote cannot be read for a {name} hook"
+            return (f"the hooks folder {folder} of the throwaway remote holds a {name} hook (core.hooksPath), a "
+                    "program its receive-pack runs that can refuse, change or undo the write the check reads")
     return None
+
+
+#: What git clears in the environment of the receive-pack a local push starts (local_repo_env in git's environment.c):
+#: configuration the environment carries does not reach the receiver, which reads the files of the configuration.
+_LOCAL_RECEIVER_CLEARS = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+                          "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE",
+                          "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE",
+                          "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR")
+
+
+def _receiver_env() -> dict:
+    """The server's environment as git passes it to the receive-pack of a local push."""
+    return {key: value for key, value in os.environ.items() if key not in _LOCAL_RECEIVER_CLEARS}
+
+
+def _config_env() -> dict:
+    """The server's environment for a `git config` query, without GIT_CONFIG: only `git config` itself reads the file
+    it names, no push and no receive-pack does (R11-1)."""
+    return {key: value for key, value in os.environ.items() if key != "GIT_CONFIG"}
 
 
 #: The hooks receive-pack runs where a push updates refs (githooks(5)); each can refuse, take over or undo the write.
@@ -535,7 +562,8 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
                              "would not act on its throwaway repository and its main. Start the host without "
                              "GIT_DIR, GIT_WORK_TREE, GIT_NAMESPACE and the other GIT_ names that select a "
                              "repository, a ref or git's program folder, and without a configuration that "
-                             "rewrites the push or chooses another receive program, its hooks or a transport.")
+                             "rewrites the push or chooses another receive program, its hooks or a transport, "
+                             "wherever the push or its receiver reads it.")
     command = f"git -C {shlex.quote(work)} push origin main"
     return {"plugin_version": SERVER_VERSION, "work": work, "remote": bare, "command": command,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

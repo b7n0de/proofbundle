@@ -1208,7 +1208,13 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   or push-to-checkout hook in the hooks folder git names for that remote (core.hooksPath; a relative value is taken
   from its git directory) is refused (the class of R10-1, measured at bf10fa6a with git 2.43.0: a post-receive hook
   from the HOME configuration had moved main back after a push that exited 0, and the check had reported the target
-  unchanged). What the check observes is bounded to the refs of the throwaway remote: a setting only the host's
+  unchanged). Prepare reads each setting where the push or the receiver reads it: a `git config` query leaves out
+  GIT_CONFIG, a file only `git config` itself reads, and the hooks folder is asked for both in the server's
+  environment and in the one git gives the receive-pack of a local push, which clears the configuration the
+  environment carries (review round 11 of 2026-10-12, R11-1: a core.hooksPath given through GIT_CONFIG_COUNT or
+  GIT_CONFIG_PARAMETERS had hidden the global hooks folder from prepare while the receiver ran its post-receive;
+  measured at 3bbbf66f with git 2.43.0, GIT_CONFIG=/dev/null had hidden a receivepack of the HOME configuration from
+  prepare while the push took it). What the check observes is bounded to the refs of the throwaway remote: a setting only the host's
   shell carries (a push URL, a receive program or its hooks, a transport) is not visible to the server and can send
   the push elsewhere or undo its write unobserved. The snapshot of the throwaway remote that prepare records must name
   its main at the base; a listing git could not take ends prepare with NOT MEASURABLE before the command is handed
