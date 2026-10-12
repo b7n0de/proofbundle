@@ -14,7 +14,10 @@ there expect FAIL at step 11 in Appendix A. The point on Section 11 since -01 sa
 to the command-line interface. Rounds 25 and 27 read it so. Owner choice A of 2026-10-12 (card
 SER-02-BLOCK1-SCHLUESSELKLASSE-01): the keys that command refuses are those whose y-coordinate is not below p or that
 are points of small order; "that rule 1 of Section 4.4 rejects" is gone from that sentence, and the keys of N12, N18,
-N53 and N54 are counted here as of that class, the key of N61 as of neither.
+N53 and N54 are counted here as of that class, the key of N61 as of neither. Card SER-02-LESEREIHENFOLGE-01: the
+command refuses such a key "before starting the receipt verification procedure", since it reads the file first to
+tell the formats apart; "before reading any receipt" is gone, and the point on Section 11 since -01 now speaks of
+early key rejection.
 
 Round 27 (owner choices A of 2026-10-12, card SER-ID-02-SEIT-00-01): Section 11 names the implementation at
 a339424e, which reaches the expected verdict and first failing step on all 66 vectors; the appendix of changes has the
@@ -1901,13 +1904,14 @@ def main():
            "vectors, on 23000 targeted inputs across all eleven "
            "steps and on 4002 serializations of numbers by [RFC8785], with no deviation on these inputs (measured "
            "on 2026-10-11).",
-           # Round 28: the refusal of a key before any receipt is read is that of the command-line interface
+           # Round 28: the refusal of a key before the verification procedure starts is that of the command line
            "The show-eval command of that implementation with --expect-issuer refuses a verification key whose "
            "y-coordinate is not below p or that is a point of small order, as in vectors N12, N18, N53 and N54, "
-           "before reading any receipt, with exit status 2.",
+           "before starting the receipt verification procedure, with exit status 2.",
            "The receipt verification function reads the receipt first.",
            "It refuses a key of mixed order, as in N61, at step 11."]
-    gone28 = ["already when the Receiver fixes it", "the verdict stays FAIL", "that rule 1 of Section 4.4 rejects"]
+    gone28 = ["already when the Receiver fixes it", "the verdict stays FAIL", "that rule 1 of Section 4.4 rejects",
+              "before reading any receipt", "before reading a receipt"]
     named28 = {v: app.get(v) for v in ("N12", "N18", "N53", "N54", "N61")}
 
     def class28(k):
@@ -1926,9 +1930,10 @@ def main():
               and all(cls28[v] in ("y not below p", "small order") for v in ("N12", "N18", "N53", "N54"))
               and cls28["N61"] == "neither")
     chk("Section 11 (rounds 25, 27 and 28): the conformance run of the implementation and the further verifier stand, "
-        "the number of vectors they give is that of Appendix A (%d), and the refusal of a key before any receipt is "
-        "read is that of the show-eval command, for a key whose y-coordinate is not below p or that is a point of "
-        "small order; the vectors it names expect FAIL at step 11, and their keys are of the class it says"
+        "the number of vectors they give is that of Appendix A (%d), and the refusal of a key before the receipt "
+        "verification procedure starts is that of the show-eval command, for a key whose y-coordinate is not below p "
+        "or that is a point of small order; the vectors it names expect FAIL at step 11, and their keys are of the "
+        "class it says"
         % len(app),
         all(x in flat25 for x in s25) and len(app) == 66 and not any(x in flat25 for x in gone28) and keys28,
         "missing: " + (", ".join(x[:40] for x in s25 if x not in flat25) or "none")
@@ -1947,7 +1952,7 @@ def main():
                    "The security considerations of Section 10.1 also refer to [RFC8259] Section 12.",
                    "Section 11 adds the conformance run of the implementation named there, at commit a339424e, on the "
                    "vectors of Appendix A, and the result of a further verifier written from the text. It also limits "
-                   "the description of key rejection before reading a receipt to the command-line interface.",
+                   "the description of early key rejection to the command-line interface.",
                    "The Open Items section is removed. The references were checked against the published documents on "
                    "2026-10-12, and Section 11 now gives the conformance result it asked for.",
                    "This appendix is added."],
