@@ -3982,23 +3982,18 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
     """Every local ref that records a remote ref git push may write for one of `values`, as (local ref, remote ref,
     commit), or (None, why) where a record cannot be read. The remote refs are the candidates of each value
     (_dest_candidates), since the gate does not know which one git writes; the records are the local refs each
-    remote's fetch rules map a candidate to, and refs/remotes/<remote>/<branch> for a branch candidate. For a remote
-    word that names no configured remote (a URL or a path) every configured remote's records are read. A dangling or
-    broken ref is no missing one; a missing record says nothing about the remote."""
+    remote's fetch rules map a candidate to, and refs/remotes/<remote>/<branch> for a branch candidate, for every
+    configured remote. A dangling or broken ref is no missing one; a missing record says nothing about the remote."""
     remotes = _remote_names(repo, deadline)
     rules = _fetch_rules(repo, deadline)
     if remotes is None or rules is None:
         return None, ("git cannot read the remotes or their fetch rules, so the local records of the destination are "
                       "not known")
-    if remote in remotes:
-        # Every remote whose URL is the one the push goes to records the destination too (review round 11 of
-        # 2026-10-12, the class of R11-3): a second remote of the same repository keeps its own records.
-        chosen = _remotes_of_endpoint(repo, remote, remotes, deadline)
-        if chosen is None:
-            return None, ("git cannot read the URLs of the remotes, so the local records of the destination are not "
-                          "known")
-    else:
-        chosen = sorted(remotes)
+    # Every configured remote's records, for a named remote as for a URL or a path: git does not say which remotes name
+    # the endpoint a push goes to, and a second remote of the same repository keeps its own records (review round 11 of
+    # 2026-10-12, the class of R11-3: a remote naming `remote.git` as `remote`, which git completes, and one network
+    # repository spelt as https and scp form had been told apart as written).
+    chosen = sorted(remotes)
     wanted: dict[str, str] = {}
     for value in values:
         for name, _strong in _dest_candidates(value):
@@ -4043,42 +4038,6 @@ def _destination_records(repo: str, remote: str | None, values: list[str],
             return None, f"the local record {local} of the destination names no commit this repository holds"
         records.append((local, name, commit.stdout.decode().strip()))
     return records, None
-
-
-def _same_endpoint(repo: str, one: str, other: str) -> bool:
-    """Whether two URLs git printed name the same place: equal as written, or both local paths (a file:// URL or a path
-    without a host part) that resolve to the same folder from the repository's top level."""
-    if one == other:
-        return True
-
-    def local(url: str) -> str | None:
-        if url.startswith("file://"):
-            return url[len("file://"):]
-        if "://" in url or re.match(r"^[^/]*:", url):
-            return None   # a URL with a scheme, or the scp form host:path
-        return url
-    first, second = local(one), local(other)
-    return (first is not None and second is not None
-            and os.path.realpath(os.path.join(repo, first)) == os.path.realpath(os.path.join(repo, second)))
-
-
-def _remotes_of_endpoint(repo: str, remote: str, remotes: set, deadline: float) -> list[str] | None:
-    """`remote` and every other configured remote one of whose URLs is a push URL of `remote` (git's `remote get-url`,
-    rewrites applied), so their local records are read as records of the destination; None where git cannot give a
-    remote's URLs."""
-    push = _git(repo, "remote", "get-url", "--push", "--all", remote, deadline=deadline)
-    targets = _git_lines(push.stdout) if push.returncode == 0 else None
-    if targets is None:
-        return None
-    chosen = [remote]
-    for each in sorted(remotes - {remote}):
-        fetch = _git(repo, "remote", "get-url", "--all", each, deadline=deadline)
-        urls = _git_lines(fetch.stdout) if fetch.returncode == 0 else None
-        if urls is None:
-            return None
-        if any(_same_endpoint(repo, url, target) for url in urls for target in targets):
-            chosen.append(each)
-    return chosen
 
 
 def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources: list[str] | None,
