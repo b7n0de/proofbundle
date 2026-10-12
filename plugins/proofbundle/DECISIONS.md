@@ -1165,7 +1165,11 @@ Chosen (smallest variant, 2026-09-30, for the owner's review):
   way, which lists only what it read before it stopped). A digest alone attests no verification. The verdict stays
   NOT MEASURED, or deny for an evidenced failure; no working-tree file is hashed for the entry, and an unresolved
   source, whose candidates the check did not read, leaves no digest (owner choice 3 A of 2026-10-11). Done
-  receipts, which the done check reads from the working tree, are not listed.
+  receipts, which the done check reads from the working tree, are not listed. Where the check stops with an error
+  (gate_error), the entry keeps what was read before: the files read at the commit where it stopped, with that commit
+  as `head` and the check `not completed: gate_error`, and the record of the commits checked before; a file whose
+  reading failed has no digest (review round 11 of 2026-10-12, R11-5: a bundle read before a policy over the size
+  limit had been logged as no digest and no head).
 - The place is the first named plugin data directory the host gives the hook that is, or can be made, a
   writable directory, given as an absolute path. Measured: Claude Code 2.1.285 gives a PreToolUse hook
   `CLAUDE_PLUGIN_DATA` (a run of a probe hook, the directory existed and was writable). Codex 0.159.2

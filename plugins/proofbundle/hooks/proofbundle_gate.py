@@ -195,7 +195,13 @@ _PUSH_OPTS_NEUTRAL_VALUE = frozenset({"-o", "--push-option"})
 #: Target-neutral options accepted in the inline `--opt=value` form.
 _PUSH_OPTS_NEUTRAL_INLINE = frozenset({"--push-option", "--force-with-lease", "--signed"})
 class GateError(Exception):
-    """The gate cannot reach a verdict. Answered as deny."""
+    """The gate cannot reach a verdict. Answered as deny. Where it stopped while it read a tree's evidence, `head` names
+    that commit, `digests` the evidence and policy files it had read there, and `reads` the record of every source
+    commit read up to then, so the log keeps them (owner choice 3 A, review round 11 of 2026-10-12, R11-5)."""
+
+    head: str | None = None
+    digests: tuple = ()
+    reads: tuple = ()
 
 
 class VerifierCannotStart(GateError):
@@ -3670,8 +3676,13 @@ def _source_reads(commit: str, verdict: Verdict) -> list[dict]:
     read before it stopped. No file of the working tree is hashed here, and no commit the check did not read."""
     check = ("passed" if verdict.decision == "pass" else
              f"failed: {verdict.reason_id}" if verdict.decision == "deny" else f"not completed: {verdict.reason_id}")
+    return _read_entries(commit, verdict.digests, check)
+
+
+def _read_entries(commit: str, digests, check: str) -> list[dict]:
+    """One log record per evidence or policy file read at `commit` ("<path> sha256:<hex>"), with `check`."""
     reads = []
-    for digest in verdict.digests:
+    for digest in digests:
         path, _sep, value = digest.rpartition(" sha256:")
         reads.append({"commit": commit, "path": path, "sha256": value, "check": check})
     return reads
@@ -3688,7 +3699,11 @@ def _source_denial(repo: str, head_commit: str, sources: list[str], deadline: fl
     reads = [] if reads is None else reads
     for commit in dict.fromkeys(sources):
         where = f"HEAD {commit[:12]}" if commit == head_commit else f"the pushed commit {commit[:12]}"
-        verdict = _evaluate_tree(repo, commit, deadline, where, "")
+        try:
+            verdict = _evaluate_tree(repo, commit, deadline, where, "")
+        except GateError as exc:   # R11-5: the record of the commits read before, then this commit's
+            exc.reads = (*reads, *exc.reads)
+            raise
         reads.extend(_source_reads(commit, verdict))
         if verdict.decision == "deny":
             return Verdict("deny", verdict.detail.rstrip() + " Separately, the comparison with the target was NOT "
@@ -4126,6 +4141,20 @@ def _local_inactivity(repo: str, head: str, push_args: list[str] | None, sources
 # --- one tree ----------------------------------------------------------------------------------------
 
 def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tail: str) -> Verdict:
+    """The verdict of _evaluate_tree_reading. Where it raises GateError, the exception names the commit and the
+    evidence and policy files read there before it stopped (R11-5); a file whose reading failed is not among them."""
+    digests: list[str] = []
+    try:
+        return _evaluate_tree_reading(repo, commit, deadline, where, pass_tail, digests)
+    except GateError as exc:
+        if exc.head is None:
+            exc.head, exc.digests = commit, tuple(digests)
+            exc.reads = (*exc.reads, *_read_entries(commit, digests, "not completed: gate_error"))
+        raise
+
+
+def _evaluate_tree_reading(repo: str, commit: str, deadline: float, where: str, pass_tail: str,
+                           digests: list[str]) -> Verdict:
     """The verdict for the evidence a single commit's tree declares: pass, inactive, ask (empty list) or
     deny. No working-tree read and no range comparison; `where` names the commit in every message and
     `pass_tail` is appended to a pass. parse_declaration and the evidence-file _blob reads raise GateError,
@@ -4163,7 +4192,7 @@ def _evaluate_tree(repo: str, commit: str, deadline: float, where: str, pass_tai
                        next_step="build and sign the evidence for the tree at the pushed commit, then commit it "
                                  "under .proofbundle/",
                        repo=repo, head=commit)
-    requests, contents, digests = [], [], []
+    requests, contents = [], []   # `digests` receives each evidence and policy file as it is read
     with tempfile.TemporaryDirectory(prefix="proofbundle-gate-") as scratch:
         for n, item in enumerate(items):
             arguments = {"kind": item["kind"]}
@@ -5659,7 +5688,7 @@ def _judge(calls: list[tuple[str, str | None, list[str] | None]], cwd: str, dead
                                     evidence=f"the declaration {DECLARATION} and the evidence it names",
                                     failed=str(exc),
                                     next_step="fix the cause named here; the gate denies until it reaches a verdict",
-                                    repo=resolved))
+                                    digests=exc.digests, repo=resolved, head=exc.head, reads=exc.reads))
     for decision in ("deny", "ask", "warn"):
         chosen = [v for v in verdicts if v.decision == decision]
         if chosen:
