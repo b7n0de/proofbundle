@@ -8,9 +8,64 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### CI
+
+- **A label starts no CI run any more, and `landung` still starts the mutation layer**
+  (`.github/workflows/ci.yml`, new `.github/workflows/landung.yml`). ci.yml ran on `labeled` and
+  `unlabeled` for the label `landung`, and its concurrency group cancels a running pull-request run, so
+  every label set on a pull request cancelled its CI and started a full one (measured 2026-09-28 on the
+  pull requests of the 6.2.0 chain, about 55 minutes each). ci.yml now runs on opened, synchronize and
+  reopened only. The mutation layer runs from landung.yml when `landung` is set and again on every new head
+  of a pull request that carries it, and is cancelled when the label is taken off. There it waits, as in
+  ci.yml, for test and coverage of the same head: `needs` does not reach into another workflow, so the job
+  `ci-prerequisites` waits for them and for the collector `all-checks-passed` in the ci.yml run of the head
+  (`scripts/landung_waits_for_ci.py`), and the layer needs that job; the collector keeps a fork's one-leg
+  run from counting as the release matrix. Its other ways in (by hand, a `release/` branch, the merge queue) stay in
+  ci.yml behind test and coverage. The two copies of the mutation jobs are held equal by
+  `tests/test_ein_label_startet_keine_ci.py`, which also holds that landung.yml carries no required
+  context: its jobs are skipped on every other label, and a skipped required check reads as passed. No
+  required context changed. A fork pull request still gets the full matrix under the label, now at its
+  next push.
+
 ### Added
 
+- **eval-result v0.2, the revised in-toto/attestation#575 draft, under its own type**
+  (`https://b7n0de.com/attestation/eval-result/v0.2`; `intoto.EVAL_RESULT_V02_PREDICATE_TYPE`,
+  `export_eval_result_v02_dsse`, `to_eval_result_v02_statement`, `to_eval_result_v02_predicate`,
+  `receipt_evidence`, `classify_eval_result_v02_predicate`; `proofbundle intoto --predicate-version v0.2
+  --evaluator <URI> [--receipt-uri <URI>]`). The draft, as revised on 2026-09-28, changed three things:
+  `evaluator` (the evaluation role) in place of `verifier`, required and without a default, and not
+  refused when it is also the signer; for each of model and dataset exactly one of a salted commitment
+  (private, `salted` MUST be `true`) and a predicate-level ResourceDescriptor with `digest` (public),
+  both locations inspected, subject and evidence never counted; and `evidence[]` in place of the `receipt`
+  block, each entry with the digest of the artifact it names (the decoded bytes when `content` is
+  present). The receipt's entry is the SHA-256 of the receipt file's exact bytes, which carry its
+  signature; its internal Merkle root is written nowhere in the entry. `verify_eval_result_dsse` adds the
+  v0.2 shape to the verdict for a statement that declares v0.2 (`predicate_shape_ok`,
+  `predicate_shape_detail`); unknown fields are ignored at every level. The examples under
+  `examples/intoto/` are in the v0.2 shape, with the receipt they reference (`eval-receipt.json`) and a
+  public-model example that identifies the model by descriptor. `docs/upstream/eval-result.md` is the
+  upstream file byte for byte plus the repository's header comment; the vendor-alias note moved to
+  `docs/upstream/README.md`.
+
+  **Migration.** v0.1 keeps its meaning (gate G2), shown by regression evidence rather than a signature
+  check: `tests/fixtures/eval_result_v0_1/corpus.json` carries 14 v0.1 envelopes (5 fixtures from the
+  published 6.1.0 wheel, 9 own reconstructions from the source at the release tags v2.0.0 to v6.0.0),
+  and this version gives the released 6.1.0 verifier's verdict on each, on each under another key and
+  on six negative variants, judges each under the v0.1 rules (`predicate_shape_ok` is `None`), and
+  dispatches on `predicateType`. The default call still expects v0.1. `proofbundle intoto` still writes
+  v0.1 unless asked for v0.2; `--verify` accepts both. Field mapping and the readings of the draft (A1 to
+  A10): `docs/IN_TOTO_PROFILE.md`.
+
 - **An independent reading of draft-abak-agent-control-delivery-evidence-01.** Adds `interop/acde_01`, a verifier-side implementation derived from our reading of the text of -01 alone, with 130 requirement sentences, 146 vectors and a run record with agreement 108, contradiction 0, ambiguity 14 and not implemented 8. Nothing outside `interop/acde_01` changes.
+
+### Fixed
+
+- **The pytest plugin writes no receipt that names a metric it did not compute** (`proofbundle.pytest_plugin`).
+  The plugin computes the pass rate and wrote it under any name `PROOFBUNDLE_METRIC` gave: with `accuracy`, one
+  test passed and one failed, the signed receipt said `accuracy` against a threshold of 0.9 for a value that was
+  the pass rate (Codex on pull request 302). A value other than `pass_rate` now skips the receipt and prints why;
+  unset or `pass_rate`, nothing changes. INTEGRATIONS.md says which variables the plugin reads.
 
 ## [6.2.1] - 2026-10-10
 

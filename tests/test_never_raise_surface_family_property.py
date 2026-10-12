@@ -392,6 +392,13 @@ _OUT_OF_SCOPE = frozenset({
     #       contract (0 ok, 1 crypto or structural, 2 malformed, 3 a relying-party requirement
     #       unmet).
     "canonical_authorization_payload",  "canonical_payload",  "exit_code",  "payload_hash",
+    # 2026-09-28, eval-result v0.2 (the revised #575 draft). Four PRODUCERS beside their v0.1 siblings
+    # above, for the same reason: they take the caller's own claim, key and descriptors and refuse a
+    # bad one with BundleFormatError, which is the producer contract. The one function of the family
+    # that reads signed, untrusted content, `classify_eval_result_v02_predicate`, is in the NENNER
+    # through its prefix, not here. Measured beforehand: no other scanned module exports these names.
+    "export_eval_result_v02_dsse",  "receipt_evidence",  "to_eval_result_v02_predicate",
+    "to_eval_result_v02_statement",
 })
 
 
