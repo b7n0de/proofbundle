@@ -6,6 +6,13 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 24 (owner choice A of 2026-10-12, size limits, no change to the text): parse() reads at most MAX_INPUT_BYTES
+(1 MiB) and raises ResourceLimitError above it, before anything else, so a larger receipt is RESOURCE_LIMIT at step 1
+(Section 8: "Oversized inputs, long strings and deeply nested invalid JSON"); before, P1 followed by 64 MiB of
+whitespace gave PASS. n_ok reads a token of more than 16 digits as no n without converting it: under the reading W7,
+which keeps number tokens as written, int() met Python's limit of 4300 digits and stopped with ValueError. Probes
+Q32 and Q33 hold the size limit; a self-test holds n_ok.
+
 Round 23 (owner choice A of 2026-10-12, point 7a, no change to the text): a byte order mark and bytes that are not
 UTF-8 are judged before the depth, in the order of the receipts draft's own checker, so that both give the same
 verdict on the same bytes: parse() hands the violations it found before the depth to ResourceLimitError, and verify()
@@ -276,8 +283,10 @@ class ResourceLimitError(Exception):
         self.viol = list(viol)
 
 
-# Section 8: limits apply "before and during processing". The deepest nesting of arrays and objects that is parsed;
-# a top-level array or object is depth 1.
+# Section 8: limits apply "before and during processing". All limits of this script are here.
+# The largest input parse() reads, in bytes (a receipt; B within it); the largest receipt of Appendix A is far below.
+MAX_INPUT_BYTES = 1 << 20
+# The deepest nesting of arrays and objects that is parsed; a top-level array or object is depth 1.
 MAX_DEPTH = 64
 
 
@@ -512,6 +521,8 @@ def parse(data):
     the bytes are not JSON at all, and ResourceLimitError when arrays and objects
     nest deeper than MAX_DEPTH (measured before parsing).
     """
+    if len(data) > MAX_INPUT_BYTES:   # round 24: before anything else
+        raise ResourceLimitError("%d bytes, more than %d" % (len(data), MAX_INPUT_BYTES))
     viol = []
     if data.startswith(b"\xef\xbb\xbf"):
         viol.append(("bom", "starts with a UTF-8 byte order mark"))
@@ -874,7 +885,8 @@ def is_bool(v):
 def n_ok(v):
     # After step 5 the token is the RFC 8785 form of its value, so a positive
     # integer below 1e21 is written as plain digits; any other value fails.
-    return isinstance(v, JNum) and re.fullmatch(r"[1-9][0-9]*", v.token) is not None \
+    # Round 24: more than 16 digits is above 2^53 - 1, judged without int(), which stops at 4300 digits.
+    return isinstance(v, JNum) and re.fullmatch(r"[1-9][0-9]*", v.token) is not None and len(v.token) <= 16 \
         and 1 <= int(v.token) <= TWO_53 - 1
 
 
@@ -1296,6 +1308,9 @@ def self_tests():
              (0.1 + 0.2, "0.30000000000000004"), (-0.0, "0"), (1e20, "100000000000000000000"),
              (295147905179352830000.0, "295147905179352830000"), (-1.5, "-1.5"), (1.0, "1")]
     res.append(("ECMAScript number serialization (%d cases)" % len(cases), all(es_number(x) == s for x, s in cases)))
+    res.append(("n_ok: 9007199254740991 is n, 9007199254740992 and a token of 5000 digits are not (round 24)",
+                n_ok(JNum("9007199254740991")) and not n_ok(JNum("9007199254740992"))
+                and not n_ok(JNum("1" + "0" * 4999))))
     res.append(("JCS string escaping (control, quote, backslash, solidus, U+007F, U+2028)",
                 jcs_string('a"\\/\x00\x1f\b\t\n\f\r\x7f\u2028') == '"a\\"\\\\/\\u0000\\u001f\\b\\t\\n\\f\\r\x7f\u2028"'))
     res.append(("JCS key order by UTF-16 code units (U+E000 sorts after U+1F600)",
@@ -2037,6 +2052,12 @@ def main():
          build(b"\xef\xbb\xbf" + deep("[", MAX_DEPTH + 1)), issuer_pub, [], "FAIL/4 -- as Q28, at step 4"),
         ("Q31", "B: arrays %d deep with one byte ff inside, signed" % (MAX_DEPTH + 1),
          build(b"[" * (MAX_DEPTH + 1) + b"\xff" + b"]" * (MAX_DEPTH + 1)), issuer_pub, [], "FAIL/4 -- as Q29, at step 4"),
+        # Round 24: the size limit; P1 followed by whitespace, which the text allows around a JSON text
+        ("Q32", "P1 receipt followed by whitespace up to %d bytes (the limit)" % MAX_INPUT_BYTES,
+         p1R + b" " * (MAX_INPUT_BYTES - len(p1R)), issuer_pub, [], "PASS/all -- 3.1, as Q12"),
+        ("Q33", "P1 receipt followed by whitespace up to %d bytes (the limit + 1)" % (MAX_INPUT_BYTES + 1),
+         p1R + b" " * (MAX_INPUT_BYTES + 1 - len(p1R)), issuer_pub, [],
+         "RESOURCE_LIMIT/1 -- 8 'Oversized inputs ... can exhaust memory or processing time'"),
     ]
     sig_p1 = ed25519_sign(issuer_seed, pae(PAE_TYPE, p1B))
     q13 = p1R.replace(b64(sig_p1).encode(), b64(sig_p1).rstrip("=").encode())

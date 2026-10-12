@@ -8,9 +8,10 @@ equation). Step 5 uses the full RFC 8785 serialization, including the ECMAScript
 For comparison it also asks pyca/cryptography (OpenSSL) for the bare Ed25519 verdict on each vector and
 prints it; that column is a measurement, not part of the verdict.
 
-Steps 1 and 4 read arrays and objects nested at most MAX_DEPTH (64) deep; deeper input gives RESOURCE_LIMIT, the
-resource-limit error of Section 5, neither PASS nor FAIL. A byte order mark and bytes that are not UTF-8 are judged
-before the depth. LIMIT_CASES hold that and the limit itself.
+Steps 1 and 4 read at most MAX_INPUT_BYTES (1 MiB) and arrays and objects nested at most MAX_DEPTH (64) deep; a
+larger or deeper input gives RESOURCE_LIMIT, the resource-limit error of Section 5, neither PASS nor FAIL (Section 8:
+"Oversized inputs, long strings and deeply nested invalid JSON"). The size is judged first, then a byte order mark
+and bytes that are not UTF-8, then the depth. LIMIT_CASES and the size cases in main hold that and each limit itself.
 
 Usage: check_receipts.py [vectors.json]  -> exit 0 when every vector and every limit case meets its expected verdict
 and step.
@@ -51,18 +52,34 @@ class ResourceLimit(Exception):
         self.step, self.reason = step, reason
 
 
+# Resource limits, all in this one place (Section 8: "documented resource limits before and during processing").
+#: The largest input steps 1 and 4 read, in bytes: a receipt, and B within it. The largest receipt of the vectors is
+#: 995 bytes, the largest input of the three drafts' vectors 2827 bytes; the same number in all their checkers.
+MAX_INPUT_BYTES = 1 << 20
 #: The deepest nesting of arrays and objects that steps 1 and 4 read; a top-level array or object is depth 1. The
 #: depth is measured before the text is parsed, as Section 8 allows ("before and during processing").
 MAX_DEPTH = 64
-_STRUCTURE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.S)
+#: The characters the depth measurement looks at; each is matched alone, so the measurement keeps no state per
+#: character of a long string (a pattern for whole strings needed about 116 bytes of memory per character).
+_SPECIAL = re.compile(r'[\\"\[\]{}]')
 
 
 def _nesting(text, what, step):
     """Raise ResourceLimit when text nests arrays and objects deeper than MAX_DEPTH (brackets inside strings skipped)."""
-    depth = 0
-    for m in _STRUCTURE.finditer(text):
-        c = m.group()
-        if c in "[{":
+    depth, in_string, skip = 0, False, -1
+    for m in _SPECIAL.finditer(text):
+        i = m.start()
+        if i == skip:   # the character after a backslash in a string
+            continue
+        c = text[i]
+        if in_string:
+            if c == "\\":
+                skip = i + 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c in "[{":
             depth += 1
             if depth > MAX_DEPTH:
                 raise ResourceLimit(step, "%s nests arrays and objects deeper than %d" % (what, MAX_DEPTH))
@@ -181,8 +198,10 @@ def _check_string(s, what, step):
 
 def ijson(b: bytes, what: str, step):
     """One I-JSON text: UTF-8 without BOM, no duplicate names (after unescaping), no surrogates or
-    noncharacters, nothing before or after the text but whitespace, no NaN or Infinity literals. Nesting deeper
-    than MAX_DEPTH raises ResourceLimit before the text is parsed."""
+    noncharacters, nothing before or after the text but whitespace, no NaN or Infinity literals. More than
+    MAX_INPUT_BYTES, first, and nesting deeper than MAX_DEPTH raise ResourceLimit before the text is parsed."""
+    if len(b) > MAX_INPUT_BYTES:
+        raise ResourceLimit(step, "%s is %d bytes, more than %d" % (what, len(b), MAX_INPUT_BYTES))
     if b.startswith(b"\xef\xbb\xbf"):
         raise Fail(step, "%s begins with a byte order mark" % what)
     try:
@@ -447,8 +466,14 @@ def main():
         print("%-4s %-34s %-6s %-6s %-20s %-20s %s" % (v["id"], v["requirement"], v["expected"], got, step, ossl,
                                                         reason))
     key = base64.b64decode(doc["vectors"][0]["verification_key_b64"])
-    for what, rb, expected, exp_step in LIMIT_CASES:
-        got, step, reason = verify(rb, key)
+    p1 = next(v for v in doc["vectors"] if v["id"] == "P1")
+    p1r, p1key = bytes.fromhex(p1["receipt_hex"]), base64.b64decode(p1["verification_key_b64"])
+    size_cases = [   # P1 followed by whitespace up to the size limit, and one byte more
+        ("receipt: P1 padded to MAX_INPUT_BYTES", p1r + b" " * (MAX_INPUT_BYTES - len(p1r)), "PASS", "all", p1key),
+        ("receipt: P1 padded to MAX_INPUT_BYTES + 1", p1r + b" " * (MAX_INPUT_BYTES + 1 - len(p1r)), "RESOURCE_LIMIT",
+         "1", p1key)]
+    for what, rb, expected, exp_step, k in [c + (key,) for c in LIMIT_CASES] + size_cases:
+        got, step, reason = verify(rb, k)
         if (got, step) != (expected, exp_step):
             bad.append(what)
         print("%-4s %-34s %-6s %-6s %-20s %-20s %s" % ("L", what[:34], expected[:6], got[:6], step, "n/a", reason))
@@ -456,7 +481,7 @@ def main():
         print("UNEXPECTED:", bad)
         sys.exit(1)
     print("all %d vectors and %d limit cases meet their expected verdict and step" % (len(doc["vectors"]),
-                                                                                     len(LIMIT_CASES)))
+                                                                                     len(LIMIT_CASES) + len(size_cases)))
 
 
 if __name__ == "__main__":

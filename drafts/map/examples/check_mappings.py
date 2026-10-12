@@ -50,6 +50,10 @@ generator; it re-derives every claim from the bytes in mappings.json:
       at step 5), 65 deep is not.
   F   a reference that is not a JSON object (not JSON, a member name twice, an array, a number, a text, null) is
       Unresolved with INDETERMINATE, as {} is; Section 5.1 names no state for it, and the -02 is asked.
+  Z   every input is read up to MAX_INPUT_BYTES (1 MiB) and not above: a candidate receipt over it has no B (C1
+      INDETERMINATE, R1 Unresolved), a reference or a statement over it is a resource-limit error, and step 5 passes on
+      the receipts draft's checker's RESOURCE_LIMIT. A number is kept as its token, so a number of 5000 digits in a
+      candidate or in a reference reads as one of 5 digits does.
 Exit 0 when all hold.
 """
 import base64
@@ -101,16 +105,27 @@ def _strings(v):
             yield from _strings(x)
 
 
-_JSON_STRUCTURE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.S)
+#: The characters the depth measurement looks at, each matched alone: no state per character of a long string.
+_JSON_SPECIAL = re.compile(r'[\\"\[\]{}]')
 
 
 def json_depth_ok(text: str) -> bool:
     """True if arrays and objects in text nest at most MAX_DEPTH deep: a top-level array or object is depth 1, and
     brackets inside strings do not count. Measured before the text is parsed, as the receipts draft's checker does."""
-    depth = 0
-    for m in _JSON_STRUCTURE.finditer(text):
-        c = m.group()
-        if c in "[{":
+    depth, in_string, skip = 0, False, -1
+    for m in _JSON_SPECIAL.finditer(text):
+        i = m.start()
+        if i == skip:   # the character after a backslash in a string
+            continue
+        c = text[i]
+        if in_string:
+            if c == "\\":
+                skip = i + 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+        elif c in "[{":
             depth += 1
             if depth > MAX_DEPTH:
                 return False
@@ -119,16 +134,31 @@ def json_depth_ok(text: str) -> bool:
     return True
 
 
+class Num:
+    """A JSON number kept as its token. Not converted to int, whose conversion stops at 4300 digits in Python 3.11
+    and would turn a long number into a failure of the reading."""
+    __slots__ = ("token",)
+
+    def __init__(self, token: str):
+        self.token = token
+
+    def __str__(self):
+        return self.token
+
+
 def b_of(receipt: bytes) -> bytes:
-    """Steps 1 to 3 of the receipts draft: strict parse, member sets, schema, canonical base64. A candidate that
-    nests deeper than MAX_DEPTH is not read: processing stops at a resource limit, and B is not obtained."""
+    """Steps 1 to 3 of the receipts draft: strict parse, member sets, schema, canonical base64. A candidate of more
+    than MAX_INPUT_BYTES, or that nests deeper than MAX_DEPTH, is not read: processing stops at a resource limit, and B
+    is not obtained."""
+    if len(receipt) > MAX_INPUT_BYTES:
+        raise NoB("processing stops at a resource limit: %d bytes, more than %d" % (len(receipt), MAX_INPUT_BYTES))
     if receipt.startswith(b"\xef\xbb\xbf"):
         raise NoB("byte order mark")
     try:
         text = receipt.decode("utf-8")
         if not json_depth_ok(text):
             raise NoB("processing stops at a resource limit: arrays and objects nested deeper than %d" % MAX_DEPTH)
-        obj = json.loads(text, object_pairs_hook=_pairs)
+        obj = json.loads(text, object_pairs_hook=_pairs, parse_int=Num, parse_float=Num)
     except NoB:
         raise
     except (UnicodeDecodeError, ValueError) as e:
@@ -304,9 +334,13 @@ def key_rep(v):
     raise TypeError("no key representation for %s" % type(v).__name__)
 
 
-#: The deepest nesting of arrays, maps and tags that step 1 reads (the item itself at depth 0). A deeper item meets a
-#: limit of this Receiver: a resource-limit error, which Section 5.2.2 says is no status, not malformed. The same number
-#: bounds the JSON of a candidate receipt and of a typed digest reference (json_depth_ok).
+# Resource limits, all in this one place. A larger or deeper input meets a limit of this Receiver: a resource-limit
+# error, which Section 5.2.2 says is no status; for a candidate receipt Section 3.3 step 2 makes it INDETERMINATE.
+#: The largest input read, in bytes: a statement, a candidate receipt, a typed digest reference. The largest input of
+#: the vectors is 2827 bytes (a certificate-profile statement); the same number in the checkers of the three drafts.
+MAX_INPUT_BYTES = 1 << 20
+#: The deepest nesting of arrays, maps and tags that step 1 reads (the item itself at depth 0). The same number bounds
+#: the JSON of a candidate receipt and of a typed digest reference (json_depth_ok).
 MAX_DEPTH = 64
 
 
@@ -399,7 +433,10 @@ def _decode(b: bytes, i: int, depth: int = 0):
 
 def deterministic(b: bytes):
     """Step 1 on one byte string: (the item, True) when it is one well-formed, valid data item in the deterministic
-    encoding (_decode), else (None, False). ResourceLimit passes through: it is no status."""
+    encoding (_decode), else (None, False). ResourceLimit passes through: it is no status; above MAX_INPUT_BYTES it
+    comes before anything is read."""
+    if len(b) > MAX_INPUT_BYTES:
+        raise ResourceLimit("%d bytes, more than %d" % (len(b), MAX_INPUT_BYTES))
     try:
         item, end = _decode(b, 0)
     except NotDeterministic:
@@ -551,11 +588,15 @@ def ref_with_member(ref_text: str, total: int) -> str:
 def reference_state(ref_text: str, receipt: bytes):
     """A typed digest reference under the declaration of Section 5.1: (CPB state, matching-rule result). A reference
     that nests deeper than MAX_DEPTH is not read: ResourceLimit, a resource-limit error and no state. A candidate that
-    does is one without B (Unresolved, INDETERMINATE), as Section 5.1 and Section 3.3 step 2 say."""
+    does is one without B (Unresolved, INDETERMINATE), as Section 5.1 and Section 3.3 step 2 say. The same holds for
+    MAX_INPUT_BYTES, counted in bytes of UTF-8."""
+    size = len(ref_text.encode("utf-8", "surrogatepass"))
+    if size > MAX_INPUT_BYTES:
+        raise ResourceLimit("the reference is %d bytes, more than %d" % (size, MAX_INPUT_BYTES))
     if not json_depth_ok(ref_text):
         raise ResourceLimit("the reference nests arrays and objects deeper than %d" % MAX_DEPTH)
     try:
-        ref = json.loads(ref_text, object_pairs_hook=_pairs)
+        ref = json.loads(ref_text, object_pairs_hook=_pairs, parse_int=Num, parse_float=Num)
     except (ValueError, NoB):   # not one JSON text, or a member name twice
         ref = None
     if not isinstance(ref, dict):
@@ -886,6 +927,50 @@ def main():
         got = reference_state(ref_text, p1)
         ok &= check("F reference that is %s with P1: %s (expected Unresolved, INDETERMINATE)" % (what, got),
                     got == ("Unresolved", "INDETERMINATE"))
+    lim = MAX_INPUT_BYTES
+
+    def padded(b, n):   # b followed by spaces up to n bytes
+        return b + b" " * (n - len(b))
+
+    def m2_padded(n):   # M2 with its empty unprotected map replaced by {-1: a byte string}, n bytes in all
+        _, j = _decode(m2, 2)   # the offset of the unprotected map, after the protected byte string
+        assert m2[j] == 0xA0
+        k = n - len(m2) - 1
+        while len(m2[:j] + b"\xa1\x20" + cbor_head(2, k) + bytes(k) + m2[j + 1:]) > n:
+            k -= 1
+        out = m2[:j] + b"\xa1\x20" + cbor_head(2, k) + bytes(k) + m2[j + 1:]
+        assert len(out) == n
+        return out
+
+    def limited(f):
+        try:
+            return f()
+        except ResourceLimit:
+            return "resource-limit error"
+    r1 = d["reference_vectors"][0]["reference_json"]
+    for what, got, want in (
+            ("C1 citation, P1 padded to the limit", match(cit, padded(p1, lim)), "MATCH"),
+            ("C1 citation, P1 padded to the limit + 1", match(cit, padded(p1, lim + 1)), "INDETERMINATE"),
+            ("R1, P1 padded to the limit", reference_state(r1, padded(p1, lim)), ("Verified", "MATCH")),
+            ("R1, P1 padded to the limit + 1", reference_state(r1, padded(p1, lim + 1)),
+             ("Unresolved", "INDETERMINATE")),
+            ("R1 padded to the limit, P1", limited(lambda: reference_state(r1 + " " * (lim - len(r1)), p1)),
+             ("Verified", "MATCH")),
+            ("R1 padded to the limit + 1, P1", limited(lambda: reference_state(r1 + " " * (lim + 1 - len(r1)), p1)),
+             "resource-limit error"),
+            ("M2 of the limit, P1", limited(lambda: check_statement(m2_padded(lim), p1, pub, pairs)),
+             ("outside_profile", 2)),
+            ("M2 of the limit + 1, P1", limited(lambda: check_statement(m2_padded(lim + 1), p1, pub, pairs)),
+             "resource-limit error"),
+            ("M2, P1 padded to the limit", limited(lambda: check_statement(m2, padded(p1, lim), pub, pairs)),
+             ("accepted", None)),
+            ("M2, P1 padded to the limit + 1", limited(lambda: check_statement(m2, padded(p1, lim + 1), pub, pairs)),
+             "resource-limit error"),
+            ("C1 citation, P1 with its key as a number of 5000 digits",
+             match(cit, re.sub(rb'"key":"[^"]*"', b'"key":1' + b"0" * 4999, p1, count=1)), "MATCH"),
+            ("R1 with a member of 5000 digits, P1", reference_state(r1[:-1] + ',"x":1' + "0" * 4999 + "}", p1),
+             ("Verified", "MATCH"))):
+        ok &= check("Z %s: %s (expected %s)" % (what, got, want), got == want)
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 

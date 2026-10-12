@@ -23,9 +23,10 @@ header is empty or one such map; the content of a tag is not checked. Anything
 else is no statement: NO_MATCH under a usable reference (INDETERMINATE under an
 unusable one), is_scitt False, sig_valid None (not evaluated).
 
-A candidate, or its protected header read on its own, that holds a data item deeper than MAX_DEPTH (64) is not
-read: matches raises ResourceLimit, a resource-limit error with no value on any axis. Section 7 asks an
-implementation to bound the nesting it processes and names no number; the limit cases at the end of main hold it.
+A candidate, or its protected header read on its own, that is longer than MAX_INPUT_BYTES (1 MiB) or holds a data
+item deeper than MAX_DEPTH (64) is not read: matches raises ResourceLimit, a resource-limit error with no value on
+any axis. Section 7 asks an implementation to bound the input size and nesting it processes and names no number; the
+limit cases at the end of main hold both.
 
 A reference is usable only in the form of Appendix A.1, [-16, "ToBeSigned", digest]: the algorithm the integer -16
 (not true or false, not a float) and the scheme's, covers the text "ToBeSigned", the digest exactly 32 bytes. Only
@@ -220,6 +221,10 @@ STMT03 = sign1(ISSUER, P03, PAY03)
 #: implementation to bound the nesting it processes and names no number; 64 is the limit of the checkers of the two
 #: companion drafts, so all of them read the same bytes to the same depth.
 MAX_DEPTH = 64
+#: The largest candidate, and protected header, the matcher reads, in bytes. Section 7 asks an implementation to
+#: bound the input size it will process; the largest candidate of Appendix A is 450 bytes, the largest input of the
+#: three drafts' vectors 2827 bytes, and the checkers of all three use this number. Both limits are in this one place.
+MAX_INPUT_BYTES = 1 << 20
 
 
 class NotRead(ValueError):
@@ -370,7 +375,10 @@ def _map(flat):
 
 def _one_item(b: bytes):
     """The comparable form of B if B is exactly one well-formed and valid data item; NotRead otherwise, and
-    ResourceLimit, before anything is read, if B holds a data item deeper than MAX_DEPTH."""
+    ResourceLimit, before anything is read, if B is longer than MAX_INPUT_BYTES or holds a data item deeper than
+    MAX_DEPTH."""
+    if len(b) > MAX_INPUT_BYTES:
+        raise ResourceLimit("%d bytes, more than %d" % (len(b), MAX_INPUT_BYTES))
     if not depth_ok(b):
         raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
     item, end = _item(b, 0)
@@ -600,6 +608,17 @@ def limit_cases():
 
     def prot(inner):
         return b"\xd2\x84" + _bstr(b"\xa1\x20" + inner) + b"\xa0" + rest
+
+    def padded(n):   # statement 01 with its unprotected header {-1: a byte string}, n bytes in all
+        k = n - len(STMT01)
+        while True:
+            head = bytes([0x40 + k]) if k < 24 else b"\x58" + bytes([k]) if k < 256 else \
+                b"\x59" + k.to_bytes(2, "big") if k < 65536 else b"\x5a" + k.to_bytes(4, "big")
+            out = unprot(head + bytes(k))
+            if len(out) <= n:
+                assert len(out) == n
+                return out
+            k -= 1
     rl = "resource-limit error"
     return [("the candidate: arrays 60000 deep", _deep("a", 60000), rl),
             ("the candidate: maps 30000 deep", _deep("m", 30000), rl),
@@ -615,7 +634,11 @@ def limit_cases():
             ("01, unprotected, deepest item at %d" % (MAX_DEPTH + 1), unprot(_deep("a", MAX_DEPTH - 2)), rl),
             ("01, protected header, deepest item at %d" % MAX_DEPTH, prot(_deep("a", MAX_DEPTH - 1)),
              (True, "NO_MATCH", True, False)),
-            ("01, protected header, deepest item at %d" % (MAX_DEPTH + 1), prot(_deep("a", MAX_DEPTH)), rl)]
+            ("01, protected header, deepest item at %d" % (MAX_DEPTH + 1), prot(_deep("a", MAX_DEPTH)), rl),
+            ("01, unprotected {-1: a byte string}, %d bytes in all" % MAX_INPUT_BYTES, padded(MAX_INPUT_BYTES),
+             (True, "MATCH", True, True)),
+            ("01, unprotected {-1: a byte string}, %d bytes in all" % (MAX_INPUT_BYTES + 1),
+             padded(MAX_INPUT_BYTES + 1), rl)]
 
 
 def expected_ok(c):

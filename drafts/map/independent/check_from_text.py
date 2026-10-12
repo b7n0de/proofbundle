@@ -3,6 +3,12 @@
 ("Draft 2"), written only from the texts of Draft 2 and of
 draft-gruszka-signed-evaluation-receipts-01 ("Draft 1").
 
+Round 29 (owner choice A of 2026-10-12, size limits, no change to the text): parse_ijson and det_item read at most
+INPUT_LIMIT (1 MiB) and stop above it before anything else, with the same resource-limit error as for the depth; the
+limits of this script now stand together in one block at the top. A candidate over the limit has no B (3.3 step 2:
+INDETERMINATE; 5.1: Unresolved), and a statement over it, or its candidate in step 5, is a resource-limit error, no
+status (5.2.2). Before, P1 followed by 64 MiB of whitespace was MATCH and accepted. R29-SIZE holds each limit itself.
+
 Round 28 (owner choice A of 2026-10-12, point 7b, no change to the text): ref_state gives Unresolved with
 INDETERMINATE for a reference that is not an object, as for one without the declared type; Section 5.1 and A.7 name
 no state for it, which is an open question for the -02. Before, it stopped with AttributeError. R28-FORM holds it.
@@ -204,6 +210,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from cryptography.hazmat.primitives import serialization
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# ---------------------------------------------------------------------------
+# Resource limits of this script, all in this one place (Draft 1 Section 8; Draft 2 Sections 3.3 and 5.2.2)
+# ---------------------------------------------------------------------------
+#: Round 29: the largest input read, in bytes: a receipt or B (parse_ijson), a statement or its protected header
+#: (det_item). The largest input of the drafts' vectors is 2827 bytes; the same number in the checkers of all three.
+INPUT_LIMIT = 1 << 20
+#: Round 26: the deepest nesting of arrays, maps and tags det_item goes into (the item itself at depth 0). Deeper, the
+#: Receiver stops at its limit: Section 5.2.2 calls that a resource-limit error, no status.
+DEPTH_LIMIT = 64
+#: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1.
+JSON_DEPTH_LIMIT = 64
 D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-01.txt")
 D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-01.txt")
 
@@ -424,12 +442,8 @@ class JErr(Exception):
 
 
 class JLimit(Exception):
-    """Round 27: the JSON reader stopped at JSON_DEPTH_LIMIT, a resource-limit error of Draft 1 Section 5."""
-
-
-#: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1; the
-#: same number as DEPTH_LIMIT of the step 1 reader below.
-JSON_DEPTH_LIMIT = 64
+    """Round 27: the JSON reader stopped at JSON_DEPTH_LIMIT (round 29: or INPUT_LIMIT), a resource-limit error of
+    Draft 1 Section 5."""
 
 
 def json_depth_ok(s):
@@ -599,6 +613,8 @@ class Parser:
 
 
 def parse_ijson(b):
+    if len(b) > INPUT_LIMIT:   # round 29: before anything else
+        raise JLimit("%d bytes, more than %d" % (len(b), INPUT_LIMIT))
     if b.startswith(b"\xef\xbb\xbf"):
         raise JErr("byte order mark")
     try:
@@ -908,9 +924,7 @@ class NotDet(Exception):
     pass
 
 
-# Round 26: the deepest nesting of arrays, maps and tags the reader goes into (the item itself at depth 0). Deeper,
-# the Receiver stops at its limit: Section 5.2.2 calls that a resource-limit error, no status.
-DEPTH_LIMIT = 64
+# Round 26: DEPTH_LIMIT (round 29: and INPUT_LIMIT), in the block of resource limits at the top.
 
 
 class ResLimit(Exception):
@@ -979,7 +993,9 @@ def _shorter(x, fmt):
 
 def det_item(b):
     """The data item of b, or None if b is not one well-formed, valid data item in the deterministic encoding;
-    ResLimit when the nesting goes past DEPTH_LIMIT."""
+    ResLimit when the nesting goes past DEPTH_LIMIT, and before anything is read when b is over INPUT_LIMIT."""
+    if len(b) > INPUT_LIMIT:   # round 29
+        raise ResLimit("%d bytes, more than %d" % (len(b), INPUT_LIMIT))
     pos = [0]
 
     def take(n):
@@ -3195,6 +3211,50 @@ check("DEMO", "R28-FORM", all(g_ == ("Unresolved", "INDETERMINATE") for _, g_ in
       "a reference that is not an object carries no type, so the declaration of 5.1 does not apply, as for an object "
       "without members: Unresolved, and the matching rule gives INDETERMINATE; 5.1 and A.7 name no state for it",
       *["reference that is %s, with P1: %s" % (d_, g_) for d_, g_ in _got28])
+print()
+
+# ---------------------------------------------------------------------------
+print("=== D2 round 29: the input-size limit (Draft 1 Section 8; 3.3 step 2, 5.1, 5.2.2) ===")
+_p1r29 = VEC["P1"]["R"]
+_j29 = 2 + len(cenc(cbor2.loads(D2_CS).value[0]))   # the offset of the empty unprotected map of M2
+assert D2_CS[_j29] == 0xA0
+
+
+def _m2_29(n):
+    """M2 with its unprotected map replaced by {-1: a byte string}, n bytes in all."""
+    k = n - len(D2_CS) - 1
+    while len(D2_CS[:_j29] + b"\xa1\x20" + chead(2, k) + bytes(k) + D2_CS[_j29 + 1:]) > n:
+        k -= 1
+    return D2_CS[:_j29] + b"\xa1\x20" + chead(2, k) + bytes(k) + D2_CS[_j29 + 1:]
+
+
+def _pad29(n):
+    return _p1r29 + b" " * (n - len(_p1r29))
+
+
+def _json29(b):
+    try:
+        return type(parse_ijson(b)).__name__
+    except JLimit:
+        return "resource-limit error"
+
+
+_got29 = []
+for n_ in (INPUT_LIMIT, INPUT_LIMIT + 1):
+    _got29.append(("P1 padded to %d bytes" % n_, (
+        _json29(_pad29(n_)), match_rule("sha-256", D2_DIGEST.hex(), _pad29(n_))[0], ref_state(REF1, _pad29(n_)),
+        _limit27(lambda: status20(D2_CS, _pad29(n_), ISSUER_PK, pairs20, cpairs20)))))
+    _got29.append(("M2 of %d bytes with P1" % n_, (
+        len(_m2_29(n_)), _limit27(lambda: status20(_m2_29(n_), _p1r29, ISSUER_PK, pairs20, cpairs20)))))
+_want29 = [("JObj", "MATCH", ("Verified", "MATCH"), ("accepted", None)), (INPUT_LIMIT, ("outside_profile", 2)),
+           ("resource-limit error", "INDETERMINATE", ("Unresolved", "INDETERMINATE"), "resource-limit error"),
+           (INPUT_LIMIT + 1, "resource-limit error")]
+check("DEMO", "R29-SIZE", [g_ for _, g_ in _got29] == _want29,
+      "the input-size limit of this script (%d bytes): a candidate of that size is read (MATCH, Verified, accepted) "
+      "and one byte more is not (INDETERMINATE, Unresolved, a resource-limit error in step 5); a statement of that "
+      "size is read (outside_profile at step 2, its unprotected header not empty) and one byte more is a "
+      "resource-limit error, no status" % INPUT_LIMIT,
+      *["%s: %s" % (d_, g_) for d_, g_ in _got29])
 print()
 
 # ---------------------------------------------------------------------------
