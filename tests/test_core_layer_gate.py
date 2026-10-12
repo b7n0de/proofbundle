@@ -326,7 +326,44 @@ _CWD_CALLS = {
                                        "pathlib.Path.resolve"),
     "resolve through getattr with a literal": (
         "from pathlib import Path\ndef f(p):\n    return getattr(Path(p), 'resolve')()\n", ".resolve"),
+    # Codex thread 4245077735 on pull request 339: the concrete Path classes and the real modules of os.path.
+    "PosixPath.resolve": ("from pathlib import PosixPath\ndef f(p):\n    return PosixPath.resolve(p)\n",
+                          "pathlib.PosixPath.resolve"),
+    "WindowsPath.absolute": ("from pathlib import WindowsPath\ndef f(p):\n    return WindowsPath.absolute(p)\n",
+                             "pathlib.WindowsPath.absolute"),
+    "PosixPath.expanduser": ("from pathlib import PosixPath\ndef f(p):\n    return PosixPath.expanduser(p)\n",
+                             "pathlib.PosixPath.expanduser"),
+    "posixpath.abspath": ("import posixpath\ndef f():\n    return posixpath.abspath('x')\n", "posixpath.abspath"),
+    "abspath from ntpath": ("from ntpath import abspath\ndef f():\n    return abspath('x')\n", "ntpath.abspath"),
 }
+
+
+# The same class on the file rule: a rule written for `pathlib.Path` or `os.path` binds the other spellings of the
+# same function too, because the gate makes a name canonical before it looks the rule up.
+_FILE_SPELLINGS = {
+    "PosixPath.read_bytes": ("from pathlib import PosixPath\ndef f(p):\n    return PosixPath.read_bytes(p)\n",
+                             "pathlib.PosixPath.read_bytes"),
+    "WindowsPath.write_text": ("from pathlib import WindowsPath\ndef f(p):\n    WindowsPath.write_text(p, 'x')\n",
+                               "pathlib.WindowsPath.write_text"),
+    "ntpath.exists": ("import ntpath\ndef f(p):\n    return ntpath.exists(p)\n", "ntpath.exists"),
+    "posixpath.getsize": ("import posixpath\ndef f(p):\n    return posixpath.getsize(p)\n", "posixpath.getsize"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(_FILE_SPELLINGS))
+def test_another_spelling_of_a_file_operation_is_a_file_finding(tmp_path, form):
+    source, operation = _FILE_SPELLINGS[form]
+    r = run(tmp_path, {"core.py": source})
+    assert ("file", "probepkg.core", operation) in found(r), (form, found(r))
+
+
+def test_a_pure_path_and_a_plain_pathlib_import_stay_clean(tmp_path):
+    """The canonical form must not turn harmless names into findings: PurePosixPath touches no file and no
+    directory, and importing PosixPath itself is no operation."""
+    r = run(tmp_path, {"core.py": "from pathlib import PosixPath, PurePosixPath\n"
+                                  "def f(p):\n    return PurePosixPath(p).name, PosixPath\n"},
+            listed=["probepkg", "probepkg.core"])
+    assert found(r) == set() and r["verdict"] == "GREEN", found(r)
 
 
 @pytest.mark.parametrize("form", sorted(_CWD_CALLS))

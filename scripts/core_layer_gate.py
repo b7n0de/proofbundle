@@ -139,7 +139,27 @@ def _matches(qual: str, pattern: str) -> bool:
     return qual == pattern or qual.startswith(pattern + ".")
 
 
+#: One function under the module names it really has: os.path IS posixpath on POSIX and ntpath on Windows, and
+#: genericpath holds the functions both share. The concrete Path classes inherit every method of pathlib.Path.
+#: A rule written for one spelling binds every spelling only if the name is made canonical first (Codex thread
+#: 4245077735 on pull request 339: `PosixPath.resolve(p)` passed while `Path.resolve(p)` was found, and the same
+#: held for the file methods and for `posixpath.abspath` and `ntpath.exists`).
+_PATH_MODULE_ALIASES = ("posixpath", "ntpath", "genericpath")
+_CONCRETE_PATH_CLASSES = ("pathlib.PosixPath", "pathlib.WindowsPath")
+
+
+def _canonical(qual: str) -> str:
+    top, dot, rest = qual.partition(".")
+    if dot and top in _PATH_MODULE_ALIASES:
+        return f"os.path.{rest}"
+    for cls in _CONCRETE_PATH_CLASSES:
+        if qual == cls or qual.startswith(cls + "."):
+            return "pathlib.Path" + qual[len(cls):]
+    return qual
+
+
 def _rule_of_name(qual: str) -> str | None:
+    qual = _canonical(qual)
     for rule, patterns in _FORBIDDEN_NAMES.items():
         if any(_matches(qual, p) for p in patterns):
             return rule
