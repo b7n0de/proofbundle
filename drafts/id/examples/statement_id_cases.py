@@ -27,6 +27,11 @@ A candidate, or its protected header read on its own, that holds a data item dee
 read: matches raises ResourceLimit, a resource-limit error with no value on any axis. Section 7 asks an
 implementation to bound the nesting it processes and names no number; the limit cases at the end of main hold it.
 
+A reference is usable only in the form of Appendix A.1, [-16, "ToBeSigned", digest]: the algorithm the integer -16
+(not true or false, not a float) and the scheme's, covers the text "ToBeSigned", the digest exactly 32 bytes. Only
+NotRead, the reader's answer for bytes that are not one well-formed and valid data item or not a COSE_Sign1, means
+"no statement"; any other exception passes. The reference and injection cases at the end of main hold both.
+
 A successful match establishes none of: signature validity, issuer trust,
 payload truth, or registration. The fixtures are synthetic; nothing is
 registered and no Receipt is verified.
@@ -42,6 +47,7 @@ over ToBeSigned and does not depend on the signature algorithm.
 import hashlib
 import json
 import struct
+from collections.abc import Sequence
 import sys
 
 import cbor2
@@ -216,6 +222,11 @@ STMT03 = sign1(ISSUER, P03, PAY03)
 MAX_DEPTH = 64
 
 
+class NotRead(ValueError):
+    """The candidate is not one well-formed and valid CBOR data item, or not a COSE_Sign1 (Section 6): no
+    statement."""
+
+
 class ResourceLimit(Exception):
     """The matcher stopped at MAX_DEPTH: a resource-limit error, no value on any axis. Section 6 gives MATCH and
     NO_MATCH when the comparison can be completed and INDETERMINATE for an unusable reference or an absent input; a
@@ -269,14 +280,14 @@ def depth_ok(b: bytes) -> bool:
 
 def _item(b: bytes, i: int):
     """One well-formed and valid CBOR data item at offset i -> (the item as a comparable value, the offset after
-    it); ValueError otherwise. Well-formed is RFC 8949 Section 3 and Appendix F; valid is the basic validity of
+    it); NotRead otherwise. Well-formed is RFC 8949 Section 3 and Appendix F; valid is the basic validity of
     Section 5.3.1: every text string is UTF-8, and no map holds two keys equal under the key equivalence of
     Section 5.6.1 (the integer 1 and true are two keys; 0x01 and 0x18 0x01 are one, and so are 0.0 and -0.0,
     and two NaNs of one significand; two NaNs of different significands are two). Whether a tag's content is
     valid for that tag is not checked (Section 5.3.2 is not applied), so the result does not depend on which
     tags a decoder knows; the data items inside a tag are checked like any other data item."""
     if i >= len(b):
-        raise ValueError("the item ends early")
+        raise NotRead("the item ends early")
     major, ai = b[i] >> 5, b[i] & 31
     i += 1
     if ai == 31 and major in (2, 3, 4, 5):
@@ -286,18 +297,21 @@ def _item(b: bytes, i: int):
     elif ai < 28:
         size = 1 << (ai - 24)
         if i + size > len(b):
-            raise ValueError("the head ends early")
+            raise NotRead("the head ends early")
         n, i = int.from_bytes(b[i:i + size], "big"), i + size
     else:
-        raise ValueError("additional information %d is not well-formed for major type %d" % (ai, major))
+        raise NotRead("additional information %d is not well-formed for major type %d" % (ai, major))
     if major in (0, 1):
         return ("int", n if major == 0 else -1 - n), i
     if major in (2, 3):
         if i + n > len(b):
-            raise ValueError("the string ends early")
+            raise NotRead("the string ends early")
         raw = b[i:i + n]
         if major == 3:
-            raw.decode("utf-8")  # UnicodeDecodeError is a ValueError
+            try:
+                raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise NotRead("a text string is not UTF-8") from None
         return ("bytes" if major == 2 else "text", raw), i + n
     if major == 4:
         out = []
@@ -315,7 +329,7 @@ def _item(b: bytes, i: int):
         v, i = _item(b, i)
         return ("tag", n, v), i
     if ai == 24 and n < 32:
-        raise ValueError("a two-byte simple value below 32 is not well-formed")
+        raise NotRead("a two-byte simple value below 32 is not well-formed")
     if ai in (25, 26, 27):
         raw = b[i - (1 << (ai - 24)):i]
         f = struct.unpack({25: ">e", 26: ">f", 27: ">d"}[ai], raw)[0]
@@ -330,12 +344,12 @@ def _indefinite(b: bytes, i: int, major: int):
     out = []
     while True:
         if i >= len(b):
-            raise ValueError("the item ends early")
+            raise NotRead("the item ends early")
         if b[i] == 0xFF:
             i += 1
             break
         if major in (2, 3) and (b[i] >> 5 != major or b[i] & 31 == 31):
-            raise ValueError("a chunk of an indefinite-length string is not a definite string of its type")
+            raise NotRead("a chunk of an indefinite-length string is not a definite string of its type")
         v, i = _item(b, i)
         out.append(v)
     if major in (2, 3):
@@ -343,68 +357,74 @@ def _indefinite(b: bytes, i: int, major: int):
     if major == 4:
         return ("array", tuple(out)), i
     if len(out) % 2:
-        raise ValueError("an indefinite-length map ends after a key")
+        raise NotRead("an indefinite-length map ends after a key")
     return _map(out), i
 
 
 def _map(flat):
     keys = flat[0::2]
     if len(set(keys)) != len(keys):
-        raise ValueError("a map holds two equal keys")
+        raise NotRead("a map holds two equal keys")
     return ("map", frozenset(zip(keys, flat[1::2])))
 
 
 def _one_item(b: bytes):
-    """The comparable form of B if B is exactly one well-formed and valid data item; ValueError otherwise, and
+    """The comparable form of B if B is exactly one well-formed and valid data item; NotRead otherwise, and
     ResourceLimit, before anything is read, if B holds a data item deeper than MAX_DEPTH."""
     if not depth_ok(b):
         raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
     item, end = _item(b, 0)
     if end != len(b):
-        raise ValueError("data follows the data item")
+        raise NotRead("data follows the data item")
     return item
 
 
 def open_sign1(raw: bytes):
     """The candidate as a COSE_Sign1 (RFC 9052 Section 4.2), bare or with tag 18, read by _item alone (no
-    decoder interprets a tag); ValueError if it is not one well-formed and valid CBOR data item, or not such a
+    decoder interprets a tag); NotRead if it is not one well-formed and valid CBOR data item, or not such a
     COSE_Sign1."""
     top = _one_item(raw)
     tagged = top[0] == "tag"
     if tagged and top[1] != 18:
-        raise ValueError("a tag other than 18")
+        raise NotRead("a tag other than 18")
     body = top[2] if tagged else top
     if body[0] != "array" or len(body[1]) != 4:
-        raise ValueError("not a 4-element COSE_Sign1")
+        raise NotRead("not a 4-element COSE_Sign1")
     protected, unprotected, payload, signature = body[1]
     if not (protected[0] == "bytes" and unprotected[0] == "map" and signature[0] == "bytes"
             and (payload[0] == "bytes" or payload == ("simple", 22))):
-        raise ValueError("the members of the COSE_Sign1 do not have their types")
+        raise NotRead("the members of the COSE_Sign1 do not have their types")
     header = ("map", frozenset())
     if protected[1]:
         header = _one_item(protected[1])
         if header[0] != "map":
-            raise ValueError("the protected header is not a map")
+            raise NotRead("the protected header is not a map")
     return (tagged, tagged, protected[1], unprotected, payload[1] if payload[0] == "bytes" else None, signature[1],
             header)
+
+
+def ref_usable(ref, scheme_alg) -> bool:
+    """The reference has the form of Appendix A.1, [-16, "ToBeSigned", digest], and the scheme names -16: an array
+    of three (a list, or a tuple as cbor2 6 gives an array inside a tag), the integer -16 (not true or false, not a
+    float), the text "ToBeSigned", a byte string of exactly 32 bytes."""
+    return (isinstance(ref, Sequence) and not isinstance(ref, (str, bytes, bytearray)) and len(ref) == 3
+            and type(ref[0]) is int and ref[0] == SHA256 and type(ref[1]) is str and ref[1] == "ToBeSigned"
+            and type(ref[2]) is bytes and len(ref[2]) == 32 and scheme_alg == SHA256)
 
 
 def matches(ref, candidate_bytes, *, detached=None, aad=b"", scheme_alg=SHA256, verify_key=None):
     """Return a dict of the four axes for one candidate against `ref`.
 
-    ref_usable is about the reference alone: well-formed [alg, covers, digest] and compatible with the named
-    scheme (its algorithm is the scheme's). is_scitt and sig_valid are axes of the candidate and are
+    ref_usable is about the reference alone: the form of Appendix A.1 and compatible with the named scheme
+    (ref_usable below). is_scitt and sig_valid are axes of the candidate and are
     evaluated whether or not the reference is usable; None only where a required input is absent. An
     unusable reference makes match INDETERMINATE, never NO_MATCH or MATCH, and there is no fallback to the
     reference's own algorithm."""
     out = {"ref_usable": None, "is_scitt": None, "match": None, "sig_valid": None, "note": ""}
-    out["ref_usable"] = (isinstance(ref, list) and len(ref) == 3 and ref[0] == scheme_alg
-                         and ref[1] in ("ToBeSigned", "COSE_Sign1") and isinstance(ref[2], bytes))
+    out["ref_usable"] = ref_usable(ref, scheme_alg)
     try:
         tagged, is18, protected, _unprot, payload, signature, _hdr = open_sign1(candidate_bytes)
-    except ResourceLimit:
-        raise
-    except Exception as e:  # noqa: BLE001
+    except NotRead as e:
         out["match"] = "NO_MATCH" if out["ref_usable"] else "INDETERMINATE"
         out["is_scitt"] = False
         out["note"] = f"candidate not a COSE_Sign1: {type(e).__name__}"
@@ -426,10 +446,7 @@ def matches(ref, candidate_bytes, *, detached=None, aad=b"", scheme_alg=SHA256, 
     if not out["ref_usable"]:
         out["match"] = "INDETERMINATE"
         return out
-    if ref[1] == "ToBeSigned":
-        candidate_digest = hashlib.sha256(to_be_signed(protected, body_payload, aad)).digest()
-    else:
-        candidate_digest = hashlib.sha256(candidate_bytes).digest()
+    candidate_digest = hashlib.sha256(to_be_signed(protected, body_payload, aad)).digest()
     out["match"] = "MATCH" if candidate_digest == ref[2] else "NO_MATCH"
     return out
 
@@ -661,10 +678,50 @@ def main():
         print(f"L    {what}: {got} {'OK' if got == want else 'MISMATCH'}", file=sys.stderr)
         if got != want:
             bad.append("L " + what)
+    d32 = REF_TO_01[2]
+    for what, ref, want in (
+            ("the reference of A.1", REF_TO_01, (True, "MATCH")),
+            ("the same as a tuple, as cbor2 6 gives an array inside a tag", tuple(REF_TO_01), (True, "MATCH")),
+            ("covers COSE_Sign1", [SHA256, "COSE_Sign1", d32], (False, "INDETERMINATE")),
+            ("covers COSE_Sign1 with the digest of the whole statement 01",
+             [SHA256, "COSE_Sign1", hashlib.sha256(STMT01).digest()], (False, "INDETERMINATE")),
+            ("covers tobesigned", [SHA256, "tobesigned", d32], (False, "INDETERMINATE")),
+            ("a digest of 0 bytes", [SHA256, "ToBeSigned", b""], (False, "INDETERMINATE")),
+            ("a digest of 31 bytes", [SHA256, "ToBeSigned", d32[:31]], (False, "INDETERMINATE")),
+            ("a digest of 33 bytes", [SHA256, "ToBeSigned", d32 + b"\x00"], (False, "INDETERMINATE")),
+            ("the digest as text", [SHA256, "ToBeSigned", d32.hex()], (False, "INDETERMINATE")),
+            ("the algorithm -16.0", [-16.0, "ToBeSigned", d32], (False, "INDETERMINATE")),
+            ("the algorithm true", [True, "ToBeSigned", d32], (False, "INDETERMINATE")),
+            ("the algorithm -44", [-44, "ToBeSigned", d32], (False, "INDETERMINATE")),
+            ("the algorithm as text", ["-16", "ToBeSigned", d32], (False, "INDETERMINATE")),
+            ("two elements", [SHA256, "ToBeSigned"], (False, "INDETERMINATE")),
+            ("four elements", [SHA256, "ToBeSigned", d32, b""], (False, "INDETERMINATE")),
+            ("not an array", d32, (False, "INDETERMINATE"))):
+        r = matches(ref, STMT01, verify_key=ISSUER.public_key())
+        got = (r["ref_usable"], r["match"])
+        print(f"R    reference with {what}: {got} on statement 01 {'OK' if got == want else 'MISMATCH'}",
+              file=sys.stderr)
+        if got != want:
+            bad.append("R " + what)
+    global _item
+    _reader = _item
+    for injected in (RuntimeError("injected"), ValueError("injected"), KeyError("injected")):
+        def _item(b, i, _e=injected):   # an exception that is not a reading error, injected for this case
+            raise _e
+        try:
+            r = matches(REF_TO_01, STMT01, verify_key=ISSUER.public_key())
+            got = "no statement, match %s" % r["match"]
+        except type(injected):
+            got = "passes"
+        _item = _reader
+        print(f"X    an injected {type(injected).__name__} in the reader: {got} {'OK' if got == 'passes' else 'MISMATCH'}",
+              file=sys.stderr)
+        if got != "passes":
+            bad.append("X " + type(injected).__name__)
     if bad:
         print("UNEXPECTED:", bad, file=sys.stderr)
         sys.exit(1)
-    print("all cases and limit cases match expectation", file=sys.stderr)
+    print("all cases, limit, reference and injection cases match expectation", file=sys.stderr)
 
 
 if __name__ == "__main__":

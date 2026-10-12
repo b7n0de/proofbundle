@@ -6,6 +6,12 @@ Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
 
+Round 23 (owner choice A of 2026-10-12, point 7a, no change to the text): a byte order mark and bytes that are not
+UTF-8 are judged before the depth, in the order of the receipts draft's own checker, so that both give the same
+verdict on the same bytes: parse() hands the violations it found before the depth to ResourceLimitError, and verify()
+reports them as FAIL at step 1 or 4. Before, a byte order mark followed by 65 nested arrays was RESOURCE_LIMIT here
+and FAIL at step 1 there. Probes Q28 to Q31 hold the order.
+
 Round 22 (resource limit, no change to the text): Section 5 says that a Receiver that stops at a resource limit
 reports a resource-limit error, neither PASS nor the FAIL of a step, and Section 8 lets the limits apply before and
 during processing. parse() now measures the nesting of arrays and objects before it parses and raises
@@ -262,7 +268,12 @@ class JSONSyntaxError(Exception):
 
 
 class ResourceLimitError(Exception):
-    """A limit of this Receiver was reached (Section 5: a resource-limit error, neither PASS nor FAIL)."""
+    """A limit of this Receiver was reached (Section 5: a resource-limit error, neither PASS nor FAIL). viol holds
+    what parse() found before the depth (a byte order mark, bytes that are not UTF-8), judged first (round 23)."""
+
+    def __init__(self, msg, viol=()):
+        super().__init__(msg)
+        self.viol = list(viol)
 
 
 # Section 8: limits apply "before and during processing". The deepest nesting of arrays and objects that is parsed;
@@ -511,7 +522,7 @@ def parse(data):
         viol.append(("utf8", "not UTF-8: %s at byte %d" % (e.reason, e.start)))
         text = data.decode("utf-8", errors="replace")
     if not nesting_depth_ok(text):
-        raise ResourceLimitError("arrays and objects nested deeper than %d" % MAX_DEPTH)
+        raise ResourceLimitError("arrays and objects nested deeper than %d" % MAX_DEPTH, viol)
     p = _Parser(text)
     val = p.text()
     return val, viol + p.v, p.numbers
@@ -947,6 +958,10 @@ def verify(receipt, vk, reading=DEFAULT):
     except JSONSyntaxError as e:
         return FAIL(1, "receipt is not a JSON text: %s" % e)
     except ResourceLimitError as e:
+        bad = [d for k, d in e.viol if k in STEP1_KINDS     # round 23: judged before the depth
+               and not (reading.w_receipt_codepoints and k in ("utf8", "surrogate", "noncharacter"))]
+        if bad:
+            return FAIL(1, "receipt: " + "; ".join(bad))
         return Result("RESOURCE_LIMIT", 1, reason="receipt: %s" % e)
     bad = [d for k, d in viol if k in STEP1_KINDS
            and not (reading.w_receipt_codepoints and k in ("utf8", "surrogate", "noncharacter"))]
@@ -986,6 +1001,9 @@ def verify(receipt, vk, reading=DEFAULT):
     except JSONSyntaxError as e:
         return FAIL(4, "B is not a JSON text: %s" % e, B=B)
     except ResourceLimitError as e:
+        bad = [d for k, d in e.viol if k in STEP1_KINDS and k not in reading.step4_skip]   # round 23
+        if bad:
+            return FAIL(4, "B: " + "; ".join(bad), B=B)
         return Result("RESOURCE_LIMIT", 4, reason="B: %s" % e, B=B)
     bad = [d for k, d in viol if k in STEP1_KINDS and k not in reading.step4_skip]
     if reading.trailing_ws_is_data and "trailing" not in reading.step4_skip \
@@ -2008,6 +2026,17 @@ def main():
          [], "FAIL/6 -- the members are not those of Table 1"),
         ("Q27", "B: objects %d deep (the limit + 1), signed" % (MAX_DEPTH + 1), build(deep("{", MAX_DEPTH + 1)),
          issuer_pub, [], "RESOURCE_LIMIT/4 -- 5"),
+        # Round 23: the byte order mark and UTF-8 before the depth, as in the receipts draft's checker
+        ("Q28", "receipt: a byte order mark, then arrays %d deep" % (MAX_DEPTH + 1),
+         b"\xef\xbb\xbf" + deep("[", MAX_DEPTH + 1), issuer_pub, [],
+         "FAIL/1 -- 3.1 no byte order mark, judged before the depth as check_receipts does"),
+        ("Q29", "receipt: arrays %d deep with one byte ff inside" % (MAX_DEPTH + 1),
+         b"[" * (MAX_DEPTH + 1) + b"\xff" + b"]" * (MAX_DEPTH + 1), issuer_pub, [],
+         "FAIL/1 -- 3.1 UTF-8, judged before the depth as check_receipts does"),
+        ("Q30", "B: a byte order mark, then arrays %d deep, signed" % (MAX_DEPTH + 1),
+         build(b"\xef\xbb\xbf" + deep("[", MAX_DEPTH + 1)), issuer_pub, [], "FAIL/4 -- as Q28, at step 4"),
+        ("Q31", "B: arrays %d deep with one byte ff inside, signed" % (MAX_DEPTH + 1),
+         build(b"[" * (MAX_DEPTH + 1) + b"\xff" + b"]" * (MAX_DEPTH + 1)), issuer_pub, [], "FAIL/4 -- as Q29, at step 4"),
     ]
     sig_p1 = ed25519_sign(issuer_seed, pae(PAE_TYPE, p1B))
     q13 = p1R.replace(b64(sig_p1).encode(), b64(sig_p1).rstrip("=").encode())

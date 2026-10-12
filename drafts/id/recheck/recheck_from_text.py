@@ -48,10 +48,23 @@ first walks the heads and stops at MAX_DEPTH (64, the item itself at depth 0) wi
 error with no value on any axis; before, a candidate of 60000 nested arrays crashed decode with RecursionError, and
 read_strict turned the RecursionError into "not a statement" (NO_MATCH), also for statement 01 with such an item in
 its unprotected header, whose ToBeSigned is that of 01. The depth round at the end holds the limit.
+
+Tools round (owner choice A of 2026-10-12, points 5 to 7, no change to the text): read_strict no longer reads with
+cbor2. Measured on generated inputs (report of 2026-10-12), cbor2 5.4.6 and 6.1.5 read past the end of the first
+data item, which Section 6 refuses, and apply the meaning of a tag, which Section 6 does not check (cbor2 5.4.6
+refuses such a tag with six kinds of exception, 6.1.5 with CBORDecodeError); cbor2 6 also gives the content of a
+tag as tuple and its maps as cbor2.frozendict, so the old check for list and dict made every tagged statement "not a
+statement". read_item reads the bytes itself as Section 6 states it, and read_strict
+answers "not a statement" for NotRead and a wrong form alone; any other exception passes. ref_usable is the form of
+A.1, an array of the integer -16, the text "ToBeSigned" and 32 bytes, read from statement 02 and checked here, not
+assumed. Values that cbor2 still gives (the protected headers, the references) are compared by kind (Mapping,
+Sequence), not by Python type. The tools round at the end holds all of it.
 """
 import hashlib
 import re
+import struct
 import sys
+from collections.abc import Mapping, Sequence
 
 import cbor2
 from cryptography.hazmat.primitives import serialization
@@ -112,6 +125,123 @@ def loads(b):
     if not depth_ok(b):
         raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
     return cbor2.loads(b)
+
+
+class NotRead(ValueError):
+    """The bytes are not one well-formed CBOR data item that is valid under RFC 8949 Section 5.3.1 (Section 6)."""
+
+
+def read_item(b):
+    """The data item of b as a comparable value, read as Section 6 states it: exactly one well-formed data item
+    (RFC 8949 Section 3), valid under Section 5.3.1 (text strings in UTF-8, each chunk on its own; no two map keys
+    equivalent under Section 5.6.1, so the integer 1 and true are two keys and 0.0 and -0.0 are one), a tag as its
+    number and content, the content not checked for its tag. NotRead otherwise; ResourceLimit, before anything is
+    read, past MAX_DEPTH."""
+    if not depth_ok(b):
+        raise ResourceLimit("a data item deeper than %d" % MAX_DEPTH)
+    value, end = _rd(b, 0)
+    if end != len(b):
+        raise NotRead("data after the data item")
+    return value
+
+
+def _arg(b, i, ai):
+    if ai < 24:
+        return ai, i
+    if ai > 27:
+        raise NotRead("additional information %d" % ai)
+    size = 1 << (ai - 24)
+    if i + size > len(b):
+        raise NotRead("the head ends early")
+    return int.from_bytes(b[i:i + size], "big"), i + size
+
+
+def _container(major, items):
+    if major == 4:
+        return ("array", tuple(items))
+    keys = items[0::2]
+    if len(set(keys)) != len(keys):
+        raise NotRead("two map keys equivalent under RFC 8949 Section 5.6.1")
+    return ("map", frozenset(zip(keys, items[1::2])))
+
+
+def _rd(b, i):
+    if i >= len(b):
+        raise NotRead("the item ends early")
+    major, ai = b[i] >> 5, b[i] & 31
+    i += 1
+    if ai == 31:
+        if major not in (2, 3, 4, 5):
+            raise NotRead("an indefinite length or a break where an item begins")
+        items = []
+        while True:
+            if i >= len(b):
+                raise NotRead("an indefinite length without its break")
+            if b[i] == 0xFF:
+                i += 1
+                break
+            if major in (2, 3) and (b[i] >> 5 != major or b[i] & 31 == 31):
+                raise NotRead("a chunk that is not a definite string of the same type")
+            v, i = _rd(b, i)
+            items.append(v)
+        if major in (2, 3):
+            return ("bytes" if major == 2 else "text", b"".join(v[1] for v in items)), i
+        if major == 5 and len(items) % 2:
+            raise NotRead("an indefinite-length map that ends after a key")
+        return _container(major, items), i
+    n, i = _arg(b, i, ai)
+    if major in (0, 1):
+        return ("int", n if major == 0 else -1 - n), i
+    if major in (2, 3):
+        if i + n > len(b):
+            raise NotRead("the string ends early")
+        raw = b[i:i + n]
+        if major == 3:
+            try:
+                raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise NotRead("a text string that is not UTF-8") from None
+        return ("bytes" if major == 2 else "text", raw), i + n
+    if major in (4, 5):
+        items = []
+        for _ in range(n if major == 4 else 2 * n):
+            v, i = _rd(b, i)
+            items.append(v)
+        return _container(major, items), i
+    if major == 6:
+        v, i = _rd(b, i)
+        return ("tag", n, v), i
+    if ai == 24 and n < 32:
+        raise NotRead("a two-byte simple value below 32")
+    if ai in (25, 26, 27):
+        raw = b[i - (1 << (ai - 24)):i]
+        x = struct.unpack({25: ">e", 26: ">f", 27: ">d"}[ai], raw)[0]
+        if x != x:   # NaNs are equivalent when their significands, zero-extended at the right to 64 bits, are equal
+            width = {25: 10, 26: 23, 27: 52}[ai]
+            return ("nan", (int.from_bytes(raw, "big") & ((1 << width) - 1)) << (64 - width)), i
+        return ("float", x), i
+    return ("simple", n), i
+
+
+def is_array(v):
+    """A CBOR array as cbor2 gives it: list, or tuple inside a tag in cbor2 6; not a text or byte string."""
+    return isinstance(v, Sequence) and not isinstance(v, (str, bytes, bytearray))
+
+
+def plain(v):
+    """v with every array as list and every map as dict, whatever container types cbor2 gives."""
+    if is_array(v):
+        return [plain(x) for x in v]
+    if isinstance(v, Mapping):
+        return {k: plain(x) for k, x in v.items()}
+    return v
+
+
+def usable(ref, scheme_alg):
+    """ref_usable of Section 6 for the form of A.1: an array of three, the integer -16 (not true or false, not a
+    float), the text "ToBeSigned" and a digest of exactly 32 bytes; compatible with the scheme when it names -16."""
+    return (is_array(ref) and len(ref) == 3 and type(ref[0]) is int and ref[0] == -16 and type(ref[1]) is str
+            and ref[1] == "ToBeSigned" and type(ref[2]) is bytes and len(ref[2]) == 32 and scheme_alg == -16)
 
 
 raw = open(sys.argv[1], encoding="utf-8").read().split("\n")
@@ -336,7 +466,9 @@ for n in ("02", "03"):
     arr, sc = decode(stm[n])
     refs = loads(arr[0]).get(-70001)
     print(f"statement {n}: refs {[(r[0], r[1], r[2].hex()[:16]) for r in refs]}, is_scitt {sc}, sig_valid {sig_ok(arr)}")
-    assert refs == [[-16, "ToBeSigned", bytes.fromhex(ref_stated)]] and sc and sig_ok(arr)
+    assert plain(refs) == [[-16, "ToBeSigned", bytes.fromhex(ref_stated)]] and sc and sig_ok(arr)
+    assert usable(refs[0], -16)
+ref02 = plain(loads(decode(stm["02"])[0][0]).get(-70001)[0])   # the reference of A.1, as statement 02 carries it
 print(f"01 ToBeSigned sha256 == reference digest: {d01 == ref_stated}; 01 sig_valid {sig_ok(a01)}")
 assert d01 == ref_stated
 
@@ -364,8 +496,7 @@ for n, k in enumerate(cidx):
     if named and COSE_HASH.get(named.group(1)) != scheme_alg:
         print(f"{cname}: the text names {named.group(1)} as {scheme_alg}, its COSE value is {COSE_HASH.get(named.group(1))}")
         fails += 1
-    ref_alg = -16
-    ref_usable = scheme_alg == ref_alg
+    ref_usable = usable(ref02, scheme_alg)
     aad = bytes.fromhex(aad_m.group(1)) if aad_m else b""
     if not ref_usable or arr[2] is None:
         match = "INDETERMINATE"
@@ -424,28 +555,27 @@ fails += not found
 
 
 def read_strict(b):
-    """None if the candidate is not a statement by Section 6, else the array. This reader: cbor2 refuses
-    invalid UTF-8; the structure is checked as the reading paragraph states it: bare or tag 18, an array of
-    exactly four elements, a protected header that is empty or encodes one map, an unprotected map, a payload
-    that is a byte string or nil, a signature that is a byte string."""
+    """None if the candidate is not a statement by Section 6, else its four elements as read_item gives them. The
+    candidate and its protected header are each read by read_item; the structure is checked as the reading paragraph
+    states it: bare or tag 18, an array of exactly four elements, a protected header that is empty or encodes one
+    map, an unprotected map, a payload that is a byte string or nil, a signature that is a byte string. Only NotRead
+    and a wrong form mean "not a statement"; ResourceLimit and any other exception pass."""
     try:
-        obj = loads(b)
-        if isinstance(obj, cbor2.CBORTag):
-            if obj.tag != 18:
+        top = read_item(b)
+        if top[0] == "tag":
+            if top[1] != 18:
                 return None
-            obj = obj.value
-        if not isinstance(obj, list) or len(obj) != 4:
+            top = top[2]
+        if top[0] != "array" or len(top[1]) != 4:
             return None
-        prot, unprot, payload, sig = obj
-        if not isinstance(prot, bytes) or not isinstance(unprot, dict) or not isinstance(sig, bytes) \
-                or not (payload is None or isinstance(payload, bytes)):
+        prot, unprot, payload, sig = top[1]
+        if prot[0] != "bytes" or unprot[0] != "map" or sig[0] != "bytes" \
+                or not (payload[0] == "bytes" or payload == ("simple", 22)):
             return None
-        if prot and not isinstance(loads(prot), dict):
+        if prot[1] and read_item(prot[1])[0] != "map":
             return None
-        return obj
-    except ResourceLimit:
-        raise
-    except Exception:  # noqa: BLE001
+        return top[1]
+    except NotRead:
         return None
 
 
@@ -497,7 +627,7 @@ same = (len(k7), hashlib.sha256(k7).hexdigest()) == (330, "50b21e6a18c0d6b59f0f4
 
 def axes_of_no_statement(scheme_alg):
     """Section 6 as it now reads: is_scitt False and sig_valid None, match by the reference only."""
-    ref_usable = scheme_alg == -16
+    ref_usable = usable(ref02, scheme_alg)
     return (str(ref_usable), "NO_MATCH" if ref_usable else "INDETERMINATE", "False", "None")
 
 
@@ -593,4 +723,65 @@ for what, b, expect in (
     print(f"depth probe {what}: {got} {'OK' if got == expect else 'DIFF, expected ' + str(expect)}")
     fails += got != expect
 print("deviations after the depth round:", fails)
+
+# Tools round (2026-10-12): the reader of Section 6, the form of the reference of A.1, and what "not a statement" is
+for n in ("01", "02", "03"):
+    got = read_strict(stm[n]) is not None
+    print(f"tools probe: statement {n} is read as a statement: {got} {'OK' if got else 'DIFF'}")
+    fails += not got
+d32 = bytes.fromhex(ref_stated)
+a01_lenient = decode(stm["01"])[0]   # the match column reads statement 01 with cbor2, as the cases above do
+for what, ref, expect in (
+        ("the reference of statement 02", ref02, True),
+        ("the same as a tuple, as cbor2 6 gives an array inside a tag", tuple(ref02), True),
+        ("covers COSE_Sign1", [-16, "COSE_Sign1", d32], False),
+        ("covers COSE_Sign1 with the digest of the whole statement 01",
+         [-16, "COSE_Sign1", hashlib.sha256(stm["01"]).digest()], False),
+        ("covers tobesigned", [-16, "tobesigned", d32], False),
+        ("a digest of 0 bytes", [-16, "ToBeSigned", b""], False),
+        ("a digest of 31 bytes", [-16, "ToBeSigned", d32[:31]], False),
+        ("a digest of 33 bytes", [-16, "ToBeSigned", d32 + b"\x00"], False),
+        ("the digest as text", [-16, "ToBeSigned", ref_stated], False),
+        ("the algorithm -16.0", [-16.0, "ToBeSigned", d32], False),
+        ("the algorithm true", [True, "ToBeSigned", d32], False),
+        ("the algorithm -44", [-44, "ToBeSigned", d32], False),
+        ("the algorithm as text", ["-16", "ToBeSigned", d32], False),
+        ("two elements", [-16, "ToBeSigned"], False),
+        ("four elements", [-16, "ToBeSigned", d32, b""], False),
+        ("not an array", d32, False)):
+    got = usable(ref, -16)
+    match = ("MATCH" if hashlib.sha256(tbs(a01_lenient)).hexdigest() == ref_stated else "NO_MATCH") \
+        if got else "INDETERMINATE"
+    print(f"tools probe: reference with {what}: ref_usable {got}, match on statement 01 {match} "
+          f"{'OK' if got == expect else 'DIFF, expected ' + str(expect)}")
+    fails += got != expect
+for what, b, expect in (
+        ("statement 01 and one byte 00 after it", stm["01"] + b"\x00", False),
+        ("statement 01, unprotected {-1: tag 37 around one byte}", unprot01(b"\xd8\x25\x41\x00"), True),
+        ("statement 01, unprotected {-1: tag 1 around a text}", unprot01(b"\xc1\x61\x78"), True),
+        ("statement 01, unprotected {-1: tag 4 around [1, 2]}", unprot01(b"\xc4\x82\x01\x02"), True),
+        ("statement 01, unprotected {1: 0, true: 0}", stm["01"][:a01_at] + b"\xa2\x01\x00\xf5\x00" + rest01, True),
+        ("statement 01, unprotected {0.0: 0, -0.0: 0}",
+         stm["01"][:a01_at] + b"\xa2\xf9\x00\x00\x00\xf9\x80\x00\x00" + rest01, False)):
+    try:
+        cb = "reads" if cbor2.loads(b) is not None else "reads"
+    except Exception as e:  # noqa: BLE001 - only the cbor2 column, for comparison
+        cb = "refuses (%s)" % type(e).__name__
+    got = read_strict(b) is not None
+    print(f"tools probe: {what}: a statement by Section 6: {got} (cbor2 {cb}) "
+          f"{'OK' if got == expect else 'DIFF, expected ' + str(expect)}")
+    fails += got != expect
+_read_item = read_item
+for injected in (RuntimeError("injected"), ValueError("injected"), KeyError("injected")):
+    def read_item(b, _e=injected):   # noqa: F811 - an exception that is not a reading error, injected for this probe
+        raise _e
+    try:
+        got = "not a statement" if read_strict(stm["01"]) is None else "read"
+    except type(injected):
+        got = "passes"
+    read_item = _read_item
+    print(f"tools probe: an injected {type(injected).__name__} in the reader {got} "
+          f"{'OK' if got == 'passes' else 'DIFF, expected passes'}")
+    fails += got != "passes"
+print("deviations after the tools round:", fails)
 sys.exit(1 if fails else 0)

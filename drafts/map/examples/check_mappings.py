@@ -48,6 +48,8 @@ generator; it re-derives every claim from the bytes in mappings.json:
       resource limit") and R1 is Unresolved (Section 5.1); a reference that nests deeper is not read, a resource-limit
       error and no state. P1 with a key member nesting 64 deep in all is read (MATCH, Verified, receipt_not_verified
       at step 5), 65 deep is not.
+  F   a reference that is not a JSON object (not JSON, a member name twice, an array, a number, a text, null) is
+      Unresolved with INDETERMINATE, as {} is; Section 5.1 names no state for it, and the -02 is asked.
 Exit 0 when all hold.
 """
 import base64
@@ -552,7 +554,15 @@ def reference_state(ref_text: str, receipt: bytes):
     does is one without B (Unresolved, INDETERMINATE), as Section 5.1 and Section 3.3 step 2 say."""
     if not json_depth_ok(ref_text):
         raise ResourceLimit("the reference nests arrays and objects deeper than %d" % MAX_DEPTH)
-    ref = json.loads(ref_text, object_pairs_hook=_pairs)
+    try:
+        ref = json.loads(ref_text, object_pairs_hook=_pairs)
+    except (ValueError, NoB):   # not one JSON text, or a member name twice
+        ref = None
+    if not isinstance(ref, dict):
+        # Section 5.1 and A.7 name no state for a reference that is not a JSON object (an open question for the -02).
+        # It carries no type, so the declaration does not apply, as for {}: Unresolved; and the matching rule finds
+        # no SHA-256 and no digest (Section 3.3 step 1): INDETERMINATE.
+        return "Unresolved", "INDETERMINATE"
     ok_form = ref.get("digest_alg") == "SHA-256" and re.fullmatch(r"[0-9a-f]{64}", str(ref.get("digest"))) is not None
     try:
         b = b_of(receipt)
@@ -870,6 +880,12 @@ def main():
         except ResourceLimit:
             got = "resource-limit error"
         ok &= check("L reference %s with P1: %s (expected %s)" % (what, got, want), got == want)
+    for what, ref_text in (("not JSON", "x"), ("a member name twice", '{"type":"%s","type":"%s"}' % (TYPE, TYPE)),
+                           ("an array", "[]"), ("a number", "1"), ("a text", '"%s"' % TYPE), ("null", "null"),
+                           ("an object without members", "{}")):
+        got = reference_state(ref_text, p1)
+        ok &= check("F reference that is %s with P1: %s (expected Unresolved, INDETERMINATE)" % (what, got),
+                    got == ("Unresolved", "INDETERMINATE"))
     print("all checks hold" if ok else "SOME CHECKS FAILED")
     sys.exit(0 if ok else 1)
 

@@ -9,7 +9,8 @@ For comparison it also asks pyca/cryptography (OpenSSL) for the bare Ed25519 ver
 prints it; that column is a measurement, not part of the verdict.
 
 Steps 1 and 4 read arrays and objects nested at most MAX_DEPTH (64) deep; deeper input gives RESOURCE_LIMIT, the
-resource-limit error of Section 5, neither PASS nor FAIL. LIMIT_CASES hold that and the limit itself.
+resource-limit error of Section 5, neither PASS nor FAIL. A byte order mark and bytes that are not UTF-8 are judged
+before the depth. LIMIT_CASES hold that and the limit itself.
 
 Usage: check_receipts.py [vectors.json]  -> exit 0 when every vector and every limit case meets its expected verdict
 and step.
@@ -416,6 +417,13 @@ LIMIT_CASES = [
     ("receipt: arrays MAX_DEPTH + 1 deep", _deep("array", MAX_DEPTH + 1).encode(), "RESOURCE_LIMIT", "1"),
     ("B: objects MAX_DEPTH deep, read", _receipt_of(_deep("object", MAX_DEPTH).encode()), "FAIL", "6"),
     ("B: objects MAX_DEPTH + 1 deep", _receipt_of(_deep("object", MAX_DEPTH + 1).encode()), "RESOURCE_LIMIT", "4"),
+    # a byte order mark and bytes that are not UTF-8 come before the depth, here and in verify_from_text
+    ("receipt: BOM, arrays MAX_DEPTH + 1", b"\xef\xbb\xbf" + _deep("array", MAX_DEPTH + 1).encode(), "FAIL", "1"),
+    ("receipt: arrays MAX_DEPTH + 1, ff", b"[" * (MAX_DEPTH + 1) + b"\xff" + b"]" * (MAX_DEPTH + 1), "FAIL", "1"),
+    ("B: BOM, arrays MAX_DEPTH + 1", _receipt_of(b"\xef\xbb\xbf" + _deep("array", MAX_DEPTH + 1).encode()), "FAIL",
+     "4"),
+    ("B: arrays MAX_DEPTH + 1, ff", _receipt_of(b"[" * (MAX_DEPTH + 1) + b"\xff" + b"]" * (MAX_DEPTH + 1)), "FAIL",
+     "4"),
 ]
 
 
