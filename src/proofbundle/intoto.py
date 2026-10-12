@@ -1227,19 +1227,20 @@ _LOWER_HEX_RE = re.compile(r"\A[0-9a-f]+\Z")
 # The claim builder's grammar for a decimal string (evalclaim._DECIMAL_RE): the draft says "decimal
 # string" and gives no grammar, so this is the reading implemented (ambiguity A3, docs/IN_TOTO_PROFILE.md).
 _DECIMAL_STRING_RE = re.compile(r"\A-?[0-9]+(\.[0-9]+)?\Z")
-# Fixed output lengths of the hash functions: a digest under one of these names that has another length,
-# or is not lowercase hex, names no content. Every other algorithm name only needs a non-empty string.
-_HEX_DIGEST_LENGTHS = (("md5", 32), ("sha1", 40), ("sha224", 56), ("sha256", 64), ("sha384", 96),
-                       ("sha512", 128), ("sha512_224", 56), ("sha512_256", 64), ("sha3_224", 56),
-                       ("sha3_256", 64), ("sha3_384", 96), ("sha3_512", 128))
+# ONE TABLE for the form of a digest and for its comparison with `content`: each hash function by the name hashlib
+# knows it under, beside the length of its hex output. A digest under one of these names that has another length,
+# or is not lowercase hex, names no content; with `content` present, its digest over the decoded bytes is
+# recomputed. Every other algorithm name only needs a non-empty string, and its digest is not compared with the
+# content (A9 in docs/IN_TOTO_PROFILE.md).
+# Until K1 of the Codex defect search of the 6.3.0 candidate 98b168b9 these were two tables: the form named twelve
+# functions, the comparison eight. Under md5, sha3_224, sha512_224 and sha512_256 a well-formed digest of other
+# bytes verified ok=True at subject, model, dataset and evidence, and the v0.2 exporter wrote such a descriptor.
+_HASH_FUNCTIONS = (("md5", 32), ("sha1", 40), ("sha224", 56), ("sha256", 64), ("sha384", 96),
+                   ("sha512", 128), ("sha512_224", 56), ("sha512_256", 64), ("sha3_224", 56),
+                   ("sha3_256", 64), ("sha3_384", 96), ("sha3_512", 128))
 _V02_COMPARATORS = (">=", ">", "<=", "<")
 _V02_ASSURANCE_LEVELS = ("self_attested", "third_party", "reproduced", "enclave_attested")
 _RD_STRING_FIELDS = ("name", "uri", "mediaType", "downloadLocation", "content")
-# The algorithms whose digest over an inline `content` this verifier can recompute. A DigestSet may name
-# others; for those the content is not compared, and that is stated, not hidden.
-_CONTENT_DIGESTS = (("sha256", hashlib.sha256), ("sha384", hashlib.sha384), ("sha512", hashlib.sha512),
-                    ("sha224", hashlib.sha224), ("sha1", hashlib.sha1), ("sha3_256", hashlib.sha3_256),
-                    ("sha3_384", hashlib.sha3_384), ("sha3_512", hashlib.sha3_512))
 _MAX_SAFE_INT = 2 ** 53 - 1
 
 
@@ -1277,7 +1278,7 @@ def _digest_set_problem(value: Any) -> str:
             return "digest has an empty algorithm name"
         if not _nonempty_str(hexval):
             return f"digest {alg[:40]!r} must be a non-empty string"
-        for name, length in _HEX_DIGEST_LENGTHS:
+        for name, length in _HASH_FUNCTIONS:
             if alg == name and (len(hexval) != length or not _LOWER_HEX_RE.match(hexval)):
                 return f"digest {alg!r} must be {length} lowercase hex characters"
     return ""
@@ -1305,8 +1306,18 @@ def _descriptor_problem(value: Any, where: str) -> str:
             decoded = decode_b64(value["content"])
         except (binascii.Error, ValueError):
             return f"{where}.content must be canonical standard base64 (the descriptor's bytes)"
-        for name, function in _CONTENT_DIGESTS:
-            if name in value["digest"] and function(decoded).hexdigest() != value["digest"][name]:
+        for name, _length in _HASH_FUNCTIONS:
+            if name not in value["digest"]:
+                continue
+            # A COMPARISON THAT DOES NOT RUN IS NEVER A MATCH. A Python whose OpenSSL lacks sha512_224 or
+            # sha512_256, or one that refuses md5, cannot recompute that digest; the descriptor is refused rather
+            # than read as bound to its content.
+            try:
+                recomputed = hashlib.new(name, decoded).hexdigest()
+            except ValueError:
+                return (f"{where}: digest {name!r} cannot be recomputed by this Python, so the content is not "
+                        "shown to be the bytes it names")
+            if recomputed != value["digest"][name]:
                 return f"{where}: digest {name!r} does not identify the decoded content"
     return ""
 
