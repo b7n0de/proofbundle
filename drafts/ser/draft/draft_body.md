@@ -1,7 +1,7 @@
 ---
 title: Signed Evaluation Receipts
 abbrev: Signed Evaluation Receipts
-docname: draft-gruszka-signed-evaluation-receipts-01
+docname: draft-gruszka-signed-evaluation-receipts-02
 v: 3
 category: info
 submissiontype: IETF
@@ -866,6 +866,17 @@ vectors N12, N18, N53 and N54, already when the Receiver fixes it and before it
 reads any receipt; the verdict stays FAIL. A key of mixed order, as in N61, it
 refuses at step 11.
 
+On 2026-10-12, the implementation named above, at commit
+de2a21086e42991dc3726c70c81779d6d41a953c of its work branch, was run on the 66
+vectors of {{vectors}} with the bytes given there; it follows revision -00 of
+this document, whose receipt has a fourth member, inclusion, and it stopped at
+step 1 on every vector, so it reached the expected verdict on the 56 vectors
+that expect FAIL and the expected first failing step on 9 of them. A further
+verifier, written from the published text of this document alone, agreed with
+the verifier written by the author of the generator on all 66 vectors, on 23000
+targeted inputs across all eleven steps and on 4002 serializations of numbers
+by {{RFC8785}}, with no deviation on these inputs (measured on 2026-10-11).
+
 In the measurements behind {{vectors}}, the plain Ed25519 verification of
 pyca/cryptography 41.0.7 accepted the signatures of vectors N12 (small-order
 key), N16 (small-order R), N18 (non-canonical key) and N61 (mixed-order key),
@@ -886,10 +897,16 @@ and gaps in the numbering carry no meaning.
 
 @@VECTORS_APPENDIX@@
 
-# Open Items (to be removed before publication)
+# Changes (to be removed before publication)
 {:numbered="false"}
 
-* References. Every reference is to be re-checked against the published
-  documents at submission time.
-* Implementation status. To be updated with the conformance result of the
-  implementation named in {{impl}}.
+## Since draft-gruszka-signed-evaluation-receipts-01
+{:numbered="false"}
+
+* {{impl}} adds the conformance run of the implementation named there on
+  the vectors of {{vectors}}, and the result of a further verifier written
+  from the text.
+* The Open Items section is removed. The references were checked against
+  the published documents on 2026-10-12, and {{impl}} now gives the
+  conformance result it asked for.
+* This appendix is added.

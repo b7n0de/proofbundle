@@ -1,10 +1,10 @@
-# Sources of the three Internet-Drafts, revision -01 (the mappings draft -03)
+# Sources of the three Internet-Drafts, revision -02 (the mappings draft -03)
 
 | Folder | Draft |
 |---|---|
-| `ser/` | draft-gruszka-signed-evaluation-receipts-01 |
+| `ser/` | draft-gruszka-signed-evaluation-receipts-02 |
 | `map/` | draft-gruszka-evaluation-receipt-mappings-03 |
-| `id/` | draft-gruszka-scitt-statement-identification-01 |
+| `id/` | draft-gruszka-scitt-statement-identification-02 |
 
 Each folder holds:
 
@@ -14,7 +14,9 @@ Each folder holds:
 - `independent/` (ser, map) or `recheck/` (id): a checker written from the text of the draft alone. It reads the
   built plain text in `draft/` and recomputes every vector from it.
 
-The submitted -00 are not here; they are in the IETF archive and stay unchanged.
+The submitted -00 and -01 are not here; they are in the IETF archive and stay unchanged. The vectors of the
+receipts draft and the cases of the identification draft are those of their -01, byte for byte, and their
+generators still name the -01; the mappings draft -03 cites the -01 of both.
 
 ## Build
 
@@ -31,7 +33,7 @@ Then the checkers from the text:
 ```
 (cd ser/independent && python3 verify_from_text.py)
 (cd map/independent && python3 check_from_text.py)
-(cd id/recheck && python3 recheck_from_text.py ../draft/draft-gruszka-scitt-statement-identification-01.txt)
+(cd id/recheck && python3 recheck_from_text.py ../draft/draft-gruszka-scitt-statement-identification-02.txt)
 ```
 
 Test keys and test certificates in these folders are test material only; they must not be used for anything else.

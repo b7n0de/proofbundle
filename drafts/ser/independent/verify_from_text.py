@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Independent verifier for draft-gruszka-signed-evaluation-receipts-01.
+"""Independent verifier for draft-gruszka-signed-evaluation-receipts-02.
 
 Written from the text of the draft alone (the version in this folder).  Every
 rule below is re-derived from that text; section and step numbers in comments
 point at the sentence the rule comes from.
+
+Round 25 (owner choice A of 2026-10-12, revision -02): the text is now draft-gruszka-signed-evaluation-receipts-02;
+its vectors are those of the -01, byte for byte. Section 11 gives the conformance run of the implementation it names
+and the result of a further verifier written from the text, and the numbers it states for Appendix A (66 vectors, 56
+that expect FAIL, 9 of them at step 1) are counted here from the text. The Open Items are gone, and an unnumbered
+appendix of changes follows Appendix A. Two checks of round 25 hold it.
 
 Round 24 (owner choice A of 2026-10-12, size limits, no change to the text): parse() reads at most MAX_INPUT_BYTES
 (1 MiB) and raises ResourceLimitError above it, before anything else, so a larger receipt is RESOURCE_LIMIT at step 1
@@ -175,7 +181,7 @@ from decimal import Decimal
 from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DRAFT = os.path.join(HERE, "..", "draft", "draft-gruszka-signed-evaluation-receipts-01.txt")
+DRAFT = os.path.join(HERE, "..", "draft", "draft-gruszka-signed-evaluation-receipts-02.txt")
 VECTORS = os.path.join(HERE, "..", "examples", "vectors.json")
 
 # ---------------------------------------------------------------------------
@@ -1340,7 +1346,7 @@ def main():
         libver = cryptography.__version__
     except Exception:
         libver = "unavailable"
-    print("Independent verifier for draft-gruszka-signed-evaluation-receipts-01 (from the text alone)")
+    print("Independent verifier for draft-gruszka-signed-evaluation-receipts-02 (from the text alone)")
     print("python      : %s" % sys.version.split()[0])
     print("cryptography: %s (informational column only)" % libver)
     with open(DRAFT, "rb") as f:
@@ -1864,6 +1870,44 @@ def main():
     if m11 is not None and m11.group(1) != libver:
         print("  [info] Section 11 names pyca/cryptography %s; this run uses %s. The verdicts above are this run's."
               % (m11.group(1), libver))
+    # Round 25: revision -02. Section 11 gives the conformance run and the further verifier; the numbers it states for
+    # Appendix A are counted from the text. The Open Items are gone; an appendix of changes follows Appendix A.
+    flat25 = re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(kept)))
+    s25 = ["On 2026-10-12, the implementation named above, at commit de2a21086e42991dc3726c70c81779d6d41a953c of its "
+           "work branch, was run on the 66 vectors of Appendix A with the bytes given there; it follows revision -00 "
+           "of this document, whose receipt has a fourth member, inclusion, and it stopped at step 1 on every vector, "
+           "so it reached the expected verdict on the 56 vectors that expect FAIL and the expected first failing step "
+           "on 9 of them.",
+           "A further verifier, written from the published text of this document alone, agreed with the verifier "
+           "written by the author of the generator on all 66 vectors, on 23000 targeted inputs across all eleven "
+           "steps and on 4002 serializations of numbers by [RFC8785], with no deviation on these inputs (measured "
+           "on 2026-10-11)."]
+    n_fail25 = sum(1 for v in app.values() if v["expected"] == "FAIL")
+    n_step25 = sum(1 for v in app.values() if v["expected"] == "FAIL" and v["step"].split()[0] == "1")
+    chk("Section 11 (round 25): the conformance run of the implementation and the further verifier stand, and the "
+        "numbers they give for Appendix A are those of the text (%d vectors, %d expect FAIL, %d of them at step 1)"
+        % (len(app), n_fail25, n_step25),
+        all(x in flat25 for x in s25) and (len(app), n_fail25, n_step25) == (66, 56, 9),
+        "missing: " + (", ".join(x[:40] for x in s25 if x not in flat25) or "none"))
+    lines25 = [ln.rstrip() for ln in kept]
+    i_ch25 = next((i for i, ln in enumerate(lines25) if ln == "Changes (to be removed before publication)"), None)
+    i_last25 = max((i for i, ln in enumerate(lines25) if re.match(r"^A\.2\.\d+\.  ", ln)), default=None)
+    i_aa25 = next((i for i, ln in enumerate(lines25) if ln == "Author's Address"), None)
+    ch25 = (re.sub(r"\s+", " ", re.sub(r"(?<=\S-)\n\s*(?=\S)", "", "\n".join(lines25[i_ch25:i_aa25])))
+            if None not in (i_ch25, i_aa25) else "")
+    s25c = ["Since draft-gruszka-signed-evaluation-receipts-01",
+            "Section 11 adds the conformance run of the implementation named there on the vectors of Appendix A, "
+            "and the result of a further verifier written from the text.",
+            "The Open Items section is removed. The references were checked against the published documents on "
+            "2026-10-12, and Section 11 now gives the conformance result it asked for.",
+            "This appendix is added."]
+    chk("Revision -02 (round 25): the name is draft-gruszka-signed-evaluation-receipts-02, no Open Items stand, and "
+        "the unnumbered appendix of changes follows Appendix A with the changes since -01",
+        any(ln.strip() == "draft-gruszka-signed-evaluation-receipts-02" for ln in lines25)
+        and not any(ln.strip().startswith("Open Items") for ln in lines25)
+        and None not in (i_ch25, i_last25, i_aa25) and i_last25 < i_ch25 < i_aa25
+        and all(x in ch25 for x in s25c),
+        "missing: " + (", ".join(x[:40] for x in s25c if x not in ch25) or "none"))
     # Round 17: SHA-256 at its first use, and RFC 6234 among the normative references.
     sha17 = "SHA-256 is the hash function specified in [RFC6234]."
     i33 = next((i for i, ln in enumerate(lines15) if ln == "3.3.  Salted Commitments"), None)

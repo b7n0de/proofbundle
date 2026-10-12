@@ -11,7 +11,7 @@ import textwrap
 HERE = __file__.rsplit("/", 1)[0] or "."
 BODY = HERE + "/draft_body.md"
 CASES = HERE + "/../examples/cases.json"
-OUT = HERE + "/draft-gruszka-scitt-statement-identification-01.md"
+OUT = HERE + "/draft-gruszka-scitt-statement-identification-02.md"
 
 SHORT = {
     "C1": "positive control",

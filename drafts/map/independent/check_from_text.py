@@ -256,7 +256,8 @@ DEPTH_LIMIT = 64
 #: Round 27: the deepest nesting of arrays and objects parse_ijson reads, a top-level array or object at depth 1.
 JSON_DEPTH_LIMIT = 64
 D2_PATH = os.path.join(HERE, "..", "draft", "draft-gruszka-evaluation-receipt-mappings-03.txt")
-D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-01.txt")
+# The receipts draft is read in its -02, whose vectors are those of the -01 that Draft 2 cites, byte for byte.
+D1_PATH = os.path.join(HERE, "..", "..", "ser", "draft", "draft-gruszka-signed-evaluation-receipts-02.txt")
 
 RESULTS = []  # (category, id, ok, title)
 
@@ -1172,7 +1173,7 @@ D1_TYPE, _ = next_text(d1, find_line(d1, r"Receipt schema, also the type", i))
 # --- Draft 1 vectors ---
 HEAD_RX = re.compile(r"^A\.2\.(\d+)\.\s+(\S+) \((.+?); expected (PASS|FAIL), step (.+)\)$")
 starts = [j for j, line in enumerate(d1) if re.match(r"^A\.2\.\d+\.\s", line)]
-end_vectors = find_line(d1, r"^Open Items")
+end_vectors = find_line(d1, r"^Changes \(to be removed before publication\)")   # the -02 of Draft 1 ends its vectors there
 VEC = {}
 for n_, s0 in enumerate(starts):
     s1 = starts[n_ + 1] if n_ + 1 < len(starts) else end_vectors
